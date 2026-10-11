@@ -77,13 +77,13 @@ locally from the Tsukuyomi-chan corpus; GPT-SoVITS is skipped because it cannot 
 Indonesian. Applio runs in its own Python 3.12 env behind a loopback HTTP server so the model
 loads once; on any converter failure Cyrene falls back to the plain edge-tts voice.
 - [x] Task 21a: `tts.rvc` config (committed with its tests)
-- [ ] Task 21: RVC HTTP server script (`tools/rvc_server.py`)
-- [ ] Task 22: RVC client and server-process manager (`voice/rvc.py`)
-- [ ] Task 23: SpeechRouter voice conversion with fallback
-- [ ] Task 24: CLI wiring (`run`/`say`/`chat --speak`, `say --raw`, `check`), README, example config
+- [x] Task 21: RVC HTTP server script (`tools/rvc_server.py`)
+- [x] Task 22: RVC client and server-process manager (`voice/rvc.py`)
+- [x] Task 23: SpeechRouter voice conversion with fallback
+- [x] Task 24: CLI wiring (`run`/`say`/`chat --speak`, `say --raw`, `check`), README, example config
 
 ### Checkpoint: Anime voice
-- [ ] Full suite and ruff clean; no test spawned the real server or loaded Applio
+- [x] Full suite and ruff clean; no test spawned the real server or loaded Applio
 - [ ] On the owner's PC: converted speech is closer to the Tsukuyomi voiceprint than to edge-tts (ECAPA) and Indonesian stays intelligible (Whisper)
 
 ## Risks and Mitigations
@@ -98,4 +98,4 @@ loads once; on any converter failure Cyrene falls back to the plain edge-tts voi
 
 ## Open Questions
 
-See `SPEC.md` → Open Questions (name, SmartThings AC, anime voice clip).
+See `SPEC.md` → Open Questions (wake-word spellings, SmartThings AC).

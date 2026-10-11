@@ -186,38 +186,46 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 17, 18, 19 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py`, `README.md` · **Scope:** M
 
-## Task 21: RVC HTTP server script
+## Task 21: RVC HTTP server script ✅
 
 **Acceptance criteria:**
-- [ ] `GET /health` and `POST /convert` behave per SPEC with an injected fake converter (200/400/413/500 paths)
-- [ ] Applio is imported only inside `load_applio_converter`; the module imports without Applio
-- [ ] Binds to the configured host only; query parameters validated (pitch int -24..24, rates 0..1)
+- [x] `GET /health` and `POST /convert` behave per SPEC with an injected fake converter (200/400/413/500 paths)
+- [x] Applio is imported only inside `load_applio_converter`; the module imports without Applio
+- [x] Binds to the configured host only; query parameters validated (pitch int -24..24, rates 0..1)
+- [x] A short body is a 400 and a stalled client cannot block the server (socket timeout), both tested
+- [x] An index path Applio would rewrite ("trained" → "added") to a missing file is refused before Applio loads; a legacy trained_/added_ pair is kept
 
 **Dependencies:** 21a · **Files:** `tools/rvc_server.py`, `tests/test_rvc_server.py` · **Scope:** S
 
-## Task 22: RVC client and server-process manager
+## Task 22: RVC client and server-process manager ✅
 
 **Acceptance criteria:**
-- [ ] `RvcClient.convert` round-trips audio through a fake HTTP layer with the configured parameters; HTTP/timeouts become `RvcError`
-- [ ] `RvcServerProcess.ensure_running` reuses a healthy server, else validates paths, spawns with the right argv/cwd/log, waits for health, and fails clearly on exit/timeout
-- [ ] `stop()` terminates only a child it started; no test spawns a real process
+- [x] `RvcClient.convert` round-trips audio through a fake HTTP layer with the configured parameters; HTTP/timeouts become `RvcError`
+- [x] `RvcServerProcess.ensure_running` reuses a healthy server, else validates paths, spawns with the right argv/cwd/log, waits for health, and fails clearly on exit/timeout
+- [x] `stop()` terminates only a child it started; no test spawns the real server (the only real child is a throwaway sleeper in the real-job test)
+- [x] On Windows the spawned server is put in a kill-on-close job, so it dies with Cyrene even when her console window is closed; `stop()` closes the job
+- [x] A server on the port is reused only when `/health` reports the configured model (else `RvcError`); a server answering after the own child exited is reused, not owned
+- [x] Starting is serialized across commands by a lock file under `data/`; a second command waits for the first command's server
+- [x] `tts.rvc.host` must be an IPv4 loopback address; the child gets `PYTHONIOENCODING=utf-8` and `PYTHONUNBUFFERED=1`; the convert timeout scales with the clip (5 s + 0.5 × length, ≤ 30 s)
 
 **Dependencies:** 21 · **Files:** `src/waifu/voice/rvc.py`, `tests/test_voice_rvc.py` · **Scope:** M
 
-## Task 23: SpeechRouter voice conversion with fallback
+## Task 23: SpeechRouter voice conversion with fallback ✅
 
 **Acceptance criteria:**
-- [ ] With a converter, the joined audio is converted once and returned at the converter's rate
-- [ ] A failing converter yields the unconverted audio and a logged warning (not one per call during a failure streak)
-- [ ] `build_speech_router(config, converter=...)` passes it through; existing behaviour unchanged without one
+- [x] With a converter, the joined audio is converted once and returned at the converter's rate
+- [x] A failing converter yields the unconverted audio and a logged warning (not one per call during a failure streak)
+- [x] `build_speech_router(config, converter=...)` passes it through; existing behaviour unchanged without one
+- [x] After an unreachable converter, replies skip conversion for 60 s, then retry; an HTTP error from a running server causes no pause
 
 **Dependencies:** 22 · **Files:** `src/waifu/voice/tts.py`, `tests/test_voice_tts.py` · **Scope:** S
 
-## Task 24: CLI wiring, README, example config
+## Task 24: CLI wiring, README, example config ✅
 
 **Acceptance criteria:**
-- [ ] `run`, `say`, `chat --speak` start/stop the RVC server when enabled (run: inside the lock, before ready); `say --raw` skips it
-- [ ] `check` reports RVC status without spawning anything
-- [ ] README (Indonesian) explains the voice, Applio setup, training commands, the corpus terms/credit, and troubleshooting; `config.example.yaml` documents `tts.rvc`
+- [x] `run`, `say`, `chat --speak` start/stop the RVC server when enabled (run: inside the lock, before ready); `say --raw` skips it
+- [x] `check` reports RVC status without spawning anything, including the served model (✗ when it is not `tts.rvc.model`) and a non-loopback host
+- [x] `say` warns when `tts.rvc.model` is set but the anime voice is off
+- [x] README (Indonesian) explains the voice, Applio setup, training commands, the corpus terms/credit, and troubleshooting; `config.example.yaml` documents `tts.rvc`
 
 **Dependencies:** 23 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py`, `README.md`, `config.example.yaml` · **Scope:** M
