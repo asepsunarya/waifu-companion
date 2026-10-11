@@ -68,6 +68,26 @@ tts:
     #   ref_audio_path: D:/voices/cyrene_ref.wav
     #   prompt_text: "参照音声で話している日本語の文"
     #   prompt_lang: ja
+  # Suara anime つくよみちゃん (README, bagian "Suara anime"): setiap jawaban, Indonesia dan
+  # Jepang, diubah ke satu suara karakter oleh model RVC yang dijalankan Applio di PC ini.
+  # Kalau server RVC gagal jalan, dia tetap bicara dengan suara di atas.
+  rvc:
+    enabled: false
+    applio_dir: C:/AI/Applio   # Applio dengan env Python 3.12-nya sendiri (env/Scripts/python.exe)
+    # python: C:/AI/Applio/env/Scripts/python.exe   # isi kalau Python Applio ada di tempat lain
+    # Checkpoint hasil training, wajib diisi kalau enabled: true. Nama filenya
+    # <nama>_<epoch>e_<step>s.pth, jadi angkanya mengikuti checkpoint yang kamu pilih.
+    # model: C:/AI/Applio/logs/tsukuyomi/tsukuyomi_100e_4500s.pth
+    # Opsional, dibuat saat training; path-nya tidak boleh mengandung "trained" (README).
+    # index: C:/AI/Applio/logs/tsukuyomi/tsukuyomi.index
+    pitch: 4            # semitone; diukur: edge-tts sekitar 275 Hz, korpus Tsukuyomi sekitar 351 Hz
+    index_rate: 0.75    # 0-1: makin besar makin dekat ke warna suara korpus (butuh index)
+    protect: 0.33       # 0-0.5: makin kecil makin melindungi konsonan dan napas; 0.5 = mati
+    # Harus alamat IPv4 loopback: server RVC tanpa kata sandi hanya mendengarkan di PC
+    # ini, dan "localhost" membuat setiap jawaban sekitar 2 detik lebih lambat.
+    host: 127.0.0.1
+    port: 9881
+    startup_timeout_s: 180   # start pertama memuat model ke GPU dan bisa lama
 
 ir_codes_path: data/ir_codes.json
 

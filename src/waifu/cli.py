@@ -34,7 +34,7 @@ from waifu.app import Assistant
 from waifu.autostart import RunKey, WindowsRunKey
 from waifu.brain.base import ToolCallRecord
 from waifu.brain.factory import build_brain
-from waifu.config import AppConfig, ConfigError, OllamaConfig, load_config
+from waifu.config import AppConfig, ConfigError, OllamaConfig, RvcConfig, load_config
 from waifu.devices.base import DeviceError
 from waifu.devices.ir_codes import COMMAND_PATTERN, IrCodeStoreError
 from waifu.devices.ir_device import IrDevice
@@ -42,6 +42,14 @@ from waifu.devices.registry import build_registry
 from waifu.gate import WakeGate
 from waifu.single_instance import InstanceLock
 from waifu.voice.audio import MicStream, Player, list_devices
+from waifu.voice.rvc import (
+    SERVER_SCRIPT,
+    RvcClient,
+    RvcError,
+    RvcServerProcess,
+    require_loopback_host,
+    require_served_model,
+)
 from waifu.voice.segmenter import EnergySegmenter, frame_db
 from waifu.voice.speaker import MIN_ENROLL_SAMPLES, EcapaEmbedder, SpeakerError, SpeakerVerifier
 from waifu.voice.stt import CUDA_HINT, SttError, WhisperStt, register_cuda_dll_dirs
@@ -203,6 +211,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     say = command("say", _say, "Ucapkan teks.")
     say.add_argument("text", nargs="+")
+    say.add_argument(
+        "--raw",
+        action="store_true",
+        help="tanpa suara anime (RVC), untuk membandingkan dengan suara biasa",
+    )
     command("mics", _mics, "Daftar perangkat audio.")
     command("check", _check, "Periksa konfigurasi, perangkat, dan dependensi.")
     autostart_command = commands.add_parser(
@@ -394,18 +407,9 @@ def _listen(args: argparse.Namespace) -> int:
         print(f"{NOT_ENROLLED} Atau pakai 'waifu run --no-speaker-check' untuk semua suara.")
         return 2
     registry = build_registry(config, dry_run=args.dry_run)
+    brain = build_brain(config, registry)
     stt = WhisperStt(config.stt, name)
     gate = WakeGate(config.assistant.wake_words, config.assistant.followup_seconds)
-    assistant = Assistant(
-        config,
-        brain=build_brain(config, registry),
-        stt=stt,
-        speech=build_speech_router(config.tts),
-        player=Player(config.audio.output_device),
-        gate=gate,
-        verifier=verifier,
-        speaker_check=speaker_check,
-    )
     segmenter = EnergySegmenter(config.audio.sample_rate, config.audio.vad)
     print(f"Memuat model suara {name}, tunggu sebentar...", flush=True)
     try:
@@ -417,27 +421,39 @@ def _listen(args: argparse.Namespace) -> int:
         logger.error("Could not load the voice models: %s", exc)
         print(f"{FAIL} {exc}")
         return 1
-    with _open_mic(config) as mic:
-        mode = " (perangkat simulasi)" if args.dry_run else ""
-        print(
-            f"{name} siap mendengarkan{mode}. "
-            f"Panggil dengan: {', '.join(config.assistant.wake_words)}. "
-            "Tekan Ctrl+C untuk berhenti."
+    # The anime voice loads last: she can listen without it, but not without the models above.
+    with _voice_converter(config) as converter:
+        assistant = Assistant(
+            config,
+            brain=brain,
+            stt=stt,
+            speech=build_speech_router(config.tts, converter=converter),
+            player=Player(config.audio.output_device),
+            gate=gate,
+            verifier=verifier,
+            speaker_check=speaker_check,
         )
-        if not speaker_check:
-            print("Verifikasi suara mati: semua suara akan dilayani.")
-        if args.announce:
-            assistant.set_mic(mic, segmenter)  # so she does not hear her own announcement
-            assistant.speak(f"{name} siap, Master.")
-            # speak() opens the follow-up window for replies; the announcement is not one,
-            # so after login only her name starts a conversation, as in a plain `run`.
-            gate.close()
-        try:
-            assistant.run(mic, segmenter)
-        except SttError as exc:
-            logger.error("Whisper stopped working: %s", exc)
-            print(f"{FAIL} {exc}")
-            return 1
+        with _open_mic(config) as mic:
+            mode = " (perangkat simulasi)" if args.dry_run else ""
+            print(
+                f"{name} siap mendengarkan{mode}. "
+                f"Panggil dengan: {', '.join(config.assistant.wake_words)}. "
+                "Tekan Ctrl+C untuk berhenti."
+            )
+            if not speaker_check:
+                print("Verifikasi suara mati: semua suara akan dilayani.")
+            if args.announce:
+                assistant.set_mic(mic, segmenter)  # so she does not hear her own announcement
+                assistant.speak(f"{name} siap, Master.")
+                # speak() opens the follow-up window for replies; the announcement is not one,
+                # so after login only her name starts a conversation, as in a plain `run`.
+                gate.close()
+            try:
+                assistant.run(mic, segmenter)
+            except SttError as exc:
+                logger.error("Whisper stopped working: %s", exc)
+                print(f"{FAIL} {exc}")
+                return 1
     return 0
 
 
@@ -445,28 +461,29 @@ def _chat(args: argparse.Namespace) -> int:
     config = load_config(args.config)
     registry = build_registry(config, dry_run=args.dry_run)
     brain = build_brain(config, registry)
-    speech = build_speech_router(config.tts) if args.speak else None
-    player = Player(config.audio.output_device) if args.speak else None
-    name = config.assistant.name
-    mode = " (perangkat simulasi)" if args.dry_run else ""
-    print(f"Ngobrol dengan {name}{mode}. Ketik 'keluar' untuk berhenti.")
-    while True:
-        try:
-            line = input("Kamu: ").strip()
-        except (EOFError, KeyboardInterrupt):
-            print()
-            break
-        if not line:
-            continue
-        if line.lower() in EXIT_WORDS:
-            break
-        reply = brain.respond(line)
-        if args.verbose:
-            for call in reply.tool_calls:
-                print(_describe_tool_call(call))
-        print(f"{name}: {reply.text}")
-        if speech is not None and player is not None:
-            _speak(speech, player, reply.text)
+    with _voice_converter(config, wanted=args.speak) as converter:
+        speech = build_speech_router(config.tts, converter=converter) if args.speak else None
+        player = Player(config.audio.output_device) if args.speak else None
+        name = config.assistant.name
+        mode = " (perangkat simulasi)" if args.dry_run else ""
+        print(f"Ngobrol dengan {name}{mode}. Ketik 'keluar' untuk berhenti.")
+        while True:
+            try:
+                line = input("Kamu: ").strip()
+            except (EOFError, KeyboardInterrupt):
+                print()
+                break
+            if not line:
+                continue
+            if line.lower() in EXIT_WORDS:
+                break
+            reply = brain.respond(line)
+            if args.verbose:
+                for call in reply.tool_calls:
+                    print(_describe_tool_call(call))
+            print(f"{name}: {reply.text}")
+            if speech is not None and player is not None:
+                _speak(speech, player, reply.text)
     return 0
 
 
@@ -484,6 +501,39 @@ def _speak(speech: SpeechRouter, player: Player, text: str) -> bool:
         return False
     player.play(audio, sample_rate)
     return True
+
+
+@contextmanager
+def _voice_converter(config: AppConfig, *, wanted: bool = True) -> Iterator[RvcClient | None]:
+    """The anime-voice (RVC) converter for the block; None when it is off, unwanted, or broken.
+
+    Starts the RVC server unless one already answers, and stops a server it started
+    however the block ends. A server that cannot start only costs the anime voice:
+    she speaks with the plain voice instead of not at all.
+    """
+    rvc = config.tts.rvc
+    if not (wanted and rvc.enabled):
+        yield None
+        return
+    server = RvcServerProcess(rvc)
+    try:
+        yield _start_voice_conversion(server, config)
+    finally:
+        server.stop()
+
+
+def _start_voice_conversion(server: RvcServerProcess, config: AppConfig) -> RvcClient | None:
+    try:
+        server.ensure_running()
+    except (RvcError, OSError) as exc:  # OSError: logs/rvc_server.log cannot be written
+        logger.warning("Anime voice unavailable, speaking with the plain voice: %s", exc)
+        reason = str(exc).rstrip(".")
+        print(
+            f"{WARN} Suara anime tidak tersedia: {reason}. "
+            f"{config.assistant.name} memakai suara biasa."
+        )
+        return None
+    return RvcClient(config.tts.rvc)
 
 
 # --- speaker verification --------------------------------------------------------------------
@@ -706,9 +756,18 @@ def _learn_commands(device: IrDevice, commands: list[str], timeout_s: float) -> 
 
 def _say(args: argparse.Namespace) -> int:
     config = load_config(args.config)
-    spoken = _speak(
-        build_speech_router(config.tts), Player(config.audio.output_device), " ".join(args.text)
-    )
+    rvc = config.tts.rvc
+    if not (args.raw or rvc.enabled) and rvc.model is not None:
+        # Comparing checkpoints this way would play the same plain voice for each one.
+        print(
+            f"{WARN} Suara anime mati (tts.rvc.enabled: false), jadi tts.rvc.model tidak dipakai."
+        )
+    with _voice_converter(config, wanted=not args.raw) as converter:
+        spoken = _speak(
+            build_speech_router(config.tts, converter=converter),
+            Player(config.audio.output_device),
+            " ".join(args.text),
+        )
     return 0 if spoken else 1
 
 
@@ -740,6 +799,7 @@ def _checks(config_path: Path) -> Iterator[Check]:
     yield _brain_check(config)
     yield from _voice_package_checks(config)
     yield _microphone_check(config)
+    yield from _anime_voice_checks(config)
 
 
 def _device_checks(config: AppConfig, config_path: Path) -> Iterator[Check]:
@@ -879,6 +939,50 @@ def _microphone_check(config: AppConfig) -> Check:
     except Exception as exc:  # missing package or PortAudio, no input device, bad device name
         return FAIL, f"Mikrofon tidak ditemukan: {exc}"
     return OK, f"Mikrofon: {info['name']}"
+
+
+def _anime_voice_checks(config: AppConfig) -> Iterator[Check]:
+    """The files the RVC server needs, then whether one answers; never starts one."""
+    rvc = config.tts.rvc
+    if not rvc.enabled:
+        name = config.assistant.name
+        yield WARN, f"Suara anime (RVC) mati (tts.rvc.enabled: false); {name} memakai suara biasa"
+        return
+    yield _rvc_path_check("Folder Applio", rvc.applio_dir, "tts.rvc.applio_dir", folder=True)
+    yield _rvc_path_check("Python Applio", rvc.python_path, "tts.rvc.python atau applio_dir")
+    yield _rvc_path_check("Model RVC", rvc.model, "tts.rvc.model")
+    if rvc.index is not None:
+        yield _rvc_path_check("Index RVC", rvc.index, "tts.rvc.index")
+    yield _rvc_path_check("Skrip server RVC", SERVER_SCRIPT, "folder tools/ di repo ini")
+    try:
+        require_loopback_host(rvc.host)
+    except RvcError as exc:
+        yield FAIL, str(exc)
+        return
+    yield _rvc_server_check(RvcClient(rvc), rvc)
+
+
+def _rvc_server_check(client: RvcClient, rvc: RvcConfig) -> Check:
+    served = client.served_model()
+    if served is None:
+        # The normal state before `run`: it starts the server itself, so this is no failure.
+        return WARN, (
+            f"Server suara RVC belum berjalan di {client.base_url}; "
+            "'waifu run', 'say', dan 'chat --speak' menyalakannya sendiri"
+        )
+    try:
+        require_served_model(rvc, served, client.base_url)
+    except RvcError as exc:
+        return FAIL, str(exc)
+    return OK, f"Server suara RVC menjawab di {client.base_url} (model {served})"
+
+
+def _rvc_path_check(label: str, path: Path | None, setting: str, *, folder: bool = False) -> Check:
+    if path is None:
+        return FAIL, f"{label} belum diisi ({setting})"
+    if path.is_dir() if folder else path.is_file():
+        return OK, f"{label}: {path}"
+    return FAIL, f"{label} tidak ditemukan: {path} (periksa {setting})"
 
 
 # --- autostart -------------------------------------------------------------------------------

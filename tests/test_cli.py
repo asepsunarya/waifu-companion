@@ -8,6 +8,8 @@ import sys
 import types
 import urllib.error
 import urllib.request
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from datetime import datetime
 from importlib.machinery import ModuleSpec
 from pathlib import Path, PureWindowsPath
@@ -21,6 +23,7 @@ from waifu import cli
 from waifu.app import Assistant
 from waifu.autostart import DEFAULT_DELAY_S, build_command
 from waifu.brain.base import Brain, BrainReply, ToolCallRecord
+from waifu.config import RvcConfig
 from waifu.devices.base import DeviceError
 from waifu.devices.ir_codes import IrCodeStore
 from waifu.devices.ir_device import IrDevice
@@ -28,6 +31,7 @@ from waifu.devices.mock import MockDevice
 from waifu.devices.registry import DeviceRegistry
 from waifu.single_instance import InstanceLock
 from waifu.voice.base import SpeakerEmbedder, SpeechToText, Transcript
+from waifu.voice.rvc import RvcError
 from waifu.voice.speaker import SpeakerVerifier
 from waifu.voice.stt import WhisperStt
 from waifu.voice.tts import TtsError
@@ -47,6 +51,18 @@ def no_real_models(monkeypatch):
     of loading multi-GB Whisper/ECAPA models onto the GPU."""
     for name in MODEL_LIBRARIES:
         monkeypatch.setitem(sys.modules, name, None)
+
+
+@pytest.fixture(autouse=True)
+def no_real_rvc(monkeypatch):
+    """A test that forgets the `rvc` fakes fails instead of spawning Applio on the GPU or
+    probing port 9881 (tests/conftest.py also refuses to spawn tools/rvc_server.py)."""
+
+    def refuse(*args, **kwargs):
+        raise AssertionError("a test reached the real RVC server manager or client")
+
+    monkeypatch.setattr(cli, "RvcServerProcess", refuse)
+    monkeypatch.setattr(cli, "RvcClient", refuse)
 
 
 @pytest.fixture(autouse=True)
@@ -176,6 +192,105 @@ class FakeHttpResponse(io.BytesIO):
         self.close()
 
 
+@pytest.fixture
+def events() -> list[str]:
+    """What the fakes of one test did, in order."""
+    return []
+
+
+@pytest.fixture
+def speech(events, monkeypatch) -> list["SpeakingRouter"]:
+    """Every speech router a command builds, each remembering the voice converter it got."""
+    built: list[SpeakingRouter] = []
+
+    def build(tts, *, converter=None):
+        built.append(SpeakingRouter(events, converter))
+        return built[-1]
+
+    monkeypatch.setattr(cli, "build_speech_router", build)
+    return built
+
+
+@dataclass
+class RvcFakes:
+    """The anime voice faked: `served_model` answers served_model() (None: no server
+    answers), `start_error` fails ensure_running()."""
+
+    events: list[str]
+    servers: list["FakeRvcServer"] = field(default_factory=list)
+    clients: list["FakeRvcClient"] = field(default_factory=list)
+    served_model: str | None = None
+    start_error: Exception | None = None
+    on_start: Callable[[], None] | None = None
+
+
+class FakeRvcServer:
+    """Stands in for RvcServerProcess: records ensure_running() and stop(), never spawns."""
+
+    def __init__(self, config: RvcConfig, fakes: RvcFakes) -> None:
+        self.config = config
+        self._fakes = fakes
+
+    def ensure_running(self) -> None:
+        self._fakes.events.append("rvc started")
+        if self._fakes.on_start is not None:
+            self._fakes.on_start()
+        if self._fakes.start_error is not None:
+            raise self._fakes.start_error
+
+    def stop(self) -> None:
+        self._fakes.events.append("rvc stopped")
+
+
+class FakeRvcClient:
+    """Stands in for RvcClient: served_model() answers as told; conversion is the router's."""
+
+    def __init__(self, config: RvcConfig, fakes: RvcFakes) -> None:
+        self.config = config
+        self.base_url = f"http://{config.host}:{config.port}"
+        self._fakes = fakes
+
+    def served_model(self) -> str | None:
+        self._fakes.events.append("rvc health")
+        return self._fakes.served_model
+
+    def convert(self, audio: np.ndarray, sample_rate: int) -> tuple[np.ndarray, int]:
+        return audio, sample_rate
+
+
+@pytest.fixture
+def rvc(events, monkeypatch) -> RvcFakes:
+    fakes = RvcFakes(events)
+
+    def server(config: RvcConfig) -> FakeRvcServer:
+        fakes.servers.append(FakeRvcServer(config, fakes))
+        return fakes.servers[-1]
+
+    def client(config: RvcConfig) -> FakeRvcClient:
+        fakes.clients.append(FakeRvcClient(config, fakes))
+        return fakes.clients[-1]
+
+    monkeypatch.setattr(cli, "RvcServerProcess", server)
+    monkeypatch.setattr(cli, "RvcClient", client)
+    return fakes
+
+
+RVC_MODEL = Path("Applio/logs/tsukuyomi/tsukuyomi.pth")
+RVC_INDEX = Path("Applio/logs/tsukuyomi/tsukuyomi.index")
+RVC_PYTHON = Path("Applio/env/Scripts/python.exe")
+
+
+def enable_rvc(home: Path, *, index: bool = False, enabled: bool = True, extra: str = "") -> None:
+    """config.yaml with only the anime voice set up; its paths are relative to `home`."""
+    text = (
+        f"tts:\n  rvc:\n    enabled: {str(enabled).lower()}\n    applio_dir: Applio\n"
+        f"    model: {RVC_MODEL.as_posix()}\n"
+    )
+    if index:
+        text += f"    index: {RVC_INDEX.as_posix()}\n"
+    write_config(home, text + extra)
+
+
 # --- parsing -------------------------------------------------------------------------------
 
 
@@ -193,6 +308,7 @@ class FakeHttpResponse(io.BytesIO):
         (["learn-ir", "ac", "on"], "learn-ir"),
         (["learn-ir", "ac", "--missing", "--timeout", "30"], "learn-ir"),
         (["say", "Halo", "Master"], "say"),
+        (["say", "--raw", "Halo"], "say"),
         (["mics"], "mics"),
         (["check"], "check"),
     ],
@@ -575,13 +691,49 @@ def test_chat_exit_word_is_case_insensitive(home, brains, monkeypatch):
 
 def test_chat_speak_voices_each_reply(home, brains, player, monkeypatch):
     router = FakeRouter()
-    monkeypatch.setattr(cli, "build_speech_router", lambda tts: router)
+    monkeypatch.setattr(cli, "build_speech_router", lambda tts, converter=None: router)
     monkeypatch.setattr(sys, "stdin", io.StringIO("halo\n"))
 
     assert cli.main(["chat", "--dry-run", "--speak"]) == 0
 
     assert router.texts == ["Siap, Master! Lampu kamar sudah menyala."]
     assert player.played == [(240, 24000)]
+
+
+def test_chat_speak_voices_replies_with_the_anime_voice_and_stops_the_server_at_the_end(
+    home, brains, player, rvc, speech, events, monkeypatch
+):
+    enable_rvc(home)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("halo\nlagi\n"))
+
+    assert cli.main(["chat", "--dry-run", "--speak"]) == 0
+
+    reply = "say Siap, Master! Lampu kamar sudah menyala."
+    assert events == ["rvc started", reply, reply, "rvc stopped"]
+    assert speech[0].converter is rvc.clients[0]
+
+
+def test_chat_speak_uses_the_plain_voice_when_the_rvc_server_cannot_start(
+    home, brains, player, rvc, speech, monkeypatch, capsys
+):
+    enable_rvc(home)
+    rvc.start_error = RvcError("Server suara RVC berhenti saat mulai (kode 1).")
+    monkeypatch.setattr(sys, "stdin", io.StringIO("halo\n"))
+
+    assert cli.main(["chat", "--dry-run", "--speak"]) == 0
+
+    assert "Suara anime tidak tersedia: Server suara RVC berhenti" in capsys.readouterr().out
+    assert speech[0].converter is None
+    assert len(player.played) == 1
+
+
+def test_chat_without_speak_never_starts_the_rvc_server(home, brains, rvc, speech, monkeypatch):
+    enable_rvc(home)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("halo\n"))
+
+    assert cli.main(["chat", "--dry-run"]) == 0
+
+    assert rvc.servers == [] and speech == []
 
 
 # --- learn-ir --------------------------------------------------------------------------------
@@ -725,12 +877,117 @@ def test_check_flags_an_invalid_declared_ir_name_instead_of_suggesting_learn_ir(
 
 def test_say_speaks_the_joined_words_through_the_router_and_player(home, player, monkeypatch):
     router = FakeRouter()
-    monkeypatch.setattr(cli, "build_speech_router", lambda tts: router)
+    monkeypatch.setattr(cli, "build_speech_router", lambda tts, converter=None: router)
 
     assert cli.main(["say", "Halo", "Master,", "おかえりなさい!"]) == 0
 
     assert router.texts == ["Halo Master, おかえりなさい!"]
     assert player.played == [(240, 24000)]
+
+
+def test_say_with_the_anime_voice_off_starts_no_rvc_server(home, player, rvc, speech, events):
+    assert cli.main(["say", "Halo"]) == 0
+
+    assert rvc.servers == [] and rvc.clients == []
+    assert speech[0].converter is None
+    assert events == ["say Halo"]
+
+
+def test_say_converts_with_the_anime_voice_and_stops_the_server_afterwards(
+    home, player, rvc, speech, events
+):
+    enable_rvc(home)
+
+    assert cli.main(["say", "Halo", "Master"]) == 0
+
+    assert events == ["rvc started", "say Halo Master", "rvc stopped"]
+    assert speech[0].converter is rvc.clients[0]
+    assert rvc.servers[0].config.model == rvc.clients[0].config.model == RVC_MODEL
+    assert len(player.played) == 1
+
+
+def test_say_points_out_a_model_that_is_set_while_the_anime_voice_is_off(
+    home, player, rvc, speech, capsys
+):
+    # Comparing checkpoints with `say` before enabling the anime voice would play the
+    # same plain voice for every one of them.
+    enable_rvc(home, enabled=False)
+
+    assert cli.main(["say", "Halo"]) == 0
+
+    assert (
+        "! Suara anime mati (tts.rvc.enabled: false), jadi tts.rvc.model tidak dipakai."
+        in capsys.readouterr().out.splitlines()
+    )
+    assert rvc.servers == [] and speech[0].converter is None
+    assert len(player.played) == 1
+
+
+def test_say_raw_does_not_point_out_the_anime_voice_being_off(home, player, rvc, speech, capsys):
+    enable_rvc(home, enabled=False)
+
+    assert cli.main(["say", "--raw", "Halo"]) == 0
+
+    assert "Suara anime mati" not in capsys.readouterr().out
+
+
+def test_say_raw_speaks_the_plain_voice_without_starting_the_rvc_server(
+    home, player, rvc, speech, events
+):
+    enable_rvc(home)
+
+    assert cli.main(["say", "--raw", "Halo"]) == 0
+
+    assert rvc.servers == [] and rvc.clients == []
+    assert speech[0].converter is None
+    assert events == ["say Halo"]
+
+
+def test_say_uses_the_plain_voice_when_the_rvc_server_cannot_start(
+    home, player, rvc, speech, events, caplog, capsys
+):
+    enable_rvc(home)
+    rvc.start_error = RvcError("Model RVC (.pth) tidak ditemukan: x.pth. Periksa tts.rvc.model.")
+    caplog.set_level(logging.INFO)
+
+    assert cli.main(["say", "Halo"]) == 0
+
+    assert (
+        "! Suara anime tidak tersedia: Model RVC (.pth) tidak ditemukan: x.pth. "
+        "Periksa tts.rvc.model. Cyrene memakai suara biasa." in capsys.readouterr().out.splitlines()
+    )
+    assert "x.pth" in caplog.text  # the autostart window closes; the log keeps the reason
+    assert speech[0].converter is None and rvc.clients == []
+    assert len(player.played) == 1
+
+
+def test_say_uses_the_plain_voice_when_the_rvc_server_log_cannot_be_opened(
+    home, player, rvc, speech, capsys
+):
+    enable_rvc(home)
+    rvc.start_error = PermissionError(13, "Permission denied", "logs\\rvc_server.log")
+
+    assert cli.main(["say", "Halo"]) == 0
+
+    assert "Suara anime tidak tersedia" in capsys.readouterr().out
+    assert speech[0].converter is None
+    assert len(player.played) == 1
+
+
+def test_say_stops_the_rvc_server_even_when_playback_fails(home, rvc, speech, events, monkeypatch):
+    class UnpluggedPlayer:
+        def __init__(self, device=None) -> None:
+            pass
+
+        def play(self, audio: np.ndarray, sample_rate: int) -> None:
+            raise RuntimeError("speaker unplugged")
+
+    monkeypatch.setattr(cli, "Player", UnpluggedPlayer)
+    enable_rvc(home)
+
+    assert cli.main(["say", "Halo"]) == 1
+
+    assert events[-1] == "rvc stopped"
 
 
 def test_mics_prints_the_audio_device_list(monkeypatch, capsys):
@@ -807,9 +1064,10 @@ class EventMic(FakeMic):
 
 
 class SpeakingRouter(FakeRouter):
-    def __init__(self, events: list[str]) -> None:
+    def __init__(self, events: list[str], converter=None) -> None:
         super().__init__()
         self.events = events
+        self.converter = converter
 
     def synthesize(self, text: str) -> tuple[np.ndarray, int]:
         self.events.append(f"say {text}")
@@ -831,10 +1089,9 @@ def enrolled(home) -> Path:
 
 
 @pytest.fixture
-def run_fakes(home, brains, player, monkeypatch):
+def run_fakes(home, brains, player, events, speech, monkeypatch):
     """`waifu run` with every model, the mic, and the speech engine faked; `events` shows order."""
     RecordingAssistant.instances = []
-    events: list[str] = []
     mics: list[FakeMic] = []
 
     def open_mic(sample_rate, frame_ms, device=None):
@@ -845,7 +1102,6 @@ def run_fakes(home, brains, player, monkeypatch):
     monkeypatch.setattr(cli, "MicStream", open_mic)
     monkeypatch.setattr(cli, "EcapaEmbedder", lambda *args, **kwargs: PreloadingEmbedder(events))
     monkeypatch.setattr(cli, "WhisperStt", lambda config, name: PreloadingStt(events))
-    monkeypatch.setattr(cli, "build_speech_router", lambda tts: SpeakingRouter(events))
     return types.SimpleNamespace(mics=mics, events=events, lock=home / "data" / "run.lock")
 
 
@@ -1070,7 +1326,7 @@ def test_run_announce_does_not_open_the_followup_window(router, announcing, brai
     frames = [SILENT_FRAME] * 10 + [LOUD_FRAME] * 40 + [SILENT_FRAME] * 40
     monkeypatch.setattr(cli, "MicStream", lambda *args, **kwargs: FakeMic(frames))
     monkeypatch.setattr(cli, "WhisperStt", lambda config, name: HearingStt("matikan semua lampu"))
-    monkeypatch.setattr(cli, "build_speech_router", lambda tts: router())
+    monkeypatch.setattr(cli, "build_speech_router", lambda tts, converter=None: router())
 
     assert cli.main(["run", "--dry-run", "--announce"]) == 0
 
@@ -1096,12 +1352,87 @@ def test_run_without_announce_stays_quiet_until_spoken_to(announcing, player):
     assert player.played == []
 
 
+def test_run_starts_the_anime_voice_holding_the_lock_after_the_models_and_before_ready(
+    announcing, rvc, speech, home, capsys
+):
+    enable_rvc(home)
+    at_start: list[tuple[bool, str]] = []
+    rvc.on_start = lambda: at_start.append((lock_is_free(announcing.lock), capsys.readouterr().out))
+
+    assert cli.main(["run", "--dry-run", "--announce"]) == 0
+
+    ((lock_free, printed_before),) = at_start
+    assert not lock_free
+    assert "Memuat model suara" in printed_before and "siap" not in printed_before
+    assert "Cyrene siap mendengarkan" in capsys.readouterr().out
+    events = announcing.events
+    assert events.index("speaker model loaded") < events.index("rvc started")
+    assert events.index("whisper loaded") < events.index("rvc started")
+    assert events.index("rvc started") < events.index("mic opened")
+    assert events.index("rvc started") < events.index("say Cyrene siap, Master.")
+    assert events[-2:] == ["mic closed", "rvc stopped"]
+    assert speech[0].converter is rvc.clients[0]
+
+
+def test_run_listens_with_the_plain_voice_when_the_rvc_server_cannot_start(
+    run_fakes, rvc, speech, home, capsys
+):
+    enable_rvc(home)
+    rvc.start_error = RvcError("Server suara RVC belum siap setelah 180 detik.")
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    out = capsys.readouterr().out
+    warning = out.index("Suara anime tidak tersedia: Server suara RVC belum siap")
+    assert warning < out.index("Cyrene siap mendengarkan")
+    assert speech[0].converter is None and rvc.clients == []
+    assert RecordingAssistant.instances[0].ran_with is not None
+
+
+def test_run_with_the_anime_voice_off_starts_no_rvc_server(run_fakes, rvc, speech):
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    assert rvc.servers == []
+    assert speech[0].converter is None
+
+
+def test_run_stops_the_rvc_server_after_ctrl_c(run_fakes, rvc, home, monkeypatch):
+    def interrupted(self, mic, segmenter) -> None:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(RecordingAssistant, "run", interrupted)
+    enable_rvc(home)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 130
+
+    assert run_fakes.events[-2:] == ["mic closed", "rvc stopped"]
+
+
+def test_run_starts_no_rvc_server_when_the_voice_models_fail_to_load(run_fakes, rvc, home):
+    enable_rvc(home)
+    (home / "data").mkdir()
+    (home / "data" / "voiceprint.npy").write_bytes(b"bukan voiceprint")
+
+    assert cli.main(["run", "--dry-run"]) == 1
+
+    assert rvc.servers == []
+
+
+def test_run_refused_by_the_lock_starts_no_rvc_server(run_fakes, rvc, home):
+    enable_rvc(home)
+
+    with InstanceLock(run_fakes.lock):
+        assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 2
+
+    assert rvc.servers == []
+
+
 @pytest.fixture
 def one_utterance(home, brains, player, monkeypatch):
     """`waifu run` with the real Assistant and Whisper wrapper, hearing one spoken phrase."""
     frames = [SILENT_FRAME] * 10 + [LOUD_FRAME] * 40 + [SILENT_FRAME] * 40
     monkeypatch.setattr(cli, "MicStream", lambda *args, **kwargs: FakeMic(frames))
-    monkeypatch.setattr(cli, "build_speech_router", lambda tts: FakeRouter())
+    monkeypatch.setattr(cli, "build_speech_router", lambda tts, converter=None: FakeRouter())
     monkeypatch.setattr(
         cli, "WhisperStt", lambda config, name: WhisperStt(config, name, register_dlls=list)
     )
@@ -1733,3 +2064,119 @@ def test_check_reports_an_ollama_model_that_is_not_pulled(
 
     lines = capsys.readouterr().out.splitlines()
     assert any(line.startswith("✗") and "ollama pull qwen3:8b" in line for line in lines)
+
+
+def rvc_lines(out: str) -> list[str]:
+    return [line for line in out.splitlines() if "RVC" in line or "Applio" in line]
+
+
+def test_check_reports_the_anime_voice_off_without_probing_a_server(
+    home, nothing_installed, rvc, capsys
+):
+    cli.main(["check"])
+
+    lines = rvc_lines(capsys.readouterr().out)
+    assert len(lines) == 1
+    assert lines[0].startswith("! Suara anime (RVC) mati")
+    assert rvc.events == [] and rvc.clients == []
+
+
+@pytest.fixture
+def rvc_install(home, monkeypatch) -> dict[str, Path]:
+    """Where `check` looks for each part of the anime voice; nothing exists yet."""
+    script = home / "repo" / "tools" / "rvc_server.py"
+    monkeypatch.setattr(cli, "SERVER_SCRIPT", script)
+    return {
+        "Python Applio": RVC_PYTHON,
+        "Model RVC": RVC_MODEL,
+        "Index RVC": RVC_INDEX,
+        "Skrip server RVC": script,
+    }
+
+
+def test_check_with_the_anime_voice_ready_marks_each_part_and_the_answering_server(
+    home, nothing_installed, rvc, rvc_install, capsys
+):
+    enable_rvc(home, index=True)
+    for path in rvc_install.values():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"")
+    rvc.served_model = RVC_MODEL.name
+
+    cli.main(["check"])
+
+    lines = rvc_lines(capsys.readouterr().out)
+    assert lines[0] == f"✓ Folder Applio: {Path('Applio')}"
+    for label, path in rvc_install.items():
+        assert f"✓ {label}: {path}" in lines
+    assert lines[-1] == "✓ Server suara RVC menjawab di http://127.0.0.1:9881 (model tsukuyomi.pth)"
+    assert len(lines) == 6
+    assert rvc.servers == []
+
+
+def test_check_marks_each_missing_anime_voice_file_with_its_path(
+    home, nothing_installed, rvc, rvc_install, capsys
+):
+    enable_rvc(home, index=True)
+
+    assert cli.main(["check"]) == 1
+
+    lines = rvc_lines(capsys.readouterr().out)
+    expected = {"Folder Applio": Path("Applio"), **rvc_install}
+    for label, path in expected.items():
+        line = next(line for line in lines if line.startswith(f"✗ {label}"))
+        assert "tidak ditemukan" in line and str(path) in line
+
+
+def test_check_says_a_stopped_rvc_server_starts_with_cyrene_and_never_spawns_it(
+    home, nothing_installed, rvc, rvc_install, capsys
+):
+    enable_rvc(home)
+
+    cli.main(["check"])
+
+    server = rvc_lines(capsys.readouterr().out)[-1]
+    assert server.startswith("! Server suara RVC belum berjalan di http://127.0.0.1:9881")
+    assert "waifu run" in server
+    assert rvc.events == ["rvc health"]
+    assert rvc.servers == []
+
+
+def test_check_fails_a_running_rvc_server_that_serves_another_model(
+    home, nothing_installed, rvc, rvc_install, capsys
+):
+    # run/say would refuse it and speak the plain voice, so the setup is not ready.
+    enable_rvc(home)
+    rvc.served_model = "tsukuyomi_50e_2250s.pth"
+
+    assert cli.main(["check"]) == 1
+
+    server = rvc_lines(capsys.readouterr().out)[-1]
+    assert server.startswith("✗ Server suara RVC lama dengan model tsukuyomi_50e_2250s.pth")
+    assert "tts.rvc.model (tsukuyomi.pth)" in server
+    assert rvc.servers == []
+
+
+def test_check_fails_an_rvc_host_beyond_this_pc_without_probing_it(
+    home, nothing_installed, rvc, rvc_install, capsys
+):
+    enable_rvc(home, extra="    host: 0.0.0.0\n")
+
+    assert cli.main(["check"]) == 1
+
+    out = capsys.readouterr().out
+    assert any(
+        line.startswith("✗ tts.rvc.host harus alamat IPv4 loopback") and "0.0.0.0" in line
+        for line in out.splitlines()
+    )
+    assert rvc.events == [] and rvc.clients == []
+
+
+def test_check_leaves_out_the_index_when_none_is_configured(
+    home, nothing_installed, rvc, rvc_install, capsys
+):
+    enable_rvc(home)
+
+    cli.main(["check"])
+
+    assert not any("Index" in line for line in rvc_lines(capsys.readouterr().out))

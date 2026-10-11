@@ -29,6 +29,7 @@ Cyrene : "Yakin mau dimatikan sekarang, Master?" (minta konfirmasi dulu)
 - [Mendaftarkan suara Master](#mendaftarkan-suara-master)
 - [Pemakaian sehari-hari](#pemakaian-sehari-hari)
 - [Jalan otomatis saat login](#jalan-otomatis-saat-login)
+- [Suara anime (つくよみちゃん)](#suara-anime-つくよみちゃん)
 - [Pemecahan masalah](#pemecahan-masalah)
 - [Checklist uji perangkat keras](#checklist-uji-perangkat-keras)
 - [Privasi](#privasi)
@@ -92,6 +93,9 @@ barang yang lebih murah kalau ingin tetap di bawah Rp1 juta.
    ▼
  SpeechRouter: bagian Indonesia dan Jepang dipisah, masing-masing
    │           pakai suaranya sendiri (edge-tts / GPT-SoVITS)
+   ▼
+ RVC (opsional): seluruh klip diubah ke suara つくよみちゃん oleh server Applio lokal
+   │             (gagal → klip edge-tts aslinya yang diputar)
    ▼
  Speaker  (mic dijeda selama dia bicara, jadi dia tidak mendengar dirinya sendiri)
 ```
@@ -169,7 +173,7 @@ waifu check
 | `speaker` | verifikasi suara: `enabled`, `voiceprint_path`, `threshold`, `device` |
 | `stt` | model Whisper, `device`, `compute_type`, `languages` |
 | `brain` | `backend` (`ollama` atau `claude`), `max_tool_rounds`, lalu blok `ollama` dan `claude` |
-| `tts` | suara per bahasa (`id`, `ja`): edge-tts atau GPT-SoVITS |
+| `tts` | suara per bahasa (`id`, `ja`): edge-tts atau GPT-SoVITS; `rvc` untuk [suara anime](#suara-anime-つくよみちゃん) |
 | `ir_codes_path` | file kode IR hasil belajar (default `data/ir_codes.json`) |
 | `devices` | daftar perangkat (lihat [Menyambungkan perangkat](#menyambungkan-perangkat)) |
 
@@ -501,12 +505,13 @@ waifu speaker-test    # skor kecocokan langsung, Ctrl+C untuk berhenti
 | `waifu chat --dry-run -v` | Uji persona dan tool call ke perangkat simulasi (`-v` menampilkan setiap tool call) |
 | `waifu chat --speak` | Ngobrol lewat teks, jawabannya juga diucapkan |
 | `waifu say "Halo Master, おかえりなさい!"` | Uji suara: bagian Indonesia lalu Jepang |
+| `waifu say --raw "Halo Master"` | Sama, tapi tanpa suara anime (RVC), untuk membandingkan |
 | `waifu devices` | Daftar perangkat dan perintah yang tersedia |
 | `waifu device <id> <perintah> [angka]` | Jalankan satu perintah, misalnya `waifu device ac temp 24` |
 | `waifu learn-ir <id> <perintah>` / `waifu learn-ir <id> --missing` | Pelajari tombol remote IR |
 | `waifu enroll` / `waifu speaker-test` | Daftarkan suara / cek skor kecocokan |
 | `waifu mics` | Daftar perangkat audio dan nomornya |
-| `waifu check` | Periksa config, kode IR, voiceprint, otak, paket suara, CUDA, dan mic |
+| `waifu check` | Periksa config, kode IR, voiceprint, otak, paket suara, CUDA, mic, dan suara anime |
 
 Opsi untuk semua perintah: `--config <file>` (default `config.yaml`), `--dry-run`
 (perangkat simulasi), `-v` (log lebih rinci), `--log-file <file>` (log juga ditulis
@@ -577,6 +582,191 @@ Autostart selalu memakai `config.yaml` di folder repo dan perangkat asli;
 - **Folder repo atau venv dipindah:** perintah yang tersimpan masih menunjuk ke path
   lama, dan `status` menandainya dengan `!`. Jalankan lagi `waifu autostart enable`
   dari folder yang baru.
+
+## Suara anime (つくよみちゃん)
+
+Dengan `tts.rvc.enabled: true`, **semua** jawaban Cyrene, bagian Indonesia maupun
+Jepang, tetap dibuat dulu oleh edge-tts, lalu seluruh klipnya diubah ke satu suara
+karakter, つくよみちゃん, oleh model RVC (voice conversion). Modelnya kamu latih
+sendiri di PC ini dari korpus gratis Tsukuyomi-chan (sekitar 11 menit suara).
+
+- Konversi dijalankan **Applio** (lisensi MIT) di server lokal `tools/rvc_server.py`,
+  yang memuat model sekali lalu melayani di `127.0.0.1:9881` (hanya dari PC ini).
+  Applio memakai Python 3.12 di env-nya sendiri, terpisah dari `.venv` Cyrene.
+- `waifu run`, `waifu say`, dan `waifu chat --speak` menyalakan server itu sendiri
+  (`run` melakukannya saat memuat model, sebelum bilang siap) dan mematikannya saat
+  selesai, juga saat jendelanya ditutup: Windows mematikan server bersama perintah
+  yang menyalakannya. Server yang sudah menjawab di port itu sebelumnya (misalnya
+  milik Cyrene autostart) dipakai ulang dan dibiarkan menyala, asal modelnya sama
+  dengan `tts.rvc.model`. Kalau dua perintah menyala bersamaan, yang kedua menunggu
+  server dari yang pertama, jadi model tidak dimuat dua kali ke GPU.
+- **Dia tidak pernah diam karena RVC.** Kalau server tidak bisa jalan, muncul
+  `! Suara anime tidak tersedia: ... Cyrene memakai suara biasa.` dan dia bicara
+  dengan suara edge-tts biasa. Kalau konversi gagal di tengah jalan, jawaban itu
+  diputar dengan suara biasa dan log mencatat peringatannya sekali. Kalau servernya
+  tidak bisa dihubungi sama sekali, jawaban selama 1 menit berikutnya langsung memakai
+  suara biasa (tanpa menunggu server), lalu dia mencoba lagi.
+- **Biaya:** perkiraan tambahan sekitar 0,3–1 detik per jawaban (belum diukur di PC
+  ini; bandingkan sendiri dengan `waifu say` dan `waifu say --raw`), plus VRAM untuk
+  model RVC selama server menyala.
+
+### Hak suara (baca dulu)
+
+- Korpus つくよみちゃん gratis. Menurut ketentuannya, pemakaian pribadi boleh tanpa
+  batasan selama suara itu, dan audio apa pun yang dibuat darinya, tidak
+  dipublikasikan.
+- **Sebelum mempublikasikan audio apa pun** dengan suara ini (video, stream, media
+  sosial), baca ketentuan terbaru di <https://tyc.rei-yumesaki.net/material/corpus/>
+  dan cantumkan kredit **つくよみちゃんコーパス（CV.夢前黎）**.
+- **Jangan pernah menyebarkan ulang** korpus maupun model hasil training (`.pth`,
+  `.index`). Korpus, model, dan audio hasil konversi tinggal di `C:\AI`, di luar repo
+  ini, dan tidak pernah di-commit.
+
+### 1. Pasang Applio (sekali)
+
+Butuh [uv](https://docs.astral.sh/uv/getting-started/installation/) dan git. Unduhannya
+beberapa GB (torch CUDA dan model pendukung).
+
+```powershell
+git clone https://github.com/IAHispano/Applio C:\AI\Applio
+Set-Location C:\AI\Applio
+uv venv env --python 3.12
+uv pip install --python env\Scripts\python.exe -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cu128 --index-strategy unsafe-best-match
+env\Scripts\python.exe core.py prerequisites
+```
+
+`prerequisites` mengunduh model pendukung (pretrained HiFi-GAN, `rmvpe`, `contentvec`)
+dan ffmpeg ke dalam folder Applio. Index `cu128` dibutuhkan untuk RTX seri 50, sama
+seperti paket suara Cyrene.
+
+### 2. Unduh korpus
+
+Unduh korpus dari <https://tyc.rei-yumesaki.net/material/corpus/> (baca ketentuannya
+di halaman yang sama), ekstrak ke `C:\AI\voices\`, lalu kumpulkan file WAV-nya di satu
+folder dataset, misalnya `C:\AI\voices\tsukuyomi_dataset`.
+
+### 3. Latih model
+
+Selama training GPU dipakai penuh; jangan jalankan Cyrene bersamaan. Dari
+`C:\AI\Applio`:
+
+```powershell
+env\Scripts\python.exe core.py preprocess --model-name tsukuyomi --dataset-path C:\AI\voices\tsukuyomi_dataset --sample-rate 40000
+env\Scripts\python.exe core.py extract --model-name tsukuyomi --f0-method rmvpe --embedder-model contentvec --sample-rate 40000 --gpu 0
+env\Scripts\python.exe core.py train --model-name tsukuyomi --vocoder HiFi-GAN --sample-rate 40000 --batch-size 8 --total-epoch 300 --save-every-epoch 50 --gpu 0
+env\Scripts\python.exe core.py index --model-name tsukuyomi
+```
+
+- `--sample-rate 40000`, `rmvpe`, `contentvec`, dan `HiFi-GAN` harus sama di semua
+  langkah: server Cyrene juga mengonversi dengan `rmvpe` dan `contentvec`.
+- `extract` tanpa `--gpu 0` berjalan di CPU (jauh lebih lambat).
+- `--total-epoch` adalah batas atas; `--save-every-epoch 50` menyimpan checkpoint
+  setiap 50 epoch, jadi kamu bisa berhenti lebih awal (Ctrl+C) kalau checkpoint yang
+  ada sudah bagus.
+- `train` membuat `C:\AI\Applio\logs\tsukuyomi\tsukuyomi.index` di akhir, dan `index`
+  membuatnya kalau belum ada (misalnya setelah training dihentikan dengan Ctrl+C).
+  Keduanya **melewati** index yang sudah ada, walau tetap menulis "generated
+  successfully". Setelah menambah atau mengganti audio di dataset, hapus dulu
+  `tsukuyomi.index` itu sebelum `index`, supaya index dibuat ulang dari fitur yang baru.
+
+### 4. Aktifkan di config.yaml
+
+Hasil training ada di `C:\AI\Applio\logs\tsukuyomi\`:
+
+- `tsukuyomi_<epoch>e_<step>s.pth`: model untuk dipakai, satu per checkpoint
+  (misalnya `tsukuyomi_100e_4500s.pth`). File `G_*.pth` dan `D_*.pth` hanya untuk
+  melanjutkan training; jangan dipakai.
+- `tsukuyomi.index`: index fitur, opsional tapi membuat warna suaranya lebih mirip.
+
+Isi `config.yaml` dengan salah satu checkpoint dulu; yang terbaik dipilih di langkah 5.
+`enabled: true` wajib: selama masih `false`, semua checkpoint terdengar sama (suara
+edge-tts biasa), dan `waifu say` mengingatkan bahwa `tts.rvc.model` tidak dipakai.
+
+```yaml
+tts:
+  rvc:
+    enabled: true
+    applio_dir: C:/AI/Applio
+    model: C:/AI/Applio/logs/tsukuyomi/tsukuyomi_100e_4500s.pth   # checkpoint yang dicoba
+    index: C:/AI/Applio/logs/tsukuyomi/tsukuyomi.index
+    pitch: 4            # sudah diukur: edge-tts sekitar 275 Hz, korpus sekitar 351 Hz
+    index_rate: 0.75
+    protect: 0.33
+    port: 9881
+```
+
+Blok lengkap dengan penjelasan tiap kunci ada di `config.example.yaml`. Lalu:
+
+```powershell
+waifu check
+waifu say "Halo Master, おかえりなさい! Lampu kamar sudah menyala."
+waifu say --raw "Halo Master, おかえりなさい! Lampu kamar sudah menyala."
+```
+
+`waifu check` menampilkan `✓` untuk folder Applio, Python Applio, model, index,
+dan `tools/rvc_server.py`; baris server menunjukkan apakah sudah ada server yang
+menjawab di port itu, dengan model apa (`!` kalau belum: `run`, `say`, dan
+`chat --speak` menyalakannya sendiri; `check` tidak pernah menyalakannya; `✗` kalau
+server yang menjawab memakai model lain). `say --raw` memutar kalimat yang sama
+dengan suara edge-tts biasa, untuk membandingkan.
+
+### 5. Pilih checkpoint
+
+Coba beberapa checkpoint dengan kalimat yang sama: ganti `tts.rvc.model`, lalu
+`waifu say`. Setiap `waifu say` menyalakan server dengan model itu dan mematikannya
+lagi, kecuali sudah ada server yang menjawab di port itu, misalnya dari Cyrene
+autostart: `say` hanya memakainya kalau modelnya sama, dan kalau lain, bicara dengan
+suara biasa sambil menyebut server lama yang harus dihentikan dulu. Jadi tutup dulu
+jendela "Cyrene" selama membandingkan. Untuk mencoba banyak kalimat dengan satu
+checkpoint, `waifu chat --speak` memuat model sekali untuk seluruh obrolan.
+
+Epoch yang terlalu sedikit terdengar kurang mirip; yang terlalu banyak bisa mulai
+serak atau berartefak. Pilih yang paling enak didengar **dan** bahasa Indonesianya
+paling jelas, lalu biarkan checkpoint itu di `tts.rvc.model`.
+
+Menyetel suara:
+
+- **Terlalu tinggi atau rendah:** ubah `pitch` satu-dua semitone.
+- **Kata Indonesia kurang jelas:** turunkan `index_rate` (misalnya `0.5`); makin
+  kecil, makin sedikit warna suara korpus (dan logat Jepangnya) yang ditarik.
+- **Konsonan atau napas berdesis aneh:** turunkan `protect` (misalnya `0.2`);
+  `0.5` mematikan perlindungan ini.
+
+### Pemecahan masalah suara anime
+
+- **Pesan "Suara anime tidak tersedia: ...".** Alasannya ada di pesan itu (path yang
+  tidak ditemukan, server berhenti, atau belum siap). Output server sendiri, termasuk
+  error Python dari Applio, ada di `logs\rvc_server.log` di folder repo.
+- **Start pertama lambat.** Server memuat model, `contentvec`, dan `rmvpe` ke GPU lalu
+  melakukan pemanasan sebelum menjawab; start pertama setelah boot bisa jauh lebih
+  lama dari berikutnya. Batasnya `tts.rvc.startup_timeout_s` (default 180 detik);
+  naikkan kalau log menunjukkan server masih memuat saat waktunya habis.
+- **Port sudah dipakai.** Kalau program lain memakai port 9881, server berhenti saat
+  mulai dan lognya menyebut alamat yang sudah dipakai. Cek dengan
+  `netstat -ano | findstr :9881`, lalu ganti `tts.rvc.port` (misalnya `9882`).
+- **Pesan "Server suara RVC lama dengan model ... masih berjalan".** Server yang
+  sudah menjawab di port itu memuat model lain dari `tts.rvc.model` (misalnya Cyrene
+  autostart masih berjalan dengan checkpoint lama), dan server tidak bisa berganti
+  model. Tutup jendela "Cyrene"-nya, atau hentikan server itu seperti di bawah, lalu
+  coba lagi. Mengganti `tts.rvc.index` saja juga baru terpakai setelah server lama
+  berhenti.
+- **Menghentikan server sendiri.** Server yang dinyalakan Cyrene mati bersama perintah
+  yang menyalakannya, juga saat jendela "Cyrene" ditutup. Server yang kamu jalankan
+  sendiri tetap menyala sampai dihentikan: cari PID-nya dengan
+  `netstat -ano | findstr :9881`, pastikan itu `python.exe` dengan
+  `tasklist /FI "PID eq <pid>"`, lalu `taskkill /PID <pid> /F`.
+- **Path index mengandung `trained`.** Applio mengganti `trained` dengan `added` di
+  mana pun dalam path index (untuk pasangan `trained_*.index`/`added_*.index` dari RVC
+  lama) dan diam-diam mengonversi tanpa index kalau file itu tidak ada. Server
+  menolak index seperti itu dan berhenti saat mulai; lognya menyebut path yang dicari
+  Applio. Pindahkan atau ganti nama folder atau file index supaya path-nya tidak
+  mengandung `trained` (misalnya `logs\tsukuyomi_pretrained\` jadi
+  `logs\tsukuyomi_base\`).
+- **`tts.rvc.host`** harus alamat IPv4 loopback seperti `127.0.0.1`. Server RVC tidak
+  memakai kata sandi, jadi tidak boleh terbuka ke jaringan, dan `localhost` membuat
+  setiap jawaban sekitar 2 detik lebih lambat. Nilai lain ditolak dengan pesan.
+- **Mematikan suara anime:** `tts.rvc.enabled: false`. Cyrene kembali ke suara
+  edge-tts; Applio dan model tidak perlu dihapus.
 
 ## Pemecahan masalah
 
@@ -703,6 +893,21 @@ mendengarkan"; jawaban pertama bisa lebih lama karena model Ollama baru dimuat)
 - [ ] Menutup jendela "Cyrene" menghentikannya; `waifu autostart disable` membuat
       login berikutnya tidak menjalankannya lagi.
 
+**Opsional: suara anime**
+
+- [ ] `waifu check` menampilkan `✓` untuk Folder Applio, Python Applio, Model RVC,
+      Index RVC (kalau diisi), dan Skrip server RVC; baris server boleh `!` (belum
+      berjalan) karena `check` tidak pernah menyalakannya.
+- [ ] `waifu say "Halo Master, おかえりなさい!"` terdengar dengan suara つくよみちゃん,
+      `waifu say --raw` dengan kalimat yang sama terdengar dengan suara edge-tts, dan
+      bahasa Indonesianya tetap jelas.
+- [ ] Ukur tambahan waktunya: dengan `waifu run`, jeda dari selesai bicara sampai dia
+      menjawab bertambah kira-kira 0,3–1 detik dibanding `tts.rvc.enabled: false`.
+- [ ] Dengan `tts.rvc.model` sementara menunjuk file yang tidak ada, `waifu say` tetap
+      bicara dengan suara biasa dan menampilkan "Suara anime tidak tersedia".
+- [ ] Setelah `waifu run` bilang siap, menutup jendelanya juga mematikan server RVC:
+      `netstat -ano | findstr :9881` tidak menampilkan apa-apa lagi.
+
 ## Privasi
 
 - **Suara tidak pernah keluar dari PC.** Rekaman mic, verifikasi suara, dan
@@ -712,7 +917,7 @@ mendengarkan"; jawaban pertama bisa lebih lama karena model Ollama baru dimuat)
     bentuk teks), persona, daftar perangkat, dan hasil perintah perangkat dikirim
     ke API Anthropic. Dengan Ollama, semuanya lokal;
   - dengan engine `edge` di `tts`, teks jawaban Cyrene dikirim ke layanan edge-tts
-    Microsoft untuk dijadikan suara. GPT-SoVITS berjalan lokal.
+    Microsoft untuk dijadikan suara. GPT-SoVITS dan suara anime (RVC) berjalan lokal.
 - **Voiceprint adalah data biometrik.** `data/voiceprint.npy` (dan seluruh `data/`)
   ada di `.gitignore` dan tidak boleh di-commit atau dibagikan. Begitu juga
   `config.yaml` (local key Tuya) dan `models/`.
