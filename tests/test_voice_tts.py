@@ -1,5 +1,7 @@
 import asyncio
+import http.client
 import io
+import logging
 import urllib.error
 import urllib.parse
 
@@ -8,13 +10,15 @@ import pytest
 import soundfile as sf
 from edge_tts.exceptions import NoAudioReceived
 
-from waifu.config import EdgeVoiceConfig, GptSovitsVoiceConfig, TtsConfig
+from waifu.config import EdgeVoiceConfig, GptSovitsVoiceConfig, RvcConfig, TtsConfig
 from waifu.voice.base import TextToSpeech
+from waifu.voice.rvc import RvcClient, RvcError, RvcUnavailableError
 from waifu.voice.tts import (
     EdgeTts,
     GptSovitsTts,
     SpeechRouter,
     TtsError,
+    VoiceConverter,
     build_speech_router,
     clean_for_speech,
     split_by_language,
@@ -234,6 +238,14 @@ def test_gpt_sovits_unreachable_server_raises_tts_error_with_a_hint():
         GptSovitsTts(sovits_voice(), http_get=http_get).synthesize("はい", "ja")
 
 
+def test_gpt_sovits_reply_cut_off_mid_audio_raises_tts_error():
+    def http_get(url, timeout):
+        raise http.client.IncompleteRead(b"RIFF")  # not an OSError
+
+    with pytest.raises(TtsError, match="api_v2"):
+        GptSovitsTts(sovits_voice(), http_get=http_get).synthesize("はい", "ja")
+
+
 def test_gpt_sovits_http_error_raises_tts_error():
     def http_get(url, timeout):
         raise urllib.error.HTTPError(url, 400, "Bad Request", None, None)
@@ -349,6 +361,229 @@ def test_router_requires_an_engine_for_the_default_language():
         SpeechRouter({"ja": FakeEngine()}, default_language="id")
 
 
+# --- SpeechRouter voice conversion -------------------------------------------
+
+
+class FakeConverter:
+    """Stands in for RvcClient: records each call and answers from a script.
+
+    Replies are used in order and the last one repeats; an exception reply is raised.
+    """
+
+    def __init__(self, *replies: tuple[np.ndarray, int] | Exception) -> None:
+        self.replies = list(replies)
+        self.calls: list[tuple[np.ndarray, int]] = []
+
+    def convert(self, audio: np.ndarray, sample_rate: int) -> tuple[np.ndarray, int]:
+        self.calls.append((audio.copy(), sample_rate))
+        reply = self.replies.pop(0) if len(self.replies) > 1 else self.replies[0]
+        if isinstance(reply, Exception):
+            raise reply
+        return reply
+
+
+CONVERTED = (np.full(500, 0.5, dtype=np.float32), 40000)
+MIXED_TEXT = "Halo, はい, Master"
+
+
+def plain_router() -> SpeechRouter:
+    return SpeechRouter({"id": FakeEngine(), "ja": FakeEngine()}, default_language="id")
+
+
+class FakeClock:
+    def __init__(self) -> None:
+        self.now = 1000.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+def converting_router(converter: VoiceConverter, clock: FakeClock | None = None) -> SpeechRouter:
+    return SpeechRouter(
+        {"id": FakeEngine(), "ja": FakeEngine()},
+        default_language="id",
+        converter=converter,
+        clock=clock or FakeClock(),
+    )
+
+
+def conversion_logs(caplog: pytest.LogCaptureFixture, level: int) -> list[str]:
+    return [
+        record.getMessage()
+        for record in caplog.records
+        if record.name == "waifu.voice.tts" and record.levelno == level
+    ]
+
+
+def test_router_converts_the_joined_audio_once():
+    converter = FakeConverter(CONVERTED)
+    plain_audio, plain_rate = plain_router().synthesize(MIXED_TEXT)
+
+    converting_router(converter).synthesize(MIXED_TEXT)
+
+    [(sent_audio, sent_rate)] = converter.calls
+    assert sent_rate == plain_rate
+    assert np.array_equal(sent_audio, plain_audio)
+
+
+def test_router_returns_the_converted_audio_at_the_converters_rate():
+    audio, sample_rate = converting_router(FakeConverter(CONVERTED)).synthesize(MIXED_TEXT)
+
+    assert sample_rate == 40000
+    assert np.array_equal(audio, CONVERTED[0])
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        RvcError("Server suara RVC tidak bisa dihubungi"),
+        ConnectionRefusedError(10061, "refused"),
+        TimeoutError("timed out"),
+    ],
+    ids=["rvc-error", "os-error", "timeout"],
+)
+def test_router_speaks_the_unconverted_audio_when_conversion_fails(error):
+    plain_audio, plain_rate = plain_router().synthesize(MIXED_TEXT)
+
+    audio, sample_rate = converting_router(FakeConverter(error)).synthesize(MIXED_TEXT)
+
+    assert sample_rate == plain_rate
+    assert np.array_equal(audio, plain_audio)
+
+
+def test_router_warns_once_per_conversion_failure_streak(caplog):
+    router = converting_router(FakeConverter(RvcError("server mati")))
+
+    with caplog.at_level(logging.DEBUG, logger="waifu.voice.tts"):
+        router.synthesize(MIXED_TEXT)
+        router.synthesize(MIXED_TEXT)
+
+    [warning] = conversion_logs(caplog, logging.WARNING)
+    assert "server mati" in warning
+    assert len(conversion_logs(caplog, logging.DEBUG)) == 1
+
+
+def test_router_logs_when_conversion_works_again_and_warns_on_a_new_streak(caplog):
+    converter = FakeConverter(RvcError("mati"), RvcError("mati"), CONVERTED, RvcError("lagi"))
+    router = converting_router(converter)
+
+    with caplog.at_level(logging.DEBUG, logger="waifu.voice.tts"):
+        router.synthesize(MIXED_TEXT)
+        router.synthesize(MIXED_TEXT)
+        caplog.clear()
+        audio, sample_rate = router.synthesize(MIXED_TEXT)
+        recovery = conversion_logs(caplog, logging.INFO)
+        router.synthesize(MIXED_TEXT)
+
+    assert sample_rate == 40000
+    assert np.array_equal(audio, CONVERTED[0])
+    assert len(recovery) == 1
+    [warning] = conversion_logs(caplog, logging.WARNING)
+    assert "lagi" in warning
+
+
+def test_router_logs_nothing_while_conversion_keeps_working(caplog):
+    router = converting_router(FakeConverter(CONVERTED))
+
+    with caplog.at_level(logging.DEBUG, logger="waifu.voice.tts"):
+        router.synthesize(MIXED_TEXT)
+        router.synthesize(MIXED_TEXT)
+
+    assert [record for record in caplog.records if record.name == "waifu.voice.tts"] == []
+
+
+UNREACHABLE = [
+    RvcUnavailableError("Server suara RVC tidak bisa dihubungi"),
+    ConnectionRefusedError(10061, "refused"),
+    TimeoutError("timed out"),
+]
+
+
+@pytest.mark.parametrize("error", UNREACHABLE, ids=["rvc-unavailable", "refused", "timeout"])
+def test_router_skips_conversion_for_a_minute_after_the_converter_is_unreachable(error, caplog):
+    # Each attempt at a dead server costs ~2 s on Windows (30 s at a stuck one) while
+    # the mic waits for her to finish speaking.
+    clock = FakeClock()
+    converter = FakeConverter(error)
+    router = converting_router(converter, clock)
+    plain_audio, _ = plain_router().synthesize(MIXED_TEXT)
+
+    with caplog.at_level(logging.DEBUG, logger="waifu.voice.tts"):
+        router.synthesize(MIXED_TEXT)
+        clock.now += 59.9
+        audio, _ = router.synthesize(MIXED_TEXT)
+
+    assert len(converter.calls) == 1
+    assert np.array_equal(audio, plain_audio)
+    assert len(conversion_logs(caplog, logging.WARNING)) == 1
+
+
+def test_router_tries_the_converter_again_after_the_pause():
+    clock = FakeClock()
+    converter = FakeConverter(RvcUnavailableError("mati"), CONVERTED)
+    router = converting_router(converter, clock)
+
+    router.synthesize(MIXED_TEXT)
+    clock.now += 60
+    audio, sample_rate = router.synthesize(MIXED_TEXT)
+
+    assert len(converter.calls) == 2
+    assert (sample_rate, np.array_equal(audio, CONVERTED[0])) == (40000, True)
+
+
+def test_router_pauses_again_when_the_retry_finds_the_converter_still_unreachable():
+    clock = FakeClock()
+    converter = FakeConverter(RvcUnavailableError("mati"))
+    router = converting_router(converter, clock)
+
+    router.synthesize(MIXED_TEXT)
+    clock.now += 60
+    router.synthesize(MIXED_TEXT)
+    clock.now += 30
+    router.synthesize(MIXED_TEXT)
+
+    assert len(converter.calls) == 2
+
+
+def test_router_converts_every_reply_again_once_a_retry_succeeds(caplog):
+    clock = FakeClock()
+    converter = FakeConverter(RvcUnavailableError("mati"), CONVERTED)
+    router = converting_router(converter, clock)
+
+    with caplog.at_level(logging.INFO, logger="waifu.voice.tts"):
+        router.synthesize(MIXED_TEXT)
+        clock.now += 60
+        router.synthesize(MIXED_TEXT)
+        audio, _ = router.synthesize(MIXED_TEXT)
+
+    assert len(converter.calls) == 3
+    assert np.array_equal(audio, CONVERTED[0])
+    assert len(conversion_logs(caplog, logging.INFO)) == 1
+
+
+def test_router_keeps_trying_a_converter_that_answers_with_an_error():
+    # A server that answered (HTTP 500 for one clip, say) costs no extra wait.
+    converter = FakeConverter(RvcError("Server suara RVC gagal mengubah suara (HTTP 500)"))
+    router = converting_router(converter)
+
+    router.synthesize(MIXED_TEXT)
+    router.synthesize(MIXED_TEXT)
+
+    assert len(converter.calls) == 2
+
+
+def test_router_speaks_the_plain_voice_when_the_rvc_server_is_unreachable():
+    def refuse(url, data, headers, timeout):
+        raise urllib.error.URLError(ConnectionRefusedError(10061, "refused"))
+
+    client = RvcClient(RvcConfig(), http_post=refuse, http_get=refuse)
+    plain_audio, _ = plain_router().synthesize(MIXED_TEXT)
+
+    audio, _ = converting_router(client).synthesize(MIXED_TEXT)
+
+    assert np.array_equal(audio, plain_audio)
+
+
 # --- build_speech_router -----------------------------------------------------
 
 
@@ -369,3 +604,13 @@ def test_build_speech_router_uses_gpt_sovits_where_configured():
 
     assert isinstance(router.engines["id"], EdgeTts)
     assert isinstance(router.engines["ja"], GptSovitsTts)
+
+
+def test_build_speech_router_passes_the_converter_through():
+    converter = FakeConverter(CONVERTED)
+
+    assert build_speech_router(TtsConfig(), converter=converter).converter is converter
+
+
+def test_build_speech_router_has_no_converter_by_default():
+    assert build_speech_router(TtsConfig()).converter is None
