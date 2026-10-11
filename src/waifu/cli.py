@@ -590,7 +590,9 @@ def _brain_check(config: AppConfig) -> Check:
         return _ollama_check(config.brain.ollama)
     model = config.brain.claude.model
     if os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN"):
-        return OK, f"Claude ({model}): ANTHROPIC_API_KEY sudah diatur"
+        workspace_id = os.environ.get("ANTHROPIC_WORKSPACE_ID", "").strip()
+        workspace = f" (workspace {workspace_id})" if workspace_id else ""
+        return OK, f"Claude ({model}): ANTHROPIC_API_KEY sudah diatur{workspace}"
     return WARN, (
         f"Claude ({model}): ANTHROPIC_API_KEY belum diatur; "
         "profil dari 'ant auth login' mungkin tetap bisa dipakai"

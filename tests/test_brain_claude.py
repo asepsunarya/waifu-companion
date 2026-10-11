@@ -709,3 +709,70 @@ def test_real_sdk_sends_the_request_and_the_fallback_echo_on_the_wire():
     assert echoed[0]["from"] == {"model": "claude-opus-5-5"}
     assert second_body["messages"][2]["content"][0]["tool_use_id"] == "toolu_1"
     assert reply.text == "Sudah, Master!"
+
+
+def _real_client_capturing_headers(monkeypatch, sent_headers: list[httpx2.Headers]) -> None:
+    real_anthropic = anthropic.Anthropic
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        sent_headers.append(request.headers)
+        return httpx2.Response(
+            200,
+            json={
+                "id": "msg_1",
+                "type": "message",
+                "role": "assistant",
+                "model": "claude-opus-5-5",
+                "content": [{"type": "text", "text": "Halo, Master!"}],
+                "stop_reason": "end_turn",
+                "usage": {"input_tokens": 10, "output_tokens": 5},
+            },
+        )
+
+    def build(**kwargs: object) -> anthropic.Anthropic:
+        transport = httpx2.MockTransport(handler)
+        return real_anthropic(
+            api_key="test-key", http_client=httpx2.Client(transport=transport), **kwargs
+        )
+
+    monkeypatch.setattr(claude_module.anthropic, "Anthropic", build)
+
+
+def test_workspace_id_from_the_environment_is_sent_with_every_request(monkeypatch):
+    # Organization-level API keys are rejected unless the request names a workspace.
+    monkeypatch.setenv("ANTHROPIC_WORKSPACE_ID", " wrkspc_test123 ")
+    sent_headers: list[httpx2.Headers] = []
+    _real_client_capturing_headers(monkeypatch, sent_headers)
+
+    reply = ClaudeBrain(BrainConfig(backend="claude"), house(), SYSTEM_PROMPT).respond(
+        "halo", now=NOW
+    )
+
+    assert reply.text == "Halo, Master!"
+    assert sent_headers[0]["anthropic-workspace-id"] == "wrkspc_test123"
+
+
+def test_no_workspace_header_is_sent_without_the_variable(monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_WORKSPACE_ID", raising=False)
+    sent_headers: list[httpx2.Headers] = []
+    _real_client_capturing_headers(monkeypatch, sent_headers)
+
+    ClaudeBrain(BrainConfig(backend="claude"), house(), SYSTEM_PROMPT).respond("halo", now=NOW)
+
+    assert "anthropic-workspace-id" not in sent_headers[0]
+
+
+def test_key_without_a_workspace_gets_an_apology_that_names_the_fix():
+    request = httpx2.Request("POST", "https://api.anthropic.com/v1/messages")
+    error = anthropic.BadRequestError(
+        "This API key is not scoped to a workspace, so this request must include the "
+        "anthropic-workspace-id header with the ID of the workspace to use.",
+        response=httpx2.Response(400, request=request),
+        body=None,
+    )
+    brain = make_brain(FakeAnthropic(error))
+
+    reply = brain.respond("halo", now=NOW)
+
+    assert "ANTHROPIC_WORKSPACE_ID" in reply.text
+    assert "workspace" in reply.text

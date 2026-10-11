@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
@@ -54,6 +55,14 @@ _RATE_LIMITED = "Maaf Master, server Claude sedang sibuk. Coba lagi sebentar lag
 _NO_CONNECTION = "Maaf Master, aku tidak bisa terhubung ke server Claude."
 _SERVER_ERROR = "Maaf Master, server Claude sedang bermasalah. Coba lagi nanti, ya."
 _REQUEST_FAILED = "Maaf Master, ada masalah saat menghubungi Claude."
+_NEEDS_WORKSPACE = (
+    "Maaf Master, API key Claude ini belum terikat ke workspace. Isi ANTHROPIC_WORKSPACE_ID "
+    "dengan ID workspace-nya, atau buat API key di dalam sebuah workspace."
+)
+# Organization-level API keys must name a workspace on every request; the SDK only
+# reads ANTHROPIC_WORKSPACE_ID for federated logins, so the header is added here.
+WORKSPACE_ENV = "ANTHROPIC_WORKSPACE_ID"
+_WORKSPACE_HEADER = "anthropic-workspace-id"
 _NOT_RUN_ROUND_LIMIT = "Tidak dijalankan: batas langkah untuk satu permintaan sudah tercapai."
 _NOT_RUN_CUT_OFF = "Tidak dijalankan: jawaban terpotong sebelum perintahnya lengkap."
 
@@ -103,7 +112,12 @@ class ClaudeBrain(Brain):
                 exc.request_id,
                 exc.message,
             )
-            apology = _SERVER_ERROR if exc.status_code >= 500 else _REQUEST_FAILED
+            if exc.status_code >= 500:
+                apology = _SERVER_ERROR
+            elif _WORKSPACE_HEADER in str(exc.message):
+                apology = _NEEDS_WORKSPACE
+            else:
+                apology = _REQUEST_FAILED
             return self._roll_back(turn_start, apology, tool_calls)
         except Exception:
             logger.exception("Unexpected error during a Claude turn")
@@ -174,7 +188,11 @@ class ClaudeBrain(Brain):
     def _client_or_create(self) -> anthropic.Anthropic:
         """The injected or cached client; a new one is kept only once it has credentials."""
         if self._client is None:
-            client = anthropic.Anthropic(timeout=_REQUEST_TIMEOUT, max_retries=_MAX_RETRIES)
+            workspace_id = os.environ.get(WORKSPACE_ENV, "").strip()
+            headers = {_WORKSPACE_HEADER: workspace_id} if workspace_id else None
+            client = anthropic.Anthropic(
+                timeout=_REQUEST_TIMEOUT, max_retries=_MAX_RETRIES, default_headers=headers
+            )
             if client.api_key is None and client.auth_token is None and client.credentials is None:
                 # The SDK would only fail later with a bare TypeError while building the request.
                 raise anthropic.CredentialsError("no Claude API key, auth token, or profile found")

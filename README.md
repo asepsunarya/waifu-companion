@@ -213,6 +213,13 @@ Pilih dengan `brain.backend` di `config.yaml`.
    Atau, kalau kamu memakai CLI `ant`, login dengan `ant auth login`; SDK Anthropic
    otomatis memakai profil aktif itu kalau `ANTHROPIC_API_KEY` tidak diatur.
    Jangan menaruh kunci API di `config.yaml`.
+
+   Kalau Claude menjawab "API key ini belum terikat ke workspace" (HTTP 400 yang
+   menyebut `anthropic-workspace-id`), kuncimu adalah kunci level organisasi. Pilih salah satu:
+   buat API key baru dari dalam sebuah workspace di Claude Console, atau tambahkan juga
+   variabel `ANTHROPIC_WORKSPACE_ID` berisi ID workspace (berawalan `wrkspc_`). Cyrene
+   mengirimkannya sebagai header di setiap request, dan `waifu check` menampilkannya.
+   Terminal yang dibuka sebelum variabel ditambahkan tidak melihatnya sampai dibuka ulang.
 2. Ubah backend:
 
    ```yaml

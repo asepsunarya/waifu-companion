@@ -841,6 +841,21 @@ def test_check_with_claude_and_no_key_warns_that_a_login_profile_may_work(
     assert "Ollama" not in out
 
 
+def test_check_with_claude_key_and_workspace_names_the_workspace(
+    home, nothing_installed, capsys, monkeypatch
+):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    monkeypatch.setenv("ANTHROPIC_WORKSPACE_ID", "wrkspc_test123")
+    write_config(home, "brain:\n  backend: claude\n")
+
+    cli.main(["check"])
+
+    claude_line = next(line for line in capsys.readouterr().out.splitlines() if "Claude" in line)
+    assert claude_line.startswith("✓")
+    assert "wrkspc_test123" in claude_line
+    assert "sk-ant-test" not in claude_line
+
+
 def test_check_with_an_invalid_config_reports_it_and_exits_1(home, nothing_installed, capsys):
     write_config(home, "brain:\n  backend: gpt\n")
 
