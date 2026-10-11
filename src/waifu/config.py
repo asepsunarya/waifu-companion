@@ -127,6 +127,33 @@ class GptSovitsVoiceConfig(_Strict):
 VoiceConfig = Annotated[EdgeVoiceConfig | GptSovitsVoiceConfig, Field(discriminator="engine")]
 
 
+class RvcConfig(_Strict):
+    """Voice conversion of every spoken reply through an RVC model served by Applio."""
+
+    enabled: bool = False
+    applio_dir: Path = Path("C:/AI/Applio")
+    python: Path | None = None
+    model: Path | None = None
+    index: Path | None = None
+    # +4 semitones lifts edge-tts (median ~275 Hz) to the Tsukuyomi corpus (~351 Hz).
+    pitch: int = Field(default=4, ge=-24, le=24)
+    index_rate: float = Field(default=0.75, ge=0.0, le=1.0)
+    protect: float = Field(default=0.33, ge=0.0, le=0.5)
+    host: str = "127.0.0.1"
+    port: int = Field(default=9881, ge=1024, le=65535)
+    startup_timeout_s: float = Field(default=180.0, gt=0)
+
+    @property
+    def python_path(self) -> Path:
+        return self.python or self.applio_dir / "env" / "Scripts" / "python.exe"
+
+    @model_validator(mode="after")
+    def _enabled_needs_model(self) -> RvcConfig:
+        if self.enabled and self.model is None:
+            raise ValueError("tts.rvc.model (the .pth file) is required when tts.rvc is enabled")
+        return self
+
+
 class TtsConfig(_Strict):
     voices: dict[str, VoiceConfig] = Field(
         default_factory=lambda: {
@@ -135,6 +162,7 @@ class TtsConfig(_Strict):
         }
     )
     default_language: str = "id"
+    rvc: RvcConfig = Field(default_factory=RvcConfig)
 
     @model_validator(mode="after")
     def _default_language_has_voice(self) -> TtsConfig:

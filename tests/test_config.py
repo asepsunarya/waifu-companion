@@ -103,3 +103,26 @@ def test_config_errors_never_echo_secret_values(tmp_path):
         load_config(write_yaml(tmp_path, text))
     assert "device_id" in str(caught.value)
     assert "SUPERSECRETKEY" not in str(caught.value)
+
+
+def test_rvc_is_off_by_default_with_a_tsukuyomi_pitch_shift():
+    rvc = AppConfig().tts.rvc
+    assert rvc.enabled is False
+    assert rvc.pitch == 4
+    assert rvc.host == "127.0.0.1"
+
+
+def test_enabled_rvc_needs_a_model(tmp_path):
+    with pytest.raises(ConfigError, match="tts.rvc.model"):
+        load_config(write_yaml(tmp_path, "tts:\n  rvc:\n    enabled: true\n"))
+
+
+def test_rvc_python_defaults_to_the_applio_env(tmp_path):
+    text = "tts:\n  rvc:\n    applio_dir: D:/Applio\n"
+    rvc = load_config(write_yaml(tmp_path, text)).tts.rvc
+    assert rvc.python_path == Path("D:/Applio/env/Scripts/python.exe")
+
+
+def test_rvc_pitch_is_bounded(tmp_path):
+    with pytest.raises(ConfigError, match="pitch"):
+        load_config(write_yaml(tmp_path, "tts:\n  rvc:\n    pitch: 40\n"))
