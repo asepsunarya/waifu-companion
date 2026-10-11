@@ -8,7 +8,7 @@ import pytest
 
 from waifu.config import SttConfig
 from waifu.voice import stt
-from waifu.voice.base import Transcript
+from waifu.voice.base import SpeechToText, Transcript
 from waifu.voice.stt import SttError, WhisperStt, register_cuda_dll_dirs
 
 ONE_SECOND = np.zeros(16000, dtype=np.float32)
@@ -194,6 +194,72 @@ def test_cuda_dll_dirs_are_registered_right_before_the_model_loads():
     whisper.transcribe(ONE_SECOND, 16000)
 
     assert order == ["register", "load"]
+
+
+def recording_stt(order: list[str], model: FakeWhisperModel | None = None) -> WhisperStt:
+    """A WhisperStt whose DLL registration and model load append to `order`."""
+
+    def register() -> list[str]:
+        order.append("register")
+        return []
+
+    def factory(cfg: SttConfig) -> FakeWhisperModel:
+        order.append("load")
+        return model or FakeWhisperModel()
+
+    return WhisperStt(SttConfig(), "Cyrene", model_factory=factory, register_dlls=register)
+
+
+def test_preload_registers_cuda_dlls_and_loads_the_model_before_any_audio():
+    order: list[str] = []
+    whisper = recording_stt(order)
+
+    whisper.preload()
+
+    assert order == ["register", "load"]
+
+
+def test_preloading_twice_loads_the_model_once():
+    order: list[str] = []
+    whisper = recording_stt(order)
+
+    whisper.preload()
+    whisper.preload()
+
+    assert order == ["register", "load"]
+
+
+def test_transcribe_after_preload_reuses_the_preloaded_model():
+    order: list[str] = []
+    whisper = recording_stt(order, FakeWhisperModel(([segment("halo")], "id")))
+    whisper.preload()
+
+    result = whisper.transcribe(ONE_SECOND, 16000)
+
+    assert result == Transcript("halo", "id")
+    assert order == ["register", "load"]
+
+
+def test_missing_cuda_library_during_preload_becomes_stt_error_naming_the_dll():
+    def factory(cfg: SttConfig) -> FakeWhisperModel:
+        raise RuntimeError("Library cublas64_12.dll is not found or cannot be loaded")
+
+    whisper = WhisperStt(SttConfig(), "Cyrene", model_factory=factory, register_dlls=lambda: [])
+
+    with pytest.raises(SttError, match="cublas64_12.dll"):
+        whisper.preload()
+
+
+def test_speech_to_text_without_a_heavy_model_preloads_as_a_no_op():
+    class CannedStt(SpeechToText):
+        def transcribe(self, audio: np.ndarray, sample_rate: int) -> Transcript:
+            return Transcript("halo", "id")
+
+    canned = CannedStt()
+
+    canned.preload()
+
+    assert canned.transcribe(ONE_SECOND, 16000) == Transcript("halo", "id")
 
 
 def test_missing_cuda_library_at_load_becomes_stt_error_naming_the_dll(caplog):

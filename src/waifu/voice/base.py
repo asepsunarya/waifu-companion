@@ -33,6 +33,10 @@ class SpeechToText(ABC):
     def transcribe(self, audio: np.ndarray, sample_rate: int) -> Transcript:
         """Return the spoken text; an empty string means nothing usable was heard."""
 
+    def preload(self) -> None:
+        """Load heavy models now instead of on first use."""
+        return None
+
 
 class TextToSpeech(ABC):
     @abstractmethod
@@ -44,3 +48,7 @@ class SpeakerEmbedder(ABC):
     @abstractmethod
     def embed(self, audio: np.ndarray, sample_rate: int) -> np.ndarray:
         """Return a 1-D speaker embedding for the utterance."""
+
+    def preload(self) -> None:
+        """Load heavy models now instead of on first use."""
+        return None

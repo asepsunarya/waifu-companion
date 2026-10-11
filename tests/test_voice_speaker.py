@@ -151,6 +151,57 @@ def test_voiceprint_from_a_different_model_asks_for_a_new_enrollment(tmp_path):
         verifier.verify(speech(OWNER), SAMPLE_RATE)
 
 
+class PreloadCountingEmbedder(FakeEmbedder):
+    def __init__(self) -> None:
+        self.preloads = 0
+
+    def preload(self) -> None:
+        self.preloads += 1
+
+
+def test_embedder_without_a_heavy_model_preloads_as_a_no_op():
+    embedder = FakeEmbedder()
+
+    embedder.preload()
+
+    np.testing.assert_array_equal(embedder.embed(speech(OWNER), SAMPLE_RATE), OWNER)
+
+
+def test_verifier_preload_preloads_the_embedder_and_reads_the_voiceprint_from_disk(tmp_path):
+    make_verifier(tmp_path).enroll(owner_samples(), SAMPLE_RATE)
+    embedder = PreloadCountingEmbedder()
+    verifier = SpeakerVerifier(embedder, tmp_path / "voiceprint.npy", threshold=0.5)
+
+    verifier.preload()
+    (tmp_path / "voiceprint.npy").unlink()
+
+    assert embedder.preloads == 1
+    assert verifier.verify(speech(OWNER), SAMPLE_RATE)[0]
+
+
+def test_verifier_preloading_twice_loads_the_model_and_voiceprint_once(tmp_path):
+    make_verifier(tmp_path).enroll(owner_samples(), SAMPLE_RATE)
+    loader = FakeLoader()
+    verifier = SpeakerVerifier(make_ecapa(loader), tmp_path / "voiceprint.npy", threshold=0.5)
+
+    verifier.preload()
+    (tmp_path / "voiceprint.npy").unlink()
+    verifier.preload()
+
+    assert len(loader.loads) == 1
+    assert verifier.enrolled
+
+
+def test_verifier_preload_without_voiceprint_tells_the_owner_to_enroll(tmp_path):
+    embedder = PreloadCountingEmbedder()
+    verifier = SpeakerVerifier(embedder, tmp_path / "voiceprint.npy", threshold=0.5)
+
+    with pytest.raises(SpeakerError, match="Jalankan 'waifu enroll' dulu"):
+        verifier.preload()
+
+    assert embedder.preloads == 0
+
+
 class FakeLoader:
     """Stands in for loading the speechbrain model; records how it was asked to load."""
 
@@ -184,6 +235,19 @@ def test_ecapa_embedder_loads_the_model_once_on_first_embed():
     assert loader.loads == []
 
     embedder.embed(np.zeros(SAMPLE_RATE, dtype=np.float32), SAMPLE_RATE)
+    embedder.embed(np.zeros(SAMPLE_RATE, dtype=np.float32), SAMPLE_RATE)
+
+    assert loader.loads == [
+        ("speechbrain/spkrec-ecapa-voxceleb", Path("models/spkrec-ecapa"), "cpu")
+    ]
+
+
+def test_ecapa_preload_loads_the_model_once_and_embed_reuses_it():
+    loader = FakeLoader()
+    embedder = make_ecapa(loader)
+
+    embedder.preload()
+    embedder.preload()
     embedder.embed(np.zeros(SAMPLE_RATE, dtype=np.float32), SAMPLE_RATE)
 
     assert loader.loads == [

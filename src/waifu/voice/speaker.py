@@ -76,6 +76,14 @@ class SpeakerVerifier:
         score = self.score(audio, sample_rate)
         return score >= self.threshold, score
 
+    def preload(self) -> None:
+        """Read the voiceprint, then load the embedder model, so the first utterance is fast.
+
+        The voiceprint goes first: a missing enrollment fails before the slow model load.
+        """
+        self._load_voiceprint()
+        self._embedder.preload()
+
     def _normalised_embedding(self, audio: np.ndarray, sample_rate: int) -> np.ndarray:
         return _l2_normalise(self._embedder.embed(audio, sample_rate))
 
@@ -124,6 +132,9 @@ class EcapaEmbedder(SpeakerEmbedder):
         encoder = self._ensure_loaded()
         embedding = encoder(_resample_to_model_rate(audio, sample_rate))
         return np.asarray(embedding, dtype=np.float32).reshape(-1)
+
+    def preload(self) -> None:
+        self._ensure_loaded()
 
     def _ensure_loaded(self) -> SpeakerEncoder:
         if self._encoder is None:

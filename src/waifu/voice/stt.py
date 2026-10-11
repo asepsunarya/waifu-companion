@@ -117,6 +117,10 @@ class WhisperStt(SpeechToText):
             text = " ".join(_usable_texts(segments))
         return Transcript(text, language)
 
+    def preload(self) -> None:
+        with _cuda_errors_as_stt_error():
+            self._loaded_model()
+
     def _loaded_model(self) -> Any:
         if self._model is None:
             self._register_dlls()
