@@ -146,38 +146,42 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 15 · **Files:** `README.md` · **Scope:** S
 
-## Task 17: Single-instance lock
+## Task 17: Single-instance lock ✅
 
 **Acceptance criteria:**
-- [ ] A second `InstanceLock` on the same file (from another process) cannot acquire while the first holds it; release frees it
-- [ ] A killed holder leaves no stale lock (OS lock, not a PID file)
-- [ ] Parent folder is created; works as a context manager
+- [x] A second `InstanceLock` on the same file (from another process) cannot acquire while the first holds it; release frees it
+- [x] A killed holder leaves no stale lock (OS lock, not a PID file)
+- [x] Parent folder is created; works as a context manager
 
 **Dependencies:** none · **Files:** `src/waifu/single_instance.py`, `tests/test_single_instance.py` · **Scope:** S
 
-## Task 18: Autostart Run-key manager
+## Task 18: Autostart Run-key manager ✅
 
 **Acceptance criteria:**
-- [ ] `build_command` quotes paths with spaces and round-trips through Windows command-line parsing
-- [ ] `enable`/`disable`/`status` work against an injected fake Run key; `status` flags a stale command
-- [ ] `WindowsRunKey` only touches `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`; no test writes the real registry
+- [x] `build_command` quotes paths with spaces and round-trips through Windows command-line parsing
+- [x] `enable`/`disable`/`status` work against an injected fake Run key; `status` flags a stale command
+- [x] `WindowsRunKey` only touches `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`; no test writes the real registry
 
 **Dependencies:** none · **Files:** `src/waifu/autostart.py`, `tests/test_autostart.py` · **Scope:** S
 
-## Task 19: Preload Whisper and speaker models
+## Task 19: Preload Whisper and speaker models ✅
 
 **Acceptance criteria:**
-- [ ] `WhisperStt.preload()` loads the model once (same lazy path as `transcribe`)
-- [ ] `SpeakerVerifier.preload()` loads the embedder model and the voiceprint once
-- [ ] Preloading twice does not load twice
+- [x] `WhisperStt.preload()` loads the model once (same lazy path as `transcribe`)
+- [x] `SpeakerVerifier.preload()` loads the embedder model and the voiceprint once
+- [x] Preloading twice does not load twice
 
 **Dependencies:** none · **Files:** `src/waifu/voice/stt.py`, `src/waifu/voice/speaker.py` + tests · **Scope:** S
 
-## Task 20: CLI autostart, run options, log file, README
+## Task 20: CLI autostart, run options, log file, README ✅
 
 **Acceptance criteria:**
-- [ ] `waifu autostart enable|disable|status` per SPEC, including the voiceprint/config refusal and `--force`
-- [ ] `run` takes the instance lock first, honours `--startup-delay`, preloads models, then prints/announces ready (`--announce`)
-- [ ] Global `--log-file` writes a rotating UTF-8 log; README (Indonesian) documents autostart, how to stop/disable it, and the log
+- [x] `waifu autostart enable|disable|status` per SPEC, including the voiceprint/config refusal and `--force`
+- [x] `run` takes the instance lock first, honours `--startup-delay`, preloads models, then prints/announces ready (`--announce`)
+- [x] Global `--log-file` writes a rotating UTF-8 log; README (Indonesian) documents autostart, how to stop/disable it, and the log
+- [x] Every error that ends a command reaches the log file at ERROR (traceback only with `-v`); a refused `run` logs a WARNING
+- [x] `--announce` leaves the follow-up window closed; `enroll` and `speaker-test` refuse (exit 2) while the run lock is held
+- [x] `autostart status` checks the lock and log in the registered project folder, and from another folder points there instead of calling the command stale
+- [x] README names the Task Manager entry ("Windows Command Processor") and says the log holds transcripts (Privasi)
 
 **Dependencies:** 17, 18, 19 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py`, `README.md` · **Scope:** M
