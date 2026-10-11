@@ -88,6 +88,9 @@ devices:
     ir:
       backend: broadlink   # broadlink | tuya
       host: 192.168.1.50
+    # Tombol remote yang ingin dipelajari (`waifu learn-ir ac --missing`).
+    commands: [on, off, temp_16, temp_17, temp_18, temp_19, temp_20, temp_21, temp_22,
+               temp_23, temp_24, temp_25, temp_26, temp_27, temp_28, temp_29, temp_30]
 
   - id: proyektor
     name: Proyektor Wanbo Dali
@@ -96,6 +99,7 @@ devices:
     ir:
       backend: broadlink
       host: 192.168.1.50
+    commands: [power, volume_up, volume_down, home, back, ok]
 
   - id: komputer
     name: Komputer
