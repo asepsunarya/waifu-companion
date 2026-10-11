@@ -22,40 +22,40 @@ testable without hardware; real-hardware checks are a manual checklist at the en
 - [x] Task 1: Config models and module contracts
 
 ### Phase 2: Devices
-- [ ] Task 2: Device registry, mock device, IR code store, IR device
-- [ ] Task 3: Tuya light, plug, and IR blaster
-- [ ] Task 4: Broadlink IR blaster
-- [ ] Task 5: PC power device
-- [ ] Task 6: Registry factory from config (incl. dry-run)
+- [x] Task 2: Device registry, mock device, IR code store, IR device
+- [x] Task 3: Tuya light, plug, and IR blaster
+- [x] Task 4: Broadlink IR blaster
+- [x] Task 5: PC power device
+- [x] Task 6: Registry factory from config (incl. dry-run)
 
 ### Checkpoint: Devices
-- [ ] Full suite and ruff clean; `build_registry(load_config("config.example.yaml"), dry_run=True)` lists all example devices
+- [x] Full suite and ruff clean; `build_registry(load_config("config.example.yaml"), dry_run=True)` lists all example devices
 
 ### Phase 3: Voice
-- [ ] Task 7: Audio I/O and energy segmenter
-- [ ] Task 8: Speaker verification
-- [ ] Task 9: Whisper speech-to-text
-- [ ] Task 10: Bilingual text-to-speech router
+- [x] Task 7: Audio I/O and energy segmenter
+- [x] Task 8: Speaker verification
+- [x] Task 9: Whisper speech-to-text
+- [x] Task 10: Bilingual text-to-speech router
 
 ### Checkpoint: Voice
-- [ ] Full suite and ruff clean
+- [x] Full suite and ruff clean
 
 ### Phase 4: Brain
-- [ ] Task 11: Tool specs, persona prompt, session clock
-- [ ] Task 12: Claude backend
-- [ ] Task 13: Ollama backend and brain factory
+- [x] Task 11: Tool specs, persona prompt, session clock
+- [x] Task 12: Claude backend
+- [x] Task 13: Ollama backend and brain factory
 
 ### Checkpoint: Brain
-- [ ] Full suite and ruff clean; fake-client tests show a two-device request producing two tool calls and one reply
+- [x] Full suite and ruff clean; fake-client tests show a two-device request producing two tool calls and one reply
 
 ### Phase 5: App
-- [ ] Task 14: Wake gate and Assistant loop
-- [ ] Task 15: CLI and `python -m waifu`
-- [ ] Task 16: README setup guide and hardware checklist
+- [x] Task 14: Wake gate and Assistant loop
+- [x] Task 15: CLI and `python -m waifu`
+- [x] Task 16: README setup guide and hardware checklist
 
 ### Checkpoint: Complete
-- [ ] All acceptance criteria met, full suite and ruff clean
-- [ ] `waifu chat --dry-run` and `waifu devices --dry-run` run against the example config
+- [x] All acceptance criteria met, full suite and ruff clean
+- [x] `waifu chat --dry-run` and `waifu devices --dry-run` run against the example config
 - [ ] Review with human before real-hardware testing
 
 ## Risks and Mitigations
