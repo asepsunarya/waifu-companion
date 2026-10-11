@@ -12,20 +12,26 @@ import http.client
 import io
 import json
 import logging
+import math
 import os
 import re
 import sys
 import urllib.request
+from collections import deque
 from collections.abc import Callable, Iterator, Sequence
+from contextlib import contextmanager
 from importlib import import_module
 from importlib.util import find_spec
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from time import sleep
 
 import numpy as np
 from pydantic import ValidationError
 
+from waifu import autostart
 from waifu.app import Assistant
+from waifu.autostart import RunKey, WindowsRunKey
 from waifu.brain.base import ToolCallRecord
 from waifu.brain.factory import build_brain
 from waifu.config import AppConfig, ConfigError, OllamaConfig, load_config
@@ -34,6 +40,7 @@ from waifu.devices.ir_codes import COMMAND_PATTERN, IrCodeStoreError
 from waifu.devices.ir_device import IrDevice
 from waifu.devices.registry import build_registry
 from waifu.gate import WakeGate
+from waifu.single_instance import InstanceLock
 from waifu.voice.audio import MicStream, Player, list_devices
 from waifu.voice.segmenter import EnergySegmenter, frame_db
 from waifu.voice.speaker import MIN_ENROLL_SAMPLES, EcapaEmbedder, SpeakerError, SpeakerVerifier
@@ -44,6 +51,10 @@ logger = logging.getLogger(__name__)
 
 OK, FAIL, WARN = "✓", "✗", "!"
 Check = tuple[str, str]
+
+LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
+LOG_FILE_MAX_BYTES = 1_000_000
+LOG_FILE_BACKUPS = 3
 
 EXIT_WORDS = frozenset({"keluar", "exit"})
 COUNTDOWN_S = 3
@@ -68,34 +79,69 @@ COMMAND_NAME_RULE = "pakai huruf kecil, angka, atau garis bawah (misalnya temp_2
 THRESHOLD_SHARE_OF_WEAKEST = 0.5
 MIN_SUGGESTED_THRESHOLD = 0.25
 
+DEFAULT_CONFIG = Path("config.yaml")
+RUN_LOCK = Path("data") / "run.lock"
+ALREADY_RUNNING = (
+    "Cyrene sudah berjalan (mungkin dari autostart). Tutup jendelanya dulu, "
+    "atau jalankan 'waifu autostart status'."
+)
+# The per-user Run key behind `waifu autostart`; tests swap in a dict-backed fake.
+RUN_KEY_FACTORY: Callable[[], RunKey] = WindowsRunKey
+AUTOSTART_DESCRIPTION = (
+    "Jalankan Cyrene otomatis saat login Windows. --config dan --dry-run tidak berpengaruh "
+    "di sini: yang didaftarkan selalu 'waifu run' dengan config.yaml di folder ini dan "
+    "perangkat asli."
+)
+LOG_TAIL_LINES = 5
+_REGISTERED_DELAY = re.compile(r" --startup-delay (\d+) ")
+# build_command always quotes the folder, and a path in it never contains a quote.
+_REGISTERED_PROJECT = re.compile(r' /d "([^"]+)" ')
+
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     _use_utf8_for_redirected_streams()
     _configure_logging(args.verbose)
-    try:
-        return args.handler(args)
-    except ConfigError as exc:
-        print(f"Konfigurasi bermasalah: {_config_problem(exc)}", file=sys.stderr)
-        return 2
-    except KeyboardInterrupt:
-        print("\nDihentikan.")
-        return 130
-    except ImportError as exc:
-        logger.debug("Command '%s' needs a missing package", args.command, exc_info=True)
-        print(
-            f"Paket Python '{exc.name or exc}' belum terpasang. "
-            'Untuk fitur suara, ikuti README (pip install -e ".[voice]").',
-            file=sys.stderr,
-        )
-        return 1
-    except Exception as exc:
-        logger.debug("Command '%s' failed", args.command, exc_info=True)
-        print(
-            f"Terjadi kesalahan tak terduga: {exc} (jalankan dengan -v untuk detail).",
-            file=sys.stderr,
-        )
-        return 1
+    # Every fatal path is logged at ERROR as well as printed: under autostart the console
+    # window closes when waifu.exe exits, and --log-file is all that is left to read.
+    # The traceback is only for -v, so the last lines of the log stay readable.
+    with _file_logging(args.log_file):
+        try:
+            return args.handler(args)
+        except ConfigError as exc:
+            problem = _config_problem(exc)
+            logger.error("Configuration problem: %s", problem)
+            print(f"Konfigurasi bermasalah: {problem}", file=sys.stderr)
+            return 2
+        except KeyboardInterrupt:
+            print("\nDihentikan.")
+            return 130
+        except ImportError as exc:
+            logger.error(
+                "Command '%s' needs the missing package %s",
+                args.command,
+                exc.name or exc,
+                exc_info=args.verbose,
+            )
+            print(
+                f"Paket Python '{exc.name or exc}' belum terpasang. "
+                'Untuk fitur suara, ikuti README (pip install -e ".[voice]").',
+                file=sys.stderr,
+            )
+            return 1
+        except Exception as exc:
+            logger.error(
+                "Command '%s' failed: %s: %s",
+                args.command,
+                type(exc).__name__,
+                exc,
+                exc_info=args.verbose,
+            )
+            print(
+                f"Terjadi kesalahan tak terduga: {exc} (jalankan dengan -v untuk detail).",
+                file=sys.stderr,
+            )
+            return 1
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -110,15 +156,28 @@ def build_parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command", required=True, metavar="<perintah>")
 
     def command(
-        name: str, handler: Callable[[argparse.Namespace], int], help_text: str
+        name: str,
+        handler: Callable[[argparse.Namespace], int],
+        help_text: str,
+        group: argparse._SubParsersAction[argparse.ArgumentParser] = commands,
     ) -> argparse.ArgumentParser:
-        sub = commands.add_parser(name, parents=[shared], help=help_text, description=help_text)
+        sub = group.add_parser(name, parents=[shared], help=help_text, description=help_text)
         sub.set_defaults(handler=handler)
         return sub
 
     run = command("run", _run, "Dengarkan mikrofon dan jawab dengan suara.")
     run.add_argument(
         "--no-speaker-check", action="store_true", help="layani semua suara, bukan hanya Master"
+    )
+    run.add_argument(
+        "--startup-delay",
+        type=_non_negative_seconds,
+        default=0.0,
+        metavar="DETIK",
+        help="tunggu sekian detik sebelum mulai, misalnya setelah login (default 0)",
+    )
+    run.add_argument(
+        "--announce", action="store_true", help="ucapkan bahwa dia sudah siap setelah model dimuat"
     )
     chat = command("chat", _chat, "Ngobrol lewat teks (tanpa mikrofon).")
     chat.add_argument("--speak", action="store_true", help="ucapkan juga setiap jawaban")
@@ -146,6 +205,35 @@ def build_parser() -> argparse.ArgumentParser:
     say.add_argument("text", nargs="+")
     command("mics", _mics, "Daftar perangkat audio.")
     command("check", _check, "Periksa konfigurasi, perangkat, dan dependensi.")
+    autostart_command = commands.add_parser(
+        "autostart",
+        parents=[shared],
+        help="Jalankan Cyrene otomatis saat login Windows.",
+        description=AUTOSTART_DESCRIPTION,
+    )
+    actions = autostart_command.add_subparsers(dest="action", required=True, metavar="<aksi>")
+    enable = command(
+        "enable", _autostart_enable, "Jalankan Cyrene setiap kali login Windows.", actions
+    )
+    enable.add_argument(
+        "--delay",
+        type=_non_negative_whole_seconds,
+        default=autostart.DEFAULT_DELAY_S,
+        metavar="DETIK",
+        help=f"jeda setelah login sebelum model dimuat (default {autostart.DEFAULT_DELAY_S})",
+    )
+    enable.add_argument(
+        "--force",
+        action="store_true",
+        help="tetap aktifkan walau config.yaml atau voiceprint belum siap",
+    )
+    command("disable", _autostart_disable, "Jangan jalankan Cyrene lagi saat login.", actions)
+    command(
+        "status",
+        _autostart_status,
+        "Status autostart, apakah Cyrene sedang berjalan, dan isi log terakhir.",
+        actions,
+    )
     return parser
 
 
@@ -154,7 +242,7 @@ def _add_shared_options(parser: argparse.ArgumentParser, *, suppress_defaults: b
         return argparse.SUPPRESS if suppress_defaults else value
 
     parser.add_argument(
-        "--config", type=Path, default=default(Path("config.yaml")), help="file konfigurasi"
+        "--config", type=Path, default=default(DEFAULT_CONFIG), help="file konfigurasi"
     )
     parser.add_argument(
         "--dry-run", action="store_true", default=default(False), help="pakai perangkat simulasi"
@@ -162,6 +250,30 @@ def _add_shared_options(parser: argparse.ArgumentParser, *, suppress_defaults: b
     parser.add_argument(
         "-v", "--verbose", action="store_true", default=default(False), help="log lebih rinci"
     )
+    parser.add_argument(
+        "--log-file",
+        type=Path,
+        default=default(None),
+        metavar="PATH",
+        help="tulis log juga ke file ini (UTF-8, diganti baru tiap 1 MB, simpan 3 file lama)",
+    )
+
+
+def _non_negative_whole_seconds(text: str) -> int:
+    if not text.isdecimal():
+        raise argparse.ArgumentTypeError(f"harus bilangan bulat 0 atau lebih, bukan {text!r}")
+    return int(text)
+
+
+def _non_negative_seconds(text: str) -> float:
+    invalid = argparse.ArgumentTypeError(f"harus angka 0 atau lebih, bukan {text!r}")
+    try:
+        seconds = float(text)
+    except ValueError:
+        raise invalid from None
+    if not (math.isfinite(seconds) and seconds >= 0):
+        raise invalid
+    return seconds
 
 
 def _config_problem(exc: ConfigError) -> str:
@@ -198,9 +310,7 @@ def _needs_utf8(stream: object) -> bool:
 
 def _configure_logging(verbose: bool) -> None:
     logging.basicConfig(
-        level=logging.DEBUG if verbose else logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-        datefmt="%H:%M:%S",
+        level=logging.DEBUG if verbose else logging.INFO, format=LOG_FORMAT, datefmt="%H:%M:%S"
     )
     # tinytuya logs the device local_key at DEBUG (e.g. after a wrong key or version),
     # and -v output gets pasted when asking for help, so it stays at INFO even then.
@@ -210,40 +320,122 @@ def _configure_logging(verbose: bool) -> None:
         logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
+@contextmanager
+def _file_logging(path: Path | None) -> Iterator[None]:
+    """Also send every log record to a rotating UTF-8 file at `path` while a command runs.
+
+    A file that cannot be opened is reported and skipped: the command (often `waifu run`
+    started at login) is worth more than its log.
+    """
+    handler = _rotating_log_file(path) if path is not None else None
+    root = logging.getLogger()
+    if handler is not None:
+        root.addHandler(handler)
+    try:
+        yield
+    finally:
+        if handler is not None:
+            root.removeHandler(handler)
+            handler.close()
+
+
+def _rotating_log_file(path: Path) -> logging.Handler | None:
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        handler = RotatingFileHandler(
+            path, maxBytes=LOG_FILE_MAX_BYTES, backupCount=LOG_FILE_BACKUPS, encoding="utf-8"
+        )
+    except OSError as exc:
+        print(
+            f"{WARN} File log {path} tidak bisa dibuat ({exc}); log hanya tampil di layar.",
+            file=sys.stderr,
+        )
+        return None
+    handler.setFormatter(logging.Formatter(LOG_FORMAT, datefmt="%Y-%m-%d %H:%M:%S"))
+    return handler
+
+
 # --- voice loop ------------------------------------------------------------------------------
 
 
 def _run(args: argparse.Namespace) -> int:
+    return _holding_run_lock(_listen, args)
+
+
+def _holding_run_lock(
+    command: Callable[[argparse.Namespace], int], args: argparse.Namespace
+) -> int:
+    """Run `command` holding the run lock; refuse (exit 2) while a Cyrene is running.
+
+    `run` must never start twice, and `enroll` and `speaker-test` must not record while
+    a running Cyrene hears the owner too (and obeys the enrollment phrases). The lock
+    comes before the config, so the refusal names the program (the autostart window is
+    always titled "Cyrene"), not the configured assistant name.
+    """
+    lock = InstanceLock(RUN_LOCK)
+    if not lock.acquire():
+        logger.warning("Another instance holds %s; not starting", RUN_LOCK)
+        print(ALREADY_RUNNING)
+        return 2
+    with lock:
+        return command(args)
+
+
+def _listen(args: argparse.Namespace) -> int:
+    if args.startup_delay > 0:
+        logger.info("Waiting %g s before starting (--startup-delay)", args.startup_delay)
+        sleep(args.startup_delay)
     config = load_config(args.config)
+    name = config.assistant.name
     speaker_check = config.speaker.enabled and not args.no_speaker_check
     verifier = _speaker_verifier(config) if speaker_check else None
     if verifier is not None and not verifier.enrolled:
+        logger.error("No voiceprint at %s; not listening", config.speaker.voiceprint_path)
         print(f"{NOT_ENROLLED} Atau pakai 'waifu run --no-speaker-check' untuk semua suara.")
         return 2
     registry = build_registry(config, dry_run=args.dry_run)
+    stt = WhisperStt(config.stt, name)
+    gate = WakeGate(config.assistant.wake_words, config.assistant.followup_seconds)
     assistant = Assistant(
         config,
         brain=build_brain(config, registry),
-        stt=WhisperStt(config.stt, config.assistant.name),
+        stt=stt,
         speech=build_speech_router(config.tts),
         player=Player(config.audio.output_device),
-        gate=WakeGate(config.assistant.wake_words, config.assistant.followup_seconds),
+        gate=gate,
         verifier=verifier,
         speaker_check=speaker_check,
     )
     segmenter = EnergySegmenter(config.audio.sample_rate, config.audio.vad)
+    print(f"Memuat model suara {name}, tunggu sebentar...", flush=True)
+    try:
+        # The speaker model first: it reads the voiceprint, so a broken one fails fast.
+        if verifier is not None:
+            verifier.preload()
+        stt.preload()
+    except (SpeakerError, SttError) as exc:
+        logger.error("Could not load the voice models: %s", exc)
+        print(f"{FAIL} {exc}")
+        return 1
     with _open_mic(config) as mic:
         mode = " (perangkat simulasi)" if args.dry_run else ""
         print(
-            f"{config.assistant.name} siap mendengarkan{mode}. "
+            f"{name} siap mendengarkan{mode}. "
             f"Panggil dengan: {', '.join(config.assistant.wake_words)}. "
             "Tekan Ctrl+C untuk berhenti."
         )
         if not speaker_check:
             print("Verifikasi suara mati: semua suara akan dilayani.")
+        if args.announce:
+            assistant.set_mic(mic, segmenter)  # so she does not hear her own announcement
+            assistant.speak(f"{name} siap, Master.")
+            # speak() opens the follow-up window for replies; the announcement is not one,
+            # so after login only her name starts a conversation, as in a plain `run`.
+            gate.close()
         try:
             assistant.run(mic, segmenter)
         except SttError as exc:
+            logger.error("Whisper stopped working: %s", exc)
             print(f"{FAIL} {exc}")
             return 1
     return 0
@@ -315,6 +507,10 @@ def _enroll(args: argparse.Namespace) -> int:
             f"(diminta {args.samples} x {args.seconds:g} detik)."
         )
         return 2
+    return _holding_run_lock(_record_voiceprint, args)
+
+
+def _record_voiceprint(args: argparse.Namespace) -> int:
     config = load_config(args.config)
     verifier = _speaker_verifier(config)
     sample_rate = config.audio.sample_rate
@@ -375,6 +571,10 @@ def _suggested_threshold(scores: list[float]) -> float:
 
 
 def _speaker_test(args: argparse.Namespace) -> int:
+    return _holding_run_lock(_score_live_speech, args)
+
+
+def _score_live_speech(args: argparse.Namespace) -> int:
     config = load_config(args.config)
     verifier = _speaker_verifier(config)
     if not verifier.enrolled:
@@ -679,3 +879,172 @@ def _microphone_check(config: AppConfig) -> Check:
     except Exception as exc:  # missing package or PortAudio, no input device, bad device name
         return FAIL, f"Mikrofon tidak ditemukan: {exc}"
     return OK, f"Mikrofon: {info['name']}"
+
+
+# --- autostart -------------------------------------------------------------------------------
+
+
+def installed_waifu_exe() -> Path:
+    """The `waifu.exe` launcher pip installed into this environment's Scripts folder."""
+    return Path(sys.prefix) / "Scripts" / "waifu.exe"
+
+
+def _autostart_enable(args: argparse.Namespace) -> int:
+    if args.dry_run or args.config != DEFAULT_CONFIG:
+        print(
+            f"Catatan: autostart selalu menjalankan 'waifu run' dengan {DEFAULT_CONFIG} di folder "
+            "ini dan perangkat asli; --config dan --dry-run tidak berpengaruh."
+        )
+    waifu_exe = installed_waifu_exe()
+    if not waifu_exe.is_file():
+        print(
+            f"{FAIL} {waifu_exe} tidak ditemukan. Pasang dulu paketnya di venv ini "
+            '(pip install -e ".[dev]", lihat README), lalu ulangi.'
+        )
+        return 1
+    problem = None if args.force else _autostart_blocker()
+    if problem is not None:
+        print(f"{FAIL} Autostart belum diaktifkan: {problem}")
+        print(
+            "Perbaiki dulu, atau pakai 'waifu autostart enable --force' untuk tetap mengaktifkan."
+        )
+        return 2
+    try:
+        command = _login_command(args.delay)
+    except ValueError as exc:
+        print(f"{FAIL} Folder ini tidak bisa dipakai untuk autostart ({exc}).")
+        return 1
+    autostart.enable(RUN_KEY_FACTORY(), command)
+    print(
+        f"{OK} Autostart aktif. Terdaftar di HKCU\\{autostart.RUN_KEY_PATH} "
+        f'dengan nama "{autostart.RUN_VALUE}":'
+    )
+    print(f"  {command}")
+    print(
+        'Setelah login Windows, jendela "Cyrene" terbuka dalam keadaan minimize; '
+        f"{args.delay} detik kemudian model suara dimuat, lalu dia bilang sudah siap."
+    )
+    print('Untuk menghentikannya, tutup jendela "Cyrene".')
+    print("Untuk mematikan autostart: waifu autostart disable.")
+    # Task Manager labels a Run entry with its program's description, here cmd.exe's.
+    print(
+        'Di Task Manager → Startup apps entri ini bernama "Windows Command Processor" '
+        "(Microsoft Corporation). Jangan matikan dari sana: 'waifu autostart enable' dan "
+        "'status' tidak bisa melihatnya."
+    )
+    return 0
+
+
+def _autostart_blocker() -> str | None:
+    """Why `waifu run` would stop right after login, or None when it can start."""
+    try:
+        config = load_config(DEFAULT_CONFIG)
+    except ConfigError as exc:
+        return f"konfigurasi bermasalah: {_config_problem(exc)}"
+    if config.speaker.enabled and not config.speaker.voiceprint_path.exists():
+        return NOT_ENROLLED
+    return None
+
+
+def _login_command(delay_s: int) -> str:
+    """The Run value `enable` writes from here: `waifu run` in this folder after `delay_s`.
+
+    Raises ValueError when this folder's path cannot sit inside the command (`%` or `"`).
+    """
+    return autostart.build_command(Path.cwd().resolve(), installed_waifu_exe(), delay_s=delay_s)
+
+
+def _autostart_disable(args: argparse.Namespace) -> int:
+    if autostart.disable(RUN_KEY_FACTORY()):
+        print(
+            f"{OK} Autostart dimatikan: Cyrene tidak berjalan lagi saat login. "
+            "Jendela yang sedang terbuka tetap jalan sampai ditutup."
+        )
+    else:
+        print("Autostart memang belum aktif; tidak ada yang dihapus.")
+    return 0
+
+
+def _autostart_status(args: argparse.Namespace) -> int:
+    run_key = RUN_KEY_FACTORY()
+    stored = run_key.get(autostart.RUN_VALUE)
+    here = Path.cwd().resolve()
+    # The lock and the log live in the folder autostart starts Cyrene in, wherever this runs.
+    project = _registered_project(stored) or here
+    # Compared with the owner's own --delay: only the project folder and venv can go stale.
+    try:
+        expected = _login_command(_registered_delay(stored))
+    except ValueError as exc:
+        expected = None
+        print(f"{WARN} Folder ini tidak bisa dipakai untuk autostart ({exc}).")
+    state = autostart.status(run_key, expected or "")
+    if not state.enabled:
+        print("Autostart: mati")
+        print("Aktifkan dengan: waifu autostart enable")
+    else:
+        print("Autostart: aktif")
+        print(f"Perintah tersimpan: {state.command}")
+        if state.matches_expected:
+            print(f"{OK} Perintah tersimpan sesuai dengan folder proyek dan venv ini.")
+        elif project != here and not (here / DEFAULT_CONFIG).exists():
+            print(
+                f"{WARN} Folder ini bukan folder proyek, jadi perintah tersimpan tidak bisa "
+                f"dicek. Jalankan 'waifu autostart status' dari folder proyek: {project}"
+            )
+        else:
+            print(
+                f"{WARN} Perintah tersimpan berbeda dengan yang didaftarkan dari folder ini "
+                "(proyek atau venv dipindah?). Jalankan lagi 'waifu autostart enable' dari "
+                "folder proyek."
+            )
+            if expected is not None:
+                print(f"  Dari folder ini: {expected}")
+    running = (
+        "sedang berjalan" if _instance_running(project / RUN_LOCK) else "tidak sedang berjalan"
+    )
+    print(f"Cyrene {running}.")
+    _print_log_tail(project / autostart.LOG_FILE)
+    return 0
+
+
+def _registered_delay(command: str | None) -> int:
+    """The --startup-delay inside a stored Run command; the default when there is none."""
+    match = _REGISTERED_DELAY.search(command or "")
+    return int(match.group(1)) if match else autostart.DEFAULT_DELAY_S
+
+
+def _registered_project(command: str | None) -> Path | None:
+    """The existing folder a stored Run command starts Cyrene in (its `start /d`), or None."""
+    match = _REGISTERED_PROJECT.search(command or "")
+    if match is None:
+        return None
+    project = Path(match.group(1))
+    return project if project.is_dir() else None
+
+
+def _instance_running(lock_path: Path) -> bool:
+    """Whether a `waifu run` holds the instance lock at `lock_path` right now."""
+    if not lock_path.exists():
+        # `run` creates the file, so nothing has run there; probing would create it.
+        return False
+    probe = InstanceLock(lock_path)
+    if not probe.acquire():
+        return True
+    probe.release()
+    return False
+
+
+def _print_log_tail(path: Path) -> None:
+    location = path.resolve()
+    if not path.exists():
+        print(f"Log: {location} (belum ada)")
+        return
+    print(f"Log: {location} ({LOG_TAIL_LINES} baris terakhir)")
+    try:
+        with path.open(encoding="utf-8", errors="replace") as file:
+            tail = deque(file, maxlen=LOG_TAIL_LINES)
+    except OSError as exc:
+        print(f"  {WARN} Log tidak bisa dibaca: {exc}")
+        return
+    for line in tail:
+        print(f"  {line.rstrip()}")

@@ -1,6 +1,7 @@
 import io
 import json
 import logging
+import re
 import runpy
 import shutil
 import sys
@@ -9,7 +10,7 @@ import urllib.error
 import urllib.request
 from datetime import datetime
 from importlib.machinery import ModuleSpec
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 import numpy as np
 import pytest
@@ -17,15 +18,19 @@ from tinytuya.core.error_helper import ERR_PAYLOAD, error_json
 from tinytuya.core.XenonDevice import XenonDevice
 
 from waifu import cli
+from waifu.app import Assistant
+from waifu.autostart import DEFAULT_DELAY_S, build_command
 from waifu.brain.base import Brain, BrainReply, ToolCallRecord
 from waifu.devices.base import DeviceError
 from waifu.devices.ir_codes import IrCodeStore
 from waifu.devices.ir_device import IrDevice
 from waifu.devices.mock import MockDevice
 from waifu.devices.registry import DeviceRegistry
-from waifu.voice.base import SpeakerEmbedder
+from waifu.single_instance import InstanceLock
+from waifu.voice.base import SpeakerEmbedder, SpeechToText, Transcript
 from waifu.voice.speaker import SpeakerVerifier
 from waifu.voice.stt import WhisperStt
+from waifu.voice.tts import TtsError
 
 ROOT = Path(__file__).resolve().parent.parent
 SAMPLE_RATE = 16000
@@ -33,6 +38,15 @@ FRAME = 480  # 30 ms at 16 kHz, the example config's frame size
 SILENT_FRAME = np.zeros(FRAME, dtype=np.float32)
 LOUD_FRAME = np.full(FRAME, 0.1, dtype=np.float32)
 VOICE_MODULES = ("faster_whisper", "speechbrain", "torch", "sounddevice")
+MODEL_LIBRARIES = ("faster_whisper", "speechbrain", "torch")
+
+
+@pytest.fixture(autouse=True)
+def no_real_models(monkeypatch):
+    """The voice extra may be installed: a test that forgets a fake fails to import instead
+    of loading multi-GB Whisper/ECAPA models onto the GPU."""
+    for name in MODEL_LIBRARIES:
+        monkeypatch.setitem(sys.modules, name, None)
 
 
 @pytest.fixture(autouse=True)
@@ -169,6 +183,8 @@ class FakeHttpResponse(io.BytesIO):
     ("argv", "command"),
     [
         (["run", "--no-speaker-check"], "run"),
+        (["run", "--startup-delay", "15", "--announce"], "run"),
+        (["autostart", "status"], "autostart"),
         (["chat", "--speak"], "chat"),
         (["enroll", "--samples", "8", "--seconds", "3"], "enroll"),
         (["speaker-test"], "speaker-test"),
@@ -225,8 +241,9 @@ def test_invalid_config_prints_the_validation_message_and_exits_2(home, capsys):
     assert "nama" in capsys.readouterr().err
 
 
-def test_config_errors_name_the_field_but_never_print_a_secret_value(home, capsys):
+def test_config_errors_name_the_field_but_never_print_a_secret_value(home, caplog, capsys):
     secret = "S3CRETk3y0123456"
+    caplog.set_level(logging.INFO)
     write_config(
         home,
         "devices:\n"
@@ -243,7 +260,7 @@ def test_config_errors_name_the_field_but_never_print_a_secret_value(home, capsy
     assert cli.main(["check"]) == 1
     check_out = capsys.readouterr().out
 
-    for report in (devices_err, check_out):
+    for report in (devices_err, check_out, caplog.text):
         assert "devices.0.tuya.localkey" in report
         assert "devices.0.tuya.local_key" in report
         assert secret not in report
@@ -283,6 +300,147 @@ def test_redirected_ansi_output_is_written_as_utf8_so_marks_and_kana_survive(mon
 
     redirected.flush()
     assert redirected.buffer.getvalue().decode("utf-8").strip() == "✓ おかえり"
+
+
+# --- log file ----------------------------------------------------------------------------------
+
+
+def logging_mics(*messages: str):
+    """A `list_devices` stand-in that logs each message the way a waifu module would."""
+
+    def list_devices() -> str:
+        for message in messages:
+            logging.getLogger("waifu.voice.audio").info(message)
+        return "> 1 USB Mic"
+
+    return list_devices
+
+
+def test_log_file_is_a_global_option_before_or_after_the_subcommand():
+    before = cli.build_parser().parse_args(["--log-file", "logs/a.log", "mics"])
+    after = cli.build_parser().parse_args(["mics", "--log-file", "logs/a.log"])
+    default = cli.build_parser().parse_args(["mics"])
+
+    assert before.log_file == after.log_file == Path("logs/a.log")
+    assert default.log_file is None
+
+
+def test_log_file_gets_dated_utf8_lines_including_japanese_in_a_new_folder(
+    tmp_path, monkeypatch, caplog, capsys
+):
+    log_file = tmp_path / "logs" / "nested" / "waifu.log"
+    monkeypatch.setattr(cli, "list_devices", logging_mics("Mic siap: おかえりなさい"))
+    caplog.set_level(logging.INFO)
+
+    assert cli.main(["--log-file", str(log_file), "mics"]) == 0
+
+    lines = log_file.read_bytes().decode("utf-8").splitlines()
+    assert len(lines) == 1
+    assert re.fullmatch(
+        r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} INFO waifu\.voice\.audio: Mic siap: おかえりなさい",
+        lines[0],
+    )
+    assert "> 1 USB Mic" in capsys.readouterr().out
+
+
+def test_log_file_stops_receiving_logs_when_the_command_ends(tmp_path, monkeypatch, caplog):
+    log_file = tmp_path / "waifu.log"
+    monkeypatch.setattr(cli, "list_devices", logging_mics("during the command"))
+    caplog.set_level(logging.INFO)
+
+    cli.main(["--log-file", str(log_file), "mics"])
+    logging.getLogger("waifu.voice.audio").info("after the command")
+
+    text = log_file.read_text(encoding="utf-8")
+    assert "during the command" in text
+    assert "after the command" not in text
+
+
+def test_log_file_rotates_near_1_mb_and_keeps_3_old_files(tmp_path, monkeypatch, caplog):
+    log_file = tmp_path / "waifu.log"
+    big_message = "x" * 600_000  # every message after the first crosses 1 MB and rotates
+    monkeypatch.setattr(cli, "list_devices", logging_mics(*[big_message] * 5))
+    caplog.set_level(logging.INFO)
+
+    assert cli.main(["--log-file", str(log_file), "mics"]) == 0
+
+    assert sorted(path.name for path in tmp_path.iterdir()) == [
+        "waifu.log",
+        "waifu.log.1",
+        "waifu.log.2",
+        "waifu.log.3",
+    ]
+
+
+def test_log_file_records_a_config_error_so_a_closed_autostart_window_leaves_a_trace(
+    tmp_path, caplog, capsys
+):
+    log_file = tmp_path / "logs" / "waifu.log"
+    missing = tmp_path / "missing.yaml"
+    caplog.set_level(logging.INFO)
+
+    assert cli.main(["devices", "--config", str(missing), "--log-file", str(log_file)]) == 2
+
+    logged = log_file.read_text(encoding="utf-8")
+    assert "ERROR" in logged and "missing.yaml" in logged
+    assert "Konfigurasi bermasalah" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    ("error", "reason"),
+    [
+        (ValueError("No input device matching 'USB Mic'"), "No input device matching 'USB Mic'"),
+        (ModuleNotFoundError("No module named 'sounddevice'", name="sounddevice"), "sounddevice"),
+    ],
+)
+def test_log_file_records_a_failure_that_ends_the_command(
+    error, reason, tmp_path, monkeypatch, caplog, capsys
+):
+    log_file = tmp_path / "logs" / "waifu.log"
+
+    def failing_mics():
+        raise error
+
+    monkeypatch.setattr(cli, "list_devices", failing_mics)
+    caplog.set_level(logging.INFO)
+
+    assert cli.main(["mics", "--log-file", str(log_file)]) == 1
+
+    logged = log_file.read_text(encoding="utf-8")
+    assert "ERROR" in logged and reason in logged
+    assert "Traceback" not in logged  # the traceback is for -v; the log tail stays readable
+    assert reason in capsys.readouterr().err
+
+
+def test_log_file_gets_the_traceback_of_a_failure_with_verbose(
+    tmp_path, monkeypatch, caplog, capsys
+):
+    log_file = tmp_path / "waifu.log"
+
+    def failing_mics():
+        raise ValueError("boom")
+
+    monkeypatch.setattr(cli, "list_devices", failing_mics)
+    caplog.set_level(logging.DEBUG)
+
+    assert cli.main(["-v", "mics", "--log-file", str(log_file)]) == 1
+
+    logged = log_file.read_text(encoding="utf-8")
+    assert "ERROR" in logged and "Traceback" in logged and "ValueError: boom" in logged
+
+
+def test_log_file_that_cannot_be_created_is_reported_and_the_command_still_runs(
+    tmp_path, monkeypatch, capsys
+):
+    not_a_folder = tmp_path / "file.txt"
+    not_a_folder.write_text("", encoding="utf-8")
+    monkeypatch.setattr(cli, "list_devices", logging_mics("hello"))
+
+    assert cli.main(["--log-file", str(not_a_folder / "waifu.log"), "mics"]) == 0
+
+    captured = capsys.readouterr()
+    assert "tidak bisa" in captured.err and "waifu.log" in captured.err
+    assert "> 1 USB Mic" in captured.out
 
 
 def test_python_dash_m_waifu_runs_the_cli(tmp_path, monkeypatch):
@@ -598,20 +756,97 @@ class RecordingAssistant:
         self.ran_with = (mic, segmenter)
 
 
+class PreloadingStt(SpeechToText):
+    """Stands in for WhisperStt: hears nothing, records when it is built and preloaded."""
+
+    def __init__(self, events: list[str]) -> None:
+        self.events = events
+        events.append("whisper built")
+
+    def transcribe(self, audio: np.ndarray, sample_rate: int) -> Transcript:
+        return Transcript("", "id")
+
+    def preload(self) -> None:
+        self.events.append("whisper loaded")
+
+
+class PreloadingEmbedder(FixedEmbedder):
+    def __init__(self, events: list[str]) -> None:
+        self.events = events
+        events.append("speaker model built")
+
+    def preload(self) -> None:
+        self.events.append("speaker model loaded")
+
+
+class EventMic(FakeMic):
+    """A silent FakeMic that records when it is opened, paused, resumed, read, and closed."""
+
+    def __init__(self, events: list[str]) -> None:
+        super().__init__([])
+        self.events = events
+
+    def __enter__(self) -> "EventMic":
+        self.events.append("mic opened")
+        super().__enter__()
+        return self
+
+    def __exit__(self, *exc_info) -> None:
+        self.events.append("mic closed")
+        super().__exit__(*exc_info)
+
+    def frames(self):
+        self.events.append("listening")
+        yield from super().frames()
+
+    def pause(self) -> None:
+        self.events.append("mic paused")
+
+    def resume(self) -> None:
+        self.events.append("mic resumed")
+
+
+class SpeakingRouter(FakeRouter):
+    def __init__(self, events: list[str]) -> None:
+        super().__init__()
+        self.events = events
+
+    def synthesize(self, text: str) -> tuple[np.ndarray, int]:
+        self.events.append(f"say {text}")
+        return super().synthesize(text)
+
+
+def lock_is_free(path: Path) -> bool:
+    probe = InstanceLock(path)
+    acquired = probe.acquire()
+    probe.release()
+    return acquired
+
+
+@pytest.fixture
+def enrolled(home) -> Path:
+    voiceprint = home / "data" / "voiceprint.npy"
+    SpeakerVerifier(FixedEmbedder(), voiceprint, 0.3).enroll([LOUD_FRAME] * 3, SAMPLE_RATE)
+    return voiceprint
+
+
 @pytest.fixture
 def run_fakes(home, brains, player, monkeypatch):
+    """`waifu run` with every model, the mic, and the speech engine faked; `events` shows order."""
     RecordingAssistant.instances = []
+    events: list[str] = []
     mics: list[FakeMic] = []
 
     def open_mic(sample_rate, frame_ms, device=None):
-        mics.append(FakeMic([]))
+        mics.append(EventMic(events))
         return mics[-1]
 
     monkeypatch.setattr(cli, "Assistant", RecordingAssistant)
     monkeypatch.setattr(cli, "MicStream", open_mic)
-    monkeypatch.setattr(cli, "EcapaEmbedder", lambda *args, **kwargs: FixedEmbedder())
-    monkeypatch.setattr(cli, "build_speech_router", lambda tts: FakeRouter())
-    return types.SimpleNamespace(mics=mics)
+    monkeypatch.setattr(cli, "EcapaEmbedder", lambda *args, **kwargs: PreloadingEmbedder(events))
+    monkeypatch.setattr(cli, "WhisperStt", lambda config, name: PreloadingStt(events))
+    monkeypatch.setattr(cli, "build_speech_router", lambda tts: SpeakingRouter(events))
+    return types.SimpleNamespace(mics=mics, events=events, lock=home / "data" / "run.lock")
 
 
 def test_run_without_a_voiceprint_explains_enroll_and_exits_2(run_fakes, capsys):
@@ -646,6 +881,219 @@ def test_run_no_speaker_check_skips_the_voiceprint(run_fakes):
     assert assistant.collaborators["verifier"] is None
     assert assistant.collaborators["speaker_check"] is False
     assert assistant.ran_with is not None
+
+
+def test_run_starts_at_once_and_quietly_by_default():
+    args = cli.build_parser().parse_args(["run"])
+
+    assert (args.startup_delay, args.announce) == (0.0, False)
+
+
+@pytest.mark.parametrize("value", ["-1", "nan", "inf", "nanti"])
+def test_run_rejects_a_startup_delay_that_is_not_a_finite_non_negative_number(value, capsys):
+    with pytest.raises(SystemExit) as exit_info:
+        cli.build_parser().parse_args(["run", "--startup-delay", value])
+
+    assert exit_info.value.code == 2
+    assert "argument --startup-delay: harus angka 0 atau lebih" in capsys.readouterr().err
+
+
+def test_run_refuses_while_another_instance_holds_the_lock_and_loads_nothing(
+    run_fakes, brains, capsys
+):
+    with InstanceLock(run_fakes.lock):
+        assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 2
+
+    assert capsys.readouterr().out.strip() == (
+        "Cyrene sudah berjalan (mungkin dari autostart). Tutup jendelanya dulu, "
+        "atau jalankan 'waifu autostart status'."
+    )
+    assert run_fakes.events == []
+    assert brains == [] and RecordingAssistant.instances == []
+
+
+def test_run_refusal_reaches_the_log_file_of_the_window_that_closes(home, run_fakes, caplog):
+    log_file = home / "logs" / "waifu.log"
+    caplog.set_level(logging.INFO)
+
+    with InstanceLock(run_fakes.lock):
+        assert cli.main(["run", "--log-file", str(log_file)]) == 2
+
+    warning = next(
+        line for line in log_file.read_text(encoding="utf-8").splitlines() if "WARNING" in line
+    )
+    assert "run.lock" in warning
+
+
+def test_run_holds_the_lock_while_listening_and_frees_it_afterwards(run_fakes, monkeypatch):
+    free_while_listening: list[bool] = []
+
+    def listen(self, mic, segmenter) -> None:
+        free_while_listening.append(lock_is_free(run_fakes.lock))
+
+    monkeypatch.setattr(RecordingAssistant, "run", listen)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    assert free_while_listening == [False]
+    assert lock_is_free(run_fakes.lock)
+
+
+def test_run_frees_the_lock_when_it_stops_early(run_fakes):
+    assert cli.main(["run", "--dry-run"]) == 2  # no voiceprint
+
+    assert lock_is_free(run_fakes.lock)
+
+
+def test_run_waits_the_startup_delay_holding_the_lock_before_loading_anything(
+    run_fakes, monkeypatch
+):
+    waits: list[tuple[float, bool, list[str]]] = []
+
+    def wait(seconds: float) -> None:
+        waits.append((seconds, lock_is_free(run_fakes.lock), list(run_fakes.events)))
+
+    monkeypatch.setattr(cli, "sleep", wait)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check", "--startup-delay", "2.5"]) == 0
+
+    assert waits == [(2.5, False, [])]
+    assert "whisper loaded" in run_fakes.events
+
+
+def test_run_starts_without_waiting_by_default(run_fakes, monkeypatch):
+    waits: list[float] = []
+    monkeypatch.setattr(cli, "sleep", waits.append)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    assert waits == []
+
+
+def test_ctrl_c_during_the_startup_delay_stops_cleanly_and_frees_the_lock(
+    run_fakes, monkeypatch, capsys
+):
+    def interrupted(seconds: float) -> None:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(cli, "sleep", interrupted)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check", "--startup-delay", "15"]) == 130
+
+    assert "Dihentikan" in capsys.readouterr().out
+    assert run_fakes.events == []
+    assert lock_is_free(run_fakes.lock)
+
+
+def test_run_loads_the_speaker_model_and_whisper_once_before_opening_the_mic(enrolled, run_fakes):
+    assert cli.main(["run", "--dry-run"]) == 0
+
+    events = run_fakes.events
+    assert events.count("speaker model loaded") == events.count("whisper loaded") == 1
+    opened = events.index("mic opened")
+    assert events.index("speaker model loaded") < opened
+    assert events.index("whisper loaded") < opened
+
+
+def test_run_without_speaker_check_loads_only_whisper(run_fakes):
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    assert "whisper loaded" in run_fakes.events
+    assert "speaker model built" not in run_fakes.events
+
+
+def test_run_with_an_unreadable_voiceprint_stops_before_opening_the_mic(home, run_fakes, capsys):
+    (home / "data").mkdir()
+    (home / "data" / "voiceprint.npy").write_bytes(b"bukan voiceprint")
+
+    assert cli.main(["run", "--dry-run"]) == 1
+
+    out = capsys.readouterr().out
+    assert "✗" in out and "waifu enroll" in out
+    assert run_fakes.mics == []
+
+
+@pytest.fixture
+def announcing(run_fakes, enrolled, monkeypatch):
+    """`waifu run` with the real Assistant, so speaking really pauses the (fake) mic."""
+    monkeypatch.setattr(cli, "Assistant", Assistant)
+    return run_fakes
+
+
+def test_run_announce_says_she_is_ready_once_after_loading_with_the_mic_paused(
+    announcing, player, capsys
+):
+    assert cli.main(["run", "--dry-run", "--announce"]) == 0
+
+    events = announcing.events
+    assert events[events.index("mic opened") :] == [
+        "mic opened",
+        "mic paused",
+        "say Cyrene siap, Master.",
+        "mic resumed",
+        "listening",
+        "mic closed",
+    ]
+    assert events.index("whisper loaded") < events.index("say Cyrene siap, Master.")
+    assert events.index("speaker model loaded") < events.index("say Cyrene siap, Master.")
+    assert len(player.played) == 1
+    assert "Cyrene siap mendengarkan" in capsys.readouterr().out
+
+
+def test_run_announce_uses_the_configured_name(announcing, home):
+    write_config(home, "assistant:\n  name: Aiko\n  wake_words: [aiko]\n")
+
+    assert cli.main(["run", "--dry-run", "--announce"]) == 0
+
+    assert "say Aiko siap, Master." in announcing.events
+
+
+class HearingStt(PreloadingStt):
+    """Transcribes every utterance as the same text."""
+
+    def __init__(self, text: str) -> None:
+        super().__init__([])
+        self.text = text
+
+    def transcribe(self, audio: np.ndarray, sample_rate: int) -> Transcript:
+        return Transcript(self.text, "id")
+
+
+class SilentRouter(FakeRouter):
+    def synthesize(self, text: str) -> tuple[np.ndarray, int]:
+        raise TtsError("no network")
+
+
+@pytest.mark.parametrize("router", [FakeRouter, SilentRouter], ids=["spoken", "tts_failed"])
+def test_run_announce_does_not_open_the_followup_window(router, announcing, brains, monkeypatch):
+    # Right after "Cyrene siap, Master." the owner says something not meant for her.
+    frames = [SILENT_FRAME] * 10 + [LOUD_FRAME] * 40 + [SILENT_FRAME] * 40
+    monkeypatch.setattr(cli, "MicStream", lambda *args, **kwargs: FakeMic(frames))
+    monkeypatch.setattr(cli, "WhisperStt", lambda config, name: HearingStt("matikan semua lampu"))
+    monkeypatch.setattr(cli, "build_speech_router", lambda tts: router())
+
+    assert cli.main(["run", "--dry-run", "--announce"]) == 0
+
+    assert brains[0].heard == []
+
+
+def test_run_announce_still_answers_the_wake_word(announcing, brains, monkeypatch):
+    frames = [SILENT_FRAME] * 10 + [LOUD_FRAME] * 40 + [SILENT_FRAME] * 40
+    monkeypatch.setattr(cli, "MicStream", lambda *args, **kwargs: FakeMic(frames))
+    monkeypatch.setattr(
+        cli, "WhisperStt", lambda config, name: HearingStt("Cyrene, matikan semua lampu")
+    )
+
+    assert cli.main(["run", "--dry-run", "--announce"]) == 0
+
+    assert brains[0].heard == ["matikan semua lampu"]
+
+
+def test_run_without_announce_stays_quiet_until_spoken_to(announcing, player):
+    assert cli.main(["run", "--dry-run"]) == 0
+
+    assert not any(event.startswith("say ") for event in announcing.events)
+    assert player.played == []
 
 
 @pytest.fixture
@@ -688,6 +1136,333 @@ def test_run_stops_with_the_cuda_hint_when_whisper_cannot_use_the_gpu(
     assert "cu128" in out
 
 
+# --- autostart -------------------------------------------------------------------------------
+
+
+class FakeRunKey:
+    """The per-user Run key held in a dict, with someone else's entry that must survive."""
+
+    def __init__(self) -> None:
+        self.values = {"OneDrive": r'"C:\OneDrive.exe" /background'}
+
+    def get(self, name: str) -> str | None:
+        return self.values.get(name)
+
+    def set(self, name: str, command: str) -> None:
+        self.values[name] = command
+
+    def delete(self, name: str) -> bool:
+        return self.values.pop(name, None) is not None
+
+
+@pytest.fixture(autouse=True)
+def no_real_run_key(monkeypatch):
+    """Even reading the real Run key would make a test depend on this PC's login setup."""
+
+    def refuse():
+        raise AssertionError("a test reached the real Windows Run key")
+
+    monkeypatch.setattr(cli, "RUN_KEY_FACTORY", refuse)
+
+
+@pytest.fixture
+def run_key(home, monkeypatch) -> FakeRunKey:
+    """A fake Run key; `home` keeps data/run.lock and logs/ inside tmp_path."""
+    key = FakeRunKey()
+    monkeypatch.setattr(cli, "RUN_KEY_FACTORY", lambda: key)
+    return key
+
+
+@pytest.fixture
+def waifu_exe(home, monkeypatch) -> Path:
+    exe = home / "venv" / "Scripts" / "waifu.exe"
+    exe.parent.mkdir(parents=True)
+    exe.write_bytes(b"")
+    monkeypatch.setattr(cli, "installed_waifu_exe", lambda: exe)
+    return exe
+
+
+def login_command(home: Path, waifu_exe: Path, delay_s: int = DEFAULT_DELAY_S) -> str:
+    return build_command(home.resolve(), waifu_exe, delay_s=delay_s)
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [["autostart", "enable", "--delay", "30", "--force"], ["autostart", "disable"]],
+)
+def test_autostart_actions_parse(argv):
+    assert cli.build_parser().parse_args(argv).action == argv[1]
+
+
+def test_autostart_enable_waits_the_default_delay_and_does_not_force_by_default():
+    args = cli.build_parser().parse_args(["autostart", "enable"])
+
+    assert (args.delay, args.force) == (DEFAULT_DELAY_S, False)
+
+
+def test_autostart_needs_an_action():
+    with pytest.raises(SystemExit) as exit_info:
+        cli.build_parser().parse_args(["autostart"])
+
+    assert exit_info.value.code == 2
+
+
+@pytest.mark.parametrize("value", ["-1", "1.5", "lama"])
+def test_autostart_enable_rejects_a_delay_that_is_not_a_whole_non_negative_number(value, capsys):
+    with pytest.raises(SystemExit):
+        cli.build_parser().parse_args(["autostart", "enable", "--delay", value])
+
+    assert "argument --delay: harus bilangan bulat 0 atau lebih" in capsys.readouterr().err
+
+
+def test_autostart_help_says_dry_run_does_not_change_what_is_registered(monkeypatch, capsys):
+    monkeypatch.setenv("COLUMNS", "300")
+    monkeypatch.setenv("PYTHON_COLORS", "0")
+
+    with pytest.raises(SystemExit) as exit_info:
+        cli.main(["autostart", "--help"])
+
+    assert exit_info.value.code == 0
+    assert "--dry-run tidak berpengaruh" in capsys.readouterr().out
+
+
+def test_installed_waifu_exe_is_the_launcher_in_this_environment_s_scripts_folder():
+    assert cli.installed_waifu_exe() == Path(sys.prefix) / "Scripts" / "waifu.exe"
+
+
+def test_autostart_enable_registers_the_login_command_and_explains_stop_and_undo(
+    enrolled, run_key, waifu_exe, home, capsys
+):
+    assert cli.main(["autostart", "enable"]) == 0
+
+    command = login_command(home, waifu_exe)
+    assert run_key.values == {"OneDrive": r'"C:\OneDrive.exe" /background', "Cyrene": command}
+    out = capsys.readouterr().out
+    assert command in out
+    assert 'jendela "Cyrene"' in out and "minimize" in out
+    assert "tutup jendela" in out
+    assert "waifu autostart disable" in out
+    # Task Manager names a Run entry after its program (cmd.exe), not after the value.
+    task_manager = next(line for line in out.splitlines() if "Task Manager" in line)
+    assert '"Windows Command Processor"' in task_manager
+
+
+def test_autostart_enable_uses_the_given_delay(enrolled, run_key, waifu_exe, home):
+    assert cli.main(["autostart", "enable", "--delay", "30"]) == 0
+
+    assert run_key.values["Cyrene"] == login_command(home, waifu_exe, delay_s=30)
+
+
+def test_autostart_enable_with_dry_run_registers_the_same_real_command(
+    enrolled, run_key, waifu_exe, home, capsys
+):
+    assert cli.main(["autostart", "enable", "--dry-run"]) == 0
+
+    assert run_key.values["Cyrene"] == login_command(home, waifu_exe)
+    assert "--dry-run" in capsys.readouterr().out
+
+
+def test_autostart_enable_without_a_voiceprint_refuses_and_registers_nothing(
+    run_key, waifu_exe, capsys
+):
+    assert cli.main(["autostart", "enable"]) == 2
+
+    out = capsys.readouterr().out
+    assert "Jalankan 'waifu enroll' dulu" in out and "--force" in out
+    assert "Cyrene" not in run_key.values
+
+
+def test_autostart_enable_without_config_yaml_refuses(enrolled, run_key, waifu_exe, home, capsys):
+    (home / "config.yaml").unlink()
+
+    assert cli.main(["autostart", "enable"]) == 2
+
+    out = capsys.readouterr().out
+    assert "config.yaml" in out and "--force" in out
+    assert "Cyrene" not in run_key.values
+
+
+def test_autostart_enable_with_an_invalid_config_refuses(
+    enrolled, run_key, waifu_exe, home, capsys
+):
+    write_config(home, "brain:\n  backend: gpt\n")
+
+    assert cli.main(["autostart", "enable"]) == 2
+
+    assert "brain.backend" in capsys.readouterr().out
+    assert "Cyrene" not in run_key.values
+
+
+def test_autostart_enable_force_registers_without_config_or_voiceprint(run_key, waifu_exe, home):
+    (home / "config.yaml").unlink()
+
+    assert cli.main(["autostart", "enable", "--force"]) == 0
+
+    assert run_key.values["Cyrene"] == login_command(home, waifu_exe)
+
+
+def test_autostart_enable_needs_no_voiceprint_when_speaker_check_is_off(run_key, waifu_exe, home):
+    write_config(home, "speaker:\n  enabled: false\n")
+
+    assert cli.main(["autostart", "enable"]) == 0
+
+    assert "Cyrene" in run_key.values
+
+
+def test_autostart_enable_without_waifu_exe_fails_even_with_force(
+    enrolled, run_key, home, monkeypatch, capsys
+):
+    monkeypatch.setattr(cli, "installed_waifu_exe", lambda: home / "hilang" / "waifu.exe")
+
+    assert cli.main(["autostart", "enable", "--force"]) == 1
+
+    assert "waifu.exe" in capsys.readouterr().out
+    assert "Cyrene" not in run_key.values
+
+
+def test_autostart_enable_refuses_a_project_folder_that_cmd_would_rewrite(
+    run_key, waifu_exe, tmp_path, monkeypatch, capsys
+):
+    project = tmp_path / "proyek 100%"
+    project.mkdir()
+    monkeypatch.chdir(project)
+
+    assert cli.main(["autostart", "enable", "--force"]) == 1
+
+    assert "%" in capsys.readouterr().out
+    assert "Cyrene" not in run_key.values
+
+
+def test_autostart_disable_removes_only_cyrene_and_says_so(run_key, capsys):
+    run_key.values["Cyrene"] = "the command"
+
+    assert cli.main(["autostart", "disable"]) == 0
+
+    assert run_key.values == {"OneDrive": r'"C:\OneDrive.exe" /background'}
+    assert "dimatikan" in capsys.readouterr().out
+
+
+def test_autostart_disable_when_already_off_says_nothing_was_removed(run_key, capsys):
+    assert cli.main(["autostart", "disable"]) == 0
+
+    assert "tidak ada yang dihapus" in capsys.readouterr().out
+
+
+def test_autostart_status_when_enabled_for_this_project(run_key, waifu_exe, home, capsys):
+    command = login_command(home, waifu_exe)
+    run_key.values["Cyrene"] = command
+
+    assert cli.main(["autostart", "status"]) == 0
+
+    lines = capsys.readouterr().out.splitlines()
+    assert "Autostart: aktif" in lines
+    assert any(command in line for line in lines)
+    assert any(line.startswith("✓") and "sesuai" in line for line in lines)
+    assert any("tidak sedang berjalan" in line for line in lines)
+    log_line = next(line for line in lines if line.startswith("Log:"))
+    assert str(home.resolve() / "logs" / "waifu.log") in log_line and "belum ada" in log_line
+
+
+def test_autostart_status_keeps_a_custom_delay_from_looking_stale(run_key, waifu_exe, home, capsys):
+    run_key.values["Cyrene"] = login_command(home, waifu_exe, delay_s=45)
+
+    cli.main(["autostart", "status"])
+
+    assert any(
+        line.startswith("✓") and "sesuai" in line for line in capsys.readouterr().out.splitlines()
+    )
+
+
+def test_autostart_status_warns_when_the_project_moved(run_key, waifu_exe, home, capsys):
+    old_project = PureWindowsPath(r"D:\lama\waifu")
+    run_key.values["Cyrene"] = build_command(old_project, old_project / "waifu.exe")
+
+    assert cli.main(["autostart", "status"]) == 0
+
+    lines = capsys.readouterr().out.splitlines()
+    warning = next(line for line in lines if line.startswith("!"))
+    assert "waifu autostart enable" in warning
+    assert any(login_command(home, waifu_exe) in line for line in lines)
+
+
+def test_autostart_status_from_another_folder_reports_the_registered_project(
+    run_key, waifu_exe, home, monkeypatch, capsys
+):
+    run_key.values["Cyrene"] = login_command(home, waifu_exe)
+    log_file = home / "logs" / "waifu.log"
+    log_file.parent.mkdir()
+    log_file.write_text("Cyrene is listening\n", encoding="utf-8")
+    elsewhere = home / "dokumen"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+
+    with InstanceLock(home / "data" / "run.lock"):
+        assert cli.main(["autostart", "status"]) == 0
+
+    lines = capsys.readouterr().out.splitlines()
+    assert "Cyrene sedang berjalan." in lines
+    assert any(line.startswith("Log:") and str(log_file) in line for line in lines)
+    assert "  Cyrene is listening" in lines
+    hint = next(line for line in lines if line.startswith("!"))
+    assert "folder proyek" in hint and str(home) in hint
+    assert "dipindah" not in hint
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="case-insensitive paths are a Windows trait")
+def test_autostart_status_matches_from_a_differently_cased_working_directory(
+    run_key, waifu_exe, home, monkeypatch, capsys
+):
+    run_key.values["Cyrene"] = login_command(home, waifu_exe)
+    monkeypatch.chdir(str(home).swapcase())
+
+    assert cli.main(["autostart", "status"]) == 0
+
+    lines = capsys.readouterr().out.splitlines()
+    assert any(line.startswith("✓") and "sesuai" in line for line in lines)
+
+
+def test_autostart_status_when_disabled(run_key, waifu_exe, capsys):
+    assert cli.main(["autostart", "status"]) == 0
+
+    out = capsys.readouterr().out
+    assert "Autostart: mati" in out and "waifu autostart enable" in out
+
+
+def test_autostart_status_sees_a_running_instance_by_its_lock(run_key, waifu_exe, home, capsys):
+    lock_path = home / "data" / "run.lock"
+    with InstanceLock(lock_path):
+        assert cli.main(["autostart", "status"]) == 0
+        still_held = not lock_is_free(lock_path)
+
+    lines = capsys.readouterr().out.splitlines()
+    assert any("sedang berjalan" in line for line in lines)
+    assert not any("tidak sedang berjalan" in line for line in lines)
+    assert still_held
+
+
+def test_autostart_status_leaves_no_lock_file_behind(run_key, waifu_exe, home):
+    assert cli.main(["autostart", "status"]) == 0
+
+    assert not (home / "data").exists()
+
+
+def test_autostart_status_shows_the_log_path_and_its_last_five_lines(
+    run_key, waifu_exe, home, capsys
+):
+    log_file = home / "logs" / "waifu.log"
+    log_file.parent.mkdir()
+    lines = [f"baris {number}" for number in range(1, 7)] + ["おかえりなさい, Master"]
+    log_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    assert cli.main(["autostart", "status"]) == 0
+
+    out = capsys.readouterr().out
+    assert str(log_file.resolve()) in out
+    for shown in lines[-5:]:
+        assert shown in out
+    assert "baris 1" not in out and "baris 2" not in out
+
+
 # --- enroll and speaker-test -----------------------------------------------------------------
 
 
@@ -714,6 +1489,52 @@ def test_enroll_records_each_phrase_saves_a_voiceprint_and_suggests_a_threshold(
     assert out.count("Bacakan:") == 3
     assert "Rekaman 3:" in out
     assert "Saran threshold" in out
+
+
+@pytest.fixture
+def recording_mics(monkeypatch) -> list[FakeMic]:
+    """Every MicStream a command opens, each hearing the owner speak."""
+    opened: list[FakeMic] = []
+
+    def open_mic(sample_rate, frame_ms, device=None):
+        opened.append(FakeMic([LOUD_FRAME] * 100))
+        return opened[-1]
+
+    monkeypatch.setattr(cli, "MicStream", open_mic)
+    monkeypatch.setattr(cli, "EcapaEmbedder", lambda *args, **kwargs: FixedEmbedder())
+    monkeypatch.setattr(cli, "sleep", lambda seconds: None)
+    return opened
+
+
+def test_enroll_refuses_while_cyrene_is_running_and_records_nothing(home, recording_mics, capsys):
+    # A running Cyrene would hear the phrases (several start with her name) and obey them.
+    with InstanceLock(home / "data" / "run.lock"):
+        assert cli.main(["enroll", "--samples", "3", "--seconds", "0.5"]) == 2
+
+    assert "Cyrene sudah berjalan" in capsys.readouterr().out
+    assert recording_mics == []
+    assert not (home / "data" / "voiceprint.npy").exists()
+
+
+def test_enroll_holds_the_run_lock_while_recording(home, recording_mics, monkeypatch):
+    free_while_recording: list[bool] = []
+    lock = home / "data" / "run.lock"
+    monkeypatch.setattr(
+        cli, "sleep", lambda seconds: free_while_recording.append(lock_is_free(lock))
+    )
+
+    assert cli.main(["enroll", "--samples", "3", "--seconds", "0.5"]) == 0
+
+    assert free_while_recording and not any(free_while_recording)
+    assert lock_is_free(lock)
+
+
+def test_speaker_test_refuses_while_cyrene_is_running(enrolled, home, recording_mics, capsys):
+    with InstanceLock(home / "data" / "run.lock"):
+        assert cli.main(["speaker-test"]) == 2
+
+    assert "Cyrene sudah berjalan" in capsys.readouterr().out
+    assert recording_mics == []
 
 
 def test_enroll_refuses_fewer_samples_than_a_voiceprint_needs(home, capsys):

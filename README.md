@@ -28,6 +28,7 @@ Cyrene : "Yakin mau dimatikan sekarang, Master?" (minta konfirmasi dulu)
 - [Menyambungkan perangkat](#menyambungkan-perangkat)
 - [Mendaftarkan suara Master](#mendaftarkan-suara-master)
 - [Pemakaian sehari-hari](#pemakaian-sehari-hari)
+- [Jalan otomatis saat login](#jalan-otomatis-saat-login)
 - [Pemecahan masalah](#pemecahan-masalah)
 - [Checklist uji perangkat keras](#checklist-uji-perangkat-keras)
 - [Privasi](#privasi)
@@ -147,8 +148,9 @@ README ini memakai `waifu` dengan venv aktif.
 - **Unduhan model pertama kali** masuk ke folder `models/` (tidak di-commit):
   - model verifikasi suara ECAPA ke `models\spkrec-ecapa`, saat pertama kali
     `waifu enroll`;
-  - model Whisper ke `models\whisper`, saat ucapan pertama di `waifu run`. Jawaban
-    pertama setelah instalasi akan lama karena unduhan ini.
+  - model Whisper ke `models\whisper`, saat `waifu run` pertama kali dijalankan
+    (sebelum dia bilang siap). Start pertama setelah instalasi akan lama karena
+    unduhan ini.
 
 ### 3. Konfigurasi
 
@@ -490,9 +492,11 @@ waifu speaker-test    # skor kecocokan langsung, Ctrl+C untuk berhenti
 
 | Perintah | Kegunaan |
 |---|---|
-| `waifu run` | Mode suara: dengarkan mic dan jawab dengan suara (Ctrl+C untuk berhenti) |
+| `waifu run` | Mode suara: muat model, lalu dengarkan mic dan jawab dengan suara (Ctrl+C untuk berhenti) |
 | `waifu run --dry-run` | Mode suara dengan perangkat simulasi, tanpa menyentuh perangkat asli |
 | `waifu run --no-speaker-check` | Layani semua suara, bukan hanya Master |
+| `waifu run --startup-delay 15 --announce` | Tunggu 15 detik dulu, lalu setelah model dimuat dia bilang "Cyrene siap, Master." (dipakai autostart) |
+| `waifu autostart enable` / `disable` / `status` | Jalan otomatis saat login Windows (lihat [Jalan otomatis saat login](#jalan-otomatis-saat-login)) |
 | `waifu chat` | Ngobrol lewat teks; ketik `keluar` untuk berhenti |
 | `waifu chat --dry-run -v` | Uji persona dan tool call ke perangkat simulasi (`-v` menampilkan setiap tool call) |
 | `waifu chat --speak` | Ngobrol lewat teks, jawabannya juga diucapkan |
@@ -505,7 +509,11 @@ waifu speaker-test    # skor kecocokan langsung, Ctrl+C untuk berhenti
 | `waifu check` | Periksa config, kode IR, voiceprint, otak, paket suara, CUDA, dan mic |
 
 Opsi untuk semua perintah: `--config <file>` (default `config.yaml`), `--dry-run`
-(perangkat simulasi), `-v` (log lebih rinci).
+(perangkat simulasi), `-v` (log lebih rinci), `--log-file <file>` (log juga ditulis
+ke file UTF-8; diganti file baru setiap 1 MB, 3 file lama disimpan sebagai `.1`–`.3`).
+
+Hanya satu `waifu run` yang bisa berjalan sekaligus (kunci di `data\run.lock`). Yang
+kedua langsung berhenti dengan pesan "Cyrene sudah berjalan (mungkin dari autostart)".
 
 Contoh kalimat saat `waifu run`:
 
@@ -519,12 +527,64 @@ Contoh kalimat saat `waifu run`:
 Obrolan dilupakan setelah 10 menit tanpa percakapan atau 40 giliran
 (`assistant.session_idle_minutes`, `assistant.max_session_turns`).
 
+## Jalan otomatis saat login
+
+Supaya Cyrene langsung siap setelah PC menyala dan kamu login Windows.
+
+**Syarat:** `config.yaml` sudah benar (`waifu check`) dan suara Master sudah
+didaftarkan dengan `waifu enroll`. Tanpa itu `enable` menolak; `--force` tetap
+mengaktifkannya.
+
+Jalankan dari folder repo:
+
+```powershell
+waifu autostart enable     # jeda 15 detik setelah login; ubah dengan --delay 30
+waifu autostart status     # aktif atau tidak, sedang berjalan atau tidak, 5 baris log terakhir
+waifu autostart disable    # matikan lagi
+```
+
+Setiap kali login, Windows menjalankan perintah yang tersimpan di
+`HKCU\Software\Microsoft\Windows\CurrentVersion\Run` (nama `Cyrene`, tanpa hak admin):
+
+1. Jendela **"Cyrene"** muncul dalam keadaan minimize di taskbar.
+2. Setelah 15 detik, model Whisper dan verifikasi suara dimuat.
+3. Dia bilang **"Cyrene siap, Master."** lalu mendengarkan seperti `waifu run` biasa:
+   panggil namanya dulu. Pengumuman ini bukan jawaban, jadi tidak membuka jendela
+   8 detik tanpa nama.
+
+Autostart selalu memakai `config.yaml` di folder repo dan perangkat asli;
+`--config` dan `--dry-run` tidak berpengaruh pada perintah yang didaftarkan.
+
+- **Menghentikan:** tutup jendela "Cyrene". Dia jalan lagi pada login berikutnya.
+- **Mematikan autostart:** `waifu autostart disable`. Di Task Manager → Startup apps
+  (dan Settings → Apps → Startup) entrinya **tidak** bernama "Cyrene", tetapi
+  "Windows Command Processor" (penerbit Microsoft Corporation), karena yang dijalankan
+  saat login adalah `cmd.exe`. Jangan matikan dari sana: Windows menyimpan tanda
+  "Disabled" itu terpisah, `waifu autostart disable` lalu `enable` tidak
+  menghapusnya, dan `enable` maupun `status` tidak bisa melihatnya, jadi keduanya
+  tetap bilang aktif padahal Windows melewatinya setiap login. Kalau sudah terlanjur
+  dimatikan dari sana, nyalakan lagi juga dari sana.
+- **Log:** `logs\waifu.log` di folder repo (berganti file baru setiap 1 MB). Kalau
+  jendela "Cyrene" muncul lalu langsung hilang (misalnya mic USB atau Bluetooth
+  belum siap saat login), penyebabnya tercatat di sana sebagai baris `ERROR`; lihat
+  dengan `waifu autostart status`, yang juga bisa dijalankan dari folder lain. Log ini
+  berisi transkrip ucapan Master (lihat [Privasi](#privasi)).
+- **Hanya satu Cyrene:** selama jendela itu terbuka, `waifu run`, `waifu enroll`, dan
+  `waifu speaker-test` di terminal lain menolak jalan ("Cyrene sudah berjalan").
+  Tutup jendela "Cyrene" dulu. Tanpa penolakan ini dia akan ikut mendengar kalimat
+  pendaftaran (beberapa diawali namanya) dan menjalankannya, dan suaranya bisa ikut
+  terekam ke voiceprint baru.
+- **Folder repo atau venv dipindah:** perintah yang tersimpan masih menunjuk ke path
+  lama, dan `status` menandainya dengan `!`. Jalankan lagi `waifu autostart enable`
+  dari folder yang baru.
+
 ## Pemecahan masalah
 
 Log `waifu run` tampil di terminal dalam bahasa Inggris. Baris seperti
 `Heard (id): ...`, `Not addressed to Cyrene (no_wake_word); ignoring`, dan
 `Ignoring another speaker (similarity 0.21)` menjelaskan kenapa dia diam. Tambahkan
-`-v` untuk detail lebih banyak.
+`-v` untuk detail lebih banyak. Dengan `--log-file` (autostart memakai
+`logs\waifu.log`) log yang sama juga ditulis ke file, lengkap dengan tanggalnya.
 
 **Error DLL CUDA dari Whisper (ctranslate2).** Pesannya seperti
 "Whisper gagal berjalan di GPU: cublas64_12.dll tidak ditemukan atau gagal dimuat".
@@ -609,8 +669,8 @@ menguji nomor 5.
       `waifu device tv power`.
 - [ ] `waifu speaker-test`: suaramu `✓`, suara orang lain `✗`.
 
-**User story** (jalankan `waifu run`; ucapan pertama setelah start tidak dihitung
-karena model sedang dimuat)
+**User story** (jalankan `waifu run` dan tunggu sampai muncul "Cyrene siap
+mendengarkan"; jawaban pertama bisa lebih lama karena model Ollama baru dimuat)
 
 - [ ] **1. Lampu.** "Cyrene, nyalakan lampu kamar": lampu menyala dan dia menjawab
       dengan suara sekitar 3 detik setelah kamu selesai bicara.
@@ -634,6 +694,15 @@ karena model sedang dimuat)
       aplikasi, PC menyala sendiri.
 - [ ] Wake-on-LAN: dari HP atau PC lain, magic packet membangunkan PC yang mati.
 
+**Opsional: autostart**
+
+- [ ] Setelah `waifu autostart enable`, logout lalu login: jendela "Cyrene" muncul
+      minimize, sekitar 15 detik kemudian dia bilang "Cyrene siap, Master." dan
+      "Cyrene, nyalakan lampu kamar" langsung dilayani.
+- [ ] Selama jendela itu terbuka, `waifu run` di terminal lain menolak jalan.
+- [ ] Menutup jendela "Cyrene" menghentikannya; `waifu autostart disable` membuat
+      login berikutnya tidak menjalankannya lagi.
+
 ## Privasi
 
 - **Suara tidak pernah keluar dari PC.** Rekaman mic, verifikasi suara, dan
@@ -647,6 +716,12 @@ karena model sedang dimuat)
 - **Voiceprint adalah data biometrik.** `data/voiceprint.npy` (dan seluruh `data/`)
   ada di `.gitignore` dan tidak boleh di-commit atau dibagikan. Begitu juga
   `config.yaml` (local key Tuya) dan `models/`.
+- **Log berisi transkrip.** `logs\waifu.log` (dan `.1` sampai `.3`, total sekitar
+  4 MB; ada di `.gitignore`) mencatat setiap kalimat Master yang terdengar
+  (`Heard ...`), termasuk yang tidak ditujukan ke Cyrene, serta setiap perintah
+  perangkat. Autostart selalu menulis log ini. Periksa isinya sebelum membagikan file
+  log atau output `waifu autostart status` (yang menampilkan 5 baris terakhirnya), atau
+  hapus folder `logs\` kalau tidak diperlukan.
 - File hasil wizard tinytuya (`tinytuya.json`, `devices.json`, `snapshot.json`,
   `tuya-raw.json`) berisi API secret dan local key tapi **tidak** tercakup
   `.gitignore`; simpan di folder di luar repo seperti langkah wizard di atas.
