@@ -1,0 +1,4 @@
+# Semua file teks disimpan dan di-checkout sebagai LF, di Windows maupun di VM
+# cloud (Linux). Skrip bash wajib LF agar jalan; PowerShell 5.1 tidak masalah dengan LF.
+* text=auto eol=lf
+*.sh text eol=lf
