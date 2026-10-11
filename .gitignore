@@ -24,3 +24,8 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 .ruff_cache/
+# tinytuya wizard output holds local keys
+tinytuya.json
+devices.json
+snapshot.json
+tuya-raw.json
