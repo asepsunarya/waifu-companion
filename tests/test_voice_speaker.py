@@ -224,12 +224,22 @@ def test_ecapa_embedder_falls_back_to_cpu_when_cuda_is_missing(caplog):
 
 
 def test_ecapa_embedder_keeps_cuda_when_it_is_available():
+    # speechbrain wants "cuda:<index>"; a bare "cuda" logs a parse warning on every load.
     loader = FakeLoader()
     embedder = make_ecapa(loader, device="cuda", cuda=True)
 
     embedder.embed(np.zeros(SAMPLE_RATE, dtype=np.float32), SAMPLE_RATE)
 
-    assert loader.loads[0][2] == "cuda"
+    assert loader.loads[0][2] == "cuda:0"
+
+
+def test_ecapa_embedder_keeps_an_explicit_cuda_index():
+    loader = FakeLoader()
+    embedder = make_ecapa(loader, device="cuda:1", cuda=True)
+
+    embedder.embed(np.zeros(SAMPLE_RATE, dtype=np.float32), SAMPLE_RATE)
+
+    assert loader.loads[0][2] == "cuda:1"
 
 
 class FakeTensor:

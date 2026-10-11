@@ -131,6 +131,8 @@ class EcapaEmbedder(SpeakerEmbedder):
             if device.startswith("cuda") and not self._cuda_available():
                 logger.warning("CUDA is not available; running the speaker model on the CPU")
                 device = "cpu"
+            elif device == "cuda":
+                device = "cuda:0"  # speechbrain parses "cuda:<index>" and warns on a bare "cuda"
             logger.info("Loading speaker model %s on %s", self._model_source, device)
             self._encoder = self._loader(self._model_source, self._model_dir, device)
         return self._encoder
