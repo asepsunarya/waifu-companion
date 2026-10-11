@@ -56,3 +56,10 @@ def test_registry_reads_still_work():
 def test_registry_and_scheduled_task_changes_are_refused(args):
     with pytest.raises(AssertionError, match="system-change command"):
         subprocess.run(args, capture_output=True, check=False)
+
+
+def test_spawning_the_real_rvc_server_is_refused():
+    # The script path does not need to exist: the guard must refuse before anything starts.
+    args = [sys.executable, "tools/rvc_server.py", "--port", "1"]
+    with pytest.raises(AssertionError, match="system-change command"):
+        subprocess.run(args, capture_output=True, check=False)

@@ -185,3 +185,39 @@ named `tests/test_<package>_<module>.py`.
 - [x] README names the Task Manager entry ("Windows Command Processor") and says the log holds transcripts (Privasi)
 
 **Dependencies:** 17, 18, 19 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py`, `README.md` · **Scope:** M
+
+## Task 21: RVC HTTP server script
+
+**Acceptance criteria:**
+- [ ] `GET /health` and `POST /convert` behave per SPEC with an injected fake converter (200/400/413/500 paths)
+- [ ] Applio is imported only inside `load_applio_converter`; the module imports without Applio
+- [ ] Binds to the configured host only; query parameters validated (pitch int -24..24, rates 0..1)
+
+**Dependencies:** 21a · **Files:** `tools/rvc_server.py`, `tests/test_rvc_server.py` · **Scope:** S
+
+## Task 22: RVC client and server-process manager
+
+**Acceptance criteria:**
+- [ ] `RvcClient.convert` round-trips audio through a fake HTTP layer with the configured parameters; HTTP/timeouts become `RvcError`
+- [ ] `RvcServerProcess.ensure_running` reuses a healthy server, else validates paths, spawns with the right argv/cwd/log, waits for health, and fails clearly on exit/timeout
+- [ ] `stop()` terminates only a child it started; no test spawns a real process
+
+**Dependencies:** 21 · **Files:** `src/waifu/voice/rvc.py`, `tests/test_voice_rvc.py` · **Scope:** M
+
+## Task 23: SpeechRouter voice conversion with fallback
+
+**Acceptance criteria:**
+- [ ] With a converter, the joined audio is converted once and returned at the converter's rate
+- [ ] A failing converter yields the unconverted audio and a logged warning (not one per call during a failure streak)
+- [ ] `build_speech_router(config, converter=...)` passes it through; existing behaviour unchanged without one
+
+**Dependencies:** 22 · **Files:** `src/waifu/voice/tts.py`, `tests/test_voice_tts.py` · **Scope:** S
+
+## Task 24: CLI wiring, README, example config
+
+**Acceptance criteria:**
+- [ ] `run`, `say`, `chat --speak` start/stop the RVC server when enabled (run: inside the lock, before ready); `say --raw` skips it
+- [ ] `check` reports RVC status without spawning anything
+- [ ] README (Indonesian) explains the voice, Applio setup, training commands, the corpus terms/credit, and troubleshooting; `config.example.yaml` documents `tts.rvc`
+
+**Dependencies:** 23 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py`, `README.md`, `config.example.yaml` · **Scope:** M
