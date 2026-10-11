@@ -34,3 +34,25 @@ def test_ordinary_subprocesses_still_run():
         [sys.executable, "-c", "print('ok')"], capture_output=True, text=True, check=True
     )
     assert result.stdout.strip() == "ok"
+
+
+def test_registry_writes_are_refused():
+    winreg = pytest.importorskip("winreg")
+    for writer in (winreg.SetValueEx, winreg.DeleteValue, winreg.CreateKeyEx):
+        with pytest.raises(AssertionError, match="registry"):
+            writer(None, None)
+
+
+def test_registry_reads_still_work():
+    winreg = pytest.importorskip("winreg")
+    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment") as key:
+        assert winreg.QueryInfoKey(key)[1] >= 0
+
+
+# Bare verbs without arguments only print usage, so even a broken guard changes nothing.
+@pytest.mark.parametrize(
+    "args", [["reg", "add"], [r"C:\Windows\System32\reg.exe", "delete"], ["schtasks", "/create"]]
+)
+def test_registry_and_scheduled_task_changes_are_refused(args):
+    with pytest.raises(AssertionError, match="system-change command"):
+        subprocess.run(args, capture_output=True, check=False)
