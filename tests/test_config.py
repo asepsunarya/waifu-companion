@@ -60,6 +60,12 @@ def test_device_id_must_be_a_slug(tmp_path):
         load_config(write_yaml(tmp_path, text))
 
 
+def test_unquoted_on_off_commands_stay_strings(tmp_path):
+    text = "devices:\n  - id: tv\n    name: TV\n    type: mock\n    commands: [on, off, OFF]\n"
+    config = load_config(write_yaml(tmp_path, text))
+    assert config.devices[0].commands == ["on", "off", "off"]
+
+
 def test_wake_words_are_normalised(tmp_path):
     config = load_config(write_yaml(tmp_path, "assistant:\n  wake_words: ['  Cyrene ', '']\n"))
     assert config.assistant.wake_words == ["cyrene"]

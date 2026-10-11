@@ -185,6 +185,14 @@ class DeviceConfig(_Strict):
             raise ValueError("device id must be lowercase letters, digits, or underscores")
         return value
 
+    @field_validator("commands", mode="before")
+    @classmethod
+    def _yaml_booleans_are_on_off(cls, value: object) -> object:
+        # YAML 1.1 parses bare on/off as booleans; for a command list they always mean the words.
+        if isinstance(value, list):
+            return [("on" if v else "off") if isinstance(v, bool) else v for v in value]
+        return value
+
     @model_validator(mode="after")
     def _type_has_connection(self) -> DeviceConfig:
         needed = {"tuya_light": "tuya", "tuya_plug": "tuya", "ir": "ir", "pc": "pc"}.get(self.type)
