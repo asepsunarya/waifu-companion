@@ -62,7 +62,8 @@ class AudioConfig(_Strict):
 class SpeakerConfig(_Strict):
     enabled: bool = True
     voiceprint_path: Path = Path("data/voiceprint.npy")
-    threshold: float = Field(default=0.30, ge=-1.0, le=1.0)
+    # 0.30 let a different female voice through in testing (0.37); the owner scored 0.75.
+    threshold: float = Field(default=0.45, ge=-1.0, le=1.0)
     model_source: str = "speechbrain/spkrec-ecapa-voxceleb"
     model_dir: Path = Path("models/spkrec-ecapa")
     device: str = "cuda"

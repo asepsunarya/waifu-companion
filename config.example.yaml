@@ -27,7 +27,7 @@ audio:
 speaker:
   enabled: true          # hanya merespons suara pemilik (jalankan `waifu enroll` dulu)
   voiceprint_path: data/voiceprint.npy
-  threshold: 0.30        # kalibrasi dengan `waifu speaker-test`
+  threshold: 0.45        # kalibrasi dengan `waifu speaker-test`
   device: cuda
 
 stt:
