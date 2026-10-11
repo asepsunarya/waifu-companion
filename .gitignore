@@ -1,0 +1,26 @@
+# claude-code-starter
+.env
+.env.*
+!.env.example
+node_modules/
+dist/
+build/
+.next/
+coverage/
+.DS_Store
+Thumbs.db
+*.log
+.claude/settings.local.json
+.claude/sdd-cache/
+.claude/.simplify-ignore-cache/
+
+# waifu-companion
+config.yaml
+data/
+models/
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
