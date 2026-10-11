@@ -29,3 +29,6 @@ tinytuya.json
 devices.json
 snapshot.json
 tuya-raw.json
+
+# Runtime output
+logs/

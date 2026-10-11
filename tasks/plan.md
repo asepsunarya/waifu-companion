@@ -58,6 +58,19 @@ testable without hardware; real-hardware checks are a manual checklist at the en
 - [x] `waifu chat --dry-run` and `waifu devices --dry-run` run against the example config
 - [ ] Review with human before real-hardware testing
 
+### Phase 6: Autostart (v1.1, see SPEC → autostart)
+Decision: a per-user `HKCU\...\Run` value that opens a minimized console window, not a
+hidden process or a scheduled task: no admin rights, visible and closable, listed in Task
+Manager → Startup apps. A file lock keeps a manual `waifu run` from doubling the instance.
+- [ ] Task 17: Single-instance lock
+- [ ] Task 18: Autostart Run-key manager
+- [ ] Task 19: Preload Whisper and speaker models
+- [ ] Task 20: CLI `autostart`, `run --startup-delay/--announce`, `--log-file`, README
+
+### Checkpoint: Autostart
+- [ ] Full suite and ruff clean; no test touched the real registry (conftest guard)
+- [ ] `waifu autostart status` works on the owner's PC; enabling is left to the owner after `waifu enroll`
+
 ## Risks and Mitigations
 
 | Risk | Impact | Mitigation |

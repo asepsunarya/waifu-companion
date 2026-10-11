@@ -145,3 +145,39 @@ named `tests/test_<package>_<module>.py`.
 - [x] Manual hardware checklist mapping to user stories 1–5
 
 **Dependencies:** 15 · **Files:** `README.md` · **Scope:** S
+
+## Task 17: Single-instance lock
+
+**Acceptance criteria:**
+- [ ] A second `InstanceLock` on the same file (from another process) cannot acquire while the first holds it; release frees it
+- [ ] A killed holder leaves no stale lock (OS lock, not a PID file)
+- [ ] Parent folder is created; works as a context manager
+
+**Dependencies:** none · **Files:** `src/waifu/single_instance.py`, `tests/test_single_instance.py` · **Scope:** S
+
+## Task 18: Autostart Run-key manager
+
+**Acceptance criteria:**
+- [ ] `build_command` quotes paths with spaces and round-trips through Windows command-line parsing
+- [ ] `enable`/`disable`/`status` work against an injected fake Run key; `status` flags a stale command
+- [ ] `WindowsRunKey` only touches `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`; no test writes the real registry
+
+**Dependencies:** none · **Files:** `src/waifu/autostart.py`, `tests/test_autostart.py` · **Scope:** S
+
+## Task 19: Preload Whisper and speaker models
+
+**Acceptance criteria:**
+- [ ] `WhisperStt.preload()` loads the model once (same lazy path as `transcribe`)
+- [ ] `SpeakerVerifier.preload()` loads the embedder model and the voiceprint once
+- [ ] Preloading twice does not load twice
+
+**Dependencies:** none · **Files:** `src/waifu/voice/stt.py`, `src/waifu/voice/speaker.py` + tests · **Scope:** S
+
+## Task 20: CLI autostart, run options, log file, README
+
+**Acceptance criteria:**
+- [ ] `waifu autostart enable|disable|status` per SPEC, including the voiceprint/config refusal and `--force`
+- [ ] `run` takes the instance lock first, honours `--startup-delay`, preloads models, then prints/announces ready (`--announce`)
+- [ ] Global `--log-file` writes a rotating UTF-8 log; README (Indonesian) documents autostart, how to stop/disable it, and the log
+
+**Dependencies:** 17, 18, 19 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py`, `README.md` · **Scope:** M

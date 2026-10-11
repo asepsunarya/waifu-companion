@@ -102,6 +102,21 @@ other modules may rely on.
 - `app.py` — `Assistant(config, *, brain, stt, speech, player, gate, verifier=None, speaker_check=True, now=datetime.now)`: `handle_utterance(utt) -> str | None` (verify owner → transcribe → gate → brain → speak → open follow-up; returns the reply text or None when ignored; a bare wake word gets a short acknowledgement like "はい, Master?"), `handle_text(text) -> BrainReply`, `run(mic, segmenter)` (loop with mic paused while speaking; Ctrl+C exits cleanly). Logs each decision (rejected speaker with score, gate reject, transcript, tool calls).
 - `cli.py` — `main(argv=None) -> int`, subcommands: `run`, `chat [--speak]`, `enroll [--samples 6 --seconds 4]` (prompts Indonesian phrases to read aloud), `speaker-test` (live scores vs threshold), `devices`, `device <id> <command> [value]`, `learn-ir <device_id> <command>` or `learn-ir <device_id> --missing`, `say <text>`, `mics`, `check` (config valid, CUDA available, Ollama reachable or API key present, voiceprint present, IR codes per device). Shared `--config` (default `config.yaml`) and `--dry-run`. `python -m waifu` works via `__main__.py`.
 
+### autostart (v1.1)
+
+User story: the owner logs in to Windows and, without typing anything, Cyrene starts, loads her models, and says she is ready; closing her window stops her; she never runs twice.
+
+- `single_instance.py` — `InstanceLock(path)`: context manager / `acquire() -> bool`, `release()`. Uses an OS byte-range lock on an open file (`msvcrt.locking` on Windows, `fcntl.flock` elsewhere) so a crashed or killed process never leaves a stale lock. Lock file `data/run.lock` (parent created). A second `acquire()` from another process returns False. `waifu run` takes it before loading anything; if taken it prints "Cyrene sudah berjalan (mungkin dari autostart). Tutup jendelanya dulu, atau jalankan 'waifu autostart status'." and exits 2.
+- `autostart.py` — per-user Run key `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, value name `Cyrene` (`RUN_VALUE`). `RunKey` protocol: `get(name) -> str | None`, `set(name, command)`, `delete(name) -> bool`; `WindowsRunKey` implements it with `winreg` (REG_SZ, only HKCU, only that key). `build_command(project_dir, waifu_exe, *, delay_s) -> str`: `cmd.exe /c start "Cyrene" /min /d "<project_dir>" "<waifu_exe>" run --startup-delay <n> --announce --log-file logs\waifu.log` (quoted for paths with spaces; validated by parsing it back with `subprocess.list2cmdline`-compatible rules in tests). `enable(run_key, command)`, `disable(run_key) -> bool`, `status(run_key) -> AutostartStatus(enabled, command, matches_expected)`.
+- CLI:
+  - `waifu autostart enable [--delay 15] [--force]` refuses (exit 2) when `speaker.enabled` and no voiceprint, or `config.yaml` is missing, unless `--force`; prints the command and how to undo it. `project_dir` = current working directory resolved; `waifu_exe` = `<sys.prefix>\Scripts\waifu.exe` (must exist).
+  - `waifu autostart disable` removes the value (ok if absent).
+  - `waifu autostart status` prints enabled/disabled, the stored command, whether it matches what `enable` would write now (stale after moving the project), whether an instance is running (lock held), and the log path with its last 5 lines when present.
+  - `waifu run --startup-delay N` (default 0) sleeps N seconds first (logged); `--announce` speaks "<name> siap, Master." after everything is loaded.
+  - `run` preloads models before printing/speaking that it is ready: `WhisperStt.preload()` and the speaker embedder (`SpeakerVerifier.preload()` → `EcapaEmbedder` load), so the first command is not delayed ~30 s.
+  - Global `--log-file PATH`: also log to a rotating file (1 MB × 3, UTF-8, parent created) in addition to the console.
+- Never touched by tests: the real Run key and `reg.exe`/`schtasks` (guarded in `tests/conftest.py`), the real lock file outside `tmp_path`.
+
 ## Code Style
 
 See `CLAUDE.md` → Code Conventions and Patterns. Dataclasses for value
