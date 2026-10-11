@@ -4,8 +4,9 @@
 assistant:
   name: Cyrene
   # Kata panggilan, boleh di mana saja dalam kalimat: "Cyrene, nyalakan lampu".
-  # Variasi ejaan membantu kalau Whisper menulis namanya berbeda.
-  wake_words: [cyrene, sairin, sairen, sirene, syrene, kyurene, キュレネ]
+  # Variasi ejaan membantu kalau Whisper menulis namanya berbeda. Hindari kata sehari-hari
+  # seperti "sirene": dia akan terpanggil setiap kali kamu membicarakan sirene.
+  wake_words: [cyrene, sairin, sairen, syrene, kyurene, キュレネ]
   # Setelah dia menjawab, kamu boleh lanjut bicara tanpa memanggil namanya selama N detik.
   followup_seconds: 8
   persona_file: config/persona.md
