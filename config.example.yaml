@@ -1,0 +1,114 @@
+# Salin file ini menjadi config.yaml lalu sesuaikan.
+# config.yaml tidak di-commit karena berisi local key perangkat.
+
+assistant:
+  name: Cyrene
+  # Kata panggilan, boleh di mana saja dalam kalimat: "Cyrene, nyalakan lampu".
+  # Variasi ejaan membantu kalau Whisper menulis namanya berbeda.
+  wake_words: [cyrene, sairin, sairen, sirene, syrene, kyurene, キュレネ]
+  # Setelah dia menjawab, kamu boleh lanjut bicara tanpa memanggil namanya selama N detik.
+  followup_seconds: 8
+  persona_file: config/persona.md
+  # Obrolan dilupakan kalau tidak ada percakapan selama N menit.
+  session_idle_minutes: 10
+  max_session_turns: 40
+
+audio:
+  input_device: null    # null = mic default; atau nomor/nama dari `waifu mics`
+  output_device: null
+  sample_rate: 16000
+  vad:
+    threshold_db: -45   # suara di bawah ini dianggap hening
+    margin_db: 12       # harus lebih keras N dB dari noise ruangan
+    silence_ms: 700     # jeda selama ini = kalimat selesai
+    max_speech_s: 15
+
+speaker:
+  enabled: true          # hanya merespons suara pemilik (jalankan `waifu enroll` dulu)
+  voiceprint_path: data/voiceprint.npy
+  threshold: 0.30        # kalibrasi dengan `waifu speaker-test`
+  device: cuda
+
+stt:
+  model: large-v3-turbo
+  device: cuda
+  compute_type: float16
+  languages: [id, ja]    # bahasa pertama dipakai kalau deteksi meleset
+
+brain:
+  backend: ollama        # ollama (lokal, gratis) | claude (butuh ANTHROPIC_API_KEY)
+  max_tool_rounds: 5
+  ollama:
+    host: http://127.0.0.1:11434
+    model: qwen3:8b
+    think: false
+    keep_alive: 30m
+  claude:
+    model: claude-opus-5-5
+    effort: low          # low = paling cepat untuk percakapan suara
+    max_tokens: 16000
+    fallbacks: true
+
+tts:
+  default_language: id
+  voices:
+    id:
+      engine: edge
+      voice: id-ID-GadisNeural
+      pitch: "+15Hz"
+    ja:
+      engine: edge
+      voice: ja-JP-NanamiNeural
+      pitch: "+10Hz"
+    # Suara anime dari GPT-SoVITS (jalankan api_v2.py-nya dulu):
+    # ja:
+    #   engine: gpt_sovits
+    #   url: http://127.0.0.1:9880
+    #   ref_audio_path: D:/voices/cyrene_ref.wav
+    #   prompt_text: "参照音声で話している日本語の文"
+    #   prompt_lang: ja
+
+ir_codes_path: data/ir_codes.json
+
+devices:
+  - id: lampu_kamar
+    name: Lampu kamar
+    aliases: [lampu, lampu utama]
+    type: tuya_light
+    tuya:
+      device_id: "isi_dari_tinytuya_wizard"
+      local_key: "isi_dari_tinytuya_wizard"
+      address: Auto
+      version: 3.3
+
+  - id: ac
+    name: AC Samsung
+    aliases: [ac, pendingin]
+    type: ir
+    ir:
+      backend: broadlink   # broadlink | tuya
+      host: 192.168.1.50
+
+  - id: proyektor
+    name: Proyektor Wanbo Dali
+    aliases: [proyektor, projector]
+    type: ir
+    ir:
+      backend: broadlink
+      host: 192.168.1.50
+
+  - id: komputer
+    name: Komputer
+    aliases: [pc, komputer]
+    type: pc
+    pc:
+      local: true          # PC yang menjalankan waifu ini
+      mac: null            # isi untuk Wake-on-LAN dari perangkat lain
+      shutdown_delay_s: 30
+
+  - id: colokan_pc
+    name: Colokan PC
+    type: tuya_plug
+    tuya:
+      device_id: "isi_dari_tinytuya_wizard"
+      local_key: "isi_dari_tinytuya_wizard"
