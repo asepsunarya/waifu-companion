@@ -21,7 +21,8 @@ class ConfigError(Exception):
 
 
 class _Strict(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    # hide_input_in_errors: a validation error must never echo a local_key back to the console.
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
 
 
 class AssistantConfig(_Strict):
@@ -86,7 +87,8 @@ class SttConfig(_Strict):
 class ClaudeConfig(_Strict):
     model: str = "claude-opus-5-5"
     effort: Literal["low", "medium", "high", "xhigh", "max"] = "low"
-    max_tokens: int = Field(default=16000, gt=0)
+    # The SDK refuses non-streaming requests above 21,333 tokens (expected > 10 minutes).
+    max_tokens: int = Field(default=16000, gt=0, le=21_333)
     fallbacks: bool = True
 
 
@@ -191,6 +193,16 @@ class DeviceConfig(_Strict):
         # YAML 1.1 parses bare on/off as booleans; for a command list they always mean the words.
         if isinstance(value, list):
             return [("on" if v else "off") if isinstance(v, bool) else v for v in value]
+        return value
+
+    @field_validator("commands")
+    @classmethod
+    def _commands_are_slugs(cls, value: list[str]) -> list[str]:
+        bad = [command for command in value if not DEVICE_ID_PATTERN.match(command)]
+        if bad:
+            raise ValueError(
+                f"command names must be lowercase letters, digits, or underscores: {bad}"
+            )
         return value
 
     @model_validator(mode="after")

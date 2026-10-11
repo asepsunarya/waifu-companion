@@ -79,3 +79,27 @@ def test_gpt_sovits_voice_is_selected_by_engine(tmp_path):
     )
     config = load_config(write_yaml(tmp_path, text))
     assert config.tts.voices["ja"].engine == "gpt_sovits"
+
+
+def test_claude_max_tokens_above_the_non_streaming_limit_is_rejected(tmp_path):
+    # The SDK refuses non-streaming requests that could run past 10 minutes (> 21,333 tokens).
+    text = "brain:\n  claude:\n    max_tokens: 32000\n"
+    with pytest.raises(ConfigError, match="max_tokens"):
+        load_config(write_yaml(tmp_path, text))
+
+
+def test_device_command_names_must_be_slugs(tmp_path):
+    text = "devices:\n  - id: tv\n    name: TV\n    type: mock\n    commands: [on, Volume Up]\n"
+    with pytest.raises(ConfigError, match="Volume Up"):
+        load_config(write_yaml(tmp_path, text))
+
+
+def test_config_errors_never_echo_secret_values(tmp_path):
+    text = (
+        "devices:\n  - id: lampu\n    name: Lampu\n    type: tuya_light\n"
+        "    tuya:\n      local_key: SUPERSECRETKEY\n"
+    )
+    with pytest.raises(ConfigError) as caught:
+        load_config(write_yaml(tmp_path, text))
+    assert "device_id" in str(caught.value)
+    assert "SUPERSECRETKEY" not in str(caught.value)
