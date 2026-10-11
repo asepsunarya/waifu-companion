@@ -412,3 +412,16 @@ def test_to_ollama_output_is_accepted_by_the_ollama_client_model():
     assert tool.function.name == "control_device"
     assert tool.function.parameters.required == ["device", "command"]
     assert tool.function.parameters.properties["device"].enum == ["lampu_kamar", "ac"]
+
+
+def test_boolean_value_is_rejected_before_any_device_call():
+    # JSON true is an int in Python; brightness=True must not become brightness 1.
+    registry = house()
+    result, is_error = run_tool(
+        registry,
+        "control_device",
+        {"device": "lampu_kamar", "command": "brightness", "value": True},
+    )
+    assert is_error
+    assert registry.get("lampu_kamar").calls == []
+    assert "value" in result
