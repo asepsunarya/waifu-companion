@@ -78,7 +78,7 @@ tasks/           → tasks/plan.md and tasks/todo.md written by /plan
 **Ask first**
 - New dependencies (state the size and the reason); anything that downloads multi-GB models
 - Changing a contract in a `base.py` file
-- Anything that powers off, restarts, or sleeps the real PC outside an explicit user command
+- Anything that powers off, restarts, or sleeps the real PC outside an explicit user command (never weaken `tests/conftest.py` or `WAIFU_DISABLE_POWER`; an early test slept the owner's PC 10 times)
 
 **Never**
 - Commit secrets, `config.yaml`, `.env*`, `data/` (voiceprint is biometric), or `models/`
@@ -148,13 +148,13 @@ Inject the vendor boundary, keep the logic pure, and test with a fake:
 class PcDevice(Device):
     kind = "pc"
 
-    def __init__(self, device_id, name, conn: PcConnection, *, run=subprocess.run, send_wol=send_magic_packet):
-        super().__init__(device_id, name)
-        self._conn, self._run, self._send_wol = conn, run, send_wol
+    def __init__(self, device_id, name, aliases, conn, *, run=_run_power_command, send_wol=send_magic_packet,
+                 suspend=_suspend_to_sleep, timer_factory=_daemon_timer):
+        ...
 
 def test_shutdown_schedules_a_delayed_windows_shutdown():
-    calls = []
-    pc = PcDevice("komputer", "Komputer", PcConnection(shutdown_delay_s=30), run=lambda cmd, **kw: calls.append(cmd))
+    run = FakeRun()  # never the real subprocess: tests/conftest.py also refuses power commands
+    pc = make_pc(PcConnection(shutdown_delay_s=30), run=run)
     assert pc.execute("shutdown").ok
-    assert calls == [["shutdown", "/s", "/t", "30"]]
+    assert run.commands == [["shutdown", "/s", "/t", "30"]]
 ```
