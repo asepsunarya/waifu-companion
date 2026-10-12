@@ -84,7 +84,7 @@ loads once; on any converter failure Cyrene falls back to the plain edge-tts voi
 
 ### Checkpoint: Anime voice
 - [x] Full suite and ruff clean; no test spawned the real server or loaded Applio
-- [ ] On the owner's PC: converted speech is closer to the Tsukuyomi voiceprint than to edge-tts (ECAPA) and Indonesian stays intelligible (Whisper)
+- [x] On the owner's PC: converted speech is closer to the Tsukuyomi voiceprint than to edge-tts (ECAPA) and Indonesian stays intelligible (Whisper) — measured 2026-10-12: 0.82 vs 0.47, identical transcripts, +0.4 s per reply
 
 ## Risks and Mitigations
 
