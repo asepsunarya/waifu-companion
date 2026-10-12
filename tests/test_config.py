@@ -258,3 +258,37 @@ def test_notify_server_must_use_https(tmp_path):
         load_config(write_yaml(tmp_path, "notify:\n  server: http://ntfy.sh\n"))
     text = "notify:\n  server: https://ntfy.example.com/\n"
     assert load_config(write_yaml(tmp_path, text)).notify.server == "https://ntfy.example.com"
+
+
+def test_avatar_engine_defaults_to_vrm_with_interactions_on():
+    avatar = AppConfig().avatar
+    assert avatar.engine == "vrm"
+    assert avatar.interactions.enabled is True
+    assert avatar.interactions.cursor_follow is True
+    assert avatar.interactions.welcome_back_after_min == 10
+    for kind in ("head_pat", "body_touch", "welcome_back", "listen"):
+        assert avatar.interactions.lines[kind], kind
+
+
+def test_live2d_engine_needs_the_cubism_core_and_a_model3_json(tmp_path):
+    base = "avatar:\n  enabled: true\n  engine: live2d\n"
+    with pytest.raises(ConfigError, match="live2d_core"):
+        load_config(write_yaml(tmp_path, base + "  model: C:/x/Cyrene.model3.json\n"))
+    with pytest.raises(ConfigError, match="model3.json"):
+        load_config(
+            write_yaml(tmp_path, base + "  model: C:/x/a.vrm\n  live2d_core: C:/x/core.js\n")
+        )
+    ok = base + "  model: C:/x/Cyrene.model3.json\n  live2d_core: C:/x/live2dcubismcore.min.js\n"
+    assert load_config(write_yaml(tmp_path, ok)).avatar.engine == "live2d"
+
+
+def test_vrm_engine_model_must_be_a_vrm_file(tmp_path):
+    text = "avatar:\n  enabled: true\n  model: C:/x/Cyrene.model3.json\n"
+    with pytest.raises(ConfigError, match=r"\.vrm"):
+        load_config(write_yaml(tmp_path, text))
+
+
+def test_interaction_lines_must_not_be_empty(tmp_path):
+    text = "avatar:\n  interactions:\n    lines:\n      head_pat: []\n"
+    with pytest.raises(ConfigError, match="head_pat"):
+        load_config(write_yaml(tmp_path, text))

@@ -279,11 +279,55 @@ class DeviceConfig(_Strict):
         return self
 
 
+_DEFAULT_INTERACTION_LINES: dict[str, list[str]] = {
+    "head_pat": [
+        "えへへ, geli, Master!",
+        "Hehe, makasih elusannya, Master.",
+        "Mm, enak dielus begini.",
+    ],
+    "body_touch": ["Hei! Kaget aku, Master.", "Eh? Ada apa, Master?", "Jangan iseng, ya!"],
+    "welcome_back": ["おかえりなさい, Master!", "Master sudah kembali! Aku kangen."],
+    "listen": ["はい, Master?", "Iya, aku dengar."],
+}
+
+
+class AvatarInteractionsConfig(_Strict):
+    """How the avatar reacts to the mouse: looking at the cursor, pats, pokes, double-clicks."""
+
+    enabled: bool = True
+    cursor_follow: bool = True
+    head_pat: bool = True
+    body_touch: bool = True
+    double_click_listen: bool = True
+    idle: bool = True
+    # Greet the owner when the mouse moves again after this many idle minutes (0: never).
+    welcome_back_after_min: int = Field(default=10, ge=0, le=24 * 60)
+    # Minimum seconds between two spoken reactions, so clicking does not spam replies.
+    reaction_cooldown_s: float = Field(default=3.0, ge=0.0, le=600.0)
+    lines: dict[str, list[str]] = Field(default_factory=lambda: dict(_DEFAULT_INTERACTION_LINES))
+
+    @field_validator("lines")
+    @classmethod
+    def _lines_complete(cls, value: dict[str, list[str]]) -> dict[str, list[str]]:
+        merged = {**_DEFAULT_INTERACTION_LINES, **value}
+        for kind, lines in merged.items():
+            cleaned = [line.strip() for line in lines if line.strip()]
+            if not cleaned:
+                raise ValueError(f"avatar.interactions.lines.{kind} needs at least one line")
+            merged[kind] = cleaned
+        return merged
+
+
 class AvatarConfig(_Strict):
-    """A VRM avatar that lip-syncs her replies, shown as a desktop mascot or a window."""
+    """A VRM or Live2D avatar that lip-syncs her replies, shown as a desktop mascot or a window."""
 
     enabled: bool = False
+    # vrm: three.js + three-vrm; live2d: PixiJS + a Cubism 5 engine and the owner's Cubism Core.
+    engine: Literal["vrm", "live2d"] = "vrm"
     model: Path | None = None
+    live2d_core: Path | None = None
+    credit: str = "つくよみちゃん（© Rei Yumesaki）"
+    interactions: AvatarInteractionsConfig = Field(default_factory=AvatarInteractionsConfig)
     host: str = "127.0.0.1"
     port: int = Field(default=9882, ge=1024, le=65535)
     # mascot: transparent always-on-top Electron window; app: Edge app window; none: server only.
@@ -301,9 +345,22 @@ class AvatarConfig(_Strict):
         return _ipv4_loopback(value, "avatar.host")
 
     @model_validator(mode="after")
-    def _enabled_needs_model(self) -> AvatarConfig:
-        if self.enabled and self.model is None:
-            raise ValueError("avatar.model (the .vrm file) is required when the avatar is enabled")
+    def _engine_has_its_files(self) -> AvatarConfig:
+        if self.model is not None:
+            name = self.model.name.lower()
+            if self.engine == "vrm" and not name.endswith(".vrm"):
+                raise ValueError("avatar.model must be a .vrm file for engine: vrm")
+            if self.engine == "live2d" and not name.endswith(".model3.json"):
+                raise ValueError("avatar.model must be a .model3.json file for engine: live2d")
+        if not self.enabled:
+            return self
+        if self.model is None:
+            raise ValueError("avatar.model is required when the avatar is enabled")
+        if self.engine == "live2d" and self.live2d_core is None:
+            raise ValueError(
+                "avatar.live2d_core (live2dcubismcore.min.js from the official Cubism SDK for "
+                "Web) is required for engine: live2d"
+            )
         return self
 
 
