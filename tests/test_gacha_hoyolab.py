@@ -17,6 +17,7 @@ from waifu.gacha.hoyolab import (
     GameStatus,
     HoyolabClient,
     WeeklyTask,
+    preferred_uids,
 )
 
 COOKIE = "ltuid_v2=1; ltoken_v2=v2_SECRETCOOKIE; cookie_token_v2=SECRETTOKEN; account_id_v2=1"
@@ -380,3 +381,13 @@ def test_the_cookie_never_shows_up_in_errors_or_logs(caplog):
         assert secret not in error.message
         assert secret not in str(error)
         assert secret not in caplog.text
+
+
+def test_the_first_of_the_highest_level_accounts_is_the_one_used():
+    accounts = [
+        Account("hsr", 800000001, "Main", 70, "Asia"),
+        Account("hsr", 800000002, "Alt", 70, "Asia"),
+        Account("zzz", 1300000003, "Main", 10, "Asia"),
+    ]
+
+    assert preferred_uids(accounts) == {"hsr": 800000001, "zzz": 1300000003}

@@ -66,7 +66,7 @@ from waifu.gacha.history import (
     TopPull,
     find_cached_gacha_url,
 )
-from waifu.gacha.hoyolab import GachaError, GameStatus, HoyolabClient
+from waifu.gacha.hoyolab import GachaError, GameStatus, HoyolabClient, preferred_uids
 from waifu.gacha.reminders import duration_text
 from waifu.gacha.tools import GachaTools
 from waifu.gacha.watcher import GachaWatcher
@@ -1092,11 +1092,7 @@ def _gacha_accounts(args: argparse.Namespace) -> int:
     if not accounts:
         print(f"{WARN} Cookie ini tidak terhubung ke akun HSR, Genshin, atau ZZZ.")
         return 1
-    # A uid from config.yaml, else the highest-level account (set last when sorted by level).
-    chosen = dict(config.gacha.uids)
-    for account in sorted(accounts, key=lambda a: a.level):
-        if account.game not in config.gacha.uids:
-            chosen[account.game] = account.uid
+    chosen = {**preferred_uids(accounts), **config.gacha.uids}  # config.yaml wins
     for account in accounts:
         mark = "→" if chosen.get(account.game) == account.uid else " "
         print(

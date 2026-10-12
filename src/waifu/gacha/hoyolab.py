@@ -198,13 +198,10 @@ class HoyolabClient:
         """The uid of each game: from config, else the highest-level account (looked up once)."""
         missing = [game for game in games if game not in self._uids]
         if missing:
-            best: dict[str, Account] = {}
-            for account in await self._accounts(client):
-                if account.game not in best or account.level > best[account.game].level:
-                    best[account.game] = account
+            preferred = preferred_uids(await self._accounts(client))
             with self._uids_lock:
-                for game, account in best.items():
-                    self._uids.setdefault(game, account.uid)
+                for game, uid in preferred.items():
+                    self._uids.setdefault(game, uid)
         return dict(self._uids)
 
     async def _status(self, client: Any, game: Game) -> GameStatus:
@@ -229,6 +226,15 @@ class HoyolabClient:
         else:
             checked_in = info.signed_in
         return _STATUS_READERS[game.id](notes, checked_in)
+
+
+def preferred_uids(accounts: Iterable[Account]) -> dict[str, int]:
+    """Each game's highest-level account (the first of equals, as genshin.py picks too)."""
+    best: dict[str, Account] = {}
+    for account in accounts:
+        if account.game not in best or account.level > best[account.game].level:
+            best[account.game] = account
+    return {game: account.uid for game, account in best.items()}
 
 
 def _hoyolab_game(game: Game) -> Any:

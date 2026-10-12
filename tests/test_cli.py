@@ -3357,3 +3357,16 @@ def test_build_gacha_follows_the_config(home):
     assert isinstance(parts.hoyolab, HoyolabClient)
     assert parts.hoyolab.has_cookie_token
     assert isinstance(parts.history, GachaHistory)
+
+
+def test_gacha_accounts_marks_the_account_she_uses_when_levels_tie(home, games, capsys):
+    games.hoyolab.account_list = [
+        Account("hsr", 800000001, "Main", 70, "Asia"),
+        Account("hsr", 800000002, "Alt", 70, "Asia"),
+    ]
+
+    assert cli.main(["gacha", "accounts"]) == 0
+
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0].startswith("→ HSR      800000001")
+    assert lines[1].startswith("  HSR      800000002")
