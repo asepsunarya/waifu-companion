@@ -1,8 +1,13 @@
 """Local LLM backend: one chat session with an Ollama model and the house tools.
 
-The history is plain chat messages. A failed turn is truncated away so the
-next request never sees half a turn, and a session that is idle too long or
-at its turn cap restarts with only the system prompt.
+The history is plain chat messages after the system message. A failed turn is
+truncated away so the next request never sees half a turn, and a session that
+is idle too long or at its turn cap restarts with only the system prompt. A
+callable system prompt is read when a session's first turn begins (not when the
+brain is built, maybe hours before) and kept for the rest of that session, so
+the prompt never changes mid-session. A rolled-back turn that saved or deleted
+a note ends its session: the note would be missing from both that session's
+prompt and its history.
 """
 
 from __future__ import annotations
@@ -19,6 +24,7 @@ import httpx
 import ollama
 
 from waifu.brain.base import Brain, BrainReply, ToolCallRecord
+from waifu.brain.memory_tools import changed_memory
 from waifu.brain.persona import format_user_turn
 from waifu.brain.session import SessionClock
 from waifu.brain.tools import ToolProvider, build_tool_specs, run_tool, to_ollama
@@ -47,7 +53,7 @@ class OllamaBrain(Brain):
         self,
         config: BrainConfig,
         registry: DeviceRegistry,
-        system_prompt: str,
+        system_prompt: str | Callable[[], str],
         *,
         client: ollama.Client | None = None,
         clock: Callable[[], float] = time.monotonic,
@@ -59,16 +65,20 @@ class OllamaBrain(Brain):
         self._registry = registry
         self._providers = tuple(providers)
         self._system_prompt = system_prompt
+        self._session_system = ""
         self._client = client
         self._session = SessionClock(session_idle_minutes, max_session_turns, clock)
         self._tools = [to_ollama(spec) for spec in build_tool_specs(registry, self._providers)]
         self._history: list[dict[str, Any]] = []
-        self.reset()
 
     def respond(self, user_text: str, *, now: datetime | None = None) -> BrainReply:
         if self._session.should_reset():
             logger.info("Session idle or at its turn cap; starting a new one")
             self.reset()
+        if not self._history:
+            # A new session (or a rolled-back first turn): its system prompt is fixed from here.
+            source = self._system_prompt
+            self._session_system = source() if callable(source) else source
         turn_start = len(self._history)
         records: list[ToolCallRecord] = []
         user_turn = format_user_turn(user_text, now or datetime.now())
@@ -76,13 +86,17 @@ class OllamaBrain(Brain):
         try:
             text = self._run_turn(records)
         except Exception as exc:
-            del self._history[turn_start:]
+            if changed_memory(records):
+                logger.info("Rolled back a turn that changed a note; starting a new session")
+                self.reset()
+            else:
+                del self._history[turn_start:]
             return BrainReply(text=self._apology(exc), tool_calls=records)
         self._session.record_turn()
         return BrainReply(text=text, tool_calls=records)
 
     def reset(self) -> None:
-        self._history = [{"role": "system", "content": self._system_prompt}]
+        self._history = []
         self._session.reset()
 
     def _run_turn(self, records: list[ToolCallRecord]) -> str:
@@ -113,7 +127,7 @@ class OllamaBrain(Brain):
             self._client = ollama.Client(host=self._config.ollama.host, timeout=_REQUEST_TIMEOUT)
         response = self._client.chat(
             model=self._config.ollama.model,
-            messages=self._history,
+            messages=[{"role": "system", "content": self._session_system}, *self._history],
             tools=self._tools,
             think=self._config.ollama.think,
             keep_alive=self._config.ollama.keep_alive,

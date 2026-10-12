@@ -1,4 +1,5 @@
 import copy
+import logging
 import time
 from datetime import datetime
 
@@ -183,3 +184,112 @@ def test_the_game_tools_reach_the_ollama_brain(ollama_clients):
 
     tools = [tool["function"]["name"] for tool in ollama_clients[0].requests[0]["tools"]]
     assert tools == ["control_device", "list_devices", "game_status"]
+
+
+# Memory section
+
+NO_NOTES = "Ingatanmu tentang Master: belum ada catatan."
+ONE_NOTE = (
+    "Ingatanmu tentang Master (catatan dari obrolan sebelumnya, tersimpan di PC ini):\n"
+    "- m1 (12-10-2026): Master alergi udang."
+)
+UNREADABLE = "Ingatanmu tentang Master tidak bisa dibaca saat ini."
+
+
+class MemorySection:
+    """Stands in for `memory_prompt_section(store.facts())`, counting its reads."""
+
+    def __init__(self, text: str) -> None:
+        self.text = text
+        self.reads = 0
+
+    def __call__(self) -> str:
+        self.reads += 1
+        return self.text
+
+
+def claude_config() -> AppConfig:
+    return AppConfig(assistant=AssistantConfig(name="Cyrene"), brain=BrainConfig(backend="claude"))
+
+
+def test_memory_section_follows_the_unchanged_base_prompt_after_a_blank_line(monkeypatch):
+    monkeypatch.setattr("waifu.brain.claude.ClaudeBrain", FakeClaudeBrain)
+    registry = house()
+
+    brain = build_brain(
+        claude_config(), registry, persona_text=PERSONA, memory_section=MemorySection(ONE_NOTE)
+    )
+
+    base = build_system_prompt(PERSONA, "Cyrene", registry)
+    assert brain.system_prompt() == f"{base}\n\n{ONE_NOTE}"
+
+
+def test_memory_section_is_read_each_time_the_brain_reads_the_system_prompt(monkeypatch):
+    monkeypatch.setattr("waifu.brain.claude.ClaudeBrain", FakeClaudeBrain)
+    section = MemorySection(NO_NOTES)
+
+    brain = build_brain(claude_config(), house(), persona_text=PERSONA, memory_section=section)
+    reads_when_built = section.reads
+    first = brain.system_prompt()
+    section.text = ONE_NOTE
+    second = brain.system_prompt()
+
+    assert reads_when_built == 0
+    assert section.reads == 2
+    assert first.endswith(f"\n\n{NO_NOTES}")
+    assert second.endswith(f"\n\n{ONE_NOTE}")
+
+
+def test_memory_reaches_the_ollama_brain_and_a_new_session_sees_new_notes(ollama_clients):
+    registry = house()
+    section = MemorySection(NO_NOTES)
+    config = AppConfig(assistant=AssistantConfig(name="Cyrene", max_session_turns=1))
+    brain = build_brain(config, registry, persona_text=PERSONA, memory_section=section)
+
+    brain.respond("ingat ya, aku alergi udang", now=NOW)
+    section.text = ONE_NOTE
+    brain.respond("enaknya masak apa?", now=NOW)
+
+    base = build_system_prompt(PERSONA, "Cyrene", registry)
+    assert [request["messages"][0] for request in ollama_clients[0].requests] == [
+        {"role": "system", "content": f"{base}\n\n{NO_NOTES}"},
+        {"role": "system", "content": f"{base}\n\n{ONE_NOTE}"},
+    ]
+
+
+def test_the_ollama_brain_reads_the_notes_when_the_first_conversation_begins(ollama_clients):
+    # `waifu run` builds the brain at login, maybe hours before Master first talks to her.
+    section = MemorySection(NO_NOTES)
+
+    brain = build_brain(AppConfig(), house(), persona_text=PERSONA, memory_section=section)
+    reads_when_built = section.reads
+    section.text = ONE_NOTE
+    brain.respond("halo", now=NOW)
+
+    assert reads_when_built == 0
+    system_message = ollama_clients[0].requests[0]["messages"][0]
+    assert system_message["content"].endswith(f"\n\n{ONE_NOTE}")
+
+
+def test_unreadable_memory_is_logged_and_the_prompt_says_so_so_the_turn_still_works(
+    ollama_clients, caplog
+):
+    registry = house()
+
+    def broken_memory() -> str:
+        raise OSError("memory.json is locked")
+
+    with caplog.at_level(logging.ERROR, logger="waifu.brain.factory"):
+        brain = build_brain(
+            AppConfig(), registry, persona_text=PERSONA, memory_section=broken_memory
+        )
+        reply = brain.respond("halo", now=NOW)
+
+    assert reply.text == "Halo!"
+    base = build_system_prompt(PERSONA, "Cyrene", registry)
+    system_message = ollama_clients[0].requests[0]["messages"][0]
+    assert system_message == {"role": "system", "content": f"{base}\n\n{UNREADABLE}"}
+    [record] = [record for record in caplog.records if record.name == "waifu.brain.factory"]
+    assert record.levelno == logging.ERROR
+    assert record.exc_info is not None
+    assert isinstance(record.exc_info[1], OSError)

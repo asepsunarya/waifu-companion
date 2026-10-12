@@ -1,12 +1,15 @@
 import copy
 import json
+from collections.abc import Callable
 from datetime import datetime
 from types import SimpleNamespace
 
 import httpx
 import ollama
+import pytest
 
 from waifu.brain.base import ToolCallRecord, ToolSpec
+from waifu.brain.memory_tools import MemoryTools
 from waifu.brain.ollama_brain import OllamaBrain
 from waifu.brain.persona import format_user_turn
 from waifu.brain.tools import build_tool_specs, to_ollama
@@ -14,6 +17,7 @@ from waifu.config import BrainConfig, OllamaConfig
 from waifu.devices.base import Device, DeviceResult
 from waifu.devices.mock import MockDevice
 from waifu.devices.registry import DeviceRegistry
+from waifu.memory import MemoryStore, memory_prompt_section
 
 SYSTEM_PROMPT = "Kamu adalah Cyrene."
 NOW = datetime(2026, 10, 12, 7, 30)
@@ -81,8 +85,14 @@ class UnreachableTv(Device):
         return DeviceResult(ok=False, message="TV tidak bisa dihubungi.")
 
 
-def brain_with(client: FakeOllama, registry: DeviceRegistry | None = None, **kwargs) -> OllamaBrain:
-    return OllamaBrain(BrainConfig(), registry or house(), SYSTEM_PROMPT, client=client, **kwargs)
+def brain_with(
+    client: FakeOllama,
+    registry: DeviceRegistry | None = None,
+    *,
+    system_prompt: str | Callable[[], str] = SYSTEM_PROMPT,
+    **kwargs,
+) -> OllamaBrain:
+    return OllamaBrain(BrainConfig(), registry or house(), system_prompt, client=client, **kwargs)
 
 
 # Requests
@@ -540,3 +550,224 @@ def test_provider_tools_are_offered_and_their_calls_answered():
     assert tool_message["tool_name"] == "game_status"
     assert json.loads(tool_message["content"])["games"][0]["stamina"]["current"] == 232
     assert [(c.name, c.is_error) for c in result.tool_calls] == [("game_status", False)]
+
+
+# Per-session system prompt
+
+
+class SessionPrompt:
+    """A callable system prompt that counts its reads; `text` may change between them."""
+
+    def __init__(self, text: str) -> None:
+        self.text = text
+        self.reads = 0
+
+    def __call__(self) -> str:
+        self.reads += 1
+        return self.text
+
+
+def system_messages(client: FakeOllama) -> list[dict]:
+    return [request["messages"][0] for request in client.requests]
+
+
+def test_callable_system_prompt_is_read_once_for_every_turn_and_tool_round_of_a_session():
+    prompt = SessionPrompt("Kamu Cyrene. Master alergi udang.")
+    client = FakeOllama(
+        reply("", call("control_device", device="lampu_kamar", command="on")),
+        reply("Sudah."),
+        reply("Halo!"),
+    )
+    brain = brain_with(client, system_prompt=prompt)
+
+    brain.respond("nyalakan lampu", now=NOW)
+    brain.respond("halo", now=NOW)
+
+    assert prompt.reads == 1
+    assert (
+        system_messages(client)
+        == [{"role": "system", "content": "Kamu Cyrene. Master alergi udang."}] * 3
+    )
+
+
+def test_callable_system_prompt_sends_the_same_requests_as_the_string():
+    def lamp_on_then_done() -> FakeOllama:
+        return FakeOllama(
+            reply("", call("control_device", device="lampu_kamar", command="on")), reply("Sudah.")
+        )
+
+    with_string, with_callable = lamp_on_then_done(), lamp_on_then_done()
+
+    brain_with(with_string).respond("nyalakan lampu", now=NOW)
+    brain_with(with_callable, system_prompt=lambda: SYSTEM_PROMPT).respond(
+        "nyalakan lampu", now=NOW
+    )
+
+    assert with_callable.requests == with_string.requests
+
+
+def test_system_prompt_changed_mid_session_is_only_seen_by_the_next_session():
+    prompt = SessionPrompt("Ingatan: belum ada.")
+    client = FakeOllama(reply("Oke."), reply("Sama-sama."), reply("Nasi goreng?"))
+    brain = brain_with(client, system_prompt=prompt)
+
+    brain.respond("ingat ya, aku alergi udang", now=NOW)
+    prompt.text = "Ingatan: Master alergi udang."
+    brain.respond("makasih", now=NOW)
+    brain.reset()
+    brain.respond("enaknya masak apa?", now=NOW)
+
+    assert [message["content"] for message in system_messages(client)] == [
+        "Ingatan: belum ada.",
+        "Ingatan: belum ada.",
+        "Ingatan: Master alergi udang.",
+    ]
+
+
+def idle_too_long(brain: OllamaBrain, clock: FakeClock) -> None:
+    clock.now += 11 * 60
+
+
+def reached_the_turn_cap(brain: OllamaBrain, clock: FakeClock) -> None:
+    """Nothing to do: with a cap of one turn, the first turn already ends the session."""
+
+
+def reset_by_hand(brain: OllamaBrain, clock: FakeClock) -> None:
+    brain.reset()
+
+
+@pytest.mark.parametrize(
+    ("end_session", "limits"),
+    [
+        (idle_too_long, {"session_idle_minutes": 10}),
+        (reached_the_turn_cap, {"max_session_turns": 1}),
+        (reset_by_hand, {}),
+    ],
+    ids=["idle", "turn_cap", "reset"],
+)
+def test_every_new_session_reads_the_system_prompt_again(end_session, limits):
+    prompt = SessionPrompt("Sesi satu.")
+    clock = FakeClock()
+    client = FakeOllama(reply("Halo!"), reply("Hai!"))
+    brain = brain_with(client, system_prompt=prompt, clock=clock, **limits)
+
+    brain.respond("halo", now=NOW)
+    prompt.text = "Sesi dua."
+    end_session(brain, clock)
+    brain.respond("hai", now=NOW)
+
+    assert prompt.reads == 2
+    assert client.requests[1]["messages"] == [
+        {"role": "system", "content": "Sesi dua."},
+        {"role": "user", "content": format_user_turn("hai", NOW)},
+    ]
+
+
+def test_building_the_brain_does_not_read_the_system_prompt():
+    prompt = SessionPrompt("Ingatan lama.")
+
+    brain_with(FakeOllama(), system_prompt=prompt)
+
+    assert prompt.reads == 0
+
+
+def test_the_first_session_reads_the_system_prompt_when_its_first_turn_begins():
+    # `waifu run` builds the brain at login, maybe hours before the first conversation.
+    prompt = SessionPrompt("Ingatan lama.")
+    client = FakeOllama(reply("Halo!"))
+    brain = brain_with(client, system_prompt=prompt)
+
+    prompt.text = "Ingatan baru."
+    brain.respond("halo", now=NOW)
+
+    assert system_messages(client) == [{"role": "system", "content": "Ingatan baru."}]
+
+
+def test_rolled_back_first_turn_reads_the_system_prompt_again_on_the_next_turn():
+    prompt = SessionPrompt("Ingatan lama.")
+    client = FakeOllama(ConnectionError("refused"), reply("Halo!"))
+    brain = brain_with(client, system_prompt=prompt)
+
+    brain.respond("halo", now=NOW)
+    prompt.text = "Ingatan baru."
+    brain.respond("halo lagi", now=NOW)
+
+    assert prompt.reads == 2
+    assert client.requests[1]["messages"] == [
+        {"role": "system", "content": "Ingatan baru."},
+        {"role": "user", "content": format_user_turn("halo lagi", NOW)},
+    ]
+
+
+def test_rolled_back_later_turn_keeps_the_session_system_prompt():
+    prompt = SessionPrompt("Ingatan lama.")
+    client = FakeOllama(reply("Halo!"), ConnectionError("refused"), reply("Oke."))
+    brain = brain_with(client, system_prompt=prompt)
+
+    brain.respond("halo", now=NOW)
+    prompt.text = "Ingatan baru."
+    brain.respond("nyalakan lampu", now=NOW)
+    brain.respond("coba lagi", now=NOW)
+
+    assert prompt.reads == 1
+    assert [message["content"] for message in system_messages(client)] == ["Ingatan lama."] * 3
+
+
+# A rolled-back turn that changed a note
+
+
+def memory_brain(client: FakeOllama, store: MemoryStore) -> OllamaBrain:
+    """A brain with her memory tools whose sessions list the notes in `store`."""
+    return brain_with(
+        client,
+        system_prompt=lambda: memory_prompt_section(store.facts()),
+        providers=[MemoryTools(store)],
+    )
+
+
+def test_rolled_back_turn_that_saved_a_note_ends_the_session_so_the_next_one_lists_it(tmp_path):
+    store = MemoryStore(tmp_path / "memory.json")
+    client = FakeOllama(
+        reply("Halo!"),
+        reply("", call("remember", text="Master alergi udang.")),
+        ConnectionError("refused"),
+        reply("Oke."),
+    )
+    brain = memory_brain(client, store)
+
+    brain.respond("halo", now=NOW)
+    result = brain.respond("ingat ya, aku alergi udang", now=NOW)
+    brain.respond("lupakan soal udang", now=NOW)
+
+    assert [(record.name, record.is_error) for record in result.tool_calls] == [("remember", False)]
+    [saved] = store.facts()
+    assert saved.text == "Master alergi udang."
+    assert client.requests[3]["messages"] == [
+        {"role": "system", "content": memory_prompt_section([saved])},
+        {"role": "user", "content": format_user_turn("lupakan soal udang", NOW)},
+    ]
+
+
+def test_rolled_back_turn_that_deleted_a_note_ends_the_session_so_the_next_one_drops_it(
+    tmp_path,
+):
+    store = MemoryStore(tmp_path / "memory.json")
+    store.add("Master alergi udang.")
+    client = FakeOllama(
+        reply("Halo!"),
+        reply("", call("forget", id="m1")),
+        httpx.ReadTimeout("timed out"),
+        reply("Oke."),
+    )
+    brain = memory_brain(client, store)
+
+    brain.respond("halo", now=NOW)
+    brain.respond("lupakan soal udang", now=NOW)
+    brain.respond("apa yang kamu ingat?", now=NOW)
+
+    assert "Master alergi udang." in system_messages(client)[0]["content"]
+    assert store.facts() == []
+    assert client.requests[3]["messages"] == [
+        {"role": "system", "content": memory_prompt_section([])},
+        {"role": "user", "content": format_user_turn("apa yang kamu ingat?", NOW)},
+    ]

@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -12,11 +13,13 @@ import pytest
 from waifu.brain import claude as claude_module
 from waifu.brain.base import ToolSpec
 from waifu.brain.claude import ClaudeBrain
+from waifu.brain.memory_tools import MemoryTools
 from waifu.brain.persona import format_user_turn
 from waifu.config import BrainConfig, ClaudeConfig
 from waifu.devices.base import Device, DeviceResult
 from waifu.devices.mock import MockDevice
 from waifu.devices.registry import DeviceRegistry
+from waifu.memory import MemoryStore, memory_prompt_section
 
 NOW = datetime(2026, 10, 12, 7, 30)
 SYSTEM_PROMPT = "Kamu Cyrene."
@@ -106,6 +109,7 @@ def make_brain(
     *,
     fallbacks: bool = True,
     max_tool_rounds: int = 5,
+    system_prompt: str | Callable[[], str] = SYSTEM_PROMPT,
     **kwargs: object,
 ) -> ClaudeBrain:
     config = BrainConfig(
@@ -115,7 +119,7 @@ def make_brain(
             model="claude-opus-5-5", effort="low", max_tokens=16000, fallbacks=fallbacks
         ),
     )
-    return ClaudeBrain(config, registry or house(), SYSTEM_PROMPT, client=client, **kwargs)
+    return ClaudeBrain(config, registry or house(), system_prompt, client=client, **kwargs)
 
 
 def request_error(
@@ -802,3 +806,255 @@ def test_provider_tools_are_offered_and_their_calls_answered():
     [result] = tool_results(client.requests[1]["messages"][-1])
     assert json.loads(result["content"])["games"][0]["stamina"]["current"] == 232
     assert [(call.name, call.is_error) for call in reply.tool_calls] == [("game_status", False)]
+
+
+# Per-session system prompt
+
+
+class SessionPrompt:
+    """A callable system prompt that counts its reads; `text` may change between them."""
+
+    def __init__(self, text: str) -> None:
+        self.text = text
+        self.reads = 0
+
+    def __call__(self) -> str:
+        self.reads += 1
+        return self.text
+
+
+def lamp_on_then_done() -> list[SimpleNamespace]:
+    lamp_on = {"device": "lampu_kamar", "command": "on"}
+    return [
+        message([tool_use("call_1", "control_device", lamp_on)], "tool_use"),
+        message([text("Sudah.")], "end_turn"),
+    ]
+
+
+def test_callable_system_prompt_is_read_once_for_every_turn_and_tool_round_of_a_session():
+    prompt = SessionPrompt("Kamu Cyrene. Master alergi udang.")
+    client = FakeAnthropic(
+        *lamp_on_then_done(),
+        message([text("Halo!")], "end_turn"),
+        message([text("Hai!")], "end_turn"),
+    )
+    brain = make_brain(client, system_prompt=prompt)
+
+    brain.respond("nyalakan lampu", now=NOW)
+    brain.respond("halo", now=NOW)
+    brain.respond("hai", now=NOW)
+
+    assert prompt.reads == 1
+    assert [request["system"] for request in client.requests] == [
+        "Kamu Cyrene. Master alergi udang."
+    ] * 4
+
+
+def test_callable_system_prompt_sends_the_same_requests_as_the_string():
+    with_string = FakeAnthropic(*lamp_on_then_done())
+    with_callable = FakeAnthropic(*lamp_on_then_done())
+
+    make_brain(with_string).respond("nyalakan lampu", now=NOW)
+    make_brain(with_callable, system_prompt=lambda: SYSTEM_PROMPT).respond(
+        "nyalakan lampu", now=NOW
+    )
+
+    assert with_callable.requests == with_string.requests
+
+
+def test_system_prompt_changed_mid_session_is_only_seen_by_the_next_session():
+    prompt = SessionPrompt("Ingatan: belum ada.")
+    client = FakeAnthropic(*(message([text("Oke.")], "end_turn") for _ in range(3)))
+    brain = make_brain(client, system_prompt=prompt)
+
+    brain.respond("ingat ya, aku alergi udang", now=NOW)
+    prompt.text = "Ingatan: Master alergi udang."
+    brain.respond("makasih", now=NOW)
+    brain.reset()
+    brain.respond("enaknya masak apa?", now=NOW)
+
+    assert [request["system"] for request in client.requests] == [
+        "Ingatan: belum ada.",
+        "Ingatan: belum ada.",
+        "Ingatan: Master alergi udang.",
+    ]
+
+
+def idle_too_long(brain: ClaudeBrain, clock: FakeClock) -> None:
+    clock.now += 11 * 60
+
+
+def reached_the_turn_cap(brain: ClaudeBrain, clock: FakeClock) -> None:
+    """Nothing to do: with a cap of one turn, the first turn already ends the session."""
+
+
+def reset_by_hand(brain: ClaudeBrain, clock: FakeClock) -> None:
+    brain.reset()
+
+
+@pytest.mark.parametrize(
+    ("end_session", "limits"),
+    [
+        (idle_too_long, {"session_idle_minutes": 10}),
+        (reached_the_turn_cap, {"max_session_turns": 1}),
+        (reset_by_hand, {}),
+    ],
+    ids=["idle", "turn_cap", "reset"],
+)
+def test_every_new_session_reads_the_system_prompt_again(end_session, limits):
+    prompt = SessionPrompt("Sesi satu.")
+    clock = FakeClock()
+    client = FakeAnthropic(
+        message([text("Halo!")], "end_turn"), message([text("Hai!")], "end_turn")
+    )
+    brain = make_brain(client, system_prompt=prompt, clock=clock, **limits)
+
+    brain.respond("halo", now=NOW)
+    prompt.text = "Sesi dua."
+    end_session(brain, clock)
+    brain.respond("hai", now=NOW)
+
+    assert prompt.reads == 2
+    assert [request["system"] for request in client.requests] == ["Sesi satu.", "Sesi dua."]
+    assert client.requests[1]["messages"] == [
+        {"role": "user", "content": format_user_turn("hai", NOW)}
+    ]
+
+
+def test_rolled_back_first_turn_reads_the_system_prompt_again_on_the_next_turn():
+    prompt = SessionPrompt("Ingatan lama.")
+    client = FakeAnthropic(connection_error(), message([text("Halo!")], "end_turn"))
+    brain = make_brain(client, system_prompt=prompt)
+
+    brain.respond("halo", now=NOW)
+    prompt.text = "Ingatan baru."
+    brain.respond("halo lagi", now=NOW)
+
+    assert prompt.reads == 2
+    assert [request["system"] for request in client.requests] == [
+        "Ingatan lama.",
+        "Ingatan baru.",
+    ]
+
+
+def test_rolled_back_later_turn_keeps_the_session_system_prompt():
+    prompt = SessionPrompt("Ingatan lama.")
+    client = FakeAnthropic(
+        message([text("Halo!")], "end_turn"),
+        connection_error(),
+        message([text("Oke.")], "end_turn"),
+    )
+    brain = make_brain(client, system_prompt=prompt)
+
+    brain.respond("halo", now=NOW)
+    prompt.text = "Ingatan baru."
+    brain.respond("nyalakan lampu", now=NOW)
+    brain.respond("coba lagi", now=NOW)
+
+    assert prompt.reads == 1
+    assert [request["system"] for request in client.requests] == ["Ingatan lama."] * 3
+
+
+def test_tools_and_every_other_request_field_stay_fixed_across_sessions():
+    prompt = SessionPrompt("Sesi satu.")
+    client = FakeAnthropic(
+        message([text("Halo!")], "end_turn"), message([text("Hai!")], "end_turn")
+    )
+    brain = make_brain(client, system_prompt=prompt, providers=[GameTools()])
+
+    brain.respond("halo", now=NOW)
+    prompt.text = "Sesi dua."
+    brain.reset()
+    brain.respond("hai", now=NOW)
+
+    first, second = (
+        {key: value for key, value in request.items() if key not in {"system", "messages"}}
+        for request in client.requests
+    )
+    assert second == first
+    assert [tool["name"] for tool in second["tools"]] == [
+        "control_device",
+        "list_devices",
+        "game_status",
+    ]
+
+
+# A rolled-back turn that changed a note
+
+
+def memory_brain(client: FakeAnthropic, store: MemoryStore) -> ClaudeBrain:
+    """A brain with her memory tools whose sessions list the notes in `store`."""
+    return make_brain(
+        client,
+        system_prompt=lambda: memory_prompt_section(store.facts()),
+        providers=[MemoryTools(store)],
+    )
+
+
+def test_rolled_back_turn_that_saved_a_note_ends_the_session_so_the_next_one_lists_it(tmp_path):
+    store = MemoryStore(tmp_path / "memory.json")
+    client = FakeAnthropic(
+        message([text("Halo!")], "end_turn"),
+        message([tool_use("call_1", "remember", {"text": "Master alergi udang."})], "tool_use"),
+        connection_error(),
+        message([text("Oke.")], "end_turn"),
+    )
+    brain = memory_brain(client, store)
+
+    brain.respond("halo", now=NOW)
+    reply = brain.respond("ingat ya, aku alergi udang", now=NOW)
+    brain.respond("lupakan soal udang", now=NOW)
+
+    assert "tidak bisa terhubung" in reply.text
+    assert [(call.name, call.is_error) for call in reply.tool_calls] == [("remember", False)]
+    [saved] = store.facts()
+    assert saved.text == "Master alergi udang."
+    assert client.requests[3]["system"] == memory_prompt_section([saved])
+    assert client.requests[3]["messages"] == [
+        {"role": "user", "content": format_user_turn("lupakan soal udang", NOW)}
+    ]
+
+
+def test_rolled_back_turn_that_deleted_a_note_ends_the_session_so_the_next_one_drops_it(
+    tmp_path,
+):
+    store = MemoryStore(tmp_path / "memory.json")
+    store.add("Master alergi udang.")
+    client = FakeAnthropic(
+        message([text("Halo!")], "end_turn"),
+        message([tool_use("call_1", "forget", {"id": "m1"})], "tool_use"),
+        request_error(anthropic.RateLimitError, 429),
+        message([text("Oke.")], "end_turn"),
+    )
+    brain = memory_brain(client, store)
+
+    brain.respond("halo", now=NOW)
+    brain.respond("lupakan soal udang", now=NOW)
+    brain.respond("apa yang kamu ingat?", now=NOW)
+
+    assert "Master alergi udang." in client.requests[0]["system"]
+    assert store.facts() == []
+    assert client.requests[3]["system"] == memory_prompt_section([])
+    assert client.requests[3]["messages"] == [
+        {"role": "user", "content": format_user_turn("apa yang kamu ingat?", NOW)}
+    ]
+
+
+def test_rolled_back_turn_whose_note_was_refused_keeps_the_session(tmp_path):
+    store = MemoryStore(tmp_path / "memory.json")
+    client = FakeAnthropic(
+        message([text("Halo!")], "end_turn"),
+        message([tool_use("call_1", "remember", {"text": "PIN ATM Master 4321"})], "tool_use"),
+        connection_error(),
+        message([text("Oke.")], "end_turn"),
+    )
+    brain = memory_brain(client, store)
+
+    brain.respond("halo", now=NOW)
+    reply = brain.respond("catat PIN ATM-ku 4321", now=NOW)
+    brain.respond("coba lagi", now=NOW)
+
+    assert [(call.name, call.is_error) for call in reply.tool_calls] == [("remember", True)]
+    third = client.requests[3]["messages"]
+    assert [entry["role"] for entry in third] == ["user", "assistant", "user"]
+    assert third[2]["content"] == format_user_turn("coba lagi", NOW)

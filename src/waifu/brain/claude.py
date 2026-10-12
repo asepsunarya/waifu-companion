@@ -6,6 +6,12 @@ its full content, earlier messages are never edited, reordered, or trimmed, and
 the system prompt and tools stay frozen. A session ends by starting a new, empty
 history. A failed turn is rolled back by truncating to where it began, which
 restores the exact earlier prefix.
+
+The tools are fixed for the brain's lifetime. A callable system prompt is read
+once when a session starts (a turn begins with an empty history) and kept for
+the rest of that session, so what it returns can change between sessions only.
+A rolled-back turn that saved or deleted a note ends its session instead: the
+note would be missing from both that session's prompt and its history.
 """
 
 from __future__ import annotations
@@ -27,6 +33,7 @@ from anthropic.types.beta import (
 )
 
 from waifu.brain.base import Brain, BrainReply, ToolCallRecord
+from waifu.brain.memory_tools import changed_memory
 from waifu.brain.persona import format_user_turn
 from waifu.brain.session import SessionClock
 from waifu.brain.tools import ToolProvider, build_tool_specs, run_tool, to_anthropic
@@ -72,7 +79,7 @@ class ClaudeBrain(Brain):
         self,
         config: BrainConfig,
         registry: DeviceRegistry,
-        system_prompt: str,
+        system_prompt: str | Callable[[], str],
         *,
         client: anthropic.Anthropic | None = None,
         clock: Callable[[], float] = time.monotonic,
@@ -85,13 +92,18 @@ class ClaudeBrain(Brain):
         self._providers = tuple(providers)
         self._client = client
         self._session = SessionClock(session_idle_minutes, max_session_turns, clock)
-        self._request = _frozen_request(config.claude, system_prompt, registry, self._providers)
+        self._request = _frozen_request(config.claude, registry, self._providers)
+        self._system_prompt = system_prompt
+        self._session_system = ""
         self._history: list[dict[str, Any]] = []
 
     def respond(self, user_text: str, *, now: datetime | None = None) -> BrainReply:
         if self._session.should_reset():
             logger.info("Claude session idle too long or at its turn cap; starting a new one")
             self.reset()
+        if not self._history:
+            # A new session (or a rolled-back first turn): its system prompt is fixed from here.
+            self._session_system = _read_system_prompt(self._system_prompt)
         turn_start = len(self._history)
         user_turn = format_user_turn(user_text, now or datetime.now())
         self._history.append({"role": "user", "content": user_turn})
@@ -138,7 +150,9 @@ class ClaudeBrain(Brain):
         client = self._client_or_create()
         rounds = 0
         while True:
-            response = client.beta.messages.create(**self._request, messages=self._history)
+            response = client.beta.messages.create(
+                **self._request, system=self._session_system, messages=self._history
+            )
             _log_cache_use(response)
             if response.stop_reason == "refusal":
                 _log_refusal(response)
@@ -184,7 +198,13 @@ class ClaudeBrain(Brain):
     def _roll_back(
         self, turn_start: int, apology: str, tool_calls: list[ToolCallRecord]
     ) -> BrainReply:
-        del self._history[turn_start:]
+        if changed_memory(tool_calls):
+            # Neither this session's prompt nor its history would show the saved or deleted
+            # note; the next session lists the notes as they are.
+            logger.info("Rolled back a turn that changed a note; starting a new session")
+            self.reset()
+        else:
+            del self._history[turn_start:]
         return BrainReply(apology, tool_calls)
 
     def _client_or_create(self) -> anthropic.Anthropic:
@@ -202,13 +222,16 @@ class ClaudeBrain(Brain):
         return self._client
 
 
+def _read_system_prompt(system_prompt: str | Callable[[], str]) -> str:
+    return system_prompt() if callable(system_prompt) else system_prompt
+
+
 def _frozen_request(
     claude: ClaudeConfig,
-    system_prompt: str,
     registry: DeviceRegistry,
     providers: Sequence[ToolProvider],
 ) -> dict[str, Any]:
-    """Every request field except `messages`, fixed for the brain's whole lifetime.
+    """Every request field except `system` and `messages`, fixed for the brain's whole lifetime.
 
     No `thinking` (adaptive by omission; disabling it is rejected on this model),
     no sampling parameters, and no forced `tool_choice`.
@@ -216,7 +239,6 @@ def _frozen_request(
     request: dict[str, Any] = {
         "model": claude.model,
         "max_tokens": claude.max_tokens,
-        "system": system_prompt,
         "tools": [to_anthropic(spec) for spec in build_tool_specs(registry, providers)],
         "output_config": {"effort": claude.effort},
         "cache_control": {"type": "ephemeral"},
