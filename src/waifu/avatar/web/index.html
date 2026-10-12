@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Avatar Cyrene</title>
+    <script>
+      document.documentElement.dataset.mode =
+        new URLSearchParams(location.search).get("mode") === "mascot" ? "mascot" : "app";
+    </script>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "./vendor/three/three.module.js",
+          "three/addons/": "./vendor/three/addons/",
+          "@pixiv/three-vrm": "./vendor/three-vrm/three-vrm.module.min.js"
+        }
+      }
+    </script>
+    <style>
+      :root {
+        color-scheme: light;
+        --ink: #3b3350;
+        --ink-soft: rgba(59, 51, 80, 0.72);
+        --ok: #4caf7a;
+        --down: #d9534f;
+      }
+
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        font-family: "Segoe UI", "Yu Gothic UI", "Meiryo", sans-serif;
+        user-select: none;
+      }
+
+      html[data-mode="app"] body {
+        background: linear-gradient(180deg, #f6f1ff 0%, #e9e4f7 55%, #dcd6ee 100%);
+      }
+
+      html[data-mode="mascot"],
+      html[data-mode="mascot"] body {
+        background: transparent;
+      }
+
+      html[data-mode="mascot"] body {
+        -webkit-app-region: drag;
+      }
+
+      #stage {
+        position: fixed;
+        inset: 0;
+        display: block;
+        width: 100%;
+        height: 100%;
+      }
+
+      #controls {
+        position: fixed;
+        top: 0;
+        right: 0;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px;
+        -webkit-app-region: no-drag;
+      }
+
+      #status {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--down);
+        box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.85);
+        transition: opacity 0.2s;
+      }
+
+      #status[data-state="connected"] {
+        background: var(--ok);
+      }
+
+      #close {
+        display: none;
+        width: 26px;
+        height: 26px;
+        padding: 0;
+        border: none;
+        border-radius: 50%;
+        background: rgba(40, 32, 56, 0.72);
+        color: #fff;
+        font-size: 18px;
+        line-height: 26px;
+        cursor: pointer;
+        transition: opacity 0.2s;
+        -webkit-app-region: no-drag;
+      }
+
+      #close:hover,
+      #close:focus-visible {
+        background: rgba(200, 60, 80, 0.9);
+        outline: none;
+      }
+
+      html[data-mode="mascot"] #close {
+        display: block;
+      }
+
+      html[data-mode="mascot"] #status,
+      html[data-mode="mascot"] #close {
+        opacity: 0;
+      }
+
+      html[data-mode="mascot"] #controls:hover #status,
+      html[data-mode="mascot"] #controls:hover #close,
+      html[data-mode="mascot"] #close:focus-visible {
+        opacity: 1;
+      }
+
+      #message {
+        position: fixed;
+        left: 50%;
+        top: 40%;
+        transform: translate(-50%, -50%);
+        width: min(85%, 420px);
+        padding: 12px 14px;
+        border-radius: 10px;
+        background: rgba(255, 255, 255, 0.92);
+        color: var(--ink);
+        font-size: 14px;
+        line-height: 1.45;
+        text-align: center;
+        box-shadow: 0 4px 18px rgba(40, 32, 56, 0.25);
+        user-select: text;
+      }
+
+      #message[hidden] {
+        display: none;
+      }
+
+      #credit {
+        position: fixed;
+        left: 6px;
+        bottom: 4px;
+        margin: 0;
+        font-size: 10px;
+        color: var(--ink-soft);
+        pointer-events: none;
+      }
+
+      html[data-mode="mascot"] #credit {
+        color: rgba(255, 255, 255, 0.9);
+        text-shadow:
+          0 0 2px rgba(0, 0, 0, 0.9),
+          0 0 4px rgba(0, 0, 0, 0.6);
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="stage"></canvas>
+    <div id="controls">
+      <span id="status" data-state="disconnected" title="Terputus dari Cyrene"></span>
+      <button id="close" type="button" title="Tutup" aria-label="Tutup">×</button>
+    </div>
+    <p id="message" role="alert">Memuat avatar…</p>
+    <p id="credit">つくよみちゃん（© Rei Yumesaki）</p>
+    <script>
+      document.getElementById("close").addEventListener("click", () => window.close());
+      window.addEventListener(
+        "error",
+        (event) => {
+          if (event.target && event.target.id === "avatar-script") {
+            const message = document.getElementById("message");
+            message.textContent = "Pustaka 3D avatar tidak bisa dimuat. Periksa folder vendor di src/waifu/avatar/web.";
+            message.hidden = false;
+          }
+        },
+        true,
+      );
+    </script>
+    <script id="avatar-script" type="module" src="./avatar.js"></script>
+  </body>
+</html>
