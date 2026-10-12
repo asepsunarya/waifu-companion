@@ -40,6 +40,9 @@ waifu = "waifu.cli:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+waifu = ["avatar/web/*", "avatar/web/**/*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]

@@ -1,0 +1,10 @@
+{
+  "name": "cyrene-avatar",
+  "private": true,
+  "description": "Transparent desktop mascot window for Cyrene's VRM avatar",
+  "main": "main.js",
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "electron": "44.7.0"
+  }
+}

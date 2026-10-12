@@ -32,3 +32,6 @@ tuya-raw.json
 
 # Runtime output
 logs/
+
+# Avatar shell
+avatar-app/node_modules/
