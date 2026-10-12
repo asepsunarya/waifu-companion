@@ -15,10 +15,12 @@ import logging
 import threading
 import time
 from collections import deque
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import TYPE_CHECKING, Any
+from urllib.parse import quote
 
 from waifu.avatar.emotion import EMOTIONS
+from waifu.config import AvatarConfig
 
 if TYPE_CHECKING:
     import numpy as np
@@ -27,7 +29,8 @@ logger = logging.getLogger(__name__)
 
 EVENT_QUEUE_SIZE = 64
 MODEL_URL = "/model.vrm"
-CREDIT = "つくよみちゃん（© Rei Yumesaki）"
+LIVE2D_MODEL_PREFIX = "/model/"
+LIVE2D_CORE_URL = "/live2d/live2dcubismcore.min.js"
 STATES = ("idle", "listening", "thinking", "speaking")
 SPEAK_FPS = 60
 DEFAULT_HOLD_S = 4
@@ -40,6 +43,38 @@ def _lipsync_track(audio: np.ndarray, sample_rate: int, fps: int) -> Sequence[Se
     from waifu.avatar.lipsync import viseme_track  # numpy-heavy, needed only when she speaks
 
     return viseme_track(audio, sample_rate, fps)
+
+
+def viewer_settings(config: AvatarConfig, name: str) -> Event:
+    """What a viewer needs to show the avatar: the fields of `hello` and of /config.json.
+
+    One function builds both, so the event stream and the page's config never disagree.
+    The page's access token is added by the server to /config.json only.
+    """
+    model: str | None = MODEL_URL
+    core: str | None = None
+    if config.engine == "live2d":
+        # The model3.json names its moc3, textures, and physics relative to its own folder.
+        model = None if config.model is None else LIVE2D_MODEL_PREFIX + quote(config.model.name)
+        core = LIVE2D_CORE_URL
+    interactions = config.interactions
+    return {
+        "engine": config.engine,
+        "model": model,
+        "core": core,
+        "name": name,
+        "framing": config.framing,
+        "credit": config.credit,
+        "interactions": {
+            "enabled": interactions.enabled,
+            "cursor_follow": interactions.cursor_follow,
+            "head_pat": interactions.head_pat,
+            "body_touch": interactions.body_touch,
+            "double_click_listen": interactions.double_click_listen,
+            "idle": interactions.idle,
+            "welcome_back_after_min": interactions.welcome_back_after_min,
+        },
+    }
 
 
 class Subscription:
@@ -85,12 +120,11 @@ class AvatarBus:
         viseme_track: VisemeTrack = _lipsync_track,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
+        self._name = name
+        # A VRM viewer until the server sets the configured avatar's settings.
         self._hello: Event = {
             "type": "hello",
-            "model": MODEL_URL,
-            "name": name,
-            "framing": framing,
-            "credit": CREDIT,
+            **viewer_settings(AvatarConfig(framing=framing), name),
         }
         self._viseme_track = viseme_track
         self._clock = clock
@@ -101,6 +135,15 @@ class AvatarBus:
         # The last speak event and when it was published, while it may still be playing.
         self._last_speak: tuple[Event, float] | None = None
         self._closed = False
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    def set_viewer_settings(self, settings: Mapping[str, Any]) -> None:
+        """Makes `settings` (from `viewer_settings`) the hello of every later subscriber."""
+        with self._lock:
+            self._hello = {"type": "hello", **settings}
 
     def subscribe(self) -> Subscription:
         """A new subscription that starts with hello, the last state, and the speech in progress.

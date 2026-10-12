@@ -5,22 +5,39 @@ from __future__ import annotations
 import json
 import threading
 import time
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pytest
 
-from waifu.avatar.bus import CREDIT, EVENT_QUEUE_SIZE, AvatarBus, Subscription
+from waifu.avatar.bus import EVENT_QUEUE_SIZE, AvatarBus, Subscription, viewer_settings
+from waifu.config import AvatarConfig, AvatarInteractionsConfig
 
 WAIT_S = 5.0
+CREDIT = "つくよみちゃん（© Rei Yumesaki）"  # the default avatar.credit
+DEFAULT_INTERACTIONS = {
+    "enabled": True,
+    "cursor_follow": True,
+    "head_pat": True,
+    "body_touch": True,
+    "double_click_listen": True,
+    "idle": True,
+    "welcome_back_after_min": 10,
+}
 HELLO = {
     "type": "hello",
+    "engine": "vrm",
     "model": "/model.vrm",
+    "core": None,
     "name": "Cyrene",
     "framing": "full",
     "credit": "つくよみちゃん（© Rei Yumesaki）",
+    "interactions": DEFAULT_INTERACTIONS,
 }
 IDLE = {"type": "state", "state": "idle"}
+LIVE2D_MODEL = Path("C:/AI/avatars/cyrene-live2d/Cyrene.model3.json")
+LIVE2D_CORE = Path("C:/AI/avatars/live2d/live2dcubismcore.min.js")
 
 
 class FakeTrack:
@@ -69,12 +86,91 @@ def test_hello_carries_the_name_framing_and_the_model_credit() -> None:
 
     assert hello == {
         "type": "hello",
+        "engine": "vrm",
         "model": "/model.vrm",
+        "core": None,
         "name": "Tsukuyomi",
         "framing": "upper",
         "credit": CREDIT,
+        "interactions": DEFAULT_INTERACTIONS,
     }
-    assert CREDIT == "つくよみちゃん（© Rei Yumesaki）"
+    assert bus.name == "Tsukuyomi"
+
+
+# --- what a viewer needs to show the avatar (hello and /config.json) -------------------------
+
+
+def test_viewer_settings_for_vrm_name_the_vrm_route_and_no_core() -> None:
+    config = AvatarConfig(model=Path("C:/AI/avatars/cyrene.vrm"), framing="upper")
+
+    assert viewer_settings(config, "Cyrene") == {
+        "engine": "vrm",
+        "model": "/model.vrm",
+        "core": None,
+        "name": "Cyrene",
+        "framing": "upper",
+        "credit": CREDIT,
+        "interactions": DEFAULT_INTERACTIONS,
+    }
+
+
+def test_viewer_settings_for_live2d_name_the_model_file_the_core_and_the_switches() -> None:
+    config = AvatarConfig(
+        engine="live2d",
+        model=LIVE2D_MODEL,
+        live2d_core=LIVE2D_CORE,
+        credit="Cyrene © miHoYo, model by MomokaSono",
+        interactions=AvatarInteractionsConfig(
+            head_pat=False, idle=False, welcome_back_after_min=0, reaction_cooldown_s=9
+        ),
+    )
+
+    assert viewer_settings(config, "Cyrene") == {
+        "engine": "live2d",
+        "model": "/model/Cyrene.model3.json",
+        "core": "/live2d/live2dcubismcore.min.js",
+        "name": "Cyrene",
+        "framing": "full",
+        "credit": "Cyrene © miHoYo, model by MomokaSono",
+        "interactions": {
+            **DEFAULT_INTERACTIONS,
+            "head_pat": False,
+            "idle": False,
+            "welcome_back_after_min": 0,
+        },
+    }
+
+
+def test_the_live2d_model_url_names_only_the_file_percent_encoded() -> None:
+    config = AvatarConfig(engine="live2d", model=Path("C:/AI/キュレネ/キュレネ 2025#1.model3.json"))
+
+    assert viewer_settings(config, "Cyrene")["model"] == (
+        "/model/%E3%82%AD%E3%83%A5%E3%83%AC%E3%83%8D%202025%231.model3.json"
+    )
+
+
+def test_viewer_settings_hold_no_token_lines_or_cooldown() -> None:
+    settings = viewer_settings(AvatarConfig(), "Cyrene")
+
+    assert "token" not in settings
+    assert set(settings["interactions"]) == set(DEFAULT_INTERACTIONS)
+
+
+def test_viewer_settings_replace_hello_for_later_subscribers() -> None:
+    bus = AvatarBus(name="Cyrene")
+    settings = viewer_settings(
+        AvatarConfig(engine="live2d", model=LIVE2D_MODEL, live2d_core=LIVE2D_CORE), "Cyrene"
+    )
+
+    bus.set_viewer_settings(settings)
+    settings["engine"] = "vrm"
+
+    hello = bus.subscribe().get(timeout=0)
+    assert hello is not None
+    assert hello["type"] == "hello"
+    assert hello["engine"] == "live2d"
+    assert hello["model"] == "/model/Cyrene.model3.json"
+    assert hello["core"] == "/live2d/live2dcubismcore.min.js"
 
 
 def test_a_late_subscriber_gets_the_last_state_but_no_older_events() -> None:
