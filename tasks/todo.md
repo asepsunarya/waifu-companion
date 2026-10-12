@@ -485,3 +485,53 @@ named `tests/test_<package>_<module>.py`.
 - [x] No test reads or writes the repository's `data/memory.json`
 
 **Dependencies:** 47, 48, 49 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py`, `README.md`, `config.example.yaml` · **Scope:** M
+
+## Task 51a: Schedule and routines config
+
+**Acceptance criteria:**
+- [ ] `AppConfig.schedule` (`enabled`, `path`, `max_entries`, `late_grace_minutes`) and `AppConfig.routines` per SPEC; slug names, 1-20 steps, unknown keys rejected
+- [ ] A routine step naming an unknown device or a `pc` device is a config error
+
+**Dependencies:** none · **Files:** `src/waifu/config.py`, `tests/test_config.py` · **Scope:** S
+
+## Task 51: Schedule store and time rules
+
+**Acceptance criteria:**
+- [ ] `Entry`, actions, `parse_local_time`, `next_occurrence` (none, daily, weekdays, weekends; across month and year ends), `due` with the grace window
+- [ ] `ScheduleStore` add / cancel / fired / clear / entries per SPEC with the memory store's file rules (atomic, re-read, lock, corrupt file moved aside, ids never reused)
+- [ ] `add` refuses past times, more than 366 days ahead, a full store, bad reminder text, unknown repeat, with Indonesian messages
+
+**Dependencies:** 51a · **Files:** `src/waifu/schedule.py`, `tests/test_schedule.py` · **Scope:** M
+
+## Task 52: Routines
+
+**Acceptance criteria:**
+- [ ] `run_routine` runs every step in order, continues after a failure, refuses `pc` devices at run time
+- [ ] `describe_routine` and `routine_problems` per SPEC
+
+**Dependencies:** 51a · **Files:** `src/waifu/routines.py`, `tests/test_routines.py` · **Scope:** S
+
+## Task 53: Scheduler thread
+
+**Acceptance criteria:**
+- [ ] `tick_once` fires due reminders (announce + push), device actions and routines (silent on success, announced and pushed on failure), then marks them fired; late entries are skipped per SPEC (a skipped reminder pushed as missed)
+- [ ] One failing entry never stops the others or the thread; `start`/`stop`/context manager like `GachaWatcher`; no real sleeping in tests
+
+**Dependencies:** 51, 52 · **Files:** `src/waifu/scheduler.py`, `tests/test_scheduler.py` · **Scope:** M
+
+## Task 54: Schedule tools
+
+**Acceptance criteria:**
+- [ ] Strict-compatible `schedule`, `list_schedules`, `cancel_schedule`, and (with routines) `run_routine`; exactly one action per `schedule` call, device actions validated with `resolve_command`, `pc` devices refused
+- [ ] Error results with Indonesian messages; `run` never raises; works beside the device, game, and memory tools
+
+**Dependencies:** 51, 52 · **Files:** `src/waifu/brain/schedule_tools.py`, `tests/test_schedule_tools.py` · **Scope:** M
+
+## Task 55: CLI wiring, `waifu schedule`, `waifu routine`, check, README
+
+**Acceptance criteria:**
+- [ ] `run` starts the scheduler with `assistant.announce` and the notifier; `chat` prints what fires; both give the brain the schedule tools when `schedule.enabled`
+- [ ] `waifu schedule list|cancel|clear [--yes]`, `waifu routine list|run <name>`; `check` reports the schedule file and every routine
+- [ ] README (Indonesian) and `config.example.yaml` (a commented `tidur` routine); no test touches the repository's `data/`
+
+**Dependencies:** 51-54 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py`, `README.md`, `config.example.yaml` · **Scope:** M

@@ -332,6 +332,51 @@ CLI (`cli.py`):
 
 Safety: tests never read or write the repository's `data/memory.json` (every test uses `tmp_path`; CLI tests point `memory.path` into it or turn memory off); no test calls Claude or Ollama.
 
+### schedules, reminders, and routines (v1.7)
+
+User stories:
+
+1. "Cyrene, ingatkan aku jam 3 sore minum obat." → at 15:00 she says it by herself ("Master, sudah jam tiga, waktunya minum obat!") and the same text reaches the phone when notifications are on. "10 menit lagi ingatkan aku angkat jemuran" works the same way (the model turns relative times into a clock time; it knows the current time from the turn stamp).
+2. "Cyrene, matikan AC jam 2 pagi." → at 02:00 the AC gets the command without a word spoken (the owner may be asleep); only a failure is announced and pushed.
+3. "Cyrene, setiap hari jam 7 pagi bangunkan aku." / "tiap hari kerja" / "tiap akhir pekan" → repeating entries.
+4. "Cyrene, ada jadwal apa saja?" → a short spoken summary; "batalkan pengingat obat" → she cancels it.
+5. "Cyrene, mode tidur." → runs the owner's routine "tidur" from config.yaml (for example: lights off, AC to 26). Routines can be scheduled too ("jalankan mode tidur jam 11 malam").
+6. Schedules fire only while `waifu run` is on (the PC is on); the README says so.
+
+Non-goals: calendars or cloud sync, alarms with snooze or a ringtone, schedules that turn the PC itself off, restart it, or put it to sleep (a `pc` device is refused in schedules and routines; the voice command with its confirmation stays the only way), conditions ("if it is hot"), routines written by the model (only the owner writes them, in config.yaml).
+
+Config (committed with its tests before the parallel tasks):
+- `schedule`: `enabled` (default true), `path` (default `data/schedule.json`), `max_entries` (default 50, 1-200), `late_grace_minutes` (default 30, 0-720): how late an entry may still fire after the PC was off or Cyrene stopped.
+- `routines`: a mapping of routine name (slug `^[a-z0-9_]+$`) → `{description: str (Indonesian, optional), steps: [{device: id, command: str, value?: int}]}`, 1-20 steps each. Validated against `devices`: the device id must exist and must not be of type `pc`. Command validity is checked by `waifu check` (it needs the registry).
+
+`schedule.py` (pure, no threads):
+- `Entry` (frozen dataclass): `id: str` (`"j1"`, `"j2"`, … never reused), `at: datetime` (local, minute precision; the next time it fires), `repeat: Literal["none", "daily", "weekdays", "weekends"]`, `action: Reminder | DeviceAction | RoutineAction`, `created: datetime`. `Reminder(text)`, `DeviceAction(device, command, value: int | None)`, `RoutineAction(name)`.
+- `ScheduleError(Exception)`: Indonesian message, safe to speak.
+- `parse_local_time(text) -> datetime`: exactly `YYYY-MM-DD HH:MM`, else `ScheduleError`.
+- `next_occurrence(at, repeat, after) -> datetime | None`: for `none` None; otherwise the first time on the repeat's days (`weekdays` Monday-Friday, `weekends` Saturday-Sunday) with the same clock time that is later than `after`.
+- `ScheduleStore(path, *, max_entries=50, now=datetime.now)`: `entries() -> list[Entry]` (soonest first), `add(at, repeat, action) -> Entry`, `cancel(entry_id) -> Entry`, `fired(entry_id, at) -> Entry | None` (removes a one-shot entry, or moves a repeating one to its next occurrence; returns the updated entry or None), `clear() -> int`. `add` refuses (ScheduleError): a time not in the future, more than 366 days ahead, a full store, a reminder text that is empty or over 200 characters, an unknown repeat. Same file rules as `memory.py`: re-read per call, lock within the process, atomic `os.replace`, never created by reading, a corrupt file renamed `<name>.corrupt-<stamp>` and never overwritten. JSON: `{"version": 1, "next_id": n, "entries": [{"id", "at", "repeat", "action": {"type": "reminder", "text"} | {"type": "device", "device", "command", "value"} | {"type": "routine", "name"}, "created"}]}`.
+- `due(entries, now, grace) -> tuple[list[Entry], list[Entry]]`: (entries to fire now: `at <= now` and `now - at <= grace`), (entries missed by more than `grace`: skipped).
+
+`routines.py`: `run_routine(registry, routine: RoutineConfig) -> list[DeviceResult]` runs every step in order through `registry.execute`, continuing after a failed step, and refuses a step whose device is of kind `pc` at run time too; `describe_routine(name, routine) -> str` (one Indonesian line for tool descriptions and `waifu routine list`, e.g. `tidur: Mode tidur (lampu_kamar off, ac temp 26)`); `routine_problems(registry, routine) -> list[str]` (one Indonesian line per step whose device is missing, is a `pc`, or has no such command per `devices.ir_device.resolve_command (the rule registry.execute uses)`; empty when the routine is fine).
+
+`scheduler.py` — `Scheduler(store, *, registry, routines, announce, notifier, grace_minutes, now=..., tick_seconds=15)`, a daemon thread like `GachaWatcher` (`start`, `stop`, context manager, `tick_once()` for tests):
+- Each tick: `due(...)`; for every entry to fire: a reminder → `announce(text, "happy")` and `notifier.send(title, text)`; a device action → `registry.execute` (refusing a `pc` device again at run time), silent on success, on failure announce and push `Master, jadwal <device> <command> jam HH.MM gagal: <message>`; a routine → `run_routine`, silent on success, a failure announced and pushed the same way (naming the failed steps). Then `store.fired(entry.id, entry.at)`. Skipped (too late) entries: one-shot ones are removed and logged, repeating ones move on; a skipped reminder is pushed to the phone as `Terlewat (HH.MM): <text>` but not spoken.
+- A failure inside one entry is logged and never stops the thread or the other entries; `announce` and `notifier` may be None.
+
+`brain/schedule_tools.py` — `ScheduleTools(store, *, registry, routines)`, a `ToolProvider` with strict tools (English descriptions):
+- `schedule {at: string "YYYY-MM-DD HH:MM" local time, repeat?: enum none|daily|weekdays|weekends, reminder?: string, device?: string, command?: string, value?: integer, routine?: string}`: exactly one action (a reminder text; or device + command [+ value], validated when it is scheduled with `devices.ir_device.resolve_command (the rule registry.execute uses)` against the device's commands, a device of kind `pc` refused; or a routine name from config). The description explains turning relative times into a clock time from the turn's time stamp, writing the reminder text as what she should say to Master, and that a past time today usually means tomorrow. Result `{"ok": true, "id": "j3", "at": "2026-10-13 15:00", "repeat": "none"}`.
+- `list_schedules {}` → the entries with id, local time, repeat, and a short description of the action.
+- `cancel_schedule {id: string}`.
+- `run_routine {name: enum[routine names]}` (only when routines exist) → the steps' results; its description lists each routine with `describe_routine`.
+- Errors are `is_error` results with Indonesian messages; `run` never raises.
+
+CLI:
+- `run`: when `schedule.enabled`, the store, `ScheduleTools` (after the memory tools), and a `Scheduler` started inside the voice loop's lifetime with `assistant.announce` and the notifier; `chat`: the tools and a scheduler whose announce prints `Cyrene: <text>`.
+- `waifu schedule list | cancel <id> | clear [--yes]`, `waifu routine list | run <name>`; `check` reports the schedule file (`✓ Jadwal: <n> entri`) and every routine (✓, or ✗ naming an unknown command per step).
+- README (Indonesian): how to ask for reminders, device schedules, and routines; writing routines in config.yaml (with a `tidur` example); that schedules fire only while `waifu run` is on and what happens to late ones; that the PC itself is never scheduled.
+
+Safety: tests never touch the repository's `data/schedule.json`, never run real devices (mock registry), never sleep for real (injected clock, `tick_once`), and never call an LLM.
+
 ## Code Style
 
 See `CLAUDE.md` → Code Conventions and Patterns. Dataclasses for value
