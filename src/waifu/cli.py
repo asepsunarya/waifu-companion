@@ -55,6 +55,7 @@ from waifu.devices.ir_codes import COMMAND_PATTERN, IrCodeStoreError
 from waifu.devices.ir_device import IrDevice
 from waifu.devices.registry import build_registry
 from waifu.gate import WakeGate
+from waifu.notify import build_notifier
 from waifu.single_instance import InstanceLock
 from waifu.voice.audio import MicStream, Player, list_devices
 from waifu.voice.rvc import (
@@ -132,6 +133,12 @@ AVATAR_WAIT_S = 60.0  # `waifu avatar` without --demo only waits; Ctrl+C ends a 
 # `say` and the login greeting speak right after opening the window; a speak event only
 # reaches pages already connected, so they give the loading page this long to connect.
 AVATAR_VIEWER_WAIT_S = 5.0
+NOTIFY_OFF = (
+    "Notifikasi HP mati. Isi notify.topic lalu notify.enabled: true di config.yaml "
+    "(lihat README, bagian Notifikasi ke HP)."
+)
+NOTIFY_TEST_MESSAGE = "Tes notifikasi dari {name}. Kalau ini muncul di HP, notifikasi sudah siap."
+NOTIFY_TAG = "video_game"  # ntfy shows it as a game controller emoji
 _REGISTERED_DELAY = re.compile(r" --startup-delay (\d+) ")
 # build_command always quotes the folder, and a path in it never contains a quote.
 _REGISTERED_PROJECT = re.compile(r' /d "([^"]+)" ')
@@ -249,6 +256,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     command("mics", _mics, "Daftar perangkat audio.")
     command("check", _check, "Periksa konfigurasi, perangkat, dan dependensi.")
+    command("notify-test", _notify_test, "Kirim notifikasi tes ke HP lewat ntfy.")
     avatar = command(
         "avatar", _show_avatar, "Tampilkan avatar 3D saja (tanpa mendengarkan) untuk mengeceknya."
     )
@@ -941,6 +949,29 @@ def _demo_voice() -> np.ndarray:
         for part in (envelope * np.sin(2 * np.pi * centre_hz * times), pause)
     ]
     return (DEMO_VOLUME * np.concatenate(syllables)).astype(np.float32)
+
+
+# --- phone notifications ---------------------------------------------------------------------
+
+
+def _notify_test(args: argparse.Namespace) -> int:
+    config = load_config(args.config)
+    notifier = build_notifier(config.notify)
+    if notifier is None:
+        print(NOTIFY_OFF)
+        return 2
+    name = config.assistant.name
+    if notifier.send(name, NOTIFY_TEST_MESSAGE.format(name=name), tags=[NOTIFY_TAG]):
+        print(
+            f"{OK} Notifikasi tes terkirim. Kalau tidak muncul di HP, langganan topik yang sama "
+            "dengan notify.topic di aplikasi ntfy."
+        )
+        return 0
+    print(
+        f"{FAIL} Notifikasi tidak terkirim ke {config.notify.server}. Cek koneksi internet dan "
+        "notify.server; detailnya ada di log."
+    )
+    return 1
 
 
 # --- check -----------------------------------------------------------------------------------

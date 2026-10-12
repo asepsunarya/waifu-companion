@@ -293,12 +293,12 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** none · **Files:** `src/waifu/config.py`, `tests/test_config.py`, `pyproject.toml`, `config.example.yaml` · **Scope:** S
 
-## Task 31: Push notifications and the no-internet test guard
+## Task 31: Push notifications and the no-internet test guard ✅
 
 **Acceptance criteria:**
-- [ ] `NtfyNotifier.send` posts the JSON body to the server root and returns True on 2xx; HTTP errors, timeouts, and `OSError` return False with a warning that does not contain the topic
-- [ ] `waifu notify-test` sends the test message and prints ✓/✗ with hints; disabled notify explains how to enable it
-- [ ] `tests/conftest.py` refuses urllib and aiohttp requests to non-loopback hosts (covered in `test_safety_guard.py`); the full suite still passes
+- [x] `NtfyNotifier.send` posts the JSON body to the server root and returns True on 2xx; HTTP errors, timeouts, and `OSError` return False with a warning that does not contain the topic
+- [x] `waifu notify-test` sends the test message and prints ✓/✗ with hints; disabled notify explains how to enable it
+- [x] `tests/conftest.py` refuses urllib and aiohttp requests to non-loopback hosts (covered in `test_safety_guard.py`); the full suite still passes
 
 **Dependencies:** 30a · **Files:** `src/waifu/notify.py`, `tests/test_notify.py`, `tests/conftest.py`, `tests/test_safety_guard.py`, `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** S
 

@@ -116,7 +116,7 @@ the phone through ntfy (no account, JSON publish). The brain gets the game tools
 `ToolProvider` protocol, so devices and games stay independent. No quiet hours (owner's
 choice).
 - [x] Task 30a: `gacha` and `notify` config, `genshin` dependency, example config (committed with its tests)
-- [ ] Task 31: Push notifications (`notify.py`, `waifu notify-test`) and the no-internet test guard
+- [x] Task 31: Push notifications (`notify.py`, `waifu notify-test`) and the no-internet test guard
 - [ ] Task 32: Game facts and server-time helpers (`gacha/games.py`)
 - [ ] Task 33: HoYoLAB client: accounts, status, check-in, authkey, error kinds (`gacha/hoyolab.py`)
 - [ ] Task 34: Authkey from the game cache and the history API (`gacha/history.py`, part 1)

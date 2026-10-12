@@ -2,15 +2,22 @@
 
 A forgotten fake in an early PC test once put the real machine to sleep on every
 suite run. These guards fail such a test loudly instead: no power commands, no
-PowrProf, no registry writes, no scheduled-task or reg.exe changes.
+PowrProf, no registry writes, no scheduled-task or reg.exe changes. No test may
+reach beyond this PC either: a forgotten fake must not push to the owner's phone
+or check in on their HoYoLAB account.
 """
 
 import ctypes
+import ipaddress
 import os
 import subprocess
+import urllib.parse
+import urllib.request
 from pathlib import PurePath
 
+import aiohttp
 import pytest
+import yarl
 
 try:
     import winreg
@@ -34,6 +41,8 @@ _REGISTRY_WRITERS = (
 )
 _REAL_POPEN = subprocess.Popen
 _REAL_WINDLL = getattr(ctypes, "WinDLL", None)
+_REAL_URLLIB_OPEN = urllib.request.OpenerDirector.open
+_REAL_AIOHTTP_REQUEST = aiohttp.ClientSession._request
 
 
 def _words(args: object) -> list[str]:
@@ -90,6 +99,31 @@ def _refuse_registry_write(*args, **kwargs):
     raise AssertionError("a test tried to write the real Windows registry")
 
 
+def _is_loopback(host: str | None) -> bool:
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host or "").is_loopback
+    except ValueError:
+        return False
+
+
+def _refuse_beyond_this_pc(host: str | None) -> None:
+    if not _is_loopback(host):
+        raise AssertionError(f"a test tried to reach the internet ({host})")
+
+
+def _guarded_urllib_open(self, fullurl, *args, **kwargs):
+    url = fullurl.full_url if isinstance(fullurl, urllib.request.Request) else fullurl
+    _refuse_beyond_this_pc(urllib.parse.urlsplit(url).hostname)
+    return _REAL_URLLIB_OPEN(self, fullurl, *args, **kwargs)
+
+
+async def _guarded_aiohttp_request(self, method, str_or_url, *args, **kwargs):
+    _refuse_beyond_this_pc(yarl.URL(str(str_or_url)).host)
+    return await _REAL_AIOHTTP_REQUEST(self, method, str_or_url, *args, **kwargs)
+
+
 @pytest.fixture(autouse=True)
 def _refuse_real_power_actions(monkeypatch):
     monkeypatch.setattr(subprocess, "Popen", _GuardedPopen)
@@ -103,3 +137,9 @@ def _refuse_real_registry_writes(monkeypatch):
         return
     for name in _REGISTRY_WRITERS:
         monkeypatch.setattr(winreg, name, _refuse_registry_write)
+
+
+@pytest.fixture(autouse=True)
+def _refuse_the_internet(monkeypatch):
+    monkeypatch.setattr(urllib.request.OpenerDirector, "open", _guarded_urllib_open)
+    monkeypatch.setattr(aiohttp.ClientSession, "_request", _guarded_aiohttp_request)

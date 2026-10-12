@@ -1,10 +1,14 @@
 """The suite-wide guard in conftest.py must stop real power commands before they run."""
 
+import asyncio
 import ctypes
 import os
 import subprocess
 import sys
+import urllib.error
+import urllib.request
 
+import aiohttp
 import pytest
 
 
@@ -75,3 +79,33 @@ def test_spawning_the_real_rvc_server_is_refused():
 def test_opening_a_real_avatar_window_is_refused(program):
     with pytest.raises(AssertionError, match="system-change command"):
         subprocess.run([program, "--version"], capture_output=True, check=False)
+
+
+# A push to the owner's phone or a HoYoLAB check-in must never come from a test.
+@pytest.mark.parametrize(
+    "url", ["https://ntfy.sh/", "https://sg-public-api.hoyolab.com/x", "http://192.168.1.50/"]
+)
+def test_urllib_requests_beyond_this_pc_are_refused(url):
+    with pytest.raises(AssertionError, match="internet"):
+        urllib.request.urlopen(url, timeout=1)
+
+
+def test_urllib_requests_to_loopback_still_go_out():
+    # Port 9 (discard) is closed: reaching the socket layer proves the guard let it through.
+    with pytest.raises(urllib.error.URLError):
+        urllib.request.urlopen("http://127.0.0.1:9/", timeout=1)
+
+
+async def _aiohttp_get(url: str) -> None:
+    async with aiohttp.ClientSession() as session, session.get(url) as response:
+        await response.read()
+
+
+def test_aiohttp_requests_beyond_this_pc_are_refused():
+    with pytest.raises(AssertionError, match="internet"):
+        asyncio.run(_aiohttp_get("https://sg-public-api.hoyolab.com/event/game_record"))
+
+
+def test_aiohttp_requests_to_loopback_still_go_out():
+    with pytest.raises(aiohttp.ClientConnectionError):
+        asyncio.run(_aiohttp_get("http://127.0.0.1:9/"))

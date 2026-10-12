@@ -2896,3 +2896,69 @@ def test_port_is_free_is_false_while_another_socket_listens_and_true_once_it_clo
         assert REAL_PORT_IS_FREE("127.0.0.1", port) is False
 
     assert REAL_PORT_IS_FREE("127.0.0.1", port) is True
+
+
+# --- phone notifications ----------------------------------------------------------------------
+
+NOTIFY_TOPIC = "cyrene-AbCdEf123456_-x"
+
+
+class FakeNotifier:
+    def __init__(self, delivered: bool = True) -> None:
+        self.delivered = delivered
+        self.sent: list[tuple[str, str, tuple[str, ...]]] = []
+
+    def send(self, title: str, message: str, *, tags=()) -> bool:
+        self.sent.append((title, message, tuple(tags)))
+        return self.delivered
+
+
+def enable_notify(home: Path) -> None:
+    config = home / "config.yaml"
+    text = config.read_text(encoding="utf-8")
+    enabled = text.replace(
+        "notify:\n  enabled: false\n", f"notify:\n  enabled: true\n  topic: {NOTIFY_TOPIC}\n"
+    )
+    assert enabled != text
+    config.write_text(enabled, encoding="utf-8")
+
+
+def use_notifier(monkeypatch, notifier: FakeNotifier) -> None:
+    monkeypatch.setattr(cli, "build_notifier", lambda config: notifier if config.enabled else None)
+
+
+def test_notify_test_pushes_a_test_message_to_the_phone(home, monkeypatch, capsys):
+    enable_notify(home)
+    notifier = FakeNotifier()
+    use_notifier(monkeypatch, notifier)
+
+    assert cli.main(["notify-test"]) == 0
+
+    [(title, message, tags)] = notifier.sent
+    assert title == "Cyrene"
+    assert message.startswith("Tes notifikasi dari Cyrene")
+    assert tags == ("video_game",)
+    out = capsys.readouterr().out
+    assert out.startswith("✓")
+    assert NOTIFY_TOPIC not in out
+
+
+def test_notify_test_reports_a_push_that_did_not_go_out(home, monkeypatch, capsys):
+    enable_notify(home)
+    use_notifier(monkeypatch, FakeNotifier(delivered=False))
+
+    assert cli.main(["notify-test"]) == 1
+
+    out = capsys.readouterr().out
+    assert out.startswith("✗")
+    assert "https://ntfy.sh" in out
+
+
+def test_notify_test_with_notifications_off_says_how_to_turn_them_on(home, monkeypatch, capsys):
+    notifier = FakeNotifier()
+    use_notifier(monkeypatch, notifier)
+
+    assert cli.main(["notify-test"]) == 2
+
+    assert notifier.sent == []
+    assert "notify.enabled" in capsys.readouterr().out
