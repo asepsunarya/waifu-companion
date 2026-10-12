@@ -104,6 +104,15 @@ def test_system_prompt_ends_with_a_note_about_the_bracketed_time():
     assert "kurung siku" in last_section
 
 
+def test_time_note_does_not_forbid_the_emotion_tag_brackets():
+    # persona.md asks for a leading [senang]-style tag; the time note must only forbid
+    # echoing the timestamp, not every square bracket.
+    prompt = build_system_prompt("Kamu adalah {name}.", "Cyrene", house())
+
+    assert "jangan menulis kurung siku" not in prompt
+    assert "tanda waktu" in prompt.split("\n\n")[-1]
+
+
 def test_system_prompt_is_byte_identical_for_the_same_input_and_ignores_live_state():
     persona = load_persona(ROOT / "config" / "persona.md")
     registry = house()

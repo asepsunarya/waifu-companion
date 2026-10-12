@@ -20,7 +20,7 @@ WEEKDAYS_ID = ("Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu")
 _TIME_NOTE = (
     "Setiap pesan dari Master diawali waktu saat ini dalam kurung siku, "
     "dengan format [Hari, DD-MM-YYYY HH:MM]. Pakai itu kalau perlu tahu hari atau jam, "
-    "tapi jangan menulis kurung siku itu di jawabanmu."
+    "tapi jangan menulis ulang tanda waktu itu di jawabanmu."
 )
 
 
