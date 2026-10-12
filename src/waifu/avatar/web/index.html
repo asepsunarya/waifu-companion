@@ -3,6 +3,17 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!--
+      Only Cyrene's own server: a downloaded model3.json may name https://... or //host/... files, which the
+      Live2D engine would fetch as they are. Inline scripts (the mode switch, the import map, the boot module)
+      and eval (PixiJS compiles its uniform uploads; the Cubism Core is WebAssembly) stay allowed; data: and
+      blob: URLs are what the page itself makes (textures, PixiJS's image workers). The server adds
+      frame-ancestors 'none', which a meta tag cannot set.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' data: blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'none'"
+    />
     <title>Avatar Cyrene</title>
     <script>
       document.documentElement.dataset.mode =
@@ -13,7 +24,9 @@
         "imports": {
           "three": "./vendor/three/three.module.js",
           "three/addons/": "./vendor/three/addons/",
-          "@pixiv/three-vrm": "./vendor/three-vrm/three-vrm.module.min.js"
+          "@pixiv/three-vrm": "./vendor/three-vrm/three-vrm.module.min.js",
+          "pixi.js": "./vendor/pixi/pixi.min.mjs",
+          "untitled-pixi-live2d-engine/cubism": "./vendor/live2d-engine/cubism.es.js"
         }
       }
     </script>
@@ -44,10 +57,6 @@
         background: transparent;
       }
 
-      html[data-mode="mascot"] body {
-        -webkit-app-region: drag;
-      }
-
       #stage {
         position: fixed;
         inset: 0;
@@ -64,7 +73,6 @@
         align-items: center;
         gap: 6px;
         padding: 6px;
-        -webkit-app-region: no-drag;
       }
 
       #status {
@@ -93,7 +101,6 @@
         line-height: 26px;
         cursor: pointer;
         transition: opacity 0.2s;
-        -webkit-app-region: no-drag;
       }
 
       #close:hover,
@@ -163,7 +170,7 @@
       <button id="close" type="button" title="Tutup" aria-label="Tutup">×</button>
     </div>
     <p id="message" role="alert">Memuat avatar…</p>
-    <p id="credit">つくよみちゃん（© Rei Yumesaki）</p>
+    <p id="credit"></p>
     <script>
       document.getElementById("close").addEventListener("click", () => window.close());
       window.addEventListener(
@@ -171,13 +178,175 @@
         (event) => {
           if (event.target && event.target.id === "avatar-script") {
             const message = document.getElementById("message");
-            message.textContent = "Pustaka 3D avatar tidak bisa dimuat. Periksa folder vendor di src/waifu/avatar/web.";
+            message.textContent = "Pustaka avatar tidak bisa dimuat. Periksa folder vendor di src/waifu/avatar/web.";
             message.hidden = false;
           }
         },
         true,
       );
     </script>
-    <script id="avatar-script" type="module" src="./avatar.js"></script>
+    <!--
+      Boots the avatar: /config.json says which engine and model to show. For Live2D the owner's Cubism Core
+      (served by Cyrene from avatar.live2d_core, never part of this folder) has to be loaded as a classic script
+      before the engine. The renderer modules share one interface (see the top of live2d.js); interaction.js
+      adds the mouse. The event stream opens once the model is on screen (or has failed), so a viewer that
+      subscribed can show the first words.
+    -->
+    <script id="avatar-script" type="module">
+      import { avatarTitle } from "./logic.js";
+
+      const CONFIG_URL = "/config.json";
+      const EVENTS_URL = "/events";
+      const RECONNECT_DELAY_MS = 2000;
+      const DEFAULT_EMOTION_HOLD_S = 4;
+
+      const CONFIG_FAILED_TEXT =
+        "Pengaturan avatar tidak bisa dimuat dari Cyrene. Jalankan ulang Cyrene lalu buka jendela ini lagi.";
+      const CORE_MISSING_TEXT =
+        "Cubism Core belum ada, jadi model Live2D tidak bisa ditampilkan. Unduh Cubism SDK for Web dari situs " +
+        "resmi Live2D, lalu atur avatar.live2d_core di config.yaml ke file Core di dalamnya (lihat README, " +
+        "bagian Live2D).";
+      const LIBRARY_FAILED_TEXT = "Pustaka avatar tidak bisa dimuat. Periksa folder vendor di src/waifu/avatar/web.";
+
+      const messageElement = document.getElementById("message");
+      const statusElement = document.getElementById("status");
+      const creditElement = document.getElementById("credit");
+
+      class CoreMissingError extends Error {}
+
+      function showMessage(text) {
+        messageElement.textContent = text;
+        messageElement.hidden = false;
+      }
+
+      function showViewerSettings(settings) {
+        if (settings.credit) creditElement.textContent = settings.credit;
+        if (settings.name) document.title = avatarTitle(settings.name);
+      }
+
+      async function fetchConfig() {
+        const response = await fetch(CONFIG_URL, { cache: "no-store" });
+        if (!response.ok) throw new Error(`${CONFIG_URL} answered HTTP ${response.status}`);
+        return response.json();
+      }
+
+      function loadClassicScript(url) {
+        return new Promise((resolve, reject) => {
+          const script = document.createElement("script");
+          script.src = url;
+          script.addEventListener("load", resolve, { once: true });
+          script.addEventListener("error", () => reject(new Error(`${url} could not be loaded`)), { once: true });
+          document.head.append(script);
+        });
+      }
+
+      async function loadCubismCore(url) {
+        try {
+          await loadClassicScript(url);
+        } catch (error) {
+          throw new CoreMissingError("The Cubism Core could not be loaded", { cause: error });
+        }
+        if (!window.Live2DCubismCore) throw new CoreMissingError(`${url} did not define Live2DCubismCore`);
+      }
+
+      async function importRenderer(config) {
+        if (config.engine === "live2d") {
+          await loadCubismCore(config.core);
+          return import("./live2d.js");
+        }
+        return import("./avatar.js");
+      }
+
+      async function startRenderer(config) {
+        let module;
+        try {
+          module = await importRenderer(config);
+        } catch (error) {
+          console.error("The avatar renderer could not be loaded", error);
+          showMessage(error instanceof CoreMissingError ? CORE_MISSING_TEXT : LIBRARY_FAILED_TEXT);
+          return null;
+        }
+        try {
+          return await module.createRenderer(config);
+        } catch (error) {
+          // The renderer has already put the reason on the page.
+          console.error("The avatar could not be shown", error);
+          return null;
+        }
+      }
+
+      // The mouse layer is optional: without it she still talks and moves, only clicks do nothing.
+      async function startInteractions(renderer, config) {
+        try {
+          const interaction = await import("./interaction.js");
+          return interaction.startInteractions({ renderer, config });
+        } catch (error) {
+          console.error("Mouse interactions could not start", error);
+          return null;
+        }
+      }
+
+      function handleEvent(event, renderer, interactions) {
+        switch (event.type) {
+          case "hello":
+            showViewerSettings(event);
+            break;
+          case "state":
+            renderer?.setState(event.state, event.followup_s);
+            break;
+          case "speak":
+            renderer?.speak(event);
+            break;
+          case "emotion":
+            renderer?.setEmotion(event.emotion, event.hold_s ?? DEFAULT_EMOTION_HOLD_S);
+            break;
+          default:
+            break;
+        }
+        interactions?.handleEvent(event);
+      }
+
+      function setConnected(connected) {
+        statusElement.dataset.state = connected ? "connected" : "disconnected";
+        statusElement.title = connected ? "Terhubung ke Cyrene" : "Terputus dari Cyrene";
+      }
+
+      function connectEvents(onEvent) {
+        const source = new EventSource(EVENTS_URL);
+        source.onopen = () => setConnected(true);
+        source.onmessage = (message) => {
+          try {
+            onEvent(JSON.parse(message.data));
+          } catch (error) {
+            console.warn("Ignoring a malformed avatar event", message.data, error);
+          }
+        };
+        source.onerror = () => {
+          setConnected(false);
+          // EventSource retries by itself unless the server answered with an error; then start over.
+          if (source.readyState === EventSource.CLOSED) {
+            source.close();
+            setTimeout(() => connectEvents(onEvent), RECONNECT_DELAY_MS);
+          }
+        };
+      }
+
+      async function boot() {
+        let config;
+        try {
+          config = await fetchConfig();
+        } catch (error) {
+          console.error("The avatar settings could not be loaded", error);
+          showMessage(CONFIG_FAILED_TEXT);
+          return;
+        }
+        showViewerSettings(config);
+        const renderer = await startRenderer(config);
+        const interactions = renderer ? await startInteractions(renderer, config) : null;
+        connectEvents((event) => handleEvent(event, renderer, interactions));
+      }
+
+      boot();
+    </script>
   </body>
 </html>
