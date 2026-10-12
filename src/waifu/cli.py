@@ -39,8 +39,9 @@ from waifu.autostart import RunKey, WindowsRunKey
 from waifu.avatar.bus import STATES as AVATAR_STATES
 from waifu.avatar.bus import AvatarBus
 from waifu.avatar.emotion import EMOTIONS, NEUTRAL, split_emotion
+from waifu.avatar.interactions import InteractionHandler
 from waifu.avatar.lipsync import SHAPE_CENTRE_HZ
-from waifu.avatar.server import AvatarError, AvatarServer
+from waifu.avatar.server import AvatarError, AvatarServer, file_under
 from waifu.avatar.window import AvatarWindow
 from waifu.brain.base import ToolCallRecord
 from waifu.brain.factory import build_brain
@@ -134,10 +135,21 @@ AUTOSTART_DESCRIPTION = (
 )
 LOG_TAIL_LINES = 5
 AVATAR_OFF = (
-    "Avatar 3D mati. Isi avatar.model lalu avatar.enabled: true di config.yaml "
-    "(lihat README, bagian Avatar 3D)."
+    "Avatar mati. Isi avatar.model lalu avatar.enabled: true di config.yaml "
+    "(lihat README, bagian Avatar 3D atau Avatar Live2D & interaksi)."
 )
+AVATAR_ENGINES = {"vrm": "VRM 3D", "live2d": "Live2D"}
 ELECTRON_SETUP = "npm install lalu node node_modules/electron/install.js"
+CUBISM_CORE_SETUP = (
+    "unduh Cubism SDK for Web dari situs resmi Live2D (setujui lisensinya), lalu salin "
+    "Core/live2dcubismcore.min.js ke C:\\AI\\avatars\\live2d\\ (lihat README, bagian "
+    "Avatar Live2D & interaksi)"
+)
+CUBISM_CORE_STAYS_OUT = (
+    "file milik Live2D: simpan di luar folder proyek, jangan pernah disalin ke repo"
+)
+# `waifu avatar` only shows her: a double-click there cannot make her listen.
+LISTEN_NEEDS_RUN = "(Klik dua kali membuat {name} mendengarkan, tapi hanya selama 'waifu run'.)"
 # `waifu avatar --demo`: a new state and emotion every step, mouthing a made-up voice with
 # one tone syllable per mouth shape (the lip-sync's vowel centres), low to high.
 DEMO_STEP_S = 3.0
@@ -281,7 +293,9 @@ def build_parser() -> argparse.ArgumentParser:
     command("check", _check, "Periksa konfigurasi, perangkat, dan dependensi.")
     command("notify-test", _notify_test, "Kirim notifikasi tes ke HP lewat ntfy.")
     avatar = command(
-        "avatar", _show_avatar, "Tampilkan avatar 3D saja (tanpa mendengarkan) untuk mengeceknya."
+        "avatar",
+        _show_avatar,
+        "Tampilkan avatar saja (tanpa mendengarkan) untuk mengecek model dan reaksinya.",
     )
     avatar.add_argument(
         "--demo",
@@ -523,8 +537,13 @@ def _listen(args: argparse.Namespace) -> int:
         print(f"{FAIL} {exc}")
         return 1
     # The avatar and the anime voice load last: she can listen without them, but not without
-    # the models above. The avatar's window opens first, so it loads while RVC starts.
-    with _avatar_bus(config) as avatar, _voice_converter(config) as converter:
+    # the models above. The avatar's window opens first, so it loads while RVC starts; the
+    # pats and pokes on it reach her once she can answer them.
+    touches = _InteractionRelay()
+    with (
+        _avatar_bus(config, on_interact=touches.handle) as avatar,
+        _voice_converter(config) as converter,
+    ):
         assistant = Assistant(
             config,
             brain=brain,
@@ -536,7 +555,13 @@ def _listen(args: argparse.Namespace) -> int:
             speaker_check=speaker_check,
             avatar=avatar,
         )
-        with _open_mic(config) as mic:
+        reactions = InteractionHandler(
+            config.avatar.interactions,
+            speak=assistant.speak_reaction,
+            listen=assistant.listen_now,
+            is_busy=lambda: assistant.busy,
+        )
+        with _open_mic(config) as mic, touches.answered_by(reactions):
             mode = " (perangkat simulasi)" if args.dry_run else ""
             print(
                 f"{name} siap mendengarkan{mode}. "
@@ -676,18 +701,24 @@ def _start_voice_conversion(server: RvcServerProcess, config: AppConfig) -> RvcC
 
 
 @contextmanager
-def _avatar_bus(config: AppConfig, *, wanted: bool = True) -> Iterator[AvatarBus | None]:
+def _avatar_bus(
+    config: AppConfig,
+    *,
+    wanted: bool = True,
+    on_interact: Callable[[str], None] | None = None,
+) -> Iterator[AvatarBus | None]:
     """The avatar's event bus for the block; None when it is off, unwanted, or cannot start.
 
-    The page is served and the window opened until the block ends. An avatar that
-    cannot start (port in use, no Electron) only costs the avatar, never her voice.
+    The page is served and the window opened until the block ends; the page's pats,
+    pokes, and double-clicks go to `on_interact`. An avatar that cannot start (port in
+    use, no Electron) only costs the avatar, never her voice.
     """
     if not (wanted and config.avatar.enabled):
         yield None
         return
     with ExitStack() as shown:
         try:
-            avatar, _ = shown.enter_context(_open_avatar(config))
+            avatar, _ = shown.enter_context(_open_avatar(config, on_interact=on_interact))
         except AvatarError as exc:
             logger.warning("Avatar unavailable, going on without it: %s", exc)
             reason = str(exc).rstrip(".")
@@ -700,15 +731,48 @@ def _avatar_bus(config: AppConfig, *, wanted: bool = True) -> Iterator[AvatarBus
 
 
 @contextmanager
-def _open_avatar(config: AppConfig) -> Iterator[tuple[AvatarBus, str]]:
+def _open_avatar(
+    config: AppConfig, *, on_interact: Callable[[str], None] | None = None
+) -> Iterator[tuple[AvatarBus, str]]:
     """Serve the avatar page and open its window for the block; yields the bus and page URL.
 
-    Raises AvatarError (Indonesian) when either cannot start; nothing is left running then.
+    The page's interactions go to `on_interact`. Raises AvatarError (Indonesian) when
+    either cannot start; nothing is left running then.
     """
     settings = config.avatar
     bus = AvatarBus(name=config.assistant.name, framing=settings.framing)
-    with AvatarServer(settings, bus) as server, AvatarWindow(settings, server.url):
+    with (
+        AvatarServer(settings, bus, on_interact=on_interact) as server,
+        AvatarWindow(settings, server.url),
+    ):
         yield bus, server.url
+
+
+class _InteractionRelay:
+    """Hands the avatar page's interactions to the handler answering them now, if any.
+
+    The page is served before anything can answer it (the window loads while her voice
+    starts), so the server gets `handle` at once and `answered_by` connects the handler
+    for a block; interactions outside that block are dropped.
+    """
+
+    def __init__(self) -> None:
+        self._handler: InteractionHandler | None = None
+
+    def handle(self, kind: str) -> None:
+        handler = self._handler
+        if handler is not None:
+            handler.handle(kind)
+
+    @contextmanager
+    def answered_by(self, handler: InteractionHandler) -> Iterator[None]:
+        """Run `handler` and hand it every interaction until the block ends."""
+        with handler:
+            self._handler = handler
+            try:
+                yield
+            finally:
+                self._handler = None
 
 
 # --- speaker verification --------------------------------------------------------------------
@@ -959,13 +1023,20 @@ def _mics(args: argparse.Namespace) -> int:
 
 
 def _show_avatar(args: argparse.Namespace) -> int:
-    """Show the avatar without listening until Ctrl+C; `--demo` runs through her expressions."""
+    """Show the avatar without listening until Ctrl+C; `--demo` runs through her expressions.
+
+    Pats, pokes, and double-clicks get her reaction printed and shown on the avatar.
+    """
     config = load_config(args.config)
     if not config.avatar.enabled:
         print(AVATAR_OFF)
         return 2
+    touches = _InteractionRelay()
     try:
-        with _open_avatar(config) as (avatar, url):
+        with (
+            _open_avatar(config, on_interact=touches.handle) as (avatar, url),
+            touches.answered_by(_shown_reactions(config, avatar)),
+        ):
             print(f"Halaman avatar {config.assistant.name}: {url}. Tekan Ctrl+C untuk berhenti.")
             if args.demo:
                 _run_demo(avatar)
@@ -979,6 +1050,28 @@ def _show_avatar(args: argparse.Namespace) -> int:
     except KeyboardInterrupt:
         print("\nSelesai.")
     return 0
+
+
+def _shown_reactions(config: AppConfig, avatar: AvatarBus) -> InteractionHandler:
+    """Reactions for `waifu avatar`: each line printed and mouthed with the demo voice.
+
+    Nothing is spoken and no microphone is opened; a double-click only explains that
+    listening needs `waifu run` (the handler then shows a listen line as usual).
+    """
+    name = config.assistant.name
+    voice = _demo_voice()
+
+    def show(line: str, emotion: str) -> None:
+        print(f"{name}: {line}", flush=True)
+        avatar.emotion(emotion)
+        avatar.speak(voice, DEMO_SAMPLE_RATE, emotion)
+
+    def explain_listening() -> None:
+        print(LISTEN_NEEDS_RUN.format(name=name), flush=True)
+
+    return InteractionHandler(
+        config.avatar.interactions, speak=show, listen=explain_listening, is_busy=lambda: False
+    )
 
 
 def _run_demo(avatar: AvatarBus) -> None:
@@ -1459,15 +1552,81 @@ def _notify_check(config: AppConfig) -> Check:
 
 
 def _avatar_checks(config: AppConfig) -> Iterator[Check]:
-    """The VRM, the window's program, and whether the port is free; never starts anything."""
+    """The engine and its model files, the window's program, and whether the port is free.
+
+    Never starts anything, and never loads a model or the Cubism Core.
+    """
     avatar = config.avatar
     if not avatar.enabled:
         name = config.assistant.name
         yield WARN, f"Avatar 3D mati (avatar.enabled: false); {name} berjalan tanpa avatar"
         return
-    yield _path_check("Model VRM avatar", avatar.model, "avatar.model")
+    yield OK, f"Mesin avatar: {AVATAR_ENGINES[avatar.engine]} (avatar.engine: {avatar.engine})"
+    if avatar.engine == "live2d":
+        yield from _live2d_checks(avatar)
+    else:
+        yield _path_check("Model VRM avatar", avatar.model, "avatar.model")
     yield _avatar_window_check(avatar)
     yield _avatar_port_check(avatar)
+
+
+def _live2d_checks(avatar: AvatarConfig) -> Iterator[Check]:
+    """The model3.json, the moc3 and textures it names, and the owner's Cubism Core."""
+    model_check = _path_check("Model Live2D avatar", avatar.model, "avatar.model")
+    yield model_check
+    if model_check[0] == OK and avatar.model is not None:
+        yield _live2d_files_check(avatar.model)
+    core_mark, core_text = _path_check(
+        "Cubism Core Live2D", avatar.live2d_core, "avatar.live2d_core"
+    )
+    if core_mark == OK:
+        yield OK, f"{core_text} ({CUBISM_CORE_STAYS_OUT})"
+    else:
+        yield FAIL, f"{core_text}. Cara memasang: {CUBISM_CORE_SETUP}; {CUBISM_CORE_STAYS_OUT}"
+
+
+def _live2d_files_check(model3: Path) -> Check:
+    """Whether the moc3 and every texture the model3.json names are in the model's folder.
+
+    The avatar page loads them from that folder only, so a file outside it counts as missing.
+    """
+    try:
+        moc, textures = _model3_files(model3)
+    except (OSError, ValueError) as exc:
+        return FAIL, f"{model3.name} bukan model Live2D yang bisa dibaca: {exc}"
+    folder = model3.parent.resolve()
+    missing = [name for name in [moc, *textures] if not _is_file_under(folder, name)]
+    if missing:
+        return FAIL, (
+            f"File model Live2D tidak ditemukan di {model3.parent}: {', '.join(missing)} "
+            f"(disebut {model3.name}; salin seluruh folder modelnya)"
+        )
+    return OK, f"File model Live2D: {moc} dan {len(textures)} tekstur"
+
+
+def _model3_files(model3: Path) -> tuple[str, list[str]]:
+    """The moc3 and the textures a model3.json names; ValueError when it names none."""
+    data = json.loads(model3.read_text(encoding="utf-8-sig"))
+    references = data.get("FileReferences") if isinstance(data, dict) else None
+    if isinstance(references, dict):
+        moc, textures = references.get("Moc"), references.get("Textures")
+        if (
+            isinstance(moc, str)
+            and isinstance(textures, list)
+            and all(isinstance(texture, str) for texture in textures)
+        ):
+            return moc, textures
+    raise ValueError("FileReferences tidak menyebut Moc dan Textures")
+
+
+def _is_file_under(folder: Path, reference: str) -> bool:
+    """Whether a model3.json `reference` names a file inside `folder` as the page resolves it.
+
+    The page resolves it as a URL, where a backslash is a slash. Anything else (a UNC, drive,
+    absolute, or URL name) is refused before it is resolved (`file_under`): a downloaded model
+    must not make `waifu check` contact another computer.
+    """
+    return file_under(folder, reference.replace("\\", "/")) is not None
 
 
 def _avatar_window_check(avatar: AvatarConfig) -> Check:

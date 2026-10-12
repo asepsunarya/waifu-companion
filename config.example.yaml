@@ -89,14 +89,47 @@ tts:
     port: 9881
     startup_timeout_s: 180   # start pertama memuat model ke GPU dan bisa lama
 
-# Avatar 3D つくよみちゃん (README, bagian "Avatar 3D"): maskot transparan di desktop yang
-# bernapas, berkedip, menggerakkan mulut mengikuti suaranya, dan menunjukkan ekspresi jawaban.
+# Avatar (README, bagian "Avatar 3D" dan "Avatar Live2D & interaksi"): maskot transparan di
+# desktop yang bernapas, berkedip, menggerakkan mulut mengikuti suaranya, menunjukkan ekspresi
+# jawaban, menatap kursor, dan bereaksi saat kepalanya dielus atau badannya dicolek.
 # Kalau avatar gagal jalan (misalnya Electron belum dipasang), Cyrene tetap jalan tanpa avatar.
 avatar:
   enabled: false
-  # File VRM, wajib diisi kalau enabled: true. Hanya untuk pemakaian pribadi: jangan
-  # di-commit, dibagikan, atau diunggah ke mana pun.
+  engine: vrm             # vrm: model 3D .vrm | live2d: model Live2D Cubism (.model3.json)
+  # File model, wajib diisi kalau enabled: true: .vrm untuk engine vrm, .model3.json untuk
+  # engine live2d. Hanya untuk pemakaian pribadi: jangan di-commit, dibagikan, atau diunggah
+  # ke mana pun.
   # model: C:/AI/avatars/tsukuyomi_a.vrm
+  #
+  # Live2D (engine: live2d): taruh seluruh folder model di C:/AI/avatars/ (model3.json
+  # memanggil moc3, tekstur, dan physics dari foldernya sendiri), lalu isi live2d_core dengan
+  # live2dcubismcore.min.js dari Cubism SDK for Web yang kamu unduh sendiri dari situs resmi
+  # Live2D. Core itu milik Live2D: simpan di luar folder proyek, jangan pernah disalin ke repo.
+  # engine: live2d
+  # model: C:/AI/avatars/cyrene-live2d/Cyrene.model3.json
+  # live2d_core: C:/AI/avatars/live2d/live2dcubismcore.min.js
+  #
+  # Kredit kecil yang selalu tampil di pojok halaman avatar; sesuaikan dengan modelnya.
+  credit: "つくよみちゃん（© Rei Yumesaki）"
+  # credit: "Cyrene © miHoYo · Live2D: MomokaSono"   # untuk model Live2D Cyrene di atas
+  # Reaksi terhadap mouse, untuk kedua engine (README, bagian "Avatar Live2D & interaksi").
+  # Hanya ada dua area: kepala (dielus) dan badan (dicolek).
+  interactions:
+    enabled: true             # false: semua reaksi mati; maskot tetap bisa digeser
+    cursor_follow: true       # matanya dan kepalanya mengikuti kursor mouse
+    head_pat: true            # klik atau usap kepalanya: dia senang dielus
+    body_touch: true          # klik badannya: dia kaget dicolek
+    double_click_listen: true # klik dua kali: dia langsung mendengarkan tanpa dipanggil namanya
+    idle: true                # tampak bosan (menguap) setelah 3 menit tanpa aktivitas
+    welcome_back_after_min: 10  # maskot saja: sapa Master saat mouse bergerak lagi setelah N menit diam (0 = tidak)
+    reaction_cooldown_s: 3    # jeda minimal antar-reaksi bersuara, supaya klik beruntun tidak jadi spam
+    # Kalimat tiap reaksi, dipilih acak dan tidak pernah sama dua kali berturut-turut.
+    # Hapus satu jenis untuk memakai bawaannya; tiap jenis butuh minimal satu kalimat.
+    lines:
+      head_pat: ["えへへ, geli, Master!", "Hehe, makasih elusannya, Master.", "Mm, enak dielus begini."]
+      body_touch: ["Hei! Kaget aku, Master.", "Eh? Ada apa, Master?", "Jangan iseng, ya!"]
+      welcome_back: ["おかえりなさい, Master!", "Master sudah kembali! Aku kangen."]
+      listen: ["はい, Master?", "Iya, aku dengar."]
   window: mascot          # mascot: jendela transparan Electron | app: jendela Edge | none: tanpa jendela
   width: 360              # ukuran jendela dalam piksel
   height: 640

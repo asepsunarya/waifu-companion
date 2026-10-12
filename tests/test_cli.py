@@ -1,11 +1,13 @@
 import io
 import json
 import logging
+import os
 import re
 import runpy
 import shutil
 import socket
 import sys
+import threading
 import types
 import urllib.error
 import urllib.request
@@ -60,6 +62,8 @@ SILENT_FRAME = np.zeros(FRAME, dtype=np.float32)
 LOUD_FRAME = np.full(FRAME, 0.1, dtype=np.float32)
 VOICE_MODULES = ("faster_whisper", "speechbrain", "torch", "sounddevice")
 MODEL_LIBRARIES = ("faster_whisper", "speechbrain", "torch")
+WAIT_S = 2.0  # an upper bound for the avatar interaction worker's thread, never a sleep
+INTERACTION_WORKER = "avatar-interactions"
 
 
 @pytest.fixture(autouse=True)
@@ -353,7 +357,10 @@ class AvatarFakes:
 
 
 class FakeAvatarBus:
-    """Stands in for AvatarBus: logs what is shown and keeps what she would mouth."""
+    """Stands in for AvatarBus: logs what is shown and keeps what she would mouth.
+
+    Reactions to touches show up from the interaction worker's thread: `wait_for(call)`
+    waits (bounded) until a call was made."""
 
     def __init__(self, fakes: AvatarFakes, name: str, framing: str) -> None:
         self.name = name
@@ -363,36 +370,51 @@ class FakeAvatarBus:
         self.viewer_connects = fakes.viewer_connects
         self.calls: list[tuple] = []
         self.voices: list[tuple[np.ndarray, int]] = []
+        self._called = threading.Condition()
+
+    def wait_for(self, call: tuple, count: int = 1) -> bool:
+        with self._called:
+            return self._called.wait_for(lambda: self.calls.count(call) >= count, WAIT_S)
+
+    def _record(self, call: tuple, event: str) -> None:
+        with self._called:
+            self.calls.append(call)
+            self.events.append(event)
+            self._called.notify_all()
 
     def wait_for_viewer(self, timeout: float) -> bool:
-        self.calls.append(("wait_for_viewer", timeout))
-        self.events.append("avatar awaits a viewer")
+        self._record(("wait_for_viewer", timeout), "avatar awaits a viewer")
         return self.viewer_connects
 
     def state(self, name: str, followup_s: float | None = None) -> None:
-        self.calls.append(("state", name, followup_s))
-        self.events.append(f"avatar {name}")
+        self._record(("state", name, followup_s), f"avatar {name}")
 
     def emotion(self, name: str, hold_s: float = 4) -> None:
-        self.calls.append(("emotion", name, hold_s))
-        self.events.append(f"avatar looks {name}")
+        self._record(("emotion", name, hold_s), f"avatar looks {name}")
 
     def speak(self, audio: np.ndarray, sample_rate: int, emotion: str) -> None:
-        self.calls.append(("speak", emotion))
         self.voices.append((audio, sample_rate))
-        self.events.append(f"avatar speaks {emotion}")
+        self._record(("speak", emotion), f"avatar speaks {emotion}")
         if self.speak_error is not None:
             raise self.speak_error
 
 
 class FakeAvatarServer:
-    """Stands in for AvatarServer: never binds a port."""
+    """Stands in for AvatarServer: never binds a port. `on_interact` is what the page's
+    pats, pokes, and double-clicks would be handed to."""
 
-    def __init__(self, config: AvatarConfig, bus: FakeAvatarBus, fakes: AvatarFakes) -> None:
+    def __init__(
+        self,
+        config: AvatarConfig,
+        bus: FakeAvatarBus,
+        fakes: AvatarFakes,
+        on_interact: Callable[[str], None] | None = None,
+    ) -> None:
         if fakes.server_error is not None:
             raise fakes.server_error
         self.config = config
         self.bus = bus
+        self.on_interact = on_interact
         self.url = f"http://{config.host}:{config.port}/"
         self._fakes = fakes
 
@@ -432,8 +454,13 @@ def avatar(events, monkeypatch) -> AvatarFakes:
         fakes.buses.append(FakeAvatarBus(fakes, name, framing))
         return fakes.buses[-1]
 
-    def server(config: AvatarConfig, bus: FakeAvatarBus) -> FakeAvatarServer:
-        fakes.servers.append(FakeAvatarServer(config, bus, fakes))
+    def server(
+        config: AvatarConfig,
+        bus: FakeAvatarBus,
+        *,
+        on_interact: Callable[[str], None] | None = None,
+    ) -> FakeAvatarServer:
+        fakes.servers.append(FakeAvatarServer(config, bus, fakes, on_interact))
         return fakes.servers[-1]
 
     def window(config: AvatarConfig, url: str) -> FakeAvatarWindow:
@@ -455,6 +482,22 @@ def enable_avatar(home: Path, *, window: str = "mascot", extra: str = "") -> Non
         home,
         f"avatar:\n  enabled: true\n  model: {VRM.as_posix()}\n  window: {window}\n" + extra,
     )
+
+
+# One line per reaction and no cooldown, so a test knows what she says to every touch.
+TOUCH_LINES = (
+    "  interactions:\n"
+    "    reaction_cooldown_s: 0\n"
+    "    lines:\n"
+    "      head_pat: [Elusannya enak]\n"
+    "      body_touch: [Kaget aku]\n"
+    "      welcome_back: [Selamat datang]\n"
+    "      listen: [Iya Master]\n"
+)
+
+
+def interaction_workers() -> list[threading.Thread]:
+    return [thread for thread in threading.enumerate() if thread.name == INTERACTION_WORKER]
 
 
 @pytest.fixture
@@ -1356,16 +1399,38 @@ def test_mics_prints_the_audio_device_list(monkeypatch, capsys):
 
 
 class RecordingAssistant:
+    """Records what `waifu run` asks of her. `busy_answers` are what `busy` says, one per
+    check (then False); `reacted` counts each reaction (`speak_reaction` or `listen_now`)."""
+
     instances: list["RecordingAssistant"] = []
 
     def __init__(self, config, **collaborators) -> None:
         self.collaborators = collaborators
         self.ran_with: tuple | None = None
         self.announced: list[tuple[str, str]] = []
+        self.busy_answers: list[bool] = []
+        self.reactions: list[tuple[str, ...]] = []
+        self.reacted = threading.Semaphore(0)
         RecordingAssistant.instances.append(self)
 
     def run(self, mic, segmenter) -> None:
         self.ran_with = (mic, segmenter)
+
+    @property
+    def busy(self) -> bool:
+        return self.busy_answers.pop(0) if self.busy_answers else False
+
+    def speak_reaction(self, text: str, emotion: str) -> None:
+        self.reactions.append(("speak", text, emotion))
+        self.reacted.release()
+
+    def listen_now(self) -> None:
+        self.reactions.append(("listen",))
+        self.reacted.release()
+
+    def await_reactions(self, count: int) -> None:
+        for _ in range(count):
+            assert self.reacted.acquire(timeout=WAIT_S), f"only {self.reactions} after {WAIT_S} s"
 
     def announce(self, text: str, emotion: str = "neutral") -> None:
         self.announced.append((text, emotion))
@@ -1909,6 +1974,103 @@ def test_run_shows_no_avatar_when_the_voice_models_fail_to_load(run_fakes, avata
     assert avatar.servers == []
 
 
+def touch(avatar: AvatarFakes, *kinds: str) -> None:
+    """The avatar page reporting `kinds` (pats, pokes, double-clicks) to Cyrene's server."""
+    [server] = avatar.servers
+    assert server.on_interact is not None, "the avatar server got nothing to hand touches to"
+    for kind in kinds:
+        server.on_interact(kind)
+
+
+def touched_while_listening(avatar: AvatarFakes, *kinds: str, reactions: int):
+    """A RecordingAssistant.run that reports `kinds` from the page, then waits for her to react."""
+
+    def run(self: RecordingAssistant, mic, segmenter) -> None:
+        touch(avatar, *kinds)
+        self.await_reactions(reactions)
+
+    return run
+
+
+def test_run_answers_pats_pokes_and_double_clicks_on_the_avatar_through_the_assistant(
+    run_fakes, avatar, home, monkeypatch
+):
+    enable_avatar(home, extra=TOUCH_LINES)
+    monkeypatch.setattr(
+        RecordingAssistant,
+        "run",
+        touched_while_listening(avatar, "head_pat", "body_touch", "double_click", reactions=4),
+    )
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    assert RecordingAssistant.instances[0].reactions == [
+        ("speak", "Elusannya enak", "happy"),
+        ("speak", "Kaget aku", "surprised"),
+        ("listen",),
+        ("speak", "Iya Master", "happy"),
+    ]
+
+
+def test_run_keeps_quiet_about_a_touch_while_she_is_busy(run_fakes, avatar, home, monkeypatch):
+    enable_avatar(home, extra=TOUCH_LINES)
+
+    def run(self: RecordingAssistant, mic, segmenter) -> None:
+        self.busy_answers = [True]  # still answering Master when the pat comes in
+        touch(avatar, "head_pat", "body_touch")
+        self.await_reactions(1)
+
+    monkeypatch.setattr(RecordingAssistant, "run", run)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    assert RecordingAssistant.instances[0].reactions == [("speak", "Kaget aku", "surprised")]
+
+
+def test_run_ignores_touches_before_she_can_answer_and_after_she_stops(run_fakes, avatar, home):
+    enable_avatar(home, extra=TOUCH_LINES)
+    # The page is served (and its window loads) while her voice is still starting.
+    avatar.on_start = lambda: touch(avatar, "head_pat")
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+    touch(avatar, "body_touch")
+
+    assert RecordingAssistant.instances[0].reactions == []
+    assert interaction_workers() == []
+
+
+def test_run_says_a_pat_like_a_reply_with_the_mic_paused_and_the_avatar_mouthing_it(
+    announcing, avatar, home, speech, event_player, monkeypatch
+):
+    enable_avatar(home, extra=TOUCH_LINES)
+    events = announcing.events
+
+    class PattedMic(EventMic):
+        def frames(self):
+            touch(avatar, "head_pat")
+            assert avatar.buses[0].wait_for(("state", "listening", 8.0))
+            yield from super().frames()
+
+    monkeypatch.setattr(cli, "MicStream", lambda *args, **kwargs: PattedMic(events))
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    assert events[events.index("mic opened") :] == [
+        "mic opened",
+        "mic paused",
+        "say Elusannya enak",
+        "avatar speaking",
+        "avatar speaks happy",
+        "play",
+        "mic resumed",
+        "avatar listening",
+        "listening",
+        "mic closed",
+        "avatar window closed",
+        "avatar server stopped",
+    ]
+
+
 @pytest.fixture
 def one_utterance(home, brains, player, monkeypatch):
     """`waifu run` with the real Assistant and Whisper wrapper, hearing one spoken phrase."""
@@ -2043,6 +2205,64 @@ def test_avatar_that_cannot_open_its_window_says_why_and_exits_1(home, avatar, e
     assert "✗ Program maskot (Electron) tidak ditemukan: x. Pasang dulu." in capsys.readouterr().out
     assert events == ["avatar served", "avatar server stopped"]
     assert avatar.buses[0].calls == []
+
+
+class TouchingSleep:
+    """A `sleep` for `waifu avatar`: at the first wait the page reports `kinds`, and once her
+    avatar has made `until` (the end of her reaction) it acts like Ctrl+C."""
+
+    def __init__(self, avatar: AvatarFakes, *kinds: str, until: tuple) -> None:
+        self.avatar = avatar
+        self.kinds = kinds
+        self.until = until
+
+    def __call__(self, seconds: float) -> None:
+        touch(self.avatar, *self.kinds)
+        assert self.avatar.buses[0].wait_for(self.until)
+        raise KeyboardInterrupt
+
+
+def test_avatar_prints_her_answer_to_a_pat_and_shows_it_with_a_face_and_a_moving_mouth(
+    home, avatar, monkeypatch, capsys
+):
+    enable_avatar(home, extra=TOUCH_LINES)
+    monkeypatch.setattr(cli, "sleep", TouchingSleep(avatar, "head_pat", until=("speak", "happy")))
+
+    assert cli.main(["avatar"]) == 0
+
+    assert "Cyrene: Elusannya enak" in capsys.readouterr().out.splitlines()
+    bus = avatar.buses[0]
+    assert bus.calls == [("emotion", "happy", 4), ("speak", "happy")]
+    [(voice, sample_rate)] = bus.voices
+    assert 0 < len(voice) / sample_rate < 3.0  # a short made-up voice: no TTS, no speakers
+    assert interaction_workers() == []
+
+
+def test_avatar_answers_a_poke_with_a_surprised_face(home, avatar, monkeypatch, capsys):
+    enable_avatar(home, extra=TOUCH_LINES)
+    monkeypatch.setattr(
+        cli, "sleep", TouchingSleep(avatar, "body_touch", until=("speak", "surprised"))
+    )
+
+    assert cli.main(["avatar"]) == 0
+
+    assert "Cyrene: Kaget aku" in capsys.readouterr().out.splitlines()
+    assert avatar.buses[0].calls == [("emotion", "surprised", 4), ("speak", "surprised")]
+
+
+def test_avatar_double_click_explains_that_listening_needs_waifu_run(
+    home, avatar, monkeypatch, capsys
+):
+    enable_avatar(home, extra=TOUCH_LINES)
+    monkeypatch.setattr(
+        cli, "sleep", TouchingSleep(avatar, "double_click", until=("speak", "happy"))
+    )
+
+    assert cli.main(["avatar"]) == 0
+
+    lines = capsys.readouterr().out.splitlines()
+    hint = next(index for index, line in enumerate(lines) if "'waifu run'" in line)
+    assert lines.index("Cyrene: Iya Master") > hint
 
 
 # --- autostart -------------------------------------------------------------------------------
@@ -2759,7 +2979,9 @@ def test_check_leaves_out_the_index_when_none_is_configured(
 
 
 def avatar_lines(out: str) -> list[str]:
-    return [line for line in out.splitlines() if "avatar" in line.lower()]
+    return [
+        line for line in out.splitlines() if "avatar" in line.lower() or "live2d" in line.lower()
+    ]
 
 
 @dataclass
@@ -2820,6 +3042,7 @@ def test_check_with_the_avatar_ready_marks_the_model_the_mascot_and_the_free_por
     cli.main(["check"])
 
     assert avatar_lines(capsys.readouterr().out) == [
+        "✓ Mesin avatar: VRM 3D (avatar.engine: vrm)",
         f"✓ Model VRM avatar: {VRM}",
         f"✓ Jendela maskot avatar (Electron): {avatar_install.electron}",
         "✓ Port avatar 127.0.0.1:9882 bebas",
@@ -2834,7 +3057,7 @@ def test_check_marks_a_missing_vrm_and_a_missing_electron_with_how_to_fix_them(
 
     assert cli.main(["check"]) == 1
 
-    model, window, _ = avatar_lines(capsys.readouterr().out)
+    _, model, window, _ = avatar_lines(capsys.readouterr().out)
     assert model == f"✗ Model VRM avatar tidak ditemukan: {VRM} (periksa avatar.model)"
     assert window.startswith(
         f"✗ Jendela maskot avatar (Electron) tidak ditemukan: {avatar_install.electron}"
@@ -2884,7 +3107,7 @@ def test_check_looks_for_edge_for_the_app_window(
 
     cli.main(["check"])
 
-    window = avatar_lines(capsys.readouterr().out)[1]
+    window = avatar_lines(capsys.readouterr().out)[2]
     if installed:
         assert window == f"✓ Jendela avatar (Microsoft Edge): {edge}"
     else:
@@ -2901,9 +3124,172 @@ def test_check_with_the_avatar_window_off_names_the_page_to_open(
     assert cli.main(["check"]) == 1  # nothing installed; the avatar lines are all fine
 
     lines = avatar_lines(capsys.readouterr().out)
-    assert lines[1].startswith("✓ Jendela avatar tidak dibuka (avatar.window: none)")
-    assert "http://127.0.0.1:9882/" in lines[1]
+    assert lines[2].startswith("✓ Jendela avatar tidak dibuka (avatar.window: none)")
+    assert "http://127.0.0.1:9882/" in lines[2]
     assert not any(line.startswith("✗") for line in lines)
+
+
+LIVE2D_MODEL = Path("avatars/cyrene-live2d/Cyrene.model3.json")
+LIVE2D_CORE = Path("avatars/live2d/live2dcubismcore.min.js")
+LIVE2D_TEXTURES = ["Cyrene.4096/texture_00.png", "Cyrene.4096/texture_01.png"]
+
+
+def enable_live2d(home: Path, install: AvatarInstall) -> None:
+    """A Live2D avatar under `home` (nothing created yet): the check must never read C:/AI."""
+    write_config(
+        home,
+        "avatar:\n  enabled: true\n  engine: live2d\n"
+        f"  model: {LIVE2D_MODEL.as_posix()}\n  live2d_core: {LIVE2D_CORE.as_posix()}\n"
+        f"  electron_dir: {install.electron_dir.as_posix()}\n",
+    )
+
+
+def write_model3(references: object) -> None:
+    """A Cyrene.model3.json naming `references` as its FileReferences."""
+    LIVE2D_MODEL.parent.mkdir(parents=True, exist_ok=True)
+    LIVE2D_MODEL.write_text(json.dumps({"Version": 3, "FileReferences": references}), "utf-8")
+
+
+def create_live2d_model(*, textures: list[str] = LIVE2D_TEXTURES) -> None:
+    write_model3({"Moc": "Cyrene.moc3", "Textures": textures, "Physics": "Cyrene.physics3.json"})
+    folder = LIVE2D_MODEL.parent
+    create(folder / "Cyrene.moc3", *(folder / texture for texture in textures))
+
+
+def test_check_with_a_live2d_avatar_ready_marks_the_model_its_files_and_the_core(
+    home, nothing_installed, avatar_install, capsys
+):
+    enable_live2d(home, avatar_install)
+    create_live2d_model()
+    create(LIVE2D_CORE, avatar_install.electron)
+
+    cli.main(["check"])
+
+    engine, model, files, core, window, port = avatar_lines(capsys.readouterr().out)
+    assert engine == "✓ Mesin avatar: Live2D (avatar.engine: live2d)"
+    assert model == f"✓ Model Live2D avatar: {LIVE2D_MODEL}"
+    assert files == "✓ File model Live2D: Cyrene.moc3 dan 2 tekstur"
+    assert core.startswith(f"✓ Cubism Core Live2D: {LIVE2D_CORE}")
+    assert "jangan pernah disalin ke repo" in core
+    assert window == f"✓ Jendela maskot avatar (Electron): {avatar_install.electron}"
+    assert port == "✓ Port avatar 127.0.0.1:9882 bebas"
+
+
+def test_check_marks_a_missing_cubism_core_with_where_to_get_it(
+    home, nothing_installed, avatar_install, capsys
+):
+    enable_live2d(home, avatar_install)
+    create_live2d_model()
+
+    assert cli.main(["check"]) == 1
+
+    [core] = [line for line in avatar_lines(capsys.readouterr().out) if "Cubism Core" in line]
+    assert core.startswith(f"✗ Cubism Core Live2D tidak ditemukan: {LIVE2D_CORE}")
+    assert "avatar.live2d_core" in core
+    assert "unduh Cubism SDK for Web dari situs resmi Live2D" in core
+    assert "jangan pernah disalin ke repo" in core
+
+
+def test_check_names_the_live2d_files_that_the_model3_json_needs_but_are_missing(
+    home, nothing_installed, avatar_install, capsys
+):
+    enable_live2d(home, avatar_install)
+    # Only the first texture is there; the moc3 is missing and one texture lies outside the
+    # model folder, where Cyrene's page server cannot reach it.
+    write_model3({"Moc": "Cyrene.moc3", "Textures": [*LIVE2D_TEXTURES[:1], "../texture_99.png"]})
+    create(LIVE2D_MODEL.parent / LIVE2D_TEXTURES[0], LIVE2D_MODEL.parent.parent / "texture_99.png")
+
+    assert cli.main(["check"]) == 1
+
+    files = avatar_lines(capsys.readouterr().out)[2]
+    assert files.startswith("✗ File model Live2D tidak ditemukan")
+    assert "Cyrene.moc3, ../texture_99.png" in files
+    assert LIVE2D_TEXTURES[0] not in files
+
+
+@pytest.mark.parametrize(
+    "reference",
+    [
+        "//attacker.invalid/share/Cyrene.moc3",
+        "\\\\attacker.invalid\\share\\Cyrene.moc3",
+        "/Cyrene.moc3",
+        "C:/Windows/win.ini",
+        "D:Cyrene.moc3",
+        "https://attacker.invalid/Cyrene.moc3",
+    ],
+    ids=["unc-slashes", "unc-backslashes", "absolute", "drive", "drive-relative", "url"],
+)
+def test_check_never_resolves_a_model3_reference_that_is_not_a_path_inside_the_folder(
+    reference, home, nothing_installed, avatar_install, capsys, monkeypatch
+):
+    # A downloaded model3.json may name \\host\share\...: resolving it makes Windows contact
+    # that host (offering it the owner's credentials). The guard records the lookup instead.
+    real_realpath = os.path.realpath
+    unc_lookups: list[str] = []
+
+    def guarded_realpath(target: str | os.PathLike[str], *args: object, **kwargs: object) -> str:
+        text = os.fspath(target)
+        if text.startswith(("\\\\", "//")):
+            unc_lookups.append(text)
+            return text
+        return real_realpath(target, *args, **kwargs)
+
+    enable_live2d(home, avatar_install)
+    create_live2d_model()
+    write_model3({"Moc": reference, "Textures": LIVE2D_TEXTURES})
+    monkeypatch.setattr(os.path, "realpath", guarded_realpath)
+
+    assert cli.main(["check"]) == 1
+
+    files = avatar_lines(capsys.readouterr().out)[2]
+    assert files.startswith("✗ File model Live2D tidak ditemukan")
+    assert reference in files
+    assert unc_lookups == []
+
+
+@pytest.mark.parametrize(
+    "references",
+    [None, {"Textures": LIVE2D_TEXTURES}, {"Moc": "Cyrene.moc3", "Textures": "texture_00.png"}],
+    ids=["no-references", "no-moc", "textures-not-a-list"],
+)
+def test_check_fails_a_model3_json_that_does_not_describe_a_live2d_model(
+    references, home, nothing_installed, avatar_install, capsys
+):
+    enable_live2d(home, avatar_install)
+    write_model3(references)
+
+    assert cli.main(["check"]) == 1
+
+    files = avatar_lines(capsys.readouterr().out)[2]
+    assert files.startswith(f"✗ {LIVE2D_MODEL.name} bukan model Live2D yang bisa dibaca")
+
+
+def test_check_fails_a_model3_json_that_is_not_json(
+    home, nothing_installed, avatar_install, capsys
+):
+    enable_live2d(home, avatar_install)
+    create(LIVE2D_MODEL)
+    LIVE2D_MODEL.write_text("{ bukan json", "utf-8")
+
+    assert cli.main(["check"]) == 1
+
+    files = avatar_lines(capsys.readouterr().out)[2]
+    assert files.startswith(f"✗ {LIVE2D_MODEL.name} bukan model Live2D yang bisa dibaca")
+
+
+def test_check_marks_a_missing_model3_json_and_skips_its_files(
+    home, nothing_installed, avatar_install, capsys
+):
+    enable_live2d(home, avatar_install)
+    create(LIVE2D_CORE)
+
+    assert cli.main(["check"]) == 1
+
+    lines = avatar_lines(capsys.readouterr().out)
+    assert lines[1] == (
+        f"✗ Model Live2D avatar tidak ditemukan: {LIVE2D_MODEL} (periksa avatar.model)"
+    )
+    assert lines[2].startswith("✓ Cubism Core Live2D")
 
 
 # Taken at import, before the autouse no_real_avatar fixture swaps it out for every test.

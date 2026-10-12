@@ -31,6 +31,7 @@ Cyrene : "Yakin mau dimatikan sekarang, Master?" (minta konfirmasi dulu)
 - [Jalan otomatis saat login](#jalan-otomatis-saat-login)
 - [Suara anime (つくよみちゃん)](#suara-anime-つくよみちゃん)
 - [Avatar 3D (つくよみちゃん)](#avatar-3d-つくよみちゃん)
+- [Avatar Live2D & interaksi](#avatar-live2d--interaksi)
 - [Teman main gacha (HoYoverse)](#teman-main-gacha-hoyoverse)
 - [Pemecahan masalah](#pemecahan-masalah)
 - [Checklist uji perangkat keras](#checklist-uji-perangkat-keras)
@@ -99,8 +100,9 @@ barang yang lebih murah kalau ingin tetap di bawah Rp1 juta.
  RVC (opsional): seluruh klip diubah ke suara つくよみちゃん oleh server Applio lokal
    │             (gagal → klip edge-tts aslinya yang diputar)
    ▼
- Avatar (opsional): maskot 3D つくよみちゃん menggerakkan mulut mengikuti klip itu
-   │                dan memasang ekspresi jawaban ([senang], [sedih], ...)
+ Avatar (opsional): maskot 3D (VRM) atau Live2D menggerakkan mulut mengikuti klip itu
+   │                dan memasang ekspresi jawaban ([senang], [sedih], ...); elusan,
+   │                colekan, dan klik dua kali di maskot sampai ke Cyrene lewat server lokal
    ▼
  Speaker  (mic dijeda selama dia bicara, jadi dia tidak mendengar dirinya sendiri)
 ```
@@ -521,7 +523,7 @@ waifu speaker-test    # skor kecocokan langsung, Ctrl+C untuk berhenti
 | `waifu learn-ir <id> <perintah>` / `waifu learn-ir <id> --missing` | Pelajari tombol remote IR |
 | `waifu enroll` / `waifu speaker-test` | Daftarkan suara / cek skor kecocokan |
 | `waifu mics` | Daftar perangkat audio dan nomornya |
-| `waifu avatar` / `waifu avatar --demo` | Tampilkan avatar 3D saja, tanpa mendengarkan; `--demo` mengganti ekspresi setiap 3 detik (lihat [Avatar 3D](#avatar-3d-つくよみちゃん)) |
+| `waifu avatar` / `waifu avatar --demo` | Tampilkan avatar saja, tanpa mendengarkan; `--demo` mengganti ekspresi setiap 3 detik, dan reaksi elusan atau colekan dicetak di terminal (lihat [Avatar 3D](#avatar-3d-つくよみちゃん) dan [Avatar Live2D & interaksi](#avatar-live2d--interaksi)) |
 | `waifu check` | Periksa config, kode IR, voiceprint, otak, paket suara, CUDA, mic, suara anime, dan avatar |
 
 Opsi untuk semua perintah: `--config <file>` (default `config.yaml`), `--dry-run`
@@ -880,7 +882,7 @@ avatar:
 Penjelasan tiap kunci ada di `config.example.yaml`. Lalu cek:
 
 ```powershell
-waifu check            # ✓ Model VRM avatar, ✓ Jendela maskot avatar (Electron), ✓ Port avatar bebas
+waifu check            # ✓ Mesin avatar: VRM 3D, ✓ Model VRM avatar, ✓ Jendela maskot avatar (Electron), ✓ Port avatar bebas
 waifu avatar --demo    # avatar saja, tanpa mendengarkan; Ctrl+C untuk berhenti
 ```
 
@@ -896,11 +898,11 @@ mulut.
 
 ### Kontrol maskot
 
-- **Geser:** tarik bagian mana saja dari maskot.
-- **Area kosong di sekitar maskot ikut menangkap klik.** Seluruh kotak jendela maskot
-  (bawaan 360×640 px) menghalangi klik ke jendela di bawahnya, termasuk bagian yang
-  tampak transparan. Geser maskot ke tempat kosong, perkecil `avatar.width` /
-  `avatar.height`, ganti `avatar.corner`, atau klik × untuk menyembunyikannya.
+- **Geser:** tekan badannya lalu tarik.
+- **Area transparan di sekitarnya tidak menghalangi:** klik di sana tembus ke jendela
+  atau desktop di bawahnya. Elus kepalanya, colek badannya, atau klik dua kali supaya
+  dia langsung mendengarkan: semua kontrol mouse ada di
+  [Avatar Live2D & interaksi](#kontrol-mouse-kedua-engine) dan berlaku juga untuk VRM.
 - **Sembunyikan:** arahkan mouse ke pojok kanan atas maskot, lalu klik **×**. Hanya
   maskotnya yang tertutup; Cyrene tetap mendengar dan menjawab dengan suara. Maskot
   muncul lagi pada `waifu run` berikutnya.
@@ -925,7 +927,7 @@ melayani halamannya; buka `http://127.0.0.1:9882/` sendiri di browser.
 - **"Program maskot (Electron) tidak ditemukan".** Jalankan langkah 2.
 - **Latar hitam, bukan transparan.** Jendela transparan Electron butuh akselerasi GPU
   yang berjalan baik: perbarui driver NVIDIA. Sementara itu, pakai `avatar.window: app`.
-- **Pesan "Pustaka 3D avatar tidak bisa dimuat" di maskot.** Ada file yang hilang di
+- **Pesan "Pustaka avatar tidak bisa dimuat" di maskot.** Ada file yang hilang di
   `src\waifu\avatar\web\vendor\` (lihat `VENDOR.md` di sana). Ambil ulang folder itu dari
   repo; `pytest tests/test_avatar_web.py` menyebut file yang hilang.
 - **Pesan "Model avatar tidak bisa dimuat" di maskot.** `avatar.model` menunjuk file
@@ -934,6 +936,194 @@ melayani halamannya; buka `http://127.0.0.1:9882/` sendiri di browser.
 - **Maskot diam saja saat dia bicara.** Titik di pojok kanan atas merah berarti maskot
   terputus dari Cyrene; tunggu sebentar atau jalankan ulang `waifu run`.
 - **Mematikan avatar:** `avatar.enabled: false`. Model dan Electron tidak perlu dihapus.
+
+## Avatar Live2D & interaksi
+
+Selain VRM 3D, avatar bisa memakai model **Live2D** (Cubism 5) dengan
+`avatar.engine: live2d`, misalnya model Cyrene "Cyrene20251105" buatan MomokaSono. Dengan
+kedua engine, maskotnya juga bisa disentuh: dia menatap kursor mouse di mana pun di
+layar, senang saat kepalanya dielus, kaget saat badannya dicolek (wajahnya berubah saat
+itu juga, lalu dia mengucapkan satu kalimat pendek), langsung mendengarkan saat diklik
+dua kali, tampak bosan kalau lama tidak ada aktivitas, dan menyapa saat Master kembali.
+
+- Live2D digambar dengan PixiJS 8 dan untitled-pixi-live2d-engine (keduanya MIT, sudah
+  ada di `src\waifu\avatar\web\vendor\`). Yang **tidak** ikut adalah **Cubism Core**
+  (`live2dcubismcore.min.js`), program milik Live2D yang dibutuhkan semua model Cubism:
+  file itu kamu unduh sendiri (langkah 1).
+- Kalau Core atau modelnya belum ada, hanya avatarnya yang menampilkan pesan; Cyrene
+  tetap mendengar dan bicara seperti biasa.
+
+### Hak model dan Cubism Core (baca dulu)
+
+- **Model Cyrene20251105 (Live2D: MomokaSono).** Ketentuannya ada di file `注意事项.txt`
+  di folder model: hak ciptanya milik **miHoYo**; boleh dipakai untuk membuat video
+  terkait miHoYo selama mengikuti aturan karya penggemar resmi miHoYo dan bukan untuk
+  propaganda politik; **dilarang dipakai untuk siaran langsung yang menghasilkan uang**;
+  **dilarang disebarkan ulang**; segala pelanggaran hukum atau aturan platform menjadi
+  tanggung jawab pemakainya.
+- Pemakaian di sini pribadi dan non-komersial. Folder model tinggal di
+  `C:\AI\avatars\`, di luar repo, dan **tidak pernah di-commit, diunggah, atau
+  dibagikan** ke mana pun.
+- **Kredit:** isi `avatar.credit`, misalnya `Cyrene © miHoYo · Live2D: MomokaSono`. Kredit
+  itu selalu tampil kecil di pojok halaman avatar; jangan dihapus.
+- Interaksinya hanya punya dua area, **kepala** (dielus) dan **badan** (dicolek), dengan
+  reaksi yang sopan. Tidak ada interaksi bernuansa dewasa, dan tidak akan ditambahkan:
+  aturan karya penggemar miHoYo melarang konten dewasa (18+). Area kepala diukur dari
+  modelnya sendiri saat dimuat: dari ujung rambut sampai sedikit di atas dagu. Semua yang
+  di bawah dagu, termasuk dada dan rambut yang menjuntai di depannya, adalah badan.
+- **Cubism Core** milik Live2D dan tidak boleh disebarkan ulang. Unduh sendiri dari situs
+  resmi Live2D dan setujui lisensinya saat mengunduh. Cyrene hanya menyajikannya apa
+  adanya dari `avatar.live2d_core` ke halaman avatar di PC ini. **Jangan pernah menyalin
+  Core ke folder repo**: `.gitignore` sudah menolak `live2dcubismcore*.js`, dan
+  `waifu check` mengingatkannya.
+
+### 1. Unduh Cubism SDK for Web (sekali)
+
+1. Buka <https://www.live2d.com/en/sdk/download/web/>, baca dan setujui lisensinya,
+   lalu unduh **Cubism SDK for Web** versi 5 (model ini memakai format moc3 Cubism 5,
+   yang tidak bisa dibaca Core versi 4).
+2. Ekstrak zip-nya di Downloads (klik kanan → **Extract All**). Explorer membuat folder
+   `CubismSdkForWeb-5-r.5` yang berisi folder `CubismSdkForWeb-5-r.5` lagi, dan `Core\`
+   ada di dalamnya. Salin **hanya** `live2dcubismcore.min.js` dari situ ke luar repo.
+   Perintah ini mencarinya di tingkat folder mana pun, dan berhenti dengan pesan galat
+   kalau file-nya tidak ada (bukan diam-diam tidak menyalin apa-apa):
+
+```powershell
+New-Item -ItemType Directory -Force C:\AI\avatars\live2d
+$core = Get-ChildItem "$HOME\Downloads\CubismSdkForWeb-*" -Directory | Get-ChildItem -Recurse -Filter live2dcubismcore.min.js | Select-Object -First 1
+if (-not $core) { throw "live2dcubismcore.min.js tidak ditemukan; ekstrak dulu CubismSdkForWeb-*.zip di Downloads" } else { Copy-Item $core.FullName C:\AI\avatars\live2d\ }
+Test-Path C:\AI\avatars\live2d\live2dcubismcore.min.js   # harus True
+```
+
+Kalau SDK diekstrak di tempat lain, ganti `$HOME\Downloads` di baris kedua. Bagian lain
+SDK (Framework, Samples) tidak dipakai.
+
+### 2. Taruh folder model di C:\AI\avatars\ (sekali)
+
+Salin **seluruh** folder model, bukan hanya `.model3.json`: model3.json memanggil moc3,
+physics, dan teksturnya dari foldernya sendiri. Untuk model Cyrene dari Downloads:
+
+```powershell
+Copy-Item -Recurse "$HOME\Downloads\Cyrene20251105_by_MomokaSono_*\Cyrene20251105" C:\AI\avatars\cyrene-live2d
+```
+
+Kalau `C:\AI\avatars\cyrene-live2d\Cyrene.model3.json` sudah ada, langkah ini sudah
+selesai (menjalankannya lagi membuat subfolder di dalamnya). Isinya:
+`Cyrene.model3.json`, `Cyrene.moc3`, `Cyrene.physics3.json`, `Cyrene.cdi3.json`, folder
+`Cyrene.4096\` (empat tekstur), dan `注意事项.txt`. Dari folder ini Cyrene hanya
+menyajikan file `.json`, `.png`, dan `.moc3` ke halaman avatar.
+
+### 3. Aktifkan di config.yaml
+
+Electron dipasang seperti [langkah 2 Avatar 3D](#2-pasang-electron-sekali). Lalu:
+
+```yaml
+avatar:
+  enabled: true
+  engine: live2d
+  model: C:/AI/avatars/cyrene-live2d/Cyrene.model3.json
+  live2d_core: C:/AI/avatars/live2d/live2dcubismcore.min.js
+  credit: "Cyrene © miHoYo · Live2D: MomokaSono"
+  window: mascot
+  framing: full           # full: seluruh badan | upper: kepala sampai pinggang
+```
+
+Lalu cek:
+
+```powershell
+waifu check            # ✓ Mesin avatar: Live2D, ✓ Model Live2D avatar, ✓ File model Live2D, ✓ Cubism Core Live2D
+waifu avatar --demo    # ekspresi berganti setiap 3 detik; coba elus kepalanya dan colek badannya
+```
+
+Di `waifu avatar`, reaksinya dicetak di terminal (`Cyrene: Hehe, makasih elusannya,
+Master.`) dan tampil di maskot dengan ekspresi dan gerak mulut, tanpa suara. Kembali ke
+VRM: `engine: vrm`, `model` ke file `.vrm`, dan `credit` ke kredit つくよみちゃん.
+
+### Kontrol mouse (kedua engine)
+
+| Gerakan | Hasilnya |
+|---|---|
+| Tekan **badannya** lalu tarik | Maskot bergeser (dari kepala: tarik sampai keluar kepala) |
+| Klik **kepalanya**, atau usap bolak-balik sambil menekan | Dielus: wajah senang, lalu satu kalimat elusan (saat diusap paling sering tiap 1,5 detik) |
+| Klik **badannya** | Dicolek: wajah kaget, lalu satu kalimat |
+| **Klik dua kali** padanya (dua klik dalam setengah detik) | Dia langsung mendengarkan: jendela lanjutan terbuka dan dia menjawab dengan kalimat `listen` (misalnya "はい, Master?"), jadi kamu bisa bicara tanpa memanggil namanya (hanya di `waifu run`). Selagi dia sibuk (menjawab, bicara, atau mendengar Master), klik dua kali diabaikan: ulangi setelah dia selesai, atau panggil namanya |
+| Klik di **area transparan** | Tembus ke jendela atau desktop di bawahnya; hanya tubuhnya dan tombol di pojok kanan atas yang menangkap klik |
+| Gerakkan mouse | Mata, kepala, dan badannya mengikuti kursor di mana pun di layar |
+| Arahkan ke pojok kanan atas, klik **×** | Maskot disembunyikan; Cyrene tetap berjalan, maskot muncul lagi di `waifu run` berikutnya |
+
+- **Bosan:** setelah 3 menit tanpa gerakan mouse, klik, atau bicara, dia sesekali menguap.
+- **Selamat datang kembali** (hanya maskot): kalau mouse bergerak lagi, atau maskot diklik,
+  setelah 10 menit mouse diam di mana pun di layar (`welcome_back_after_min`), dia
+  menyapa, paling sering sekali per 30 menit. Selama maskot di-minimize dia tidak melihat
+  kursor, jadi membukanya lagi tidak dianggap Master baru kembali.
+- Kalimat reaksi diucapkan lewat jalur bicara biasa: mic dijeda, mulut avatar bergerak,
+  lalu jendela lanjutan terbuka. Dia **tidak** bereaksi dengan suara saat sedang
+  menjawab, sedang bicara, atau saat Master sedang bicara, dan memberi jeda
+  `reaction_cooldown_s` antar-reaksi; ekspresi wajahnya tetap langsung muncul.
+- Di `avatar.window: app` (jendela Edge) atau browser, kursor hanya diikuti selama berada
+  di atas halaman, maskot tidak bisa digeser dengan menarik badannya, tidak ada klik
+  tembus, dan tidak ada sapaan selamat datang kembali (halaman tidak tahu apakah mouse
+  diam atau sedang dipakai di jendela lain).
+
+### Pengaturan interaksi
+
+Semua kunci ada di bawah `avatar.interactions` (contoh lengkap di `config.example.yaml`):
+
+| Kunci | Bawaan | Arti |
+|---|---|---|
+| `enabled` | `true` | `false` mematikan semua reaksi; maskot tetap bisa digeser dan tetap tembus klik |
+| `cursor_follow` | `true` | Menatap kursor mouse |
+| `head_pat` | `true` | Reaksi elusan di kepala |
+| `body_touch` | `true` | Reaksi colekan di badan |
+| `double_click_listen` | `true` | Klik dua kali membuatnya mendengarkan |
+| `idle` | `true` | Tampak bosan setelah 3 menit tanpa aktivitas |
+| `welcome_back_after_min` | `10` | Sapaan saat Master kembali setelah N menit mouse diam (hanya maskot); `0` = tidak pernah |
+| `reaction_cooldown_s` | `3` | Jeda minimal (detik) antar-reaksi bersuara |
+| `lines` | lihat di bawah | Kalimat tiap reaksi |
+
+```yaml
+avatar:
+  interactions:
+    lines:
+      head_pat: ["えへへ, geli, Master!", "Hehe, makasih elusannya, Master.", "Mm, enak dielus begini."]
+      body_touch: ["Hei! Kaget aku, Master.", "Eh? Ada apa, Master?", "Jangan iseng, ya!"]
+      welcome_back: ["おかえりなさい, Master!", "Master sudah kembali! Aku kangen."]
+      listen: ["はい, Master?", "Iya, aku dengar."]
+```
+
+Kalimat dipilih acak dan tidak pernah sama dua kali berturut-turut. Bagian Jepang
+diucapkan dengan suara Jepang seperti jawaban biasa. Jangan menulis tag ekspresi
+(`[senang]`) di sini: ekspresinya sudah tetap (elusan, sapaan, dan `listen` senang;
+colekan kaget). Jenis yang dihapus memakai kalimat bawaannya; setiap jenis butuh minimal
+satu kalimat.
+
+### Pemecahan masalah Live2D dan interaksi
+
+- **"Cubism Core belum ada, jadi model Live2D tidak bisa ditampilkan"** di maskot, atau
+  `✗ Cubism Core Live2D tidak ditemukan` di `waifu check`. Core belum disalin atau
+  `avatar.live2d_core` salah: ulangi [langkah 1](#1-unduh-cubism-sdk-for-web-sekali) dan
+  pakai garis miring `/` di path-nya.
+- **"Model Live2D tidak bisa dimuat dari ..."** di maskot. `waifu check` menunjukkan
+  sebabnya: `✗ Model Live2D avatar tidak ditemukan` berarti `avatar.model` salah (harus
+  menunjuk file `.model3.json`); `✗ File model Live2D tidak ditemukan: ...` menyebut file
+  yang hilang, biasanya karena hanya model3.json yang tersalin. Salin ulang seluruh
+  folder model ([langkah 2](#2-taruh-folder-model-di-caiavatars-sekali)). Model dengan
+  moc3 Cubism 5 juga butuh Core dari SDK versi 5.
+- **Latar hitam, bukan transparan.** Sama seperti avatar 3D: jendela transparan Electron
+  butuh akselerasi GPU yang berjalan baik, jadi perbarui driver NVIDIA. Sementara itu,
+  pakai `avatar.window: app`.
+- **Klik tidak tembus / tertahan maskot.** Klik tembus hanya ada di maskot Electron
+  (`avatar.window: mascot`). Selama model belum tampil (masih memuat atau ada pesan
+  galat), seluruh jendela maskot sengaja menangkap klik supaya pesannya bisa dibaca dan
+  × bisa diklik. Begitu model tampil, gerakkan kursor sekali di atas maskot: area
+  transparan langsung tembus lagi. Kalau tetap tertahan, tutup maskot dengan × dan
+  jalankan ulang `waifu run`.
+- **Elusan atau colekan tidak dijawab dengan suara.** Wajahnya berubah tapi dia diam:
+  dia sedang sibuk (menjawab, bicara, atau mendengar Master) atau masih dalam jeda
+  `reaction_cooldown_s`. Tidak ada perubahan wajah sama sekali: cek
+  `avatar.interactions.enabled` dan sakelar `head_pat` / `body_touch`.
+- **Tidak menatap kursor.** Cek `cursor_follow: true`; di jendela app atau browser dia
+  hanya menatap kursor yang ada di atas halaman.
 
 ## Teman main gacha (HoYoverse)
 
@@ -1259,6 +1449,22 @@ mendengarkan"; jawaban pertama bisa lebih lama karena model Ollama baru dimuat)
 - [ ] Dengan `tts.rvc.enabled: false`, `waifu say "[senang] Halo Master!"`: maskot
       muncul, mulutnya bergerak sejak kata pertama dengan wajah senang, lalu tertutup.
 
+**Opsional: avatar Live2D dan interaksi** (setelah langkah 1–3 di bagian itu)
+
+- [ ] `waifu check` menampilkan `✓` untuk Mesin avatar: Live2D, Model Live2D avatar, File
+      model Live2D, dan Cubism Core Live2D.
+- [ ] `waifu avatar --demo`: model Live2D muncul transparan dengan kredit
+      `Cyrene © miHoYo · Live2D: MomokaSono`, berkedip, rambut dan bajunya bergoyang
+      (physics), mulutnya bergerak, dan ekspresinya berganti.
+- [ ] Matanya dan kepalanya mengikuti kursor di mana pun di layar.
+- [ ] Klik kepalanya: wajahnya langsung senang dan terminal mencetak satu kalimat elusan.
+      Klik badannya: wajahnya kaget. Tekan badannya lalu tarik: maskot bergeser.
+- [ ] Klik di area transparan di samping kepalanya mengenai jendela di belakang maskot.
+      Tombol × di pojok kanan atas tetap bisa diklik.
+- [ ] Di `waifu run`: elusan dijawab dengan suara dan gerak mulut; klik dua kali lalu
+      langsung bicara tanpa memanggil namanya ("nyalakan lampu kamar") dijalankan.
+- [ ] Ulangi tiga langkah terakhir dengan `engine: vrm`: kontrolnya sama.
+
 **Teman main gacha** (setelah langkah 1–4 di bagian itu)
 
 - [ ] `waifu gacha status` menampilkan ketiga game tanpa `✗`.
@@ -1279,8 +1485,9 @@ mendengarkan"; jawaban pertama bisa lebih lama karena model Ollama baru dimuat)
     bentuk teks), persona, daftar perangkat, dan hasil perintah perangkat dikirim
     ke API Anthropic. Dengan Ollama, semuanya lokal;
   - dengan engine `edge` di `tts`, teks jawaban Cyrene dikirim ke layanan edge-tts
-    Microsoft untuk dijadikan suara. GPT-SoVITS, suara anime (RVC), dan avatar 3D
-    berjalan lokal (halaman avatar hanya bisa dibuka dari PC ini);
+    Microsoft untuk dijadikan suara. GPT-SoVITS, suara anime (RVC), dan avatar (VRM
+    atau Live2D, termasuk elusan dan colekannya) berjalan lokal (halaman avatar hanya
+    bisa dibuka dari PC ini);
   - dengan teman main gacha, permintaan data game ke HoYoLAB dan ke server riwayat
     HoYoverse (dengan cookie dan authkey milikmu), hasilnya ke API Anthropic kalau otaknya
     Claude, dan teks pengingat ke `ntfy.sh` (siapa pun yang tahu nama topiknya bisa
