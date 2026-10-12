@@ -4,15 +4,24 @@ import { describe, it } from "node:test";
 import {
   BLINK_DURATION_S,
   BREATH_PERIOD_S,
+  DOUBLE_CLICK_MS,
   SWAY_PERIOD_S,
   approach,
   avatarTitle,
   blinkWeight,
   breathOffset,
+  classifyPointer,
+  cursorLook,
   emotionTargets,
   framingFor,
+  idlePhase,
   idleSway,
   listeningEndS,
+  live2dEmotionParams,
+  live2dHeadBox,
+  live2dMouth,
+  live2dRegionAt,
+  mapToRange,
   nextBlinkDelay,
   sampleVisemes,
   speechStartS,
@@ -299,5 +308,739 @@ describe("avatarTitle", () => {
   it("names the avatar window apart from the Cyrene console window", () => {
     assert.equal(avatarTitle("Cyrene"), "Avatar Cyrene");
     assert.equal(avatarTitle("Aiko"), "Avatar Aiko");
+  });
+});
+
+describe("live2dMouth", () => {
+  it("keeps the mouth closed and neutral for silence", () => {
+    assert.deepEqual(live2dMouth([0, 0, 0, 0, 0]), { open: 0, form: 0 });
+  });
+
+  it("opens the mouth fully for aa and less for the other vowels", () => {
+    assertClose(live2dMouth([1, 0, 0, 0, 0]).open, 1);
+    assertClose(live2dMouth([0, 0, 0, 0, 1]).open, 0.9);
+    assertClose(live2dMouth([0, 0, 1, 0, 0]).open, 0.7);
+    assertClose(live2dMouth([0, 0, 0, 1, 0]).open, 0.6);
+    assertClose(live2dMouth([0, 1, 0, 0, 0]).open, 0.5);
+  });
+
+  it("adds the vowels together and caps the opening at 1", () => {
+    assertClose(live2dMouth([0.2, 0.2, 0.2, 0.2, 0.2]).open, 0.2 * (1 + 0.5 + 0.7 + 0.6 + 0.9));
+    assertClose(live2dMouth([0.5, 0, 0, 0, 0.3]).open, 0.77);
+    assert.equal(live2dMouth([1, 1, 1, 1, 1]).open, 1);
+    assert.equal(live2dMouth([0.8, 0, 0, 0, 0.8]).open, 1);
+  });
+
+  it("widens the mouth for ee and ih and rounds it for ou and oh", () => {
+    assertClose(live2dMouth([0, 0, 0, 0.7, 0]).form, 0.7);
+    assertClose(live2dMouth([0, 0.4, 0, 0, 0]).form, 0.4);
+    assertClose(live2dMouth([0, 0, 0.6, 0, 0]).form, -0.6);
+    assertClose(live2dMouth([0, 0, 0, 0, 0.5]).form, -0.5);
+    assertClose(live2dMouth([0.9, 0, 0, 0, 0]).form, 0);
+    assertClose(live2dMouth([0.5, 0.3, 0.1, 0.2, 0.1]).form, 0.3);
+  });
+
+  it("caps the form between -1 and 1", () => {
+    assert.equal(live2dMouth([0, 1, 0, 1, 0]).form, 1);
+    assert.equal(live2dMouth([0, 0, 1, 0, 1]).form, -1);
+  });
+
+  it("treats a missing or empty frame as a closed, neutral mouth", () => {
+    for (const frame of [undefined, null, [], "aa", 0.5, {}]) {
+      assert.deepEqual(live2dMouth(frame), { open: 0, form: 0 }, String(frame));
+    }
+  });
+
+  it("reads a missing or non-numeric weight as 0", () => {
+    assert.deepEqual(live2dMouth([0.5]), { open: 0.5, form: 0 });
+    const mouth = live2dMouth([Number.NaN, undefined, 0.4, null, "1"]);
+    assertClose(mouth.open, 0.28);
+    assertClose(mouth.form, -0.4);
+  });
+
+  it("clamps each weight to 0..1 before mixing", () => {
+    const mouth = live2dMouth([-1, 0, 0, 2, Infinity]);
+    assertClose(mouth.open, 1);
+    assertClose(mouth.form, 0);
+    assert.deepEqual(live2dMouth([-1, -1, -1, -1, -1]), { open: 0, form: 0 });
+  });
+
+  it("follows a sampled viseme track frame by frame", () => {
+    const track = [
+      [0.6, 0.1, 0.0, 0.2, 0.0],
+      [0.0, 0.0, 0.5, 0.0, 0.3],
+    ];
+    const first = live2dMouth(sampleVisemes(track, 10, 0));
+    const second = live2dMouth(sampleVisemes(track, 10, 0.1));
+    assert.ok(first.form > 0 && second.form < 0);
+    assert.ok(first.open > 0 && second.open > 0);
+  });
+});
+
+describe("mapToRange", () => {
+  it("maps -1..1 onto a range around 0, keeping 0 at 0", () => {
+    assert.equal(mapToRange(0, -30, 30), 0);
+    assert.equal(mapToRange(1, -30, 30), 30);
+    assert.equal(mapToRange(-1, -30, 30), -30);
+    assertClose(mapToRange(0.5, -30, 30), 15);
+    assertClose(mapToRange(-0.25, -30, 30), -7.5);
+  });
+
+  it("scales each side on its own for a lopsided range", () => {
+    assertClose(mapToRange(-0.5, -10, 30), -5);
+    assertClose(mapToRange(0.5, -10, 30), 15);
+  });
+
+  it("maps 0..1 onto a range that starts at 0", () => {
+    assert.equal(mapToRange(0, 0, 1), 0);
+    assert.equal(mapToRange(1, 0, 2), 2);
+    assertClose(mapToRange(0.5, 0, 2), 1);
+    assertClose(mapToRange(0.85, 0, 1), 0.85);
+  });
+
+  it("clamps values beyond the range to its ends", () => {
+    assert.equal(mapToRange(1.2, 0, 1), 1);
+    assert.equal(mapToRange(1.2, 0, 2), 2);
+    assert.equal(mapToRange(-0.5, 0, 1), 0);
+    assert.equal(mapToRange(5, -30, 30), 30);
+    assert.equal(mapToRange(-5, -30, 30), -30);
+    assert.equal(mapToRange(Infinity, -30, 30), 30);
+    assert.equal(mapToRange(-Infinity, 0, 1), 0);
+  });
+
+  it("maps 0..1 from the minimum of a range that lies above 0", () => {
+    assert.equal(mapToRange(0, 0.5, 2.5), 0.5);
+    assertClose(mapToRange(0.5, 0.5, 2.5), 1.5);
+    assert.equal(mapToRange(1, 0.5, 2.5), 2.5);
+  });
+
+  it("maps -1..0 onto a range that ends at or below 0", () => {
+    assert.equal(mapToRange(-1, -2, 0), -2);
+    assertClose(mapToRange(-0.5, -2, 0), -1);
+    assert.equal(mapToRange(0, -2, 0), 0);
+    assert.equal(mapToRange(0.5, -2, 0), 0);
+    assert.equal(mapToRange(-1, -3, -1), -3);
+    assert.equal(mapToRange(1, -3, -1), -1);
+  });
+
+  it("keeps a value that is not a number at the neutral point", () => {
+    assert.equal(mapToRange(Number.NaN, -30, 30), 0);
+    assert.equal(mapToRange(undefined, 0, 1), 0);
+    assert.equal(mapToRange("1", 0, 1), 0);
+    assert.equal(mapToRange(null, 0.5, 2), 0.5);
+  });
+
+  it("returns 0 for a range that is not a range", () => {
+    assert.equal(mapToRange(0.5, Number.NaN, 1), 0);
+    assert.equal(mapToRange(0.5, 0, undefined), 0);
+    assert.equal(mapToRange(0.5, 1, -1), 0);
+    assert.equal(mapToRange(0.5, -Infinity, Infinity), 0);
+  });
+
+  it("returns the only value of a range with one value", () => {
+    assert.equal(mapToRange(0.7, 1, 1), 1);
+  });
+});
+
+describe("live2dEmotionParams", () => {
+  const ids = [
+    "ParamEyeLSmile",
+    "ParamEyeRSmile",
+    "ParamMouthForm",
+    "ParamCheek",
+    "ParamBrowLY",
+    "ParamBrowRY",
+    "ParamBrowLAngle",
+    "ParamBrowRAngle",
+    "ParamEyeLOpen",
+    "ParamEyeROpen",
+    "ParamEyeBallForm",
+  ];
+  const neutral = {
+    ParamEyeLSmile: 0,
+    ParamEyeRSmile: 0,
+    ParamMouthForm: 0,
+    ParamCheek: 0,
+    ParamBrowLY: 0,
+    ParamBrowRY: 0,
+    ParamBrowLAngle: 0,
+    ParamBrowRAngle: 0,
+    ParamEyeLOpen: 1,
+    ParamEyeROpen: 1,
+    ParamEyeBallForm: 0,
+  };
+  const recipes = {
+    neutral,
+    happy: {
+      ...neutral,
+      ParamEyeLSmile: 1,
+      ParamEyeRSmile: 1,
+      ParamMouthForm: 0.8,
+      ParamCheek: 0.6,
+      ParamBrowLY: 0.3,
+      ParamBrowRY: 0.3,
+    },
+    sad: {
+      ...neutral,
+      ParamBrowLAngle: -0.7,
+      ParamBrowRAngle: -0.7,
+      ParamBrowLY: -0.4,
+      ParamBrowRY: -0.4,
+      ParamMouthForm: -0.6,
+      ParamEyeLOpen: 0.85,
+      ParamEyeROpen: 0.85,
+    },
+    angry: {
+      ...neutral,
+      ParamBrowLAngle: 0.8,
+      ParamBrowRAngle: 0.8,
+      ParamBrowLY: -0.6,
+      ParamBrowRY: -0.6,
+      ParamEyeLOpen: 0.8,
+      ParamEyeROpen: 0.8,
+      ParamMouthForm: -0.5,
+    },
+    surprised: {
+      ...neutral,
+      ParamBrowLY: 0.8,
+      ParamBrowRY: 0.8,
+      ParamEyeLOpen: 1.2,
+      ParamEyeROpen: 1.2,
+      ParamEyeBallForm: 0.6,
+      ParamMouthForm: -0.2,
+    },
+    relaxed: {
+      ...neutral,
+      ParamEyeLSmile: 0.5,
+      ParamEyeRSmile: 0.5,
+      ParamMouthForm: 0.4,
+      ParamCheek: 0.2,
+    },
+  };
+
+  for (const [emotion, expected] of Object.entries(recipes)) {
+    it(`sets the ${emotion} face on exactly the eleven face parameters`, () => {
+      const params = live2dEmotionParams(emotion);
+      assert.deepEqual(Object.keys(params).sort(), [...ids].sort());
+      assert.deepEqual(params, expected);
+    });
+  }
+
+  it("keeps every value on its normalized scale, the same on both sides", () => {
+    for (const emotion of Object.keys(recipes)) {
+      const params = live2dEmotionParams(emotion);
+      for (const side of ["L", "R"]) {
+        const smile = params[`ParamEye${side}Smile`];
+        assert.ok(smile >= 0 && smile <= 1, `${emotion} smile ${smile}`);
+        assert.ok(Math.abs(params[`ParamBrow${side}Y`]) <= 1, emotion);
+        assert.ok(Math.abs(params[`ParamBrow${side}Angle`]) <= 1, emotion);
+        assert.ok(params[`ParamEye${side}Open`] > 0, `${emotion} keeps the eyes open`);
+      }
+      assert.equal(params.ParamEyeLSmile, params.ParamEyeRSmile);
+      assert.equal(params.ParamBrowLY, params.ParamBrowRY);
+      assert.equal(params.ParamBrowLAngle, params.ParamBrowRAngle);
+      assert.equal(params.ParamEyeLOpen, params.ParamEyeROpen);
+      assert.ok(params.ParamCheek >= 0 && params.ParamCheek <= 1, emotion);
+      assert.ok(Math.abs(params.ParamMouthForm) <= 1, emotion);
+      assert.ok(params.ParamEyeBallForm >= 0 && params.ParamEyeBallForm <= 1, emotion);
+    }
+  });
+
+  it("falls back to neutral for an unknown emotion", () => {
+    for (const emotion of ["bored", "Happy", "", "toString", "__proto__", undefined, null, 3]) {
+      assert.deepEqual(live2dEmotionParams(emotion), neutral, String(emotion));
+    }
+  });
+
+  it("returns a fresh object each time", () => {
+    const first = live2dEmotionParams("happy");
+    first.ParamCheek = 0;
+    assert.equal(live2dEmotionParams("happy").ParamCheek, 0.6);
+    const unknown = live2dEmotionParams("bored");
+    unknown.ParamEyeLOpen = 0;
+    assert.equal(live2dEmotionParams("neutral").ParamEyeLOpen, 1);
+  });
+});
+
+describe("cursorLook", () => {
+  const face = { x: 180, y: 200 };
+  const size = 300;
+  const straight = { angleX: 0, angleY: 0, bodyX: 0, eyeX: 0, eyeY: 0 };
+
+  it("looks straight ahead when the cursor is on her face", () => {
+    assert.deepEqual(cursorLook({ x: 180, y: 200 }, face, size), straight);
+  });
+
+  it("turns toward a cursor to her right or left", () => {
+    const right = cursorLook({ x: 180 + size, y: 200 }, face, size);
+    assertClose(right.angleX, Math.tanh(1));
+    assertClose(right.angleY, 0);
+    assertClose(right.bodyX, 0.35 * Math.tanh(1));
+    assertClose(right.eyeX, 1.2 * Math.tanh(1));
+    assertClose(right.eyeY, 0);
+    const left = cursorLook({ x: 180 - size, y: 200 }, face, size);
+    assertClose(left.angleX, -Math.tanh(1));
+    assertClose(left.bodyX, -0.35 * Math.tanh(1));
+    assertClose(left.eyeX, -1.2 * Math.tanh(1));
+  });
+
+  it("looks up at a cursor above her face and down at one below (screen y grows downward)", () => {
+    const above = cursorLook({ x: 180, y: 50 }, face, size);
+    assertClose(above.angleY, Math.tanh(0.5));
+    assertClose(above.eyeY, 1.2 * Math.tanh(0.5));
+    assertClose(above.angleX, 0);
+    const below = cursorLook({ x: 180, y: 350 }, face, size);
+    assertClose(below.angleY, -Math.tanh(0.5));
+    assertClose(below.eyeY, -1.2 * Math.tanh(0.5));
+  });
+
+  it("follows a nearby cursor almost linearly, without a dead zone or a jump", () => {
+    const near = cursorLook({ x: 183, y: 197 }, face, size);
+    assertClose(near.angleX, 0.01, 1e-5);
+    assertClose(near.angleY, 0.01, 1e-5);
+  });
+
+  it("turns further the further away the cursor is, saturating smoothly", () => {
+    const angles = [0, 30, 100, 300, 1000].map((dx) => cursorLook({ x: 180 + dx, y: 200 }, face, size).angleX);
+    for (let i = 1; i < angles.length; i += 1) assert.ok(angles[i] > angles[i - 1], `${angles}`);
+    const far = cursorLook({ x: 180 + 1e6, y: 200 - 1e6 }, face, size);
+    assert.ok(far.angleX > 0.999 && far.angleX <= 1, `got ${far.angleX}`);
+    assert.ok(far.angleY > 0.999 && far.angleY <= 1, `got ${far.angleY}`);
+    assert.equal(far.eyeX, 1);
+    assert.equal(far.eyeY, 1);
+    assertClose(far.bodyX, 0.35 * far.angleX);
+  });
+
+  it("moves the body less than the head and the eyes a little ahead of it", () => {
+    const look = cursorLook({ x: 120, y: 260 }, face, size);
+    assertClose(look.bodyX, 0.35 * look.angleX);
+    assertClose(look.eyeX, 1.2 * look.angleX);
+    assertClose(look.eyeY, 1.2 * look.angleY);
+    assert.ok(Math.abs(look.bodyX) < Math.abs(look.angleX) && Math.abs(look.angleX) < Math.abs(look.eyeX));
+  });
+
+  it("keeps every output within -1..1 anywhere on or off the screen", () => {
+    for (let x = -5000; x <= 5000; x += 250) {
+      for (let y = -5000; y <= 5000; y += 250) {
+        const look = cursorLook({ x, y }, face, size);
+        for (const [name, value] of Object.entries(look)) {
+          assert.ok(value >= -1 && value <= 1, `${name}=${value} at ${x},${y}`);
+        }
+      }
+    }
+  });
+
+  it("turns less for the same cursor when her face is larger", () => {
+    const cursor = { x: 330, y: 200 };
+    assert.ok(cursorLook(cursor, face, 600).angleX < cursorLook(cursor, face, 300).angleX);
+  });
+
+  it("looks straight ahead for a missing or invalid cursor, face or size", () => {
+    const cursor = { x: 330, y: 120 };
+    const cases = [
+      [undefined, face, size],
+      [null, face, size],
+      [{ x: Number.NaN, y: 0 }, face, size],
+      [{ x: 10 }, face, size],
+      [{ x: "10", y: 0 }, face, size],
+      [{ x: Infinity, y: 0 }, face, size],
+      [cursor, undefined, size],
+      [cursor, { x: 180, y: Number.NaN }, size],
+      [cursor, face, 0],
+      [cursor, face, -300],
+      [cursor, face, Number.NaN],
+      [cursor, face, undefined],
+      [cursor, face, "300"],
+      [cursor, face, Infinity],
+    ];
+    for (const [c, f, s] of cases) {
+      assert.deepEqual(cursorLook(c, f, s), straight, JSON.stringify([c, f, s]));
+    }
+  });
+});
+
+describe("live2dHeadBox and live2dRegionAt", () => {
+  // A full-body model 1000 px tall (y downward) drawn at 1:1 on the canvas, laid out like Cyrene20251105 with
+  // her cape panels: her head drawables span 0-15 %, her chest 18-24 %, and a ribbon that turns with her head
+  // hangs to her feet, so the top 28 % of her bounds (the old rule) reached down over her chest.
+  const rect = (left, top, right, bottom) => [left, top, right, top, right, bottom, left, bottom];
+  const hair = { vertices: rect(400, 0, 600, 120), head: true, mouth: false };
+  const face = { vertices: rect(440, 40, 560, 150), head: true, mouth: true };
+  const mouth = { vertices: rect(485, 120, 515, 135), head: true, mouth: true };
+  const hairLock = { vertices: rect(450, 100, 470, 210), head: true, mouth: false };
+  const ribbon = { vertices: rect(150, 20, 850, 1000), head: true, mouth: false };
+  const neck = { vertices: rect(480, 140, 520, 185), head: false, mouth: false };
+  const chest = { vertices: rect(455, 180, 545, 240), head: false, mouth: false };
+  const legs = { vertices: rect(430, 240, 570, 620), head: false, mouth: false };
+  const model = [ribbon, legs, chest, neck, hair, hairLock, face, mouth];
+  const body = { left: 150, top: 0, width: 700, height: 1000 };
+  const opaque = () => true;
+
+  function regionsOf(drawables) {
+    return { body, head: live2dHeadBox(drawables) };
+  }
+
+  it("ends her head just above her chin, the lowest point of the head drawables her mouth moves", () => {
+    const head = live2dHeadBox(model);
+    assertClose(head.top, 0);
+    assertClose(head.top + head.height, 150 - 0.05 * 150);
+  });
+
+  it("spans only the points of her head drawables above that line: what hangs lower never widens it", () => {
+    const head = live2dHeadBox(model);
+    assertClose(head.left, 150, 1e-9);
+    assertClose(head.left + head.width, 850);
+    const withoutRibbon = live2dHeadBox([legs, chest, neck, hair, hairLock, face, mouth]);
+    assertClose(withoutRibbon.left, 400);
+    assertClose(withoutRibbon.left + withoutRibbon.width, 600);
+    const sweeping = { vertices: [500, 20, 500, 140, 40, 900, 960, 900], head: true, mouth: false };
+    const swept = live2dHeadBox([sweeping, face]);
+    assert.ok(swept.left > 440 - 1e-9 && swept.left + swept.width < 560 + 1e-9, JSON.stringify(swept));
+  });
+
+  it("makes a touch on her chest a body touch, never a head pat", () => {
+    const regions = regionsOf(model);
+    for (const y of [180, 186, 200, 220, 240]) {
+      for (const x of [455, 480, 500, 520, 545]) {
+        assert.equal(live2dRegionAt(x, y, regions, opaque), "body", `${x},${y}`);
+      }
+    }
+  });
+
+  it("makes the hair hanging in front of her chest body too", () => {
+    assert.equal(live2dRegionAt(460, 200, regionsOf(model), opaque), "body");
+  });
+
+  it("pats her hair, forehead, face and mouth", () => {
+    const regions = regionsOf(model);
+    for (const [x, y] of [
+      [500, 5],
+      [420, 60],
+      [500, 100],
+      [500, 130],
+    ]) {
+      assert.equal(live2dRegionAt(x, y, regions, opaque), "head", `${x},${y}`);
+    }
+  });
+
+  it("counts the head between strands of hair as head, so a rub never breaks off", () => {
+    assert.equal(live2dRegionAt(500, 60, regionsOf(model), () => false), "head");
+  });
+
+  it("touches her body only where a pixel of her is drawn inside her bounds", () => {
+    const regions = regionsOf(model);
+    const drawn = (x) => x >= 430 && x <= 570;
+    assert.equal(live2dRegionAt(500, 400, regions, drawn), "body");
+    assert.equal(live2dRegionAt(200, 400, regions, drawn), null);
+    assert.equal(live2dRegionAt(100, 400, regions, opaque), null, "outside her bounds");
+    assert.equal(live2dRegionAt(500, 1001, regions, opaque), null, "below her bounds");
+  });
+
+  it("has no head without a head drawable that her mouth moves: she is all body then", () => {
+    const noMouth = [ribbon, legs, chest, hair, { ...face, mouth: false }];
+    const mouthOffHead = [ribbon, legs, chest, hair, { ...face, head: false }];
+    for (const drawables of [noMouth, mouthOffHead, [], undefined, null, "face"]) {
+      assert.equal(live2dHeadBox(drawables), null, JSON.stringify(drawables));
+    }
+    const regions = { body, head: live2dHeadBox(noMouth) };
+    assert.equal(live2dRegionAt(500, 5, regions, opaque), "body");
+    assert.equal(live2dRegionAt(500, 200, regions, opaque), "body");
+  });
+
+  it("skips drawables and points that are not finite numbers", () => {
+    const broken = [
+      null,
+      { head: true, mouth: true },
+      { vertices: [Number.NaN, 900, 500, Infinity], head: true, mouth: true },
+      { vertices: "500,900", head: true, mouth: true },
+      face,
+      hair,
+    ];
+    const head = live2dHeadBox(broken);
+    assertClose(head.top + head.height, 150 - 0.05 * 150);
+    assertClose(head.left, 400);
+  });
+
+  it("touches nothing without her bounds", () => {
+    assert.equal(live2dRegionAt(500, 100, { body: null, head: live2dHeadBox(model) }, opaque), null);
+  });
+});
+
+describe("idlePhase", () => {
+  it("stays active while the owner was around in the last three minutes", () => {
+    for (const idleS of [0, 1, 60, 179.999]) assert.equal(idlePhase(idleS), "active", String(idleS));
+  });
+
+  it("gets bored from 180 s without activity on", () => {
+    for (const idleS of [180, 180.001, 600, 86400, Infinity]) assert.equal(idlePhase(idleS), "bored", String(idleS));
+  });
+
+  it("stays active for a missing or invalid idle time", () => {
+    for (const idleS of [undefined, null, Number.NaN, -5, -Infinity, "200"]) {
+      assert.equal(idlePhase(idleS), "active", String(idleS));
+    }
+  });
+});
+
+describe("classifyPointer", () => {
+  // The head is the box x 100..260, y 0..120 of the window; the rest of her is body.
+  const inHead = (x, y) => x >= 100 && x <= 260 && y >= 0 && y <= 120;
+  const HEAD = { x: 180, y: 60 };
+  const BODY = { x: 180, y: 400 };
+  const down = (t, { x, y }) => ({ t, x, y, type: "down" });
+  const move = (t, { x, y }) => ({ t, x, y, type: "move" });
+  const up = (t, { x, y }) => ({ t, x, y, type: "up" });
+  const at = (point, dx, dy) => ({ x: point.x + dx, y: point.y + dy });
+
+  /** A press at `start` moving through `offsets` ([dx, dy] from the press, 16 ms apart), then released there. */
+  function press(t0, start, offsets, { release = true } = {}) {
+    const samples = [down(t0, start)];
+    let t = t0;
+    let last = [0, 0];
+    for (const [dx, dy] of offsets) {
+      t += 16;
+      last = [dx, dy];
+      samples.push(move(t, at(start, dx, dy)));
+    }
+    if (release) samples.push(up(t + 16, at(start, ...last)));
+    return samples;
+  }
+
+  function click(t0, point, holdMs = 80) {
+    return [down(t0, point), up(t0 + holdMs, point)];
+  }
+
+  /** Offsets that go `length` px along `axis` and back, changing direction `turns` times. */
+  function rubbing(turns, axis = [1, 0], length = 20) {
+    const offsets = [];
+    for (let leg = 0; leg <= turns; leg += 1) {
+      const from = leg % 2 === 0 ? 0 : length;
+      const to = length - from;
+      const middle = (from + to) / 2;
+      offsets.push([axis[0] * middle, axis[1] * middle], [axis[0] * to, axis[1] * to]);
+    }
+    return offsets;
+  }
+
+  it("is undecided without a press", () => {
+    assert.equal(classifyPointer([], inHead), null);
+    assert.equal(classifyPointer(undefined, inHead), null);
+    assert.equal(classifyPointer("down", inHead), null);
+    assert.equal(classifyPointer([move(0, BODY), move(16, at(BODY, 40, 0))], inHead), null);
+  });
+
+  it("ignores a release without a press", () => {
+    assert.equal(classifyPointer([up(0, BODY)], inHead), null);
+    assert.equal(classifyPointer([move(0, HEAD), up(16, HEAD)], inHead), null);
+  });
+
+  it("is undecided while the button is held still", () => {
+    assert.equal(classifyPointer([down(0, BODY)], inHead), null);
+    assert.equal(classifyPointer([down(0, HEAD), move(500, HEAD)], inHead), null);
+  });
+
+  it("reports a press and release in place as a click, on the head and on the body", () => {
+    assert.equal(classifyPointer(click(0, HEAD), inHead), "click");
+    assert.equal(classifyPointer(click(0, BODY), inHead), "click");
+    assert.equal(classifyPointer(click(0, BODY, 2000), inHead), "click");
+  });
+
+  it("keeps jitter under 3 px a click", () => {
+    const wobble = [
+      [1, 0],
+      [-1, 1],
+      [2, -1],
+      [0, 2],
+      [-2, -2],
+      [2, 2],
+      [0, 0],
+    ];
+    assert.equal(classifyPointer(press(0, BODY, wobble), inHead), "click");
+    assert.equal(classifyPointer(press(0, HEAD, wobble), inHead), "click");
+    const shake = [];
+    for (let i = 0; i < 12; i += 1) shake.push(i % 2 === 0 ? [2.9, 0] : [0, 0], i % 2 === 0 ? [0, 2.9] : [0, 0]);
+    assert.equal(classifyPointer(press(0, HEAD, shake, { release: false }), inHead), null);
+    assert.equal(classifyPointer(press(0, HEAD, shake), inHead), "click");
+  });
+
+  describe("from a press on the body", () => {
+    it("is still a click after moving exactly 6 px", () => {
+      assert.equal(classifyPointer(press(0, BODY, [[6, 0]]), inHead), "click");
+      assert.equal(classifyPointer(press(0, BODY, [[0, -6]]), inHead), "click");
+      assert.equal(classifyPointer(press(0, BODY, [[4, 4]]), inHead), "click");
+    });
+
+    it("drags once the pointer moves more than 6 px, while the button is still held", () => {
+      assert.equal(classifyPointer(press(0, BODY, [[6.01, 0]], { release: false }), inHead), "drag");
+      assert.equal(classifyPointer(press(0, BODY, [[5, 5]], { release: false }), inHead), "drag");
+      assert.equal(classifyPointer(press(0, BODY, [[0, -40]]), inHead), "drag");
+    });
+
+    it("counts the release point as movement too", () => {
+      assert.equal(classifyPointer([down(0, BODY), up(50, at(BODY, 10, 0))], inHead), "drag");
+    });
+
+    it("stays a drag when the pointer comes back to where it was pressed", () => {
+      assert.equal(classifyPointer(press(0, BODY, [[30, 0], [0, 0]]), inHead), "drag");
+    });
+
+    it("drags rather than rubs when the pointer goes back and forth", () => {
+      assert.equal(classifyPointer(press(0, BODY, rubbing(3)), inHead), "drag");
+    });
+  });
+
+  describe("from a press on the head", () => {
+    it("does not drag while the pointer stays on the head, however far it moves", () => {
+      assert.equal(classifyPointer(press(0, HEAD, [[40, 0]], { release: false }), inHead), null);
+      assert.equal(classifyPointer(press(0, HEAD, [[40, 0], [70, 50]]), inHead), "click");
+    });
+
+    it("does not drag after leaving the head 24 px or less from the press", () => {
+      const edge = { x: 180, y: 110 };
+      assert.equal(classifyPointer(press(0, edge, [[0, 24]], { release: false }), inHead), null);
+      assert.equal(classifyPointer(press(0, edge, [[0, 24]]), inHead), "click");
+    });
+
+    it("drags once the pointer is off the head more than 24 px from the press", () => {
+      const edge = { x: 180, y: 110 };
+      assert.equal(classifyPointer(press(0, edge, [[0, 24.01]], { release: false }), inHead), "drag");
+      assert.equal(classifyPointer(press(0, HEAD, [[0, 30], [0, 70]], { release: false }), inHead), "drag");
+    });
+
+    it("stays a drag when the pointer comes back onto the head", () => {
+      assert.equal(classifyPointer(press(0, HEAD, [[0, 70], [0, 0]]), inHead), "drag");
+    });
+
+    it("recognises rubbing at the third change of direction, while the button is held", () => {
+      assert.equal(classifyPointer(press(0, HEAD, rubbing(2), { release: false }), inHead), null);
+      assert.equal(classifyPointer(press(0, HEAD, rubbing(3), { release: false }), inHead), "rub");
+      assert.equal(classifyPointer(press(0, HEAD, rubbing(8), { release: false }), inHead), "rub");
+    });
+
+    it("stays a rub when released, and is a click after only two changes", () => {
+      assert.equal(classifyPointer(press(0, HEAD, rubbing(3)), inHead), "rub");
+      assert.equal(classifyPointer(press(0, HEAD, rubbing(2)), inHead), "click");
+    });
+
+    it("counts a stroke of exactly 6 px toward rubbing, and not one of less", () => {
+      const strokes = (length) => [
+        [length, 0],
+        [0, 0],
+        [length, 0],
+        [0, 0],
+      ];
+      assert.equal(classifyPointer(press(0, HEAD, strokes(6), { release: false }), inHead), "rub");
+      assert.equal(classifyPointer(press(0, HEAD, strokes(5.99), { release: false }), inHead), null);
+    });
+
+    it("recognises rubbing up and down too", () => {
+      assert.equal(classifyPointer(press(0, HEAD, rubbing(3, [0, 1])), inHead), "rub");
+    });
+
+    it("counts a diagonal change of direction once, not once per axis", () => {
+      assert.equal(classifyPointer(press(0, HEAD, rubbing(2, [1, 1], 14), { release: false }), inHead), null);
+      assert.equal(classifyPointer(press(0, HEAD, rubbing(3, [1, 1], 14), { release: false }), inHead), "rub");
+    });
+
+    it("counts only the movement on the head toward rubbing", () => {
+      const edge = { x: 180, y: 116 };
+      const offHead = rubbing(5, [0, 1], 20);
+      assert.equal(classifyPointer(press(0, edge, offHead, { release: false }), inHead), null);
+      assert.equal(classifyPointer(press(0, edge, offHead), inHead), "click");
+    });
+
+    it("turns a rub into a drag when the pointer leaves the head far enough", () => {
+      const offsets = [...rubbing(3), [0, 100]];
+      assert.equal(classifyPointer(press(0, HEAD, offsets, { release: false }), inHead), "drag");
+    });
+  });
+
+  describe("double click", () => {
+    it("is two clicks whose presses are at most 500 ms and 12 px apart", () => {
+      assert.equal(classifyPointer([...click(0, BODY), ...click(500, BODY)], inHead), "double_click");
+      assert.equal(classifyPointer([...click(0, BODY), ...click(200, at(BODY, 12, 0))], inHead), "double_click");
+      assert.equal(classifyPointer([...click(0, HEAD), ...click(150, HEAD)], inHead), "double_click");
+    });
+
+    it("accepts a double-click as slow as Windows' default double-click time", () => {
+      assert.equal(classifyPointer([...click(0, HEAD), ...click(400, HEAD)], inHead), "double_click");
+      assert.equal(classifyPointer([...click(0, BODY), ...click(450, BODY)], inHead), "double_click");
+    });
+
+    it("exports its 500 ms window, so a single click can wait for a possible second one", () => {
+      assert.equal(DOUBLE_CLICK_MS, 500);
+    });
+
+    it("is two plain clicks when the second press comes more than 500 ms later", () => {
+      assert.equal(classifyPointer([...click(0, BODY), ...click(501, BODY)], inHead), "click");
+    });
+
+    it("is two plain clicks when the presses are more than 12 px apart", () => {
+      assert.equal(classifyPointer([...click(0, BODY), ...click(200, at(BODY, 12.01, 0))], inHead), "click");
+      assert.equal(classifyPointer([...click(0, BODY), ...click(200, at(BODY, 9, 9))], inHead), "click");
+    });
+
+    it("measures the time from the first press to the second press", () => {
+      const slowFirst = [down(0, BODY), up(200, BODY), down(340, BODY), up(420, BODY)];
+      assert.equal(classifyPointer(slowFirst, inHead), "double_click");
+      const lateSecond = [down(0, BODY), up(100, BODY), down(510, BODY), up(550, BODY)];
+      assert.equal(classifyPointer(lateSecond, inHead), "click");
+    });
+
+    it("is undecided while the second press is still held", () => {
+      assert.equal(classifyPointer([...click(0, BODY), down(200, BODY)], inHead), null);
+    });
+
+    it("counts a click with small jitter", () => {
+      assert.equal(classifyPointer([...press(0, BODY, [[2, 1]]), ...click(200, BODY)], inHead), "double_click");
+    });
+
+    it("does not count a drag or a rub as the first click", () => {
+      assert.equal(classifyPointer([...press(0, BODY, [[10, 0]]), ...click(150, BODY)], inHead), "click");
+      assert.equal(classifyPointer([...press(0, HEAD, rubbing(3)), ...click(300, HEAD)], inHead), "click");
+    });
+
+    it("does not chain a third click onto a double click, but pairs a fourth with it", () => {
+      const three = [...click(0, BODY), ...click(150, BODY), ...click(300, BODY)];
+      assert.equal(classifyPointer(three, inHead), "click");
+      assert.equal(classifyPointer([...three, ...click(450, BODY)], inHead), "double_click");
+    });
+
+    it("does not pair clicks around a press whose release was lost", () => {
+      const samples = [...click(0, BODY), down(100, BODY), ...click(200, BODY)];
+      assert.equal(classifyPointer(samples, inHead), "click");
+    });
+  });
+
+  it("classifies only the latest press", () => {
+    assert.equal(classifyPointer([...press(0, BODY, [[30, 0]]), ...click(1000, BODY)], inHead), "click");
+    assert.equal(classifyPointer([...click(0, BODY), ...press(1000, BODY, [[30, 0]])], inHead), "drag");
+    assert.equal(classifyPointer([...click(0, BODY), down(1000, BODY)], inHead), null);
+  });
+
+  it("ignores hovering after the release", () => {
+    assert.equal(classifyPointer([...click(0, BODY), move(200, at(BODY, 300, 0))], inHead), "click");
+  });
+
+  it("skips samples with a missing or non-numeric time, position or type", () => {
+    const samples = [
+      down(0, BODY),
+      { t: 10, x: Number.NaN, y: 0, type: "move" },
+      { t: 20, x: 999, type: "move" },
+      { t: Number.NaN, x: 999, y: 999, type: "move" },
+      { t: 30, x: "999", y: 999, type: "move" },
+      { t: 35, x: 999, y: 999, type: "hover" },
+      { t: 38, x: 999, y: 999 },
+      null,
+      up(40, BODY),
+    ];
+    assert.equal(classifyPointer(samples, inHead), "click");
+    assert.equal(classifyPointer([{ t: 0, x: Number.NaN, y: 0, type: "down" }, up(40, BODY)], inHead), null);
+  });
+
+  it("treats every press as a body press without a head test", () => {
+    assert.equal(classifyPointer(press(0, HEAD, [[10, 0]]), inHead), "click");
+    assert.equal(classifyPointer(press(0, HEAD, [[10, 0]])), "drag");
+    assert.equal(classifyPointer(press(0, HEAD, [[10, 0]]), "head"), "drag");
   });
 });
