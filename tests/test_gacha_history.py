@@ -718,3 +718,29 @@ def test_another_account_starts_its_own_history(tmp_path, locallow, hsr_cache):
     assert report.stats[0].total == 4
     assert store.load(HSR).uid == 800000001
     assert GachaStore(tmp_path / "gacha").load(HSR).records == pulls_until(51, 4, uid=800000001)
+
+
+def test_an_empty_history_saves_nothing_and_later_reports_still_work(tmp_path, locallow, hsr_cache):
+    history = make_history(tmp_path, locallow, FakeLogApi({}))
+
+    first = history.report("hsr")
+    second = history.report("hsr")
+
+    assert (first.updated, first.stats) == (True, ())
+    assert (second.updated, second.problem, second.stats) == (True, None, ())
+    assert not (tmp_path / "gacha").exists()
+
+
+def test_the_store_skips_files_it_cannot_read(tmp_path, caplog):
+    directory = tmp_path / "gacha"
+    store = GachaStore(directory)
+    store.save(HSR, 800000001, pulls_until(1, 3), complete=True)
+    broken_uid = {"version": 1, "game": "hsr", "uid": None, "complete": True, "sequence": 9}
+    (directory / "hsr-None.json").write_text(json.dumps({**broken_uid, "records": []}))
+    (directory / "hsr-broken.json").write_text("{not json", encoding="utf-8")
+
+    with caplog.at_level(logging.WARNING):
+        loaded = store.load(HSR)
+
+    assert (loaded.uid, len(loaded.records)) == (800000001, 3)
+    assert "hsr-broken.json" in caplog.text and "hsr-None.json" in caplog.text

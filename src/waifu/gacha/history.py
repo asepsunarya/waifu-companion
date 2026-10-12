@@ -307,10 +307,17 @@ class GachaStore:
         write_json_atomic(self.directory / f"{game.id}-{uid}.json", data)
 
     def _saved(self, game: Game) -> list[dict[str, Any]]:
-        return [
-            json.loads(path.read_text(encoding="utf-8"))
-            for path in sorted(self.directory.glob(f"{game.id}-*.json"))
-        ]
+        """Every readable account file of `game`; one that cannot be read is skipped."""
+        saved = []
+        for path in sorted(self.directory.glob(f"{game.id}-*.json")):
+            try:
+                raw = json.loads(path.read_text(encoding="utf-8"))
+                raw["uid"], raw["sequence"] = int(raw["uid"]), int(raw["sequence"])
+            except (OSError, ValueError, KeyError, TypeError) as exc:
+                logger.warning("Ignoring the unreadable pull history %s: %s", path.name, exc)
+                continue
+            saved.append(raw)
+        return saved
 
 
 @dataclass(frozen=True)
@@ -471,7 +478,8 @@ class GachaHistory:
             except GachaError as error:
                 records, complete, problem = stored.records, stored.complete, error.message
             else:
-                if new or complete != stored.complete:
+                # No uid yet means no record at all: nothing to keep, no account to file it under.
+                if uid is not None and (new or complete != stored.complete):
                     self._store.save(game, uid, records, complete=complete)
         extra = self._extra.get(game.id, ())
         return HistoryReport(
