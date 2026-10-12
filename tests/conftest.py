@@ -4,7 +4,8 @@ A forgotten fake in an early PC test once put the real machine to sleep on every
 suite run. These guards fail such a test loudly instead: no power commands, no
 PowrProf, no registry writes, no scheduled-task or reg.exe changes. No test may
 reach beyond this PC either: a forgotten fake must not push to the owner's phone
-or check in on their HoYoLAB account.
+or check in on their HoYoLAB account. Nor may a test read the owner's game logs and
+caches, which hold their history authkeys.
 """
 
 import ctypes
@@ -13,11 +14,13 @@ import os
 import subprocess
 import urllib.parse
 import urllib.request
-from pathlib import PurePath
+from pathlib import Path, PurePath
 
 import aiohttp
 import pytest
 import yarl
+
+from waifu.gacha import history
 
 try:
     import winreg
@@ -43,6 +46,8 @@ _REAL_POPEN = subprocess.Popen
 _REAL_WINDLL = getattr(ctypes, "WinDLL", None)
 _REAL_URLLIB_OPEN = urllib.request.OpenerDirector.open
 _REAL_AIOHTTP_REQUEST = aiohttp.ClientSession._request
+_REAL_DATA_FOLDER = history._data_folder
+_REAL_GAME_LOGS = Path.home() / "AppData" / "LocalLow"
 
 
 def _words(args: object) -> list[str]:
@@ -124,6 +129,16 @@ async def _guarded_aiohttp_request(self, method, str_or_url, *args, **kwargs):
     return await _REAL_AIOHTTP_REQUEST(self, method, str_or_url, *args, **kwargs)
 
 
+_real_game_cache_reads: list[str] = []
+
+
+def _guarded_data_folder(game, locallow):
+    if Path(locallow).resolve() == _REAL_GAME_LOGS.resolve():
+        _real_game_cache_reads.append(game.id)
+        raise AssertionError("a test tried to read the owner's real game logs and caches")
+    return _REAL_DATA_FOLDER(game, locallow)
+
+
 @pytest.fixture(autouse=True)
 def _refuse_real_power_actions(monkeypatch):
     monkeypatch.setattr(subprocess, "Popen", _GuardedPopen)
@@ -143,3 +158,15 @@ def _refuse_real_registry_writes(monkeypatch):
 def _refuse_the_internet(monkeypatch):
     monkeypatch.setattr(urllib.request.OpenerDirector, "open", _guarded_urllib_open)
     monkeypatch.setattr(aiohttp.ClientSession, "_request", _guarded_aiohttp_request)
+
+
+@pytest.fixture(autouse=True)
+def real_game_cache_reads(monkeypatch):
+    """Refuses reading the real game caches, and fails the test afterwards if it tried:
+    `waifu` commands catch every exception, so the refusal alone could go unnoticed."""
+    _real_game_cache_reads.clear()
+    monkeypatch.setattr(history, "_data_folder", _guarded_data_folder)
+    yield _real_game_cache_reads
+    assert not _real_game_cache_reads, (
+        f"a test tried to read the owner's real game caches: {_real_game_cache_reads}"
+    )

@@ -7,9 +7,13 @@ import subprocess
 import sys
 import urllib.error
 import urllib.request
+from pathlib import Path
 
 import aiohttp
 import pytest
+
+from waifu.gacha.games import GAMES
+from waifu.gacha.history import find_cached_gacha_url
 
 
 def test_power_lock_env_is_set_for_the_whole_suite():
@@ -109,3 +113,16 @@ def test_aiohttp_requests_beyond_this_pc_are_refused():
 def test_aiohttp_requests_to_loopback_still_go_out():
     with pytest.raises(aiohttp.ClientConnectionError):
         asyncio.run(_aiohttp_get("http://127.0.0.1:9/"))
+
+
+def test_reading_the_owners_game_caches_is_refused(real_game_cache_reads):
+    # The logs lead to the history caches, which hold the owner's authkeys.
+    with pytest.raises(AssertionError, match="real game logs"):
+        find_cached_gacha_url(GAMES["hsr"], Path.home() / "AppData" / "LocalLow")
+
+    assert real_game_cache_reads == ["hsr"]  # also failed at teardown, even if swallowed
+    real_game_cache_reads.clear()  # this one was on purpose
+
+
+def test_game_caches_elsewhere_can_still_be_read(tmp_path):
+    assert find_cached_gacha_url(GAMES["hsr"], tmp_path) is None

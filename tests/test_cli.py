@@ -96,6 +96,13 @@ def no_real_avatar(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def no_real_game_caches(tmp_path, monkeypatch):
+    """`check` and the gacha commands look for game logs here, never in the owner's LocalLow
+    (tests/conftest.py also fails any test that reads the real one)."""
+    monkeypatch.setattr(cli, "GAME_LOGS_DIR", tmp_path / "LocalLow")
+
+
+@pytest.fixture(autouse=True)
 def restore_library_log_levels():
     """main() tunes third-party loggers process-wide; give later tests the levels back."""
     loggers = [logging.getLogger(name) for name in ("tinytuya", "httpx")]
