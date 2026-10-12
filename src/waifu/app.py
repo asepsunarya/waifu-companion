@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+import queue
 from collections.abc import Callable, Iterator
 from datetime import datetime
 from typing import Protocol
@@ -76,6 +77,11 @@ class Segmenter(Protocol):
 
     def reset(self) -> None: ...
 
+    @property
+    def busy(self) -> bool:
+        """Whether an utterance (or its onset) is under way."""
+        ...
+
 
 class Avatar(Protocol):
     """What the voice loop shows on the avatar (the `AvatarBus`)."""
@@ -114,6 +120,7 @@ class Assistant:
         self._segmenter: Segmenter | None = None
         self._speaker_error_logged = False
         self._avatar_failing = False
+        self._announcements: queue.SimpleQueue[tuple[str, str]] = queue.SimpleQueue()
 
     def set_mic(self, mic: Microphone | None, segmenter: Segmenter | None = None) -> None:
         """The microphone to pause, and the segmenter to reset, while she speaks."""
@@ -147,6 +154,13 @@ class Assistant:
     def handle_text(self, text: str) -> BrainReply:
         """Ask the brain directly: no wake word, no voice (text chat); the reply has no tag."""
         return self._think(text)[1]
+
+    def announce(self, text: str, emotion: str = NEUTRAL) -> None:
+        """Queue something to say by herself; safe from any thread (the gacha watcher's).
+
+        `run` says it between utterances, never during a reply or while Master speaks.
+        """
+        self._announcements.put((text, emotion))
 
     def speak(self, text: str, emotion: str = NEUTRAL, *, followup: bool = True) -> None:
         """Say `text` with the microphone paused and the avatar mouthing it with `emotion`.
@@ -190,6 +204,8 @@ class Assistant:
             for frame in mic.frames():
                 utterance = segmenter.feed(frame)
                 if utterance is None:
+                    if not segmenter.busy:
+                        self._say_announcements()
                     continue
                 try:
                     self.handle_utterance(utterance)
@@ -201,6 +217,22 @@ class Assistant:
             logger.info("Stopped listening")
         finally:
             self.set_mic(None)
+
+    def _say_announcements(self) -> None:
+        """Say every queued announcement in one go, with the first one's emotion."""
+        texts: list[str] = []
+        emotion = NEUTRAL
+        while True:
+            try:
+                text, mood = self._announcements.get_nowait()
+            except queue.Empty:
+                break
+            if not texts:
+                emotion = mood
+            texts.append(text)
+        if texts:
+            logger.info("Announcing: %s", " ".join(texts))
+            self.speak(" ".join(texts), emotion, followup=False)
 
     def _think(self, text: str) -> tuple[str, BrainReply]:
         """The brain's reply to `text`, split into its emotion and the reply without the tag."""

@@ -357,12 +357,12 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 32, 33 · **Files:** `src/waifu/gacha/reminders.py`, `tests/test_gacha_reminders.py` · **Scope:** M
 
-## Task 38: Watcher and spoken announcements
+## Task 38: Watcher and spoken announcements ✅
 
 **Acceptance criteria:**
-- [ ] `poll_once` turns statuses into one push and one announcement, claims check-in once per check-in day (retrying after a network error), and saves the state
-- [ ] `start`/`stop` run and end the thread promptly; a failing poll is logged and polling continues
-- [ ] `Assistant.announce` queues from any thread; `run` speaks queued text between utterances only (`Segmenter.busy`), with `followup=False`
+- [x] `poll_once` turns statuses into one push and one announcement, claims check-in once per check-in day (retrying after a network error), and saves the state
+- [x] `start`/`stop` run and end the thread promptly; a failing poll is logged and polling continues
+- [x] `Assistant.announce` queues from any thread; `run` speaks queued text between utterances only (`Segmenter.busy`), with `followup=False`
 
 **Dependencies:** 31, 37 · **Files:** `src/waifu/gacha/watcher.py`, `src/waifu/app.py`, `src/waifu/voice/segmenter.py`, `tests/test_gacha_watcher.py`, `tests/test_app.py`, `tests/test_voice_segmenter.py` · **Scope:** M
 

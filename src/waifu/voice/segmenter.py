@@ -62,6 +62,11 @@ class EnergySegmenter:
         self._floor_db: float | None = None
         self.reset()
 
+    @property
+    def busy(self) -> bool:
+        """Whether someone may be speaking: an utterance, or its onset, is under way."""
+        return bool(self._frames or self._candidate)
+
     def reset(self) -> None:
         self._pre_roll.clear()
         self._candidate: list[np.ndarray] = []

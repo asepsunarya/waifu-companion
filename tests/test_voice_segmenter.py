@@ -179,3 +179,23 @@ def test_reset_discards_a_partial_utterance():
     segmenter.reset()
 
     assert feed_all(segmenter, noise(60, -65, seed=2)) == []
+
+
+def test_busy_only_while_inside_an_utterance():
+    segmenter = EnergySegmenter(SAMPLE_RATE, VadConfig())
+
+    feed_all(segmenter, noise(40, -65))
+    assert segmenter.busy is False
+    feed_all(segmenter, tone(10, -20))
+    assert segmenter.busy is True
+    feed_all(segmenter, noise(50, -65, seed=2))
+    assert segmenter.busy is False
+
+
+def test_a_reset_segmenter_is_not_busy():
+    segmenter = EnergySegmenter(SAMPLE_RATE, VadConfig())
+    feed_all(segmenter, np.concatenate([noise(40, -65), tone(10, -20)]))
+
+    segmenter.reset()
+
+    assert segmenter.busy is False

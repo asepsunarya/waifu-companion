@@ -1,4 +1,5 @@
 import logging
+import threading
 from collections.abc import Iterator
 from datetime import datetime
 
@@ -122,13 +123,18 @@ class FakeMic:
 
 
 class FakeSegmenter:
-    """Returns the queued `feed` results in order."""
+    """Returns the queued `feed` results in order; `busy` follows the queued flags after each."""
 
-    def __init__(self, events: list[str], outputs: list[Utterance | None]) -> None:
+    def __init__(
+        self, events: list[str], outputs: list[Utterance | None], busy: list[bool] | None = None
+    ) -> None:
         self.events = events
         self._outputs = list(outputs)
+        self._busy_after = list(busy or [])
+        self.busy = False
 
     def feed(self, frame: np.ndarray) -> Utterance | None:
+        self.busy = self._busy_after.pop(0) if self._busy_after else False
         return self._outputs.pop(0)
 
     def reset(self) -> None:
@@ -590,3 +596,64 @@ def test_speaking_without_follow_up_leaves_the_window_closed_and_the_avatar_idle
         "play",
         "avatar.state idle",
     ]
+
+
+# Announcements: what she says by herself (the gacha buddy's reminders)
+
+
+SILENT_FRAME = np.zeros(480, dtype=np.float32)
+
+
+def test_an_announcement_is_said_between_utterances_without_opening_a_follow_up():
+    rig = Rig(with_avatar=True)
+    mic = FakeMic(rig.events, [SILENT_FRAME])
+    rig.assistant.announce("Master, Original Resin di Genshin sudah penuh.", "surprised")
+
+    rig.assistant.run(mic, FakeSegmenter(rig.events, [None]))
+
+    assert rig.speech.texts == ["Master, Original Resin di Genshin sudah penuh."]
+    assert rig.events == [
+        "mic.pause",
+        "synthesize",
+        "avatar.state speaking",
+        "avatar.speak surprised",
+        "play",
+        "mic.resume",
+        "segmenter.reset",
+        "avatar.state idle",
+    ]
+    assert rig.gate.check("matikan lampu").accepted is False  # no follow-up window
+
+
+def test_an_announcement_waits_while_master_is_still_speaking():
+    rig = Rig()
+    rig.assistant.announce("Master, ekspedisi HSR sudah selesai.")
+    mic = FakeMic(rig.events, [SILENT_FRAME, SILENT_FRAME])
+
+    rig.assistant.run(mic, FakeSegmenter(rig.events, [None, None], busy=[True, True]))
+
+    assert rig.speech.texts == []
+    rig.assistant.run(FakeMic(rig.events, [SILENT_FRAME]), FakeSegmenter(rig.events, [None]))
+    assert rig.speech.texts == ["Master, ekspedisi HSR sudah selesai."]
+
+
+def test_announcements_queued_together_are_said_in_one_go_with_the_first_emotion():
+    rig = Rig(with_avatar=True)
+    rig.assistant.announce("Satu.", "sad")
+    rig.assistant.announce("Dua.", "happy")
+
+    rig.assistant.run(FakeMic(rig.events, [SILENT_FRAME]), FakeSegmenter(rig.events, [None]))
+
+    assert rig.speech.texts == ["Satu. Dua."]
+    assert "avatar.speak sad" in rig.events
+
+
+def test_announce_can_be_called_from_another_thread():
+    rig = Rig()
+    thread = threading.Thread(target=rig.assistant.announce, args=("Halo dari thread lain.",))
+    thread.start()
+    thread.join()
+
+    rig.assistant.run(FakeMic(rig.events, [SILENT_FRAME]), FakeSegmenter(rig.events, [None]))
+
+    assert rig.speech.texts == ["Halo dari thread lain."]

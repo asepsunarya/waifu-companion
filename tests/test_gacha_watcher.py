@@ -1,0 +1,234 @@
+import json
+import logging
+import threading
+from dataclasses import replace
+from datetime import datetime, timedelta, timezone
+
+import pytest
+
+from waifu.config import GachaConfig
+from waifu.gacha.hoyolab import CheckinResult, GachaError, GameStatus, WeeklyTask
+from waifu.gacha.watcher import GachaWatcher
+
+WIB = timezone(timedelta(hours=7))
+
+QUIET = GameStatus(
+    game="hsr",
+    stamina=100,
+    stamina_max=300,
+    stamina_full_in_s=8 * 3600,
+    daily_current=500,
+    daily_max=500,
+    daily_done=True,
+    weekly=(WeeklyTask("Echo of War", 3, 3),),
+    expeditions_total=4,
+    expeditions_finished=1,
+    checked_in=True,
+)
+NEAR_FULL = replace(QUIET, stamina=295, stamina_full_in_s=30 * 60)
+
+
+class FakeHoyolab:
+    def __init__(self, statuses=None, checkins=None):
+        self.statuses = statuses or {"hsr": QUIET}
+        self.checkins = checkins or {}
+        self.status_calls = 0
+        self.checkin_calls: list[str] = []
+
+    def status(self, games):
+        self.status_calls += 1
+        return {game: self.statuses[game] for game in games}
+
+    def checkin(self, game_id):
+        self.checkin_calls.append(game_id)
+        result = self.checkins.get(game_id, CheckinResult(game_id, False, None))
+        if isinstance(result, BaseException):
+            raise result
+        return result
+
+
+class FakeNotifier:
+    def __init__(self):
+        self.sent: list[tuple[str, str, tuple[str, ...]]] = []
+
+    def send(self, title, message, *, tags=()):
+        self.sent.append((title, message, tuple(tags)))
+        return True
+
+
+class Clock:
+    def __init__(self, now: datetime):
+        self.now = now
+
+    def __call__(self) -> datetime:
+        return self.now
+
+
+@pytest.fixture
+def clock() -> Clock:
+    return Clock(datetime(2026, 10, 12, 12, 0, tzinfo=WIB))
+
+
+def make_watcher(tmp_path, hoyolab, clock, *, games=("hsr",), **config) -> tuple:
+    notifier = FakeNotifier()
+    announced: list[tuple[str, str]] = []
+    gacha = GachaConfig(enabled=True, games=list(games), data_dir=tmp_path / "gacha", **config)
+    watcher = GachaWatcher(
+        hoyolab,
+        gacha,
+        notifier=notifier,
+        announce=lambda text, emotion: announced.append((text, emotion)),
+        title="Cyrene",
+        now=clock,
+    )
+    return watcher, notifier, announced
+
+
+def test_a_reminder_is_pushed_and_announced_once(tmp_path, clock):
+    watcher, notifier, announced = make_watcher(tmp_path, FakeHoyolab({"hsr": NEAR_FULL}), clock)
+
+    notices = watcher.poll_once()
+    watcher.poll_once()
+
+    text = notices[0].text
+    assert notifier.sent == [("Cyrene", text, ("video_game",))]
+    assert announced == [(text, "surprised")]
+
+
+def test_several_notices_are_one_push_and_one_announcement_with_the_strongest_emotion(
+    tmp_path, clock
+):
+    statuses = {
+        "hsr": NEAR_FULL,
+        "zzz": GachaError("captcha", "HoYoLAB minta verifikasi captcha ZZZ."),
+    }
+    hoyolab = FakeHoyolab(statuses, {"hsr": CheckinResult("hsr", True, "20 Stellar Jade")})
+    watcher, notifier, announced = make_watcher(tmp_path, hoyolab, clock, games=("hsr", "zzz"))
+
+    notices = watcher.poll_once()
+
+    assert [n.kind for n in notices] == ["stamina", "problem", "checkin"]
+    [(_, message, _)] = notifier.sent
+    assert message.split("\n") == [n.text for n in notices]
+    [(spoken, emotion)] = announced
+    assert spoken == " ".join(n.text for n in notices)
+    assert emotion == "sad"
+
+
+def test_nothing_to_tell_stays_quiet(tmp_path, clock):
+    watcher, notifier, announced = make_watcher(tmp_path, FakeHoyolab(), clock)
+
+    assert watcher.poll_once() == []
+    assert (notifier.sent, announced) == ([], [])
+
+
+def test_the_checkin_is_claimed_once_per_checkin_day(tmp_path, clock):
+    hoyolab = FakeHoyolab(checkins={"hsr": CheckinResult("hsr", True, "20 Stellar Jade")})
+    watcher, _, announced = make_watcher(tmp_path, hoyolab, clock)
+
+    watcher.poll_once()
+    watcher.poll_once()
+    clock.now += timedelta(hours=12)  # 00:00 server time has passed
+    watcher.poll_once()
+
+    assert hoyolab.checkin_calls == ["hsr", "hsr"]
+    assert announced[0] == (
+        "Check-in harian HoYoLAB sudah aku ambil: HSR dapat 20 Stellar Jade.",
+        "happy",
+    )
+
+
+def test_a_checkin_cut_off_by_the_network_is_tried_again_next_poll(tmp_path, clock):
+    hoyolab = FakeHoyolab(
+        {"hsr": QUIET, "genshin": replace(QUIET, game="genshin")},
+        {
+            "hsr": CheckinResult("hsr", True, "20 Stellar Jade"),
+            "genshin": GachaError("network", "HoYoLAB tidak bisa dihubungi."),
+        },
+    )
+    watcher, _, announced = make_watcher(tmp_path, hoyolab, clock, games=("hsr", "genshin"))
+
+    watcher.poll_once()
+    hoyolab.checkins = {
+        "hsr": CheckinResult("hsr", False, None),
+        "genshin": CheckinResult("genshin", True, "20 Primogem"),
+    }
+    watcher.poll_once()
+    watcher.poll_once()
+
+    assert hoyolab.checkin_calls == ["hsr", "genshin", "hsr", "genshin"]
+    assert [text for text, _ in announced] == [
+        "Check-in harian HoYoLAB sudah aku ambil: HSR dapat 20 Stellar Jade.",
+        "Check-in harian HoYoLAB sudah aku ambil: Genshin dapat 20 Primogem.",
+    ]
+
+
+def test_a_checkin_that_needs_a_captcha_is_told_and_not_retried_today(tmp_path, clock):
+    failure = GachaError("captcha", "HoYoLAB minta verifikasi captcha HSR.")
+    hoyolab = FakeHoyolab(checkins={"hsr": failure})
+    watcher, _, announced = make_watcher(tmp_path, hoyolab, clock)
+
+    watcher.poll_once()
+    watcher.poll_once()
+
+    assert hoyolab.checkin_calls == ["hsr"]
+    assert announced == [("Master, HoYoLAB minta verifikasi captcha HSR.", "sad")]
+
+
+def test_checkin_turned_off_is_never_claimed(tmp_path, clock):
+    hoyolab = FakeHoyolab()
+    watcher, _, _ = make_watcher(tmp_path, hoyolab, clock, checkin=False)
+
+    watcher.poll_once()
+
+    assert hoyolab.checkin_calls == []
+
+
+def test_what_was_told_survives_a_restart(tmp_path, clock):
+    hoyolab = FakeHoyolab({"hsr": NEAR_FULL})
+    first, _, _ = make_watcher(tmp_path, hoyolab, clock)
+    first.poll_once()
+
+    second, notifier, announced = make_watcher(tmp_path, hoyolab, clock)
+    second.poll_once()
+
+    assert (notifier.sent, announced) == ([], [])
+    saved = json.loads((tmp_path / "gacha" / "reminders.json").read_text(encoding="utf-8"))
+    assert "stamina:hsr" in saved["fired"]
+
+
+def test_without_a_notifier_or_voice_it_still_keeps_track(tmp_path, clock):
+    gacha = GachaConfig(enabled=True, games=["hsr"], data_dir=tmp_path / "gacha")
+    watcher = GachaWatcher(
+        FakeHoyolab({"hsr": NEAR_FULL}), gacha, notifier=None, announce=None, now=clock
+    )
+
+    assert [n.kind for n in watcher.poll_once()] == ["stamina"]
+    assert watcher.poll_once() == []
+
+
+class BlockingHoyolab(FakeHoyolab):
+    """Signals each poll, and fails the first one."""
+
+    def __init__(self):
+        super().__init__()
+        self.polled = threading.Event()
+
+    def status(self, games):
+        self.polled.set()
+        if self.status_calls == 0:
+            self.status_calls += 1
+            raise RuntimeError("HoYoLAB exploded")
+        return super().status(games)
+
+
+def test_the_thread_polls_at_once_and_stops_promptly(tmp_path, clock, caplog):
+    hoyolab = BlockingHoyolab()
+    watcher, _, _ = make_watcher(tmp_path, hoyolab, clock)
+
+    with caplog.at_level(logging.ERROR), watcher:
+        assert hoyolab.polled.wait(5)
+    # Leaving the block stopped it although the next poll was minutes away.
+
+    assert not any(thread.name == "gacha-watcher" for thread in threading.enumerate())
+    assert "HoYoLAB exploded" in caplog.text
