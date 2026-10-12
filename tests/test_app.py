@@ -657,3 +657,32 @@ def test_announce_can_be_called_from_another_thread():
     rig.assistant.run(FakeMic(rig.events, [SILENT_FRAME]), FakeSegmenter(rig.events, [None]))
 
     assert rig.speech.texts == ["Halo dari thread lain."]
+
+
+class GameBrain(FakeBrain):
+    """Answers with one gacha_history call whose result names a 5-star."""
+
+    def respond(self, user_text: str, *, now: datetime | None = None) -> BrainReply:
+        result = '{"banners":[{"recent_top_pulls":[{"name":"Yunli","pulls":29}]}]}'
+        call = ToolCallRecord("gacha_history", {"game": "hsr"}, result, False)
+        return BrainReply("[senang] Pity-mu dua puluh dua, Master.", [call])
+
+
+def test_tool_results_stay_out_of_the_info_log(caplog):
+    # logs\waifu.log is written at INFO; pull history must not end up in it.
+    rig = Rig(brain=GameBrain)
+
+    with caplog.at_level(logging.INFO, logger="waifu.app"):
+        rig.assistant.handle_text("pity-ku berapa?")
+
+    assert "gacha_history" in caplog.text
+    assert "Yunli" not in caplog.text
+
+
+def test_tool_results_are_logged_for_debugging(caplog):
+    rig = Rig(brain=GameBrain)
+
+    with caplog.at_level(logging.DEBUG, logger="waifu.app"):
+        rig.assistant.handle_text("pity-ku berapa?")
+
+    assert "Yunli" in caplog.text

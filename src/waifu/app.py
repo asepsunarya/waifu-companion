@@ -238,13 +238,11 @@ class Assistant:
         """The brain's reply to `text`, split into its emotion and the reply without the tag."""
         reply = self._brain.respond(text, now=self._now())
         for call in reply.tool_calls:
-            logger.info(
-                "Tool %s(%s) -> %s%s",
-                call.name,
-                call.arguments,
-                call.result,
-                " [error]" if call.is_error else "",
-            )
+            # The result itself only at DEBUG: the INFO log (logs\waifu.log under autostart)
+            # must not collect the owner's pull history.
+            outcome = "error" if call.is_error else "ok"
+            logger.info("Tool %s(%s) -> %s", call.name, call.arguments, outcome)
+            logger.debug("Tool %s result: %s", call.name, call.result)
         return split_reply(reply)
 
     def _show(self, update: Callable[[Avatar], None]) -> None:
