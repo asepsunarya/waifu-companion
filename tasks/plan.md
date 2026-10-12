@@ -122,7 +122,7 @@ choice).
 - [x] Task 34: Authkey from the game cache and the history API (`gacha/history.py`, part 1)
 - [x] Task 35: History store, pity and 50/50 stats, history report (`gacha/history.py`, part 2)
 - [x] Task 36: Tool providers for the brain, the game tools, persona (`brain/tools.py`, `gacha/tools.py`)
-- [ ] Task 37: Reminder rules and their state (`gacha/reminders.py`)
+- [x] Task 37: Reminder rules and their state (`gacha/reminders.py`)
 - [ ] Task 38: Watcher thread and spoken announcements (`gacha/watcher.py`, `Assistant.announce`)
 - [ ] Task 39: CLI `gacha` commands, `run`/`chat`/`check` wiring, README
 

@@ -348,12 +348,12 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 33, 35 · **Files:** `src/waifu/brain/tools.py`, `src/waifu/brain/claude.py`, `src/waifu/brain/ollama_brain.py`, `src/waifu/brain/factory.py`, `src/waifu/gacha/tools.py`, `config/persona.md` + tests · **Scope:** M
 
-## Task 37: Reminder rules and state
+## Task 37: Reminder rules and state ✅
 
 **Acceptance criteria:**
-- [ ] Stamina fires once inside the window and re-arms after leaving it; daily fires once per game day after `daily_time` when not done; weekly only on the last game day; expeditions once per finished batch
-- [ ] Problem notices once per game day per kind; check-in notice names claimed rewards and is None when nothing was claimed
-- [ ] State survives a reload (atomic JSON) and drops keys older than 14 days
+- [x] Stamina fires once inside the window and re-arms after leaving it; daily fires once per game day after `daily_time` when not done; weekly only on the last game day; expeditions once per finished batch
+- [x] Problem notices once per game day per kind; check-in notice names claimed rewards and is None when nothing was claimed
+- [x] State survives a reload (atomic JSON) and drops keys older than 14 days
 
 **Dependencies:** 32, 33 · **Files:** `src/waifu/gacha/reminders.py`, `tests/test_gacha_reminders.py` · **Scope:** M
 
