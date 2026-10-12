@@ -28,6 +28,7 @@ import { Application, extensions, UPDATE_PRIORITY } from "pixi.js";
 import { configureCubismSDK, Live2DModel, Live2DPlugin } from "untitled-pixi-live2d-engine/cubism";
 
 import {
+  adaptCubismCore,
   approach,
   cursorLook,
   listeningEndS,
@@ -300,6 +301,7 @@ export async function createRenderer(config) {
   let model;
   try {
     configureCubismSDK({ memorySizeMB: CUBISM_MEMORY_MB });
+    adaptCubismCore(window.Live2DCubismCore);
     model = await Live2DModel.from(config.model, { ticker: app.ticker, autoHitTest: false, autoFocus: false });
   } catch (error) {
     showMessage(

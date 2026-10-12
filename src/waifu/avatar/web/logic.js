@@ -1,5 +1,5 @@
-// Pure motion, timing and pointer helpers for the avatar page (VRM and Live2D). No DOM, three.js or PixiJS
-// here, so `node --test` covers them.
+// Pure motion, timing and pointer helpers for the avatar page (VRM and Live2D), plus the Cubism Core adapter. No
+// DOM, three.js or PixiJS here, so `node --test` covers them.
 
 export const BLINK_DURATION_S = 0.15;
 const BLINK_CLOSE_S = 0.05;
@@ -410,4 +410,49 @@ export function classifyPointer(samples, inHead) {
 /** "bored" once nobody has moved the mouse, clicked, or talked for BORED_AFTER_S seconds, else "active". */
 export function idlePhase(idleS) {
   return isNumber(idleS) && idleS >= BORED_AFTER_S ? "bored" : "active";
+}
+
+const adaptedCoreModels = new WeakSet();
+
+/**
+ * Lets the vendored Live2D engine, written for Cubism Core 5, run on Core 6 (Cubism SDK for Web 5-r.5 and later).
+ * Core 6 moved the render orders from `drawables.renderOrders` to `model.getRenderOrders()`, which lists the
+ * drawables first and then the offscreens; the engine still reads the old field. Every model the Core makes gets
+ * that field back. A model that uses Cubism 5.3 rendering, offscreens or the new blend modes on a drawable, is
+ * refused: the engine draws neither (it would draw those blend modes as normal ones, without a word). A Core 5 is
+ * left as it is. Returns `core`.
+ */
+export function adaptCubismCore(core) {
+  const Model = core.Model;
+  if (typeof Model.prototype.getRenderOrders !== "function" || adaptedCoreModels.has(Model)) return core;
+  const fromMoc = Model.fromMoc.bind(Model);
+  Model.fromMoc = (moc) => {
+    const model = fromMoc(moc);
+    if (model === null) return null;
+    if (model.offscreens.count > 0) {
+      throw new Error("This Live2D model uses offscreens (Cubism 5.3+), which the vendored engine cannot draw");
+    }
+    if (!usesOnlyLegacyBlending(core, model.drawables)) {
+      throw new Error("This Live2D model uses Cubism 5.3 blend modes, which the vendored engine cannot draw");
+    }
+    Object.defineProperty(model.drawables, "renderOrders", { get: () => model.getRenderOrders() });
+    return model;
+  };
+  adaptedCoreModels.add(Model);
+  return core;
+}
+
+// Whether every drawable blends the way Cubism 5.2 did (normal, add or multiply), the same test the official
+// Framework 5-r.5 uses to switch on its blend-mode renderer. Each mode is color | alpha << 8; the Core's view runs
+// past the drawables, so only `count` of them are read.
+function usesOnlyLegacyBlending(core, { blendModes, count }) {
+  for (let index = 0; index < count; index++) {
+    const color = blendModes[index] & 0xff;
+    const alpha = (blendModes[index] >> 8) & 0xff;
+    const normal = color === core.ColorBlendType_Normal && alpha === core.AlphaBlendType_Over;
+    if (!normal && color !== core.ColorBlendType_AddCompatible && color !== core.ColorBlendType_MultiplyCompatible) {
+      return false;
+    }
+  }
+  return true;
 }

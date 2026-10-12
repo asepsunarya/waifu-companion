@@ -1108,7 +1108,9 @@ satu kalimat.
   menunjuk file `.model3.json`); `✗ File model Live2D tidak ditemukan: ...` menyebut file
   yang hilang, biasanya karena hanya model3.json yang tersalin. Salin ulang seluruh
   folder model ([langkah 2](#2-taruh-folder-model-di-caiavatars-sekali)). Model dengan
-  moc3 Cubism 5 juga butuh Core dari SDK versi 5.
+  moc3 Cubism 5 juga butuh Core dari SDK versi 5. Core 6 dari SDK 5-r.5 sudah didukung;
+  model yang memakai fitur *offscreen* atau *blend mode* baru Cubism 5.3 belum bisa
+  digambar engine ini (konsol halaman menyebut "offscreens" atau "blend modes").
 - **Latar hitam, bukan transparan.** Sama seperti avatar 3D: jendela transparan Electron
   butuh akselerasi GPU yang berjalan baik, jadi perbarui driver NVIDIA. Sementara itu,
   pakai `avatar.window: app`.

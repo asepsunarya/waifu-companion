@@ -6,6 +6,7 @@ import {
   BREATH_PERIOD_S,
   DOUBLE_CLICK_MS,
   SWAY_PERIOD_S,
+  adaptCubismCore,
   approach,
   avatarTitle,
   blinkWeight,
@@ -1042,5 +1043,98 @@ describe("classifyPointer", () => {
     assert.equal(classifyPointer(press(0, HEAD, [[10, 0]]), inHead), "click");
     assert.equal(classifyPointer(press(0, HEAD, [[10, 0]])), "drag");
     assert.equal(classifyPointer(press(0, HEAD, [[10, 0]]), "head"), "drag");
+  });
+});
+
+describe("adaptCubismCore", () => {
+  // Shaped like live2dcubismcore.min.js: Core 6 keeps the render orders on the model (drawables first, then
+  // offscreens) as a view of its heap, and each drawable's blend mode as color | alpha << 8 in a view twice as long
+  // as the drawables; Core 5 keeps the render orders on the drawables.
+  const NORMAL = 0;
+  const ADD_COMPATIBLE = 1;
+  const MULTIPLY_COMPATIBLE = 2;
+  const OVERLAY = 12;
+  const ATOP = 1 << 8;
+
+  function core6({ offscreens = 0, blendModes = [NORMAL, NORMAL, NORMAL] } = {}) {
+    class Model {
+      constructor(moc) {
+        this.ok = moc !== "broken";
+        // Past the drawables the view runs on into other data, here a mode the engine cannot draw.
+        this.drawables = { count: 3, blendModes: new Int32Array([...blendModes, OVERLAY, OVERLAY, OVERLAY]) };
+        this.offscreens = { count: offscreens };
+        this.renderOrders = new Int32Array([2, 0, 1, ...Array(offscreens).fill(3)]);
+      }
+      static fromMoc(moc) {
+        const model = new Model(moc);
+        return model.ok ? model : null;
+      }
+      getRenderOrders() {
+        return this.renderOrders;
+      }
+    }
+    return {
+      Model,
+      ColorBlendType_Normal: NORMAL,
+      ColorBlendType_AddCompatible: ADD_COMPATIBLE,
+      ColorBlendType_MultiplyCompatible: MULTIPLY_COMPATIBLE,
+      AlphaBlendType_Over: 0,
+    };
+  }
+
+  function core5() {
+    class Model {
+      constructor() {
+        this.drawables = { count: 3, renderOrders: new Int32Array([1, 2, 0]) };
+      }
+      static fromMoc() {
+        return new Model();
+      }
+    }
+    return { Model };
+  }
+
+  it("gives a Core 6 model's drawables the render orders the engine reads", () => {
+    const core = adaptCubismCore(core6());
+    const model = core.Model.fromMoc("moc");
+    assert.deepEqual([...model.drawables.renderOrders], [2, 0, 1]);
+    model.renderOrders = new Int32Array([0, 1, 2]);
+    assert.deepEqual([...model.drawables.renderOrders], [0, 1, 2]);
+  });
+
+  it("still returns null when the Core cannot make the model", () => {
+    const core = adaptCubismCore(core6());
+    assert.equal(core.Model.fromMoc("broken"), null);
+  });
+
+  it("wraps a Core only once", () => {
+    const core = adaptCubismCore(core6());
+    const fromMoc = core.Model.fromMoc;
+    assert.equal(adaptCubismCore(core).Model.fromMoc, fromMoc);
+  });
+
+  it("leaves a Core 5 untouched", () => {
+    const core = core5();
+    const fromMoc = core.Model.fromMoc;
+    adaptCubismCore(core);
+    assert.equal(core.Model.fromMoc, fromMoc);
+    assert.deepEqual([...core.Model.fromMoc().drawables.renderOrders], [1, 2, 0]);
+  });
+
+  it("refuses a model with offscreens, which the engine cannot draw", () => {
+    const core = adaptCubismCore(core6({ offscreens: 1 }));
+    assert.throws(() => core.Model.fromMoc("moc"), /offscreen/);
+  });
+
+  it("accepts the blend modes the engine draws: normal, and Cubism 5.2's add and multiply", () => {
+    const core = adaptCubismCore(core6({ blendModes: [NORMAL, ADD_COMPATIBLE, MULTIPLY_COMPATIBLE] }));
+    assert.deepEqual([...core.Model.fromMoc("moc").drawables.renderOrders], [2, 0, 1]);
+  });
+
+  it("refuses a model with Cubism 5.3 blend modes, which the engine would draw as normal", () => {
+    for (const mode of [OVERLAY, NORMAL | ATOP]) {
+      const core = adaptCubismCore(core6({ blendModes: [NORMAL, mode, NORMAL] }));
+      assert.throws(() => core.Model.fromMoc("moc"), /blend modes/);
+    }
   });
 });
