@@ -429,6 +429,35 @@ class MemoryConfig(_Strict):
     max_chars: int = Field(default=200, ge=20, le=1000)
 
 
+class ScheduleConfig(_Strict):
+    """Reminders and timed device commands that fire while `waifu run` is on."""
+
+    enabled: bool = True
+    path: Path = Path("data/schedule.json")
+    max_entries: int = Field(default=50, ge=1, le=200)
+    # How late an entry may still fire after the PC was off or Cyrene was stopped.
+    late_grace_minutes: int = Field(default=30, ge=0, le=720)
+
+
+class RoutineStep(_Strict):
+    device: str
+    command: str
+    value: int | None = None
+
+    @field_validator("command", mode="before")
+    @classmethod
+    def _yaml_boolean_is_on_off(cls, value: object) -> object:
+        # YAML 1.1 parses a bare on/off as a boolean; as a command it always means the word.
+        return ("on" if value else "off") if isinstance(value, bool) else value
+
+
+class RoutineConfig(_Strict):
+    """A named list of device commands the owner wrote ("tidur": lights off, AC to 26)."""
+
+    description: str = ""
+    steps: list[RoutineStep] = Field(min_length=1, max_length=20)
+
+
 class NotifyConfig(_Strict):
     """Push notifications to the owner's phone through ntfy."""
 
@@ -472,6 +501,8 @@ class AppConfig(_Strict):
     gacha: GachaConfig = Field(default_factory=GachaConfig)
     notify: NotifyConfig = Field(default_factory=NotifyConfig)
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
+    schedule: ScheduleConfig = Field(default_factory=ScheduleConfig)
+    routines: dict[str, RoutineConfig] = Field(default_factory=dict)
     devices: list[DeviceConfig] = Field(default_factory=list)
 
     @model_validator(mode="after")
@@ -481,6 +512,23 @@ class AppConfig(_Strict):
             if device.id in seen:
                 raise ValueError(f"duplicate device id '{device.id}'")
             seen.add(device.id)
+        return self
+
+    @model_validator(mode="after")
+    def _routines_use_known_devices_but_never_the_pc(self) -> AppConfig:
+        types = {device.id: device.type for device in self.devices}
+        for name, routine in self.routines.items():
+            if not DEVICE_ID_PATTERN.match(name):
+                raise ValueError(
+                    f"routine name '{name}' must be lowercase letters, digits, or underscores"
+                )
+            for step in routine.steps:
+                if step.device not in types:
+                    raise ValueError(f"routine '{name}' uses unknown device '{step.device}'")
+                if types[step.device] == "pc":
+                    # The PC is turned off, restarted, or put to sleep only by voice, with a
+                    # confirmation: never as one step of a routine.
+                    raise ValueError(f"routine '{name}' may not use the PC '{step.device}'")
         return self
 
 

@@ -318,3 +318,77 @@ def test_memory_settings_are_read(tmp_path):
         Path("D:/cyrene/ingatan.json"),
         50,
     )
+
+
+def test_schedule_is_on_by_default_in_the_data_folder():
+    schedule = AppConfig().schedule
+    assert schedule.enabled is True
+    assert schedule.path == Path("data/schedule.json")
+    assert schedule.max_entries == 50
+    assert schedule.late_grace_minutes == 30
+    assert AppConfig().routines == {}
+
+
+@pytest.mark.parametrize(
+    "line",
+    ["max_entries: 0", "max_entries: 201", "late_grace_minutes: -1", "late_grace_minutes: 721"],
+)
+def test_schedule_limits_are_bounded(tmp_path, line):
+    with pytest.raises(ConfigError, match="schedule"):
+        load_config(write_yaml(tmp_path, f"schedule:\n  {line}\n"))
+
+
+ROUTINE_DEVICES = """
+devices:
+  - id: lampu_kamar
+    name: Lampu Kamar
+    type: mock
+    commands: [on, off]
+  - id: ac
+    name: AC
+    type: mock
+    commands: [on, off, temp_26]
+  - id: komputer
+    name: Komputer
+    type: pc
+    pc: {}
+"""
+
+
+def test_routines_are_read_with_yaml_on_off_as_commands(tmp_path):
+    text = ROUTINE_DEVICES + (
+        "routines:\n"
+        "  tidur:\n"
+        "    description: Mode tidur\n"
+        "    steps:\n"
+        "      - {device: lampu_kamar, command: off}\n"
+        "      - {device: ac, command: temp, value: 26}\n"
+    )
+    routine = load_config(write_yaml(tmp_path, text)).routines["tidur"]
+    assert routine.description == "Mode tidur"
+    assert [(s.device, s.command, s.value) for s in routine.steps] == [
+        ("lampu_kamar", "off", None),
+        ("ac", "temp", 26),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("routines", "match"),
+    [
+        ("  Tidur:\n    steps: [{device: ac, command: off}]\n", "routine name"),
+        ("  tidur:\n    steps: []\n", "tidur"),
+        ("  tidur:\n    steps: [{device: kulkas, command: off}]\n", "kulkas"),
+        ("  tidur:\n    steps: [{device: komputer, command: sleep}]\n", "komputer"),
+        ("  tidur:\n    steps: [{device: ac, command: off, speed: 2}]\n", "speed"),
+    ],
+)
+def test_bad_routines_are_refused(tmp_path, routines, match):
+    with pytest.raises(ConfigError, match=match):
+        load_config(write_yaml(tmp_path, ROUTINE_DEVICES + "routines:\n" + routines))
+
+
+def test_a_routine_has_at_most_20_steps(tmp_path):
+    steps = "".join("      - {device: ac, command: off}\n" for _ in range(21))
+    text = ROUTINE_DEVICES + "routines:\n  tidur:\n    steps:\n" + steps
+    with pytest.raises(ConfigError, match="tidur"):
+        load_config(write_yaml(tmp_path, text))
