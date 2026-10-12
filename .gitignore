@@ -35,3 +35,6 @@ logs/
 
 # Avatar shell
 avatar-app/node_modules/
+
+# Live2D Cubism Core is proprietary: never commit it
+live2dcubismcore*.js
