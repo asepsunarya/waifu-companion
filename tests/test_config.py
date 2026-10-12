@@ -126,3 +126,17 @@ def test_rvc_python_defaults_to_the_applio_env(tmp_path):
 def test_rvc_pitch_is_bounded(tmp_path):
     with pytest.raises(ConfigError, match="pitch"):
         load_config(write_yaml(tmp_path, "tts:\n  rvc:\n    pitch: 40\n"))
+
+
+@pytest.mark.parametrize("host", ["0.0.0.0", "192.168.1.10", "localhost", "::1"])
+def test_rvc_host_must_be_a_loopback_address(tmp_path, host):
+    # The RVC server has no authentication; "localhost" also costs ~2 s per request on
+    # Windows while IPv6 ::1 is tried first, and the server listens on IPv4 only.
+    with pytest.raises(ConfigError, match="tts.rvc.host"):
+        load_config(write_yaml(tmp_path, f"tts:\n  rvc:\n    host: {host}\n"))
+
+
+@pytest.mark.parametrize("host", ["127.0.0.1", "127.0.0.2"])
+def test_rvc_ipv4_loopback_hosts_are_accepted(tmp_path, host):
+    text = f"tts:\n  rvc:\n    host: '{host}'\n"
+    assert load_config(write_yaml(tmp_path, text)).tts.rvc.host == host

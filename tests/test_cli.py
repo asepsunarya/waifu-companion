@@ -2164,11 +2164,9 @@ def test_check_fails_an_rvc_host_beyond_this_pc_without_probing_it(
 
     assert cli.main(["check"]) == 1
 
+    # load_config rejects the host, so check reports an invalid config and never probes it.
     out = capsys.readouterr().out
-    assert any(
-        line.startswith("✗ tts.rvc.host harus alamat IPv4 loopback") and "0.0.0.0" in line
-        for line in out.splitlines()
-    )
+    assert "✗ Konfigurasi tidak valid" in out and "tts.rvc.host" in out
     assert rvc.events == [] and rvc.clients == []
 
 

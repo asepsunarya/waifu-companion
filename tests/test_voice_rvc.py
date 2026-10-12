@@ -631,7 +631,9 @@ def test_ensure_running_refuses_a_host_other_than_ipv4_loopback(install, host):
         install,
         popen=popen,
         health=FakeHttp(AssertionError("no request at a refused host")),
-        config=install.config(host=host),
+        # load_config already rejects such a host; model_copy skips validation so this
+        # second line of defence at the process boundary stays tested.
+        config=install.config().model_copy(update={"host": host}),
     )
 
     with pytest.raises(RvcError, match=r"tts\.rvc\.host") as excinfo:

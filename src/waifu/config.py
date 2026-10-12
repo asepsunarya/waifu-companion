@@ -6,6 +6,7 @@ config.yaml fails at startup with a clear message rather than mid-conversation.
 
 from __future__ import annotations
 
+import ipaddress
 import re
 from pathlib import Path
 from typing import Annotated, Literal
@@ -146,6 +147,19 @@ class RvcConfig(_Strict):
     @property
     def python_path(self) -> Path:
         return self.python or self.applio_dir / "env" / "Scripts" / "python.exe"
+
+    @field_validator("host")
+    @classmethod
+    def _host_is_ipv4_loopback(cls, value: str) -> str:
+        # The server has no password and listens on IPv4 only ("localhost" would try ::1
+        # first and cost ~2 s per request on Windows), matching voice.rvc's boundary check.
+        try:
+            address = ipaddress.ip_address(value)
+        except ValueError:
+            address = None
+        if address is None or address.version != 4 or not address.is_loopback:
+            raise ValueError("tts.rvc.host must be an IPv4 loopback address such as 127.0.0.1")
+        return value
 
     @model_validator(mode="after")
     def _enabled_needs_model(self) -> RvcConfig:
