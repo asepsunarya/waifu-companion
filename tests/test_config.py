@@ -1,3 +1,4 @@
+from datetime import time
 from pathlib import Path
 
 import pytest
@@ -162,3 +163,98 @@ def test_avatar_host_must_be_ipv4_loopback(tmp_path):
 def test_avatar_window_mode_is_validated(tmp_path):
     with pytest.raises(ConfigError, match="window"):
         load_config(write_yaml(tmp_path, "avatar:\n  window: fullscreen\n"))
+
+
+GOOD_COOKIE = "ltuid_v2=12345; ltoken_v2=v2_SECRETTOKEN; ltmid_v2=abc"
+GOOD_TOPIC = "cyrene-AbCdEf123456_-x"
+
+
+def test_gacha_and_notify_are_off_by_default_for_the_three_asia_games():
+    config = AppConfig()
+    assert config.gacha.enabled is False
+    assert config.gacha.games == ["hsr", "genshin", "zzz"]
+    assert config.gacha.server_utc_offset == 8
+    assert config.gacha.reminders.daily_time == time(20, 0)
+    assert config.gacha.reminders.stamina_minutes == 60
+    assert config.notify.enabled is False
+    assert config.notify.server == "https://ntfy.sh"
+
+
+def test_gacha_cookie_is_kept_secret(tmp_path):
+    config = load_config(write_yaml(tmp_path, f"gacha:\n  cookie: '{GOOD_COOKIE}'\n"))
+    assert config.gacha.cookie.get_secret_value() == GOOD_COOKIE
+    assert "SECRETTOKEN" not in repr(config.gacha)
+
+
+@pytest.mark.parametrize("cookie", ["ltuid_v2=1; ltoken_v2=x", "ltuid=1; ltoken=x; foo=bar"])
+def test_gacha_cookie_accepts_either_hoyolab_login_pair(tmp_path, cookie):
+    config = load_config(write_yaml(tmp_path, f"gacha:\n  cookie: '{cookie}'\n"))
+    assert config.gacha.cookie.get_secret_value() == cookie
+
+
+def test_gacha_cookie_without_the_login_pair_names_it_but_never_echoes_it(tmp_path):
+    text = "gacha:\n  cookie: 'ltoken_v2=v2_SECRETTOKEN; mi18nLang=id-id'\n"
+    with pytest.raises(ConfigError) as caught:
+        load_config(write_yaml(tmp_path, text))
+    assert "ltuid_v2" in str(caught.value)
+    assert "SECRETTOKEN" not in str(caught.value)
+
+
+def test_gacha_daily_time_takes_quoted_or_bare_yaml_hh_mm(tmp_path):
+    # YAML 1.1 reads a bare 20:00 as the base-60 number 1200.
+    quoted = load_config(write_yaml(tmp_path, "gacha:\n  reminders:\n    daily_time: '07:30'\n"))
+    bare = load_config(write_yaml(tmp_path, "gacha:\n  reminders:\n    daily_time: 21:15\n"))
+    assert quoted.gacha.reminders.daily_time == time(7, 30)
+    assert bare.gacha.reminders.daily_time == time(21, 15)
+
+
+@pytest.mark.parametrize("value", ["'25:00'", "8pm", "'20.00'"])
+def test_gacha_daily_time_must_be_a_time_of_day(tmp_path, value):
+    with pytest.raises(ConfigError, match="daily_time"):
+        load_config(write_yaml(tmp_path, f"gacha:\n  reminders:\n    daily_time: {value}\n"))
+
+
+@pytest.mark.parametrize("games", ["[hsr, hsr]", "[]", "[honkai3rd]"])
+def test_gacha_games_are_known_unique_and_not_empty(tmp_path, games):
+    with pytest.raises(ConfigError, match="games"):
+        load_config(write_yaml(tmp_path, f"gacha:\n  games: {games}\n"))
+
+
+def test_gacha_uids_and_off_banner_names_are_keyed_by_game(tmp_path):
+    text = "gacha:\n  uids: {hsr: 800000001}\n  off_banner: {hsr: [Yunli]}\n"
+    gacha = load_config(write_yaml(tmp_path, text)).gacha
+    assert gacha.uids == {"hsr": 800000001}
+    assert gacha.off_banner == {"hsr": ["Yunli"]}
+    with pytest.raises(ConfigError, match="uids"):
+        load_config(write_yaml(tmp_path, "gacha:\n  uids: {honkai3rd: 1}\n"))
+
+
+def test_gacha_polling_is_bounded(tmp_path):
+    with pytest.raises(ConfigError, match="poll_minutes"):
+        load_config(write_yaml(tmp_path, "gacha:\n  poll_minutes: 1\n"))
+
+
+def test_enabled_notify_needs_a_topic(tmp_path):
+    with pytest.raises(ConfigError, match="notify.topic"):
+        load_config(write_yaml(tmp_path, "notify:\n  enabled: true\n"))
+
+
+@pytest.mark.parametrize("topic", ["cyrene", "has space in the topic name", "x" * 65])
+def test_notify_topic_must_be_long_and_plain_and_is_never_echoed(tmp_path, topic):
+    with pytest.raises(ConfigError, match="topic") as caught:
+        load_config(write_yaml(tmp_path, f"notify:\n  topic: '{topic}'\n"))
+    assert topic not in str(caught.value)
+
+
+def test_notify_topic_is_kept_secret(tmp_path):
+    text = f"notify:\n  enabled: true\n  topic: {GOOD_TOPIC}\n"
+    notify = load_config(write_yaml(tmp_path, text)).notify
+    assert notify.topic.get_secret_value() == GOOD_TOPIC
+    assert GOOD_TOPIC not in repr(notify)
+
+
+def test_notify_server_must_use_https(tmp_path):
+    with pytest.raises(ConfigError, match="https"):
+        load_config(write_yaml(tmp_path, "notify:\n  server: http://ntfy.sh\n"))
+    text = "notify:\n  server: https://ntfy.example.com/\n"
+    assert load_config(write_yaml(tmp_path, text)).notify.server == "https://ntfy.example.com"

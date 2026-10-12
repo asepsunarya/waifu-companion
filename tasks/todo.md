@@ -284,12 +284,12 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 25-29 · **Files:** `src/waifu/app.py`, `src/waifu/cli.py`, `tests/test_app.py`, `tests/test_cli.py`, `README.md`, `config.example.yaml` · **Scope:** M
 
-## Task 30a: Gacha and notify config, genshin dependency
+## Task 30a: Gacha and notify config, genshin dependency ✅
 
 **Acceptance criteria:**
-- [ ] `gacha` and `notify` sections validate per SPEC (cookie keys checked by name, `SecretStr`, HH:MM `daily_time`, unique games, https ntfy server, 16-64 char topic when enabled)
-- [ ] A bad cookie or topic is reported without echoing its value
-- [ ] `genshin==1.7.31` (`>=1.7.31,<2`) in the core dependencies; `config.example.yaml` documents both sections (disabled)
+- [x] `gacha` and `notify` sections validate per SPEC (cookie keys checked by name, `SecretStr`, HH:MM `daily_time`, unique games, https ntfy server, 16-64 char topic when enabled)
+- [x] A bad cookie or topic is reported without echoing its value
+- [x] `genshin==1.7.31` (`>=1.7.31,<2`) in the core dependencies; `config.example.yaml` documents both sections (disabled)
 
 **Dependencies:** none · **Files:** `src/waifu/config.py`, `tests/test_config.py`, `pyproject.toml`, `config.example.yaml` · **Scope:** S
 

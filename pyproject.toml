@@ -21,6 +21,7 @@ dependencies = [
     "edge-tts>=7",
     "soundfile>=0.13",
     "sounddevice>=0.5",
+    "genshin>=1.7.31,<2",  # unofficial HoYoLAB client: game status and daily check-in
 ]
 
 [project.optional-dependencies]

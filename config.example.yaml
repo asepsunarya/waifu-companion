@@ -108,6 +108,36 @@ avatar:
   host: 127.0.0.1
   port: 9882
 
+# Teman main game HoYoverse (README, bagian "Teman main gacha"): status stamina dan daily,
+# pengingat lewat suara dan HP, check-in harian HoYoLAB, dan riwayat pull (pity, 50/50).
+gacha:
+  enabled: false
+  # Cookie login hoyolab.com: rahasia seperti kata sandi (config.yaml tidak di-commit).
+  # Minimal ltuid_v2 dan ltoken_v2. Salin semuanya supaya cookie_token_v2 ikut: riwayat pull
+  # tetap terbaca walau riwayat di game belum dibuka hari ini. Cara mengambilnya ada di README.
+  # cookie: "ltuid_v2=...; ltoken_v2=...; ltmid_v2=...; cookie_token_v2=...; account_id_v2=...; account_mid_v2=..."
+  games: [hsr, genshin, zzz]
+  # uids: {hsr: 800000000}   # kosong = akun dengan level tertinggi tiap game di HoYoLAB itu
+  server_utc_offset: 8       # server Asia (UTC+8): reset harian jam 04.00 waktu server
+  poll_minutes: 15           # cek HoYoLAB tiap N menit selama `waifu run`
+  checkin: true              # ambil hadiah check-in harian HoYoLAB otomatis
+  reminders:
+    stamina_minutes: 60      # ingatkan kalau stamina penuh dalam N menit (0 = saat sudah penuh)
+    daily_time: "20:00"      # jam lokal; daily yang belum selesai diingatkan mulai jam ini
+    weekly: true             # di hari terakhir sebelum reset mingguan
+    expeditions: true        # saat semua ekspedisi selesai
+  # Karakter 5★ tambahan yang berarti kalah 50/50, misalnya pilihan Celestial Invitation di HSR.
+  # off_banner: {hsr: [Yunli]}
+  data_dir: data/gacha
+
+# Notifikasi ke HP lewat ntfy (aplikasi gratis, tanpa akun): langganan topik yang sama di aplikasinya.
+notify:
+  enabled: false
+  server: https://ntfy.sh
+  # Topik rahasia 16-64 huruf, angka, - atau _: siapa pun yang tahu namanya bisa membaca
+  # notifikasinya. Buat dengan: python -c "import secrets; print('cyrene-' + secrets.token_urlsafe(12))"
+  # topic: cyrene-isi-dengan-hasil-perintah-di-atas
+
 ir_codes_path: data/ir_codes.json
 
 devices:

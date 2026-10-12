@@ -115,7 +115,7 @@ a watcher thread inside `waifu run`; she speaks them between utterances and push
 the phone through ntfy (no account, JSON publish). The brain gets the game tools through a
 `ToolProvider` protocol, so devices and games stay independent. No quiet hours (owner's
 choice).
-- [ ] Task 30a: `gacha` and `notify` config, `genshin` dependency, example config (committed with its tests)
+- [x] Task 30a: `gacha` and `notify` config, `genshin` dependency, example config (committed with its tests)
 - [ ] Task 31: Push notifications (`notify.py`, `waifu notify-test`) and the no-internet test guard
 - [ ] Task 32: Game facts and server-time helpers (`gacha/games.py`)
 - [ ] Task 33: HoYoLAB client: accounts, status, check-in, authkey, error kinds (`gacha/hoyolab.py`)

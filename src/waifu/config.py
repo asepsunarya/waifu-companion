@@ -8,13 +8,32 @@ from __future__ import annotations
 
 import ipaddress
 import re
+from datetime import time
 from pathlib import Path
 from typing import Annotated, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SecretStr,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 DEVICE_ID_PATTERN = re.compile(r"^[a-z0-9_]+$")
+GameId = Literal["hsr", "genshin", "zzz"]
+# Either pair logs in to HoYoLAB; hoyolab.com sets the v2 pair today.
+HOYOLAB_LOGIN_COOKIES = (("ltuid_v2", "ltoken_v2"), ("ltuid", "ltoken"))
+# Anyone who knows a topic on the public ntfy server can read it, so it must be hard to guess.
+NTFY_TOPIC_PATTERN = re.compile(r"^[A-Za-z0-9_-]{16,64}$")
+
+
+def cookie_names(cookie: str) -> set[str]:
+    """The names in a `name=value; name=value` cookie string."""
+    return {part.split("=", 1)[0].strip() for part in cookie.split(";") if "=" in part}
 
 
 class ConfigError(Exception):
@@ -288,6 +307,93 @@ class AvatarConfig(_Strict):
         return self
 
 
+class GachaRemindersConfig(_Strict):
+    # Remind when stamina will be full within this many minutes (0: only once it is full).
+    stamina_minutes: int = Field(default=60, ge=0, le=1440)
+    # Local time from which unfinished dailies (and, on the last day, weeklies) are mentioned.
+    daily_time: time = time(20, 0)
+    weekly: bool = True
+    expeditions: bool = True
+
+    @field_validator("daily_time", mode="before")
+    @classmethod
+    def _yaml_sexagesimal_is_hh_mm(cls, value: object) -> object:
+        # YAML 1.1 reads a bare 20:00 as the base-60 number 1200 (minutes past midnight).
+        if isinstance(value, int) and not isinstance(value, bool) and 0 <= value < 24 * 60:
+            return time(value // 60, value % 60)
+        return value
+
+
+class GachaConfig(_Strict):
+    """The HoYoverse games companion: status, reminders, check-in, and pull history."""
+
+    enabled: bool = False
+    # The hoyolab.com login cookie: as secret as a password, never logged or printed.
+    cookie: SecretStr | None = None
+    games: list[GameId] = Field(default_factory=lambda: ["hsr", "genshin", "zzz"])
+    uids: dict[GameId, Annotated[int, Field(gt=0)]] = Field(default_factory=dict)
+    server_utc_offset: int = Field(default=8, ge=-12, le=14)  # Asia server: UTC+8
+    poll_minutes: float = Field(default=15.0, ge=5, le=240)
+    checkin: bool = True
+    reminders: GachaRemindersConfig = Field(default_factory=GachaRemindersConfig)
+    # Extra 5-star names that mean a lost 50/50 (HSR lets the owner pick one since 4.2).
+    off_banner: dict[GameId, list[str]] = Field(default_factory=dict)
+    data_dir: Path = Path("data/gacha")
+
+    @field_validator("cookie")
+    @classmethod
+    def _cookie_logs_in(cls, value: SecretStr | None) -> SecretStr | None:
+        if value is None:
+            return None
+        names = cookie_names(value.get_secret_value())
+        if not any(uid in names and token in names for uid, token in HOYOLAB_LOGIN_COOKIES):
+            raise ValueError(
+                "gacha.cookie must contain ltuid_v2 and ltoken_v2 "
+                "(copy the whole cookie of hoyolab.com, see README)"
+            )
+        return value
+
+    @field_validator("games")
+    @classmethod
+    def _games_unique(cls, value: list[GameId]) -> list[GameId]:
+        if not value:
+            raise ValueError("at least one game is required")
+        if len(set(value)) != len(value):
+            raise ValueError("each game may be listed once")
+        return value
+
+
+class NotifyConfig(_Strict):
+    """Push notifications to the owner's phone through ntfy."""
+
+    enabled: bool = False
+    server: str = "https://ntfy.sh"
+    topic: SecretStr | None = None
+
+    @field_validator("server")
+    @classmethod
+    def _server_uses_https(cls, value: str) -> str:
+        if not value.startswith("https://"):
+            raise ValueError("notify.server must start with https://")
+        return value.rstrip("/")
+
+    @field_validator("topic")
+    @classmethod
+    def _topic_is_hard_to_guess(cls, value: SecretStr | None) -> SecretStr | None:
+        if value is not None and not NTFY_TOPIC_PATTERN.match(value.get_secret_value()):
+            raise ValueError(
+                "notify.topic must be 16-64 letters, digits, '-' or '_' (anyone who knows it "
+                "can read the notifications)"
+            )
+        return value
+
+    @model_validator(mode="after")
+    def _enabled_needs_topic(self) -> NotifyConfig:
+        if self.enabled and self.topic is None:
+            raise ValueError("notify.topic is required when notify is enabled")
+        return self
+
+
 class AppConfig(_Strict):
     assistant: AssistantConfig = Field(default_factory=AssistantConfig)
     audio: AudioConfig = Field(default_factory=AudioConfig)
@@ -297,6 +403,8 @@ class AppConfig(_Strict):
     tts: TtsConfig = Field(default_factory=TtsConfig)
     ir_codes_path: Path = Path("data/ir_codes.json")
     avatar: AvatarConfig = Field(default_factory=AvatarConfig)
+    gacha: GachaConfig = Field(default_factory=GachaConfig)
+    notify: NotifyConfig = Field(default_factory=NotifyConfig)
     devices: list[DeviceConfig] = Field(default_factory=list)
 
     @model_validator(mode="after")
