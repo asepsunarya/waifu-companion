@@ -93,15 +93,15 @@ transparent always-on-top Electron mascot; events (state, emotion, viseme track)
 Server-Sent Events so Python stays the only audio player and needs no new dependency.
 Lip-sync uses a viseme track computed from the very audio about to be played.
 - [x] Task 24a: `avatar` config, vendored three.js/three-vrm, Electron manifest (committed)
-- [ ] Task 25: Emotion tags in replies (`avatar/emotion.py`, persona)
-- [ ] Task 26: Viseme track from audio (`avatar/lipsync.py`)
-- [ ] Task 27: Event bus and loopback server with SSE (`avatar/bus.py`, `avatar/server.py`)
+- [x] Task 25: Emotion tags in replies (`avatar/emotion.py`, persona)
+- [x] Task 26: Viseme track from audio (`avatar/lipsync.py`)
+- [x] Task 27: Event bus and loopback server with SSE (`avatar/bus.py`, `avatar/server.py`)
 - [ ] Task 28: Viewer page (`avatar/web/index.html`, `logic.js`, `avatar.js`, JS tests)
-- [ ] Task 29: Window launcher and Electron shell (`avatar/window.py`, `avatar-app/`)
-- [ ] Task 30: Integration: Assistant, CLI (`avatar`, run/say/chat, check), README, example config
+- [x] Task 29: Window launcher and Electron shell (`avatar/window.py`, `avatar-app/`)
+- [x] Task 30: Integration: Assistant, CLI (`avatar`, run/say/chat, check), README, example config
 
 ### Checkpoint: Avatar
-- [ ] Python and JS suites, ruff clean; no test opened a window or loaded the real VRM
+- [x] Python and JS suites, ruff clean; no test opened a window or loaded the real VRM
 - [ ] On the owner's PC: the VRM renders in the page, lip-sync and emotions follow a real reply, and the mascot window is transparent and draggable
 
 ## Risks and Mitigations
