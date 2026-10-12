@@ -374,3 +374,65 @@ named `tests/test_<package>_<module>.py`.
 - [x] Real run on the owner's PC: `waifu gacha history hsr --full` imports the HSR history
 
 **Dependencies:** 31-38 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py`, `README.md`, `config.example.yaml` · **Scope:** M
+
+## Task 40: Server routes for Live2D and interactions
+
+**Acceptance criteria:**
+- [ ] `/config.json` and `hello` carry engine, model URL, core URL, credit, interaction switches (token only in `/config.json`); `/model/<path>` serves only the Live2D model folder (traversal-protected) and `/live2d/...` only the configured Core, unmodified
+- [ ] Every request with a foreign `Host` gets 403; `POST /interact` checks Origin, JSON, size, token, kind, and rate (403/400/429), answers 202 and calls `on_interact`
+- [ ] Existing VRM behaviour and tests unchanged
+
+**Dependencies:** 40a · **Files:** `src/waifu/avatar/server.py`, `src/waifu/avatar/bus.py`, `tests/test_avatar_server.py`, `tests/test_avatar_bus.py` · **Scope:** M
+
+## Task 41: InteractionHandler and Assistant hooks
+
+**Acceptance criteria:**
+- [ ] `handle` never blocks (enqueue + worker); switches, busy skip, cooldown, no immediate repeat, welcome-back limit honoured
+- [ ] `Assistant.busy`, `speak_reaction` (normal speak path), `listen_now` (follow-up window + listening state + a listen line)
+- [ ] Thread-safe start/stop; exceptions in speak are logged
+
+**Dependencies:** 40a · **Files:** `src/waifu/avatar/interactions.py`, `src/waifu/app.py`, `tests/test_avatar_interactions.py`, `tests/test_app.py` · **Scope:** M
+
+## Task 42: Pure interaction and Live2D logic
+
+**Acceptance criteria:**
+- [ ] `live2dMouth`, `live2dEmotionParams`, `mapToRange`, `cursorLook`, `classifyPointer`, `idlePhase` per SPEC
+- [ ] `node --test "tests/js/*.test.mjs"` covers each, including edge cases (no movement, tiny jitter, exact thresholds)
+
+**Dependencies:** none · **Files:** `src/waifu/avatar/web/logic.js`, `tests/js/logic.test.mjs` · **Scope:** S
+
+## Task 43: Live2D renderer and engine switch
+
+**Acceptance criteria:**
+- [ ] `index.html` boots from `/config.json`, loads the Core then `live2d.js` for live2d, `avatar.js` for vrm, then the event stream
+- [ ] `live2d.js` renders the model transparently in mascot mode with lip-sync, emotions, cursor look, thinking, bored, blink and physics, and exposes `hitTest`/`isOpaqueAt`
+- [ ] Verified in a real browser with the owner's model and Core when the Core is present (otherwise reported as pending)
+
+**Dependencies:** 42 · **Files:** `src/waifu/avatar/web/live2d.js`, `src/waifu/avatar/web/index.html`, `tests/test_avatar_web.py` · **Scope:** M
+
+## Task 44: Shared input layer and VRM hooks
+
+**Acceptance criteria:**
+- [ ] `interaction.js` turns pointer input into head_pat / body_touch / double_click / drag per SPEC, sends `POST /interact` with the token, drives click-through and idle/welcome-back
+- [ ] `avatar.js` exposes cursor look, `hitTest`, `isOpaqueAt`, and the bored animation
+- [ ] Local expression feedback is immediate
+
+**Dependencies:** 42 · **Files:** `src/waifu/avatar/web/interaction.js`, `src/waifu/avatar/web/avatar.js` · **Scope:** M
+
+## Task 45: Electron preload, cursor feed, drag, click-through
+
+**Acceptance criteria:**
+- [ ] `preload.js` exposes exactly `onCursor`, `dragBy`, `setClickThrough` via `contextBridge`; sandbox and context isolation stay on
+- [ ] `main.js` polls the cursor every 33 ms while visible, validates IPC input, clamps drags to the work area, toggles `setIgnoreMouseEvents(flag, {forward: true})`
+- [ ] `lib.js` `relativeCursor` and `clampToWorkArea` covered by `node --test`
+
+**Dependencies:** none · **Files:** `avatar-app/preload.js`, `avatar-app/main.js`, `avatar-app/lib.js`, `avatar-app/test/lib.test.js` · **Scope:** M
+
+## Task 46: CLI wiring, check, README, example config
+
+**Acceptance criteria:**
+- [ ] `run` passes the Assistant-bound handler to the server; `waifu avatar` uses a printing handler; `check` reports the engine, the Live2D files, and the Core
+- [ ] README (Indonesian): Live2D setup (SDK download, Core path, model folder), the model's rules and credit, mascot controls (drag, pat, poke, double-click, click-through), interaction settings
+- [ ] `config.example.yaml` documents `engine`, `live2d_core`, `credit`, `interactions`
+
+**Dependencies:** 40-45 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py`, `README.md`, `config.example.yaml` · **Scope:** M

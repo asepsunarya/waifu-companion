@@ -131,6 +131,25 @@ choice).
 - [x] On the owner's PC: `waifu gacha history hsr --full` imports the real HSR history from the cached authkey (1101 pulls, 2026-10-12); the owner still compares the pity with the game
 - [ ] With the owner's cookie and ntfy topic: `gacha status`, `gacha checkin`, `notify-test`, and one spoken + pushed reminder in `run`
 
+### Phase 10: Live2D and interactions (v1.5, see SPEC → Live2D and interactions)
+Decision: a second renderer (PixiJS 8 + untitled-pixi-live2d-engine for Cubism 5) behind the
+same page and event protocol, so voice, lip-sync, emotions, and the mascot shell stay shared;
+Live2D's proprietary Cubism Core comes from the owner's own SDK download and is never
+committed. Interactions run in the page and reach Python through one token-protected POST
+route; spoken reactions use prepared lines, not the LLM, so they are instant.
+- [x] Task 40a: avatar engine/interactions config, vendored PixiJS 8.21 and the Live2D engine, Core ignore rule (committed)
+- [ ] Task 40: Server: `/config.json`, Live2D model and Core routes, Host check, token-protected `POST /interact`
+- [ ] Task 41: `InteractionHandler` and Assistant hooks (`busy`, `speak_reaction`, `listen_now`)
+- [ ] Task 42: Pure interaction and Live2D logic in `logic.js` with node tests
+- [ ] Task 43: Live2D renderer (`live2d.js`) and the engine switch in `index.html`
+- [ ] Task 44: Shared input layer (`interaction.js`) and VRM renderer hooks
+- [ ] Task 45: Electron preload: cursor feed, custom drag, click-through
+- [ ] Task 46: CLI wiring, `check`, README, example config
+
+### Checkpoint: Live2D and interactions
+- [ ] Python and JS suites, ruff clean; no test loaded the real model or Core or opened a window
+- [ ] On the owner's PC: the Live2D model renders, lip-syncs, shows emotions, follows the cursor, reacts to pats/pokes, and the mascot drags and lets clicks through
+
 ## Risks and Mitigations
 
 | Risk | Impact | Mitigation |
