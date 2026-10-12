@@ -21,6 +21,7 @@ Read `SPEC.md` before changing behaviour; tasks live in `tasks/`.
 - Python 3.14 (3.11+ supported), src layout, package `waifu`, Windows 11 first
 - LLM: `anthropic` 1.x (Claude, model `claude-opus-5-5`) or `ollama` (local `qwen3:8b`)
 - Voice: `faster-whisper` (STT), `speechbrain` ECAPA (speaker verification), `edge-tts` / GPT-SoVITS HTTP (TTS), `sounddevice` + `soundfile`
+- Anime voice: RVC via Applio in its own Python 3.12 env (`C:\AI\Applio`, outside the repo), served by `tools/rvc_server.py` on 127.0.0.1; the Tsukuyomi-chan corpus/model is private-use only and never committed
 - Devices: `tinytuya` (Tuya Wi-Fi lights, plugs, IR), `broadlink` (IR blaster), `wakeonlan`
 - Config: `pydantic` v2 models over `config.yaml`
 - Tooling: `pytest`, `ruff` (lint + format)
@@ -53,6 +54,7 @@ src/waifu/
   voice/         → audio I/O, segmenter, speaker verification, STT, TTS
 config/          → persona.md (committed); config.yaml lives at the root (gitignored)
 data/, models/   → voiceprint, learned IR codes, downloaded models (gitignored)
+tools/          → rvc_server.py, run with Applio's python (not the project venv)
 tests/           → pytest, one test_<module>.py per module
 tasks/           → tasks/plan.md and tasks/todo.md written by /plan
 ```

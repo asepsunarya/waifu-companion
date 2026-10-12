@@ -653,7 +653,7 @@ Selama training GPU dipakai penuh; jangan jalankan Cyrene bersamaan. Dari
 ```powershell
 env\Scripts\python.exe core.py preprocess --model-name tsukuyomi --dataset-path C:\AI\voices\tsukuyomi_dataset --sample-rate 40000
 env\Scripts\python.exe core.py extract --model-name tsukuyomi --f0-method rmvpe --embedder-model contentvec --sample-rate 40000 --gpu 0
-env\Scripts\python.exe core.py train --model-name tsukuyomi --vocoder HiFi-GAN --sample-rate 40000 --batch-size 8 --total-epoch 300 --save-every-epoch 50 --gpu 0
+env\Scripts\python.exe core.py train --model-name tsukuyomi --vocoder HiFi-GAN --sample-rate 40000 --batch-size 8 --total-epoch 250 --save-every-epoch 50 --gpu 0
 env\Scripts\python.exe core.py index --model-name tsukuyomi
 ```
 
@@ -663,6 +663,13 @@ env\Scripts\python.exe core.py index --model-name tsukuyomi
 - `--total-epoch` adalah batas atas; `--save-every-epoch 50` menyimpan checkpoint
   setiap 50 epoch, jadi kamu bisa berhenti lebih awal (Ctrl+C) kalau checkpoint yang
   ada sudah bagus.
+- Di PC ini (RTX 5060 Ti, korpus 100 kalimat ≈ 11 menit) satu epoch ±20 detik, jadi
+  250 epoch ±70 menit. Hasil pengukuran (kemiripan ECAPA ke suara つくよみちゃん /
+  error transkripsi Whisper untuk kalimat Indonesia; edge-tts asli: 0,43 / 7,7%):
+  epoch 50 → 0,73 / 10,4%, epoch 100 → 0,75 / 7,7%, **epoch 150 → 0,75 / 7,7%**,
+  epoch 200 → 0,76 / 14,8%, epoch 250 → 0,77 / 10,9%. Mulai epoch 200 bahasa
+  Indonesianya terdengar berlogat Jepang (korpusnya berbahasa Jepang), jadi yang
+  dipakai adalah **epoch 150**, disalin ke `C:\AI\voices\models\tsukuyomi_150e.pth`.
 - `train` membuat `C:\AI\Applio\logs\tsukuyomi\tsukuyomi.index` di akhir, dan `index`
   membuatnya kalau belum ada (misalnya setelah training dihentikan dengan Ctrl+C).
   Keduanya **melewati** index yang sudah ada, walau tetap menulis "generated
