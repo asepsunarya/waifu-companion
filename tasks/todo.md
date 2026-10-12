@@ -302,12 +302,12 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 30a · **Files:** `src/waifu/notify.py`, `tests/test_notify.py`, `tests/conftest.py`, `tests/test_safety_guard.py`, `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** S
 
-## Task 32: Game facts and server-time helpers
+## Task 32: Game facts and server-time helpers ✅
 
 **Acceptance criteria:**
-- [ ] Each game lists its banners in display order with hard pity, 50/50 flag, and endpoint (HSR 21/22 → `getLdGachaLog`); standard pools per SPEC
-- [ ] `game_day` changes at 04:00 and `checkin_day` at 00:00 server time, for a local time in WIB (UTC+7) and across midnight
-- [ ] `reminder_due` and `is_last_day_of_week` match the reset rules, including a `daily_time` after midnight
+- [x] Each game lists its banners in display order with hard pity, 50/50 flag, and endpoint (HSR 21/22 → `getLdGachaLog`); standard pools per SPEC
+- [x] `game_day` changes at 04:00 and `checkin_day` at 00:00 server time, for a local time in WIB (UTC+7) and across midnight
+- [x] `reminder_due` and `is_last_day_of_week` match the reset rules, including a `daily_time` after midnight
 
 **Dependencies:** none · **Files:** `src/waifu/gacha/__init__.py`, `src/waifu/gacha/games.py`, `tests/test_gacha_games.py` · **Scope:** S
 
