@@ -420,6 +420,15 @@ class GachaConfig(_Strict):
         return value
 
 
+class MemoryConfig(_Strict):
+    """Cyrene's long-term memory: facts about the owner kept between sessions."""
+
+    enabled: bool = True
+    path: Path = Path("data/memory.json")
+    max_facts: int = Field(default=100, ge=1, le=500)
+    max_chars: int = Field(default=200, ge=20, le=1000)
+
+
 class NotifyConfig(_Strict):
     """Push notifications to the owner's phone through ntfy."""
 
@@ -462,6 +471,7 @@ class AppConfig(_Strict):
     avatar: AvatarConfig = Field(default_factory=AvatarConfig)
     gacha: GachaConfig = Field(default_factory=GachaConfig)
     notify: NotifyConfig = Field(default_factory=NotifyConfig)
+    memory: MemoryConfig = Field(default_factory=MemoryConfig)
     devices: list[DeviceConfig] = Field(default_factory=list)
 
     @model_validator(mode="after")

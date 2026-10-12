@@ -292,3 +292,29 @@ def test_interaction_lines_must_not_be_empty(tmp_path):
     text = "avatar:\n  interactions:\n    lines:\n      head_pat: []\n"
     with pytest.raises(ConfigError, match="head_pat"):
         load_config(write_yaml(tmp_path, text))
+
+
+def test_memory_is_on_by_default_in_the_data_folder():
+    memory = AppConfig().memory
+    assert memory.enabled is True
+    assert memory.path == Path("data/memory.json")
+    assert memory.max_facts == 100
+    assert memory.max_chars == 200
+
+
+@pytest.mark.parametrize(
+    "line", ["max_facts: 0", "max_facts: 501", "max_chars: 19", "max_chars: 1001", "size: 3"]
+)
+def test_memory_limits_are_bounded_and_unknown_keys_rejected(tmp_path, line):
+    with pytest.raises(ConfigError, match="memory"):
+        load_config(write_yaml(tmp_path, f"memory:\n  {line}\n"))
+
+
+def test_memory_settings_are_read(tmp_path):
+    text = "memory:\n  enabled: false\n  path: D:/cyrene/ingatan.json\n  max_facts: 50\n"
+    memory = load_config(write_yaml(tmp_path, text)).memory
+    assert (memory.enabled, memory.path, memory.max_facts) == (
+        False,
+        Path("D:/cyrene/ingatan.json"),
+        50,
+    )
