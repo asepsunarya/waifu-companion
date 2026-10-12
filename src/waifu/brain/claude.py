@@ -29,7 +29,7 @@ from anthropic.types.beta import (
 from waifu.brain.base import Brain, BrainReply, ToolCallRecord
 from waifu.brain.persona import format_user_turn
 from waifu.brain.session import SessionClock
-from waifu.brain.tools import build_tool_specs, run_tool, to_anthropic
+from waifu.brain.tools import ToolProvider, build_tool_specs, run_tool, to_anthropic
 from waifu.config import AssistantConfig, BrainConfig, ClaudeConfig
 from waifu.devices.registry import DeviceRegistry
 
@@ -78,12 +78,14 @@ class ClaudeBrain(Brain):
         clock: Callable[[], float] = time.monotonic,
         session_idle_minutes: float = _SESSION_DEFAULTS.session_idle_minutes,
         max_session_turns: int = _SESSION_DEFAULTS.max_session_turns,
+        providers: Sequence[ToolProvider] = (),
     ) -> None:
         self._max_tool_rounds = config.max_tool_rounds
         self._registry = registry
+        self._providers = tuple(providers)
         self._client = client
         self._session = SessionClock(session_idle_minutes, max_session_turns, clock)
-        self._request = _frozen_request(config.claude, system_prompt, registry)
+        self._request = _frozen_request(config.claude, system_prompt, registry, self._providers)
         self._history: list[dict[str, Any]] = []
 
     def respond(self, user_text: str, *, now: datetime | None = None) -> BrainReply:
@@ -165,7 +167,7 @@ class ClaudeBrain(Brain):
     def _run_tool(
         self, call: BetaToolUseBlock, tool_calls: list[ToolCallRecord]
     ) -> BetaToolResultBlockParam:
-        result, is_error = run_tool(self._registry, call.name, call.input)
+        result, is_error = run_tool(self._registry, call.name, call.input, self._providers)
         logger.info("Tool %s %s -> %s", call.name, call.input, "error" if is_error else "ok")
         arguments = dict(call.input) if isinstance(call.input, Mapping) else {}
         tool_calls.append(ToolCallRecord(call.name, arguments, result, is_error))
@@ -201,7 +203,10 @@ class ClaudeBrain(Brain):
 
 
 def _frozen_request(
-    claude: ClaudeConfig, system_prompt: str, registry: DeviceRegistry
+    claude: ClaudeConfig,
+    system_prompt: str,
+    registry: DeviceRegistry,
+    providers: Sequence[ToolProvider],
 ) -> dict[str, Any]:
     """Every request field except `messages`, fixed for the brain's whole lifetime.
 
@@ -212,7 +217,7 @@ def _frozen_request(
         "model": claude.model,
         "max_tokens": claude.max_tokens,
         "system": system_prompt,
-        "tools": [to_anthropic(spec) for spec in build_tool_specs(registry)],
+        "tools": [to_anthropic(spec) for spec in build_tool_specs(registry, providers)],
         "output_config": {"effort": claude.effort},
         "cache_control": {"type": "ephemeral"},
     }

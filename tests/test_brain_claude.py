@@ -10,6 +10,7 @@ import httpx2
 import pytest
 
 from waifu.brain import claude as claude_module
+from waifu.brain.base import ToolSpec
 from waifu.brain.claude import ClaudeBrain
 from waifu.brain.persona import format_user_turn
 from waifu.config import BrainConfig, ClaudeConfig
@@ -776,3 +777,28 @@ def test_key_without_a_workspace_gets_an_apology_that_names_the_fix():
 
     assert "ANTHROPIC_WORKSPACE_ID" in reply.text
     assert "workspace" in reply.text
+
+
+class GameTools:
+    def specs(self) -> list[ToolSpec]:
+        schema = {"type": "object", "properties": {}, "additionalProperties": False}
+        return [ToolSpec("game_status", "Status of Master's games.", schema)]
+
+    def run(self, name: str, arguments: object) -> tuple[str, bool]:
+        return json.dumps({"games": [{"game": "hsr", "stamina": {"current": 232}}]}), False
+
+
+def test_provider_tools_are_offered_and_their_calls_answered():
+    first = message([tool_use("call_1", "game_status", {})], "tool_use")
+    client = FakeAnthropic(first, message([text("Trailblaze Power-mu 232, Master!")], "end_turn"))
+
+    reply = make_brain(client, providers=[GameTools()]).respond("TP-ku berapa?", now=NOW)
+
+    assert [tool["name"] for tool in client.requests[0]["tools"]] == [
+        "control_device",
+        "list_devices",
+        "game_status",
+    ]
+    [result] = tool_results(client.requests[1]["messages"][-1])
+    assert json.loads(result["content"])["games"][0]["stamina"]["current"] == 232
+    assert [(call.name, call.is_error) for call in reply.tool_calls] == [("game_status", False)]

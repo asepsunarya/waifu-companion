@@ -339,12 +339,12 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 34 · **Files:** `src/waifu/gacha/history.py`, `tests/test_gacha_history.py` · **Scope:** M
 
-## Task 36: Tool providers and the game tools
+## Task 36: Tool providers and the game tools ✅
 
 **Acceptance criteria:**
-- [ ] `build_tool_specs`/`run_tool` include providers, reject duplicate names, and turn a provider exception into an error result; both brains and `build_brain` pass providers through
-- [ ] `game_status` and `gacha_history` have strict-compatible schemas (game enum from config) and return the SPEC JSON; errors per game, `is_error` only when nothing worked
-- [ ] Persona section added; existing brain tests unchanged and green
+- [x] `build_tool_specs`/`run_tool` include providers, reject duplicate names, and turn a provider exception into an error result; both brains and `build_brain` pass providers through
+- [x] `game_status` and `gacha_history` have strict-compatible schemas (game enum from config) and return the SPEC JSON; errors per game, `is_error` only when nothing worked
+- [x] Persona section added; existing brain tests unchanged and green
 
 **Dependencies:** 33, 35 · **Files:** `src/waifu/brain/tools.py`, `src/waifu/brain/claude.py`, `src/waifu/brain/ollama_brain.py`, `src/waifu/brain/factory.py`, `src/waifu/gacha/tools.py`, `config/persona.md` + tests · **Scope:** M
 

@@ -1,4 +1,5 @@
 import json
+import logging
 from datetime import datetime
 
 import ollama
@@ -425,3 +426,63 @@ def test_boolean_value_is_rejected_before_any_device_call():
     assert is_error
     assert registry.get("lampu_kamar").calls == []
     assert "value" in result
+
+
+# Tool providers (the gacha buddy's game tools sit beside the device tools)
+
+
+class GameTools:
+    """A provider with one tool that echoes the arguments it was called with."""
+
+    def __init__(self, name: str = "game_status", *, failure: Exception | None = None) -> None:
+        self.name = name
+        self.failure = failure
+        self.calls: list[tuple[str, object]] = []
+
+    def specs(self) -> list[ToolSpec]:
+        schema = {"type": "object", "properties": {}, "additionalProperties": False}
+        return [ToolSpec(self.name, "Status of Master's games.", schema)]
+
+    def run(self, name: str, arguments: object) -> tuple[str, bool]:
+        self.calls.append((name, arguments))
+        if self.failure is not None:
+            raise self.failure
+        return json.dumps({"ok": True, "echo": arguments}), False
+
+
+def test_provider_tools_come_after_the_device_tools():
+    specs = build_tool_specs(house(), [GameTools(), GameTools("gacha_history")])
+    names = [spec.name for spec in specs]
+    assert names == ["control_device", "list_devices", "game_status", "gacha_history"]
+
+
+@pytest.mark.parametrize("providers", [[GameTools("list_devices")], [GameTools(), GameTools()]])
+def test_a_tool_name_may_only_be_used_once(providers):
+    with pytest.raises(ValueError, match="duplicate"):
+        build_tool_specs(house(), providers)
+
+
+def test_run_tool_hands_a_provider_tool_to_its_provider():
+    games = GameTools()
+
+    result, is_error = run_tool(house(), "game_status", {}, [games])
+
+    assert (json.loads(result), is_error) == ({"ok": True, "echo": {}}, False)
+    assert games.calls == [("game_status", {})]
+
+
+def test_a_crashing_provider_tool_becomes_an_error_result(caplog):
+    games = GameTools(failure=RuntimeError("HoYoLAB exploded"))
+
+    with caplog.at_level(logging.ERROR):
+        result, is_error = run_tool(house(), "game_status", {}, [games])
+
+    assert is_error
+    assert "game_status" in json.loads(result)["message"]
+    assert "HoYoLAB exploded" in caplog.text
+
+
+def test_unknown_tool_names_the_provider_tools_too():
+    result, is_error = run_tool(house(), "open_garage", {}, [GameTools()])
+    assert is_error
+    assert "game_status" in json.loads(result)["message"]

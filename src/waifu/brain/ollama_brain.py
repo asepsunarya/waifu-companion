@@ -11,7 +11,7 @@ import json
 import logging
 import re
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
 from typing import Any
 
@@ -21,7 +21,7 @@ import ollama
 from waifu.brain.base import Brain, BrainReply, ToolCallRecord
 from waifu.brain.persona import format_user_turn
 from waifu.brain.session import SessionClock
-from waifu.brain.tools import build_tool_specs, run_tool, to_ollama
+from waifu.brain.tools import ToolProvider, build_tool_specs, run_tool, to_ollama
 from waifu.config import AssistantConfig, BrainConfig
 from waifu.devices.registry import DeviceRegistry
 
@@ -53,13 +53,15 @@ class OllamaBrain(Brain):
         clock: Callable[[], float] = time.monotonic,
         session_idle_minutes: float = _ASSISTANT_DEFAULTS.session_idle_minutes,
         max_session_turns: int = _ASSISTANT_DEFAULTS.max_session_turns,
+        providers: Sequence[ToolProvider] = (),
     ) -> None:
         self._config = config
         self._registry = registry
+        self._providers = tuple(providers)
         self._system_prompt = system_prompt
         self._client = client
         self._session = SessionClock(session_idle_minutes, max_session_turns, clock)
-        self._tools = [to_ollama(spec) for spec in build_tool_specs(registry)]
+        self._tools = [to_ollama(spec) for spec in build_tool_specs(registry, self._providers)]
         self._history: list[dict[str, Any]] = []
         self.reset()
 
@@ -136,7 +138,7 @@ class OllamaBrain(Brain):
             }
         )
         for name, arguments in calls:
-            result, is_error = run_tool(self._registry, name, arguments)
+            result, is_error = run_tool(self._registry, name, arguments, self._providers)
             logger.debug("Tool %s(%s) -> %s", name, arguments, result)
             records.append(ToolCallRecord(name, _as_dict(arguments), result, is_error))
             self._history.append({"role": "tool", "content": result, "tool_name": name})

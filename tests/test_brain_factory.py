@@ -5,7 +5,7 @@ from datetime import datetime
 import ollama
 import pytest
 
-from waifu.brain.base import Brain, BrainReply
+from waifu.brain.base import Brain, BrainReply, ToolSpec
 from waifu.brain.factory import build_brain
 from waifu.brain.ollama_brain import OllamaBrain
 from waifu.brain.persona import build_system_prompt
@@ -54,9 +54,11 @@ class FakeClaudeBrain(Brain):
         clock=time.monotonic,
         session_idle_minutes=10.0,
         max_session_turns=40,
+        providers=(),
     ):
         self.config, self.registry, self.system_prompt = config, registry, system_prompt
         self.session_idle_minutes, self.max_session_turns = session_idle_minutes, max_session_turns
+        self.providers = providers
 
     def respond(self, user_text: str, *, now: datetime | None = None) -> BrainReply:
         return BrainReply(text="")
@@ -149,3 +151,35 @@ def test_claude_brain_uses_the_session_limits_from_the_assistant_config(monkeypa
     brain = build_brain(config, house(), persona_text=PERSONA)
 
     assert (brain.session_idle_minutes, brain.max_session_turns) == (3, 7)
+
+
+class GameTools:
+    def specs(self) -> list[ToolSpec]:
+        schema = {"type": "object", "properties": {}, "additionalProperties": False}
+        return [ToolSpec("game_status", "Status of Master's games.", schema)]
+
+    def run(self, name: str, arguments: object) -> tuple[str, bool]:
+        return "{}", False
+
+
+def test_the_game_tools_reach_the_claude_brain(monkeypatch):
+    monkeypatch.setattr("waifu.brain.claude.ClaudeBrain", FakeClaudeBrain)
+    games = GameTools()
+
+    brain = build_brain(
+        AppConfig(brain=BrainConfig(backend="claude")),
+        house(),
+        persona_text=PERSONA,
+        providers=[games],
+    )
+
+    assert list(brain.providers) == [games]
+
+
+def test_the_game_tools_reach_the_ollama_brain(ollama_clients):
+    build_brain(AppConfig(), house(), persona_text=PERSONA, providers=[GameTools()]).respond(
+        "halo", now=NOW
+    )
+
+    tools = [tool["function"]["name"] for tool in ollama_clients[0].requests[0]["tools"]]
+    assert tools == ["control_device", "list_devices", "game_status"]

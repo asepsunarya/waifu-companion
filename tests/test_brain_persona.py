@@ -47,6 +47,16 @@ def test_committed_persona_has_a_name_placeholder():
     assert "{name}" in load_persona(ROOT / "config" / "persona.md")
 
 
+def test_committed_persona_uses_the_game_tools_and_never_pushes_spending():
+    persona = load_persona(ROOT / "config" / "persona.md")
+
+    games = persona.split("Game HoYoverse", 1)[1]
+
+    assert "game_status" in games
+    assert "gacha_history" in games
+    assert "top-up" in games
+
+
 def test_missing_persona_file_is_a_config_error_naming_the_path(tmp_path):
     with pytest.raises(ConfigError, match="persona_hilang.md"):
         load_persona(tmp_path / "persona_hilang.md")

@@ -1,11 +1,12 @@
 import copy
+import json
 from datetime import datetime
 from types import SimpleNamespace
 
 import httpx
 import ollama
 
-from waifu.brain.base import ToolCallRecord
+from waifu.brain.base import ToolCallRecord, ToolSpec
 from waifu.brain.ollama_brain import OllamaBrain
 from waifu.brain.persona import format_user_turn
 from waifu.brain.tools import build_tool_specs, to_ollama
@@ -516,3 +517,26 @@ def test_tool_call_record_matches_the_brain_contract():
     assert record.arguments == {}
     assert not record.is_error
     assert '"id":"lampu_kamar"' in record.result
+
+
+class GameTools:
+    def specs(self) -> list[ToolSpec]:
+        schema = {"type": "object", "properties": {}, "additionalProperties": False}
+        return [ToolSpec("game_status", "Status of Master's games.", schema)]
+
+    def run(self, name: str, arguments: object) -> tuple[str, bool]:
+        return json.dumps({"games": [{"game": "hsr", "stamina": {"current": 232}}]}), False
+
+
+def test_provider_tools_are_offered_and_their_calls_answered():
+    client = FakeOllama(reply("", call("game_status")), reply("TP-mu 232, Master!"))
+
+    result = brain_with(client, providers=[GameTools()]).respond("TP-ku berapa?", now=NOW)
+
+    names = [tool["function"]["name"] for tool in client.requests[0]["tools"]]
+    assert names == ["control_device", "list_devices", "game_status"]
+    tool_message = client.requests[1]["messages"][-1]
+    assert tool_message["role"] == "tool"
+    assert tool_message["tool_name"] == "game_status"
+    assert json.loads(tool_message["content"])["games"][0]["stamina"]["current"] == 232
+    assert [(c.name, c.is_error) for c in result.tool_calls] == [("game_status", False)]

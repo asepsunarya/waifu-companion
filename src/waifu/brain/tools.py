@@ -1,10 +1,11 @@
-"""The two tools the LLM gets for the house, and the dispatcher that runs them.
+"""The two tools the LLM gets for the house, other providers' tools, and the dispatcher.
 
 Specs are backend-neutral `ToolSpec`s; `to_anthropic` and `to_ollama` convert
 them to each vendor's wire format. Schemas stay within strict tool use: every
 object has `additionalProperties: false` and there are no numeric bounds.
 Specs and device lines carry no live state, so they stay byte-identical across
-turns and keep the prompt cache warm.
+turns and keep the prompt cache warm. A `ToolProvider` (the gacha buddy's game
+tools) adds its own tools beside the device ones.
 """
 
 from __future__ import annotations
@@ -12,8 +13,8 @@ from __future__ import annotations
 import json
 import logging
 import re
-from collections.abc import Mapping
-from typing import Any
+from collections.abc import Mapping, Sequence
+from typing import Any, Protocol
 
 from waifu.brain.base import ToolSpec
 from waifu.devices.base import Device
@@ -35,6 +36,16 @@ _CONTROL_KEYS = frozenset({"device", "command", "value"})
 
 class _InvalidArguments(Exception):
     """The model's tool arguments do not match the tool's schema."""
+
+
+class ToolProvider(Protocol):
+    """Tools beyond the house, such as the gacha buddy's game tools."""
+
+    def specs(self) -> list[ToolSpec]: ...
+
+    def run(self, name: str, arguments: object) -> tuple[str, bool]:
+        """(compact JSON, is_error) for one of its own tools; never raises."""
+        ...
 
 
 def describe_commands(commands: list[str], kind: str | None = None) -> str:
@@ -65,18 +76,40 @@ def device_lines(registry: DeviceRegistry) -> list[str]:
     return [_device_line(device) for device in registry.all()]
 
 
-def build_tool_specs(registry: DeviceRegistry) -> list[ToolSpec]:
-    return [_control_device_spec(registry), _list_devices_spec()]
+def build_tool_specs(
+    registry: DeviceRegistry, providers: Sequence[ToolProvider] = ()
+) -> list[ToolSpec]:
+    specs = [_control_device_spec(registry), _list_devices_spec()]
+    for provider in providers:
+        specs.extend(provider.specs())
+    names = [spec.name for spec in specs]
+    duplicates = sorted({name for name in names if names.count(name) > 1})
+    if duplicates:
+        raise ValueError(f"duplicate tool names: {', '.join(duplicates)}")
+    return specs
 
 
-def run_tool(registry: DeviceRegistry, name: str, arguments: object) -> tuple[str, bool]:
+def run_tool(
+    registry: DeviceRegistry,
+    name: str,
+    arguments: object,
+    providers: Sequence[ToolProvider] = (),
+) -> tuple[str, bool]:
     """Run one tool call from the model. Returns (compact JSON, is_error) and never raises."""
     if name == CONTROL_DEVICE:
         return _run_control_device(registry, arguments)
     if name == LIST_DEVICES:
         return _run_list_devices(registry, arguments)
+    for provider in providers:
+        if any(spec.name == name for spec in provider.specs()):
+            try:
+                return provider.run(name, arguments)
+            except Exception:
+                logger.exception("Tool '%s' failed", name)
+                return _error(f"Tool '{name}' gagal dijalankan.")
     logger.warning("Model called unknown tool '%s'", name)
-    return _error(f"Tool '{name}' tidak dikenal. Tool yang tersedia: {', '.join(TOOL_NAMES)}.")
+    available = [*TOOL_NAMES, *(spec.name for p in providers for spec in p.specs())]
+    return _error(f"Tool '{name}' tidak dikenal. Tool yang tersedia: {', '.join(available)}.")
 
 
 def to_anthropic(spec: ToolSpec) -> dict[str, Any]:
