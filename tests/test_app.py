@@ -1,6 +1,6 @@
 import logging
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import datetime
 
 import numpy as np
@@ -96,9 +96,11 @@ class FakePlayer:
         self.events = events
         self.error = error
         self.played: list[int] = []
+        self.on_play: Callable[[], None] = lambda: None  # runs while the audio "plays"
 
     def play(self, audio: np.ndarray, sample_rate: int) -> None:
         self.events.append("play")
+        self.on_play()
         if self.error is not None:
             raise self.error
         self.played.append(sample_rate)
@@ -686,3 +688,217 @@ def test_tool_results_are_logged_for_debugging(caplog):
         rig.assistant.handle_text("pity-ku berapa?")
 
     assert "Yunli" in caplog.text
+
+
+# The avatar's interactions: busy, spoken reactions, and listening on a double-click
+
+
+WAIT_S = 2.0  # an upper bound for events between threads, never a sleep
+PAT_LINE = "Hehe, makasih elusannya, Master."
+ANNOUNCEMENT = "Master, ekspedisi HSR sudah selesai."
+
+
+class WatchingBrain(FakeBrain):
+    """Notes what `watch` says while the brain thinks."""
+
+    def __init__(self, reply: str = REPLY) -> None:
+        super().__init__(reply)
+        self.watch: Callable[[], bool] = lambda: False
+        self.seen: list[bool] = []
+
+    def respond(self, user_text: str, *, now: datetime | None = None) -> BrainReply:
+        self.seen.append(self.watch())
+        return super().respond(user_text, now=now)
+
+
+def test_she_is_not_busy_while_idle():
+    rig = Rig()
+
+    assert rig.assistant.busy is False
+
+
+def test_she_is_busy_from_hearing_an_utterance_until_her_reply_ends():
+    rig = Rig("Cyrene, nyalakan lampu kamar", brain=WatchingBrain)
+    rig.brain.watch = lambda: rig.assistant.busy
+    while_playing: list[bool] = []
+    rig.player.on_play = lambda: while_playing.append(rig.assistant.busy)
+
+    rig.assistant.handle_utterance(rig.utterance())
+
+    assert rig.brain.seen == [True]
+    assert while_playing == [True]
+    assert rig.assistant.busy is False
+
+
+def test_she_is_busy_while_announcing():
+    rig = Rig()
+    while_playing: list[bool] = []
+    rig.player.on_play = lambda: while_playing.append(rig.assistant.busy)
+    rig.assistant.announce("Master, ekspedisi HSR sudah selesai.")
+
+    rig.assistant.run(FakeMic(rig.events, [SILENT_FRAME]), FakeSegmenter(rig.events, [None]))
+
+    assert while_playing == [True]
+    assert rig.assistant.busy is False
+
+
+def test_she_counts_as_busy_while_master_is_speaking():
+    rig = Rig()
+    segmenter = FakeSegmenter(rig.events, [])
+    rig.assistant.set_mic(FakeMic(rig.events, []), segmenter)
+
+    segmenter.busy = True
+    talking = rig.assistant.busy
+    segmenter.busy = False
+
+    assert talking is True
+    assert rig.assistant.busy is False
+
+
+def test_she_is_no_longer_busy_after_an_utterance_fails():
+    rig = Rig(RuntimeError("Whisper crashed"))
+
+    with pytest.raises(RuntimeError):
+        rig.assistant.handle_utterance(rig.utterance())
+
+    assert rig.assistant.busy is False
+
+
+def test_a_reaction_is_spoken_like_a_reply_and_opens_the_follow_up_window():
+    rig = Rig("matikan lampu kamar", with_avatar=True)
+    rig.assistant.set_mic(FakeMic(rig.events, []), FakeSegmenter(rig.events, []))
+    while_playing: list[bool] = []
+    rig.player.on_play = lambda: while_playing.append(rig.assistant.busy)
+
+    rig.assistant.speak_reaction(PAT_LINE, "happy")
+    events = list(rig.events)
+    rig.clock.now += 3
+    follow_up = rig.assistant.handle_utterance(rig.utterance())
+
+    assert rig.speech.texts[0] == PAT_LINE
+    assert events == [
+        "mic.pause",
+        "synthesize",
+        "avatar.state speaking",
+        "avatar.speak happy",
+        "play",
+        "mic.resume",
+        "segmenter.reset",
+        "avatar.state listening 8",
+    ]
+    assert while_playing[0] is True
+    assert follow_up == REPLY  # no wake word needed inside the window
+
+
+def test_listen_now_opens_the_follow_up_window_and_shows_her_listening():
+    rig = Rig("matikan lampu kamar", with_avatar=True)
+
+    rig.assistant.listen_now()
+    events = list(rig.events)
+    rig.clock.now += 3
+    follow_up = rig.assistant.handle_utterance(rig.utterance())
+
+    assert events == ["avatar.state listening 8"]
+    assert follow_up == REPLY
+    assert rig.speech.texts == [REPLY]  # listen_now itself says nothing
+
+
+def test_listen_now_without_a_follow_up_window_leaves_her_idle():
+    config = AppConfig.model_validate({"assistant": {"followup_seconds": 0}})
+    rig = Rig(config=config, with_avatar=True)
+
+    rig.assistant.listen_now()
+
+    assert rig.events == ["avatar.state idle"]
+
+
+def hold_first_play(rig: Rig) -> tuple[threading.Event, threading.Event]:
+    """Make the first `play` block until released; returns (playing, release)."""
+    playing, release = threading.Event(), threading.Event()
+
+    def hold() -> None:
+        if not playing.is_set():
+            playing.set()
+            release.wait(WAIT_S)
+
+    rig.player.on_play = hold
+    return playing, release
+
+
+def test_a_reaction_waits_until_the_reply_has_been_spoken():
+    rig = Rig("Cyrene, nyalakan lampu kamar", with_avatar=True)
+    playing, release = hold_first_play(rig)
+    reply = threading.Thread(target=rig.assistant.handle_utterance, args=(rig.utterance(),))
+    reply.start()
+    assert playing.wait(WAIT_S)
+
+    reaction = threading.Thread(target=rig.assistant.speak_reaction, args=(PAT_LINE, "happy"))
+    reaction.start()
+    reaction.join(0.1)
+    waiting, busy, said = reaction.is_alive(), rig.assistant.busy, list(rig.speech.texts)
+    release.set()
+    reply.join(WAIT_S)
+    reaction.join(WAIT_S)
+
+    assert waiting
+    assert busy
+    assert said == [REPLY]
+    assert rig.speech.texts == [REPLY, PAT_LINE]
+    assert rig.events == [
+        "avatar.state thinking",
+        "synthesize",
+        "avatar.state speaking",
+        "avatar.speak neutral",
+        "play",
+        "avatar.state listening 8",
+        "synthesize",
+        "avatar.state speaking",
+        "avatar.speak happy",
+        "play",
+        "avatar.state listening 8",
+    ]
+
+
+def test_listen_now_waits_until_what_she_is_saying_has_been_said():
+    # The interaction handler ignores a double-click while she is busy, but an announcement
+    # can start between that check and listen_now: the window opens after it, never during it.
+    rig = Rig(with_avatar=True)
+    playing, release = hold_first_play(rig)
+    announcement = threading.Thread(
+        target=rig.assistant.speak, args=(ANNOUNCEMENT,), kwargs={"followup": False}
+    )
+    announcement.start()
+    assert playing.wait(WAIT_S)
+
+    listening = threading.Thread(target=rig.assistant.listen_now)
+    listening.start()
+    listening.join(0.1)
+    waiting, shown = listening.is_alive(), list(rig.events)
+    release.set()
+    announcement.join(WAIT_S)
+    listening.join(WAIT_S)
+
+    assert waiting
+    assert "avatar.state listening 8" not in shown
+    assert rig.events[-2:] == ["avatar.state idle", "avatar.state listening 8"]
+
+
+def test_a_reply_waits_until_the_reaction_has_been_spoken():
+    rig = Rig("Cyrene, nyalakan lampu kamar")
+    playing, release = hold_first_play(rig)
+    reaction = threading.Thread(target=rig.assistant.speak_reaction, args=(PAT_LINE, "happy"))
+    reaction.start()
+    assert playing.wait(WAIT_S)
+
+    reply = threading.Thread(target=rig.assistant.handle_utterance, args=(rig.utterance(),))
+    reply.start()
+    reply.join(0.1)
+    waiting, said = reply.is_alive(), list(rig.speech.texts)
+    release.set()
+    reaction.join(WAIT_S)
+    reply.join(WAIT_S)
+
+    assert waiting
+    assert said == [PAT_LINE]
+    assert rig.speech.texts == [PAT_LINE, REPLY]
+    assert rig.events == ["synthesize", "play", "synthesize", "play"]

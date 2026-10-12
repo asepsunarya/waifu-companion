@@ -5,13 +5,19 @@ microphone, Whisper, and speakers or against test fakes. Speech output is half
 duplex: the microphone is paused while she talks so she never answers herself.
 An optional avatar shows what she is doing: thinking, speaking (mouth and face
 following the reply), and listening during the follow-up window.
+
+The avatar's interactions (`waifu.avatar.interactions`) speak from their own
+thread, so she says one thing at a time: replies, announcements, and reactions
+share one voice lock, and `busy` tells the interaction handler when to stay quiet.
 """
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import logging
 import queue
+import threading
 from collections.abc import Callable, Iterator
 from datetime import datetime
 from typing import Protocol
@@ -121,6 +127,21 @@ class Assistant:
         self._speaker_error_logged = False
         self._avatar_failing = False
         self._announcements: queue.SimpleQueue[tuple[str, str]] = queue.SimpleQueue()
+        self._voice = threading.Lock()  # one voice: replies, announcements, and reactions
+        self._engaged_lock = threading.Lock()
+        self._engaged_count = 0
+
+    @property
+    def busy(self) -> bool:
+        """Whether she is engaged: handling an utterance, speaking, or announcing.
+
+        Also while Master is speaking (the segmenter is inside an utterance), so a
+        reaction never cuts Master off, like announcements. Safe from any thread.
+        """
+        with self._engaged_lock:
+            engaged = self._engaged_count > 0
+        segmenter = self._segmenter
+        return engaged or (segmenter is not None and segmenter.busy)
 
     def set_mic(self, mic: Microphone | None, segmenter: Segmenter | None = None) -> None:
         """The microphone to pause, and the segmenter to reset, while she speaks."""
@@ -129,27 +150,28 @@ class Assistant:
 
     def handle_utterance(self, utterance: Utterance) -> str | None:
         """Answer one utterance aloud; returns what she said, or None when it was not for her."""
-        if not self._is_owner(utterance):
-            return None
-        transcript = self._stt.transcribe(utterance.audio, utterance.sample_rate)
-        text = transcript.text.strip()
-        if not text:
-            logger.debug("Nothing usable was transcribed")
-            return None
-        logger.info("Heard (%s): %s", transcript.language, text)
-        result = self._gate.check(text, heard_at=utterance.started_at)
-        if not result.accepted:
-            logger.info("Not addressed to %s (%s); ignoring", self._name, result.reason)
-            return None
-        if result.command:
-            self._show(lambda avatar: avatar.state("thinking"))
-            emotion, reply = self._think(result.command)
-            reply_text = reply.text
-        else:
-            # A bare wake word ("Cyrene?") gets a quick answer without a round trip to the LLM.
-            emotion, reply_text = ACKNOWLEDGEMENT_EMOTION, ACKNOWLEDGEMENT
-        self.speak(reply_text, emotion)
-        return reply_text
+        with self._engaged():
+            if not self._is_owner(utterance):
+                return None
+            transcript = self._stt.transcribe(utterance.audio, utterance.sample_rate)
+            text = transcript.text.strip()
+            if not text:
+                logger.debug("Nothing usable was transcribed")
+                return None
+            logger.info("Heard (%s): %s", transcript.language, text)
+            result = self._gate.check(text, heard_at=utterance.started_at)
+            if not result.accepted:
+                logger.info("Not addressed to %s (%s); ignoring", self._name, result.reason)
+                return None
+            if result.command:
+                self._show(lambda avatar: avatar.state("thinking"))
+                emotion, reply = self._think(result.command)
+                reply_text = reply.text
+            else:
+                # A bare wake word ("Cyrene?") gets a quick answer without a round trip to the LLM.
+                emotion, reply_text = ACKNOWLEDGEMENT_EMOTION, ACKNOWLEDGEMENT
+            self.speak(reply_text, emotion)
+            return reply_text
 
     def handle_text(self, text: str) -> BrainReply:
         """Ask the brain directly: no wake word, no voice (text chat); the reply has no tag."""
@@ -167,29 +189,52 @@ class Assistant:
 
         A reply opens the follow-up window afterwards; with `followup=False` (an
         announcement, not a reply) it stays as it was. Failures are logged, never raised.
+        Safe from any thread: she says one thing at a time, so this waits for whatever
+        she is saying first.
         """
-        if self._mic is not None:
-            self._mic.pause()
-        try:
-            audio, sample_rate = self._speech.synthesize(text)
-            self._show(lambda avatar: avatar.state("speaking"))
-            self._show(lambda avatar: avatar.speak(audio, sample_rate, emotion))
-            self._player.play(audio, sample_rate)
-        except TtsError as exc:
-            logger.warning("Could not synthesise the reply: %s", exc)
-        except Exception:
-            logger.exception("Could not play the reply")
-        finally:
-            if self._mic is not None:
-                self._mic.resume()
-            if self._segmenter is not None:
-                self._segmenter.reset()
-            if followup:
-                self._gate.open_followup()
-            if followup and self._followup_s > 0:
-                self._show(lambda avatar: avatar.state("listening", followup_s=self._followup_s))
-            else:  # an announcement, or no follow-up window: only the wake word is heard
-                self._show(lambda avatar: avatar.state("idle"))
+        with self._engaged(), self._voice:
+            mic, segmenter = self._mic, self._segmenter
+            if mic is not None:
+                mic.pause()
+            try:
+                audio, sample_rate = self._speech.synthesize(text)
+                self._show(lambda avatar: avatar.state("speaking"))
+                self._show(lambda avatar: avatar.speak(audio, sample_rate, emotion))
+                self._player.play(audio, sample_rate)
+            except TtsError as exc:
+                logger.warning("Could not synthesise the reply: %s", exc)
+            except Exception:
+                logger.exception("Could not play the reply")
+            finally:
+                if mic is not None:
+                    mic.resume()
+                if segmenter is not None:
+                    segmenter.reset()
+                if followup:
+                    self._open_followup()
+                else:  # an announcement: only the wake word is heard
+                    self._show(lambda avatar: avatar.state("idle"))
+
+    def speak_reaction(self, text: str, emotion: str) -> None:
+        """Answer a touch on the avatar aloud, exactly like a reply (`speak`).
+
+        The microphone is paused, the avatar mouths `text` with `emotion`, and the
+        follow-up window opens afterwards. Called from the interaction handler's thread.
+        """
+        self.speak(text, emotion)
+
+    def listen_now(self) -> None:
+        """Open the follow-up window now (a double-click on the avatar) and show her listening.
+
+        It says nothing itself: the interaction handler follows it with a `listen` line
+        through `speak_reaction`, so the line's choice, repeat avoidance, and cooldown stay
+        in the handler, and the window is open even when that line is skipped. The handler
+        ignores a double-click while she is `busy`; a reply or announcement that starts
+        between that check and this call is waited for, so the window opens after it.
+        Safe from any thread.
+        """
+        with self._voice:
+            self._open_followup()
 
     def run(self, mic: Microphone, segmenter: Segmenter) -> None:
         """Listen until Ctrl+C.
@@ -244,6 +289,25 @@ class Assistant:
             logger.info("Tool %s(%s) -> %s", call.name, call.arguments, outcome)
             logger.debug("Tool %s result: %s", call.name, call.result)
         return split_reply(reply)
+
+    @contextlib.contextmanager
+    def _engaged(self) -> Iterator[None]:
+        """Count the enclosed work towards `busy`."""
+        with self._engaged_lock:
+            self._engaged_count += 1
+        try:
+            yield
+        finally:
+            with self._engaged_lock:
+                self._engaged_count -= 1
+
+    def _open_followup(self) -> None:
+        """Hear Master without the wake word for `followup_seconds`, and show her listening."""
+        self._gate.open_followup()
+        if self._followup_s > 0:
+            self._show(lambda avatar: avatar.state("listening", followup_s=self._followup_s))
+        else:  # no follow-up window: only the wake word is heard
+            self._show(lambda avatar: avatar.state("idle"))
 
     def _show(self, update: Callable[[Avatar], None]) -> None:
         """Apply `update` to the avatar, if any; failures are logged once per streak, not raised."""
