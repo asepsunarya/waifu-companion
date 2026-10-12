@@ -330,12 +330,12 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 32 · **Files:** `src/waifu/gacha/history.py`, `tests/test_gacha_history.py` · **Scope:** S
 
-## Task 35: History store, stats, report
+## Task 35: History store, stats, report ✅
 
 **Acceptance criteria:**
-- [ ] `GachaStore` merges by id, returns only new records, and writes atomically per account
-- [ ] `banner_stats` gives pity, totals, the last five top-rarity items with pulls, `won_5050`, and `guaranteed` (a guaranteed win is neither won nor lost), honouring `off_banner`
-- [ ] `GachaHistory.report` refreshes incrementally, falls back to the cookie authkey, then to saved data with a problem message; `full` reads every page; an incomplete first import says so
+- [x] `GachaStore` merges by id, returns only new records, and writes atomically per account
+- [x] `banner_stats` gives pity, totals, the last five top-rarity items with pulls, `won_5050`, and `guaranteed` (a guaranteed win is neither won nor lost), honouring `off_banner`
+- [x] `GachaHistory.report` refreshes incrementally, falls back to the cookie authkey, then to saved data with a problem message; `full` reads every page; an incomplete first import says so
 
 **Dependencies:** 34 · **Files:** `src/waifu/gacha/history.py`, `tests/test_gacha_history.py` · **Scope:** M
 
