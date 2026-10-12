@@ -21,6 +21,18 @@ class ConfigError(Exception):
     """config.yaml is missing, unreadable, or invalid."""
 
 
+def _ipv4_loopback(value: str, field: str) -> str:
+    """Local servers have no password and listen on IPv4 only ("localhost" would try ::1
+    first and cost ~2 s per request on Windows), so they must bind an IPv4 loopback."""
+    try:
+        address = ipaddress.ip_address(value)
+    except ValueError:
+        address = None
+    if address is None or address.version != 4 or not address.is_loopback:
+        raise ValueError(f"{field} must be an IPv4 loopback address such as 127.0.0.1")
+    return value
+
+
 class _Strict(BaseModel):
     # hide_input_in_errors: a validation error must never echo a local_key back to the console.
     model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
@@ -151,15 +163,7 @@ class RvcConfig(_Strict):
     @field_validator("host")
     @classmethod
     def _host_is_ipv4_loopback(cls, value: str) -> str:
-        # The server has no password and listens on IPv4 only ("localhost" would try ::1
-        # first and cost ~2 s per request on Windows), matching voice.rvc's boundary check.
-        try:
-            address = ipaddress.ip_address(value)
-        except ValueError:
-            address = None
-        if address is None or address.version != 4 or not address.is_loopback:
-            raise ValueError("tts.rvc.host must be an IPv4 loopback address such as 127.0.0.1")
-        return value
+        return _ipv4_loopback(value, "tts.rvc.host")
 
     @model_validator(mode="after")
     def _enabled_needs_model(self) -> RvcConfig:
@@ -256,6 +260,34 @@ class DeviceConfig(_Strict):
         return self
 
 
+class AvatarConfig(_Strict):
+    """A VRM avatar that lip-syncs her replies, shown as a desktop mascot or a window."""
+
+    enabled: bool = False
+    model: Path | None = None
+    host: str = "127.0.0.1"
+    port: int = Field(default=9882, ge=1024, le=65535)
+    # mascot: transparent always-on-top Electron window; app: Edge app window; none: server only.
+    window: Literal["mascot", "app", "none"] = "mascot"
+    electron_dir: Path = Path("avatar-app")
+    width: int = Field(default=360, ge=120, le=2000)
+    height: int = Field(default=640, ge=160, le=2000)
+    corner: Literal["bottom-right", "bottom-left", "top-right", "top-left"] = "bottom-right"
+    always_on_top: bool = True
+    framing: Literal["full", "upper"] = "full"
+
+    @field_validator("host")
+    @classmethod
+    def _host_is_ipv4_loopback(cls, value: str) -> str:
+        return _ipv4_loopback(value, "avatar.host")
+
+    @model_validator(mode="after")
+    def _enabled_needs_model(self) -> AvatarConfig:
+        if self.enabled and self.model is None:
+            raise ValueError("avatar.model (the .vrm file) is required when the avatar is enabled")
+        return self
+
+
 class AppConfig(_Strict):
     assistant: AssistantConfig = Field(default_factory=AssistantConfig)
     audio: AudioConfig = Field(default_factory=AudioConfig)
@@ -264,6 +296,7 @@ class AppConfig(_Strict):
     brain: BrainConfig = Field(default_factory=BrainConfig)
     tts: TtsConfig = Field(default_factory=TtsConfig)
     ir_codes_path: Path = Path("data/ir_codes.json")
+    avatar: AvatarConfig = Field(default_factory=AvatarConfig)
     devices: list[DeviceConfig] = Field(default_factory=list)
 
     @model_validator(mode="after")

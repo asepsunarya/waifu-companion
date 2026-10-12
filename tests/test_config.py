@@ -140,3 +140,25 @@ def test_rvc_host_must_be_a_loopback_address(tmp_path, host):
 def test_rvc_ipv4_loopback_hosts_are_accepted(tmp_path, host):
     text = f"tts:\n  rvc:\n    host: '{host}'\n"
     assert load_config(write_yaml(tmp_path, text)).tts.rvc.host == host
+
+
+def test_avatar_is_off_by_default_as_a_desktop_mascot():
+    avatar = AppConfig().avatar
+    assert avatar.enabled is False
+    assert avatar.window == "mascot"
+    assert (avatar.host, avatar.port) == ("127.0.0.1", 9882)
+
+
+def test_enabled_avatar_needs_a_vrm_model(tmp_path):
+    with pytest.raises(ConfigError, match="avatar.model"):
+        load_config(write_yaml(tmp_path, "avatar:\n  enabled: true\n"))
+
+
+def test_avatar_host_must_be_ipv4_loopback(tmp_path):
+    with pytest.raises(ConfigError, match="avatar.host"):
+        load_config(write_yaml(tmp_path, "avatar:\n  host: 0.0.0.0\n"))
+
+
+def test_avatar_window_mode_is_validated(tmp_path):
+    with pytest.raises(ConfigError, match="window"):
+        load_config(write_yaml(tmp_path, "avatar:\n  window: fullscreen\n"))
