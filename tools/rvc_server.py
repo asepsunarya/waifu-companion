@@ -11,9 +11,11 @@ and requests are served one at a time: the GPU model is not shared between threa
 from __future__ import annotations
 
 import argparse
+import array
 import io
 import json
 import logging
+import math
 import os
 import sys
 import tempfile
@@ -213,6 +215,11 @@ class ApplioConverter:
         self._index_path = index_path
 
     def convert(self, wav_bytes: bytes, *, pitch: int, index_rate: float, protect: float) -> bytes:
+        if _is_digital_silence(wav_bytes):
+            # Applio's pitch embedding trips a CUDA device assert on all-zero audio, which
+            # poisons this process for every later request; silence needs no conversion.
+            logger.debug("Returning all-silent audio unchanged")
+            return wav_bytes
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as source:
             source.write(wav_bytes)
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as target:
@@ -241,23 +248,46 @@ class ApplioConverter:
         return converted
 
     def warmup(self) -> None:
-        """Converts 1 s of silence so the model and embedder load before the first reply."""
+        """Converts 1 s of quiet tone so the model and embedder load before the first reply.
+
+        Not silence: digital silence would crash Applio's pitch embedding on CUDA.
+        """
         self.convert(
-            _silent_wav(seconds=1, sample_rate=16_000),
+            _tone_wav(seconds=1, sample_rate=16_000),
             pitch=DEFAULT_PARAMS.pitch,
             index_rate=DEFAULT_PARAMS.index_rate,
             protect=DEFAULT_PARAMS.protect,
         )
 
 
-def _silent_wav(*, seconds: int, sample_rate: int) -> bytes:
+def _tone_wav(*, seconds: int, sample_rate: int) -> bytes:
+    """A 220 Hz tone with four overtones under a Hann fade, as 16-bit mono WAV."""
+    frames = seconds * sample_rate
+    samples = array.array("h")
+    for n in range(frames):
+        t = n / sample_rate
+        fade = 0.5 - 0.5 * math.cos(2 * math.pi * n / (frames - 1))
+        value = sum(0.2 / k * math.sin(2 * math.pi * 220 * k * t) for k in range(1, 6))
+        samples.append(int(32767 * 0.5 * fade * value))
     buffer = io.BytesIO()
     with wave.open(buffer, "wb") as wav:
         wav.setnchannels(1)
         wav.setsampwidth(2)
         wav.setframerate(sample_rate)
-        wav.writeframes(bytes(2 * seconds * sample_rate))
+        wav.writeframes(samples.tobytes())
     return buffer.getvalue()
+
+
+def _is_digital_silence(wav_bytes: bytes) -> bool:
+    """True when every byte of the RIFF `data` chunk is zero (PCM or float alike)."""
+    position = 12  # after "RIFF" <size> "WAVE"
+    while position + 8 <= len(wav_bytes):
+        chunk_id = wav_bytes[position : position + 4]
+        size = int.from_bytes(wav_bytes[position + 4 : position + 8], "little")
+        if chunk_id == b"data":
+            return not any(wav_bytes[position + 8 : position + 8 + size])
+        position += 8 + size + (size & 1)
+    return False
 
 
 def load_applio_converter(applio_dir: Path, model: Path, index: Path | None) -> ApplioConverter:

@@ -7,6 +7,7 @@ fake `rvc.infer.infer` package written to a temporary folder; no model is loaded
 
 from __future__ import annotations
 
+import array
 import http.client
 import importlib
 import importlib.util
@@ -45,13 +46,17 @@ rvc_server = _load_server_module()
 REAL_SERVER_CLASS = rvc_server.RvcHttpServer
 
 
-def make_wav(frames: int = 160, sample_rate: int = 16_000) -> bytes:
+def make_wav(frames: int = 160, sample_rate: int = 16_000, *, silent: bool = False) -> bytes:
+    """16-bit mono WAV: a quiet square wave, or digital silence when `silent`."""
+    samples = array.array(
+        "h", [0 if silent else (800 if i % 40 < 20 else -800) for i in range(frames)]
+    )
     buffer = io.BytesIO()
     with wave.open(buffer, "wb") as wav:
         wav.setnchannels(1)
         wav.setsampwidth(2)
         wav.setframerate(sample_rate)
-        wav.writeframes(bytes(2 * frames))
+        wav.writeframes(samples.tobytes())
     return buffer.getvalue()
 
 
@@ -571,7 +576,10 @@ def test_applio_converter_fails_when_applio_writes_no_audio(fake_applio: Path) -
         converter.convert(make_wav(), pitch=0, index_rate=0.75, protect=0.33)
 
 
-def test_warmup_converts_one_second_of_silence_at_16khz(fake_applio: Path) -> None:
+def test_warmup_converts_one_second_of_audible_tone_not_silence(fake_applio: Path) -> None:
+    # Measured on the owner's RTX 5060 Ti: Applio's pitch embedding hits a CUDA
+    # "index out of bounds" device assert on digital silence, which killed the server
+    # at start; a quiet harmonic tone converts fine.
     converter = rvc_server.load_applio_converter(fake_applio, Path("voice.pth"), None)
 
     converter.warmup()
@@ -579,7 +587,18 @@ def test_warmup_converts_one_second_of_silence_at_16khz(fake_applio: Path) -> No
     [call] = fake_infer().calls
     frames, sample_rate, audio = call["input_audio"]
     assert (frames, sample_rate) == (16_000, 16_000)
-    assert set(audio) == {0}
+    assert any(audio)
+
+
+def test_all_silent_audio_is_returned_unchanged_without_calling_applio(
+    fake_applio: Path,
+) -> None:
+    # The same CUDA assert would poison the server process for every later request.
+    converter = rvc_server.load_applio_converter(fake_applio, Path("voice.pth"), None)
+    silence = make_wav(silent=True)
+
+    assert converter.convert(silence, pitch=4, index_rate=0.75, protect=0.33) == silence
+    assert fake_infer().calls == []
 
 
 # --- main ----------------------------------------------------------------------------------
