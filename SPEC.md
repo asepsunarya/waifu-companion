@@ -243,7 +243,7 @@ Brain:
 
 Config `gacha`: `enabled` (false), `cookie` (`SecretStr`, optional; when given it must hold `ltuid_v2` + `ltoken_v2` or `ltuid` + `ltoken`; the error names the missing cookie, never a value), `games` (default `[hsr, genshin, zzz]`, unique, at least one), `uids` (`{game: uid}`, optional), `server_utc_offset` (8, Asia), `poll_minutes` (15, 5..240), `checkin` (true), `reminders: {stamina_minutes: 60 (0..1440), daily_time: "20:00" (HH:MM), weekly: true, expeditions: true}`, `off_banner` (`{game: [names]}`), `data_dir` (`data/gacha`).
 
-CLI (`waifu gacha <aksi>`, Indonesian output):
+CLI (`waifu gacha <aksi>`, Indonesian output; these commands work whether or not `gacha.enabled` is on, which only adds the game tools and the watcher to `run`; `build_gacha(config) -> GachaParts(hoyolab, history)` reads the game logs under `GAME_LOGS_DIR`, `%USERPROFILE%\AppData\LocalLow`):
 - `accounts` — every game account on the cookie (game, uid, nickname, level, server) and which one Cyrene uses.
 - `status [game]` — the status of each configured game (or one), the same data as `game_status`.
 - `checkin` — claim now; prints each game's reward or "sudah diambil".

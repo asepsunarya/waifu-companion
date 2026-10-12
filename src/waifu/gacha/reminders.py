@@ -142,7 +142,7 @@ def _stamina(
     if full:
         text = f"Master, {game.stamina} di {game.short} sudah penuh, {amount}."
     else:
-        wait = _duration(math.ceil(status.stamina_full_in_s / 60))
+        wait = duration_text(math.ceil(status.stamina_full_in_s / 60))
         text = f"Master, {game.stamina} di {game.short} sudah {amount}, penuh sekitar {wait} lagi."
     return Notice(game.id, "stamina", f"{text} Jangan sampai terbuang ya.", "surprised")
 
@@ -186,7 +186,8 @@ def _expeditions(game: Game, status: GameStatus, state: ReminderState, day: date
     return Notice(game.id, "expeditions", text, "surprised")
 
 
-def _duration(minutes: int) -> str:
+def duration_text(minutes: int) -> str:
+    """Minutes as she says them: 90 becomes "1 jam 30 menit"."""
     hours, minutes = divmod(minutes, 60)
     if not hours:
         return f"{minutes} menit"

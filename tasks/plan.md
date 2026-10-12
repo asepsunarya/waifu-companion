@@ -124,11 +124,11 @@ choice).
 - [x] Task 36: Tool providers for the brain, the game tools, persona (`brain/tools.py`, `gacha/tools.py`)
 - [x] Task 37: Reminder rules and their state (`gacha/reminders.py`)
 - [x] Task 38: Watcher thread and spoken announcements (`gacha/watcher.py`, `Assistant.announce`)
-- [ ] Task 39: CLI `gacha` commands, `run`/`chat`/`check` wiring, README
+- [x] Task 39: CLI `gacha` commands, `run`/`chat`/`check` wiring, README
 
 ### Checkpoint: Gacha buddy
-- [ ] Full suite and ruff clean; no test reached the internet (conftest guard)
-- [ ] On the owner's PC: `waifu gacha history hsr --full` imports the real HSR history from the cached authkey; pity matches the game
+- [x] Full suite and ruff clean; no test reached the internet (conftest guard)
+- [x] On the owner's PC: `waifu gacha history hsr --full` imports the real HSR history from the cached authkey (1101 pulls, 2026-10-12); the owner still compares the pity with the game
 - [ ] With the owner's cookie and ntfy topic: `gacha status`, `gacha checkin`, `notify-test`, and one spoken + pushed reminder in `run`
 
 ## Risks and Mitigations

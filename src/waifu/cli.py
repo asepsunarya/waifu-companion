@@ -20,7 +20,9 @@ import sys
 import urllib.request
 from collections import deque
 from collections.abc import Callable, Iterator, Sequence
-from contextlib import ExitStack, contextmanager
+from contextlib import AbstractContextManager, ExitStack, contextmanager, nullcontext
+from dataclasses import dataclass
+from datetime import datetime, timedelta
 from importlib import import_module
 from importlib.util import find_spec
 from itertools import count
@@ -42,18 +44,32 @@ from waifu.avatar.server import AvatarError, AvatarServer
 from waifu.avatar.window import AvatarWindow
 from waifu.brain.base import ToolCallRecord
 from waifu.brain.factory import build_brain
+from waifu.brain.tools import ToolProvider
 from waifu.config import (
     AppConfig,
     AvatarConfig,
     ConfigError,
     OllamaConfig,
     RvcConfig,
+    cookie_names,
     load_config,
 )
 from waifu.devices.base import DeviceError
 from waifu.devices.ir_codes import COMMAND_PATTERN, IrCodeStoreError
 from waifu.devices.ir_device import IrDevice
 from waifu.devices.registry import build_registry
+from waifu.gacha.games import GAMES, Game, next_daily_reset
+from waifu.gacha.history import (
+    GachaHistory,
+    GachaLogApi,
+    GachaStore,
+    TopPull,
+    find_cached_gacha_url,
+)
+from waifu.gacha.hoyolab import GachaError, GameStatus, HoyolabClient
+from waifu.gacha.reminders import duration_text
+from waifu.gacha.tools import GachaTools
+from waifu.gacha.watcher import GachaWatcher
 from waifu.gate import WakeGate
 from waifu.notify import build_notifier
 from waifu.single_instance import InstanceLock
@@ -139,6 +155,13 @@ NOTIFY_OFF = (
 )
 NOTIFY_TEST_MESSAGE = "Tes notifikasi dari {name}. Kalau ini muncul di HP, notifikasi sudah siap."
 NOTIFY_TAG = "video_game"  # ntfy shows it as a game controller emoji
+GACHA_DESCRIPTION = (
+    "Teman main game HoYoverse: status stamina dan daily, check-in harian HoYoLAB, dan "
+    "riwayat pull (pity, 50/50). Perintah ini jalan walau gacha.enabled: false; yang "
+    "dinyalakan gacha.enabled hanyalah tool game dan pengingat saat 'waifu run'."
+)
+# Where the games keep their logs, which lead to their history caches; tests point it elsewhere.
+GAME_LOGS_DIR = Path.home() / "AppData" / "LocalLow"
 _REGISTERED_DELAY = re.compile(r" --startup-delay (\d+) ")
 # build_command always quotes the folder, and a path in it never contains a quote.
 _REGISTERED_PROJECT = re.compile(r' /d "([^"]+)" ')
@@ -293,6 +316,36 @@ def build_parser() -> argparse.ArgumentParser:
         _autostart_status,
         "Status autostart, apakah Cyrene sedang berjalan, dan isi log terakhir.",
         actions,
+    )
+    gacha_command = commands.add_parser(
+        "gacha",
+        parents=[shared],
+        help="Teman main game HoYoverse: status, check-in, riwayat pull.",
+        description=GACHA_DESCRIPTION,
+    )
+    gacha_actions = gacha_command.add_subparsers(dest="action", required=True, metavar="<aksi>")
+    command(
+        "accounts",
+        _gacha_accounts,
+        "Akun game di cookie HoYoLAB, dan akun mana yang dipakai.",
+        gacha_actions,
+    )
+    status = command(
+        "status",
+        _gacha_status,
+        "Stamina, daily, mingguan, ekspedisi, dan check-in tiap game.",
+        gacha_actions,
+    )
+    status.add_argument("game", nargs="?", choices=list(GAMES), help="satu game saja")
+    command(
+        "checkin", _gacha_checkin, "Ambil hadiah check-in harian HoYoLAB sekarang.", gacha_actions
+    )
+    history = command(
+        "history", _gacha_history, "Perbarui riwayat pull lalu tampilkan pity.", gacha_actions
+    )
+    history.add_argument("game", choices=list(GAMES))
+    history.add_argument(
+        "--full", action="store_true", help="baca semua halaman riwayat (impor pertama)"
     )
     return parser
 
@@ -454,7 +507,8 @@ def _listen(args: argparse.Namespace) -> int:
         print(f"{NOT_ENROLLED} Atau pakai 'waifu run --no-speaker-check' untuk semua suara.")
         return 2
     registry = build_registry(config, dry_run=args.dry_run)
-    brain = build_brain(config, registry)
+    gacha = build_gacha(config) if config.gacha.enabled else None
+    brain = build_brain(config, registry, providers=_game_tools(config, gacha))
     stt = WhisperStt(config.stt, name)
     gate = WakeGate(config.assistant.wake_words, config.assistant.followup_seconds)
     segmenter = EnergySegmenter(config.audio.sample_rate, config.audio.vad)
@@ -499,7 +553,8 @@ def _listen(args: argparse.Namespace) -> int:
                 # conversation, as in a plain `run`.
                 assistant.speak(f"{name} siap, Master.", followup=False)
             try:
-                assistant.run(mic, segmenter)
+                with _gacha_watcher(config, gacha, assistant):
+                    assistant.run(mic, segmenter)
             except SttError as exc:
                 logger.error("Whisper stopped working: %s", exc)
                 print(f"{FAIL} {exc}")
@@ -510,7 +565,8 @@ def _listen(args: argparse.Namespace) -> int:
 def _chat(args: argparse.Namespace) -> int:
     config = load_config(args.config)
     registry = build_registry(config, dry_run=args.dry_run)
-    brain = build_brain(config, registry)
+    gacha = build_gacha(config) if config.gacha.enabled else None
+    brain = build_brain(config, registry, providers=_game_tools(config, gacha))
     with (
         _avatar_bus(config, wanted=args.speak) as avatar,
         _voice_converter(config, wanted=args.speak) as converter,
@@ -974,6 +1030,173 @@ def _notify_test(args: argparse.Namespace) -> int:
     return 1
 
 
+# --- HoYoverse games -------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class GachaParts:
+    hoyolab: HoyolabClient
+    history: GachaHistory
+
+
+def build_gacha(config: AppConfig) -> GachaParts:
+    """The HoYoLAB client and the pull history, as `gacha` in config.yaml describes them."""
+    gacha = config.gacha
+    cookie = gacha.cookie.get_secret_value() if gacha.cookie is not None else None
+    hoyolab = HoyolabClient(cookie, uids=gacha.uids)
+    history = GachaHistory(
+        GachaStore(gacha.data_dir),
+        GachaLogApi(),
+        locallow=GAME_LOGS_DIR,
+        hoyolab=hoyolab,
+        extra_standard=gacha.off_banner,
+        server_utc_offset=gacha.server_utc_offset,
+    )
+    return GachaParts(hoyolab, history)
+
+
+def _game_tools(config: AppConfig, gacha: GachaParts | None) -> list[ToolProvider]:
+    if gacha is None:
+        return []
+    tools = GachaTools(
+        gacha.hoyolab,
+        gacha.history,
+        config.gacha.games,
+        server_utc_offset=config.gacha.server_utc_offset,
+    )
+    return [tools]
+
+
+def _gacha_watcher(
+    config: AppConfig, gacha: GachaParts | None, assistant: Assistant
+) -> AbstractContextManager[object]:
+    """The reminders and check-in while she listens; nothing to watch without the cookie."""
+    if gacha is None or config.gacha.cookie is None:
+        return nullcontext()
+    return GachaWatcher(
+        gacha.hoyolab,
+        config.gacha,
+        notifier=build_notifier(config.notify),
+        announce=assistant.announce,
+        title=config.assistant.name,
+    )
+
+
+def _gacha_accounts(args: argparse.Namespace) -> int:
+    config = load_config(args.config)
+    try:
+        accounts = build_gacha(config).hoyolab.accounts()
+    except GachaError as error:
+        print(f"{FAIL} {error.message}")
+        return 1
+    if not accounts:
+        print(f"{WARN} Cookie ini tidak terhubung ke akun HSR, Genshin, atau ZZZ.")
+        return 1
+    # A uid from config.yaml, else the highest-level account (set last when sorted by level).
+    chosen = dict(config.gacha.uids)
+    for account in sorted(accounts, key=lambda a: a.level):
+        if account.game not in config.gacha.uids:
+            chosen[account.game] = account.uid
+    for account in accounts:
+        mark = "→" if chosen.get(account.game) == account.uid else " "
+        print(
+            f"{mark} {GAMES[account.game].short:<8} {account.uid}  {account.nickname} "
+            f"(level {account.level}, {account.server_name})"
+        )
+    print("→ = akun yang dipakai. Pilih akun lain dengan gacha.uids di config.yaml.")
+    return 0
+
+
+def _gacha_status(args: argparse.Namespace) -> int:
+    config = load_config(args.config)
+    games = [args.game] if args.game else config.gacha.games
+    now = datetime.now().astimezone()
+    failed = False
+    for game_id, result in build_gacha(config).hoyolab.status(games).items():
+        game = GAMES[game_id]
+        print(f"{game.short} ({game.name})")
+        if isinstance(result, GachaError):
+            print(f"  {FAIL} {result.message}")
+            failed = True
+            continue
+        for line in _status_lines(game, result, now, config.gacha.server_utc_offset):
+            print(f"  {line}")
+    return 1 if failed else 0
+
+
+def _status_lines(game: Game, status: GameStatus, now: datetime, offset: int) -> list[str]:
+    stamina = f"{game.stamina} {status.stamina}/{status.stamina_max}"
+    if status.stamina >= status.stamina_max or status.stamina_full_in_s <= 0:
+        stamina += " (sudah penuh)"
+    else:
+        full_at = now + timedelta(seconds=status.stamina_full_in_s)
+        wait = duration_text(math.ceil(status.stamina_full_in_s / 60))
+        stamina += f" (penuh {full_at:%H:%M}, {wait} lagi)"
+    daily_state = "selesai" if status.daily_done else "belum selesai"
+    lines = [stamina, f"{game.daily} {status.daily_current}/{status.daily_max}: {daily_state}"]
+    if status.weekly:
+        weekly = ", ".join(f"{task.name} {task.current}/{task.max}" for task in status.weekly)
+        lines.append(f"Mingguan: {weekly}")
+    if status.expeditions_total:
+        finished = f"{status.expeditions_finished}/{status.expeditions_total}"
+        lines.append(f"Ekspedisi selesai {finished}")
+    checked_in = {True: "sudah", False: "belum", None: "tidak diketahui"}[status.checked_in]
+    lines.append(f"Check-in HoYoLAB hari ini: {checked_in}")
+    lines.append(f"Reset harian jam {next_daily_reset(now, offset):%H:%M}")
+    return lines
+
+
+def _gacha_checkin(args: argparse.Namespace) -> int:
+    config = load_config(args.config)
+    hoyolab = build_gacha(config).hoyolab
+    failed = False
+    for game_id in config.gacha.games:
+        short = GAMES[game_id].short
+        try:
+            result = hoyolab.checkin(game_id)
+        except GachaError as error:
+            print(f"{FAIL} {short}: {error.message}")
+            failed = True
+            continue
+        reward = f"dapat {result.reward}" if result.claimed else "sudah diambil hari ini"
+        print(f"{OK} {short}: {reward}")
+    return 1 if failed else 0
+
+
+def _gacha_history(args: argparse.Namespace) -> int:
+    config = load_config(args.config)
+    game = GAMES[args.game]
+    note = " (semua halaman, bisa beberapa menit)" if args.full else ""
+    print(f"Membaca riwayat {game.pull_word} {game.short}{note}...", flush=True)
+    report = build_gacha(config).history.report(args.game, full=args.full)
+    if report.problem:
+        print(f"{WARN} {report.problem}")
+    if not report.stats:
+        print(f"{FAIL} Belum ada riwayat {game.short} yang tersimpan.")
+        return 1
+    if report.updated:
+        latest = f", terakhir {report.latest_pull:%Y-%m-%d %H:%M}" if report.latest_pull else ""
+        print(f"{OK} {report.new_count} pull baru tersimpan{latest}.")
+    top = "S-rank" if game.id == "zzz" else "5★"
+    for stats in report.stats:
+        guarantee = {True: ", berikutnya pasti limited", False: ", berikutnya 50/50", None: ""}
+        print(
+            f"{stats.banner.name}: pity {stats.pity}/{stats.banner.hard_pity}"
+            f"{guarantee[stats.guaranteed]}, total {stats.total} pull"
+        )
+        if stats.recent_tops:
+            tops = ", ".join(_top_pull_text(pull) for pull in stats.recent_tops)
+            print(f"  {top} terakhir: {tops}")
+    if report.hint:
+        print(f"{WARN} {report.hint}")
+    return 0 if report.problem is None else 1
+
+
+def _top_pull_text(pull: TopPull) -> str:
+    result = {True: ", menang 50/50", False: ", kalah 50/50", None: ""}[pull.won_5050]
+    return f"{pull.name} ({pull.pulls} pull{result})"
+
+
 # --- check -----------------------------------------------------------------------------------
 
 
@@ -999,6 +1222,8 @@ def _checks(config_path: Path) -> Iterator[Check]:
     yield _microphone_check(config)
     yield from _anime_voice_checks(config)
     yield from _avatar_checks(config)
+    yield from _gacha_checks(config)
+    yield _notify_check(config)
 
 
 def _device_checks(config: AppConfig, config_path: Path) -> Iterator[Check]:
@@ -1182,6 +1407,59 @@ def _path_check(label: str, path: Path | None, setting: str, *, folder: bool = F
     if path.is_dir() if folder else path.is_file():
         return OK, f"{label}: {path}"
     return FAIL, f"{label} tidak ditemukan: {path} (periksa {setting})"
+
+
+def _gacha_checks(config: AppConfig) -> Iterator[Check]:
+    """The cookie (key names only), genshin.py, and each game's history cache; no network."""
+    gacha = config.gacha
+    if not gacha.enabled:
+        yield WARN, "Teman main game mati (gacha.enabled: false); 'waifu gacha' tetap bisa dipakai"
+        return
+    if gacha.cookie is None:
+        yield (
+            WARN,
+            (
+                "Cookie HoYoLAB belum diisi (gacha.cookie): status, pengingat, dan check-in mati; "
+                "riwayat pull tetap terbaca dari cache game"
+            ),
+        )
+    elif "cookie_token_v2" in cookie_names(gacha.cookie.get_secret_value()):
+        yield OK, "Cookie HoYoLAB ada, termasuk cookie_token_v2 untuk riwayat pull"
+    else:
+        yield (
+            WARN,
+            (
+                "Cookie HoYoLAB ada tanpa cookie_token_v2: riwayat pull butuh riwayat di game "
+                "dibuka dalam sehari terakhir"
+            ),
+        )
+    if find_spec("genshin") is None:
+        yield FAIL, 'Paket genshin belum terpasang. Jalankan: pip install -e ".[dev]"'
+    for game_id in gacha.games:
+        game = GAMES[game_id]
+        try:
+            cached = find_cached_gacha_url(game, GAME_LOGS_DIR)
+        except GachaError as error:
+            yield WARN, f"Riwayat {game.short}: {error.message}"
+            continue
+        if cached is not None:
+            yield OK, f"Riwayat {game.short}: alamat riwayat ada di cache game"
+        else:
+            yield (
+                WARN,
+                (
+                    f"Riwayat {game.short}: belum ada di cache game; buka riwayat {game.pull_word} "
+                    "di game sekali"
+                ),
+            )
+
+
+def _notify_check(config: AppConfig) -> Check:
+    notify = config.notify
+    if not notify.enabled or notify.topic is None:
+        return WARN, "Notifikasi HP mati (notify.enabled: false)"
+    topic = f"{notify.topic.get_secret_value()[:4]}…"
+    return OK, f"Notifikasi HP lewat {notify.server}, topik {topic}; uji dengan: waifu notify-test"
 
 
 def _avatar_checks(config: AppConfig) -> Iterator[Check]:

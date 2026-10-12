@@ -11,7 +11,7 @@ import urllib.error
 import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from importlib.machinery import ModuleSpec
 from pathlib import Path, PureWindowsPath
 
@@ -35,6 +35,17 @@ from waifu.devices.ir_codes import IrCodeStore
 from waifu.devices.ir_device import IrDevice
 from waifu.devices.mock import MockDevice
 from waifu.devices.registry import DeviceRegistry
+from waifu.gacha.games import GAMES
+from waifu.gacha.history import BannerStats, GachaHistory, HistoryReport, TopPull
+from waifu.gacha.hoyolab import (
+    Account,
+    CheckinResult,
+    GachaError,
+    GameStatus,
+    HoyolabClient,
+    WeeklyTask,
+)
+from waifu.gacha.tools import GachaTools
 from waifu.single_instance import InstanceLock
 from waifu.voice.base import SpeakerEmbedder, SpeechToText, Transcript
 from waifu.voice.rvc import RvcError
@@ -115,8 +126,9 @@ class HouseBrain(Brain):
 
     reply = REPLY
 
-    def __init__(self, registry: DeviceRegistry) -> None:
+    def __init__(self, registry: DeviceRegistry, providers=()) -> None:
         self.registry = registry
+        self.providers = list(providers)
         self.heard: list[str] = []
 
     def respond(self, user_text: str, *, now: datetime | None = None) -> BrainReply:
@@ -798,8 +810,8 @@ def test_verbose_logging_never_reveals_a_tuya_local_key(home, monkeypatch, caplo
 def brains(monkeypatch) -> list[HouseBrain]:
     built: list[HouseBrain] = []
 
-    def build(config, registry):
-        built.append(HouseBrain(registry))
+    def build(config, registry, providers=()):
+        built.append(HouseBrain(registry, providers))
         return built[-1]
 
     monkeypatch.setattr(cli, "build_brain", build)
@@ -1342,10 +1354,14 @@ class RecordingAssistant:
     def __init__(self, config, **collaborators) -> None:
         self.collaborators = collaborators
         self.ran_with: tuple | None = None
+        self.announced: list[tuple[str, str]] = []
         RecordingAssistant.instances.append(self)
 
     def run(self, mic, segmenter) -> None:
         self.ran_with = (mic, segmenter)
+
+    def announce(self, text: str, emotion: str = "neutral") -> None:
+        self.announced.append((text, emotion))
 
 
 class PreloadingStt(SpeechToText):
@@ -2962,3 +2978,375 @@ def test_notify_test_with_notifications_off_says_how_to_turn_them_on(home, monke
 
     assert notifier.sent == []
     assert "notify.enabled" in capsys.readouterr().out
+
+
+# --- HoYoverse games ---------------------------------------------------------------------------
+
+GACHA_COOKIE = "ltuid_v2=1; ltoken_v2=v2_SECRETCOOKIE; cookie_token_v2=SECRETTOKEN"
+
+
+def enable_gacha(home: Path, *, cookie: str | None = GACHA_COOKIE, extra: str = "") -> None:
+    config = home / "config.yaml"
+    text = config.read_text(encoding="utf-8")
+    cookie_line = f"  cookie: '{cookie}'\n" if cookie else ""
+    enabled = text.replace(
+        "gacha:\n  enabled: false\n", f"gacha:\n  enabled: true\n{cookie_line}{extra}"
+    )
+    assert enabled != text
+    config.write_text(enabled, encoding="utf-8")
+
+
+HSR_STATUS = GameStatus(
+    "hsr", 232, 300, 2880, 300, 500, False, (WeeklyTask("Echo of War", 2, 3),), 4, 1, True
+)
+ZZZ_STATUS = GameStatus("zzz", 240, 240, 0, 400, 400, True, (), 0, 0, None)
+
+
+class FakeGameClient:
+    """HoyolabClient's surface with fixed answers."""
+
+    def __init__(self) -> None:
+        self.statuses = {
+            "hsr": HSR_STATUS,
+            "genshin": GachaError("notes_off", "Real-Time Notes Genshin di HoYoLAB belum aktif."),
+            "zzz": ZZZ_STATUS,
+        }
+        self.checkins = {
+            "hsr": CheckinResult("hsr", True, "20 Stellar Jade"),
+            "genshin": CheckinResult("genshin", False, None),
+            "zzz": GachaError("captcha", "HoYoLAB minta verifikasi captcha ZZZ."),
+        }
+        self.account_list = [
+            Account("hsr", 800000009, "Alt", 20, "Asia"),
+            Account("hsr", 800000001, "Master", 70, "Asia"),
+            Account("zzz", 1300000003, "Master", 50, "Asia"),
+        ]
+        self.failure: GachaError | None = None
+
+    def accounts(self):
+        if self.failure is not None:
+            raise self.failure
+        return self.account_list
+
+    def status(self, games):
+        return {game: self.statuses[game] for game in games}
+
+    def checkin(self, game_id):
+        result = self.checkins[game_id]
+        if isinstance(result, GachaError):
+            raise result
+        return result
+
+
+class FakeGameHistory:
+    def __init__(self, report: HistoryReport) -> None:
+        self.report_to_give = report
+        self.asked: list[tuple[str, bool]] = []
+
+    def report(self, game_id, *, refresh=True, full=False):
+        self.asked.append((game_id, full))
+        return self.report_to_give
+
+
+HSR_GAME = GAMES["hsr"]
+HSR_HISTORY = HistoryReport(
+    game=HSR_GAME,
+    updated=True,
+    problem=None,
+    complete=True,
+    stats=(
+        BannerStats(
+            HSR_GAME.banners[0],
+            22,
+            577,
+            False,
+            (
+                TopPull(9, "Yunli", 29, True, "2026-09-29 00:05:00"),
+                TopPull(5, "Welt", 20, False, "2026-05-25 10:00:00"),
+            ),
+        ),
+        BannerStats(
+            HSR_GAME.banners[1],
+            0,
+            299,
+            None,
+            (TopPull(7, "A Star That Lights the Night", 69, None, "2026-07-17 05:19:27"),),
+        ),
+    ),
+    new_pulls=(),
+    new_count=3,
+    latest_pull=datetime(2026, 10, 11, 21, 18, tzinfo=timezone(timedelta(hours=7))),
+)
+
+
+@pytest.fixture
+def games(monkeypatch) -> types.SimpleNamespace:
+    parts = types.SimpleNamespace(
+        hoyolab=FakeGameClient(), history=FakeGameHistory(HSR_HISTORY), built=[]
+    )
+
+    def build(config):
+        parts.built.append(config)
+        return cli.GachaParts(parts.hoyolab, parts.history)
+
+    monkeypatch.setattr(cli, "build_gacha", build)
+    return parts
+
+
+def test_gacha_accounts_marks_the_highest_level_account_of_each_game(home, games, capsys):
+    assert cli.main(["gacha", "accounts"]) == 0
+
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[:3] == [
+        "  HSR      800000009  Alt (level 20, Asia)",
+        "→ HSR      800000001  Master (level 70, Asia)",
+        "→ ZZZ      1300000003  Master (level 50, Asia)",
+    ]
+    assert "gacha.uids" in lines[3]
+
+
+def test_gacha_accounts_marks_the_uid_from_config_yaml(home, games, capsys):
+    enable_gacha(home, extra="  uids: {hsr: 800000009}\n")
+
+    assert cli.main(["gacha", "accounts"]) == 0
+
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0].startswith("→ HSR      800000009")
+    assert lines[1].startswith("  HSR      800000001")
+
+
+def test_gacha_accounts_without_a_working_cookie_says_why(home, games, capsys):
+    games.hoyolab.failure = GachaError("no_cookie", "Cookie HoYoLAB belum diisi.")
+
+    assert cli.main(["gacha", "accounts"]) == 1
+
+    assert capsys.readouterr().out == "✗ Cookie HoYoLAB belum diisi.\n"
+
+
+def test_gacha_status_prints_each_game_and_fails_when_one_cannot_be_read(home, games, capsys):
+    assert cli.main(["gacha", "status"]) == 1
+
+    out = capsys.readouterr().out
+    hsr, rest = out.split("Genshin (Genshin Impact)\n")
+    genshin, zzz = rest.split("ZZZ (Zenless Zone Zero)\n")
+    assert hsr.startswith("HSR (Honkai: Star Rail)\n  Trailblaze Power 232/300 (penuh ")
+    assert "48 menit lagi)" in hsr
+    for line in (
+        "  Daily Training 300/500: belum selesai",
+        "  Mingguan: Echo of War 2/3",
+        "  Ekspedisi selesai 1/4",
+        "  Check-in HoYoLAB hari ini: sudah",
+    ):
+        assert line in hsr.splitlines()
+    assert "  Reset harian jam " in hsr
+    assert genshin == "  ✗ Real-Time Notes Genshin di HoYoLAB belum aktif.\n"
+    assert "  Battery Charge 240/240 (sudah penuh)" in zzz.splitlines()
+    assert "Ekspedisi" not in zzz
+    assert "  Check-in HoYoLAB hari ini: tidak diketahui" in zzz.splitlines()
+
+
+def test_gacha_status_of_one_game(home, games, capsys):
+    assert cli.main(["gacha", "status", "hsr"]) == 0
+
+    out = capsys.readouterr().out
+    assert out.startswith("HSR (Honkai: Star Rail)")
+    assert "Genshin" not in out and "ZZZ" not in out
+
+
+def test_gacha_checkin_reports_each_game(home, games, capsys):
+    assert cli.main(["gacha", "checkin"]) == 1  # ZZZ needed a captcha
+
+    assert capsys.readouterr().out.splitlines() == [
+        "✓ HSR: dapat 20 Stellar Jade",
+        "✓ Genshin: sudah diambil hari ini",
+        "✗ ZZZ: HoYoLAB minta verifikasi captcha ZZZ.",
+    ]
+
+
+def test_gacha_history_prints_each_banners_pity_and_last_five_stars(home, games, capsys):
+    assert cli.main(["gacha", "history", "hsr"]) == 0
+
+    assert games.history.asked == [("hsr", False)]
+    assert capsys.readouterr().out.splitlines() == [
+        "Membaca riwayat warp HSR...",
+        "✓ 3 pull baru tersimpan, terakhir 2026-10-11 21:18.",
+        "Character Event Warp: pity 22/90, berikutnya 50/50, total 577 pull",
+        "  5★ terakhir: Yunli (29 pull, menang 50/50), Welt (20 pull, kalah 50/50)",
+        "Light Cone Event Warp: pity 0/80, total 299 pull",
+        "  5★ terakhir: A Star That Lights the Night (69 pull)",
+    ]
+
+
+def test_gacha_history_full_reads_every_page(home, games, capsys):
+    assert cli.main(["gacha", "history", "hsr", "--full"]) == 0
+
+    assert games.history.asked == [("hsr", True)]
+    assert "semua halaman" in capsys.readouterr().out
+
+
+def test_gacha_history_that_could_not_refresh_shows_the_saved_numbers_and_why(home, games, capsys):
+    games.history.report_to_give = HistoryReport(
+        HSR_GAME,
+        False,
+        "Buka riwayat warp di HSR sekali, lalu tanya lagi.",
+        False,
+        HSR_HISTORY.stats,
+        (),
+        0,
+        None,
+    )
+
+    assert cli.main(["gacha", "history", "hsr"]) == 1
+
+    out = capsys.readouterr().out.splitlines()
+    assert out[1] == "! Buka riwayat warp di HSR sekali, lalu tanya lagi."
+    assert "pull baru" not in "\n".join(out)
+    assert out[-1].startswith("! Riwayat HSR baru terbaca sebagian")
+
+
+def test_gacha_history_without_anything_saved_fails(home, games, capsys):
+    games.history.report_to_give = HistoryReport(
+        HSR_GAME, False, "Buka riwayat warp di HSR sekali.", False, (), (), 0, None
+    )
+
+    assert cli.main(["gacha", "history", "hsr"]) == 1
+
+    assert "✗ Belum ada riwayat HSR yang tersimpan." in capsys.readouterr().out
+
+
+class FakeWatcher:
+    instances: list["FakeWatcher"] = []
+
+    def __init__(self, hoyolab, config, *, notifier, announce, title) -> None:
+        self.hoyolab, self.config, self.notifier = hoyolab, config, notifier
+        self.announce, self.title = announce, title
+        self.ran_when_started: bool | None = None
+        self.ran_when_stopped: bool | None = None
+        FakeWatcher.instances.append(self)
+
+    def __enter__(self) -> "FakeWatcher":
+        self.ran_when_started = RecordingAssistant.instances[0].ran_with is not None
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.ran_when_stopped = RecordingAssistant.instances[0].ran_with is not None
+
+
+@pytest.fixture
+def watchers(monkeypatch) -> list[FakeWatcher]:
+    FakeWatcher.instances = []
+    monkeypatch.setattr(cli, "GachaWatcher", FakeWatcher)
+    return FakeWatcher.instances
+
+
+def test_run_with_the_games_on_gives_the_brain_the_game_tools_and_watches_while_listening(
+    home, run_fakes, brains, games, watchers
+):
+    enable_gacha(home)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    [tools] = brains[0].providers
+    assert isinstance(tools, GachaTools)
+    assert [spec.name for spec in tools.specs()] == ["game_status", "gacha_history"]
+    [watcher] = watchers
+    assistant = RecordingAssistant.instances[0]
+    assert watcher.hoyolab is games.hoyolab
+    assert watcher.title == "Cyrene"
+    assert watcher.notifier is None  # notify is off in the example config
+    assert (watcher.ran_when_started, watcher.ran_when_stopped) == (False, True)
+    watcher.announce("Master, resin penuh.", "surprised")
+    assert assistant.announced == [("Master, resin penuh.", "surprised")]
+
+
+def test_run_without_a_cookie_has_the_game_tools_but_no_watcher(
+    home, run_fakes, brains, games, watchers
+):
+    enable_gacha(home, cookie=None)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    assert len(brains[0].providers) == 1
+    assert watchers == []
+
+
+def test_run_with_the_games_off_builds_none_of_it(home, run_fakes, brains, games, watchers):
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    assert (games.built, brains[0].providers, watchers) == ([], [], [])
+
+
+def test_chat_with_the_games_on_gives_the_brain_the_game_tools(home, brains, games, monkeypatch):
+    enable_gacha(home)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main(["chat", "--dry-run"]) == 0
+
+    assert [type(tools) for tools in brains[0].providers] == [GachaTools]
+
+
+def test_check_reports_the_games_off(home, nothing_installed, capsys):
+    cli.main(["check"])
+
+    out = capsys.readouterr().out
+    assert "! Teman main game mati (gacha.enabled: false)" in out
+    assert "! Notifikasi HP mati (notify.enabled: false)" in out
+
+
+def test_check_reports_the_cookie_keys_and_each_games_history_cache(
+    home, nothing_installed, tmp_path, monkeypatch, capsys
+):
+    enable_gacha(home)
+    locallow = tmp_path / "LocalLow"
+    data_dir = tmp_path / "Games" / "StarRail_Data"
+    log = locallow / "Cognosphere" / "Star Rail" / "Player.log"
+    log.parent.mkdir(parents=True)
+    log.write_text(f"Loading from {data_dir.as_posix()}/data.unity3d\n", encoding="utf-8")
+    data_2 = data_dir / "webCaches" / "2.54.0.0" / "Cache" / "Cache_Data" / "data_2"
+    data_2.parent.mkdir(parents=True)
+    data_2.write_bytes(
+        b"\x00https://public-operation-hkrpg-sg.hoyoverse.com/common/hkrpg_gacha_record/api/"
+        b"getGachaLog?authkey_ver=1&authkey=SECRETKEY&gacha_type=11\x00"
+    )
+    monkeypatch.setattr(cli, "GAME_LOGS_DIR", locallow)
+
+    cli.main(["check"])
+
+    out = capsys.readouterr().out
+    assert "✓ Cookie HoYoLAB ada, termasuk cookie_token_v2 untuk riwayat pull" in out
+    assert "✓ Riwayat HSR: alamat riwayat ada di cache game" in out
+    assert "! Riwayat Genshin: belum ada di cache game; buka riwayat wish di game sekali" in out
+    for secret in ("SECRETCOOKIE", "SECRETTOKEN", "SECRETKEY"):
+        assert secret not in out
+
+
+def test_check_warns_about_a_cookie_without_the_history_token(home, nothing_installed, capsys):
+    enable_gacha(home, cookie="ltuid_v2=1; ltoken_v2=v2_SECRETCOOKIE")
+
+    cli.main(["check"])
+
+    out = capsys.readouterr().out
+    assert "! Cookie HoYoLAB ada tanpa cookie_token_v2" in out
+    assert "SECRETCOOKIE" not in out
+
+
+def test_check_shows_only_the_start_of_the_ntfy_topic(home, nothing_installed, capsys):
+    enable_notify(home)
+
+    cli.main(["check"])
+
+    out = capsys.readouterr().out
+    assert (
+        "✓ Notifikasi HP lewat https://ntfy.sh, topik cyre…; uji dengan: waifu notify-test" in out
+    )
+    assert NOTIFY_TOPIC not in out
+
+
+def test_build_gacha_follows_the_config(home):
+    enable_gacha(home, extra="  uids: {hsr: 800000001}\n")
+
+    parts = cli.build_gacha(cli.load_config(home / "config.yaml"))
+
+    assert isinstance(parts.hoyolab, HoyolabClient)
+    assert parts.hoyolab.has_cookie_token
+    assert isinstance(parts.history, GachaHistory)

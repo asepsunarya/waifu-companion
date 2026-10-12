@@ -31,6 +31,7 @@ Cyrene : "Yakin mau dimatikan sekarang, Master?" (minta konfirmasi dulu)
 - [Jalan otomatis saat login](#jalan-otomatis-saat-login)
 - [Suara anime (つくよみちゃん)](#suara-anime-つくよみちゃん)
 - [Avatar 3D (つくよみちゃん)](#avatar-3d-つくよみちゃん)
+- [Teman main gacha (HoYoverse)](#teman-main-gacha-hoyoverse)
 - [Pemecahan masalah](#pemecahan-masalah)
 - [Checklist uji perangkat keras](#checklist-uji-perangkat-keras)
 - [Privasi](#privasi)
@@ -104,8 +105,13 @@ barang yang lebih murah kalau ingin tetap di bawah Rp1 juta.
  Speaker  (mic dijeda selama dia bicara, jadi dia tidak mendengar dirinya sendiri)
 ```
 
-Kode ada di `src/waifu/`: `devices/`, `brain/`, `voice/`, `avatar/`, lalu `gate.py`,
-`app.py`, dan `cli.py` yang menyatukan semuanya. Detail kontrak tiap modul ada di `SPEC.md`.
+Teman main gacha (opsional) menambah dua tool game ke otaknya (status HoYoLAB dan
+riwayat pull) dan satu thread di `waifu run` yang mengecek game tiap 15 menit, lalu
+mengingatkan lewat suara (di sela kalimatmu, tidak pernah memotong) dan notifikasi HP.
+
+Kode ada di `src/waifu/`: `devices/`, `brain/`, `voice/`, `avatar/`, `gacha/`, lalu
+`notify.py`, `gate.py`, `app.py`, dan `cli.py` yang menyatukan semuanya. Detail kontrak
+tiap modul ada di `SPEC.md`.
 
 ## Instalasi
 
@@ -929,6 +935,172 @@ melayani halamannya; buka `http://127.0.0.1:9882/` sendiri di browser.
   terputus dari Cyrene; tunggu sebentar atau jalankan ulang `waifu run`.
 - **Mematikan avatar:** `avatar.enabled: false`. Model dan Electron tidak perlu dihapus.
 
+## Teman main gacha (HoYoverse)
+
+Cyrene ikut menemani Master main **Honkai: Star Rail**, **Genshin Impact**, dan
+**Zenless Zone Zero** (server Asia): dia tahu stamina dan daily tiap game, mengingatkan
+sebelum stamina terbuang, mengambil check-in harian HoYoLAB, dan membaca riwayat pull
+untuk menghitung pity dan 50/50.
+
+```text
+Master : "Cyrene, Trailblaze Power-ku berapa?"
+Cyrene : "Dua ratus tiga puluh dua dari tiga ratus, Master. Penuh sekitar jam setengah dua."
+Master : "Cyrene, aku barusan pull di HSR. Pity-ku sekarang gimana?"
+Cyrene : "Pull barusan belum muncul, Master, karena HoYoverse biasanya telat sekitar satu
+          jam. Pity banner karakter dua puluh dua, jadi masih enam puluh delapan pull lagi
+          ke hard pity, dan berikutnya belum guaranteed. がんばって!"
+(20.00)  Cyrene : "Master, Daily Training HSR belum selesai, baru 300 dari 500. Reset jam 03:00 nanti."
+```
+
+Yang dia lakukan:
+
+- **Status kapan saja.** Stamina (Trailblaze Power, Original Resin, Battery Charge) dan
+  kapan penuh, progres daily, sisa mingguan, ekspedisi, dan status check-in. Dibaca
+  langsung dari HoYoLAB, tidak pernah ditebak.
+- **Pengingat lewat suara dan HP.** Selama `waifu run` jalan, dia bicara sendiri di sela
+  kalimatmu (tidak pernah memotong jawaban atau omonganmu) dan mengirim teks yang sama
+  ke HP lewat ntfy. Tiap kejadian sekali saja; tanpa jam tenang.
+- **Check-in harian HoYoLAB otomatis**, sekali sehari untuk tiap game.
+- **Riwayat pull.** Pity tiap banner, sisa ke hard pity, apakah 5★ berikutnya pasti
+  limited, dan reaksi seperti teman: senang kalau menang 50/50, menghibur kalau kalah.
+- **Tidak pernah menyarankan top-up** atau membelanjakan uang.
+
+Semuanya hanya jalan selama PC menyala.
+
+### 1. Ambil cookie HoYoLAB
+
+1. Buka https://www.hoyolab.com di Chrome atau Edge, lalu login.
+2. Tekan **F12** → tab **Application** → **Storage** → **Cookies** →
+   `https://www.hoyolab.com`.
+3. Salin nilai `ltuid_v2`, `ltoken_v2`, `ltmid_v2`, `cookie_token_v2`, `account_id_v2`,
+   dan `account_mid_v2`. Beberapa bertanda HttpOnly, jadi tidak muncul lewat
+   `document.cookie`: ambil dari tabel ini.
+4. Tulis di `config.yaml` sebagai satu baris:
+   `cookie: "ltuid_v2=...; ltoken_v2=...; ltmid_v2=...; cookie_token_v2=...; account_id_v2=...; account_mid_v2=..."`.
+
+`ltuid_v2` dan `ltoken_v2` wajib (status, pengingat, check-in). `cookie_token_v2`
+membuat riwayat pull tetap terbaca walau riwayat di game belum dibuka hari ini.
+
+> **Cookie ini setara kata sandi akun HoYoLAB.** Jangan dibagikan. `config.yaml` tidak
+> di-commit, dan Cyrene tidak pernah menulis cookie ke log. Login di browser lain bisa
+> membuat `cookie_token_v2` tidak berlaku; Cyrene akan bilang kalau cookie perlu diambil
+> ulang.
+
+### 2. Nyalakan Real-Time Notes
+
+Di HoYoLAB: **Battle Chronicle** → ikon pengaturan → aktifkan **Real-Time Notes** untuk
+HSR, Genshin, dan ZZZ. Cyrene tidak pernah mengubah setelan HoYoLAB sendiri; kalau belum
+aktif, dia bilang game mana yang perlu dinyalakan.
+
+### 3. Notifikasi ke HP (ntfy)
+
+1. Pasang aplikasi **ntfy** dari Play Store atau App Store (gratis, tanpa akun).
+2. Buat topik rahasia:
+   ```powershell
+   .venv\Scripts\python -c "import secrets; print('cyrene-' + secrets.token_urlsafe(12))"
+   ```
+3. Di aplikasi ntfy: **+** → isi topik itu (server bawaan `ntfy.sh`).
+4. Isi `notify` di `config.yaml` (langkah 4), lalu `waifu notify-test`: notifikasi tes
+   harus masuk ke HP.
+
+Server publik `ntfy.sh` mengantar pesan ke siapa pun yang tahu nama topiknya, jadi
+topiknya harus panjang dan acak (Cyrene menolak topik yang terlalu pendek) dan jangan
+dibagikan. Isinya hanya pengingat game.
+
+### 4. Aktifkan di config.yaml
+
+```yaml
+gacha:
+  enabled: true
+  cookie: "ltuid_v2=...; ltoken_v2=...; ltmid_v2=...; cookie_token_v2=...; account_id_v2=...; account_mid_v2=..."
+  games: [hsr, genshin, zzz]
+  reminders:
+    stamina_minutes: 60      # ingatkan kalau penuh dalam 60 menit (0 = saat sudah penuh)
+    daily_time: "20:00"      # daily yang belum selesai diingatkan mulai jam ini
+    weekly: true
+    expeditions: true
+  # off_banner: {hsr: [Yunli]}   # lihat "Pity dan 50/50"
+
+notify:
+  enabled: true
+  topic: cyrene-isi-dengan-topikmu
+```
+
+Penjelasan tiap kunci ada di `config.example.yaml`. Lalu cek:
+
+```powershell
+waifu check                       # ✓ Cookie HoYoLAB ..., ✓ Riwayat HSR: alamat riwayat ada di cache game
+waifu gacha accounts              # akun game di cookie; → = akun yang dipakai (ganti dengan gacha.uids)
+waifu gacha status                # stamina, daily, mingguan, ekspedisi, check-in tiap game
+waifu gacha checkin               # ambil check-in sekarang (biasanya otomatis)
+waifu gacha history hsr --full    # impor riwayat pertama (1100 pull HSR: sekitar 40 detik)
+waifu notify-test                 # notifikasi tes ke HP
+```
+
+Perintah `waifu gacha` tetap jalan walau `gacha.enabled: false`; yang dinyalakan
+`gacha.enabled` adalah tool game untuk otaknya dan pengingat saat `waifu run`.
+
+### Riwayat pull, pity, dan 50/50
+
+- Cyrene membaca riwayat yang sama dengan halaman riwayat di game. Kuncinya (authkey)
+  ditinggalkan game di cache-nya setiap kali kamu membuka **riwayat warp / wish /
+  Signal Search** di game, dan berlaku sekitar sehari. Dengan `cookie_token_v2` di
+  cookie, dia bisa membuat kuncinya sendiri.
+- Jalankan `waifu gacha history <game> --full` sekali per game (`hsr`, `genshin`,
+  `zzz`) untuk mengimpor semuanya. Setelah itu hanya pull baru yang dibaca, juga saat
+  kamu bertanya lewat suara. Riwayatnya disimpan di `data\gacha\` (tidak di-commit).
+- **HoYoverse mencatat pull sekitar satu jam setelah terjadi**, jadi pull yang baru saja
+  dilakukan belum terlihat. Cyrene akan bilang begitu.
+- Tiap banner punya pity sendiri (termasuk banner kolaborasi HSR dan rerun ZZZ). Hard
+  pity: 90 untuk karakter dan standar, 80 untuk light cone, senjata, W-Engine, dan
+  Bangboo.
+- **Menang atau kalah 50/50** dinilai dari daftar karakter standar: Genshin (Dehya,
+  Diluc, Jean, Keqing, Mona, Qiqi, Tighnari, Yumemizuki Mizuki), HSR (Bailu, Bronya,
+  Clara, Gepard, Himeko, Welt, Yanqing), ZZZ (Grace, Koleda, Lycaon, Nekomata, Rina,
+  Soldier 11). Sejak HSR 4.2 kamu bisa memilih karakter cadangan 50/50 lewat Celestial
+  Invitation. Kalau pilihanmu bukan karakter standar, tambahkan namanya di
+  `gacha.off_banner.hsr`, supaya Cyrene tidak mengucapkan selamat saat kamu sebenarnya
+  kalah.
+
+### Pengingat
+
+| Pengingat | Kapan | Berapa kali | Mengatur |
+|---|---|---|---|
+| Stamina | penuh dalam `stamina_minutes` menit, atau sudah penuh | sekali, sampai staminanya dipakai lagi | `stamina_minutes` (0 = saat sudah penuh) |
+| Daily | mulai `daily_time` kalau daily belum selesai | sekali per hari game (reset 03.00 WIB) | `daily_time` |
+| Mingguan | hari Minggu mulai `daily_time` kalau masih ada sisa | sekali per minggu | `weekly: false` |
+| Ekspedisi | semua ekspedisi HSR / Genshin selesai | sekali per gelombang | `expeditions: false` |
+| Check-in | diambil sendiri; dia bilang hadiahnya | sekali per hari (berganti jam 23.00 WIB) | `checkin: false` |
+| Masalah | cookie tidak berlaku, captcha, Real-Time Notes mati | sekali per hari | — |
+
+HoYoLAB dicek tiap `poll_minutes` (bawaan 15). Status pengingat disimpan di
+`data\gacha\reminders.json`, jadi Cyrene yang di-restart tidak mengulang pengingat yang
+sama. Tidak ada jam tenang: dia juga bicara di malam hari selama `waifu run` jalan.
+
+### Ketentuan dan risiko
+
+- Cyrene hanya **membaca** data dan mengambil check-in harian yang memang disediakan
+  HoYoLAB. Dia tidak pernah memainkan game: macro atau auto-farm melanggar ketentuan
+  HoYoverse dan bisa membuat akun diblokir.
+- `genshin.py` adalah pustaka HoYoLAB **tidak resmi**. Check-in otomatis lewat API
+  seperti ini dipakai banyak bot, tapi tidak dijamin 100% aman. Kalau ragu, pasang
+  `checkin: false`.
+- Kalau HoYoverse mengubah API-nya, Cyrene akan bilang data tidak bisa dibaca;
+  `pip install -U genshin` di venv biasanya memperbaikinya.
+
+### Pemecahan masalah gacha
+
+- **"Cookie HoYoLAB tidak berlaku lagi".** Ambil ulang cookie (langkah 1).
+- **"Real-Time Notes ... belum aktif".** Langkah 2.
+- **"HoYoLAB minta verifikasi captcha".** Buka HoYoLAB di browser sekali; untuk
+  check-in, ambil manual dulu di hari itu.
+- **"Buka riwayat warp di HSR sekali, lalu tanya lagi".** Buka halaman riwayat di game
+  (banner mana saja), lalu tanya lagi. Agar tidak perlu, tambahkan `cookie_token_v2`.
+- **"Riwayat ... sedang dikunci game".** Tutup game sebentar, lalu coba lagi.
+- **"Server riwayat ... minta pelan-pelan".** Tunggu semenit.
+- **Pity berbeda dengan di game.** Riwayatnya mungkin baru terbaca sebagian: jalankan
+  `waifu gacha history <game> --full`.
+
 ## Pemecahan masalah
 
 Log `waifu run` tampil di terminal dalam bahasa Inggris. Baris seperti
@@ -1085,6 +1257,17 @@ mendengarkan"; jawaban pertama bisa lebih lama karena model Ollama baru dimuat)
 - [ ] Dengan `tts.rvc.enabled: false`, `waifu say "[senang] Halo Master!"`: maskot
       muncul, mulutnya bergerak sejak kata pertama dengan wajah senang, lalu tertutup.
 
+**Teman main gacha** (setelah langkah 1–4 di bagian itu)
+
+- [ ] `waifu gacha status` menampilkan ketiga game tanpa `✗`.
+- [ ] `waifu gacha history hsr --full` (lalu `genshin`, `zzz`): pity tiap banner sama
+      dengan hitunganmu di game.
+- [ ] `waifu notify-test` masuk ke HP.
+- [ ] Di `waifu run`: "Cyrene, Trailblaze Power-ku berapa?" dijawab dengan angka yang
+      sama dengan di game.
+- [ ] Turunkan sementara `stamina_minutes` sampai di atas sisa waktu penuh: dalam 15
+      menit dia mengingatkan lewat suara dan HP, sekali saja.
+
 ## Privasi
 
 - **Suara tidak pernah keluar dari PC.** Rekaman mic, verifikasi suara, dan
@@ -1095,7 +1278,13 @@ mendengarkan"; jawaban pertama bisa lebih lama karena model Ollama baru dimuat)
     ke API Anthropic. Dengan Ollama, semuanya lokal;
   - dengan engine `edge` di `tts`, teks jawaban Cyrene dikirim ke layanan edge-tts
     Microsoft untuk dijadikan suara. GPT-SoVITS, suara anime (RVC), dan avatar 3D
-    berjalan lokal (halaman avatar hanya bisa dibuka dari PC ini).
+    berjalan lokal (halaman avatar hanya bisa dibuka dari PC ini);
+  - dengan teman main gacha, permintaan data game ke HoYoLAB dan ke server riwayat
+    HoYoverse (dengan cookie dan authkey milikmu), hasilnya ke API Anthropic kalau otaknya
+    Claude, dan teks pengingat ke `ntfy.sh` (siapa pun yang tahu nama topiknya bisa
+    membacanya).
+- **Cookie HoYoLAB setara kata sandi.** Hanya disimpan di `config.yaml` dan tidak pernah
+  ditulis ke log. Riwayat pull ada di `data\gacha\` (nama filenya memuat UID game).
 - **Voiceprint adalah data biometrik.** `data/voiceprint.npy` (dan seluruh `data/`)
   ada di `.gitignore` dan tidak boleh di-commit atau dibagikan. Begitu juga
   `config.yaml` (local key Tuya) dan `models/`.
