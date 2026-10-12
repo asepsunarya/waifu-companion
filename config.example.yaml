@@ -171,6 +171,16 @@ notify:
   # notifikasinya. Buat dengan: python -c "import secrets; print('cyrene-' + secrets.token_urlsafe(12))"
   # topic: cyrene-isi-dengan-hasil-perintah-di-atas
 
+# Ingatan jangka panjang (README, bagian "Ingatan Cyrene"): catatan singkat tentang Master yang
+# dia simpan saat diminta ("ingat ya, ...") atau sendiri, dan dibaca lagi di awal setiap sesi.
+# Rahasia (kata sandi, PIN, OTP, token, cookie, nomor kartu) selalu ditolak.
+# Lihat, tambah, dan hapus catatan dengan `waifu memory list|add|forget|clear`.
+memory:
+  enabled: true
+  path: data/memory.json   # hanya di PC ini, tidak di-commit; boleh diedit saat Cyrene mati
+  max_facts: 100           # jumlah catatan paling banyak (1-500)
+  max_chars: 200           # panjang satu catatan paling banyak, dalam karakter (20-1000)
+
 ir_codes_path: data/ir_codes.json
 
 devices:

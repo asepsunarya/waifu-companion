@@ -31,6 +31,7 @@ from waifu.avatar.lipsync import VISEMES, viseme_track
 from waifu.avatar.server import AvatarError
 from waifu.avatar.window import AvatarWindow
 from waifu.brain.base import Brain, BrainReply, ToolCallRecord
+from waifu.brain.memory_tools import MemoryTools
 from waifu.config import AvatarConfig, RvcConfig
 from waifu.devices.base import DeviceError
 from waifu.devices.ir_codes import IrCodeStore
@@ -48,6 +49,7 @@ from waifu.gacha.hoyolab import (
     WeeklyTask,
 )
 from waifu.gacha.tools import GachaTools
+from waifu.memory import MemoryStore, memory_prompt_section
 from waifu.single_instance import InstanceLock
 from waifu.voice.base import SpeakerEmbedder, SpeechToText, Transcript
 from waifu.voice.rvc import RvcError
@@ -107,6 +109,21 @@ def no_real_game_caches(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def no_real_memory(tmp_path, monkeypatch):
+    """Every memory store a command builds lives under tmp_path: a test that leaves the working
+    directory at the repository fails instead of reading or writing the owner's notes in
+    data/memory.json (building a store touches no file, so the refusal comes first)."""
+    real_store = cli.MemoryStore
+
+    def store_under_tmp_path(path, **limits):
+        if not Path(path).resolve().is_relative_to(tmp_path.resolve()):
+            raise AssertionError(f"a test reached a memory file outside tmp_path: {path}")
+        return real_store(path, **limits)
+
+    monkeypatch.setattr(cli, "MemoryStore", store_under_tmp_path)
+
+
+@pytest.fixture(autouse=True)
 def restore_library_log_levels():
     """main() tunes third-party loggers process-wide; give later tests the levels back."""
     loggers = [logging.getLogger(name) for name in ("tinytuya", "httpx")]
@@ -137,9 +154,10 @@ class HouseBrain(Brain):
 
     reply = REPLY
 
-    def __init__(self, registry: DeviceRegistry, providers=()) -> None:
+    def __init__(self, registry: DeviceRegistry, providers=(), memory_section=None) -> None:
         self.registry = registry
         self.providers = list(providers)
+        self.memory_section = memory_section
         self.heard: list[str] = []
 
     def respond(self, user_text: str, *, now: datetime | None = None) -> BrainReply:
@@ -536,6 +554,10 @@ def event_player(events, monkeypatch) -> None:
         (["check"], "check"),
         (["avatar"], "avatar"),
         (["avatar", "--demo"], "avatar"),
+        (["memory", "list"], "memory"),
+        (["memory", "add", "Master", "suka", "kopi."], "memory"),
+        (["memory", "forget", "m3"], "memory"),
+        (["memory", "clear", "--yes"], "memory"),
     ],
 )
 def test_every_subcommand_in_the_spec_parses(argv, command):
@@ -860,8 +882,8 @@ def test_verbose_logging_never_reveals_a_tuya_local_key(home, monkeypatch, caplo
 def brains(monkeypatch) -> list[HouseBrain]:
     built: list[HouseBrain] = []
 
-    def build(config, registry, providers=()):
-        built.append(HouseBrain(registry, providers))
+    def build(config, registry, *, providers=(), memory_section=None):
+        built.append(HouseBrain(registry, providers, memory_section))
         return built[-1]
 
     monkeypatch.setattr(cli, "build_brain", build)
@@ -3639,8 +3661,8 @@ def test_run_with_the_games_on_gives_the_brain_the_game_tools_and_watches_while_
 
     assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
 
-    [tools] = brains[0].providers
-    assert isinstance(tools, GachaTools)
+    [tools, memory_tools] = brains[0].providers
+    assert (type(tools), type(memory_tools)) == (GachaTools, MemoryTools)
     assert [spec.name for spec in tools.specs()] == ["game_status", "gacha_history"]
     [watcher] = watchers
     assistant = RecordingAssistant.instances[0]
@@ -3659,14 +3681,15 @@ def test_run_without_a_cookie_has_the_game_tools_but_no_watcher(
 
     assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
 
-    assert len(brains[0].providers) == 1
+    assert [type(tools) for tools in brains[0].providers] == [GachaTools, MemoryTools]
     assert watchers == []
 
 
 def test_run_with_the_games_off_builds_none_of_it(home, run_fakes, brains, games, watchers):
     assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
 
-    assert (games.built, brains[0].providers, watchers) == ([], [], [])
+    assert (games.built, watchers) == ([], [])
+    assert [type(tools) for tools in brains[0].providers] == [MemoryTools]
 
 
 def test_chat_with_the_games_on_gives_the_brain_the_game_tools(home, brains, games, monkeypatch):
@@ -3675,7 +3698,7 @@ def test_chat_with_the_games_on_gives_the_brain_the_game_tools(home, brains, gam
 
     assert cli.main(["chat", "--dry-run"]) == 0
 
-    assert [type(tools) for tools in brains[0].providers] == [GachaTools]
+    assert [type(tools) for tools in brains[0].providers] == [GachaTools, MemoryTools]
 
 
 def test_check_reports_the_games_off(home, nothing_installed, capsys):
@@ -3756,3 +3779,248 @@ def test_gacha_accounts_marks_the_account_she_uses_when_levels_tie(home, games, 
     lines = capsys.readouterr().out.splitlines()
     assert lines[0].startswith("→ HSR      800000001")
     assert lines[1].startswith("  HSR      800000002")
+
+
+# --- long-term memory --------------------------------------------------------------------------
+
+
+def memory_file(home: Path) -> Path:
+    """Where the example config keeps her notes, inside the test's working directory."""
+    return home / "data" / "memory.json"
+
+
+def saved_notes(home: Path) -> list[str]:
+    return [fact.text for fact in MemoryStore(memory_file(home)).facts()]
+
+
+def disable_memory(home: Path) -> None:
+    config = home / "config.yaml"
+    text = config.read_text(encoding="utf-8")
+    disabled = text.replace("memory:\n  enabled: true\n", "memory:\n  enabled: false\n")
+    assert disabled != text
+    config.write_text(disabled, encoding="utf-8")
+
+
+def test_memory_outside_tmp_path_is_refused_so_no_test_touches_the_owner_s_notes():
+    with pytest.raises(AssertionError, match="outside tmp_path"):
+        cli.MemoryStore(ROOT / "data" / "memory.json")
+
+
+def test_run_gives_the_brain_her_memory_tools_and_the_notes_at_each_session_start(
+    home, run_fakes, brains
+):
+    write_config(home, "memory:\n  path: notes/ingatan.json\n  max_chars: 30\n")
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    brain = brains[0]
+    [tools] = brain.providers
+    assert isinstance(tools, MemoryTools)
+    assert brain.memory_section() == memory_prompt_section([])
+    assert tools.run("remember", {"text": "Master alergi udang."})[1] is False
+    notes = MemoryStore(home / "notes" / "ingatan.json").facts()
+    assert [fact.text for fact in notes] == ["Master alergi udang."]
+    assert brain.memory_section() == memory_prompt_section(notes)  # read again, not cached
+    result, is_error = tools.run("remember", {"text": "Master suka kopi susu tanpa gula."})
+    assert is_error and "30 karakter" in result
+
+
+def test_chat_gives_the_brain_the_notes_saved_in_data_memory_json(home, brains, monkeypatch):
+    MemoryStore(memory_file(home)).add("Master suka kopi.")
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main(["chat", "--dry-run"]) == 0
+
+    assert [type(tools) for tools in brains[0].providers] == [MemoryTools]
+    assert "Master suka kopi." in brains[0].memory_section()
+
+
+@pytest.mark.parametrize("argv", [["run", "--no-speaker-check"], ["chat"]])
+def test_with_the_memory_off_the_brain_gets_neither_the_tools_nor_the_notes(
+    argv, home, run_fakes, brains, monkeypatch
+):
+    disable_memory(home)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main([*argv, "--dry-run"]) == 0
+
+    assert (brains[0].providers, brains[0].memory_section) == ([], None)
+    assert not memory_file(home).exists()
+
+
+def test_memory_needs_an_action():
+    with pytest.raises(SystemExit):
+        cli.build_parser().parse_args(["memory"])
+
+
+def test_memory_list_without_notes_says_so_and_creates_no_file(home, capsys):
+    assert cli.main(["memory", "list"]) == 0
+
+    assert capsys.readouterr().out == "Belum ada catatan.\n"
+    assert not memory_file(home).exists()
+
+
+def test_memory_list_prints_each_note_with_its_id_and_the_date_it_last_changed(home, capsys):
+    facts = [
+        {"id": "m3", "text": "Master alergi udang.", "updated": "2026-10-12T08:30"},
+        {"id": "m12", "text": "Master ujian Jumat 16-10-2026.", "updated": "2026-10-13T21:05"},
+    ]
+    memory_file(home).parent.mkdir()
+    memory_file(home).write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "next_id": 13,
+                "facts": [{**fact, "created": "2026-10-01T09:00"} for fact in facts],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert cli.main(["memory", "list"]) == 0
+
+    assert capsys.readouterr().out.splitlines() == [
+        "m3   12-10-2026  Master alergi udang.",
+        "m12  13-10-2026  Master ujian Jumat 16-10-2026.",
+    ]
+
+
+def test_memory_add_saves_the_words_as_one_note_also_with_the_memory_off(home, capsys):
+    disable_memory(home)
+
+    assert cli.main(["memory", "add", "Master", "alergi", "udang."]) == 0
+
+    assert capsys.readouterr().out == "✓ Tersimpan sebagai m1: Master alergi udang.\n"
+    assert saved_notes(home) == ["Master alergi udang."]
+
+
+def test_memory_add_of_a_note_already_saved_names_that_note(home, capsys):
+    MemoryStore(memory_file(home)).add("Master alergi udang.")
+
+    assert cli.main(["memory", "add", "master ALERGI udang."]) == 0
+
+    assert capsys.readouterr().out == "✓ Catatan itu sudah ada sebagai m1: Master alergi udang.\n"
+    assert saved_notes(home) == ["Master alergi udang."]
+
+
+@pytest.mark.parametrize(
+    ("words", "reason"),
+    [
+        (["PIN", "ATM-ku", "4821"], "rahasia"),
+        (["kopi" * 51], "terlalu panjang"),
+        (["  "], "kosong"),
+    ],
+)
+def test_memory_add_prints_why_a_note_is_refused_and_exits_1(words, reason, home, capsys):
+    assert cli.main(["memory", "add", *words]) == 1
+
+    out = capsys.readouterr().out
+    assert out.startswith("✗ ") and reason in out
+    assert "4821" not in out
+    assert not memory_file(home).exists()
+
+
+def test_memory_add_keeps_to_the_number_of_notes_set_in_the_config(home, capsys):
+    write_config(home, "memory:\n  path: notes/ingatan.json\n  max_facts: 1\n")
+    assert cli.main(["memory", "add", "Master", "alergi", "udang."]) == 0
+    capsys.readouterr()
+
+    assert cli.main(["memory", "add", "Master", "suka", "kopi."]) == 1
+
+    out = capsys.readouterr().out
+    assert out.startswith("✗ ") and "penuh" in out
+    notes = MemoryStore(home / "notes" / "ingatan.json").facts()
+    assert [fact.text for fact in notes] == ["Master alergi udang."]
+
+
+def test_memory_forget_deletes_one_note_and_says_which(home, capsys):
+    store = MemoryStore(memory_file(home))
+    store.add("Master alergi udang.")
+    store.add("Master suka kopi.")
+
+    assert cli.main(["memory", "forget", "m1"]) == 0
+
+    assert capsys.readouterr().out == "✓ Dihapus m1: Master alergi udang.\n"
+    assert saved_notes(home) == ["Master suka kopi."]
+
+
+def test_memory_forget_of_an_unknown_id_fails_with_the_reason(home, capsys):
+    assert cli.main(["memory", "forget", "m9"]) == 1
+
+    assert capsys.readouterr().out == "✗ Tidak ada catatan dengan id itu.\n"
+
+
+def test_memory_clear_without_yes_only_says_how_many_would_go_and_how_to_confirm(home, capsys):
+    store = MemoryStore(memory_file(home))
+    store.add("Master alergi udang.")
+    store.add("Master suka kopi.")
+
+    assert cli.main(["memory", "clear"]) == 0
+
+    out = capsys.readouterr().out
+    assert "2 catatan" in out and "waifu memory clear --yes" in out
+    assert saved_notes(home) == ["Master alergi udang.", "Master suka kopi."]
+
+
+def test_memory_clear_yes_deletes_every_note(home, capsys):
+    store = MemoryStore(memory_file(home))
+    store.add("Master alergi udang.")
+    store.add("Master suka kopi.")
+
+    assert cli.main(["memory", "clear", "--yes"]) == 0
+
+    assert capsys.readouterr().out == "✓ 2 catatan dihapus.\n"
+    assert saved_notes(home) == []
+
+
+@pytest.mark.parametrize("argv", [["memory", "clear"], ["memory", "clear", "--yes"]])
+def test_memory_clear_without_notes_has_nothing_to_delete(argv, home, capsys):
+    assert cli.main(argv) == 0
+
+    assert capsys.readouterr().out == "Belum ada catatan; tidak ada yang dihapus.\n"
+    assert not memory_file(home).exists()
+
+
+def memory_line(out: str) -> str:
+    [line] = [line for line in out.splitlines() if "Ingatan" in line or "ingatan" in line]
+    return line
+
+
+def test_check_counts_her_notes_and_names_the_memory_file(home, nothing_installed, capsys):
+    MemoryStore(memory_file(home)).add("Master alergi udang.")
+
+    cli.main(["check"])
+
+    line = memory_line(capsys.readouterr().out)
+    assert line == f"✓ Ingatan: 1 catatan ({Path('data/memory.json')})"
+
+
+def test_check_reports_the_memory_off(home, nothing_installed, capsys):
+    disable_memory(home)
+
+    cli.main(["check"])
+
+    assert memory_line(capsys.readouterr().out) == "! Ingatan mati (memory.enabled: false)"
+
+
+def test_check_shows_where_a_broken_memory_file_was_moved(home, nothing_installed, capsys):
+    memory_file(home).parent.mkdir()
+    memory_file(home).write_text("{catatan yang rusak", encoding="utf-8")
+
+    cli.main(["check"])
+
+    [moved] = memory_file(home).parent.glob("memory.json.corrupt-*")
+    line = memory_line(capsys.readouterr().out)
+    assert line.startswith(f"! Ingatan: 0 catatan ({Path('data/memory.json')})")
+    assert str(Path("data") / moved.name) in line
+    assert moved.read_text(encoding="utf-8") == "{catatan yang rusak"
+    assert not memory_file(home).exists()
+
+
+def test_check_fails_a_memory_file_it_cannot_read(home, nothing_installed, capsys):
+    memory_file(home).mkdir(parents=True)  # a folder where the file should be
+
+    cli.main(["check"])
+
+    line = memory_line(capsys.readouterr().out)
+    assert line.startswith(f"✗ File ingatan {Path('data/memory.json')} tidak bisa dibaca")

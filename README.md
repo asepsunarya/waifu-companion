@@ -33,6 +33,7 @@ Cyrene : "Yakin mau dimatikan sekarang, Master?" (minta konfirmasi dulu)
 - [Avatar 3D (つくよみちゃん)](#avatar-3d-つくよみちゃん)
 - [Avatar Live2D & interaksi](#avatar-live2d--interaksi)
 - [Teman main gacha (HoYoverse)](#teman-main-gacha-hoyoverse)
+- [Ingatan Cyrene](#ingatan-cyrene)
 - [Pemecahan masalah](#pemecahan-masalah)
 - [Checklist uji perangkat keras](#checklist-uji-perangkat-keras)
 - [Privasi](#privasi)
@@ -111,8 +112,11 @@ Teman main gacha (opsional) menambah dua tool game ke otaknya (status HoYoLAB da
 riwayat pull) dan satu thread di `waifu run` yang mengecek game tiap 15 menit, lalu
 mengingatkan lewat suara (di sela kalimatmu, tidak pernah memotong) dan notifikasi HP.
 
+Ingatan jangka panjang menambah dua tool lagi (`remember` dan `forget`) yang mengubah
+`data\memory.json`; isi file itu ditambahkan ke akhir system prompt di awal setiap sesi.
+
 Kode ada di `src/waifu/`: `devices/`, `brain/`, `voice/`, `avatar/`, `gacha/`, lalu
-`notify.py`, `gate.py`, `app.py`, dan `cli.py` yang menyatukan semuanya. Detail kontrak
+`memory.py`, `notify.py`, `gate.py`, `app.py`, dan `cli.py` yang menyatukan semuanya. Detail kontrak
 tiap modul ada di `SPEC.md`.
 
 ## Instalasi
@@ -524,7 +528,8 @@ waifu speaker-test    # skor kecocokan langsung, Ctrl+C untuk berhenti
 | `waifu enroll` / `waifu speaker-test` | Daftarkan suara / cek skor kecocokan |
 | `waifu mics` | Daftar perangkat audio dan nomornya |
 | `waifu avatar` / `waifu avatar --demo` | Tampilkan avatar saja, tanpa mendengarkan; `--demo` mengganti ekspresi setiap 3 detik, dan reaksi elusan atau colekan dicetak di terminal (lihat [Avatar 3D](#avatar-3d-つくよみちゃん) dan [Avatar Live2D & interaksi](#avatar-live2d--interaksi)) |
-| `waifu check` | Periksa config, kode IR, voiceprint, otak, paket suara, CUDA, mic, suara anime, dan avatar |
+| `waifu memory list` / `add` / `forget` / `clear` | Lihat, tambah, dan hapus catatan ingatannya (lihat [Ingatan Cyrene](#ingatan-cyrene)) |
+| `waifu check` | Periksa config, kode IR, voiceprint, otak, ingatan, paket suara, CUDA, mic, suara anime, dan avatar |
 
 Opsi untuk semua perintah: `--config <file>` (default `config.yaml`), `--dry-run`
 (perangkat simulasi), `-v` (log lebih rinci), `--log-file <file>` (log juga ditulis
@@ -543,7 +548,8 @@ Contoh kalimat saat `waifu run`:
   lanjut tanpa memanggil namanya: "terus nyalakan TV juga".
 
 Obrolan dilupakan setelah 10 menit tanpa percakapan atau 40 giliran
-(`assistant.session_idle_minutes`, `assistant.max_session_turns`).
+(`assistant.session_idle_minutes`, `assistant.max_session_turns`). Hal penting tentang
+Master tetap diingat lewat catatannya (lihat [Ingatan Cyrene](#ingatan-cyrene)).
 
 ## Jalan otomatis saat login
 
@@ -1305,6 +1311,126 @@ tenang: dia juga bicara di malam hari selama `waifu run` jalan.
 - **Pity berbeda dengan di game.** Riwayatnya mungkin baru terbaca sebagian: jalankan
   `waifu gacha history <game> --full`.
 
+## Ingatan Cyrene
+
+Isi obrolan dilupakan setiap kali sesi berakhir (10 menit tanpa percakapan atau 40
+giliran), tapi hal penting tentang Master tetap diingat: Cyrene menyimpannya sebagai
+catatan pendek di `data\memory.json`, dan di awal setiap sesi semua catatan itu dibaca
+lagi oleh otaknya. Ingatan sudah menyala dari awal (`memory.enabled: true`), di
+`waifu run` dan `waifu chat` (juga dengan `--dry-run`, yang hanya memalsukan perangkat).
+
+```text
+Master : "Cyrene, ingat ya, aku alergi udang."
+Cyrene : "Siap, aku ingat. Master alergi udang."
+(beberapa hari kemudian)
+Master : "Cyrene, enaknya masak apa malam ini?"
+Cyrene : "Gimana kalau ayam bakar kecap, Master? Pokoknya tanpa udang."
+Master : "Cyrene, apa yang kamu ingat tentang aku?"
+Cyrene : "Master alergi udang, suka kopi susu, dan Jumat ini ada ujian. がんばって!"
+Master : "Cyrene, lupakan soal udang."
+Cyrene : "Sudah kuhapus, Master."
+```
+
+### Yang dia ingat dan yang tidak
+
+- **Disimpan:** apa saja yang Master minta untuk diingat, dan hal yang awet yang Master
+  sebut sambil lalu: suka dan tidak suka, alergi dan kesehatan, rencana dengan tanggalnya
+  ("Jumat ada ujian"), orang dan hewan peliharaan, kebiasaan, game dan karakter favorit.
+  Satu catatan berisi satu fakta, ditulis seperti `Master alergi udang.`
+- **Tidak disimpan:** obrolan ringan, perintah perangkat, dan hal yang sudah ada di
+  catatannya. Kalau sebuah fakta berubah ("sekarang aku sudah tidak kerja di sana"),
+  catatan lamanya diperbarui, bukan ditambah catatan kedua yang bertentangan.
+- **Rahasia tidak pernah disimpan.** Catatan yang terlihat seperti kata sandi, PIN, OTP,
+  token, cookie, API key, atau nomor kartu ditolak oleh kode Cyrene sendiri, apa pun
+  permintaan modelnya, juga kalau ditulis "sandinya", "PIN-ku", atau nomor kartu yang
+  disebut bersama tanggal kedaluwarsanya. Jangan titipkan rahasia kepadanya. Kata biasa
+  yang kebetulan mirip, seperti nama Sandi, sandi Morse, token listrik, pin lokasi, atau
+  kue cookie, tetap boleh disimpan.
+- Dia tidak merangkum setiap obrolan: yang disimpan hanya yang dipilih otaknya. Kalau
+  sesuatu penting, minta saja: "ingat ya, ...".
+
+Catatan baru langsung diketahui di sesi yang sedang berjalan (dia sendiri yang baru
+menyimpannya) dan masuk ke daftar ingatannya mulai sesi berikutnya. Kalau jawabannya gagal
+setelah catatan tersimpan atau terhapus (misalnya koneksi putus), sesi itu diakhiri, jadi
+giliran berikutnya sudah membaca catatan yang terbaru. Batasnya 100 catatan,
+masing-masing paling panjang 200 karakter (`memory.max_facts`, `memory.max_chars`); kalau
+penuh, dia minta Master menggabungkan atau menghapus catatan lama dulu.
+
+Contoh kalimat saat `waifu run`:
+
+- "Cyrene, ingat ya, aku alergi udang."
+- "Cyrene, ingat, tanggal 16 aku ujian."
+- "Cyrene, apa yang kamu ingat tentang aku?" (dijawab dengan ringkasan singkat, bukan
+  daftar yang dibacakan satu per satu)
+- "Cyrene, lupakan soal udang."
+
+### Mengatur catatan dari terminal
+
+```powershell
+waifu memory list                               # m3  12-10-2026  Master alergi udang.
+waifu memory add "Master suka kopi susu, tanpa gula."
+waifu memory forget m3                          # hapus satu catatan (id dari list)
+waifu memory clear                              # hanya menghitung yang akan dihapus
+waifu memory clear --yes                        # hapus semua catatan
+```
+
+Tanggal di `list` adalah kapan catatan itu terakhir diubah. Aturan yang sama berlaku
+seperti lewat suara (rahasia, panjang, jumlah); kalau ditolak, perintahnya menampilkan
+`✗` dengan alasannya. Perintah ini tetap jalan walau `memory.enabled: false`. Cyrene yang
+sedang berjalan melihat perubahan dari terminal mulai sesi obrolan berikutnya.
+`waifu check` menampilkan `✓ Ingatan: <n> catatan (data\memory.json)`.
+
+### File data\memory.json
+
+Isinya JSON UTF-8 yang bisa dibuka dengan Notepad:
+
+```json
+{
+  "version": 1,
+  "next_id": 4,
+  "facts": [
+    {
+      "id": "m3",
+      "text": "Master alergi udang.",
+      "created": "2026-10-12T08:30",
+      "updated": "2026-10-12T08:30"
+    }
+  ]
+}
+```
+
+- **Edit hanya saat Cyrene mati** (tutup dulu jendela `waifu run`). Kalau dia menyimpan
+  catatan selagi file itu terbuka di editor, simpanan editor menimpa catatannya: di antara
+  dua program, yang terakhir menulis yang menang. `waifu memory` membaca file tepat
+  sebelum mengubahnya, jadi aman dipakai selagi dia berjalan (kecuali keduanya menulis
+  pada saat yang persis sama).
+- `id` berbentuk `m` lalu angka dan tidak boleh kembar; id yang pernah dipakai tidak
+  diberikan lagi. Waktu ditulis seperti `2026-10-12T08:30`. Catatan yang ditulis tangan
+  tidak dicek seperti lewat suara, jadi jangan menulis rahasia di sini juga.
+- **File yang rusak tidak pernah ditimpa.** Kalau isinya bukan JSON yang benar atau
+  bentuknya lain dari contoh di atas, Cyrene mengganti namanya menjadi
+  `memory.json.corrupt-<tanggal>-<jam>` (misalnya `memory.json.corrupt-20261013-214500`),
+  menulis error di log, lalu mulai dengan ingatan kosong. Selama file itu masih ada,
+  `waifu check` menunjukkannya dengan `!`. Untuk memulihkan: matikan Cyrene, perbaiki
+  file `.corrupt-...` itu (misalnya koma atau tanda kutip yang hilang), lalu ganti
+  namanya kembali menjadi `memory.json`. Kalau sementara itu dia sudah menyimpan catatan
+  baru, lihat dulu dengan `waifu memory list`, kembalikan file yang sudah diperbaiki,
+  lalu tambahkan lagi catatan baru itu dengan `waifu memory add`.
+
+### Privasi ingatan
+
+- Catatan hanya ada di `data\memory.json` di PC ini. Seluruh `data\` ada di
+  `.gitignore`, jadi tidak pernah di-commit.
+- Dengan `brain.backend: claude`, semua catatan ikut dikirim ke API Anthropic sebagai
+  bagian dari system prompt di setiap sesi, sama seperti isi obrolannya. Dengan Ollama,
+  daftar catatannya tidak pernah keluar dari PC (jawaban yang menyebut isinya tetap
+  dijadikan suara oleh edge-tts kalau engine `edge` dipakai, seperti jawaban lainnya).
+- Catatan yang dia simpan lewat suara juga tercatat di log (`Tool remember(...)`), seperti
+  setiap kalimat yang dia dengar.
+- Untuk mematikan ingatan: `memory.enabled: false`. Dia tidak lagi membaca atau
+  menyimpan catatan, tapi filenya tidak dihapus; hapus isinya dengan
+  `waifu memory clear --yes` kalau mau.
+
 ## Pemecahan masalah
 
 Log `waifu run` tampil di terminal dalam bahasa Inggris. Baris seperti
@@ -1488,14 +1614,25 @@ mendengarkan"; jawaban pertama bisa lebih lama karena model Ollama baru dimuat)
 - [ ] Turunkan sementara `stamina_minutes` sampai di atas sisa waktu penuh: dalam 15
       menit dia mengingatkan lewat suara dan HP, sekali saja.
 
+**Ingatan**
+
+- [ ] "Cyrene, ingat ya, aku alergi udang": dia mengiyakan dalam satu kalimat, dan
+      `waifu memory list` menampilkan catatannya.
+- [ ] Setelah sesi baru (tunggu 10 menit, atau jalankan ulang): "Cyrene, enaknya masak
+      apa?" dijawab tanpa udang, tanpa diingatkan.
+- [ ] "Cyrene, apa yang kamu ingat tentang aku?": ringkasan singkat, bukan daftar yang
+      dibacakan. "Cyrene, lupakan soal udang": catatannya hilang dari `waifu memory list`.
+- [ ] "Cyrene, ingat PIN ATM-ku 1234": dia menolak, dan tidak ada catatan baru.
+
 ## Privasi
 
 - **Suara tidak pernah keluar dari PC.** Rekaman mic, verifikasi suara, dan
   speech-to-text diproses lokal.
 - **Yang dikirim ke internet hanya teks:**
   - dengan `brain.backend: claude`, kalimat yang ditujukan ke Cyrene (sudah dalam
-    bentuk teks), persona, daftar perangkat, dan hasil perintah perangkat dikirim
-    ke API Anthropic. Dengan Ollama, semuanya lokal;
+    bentuk teks), persona, daftar perangkat, hasil perintah perangkat, dan catatan
+    ingatannya (di awal setiap sesi) dikirim ke API Anthropic. Dengan Ollama, semuanya
+    lokal;
   - dengan engine `edge` di `tts`, teks jawaban Cyrene dikirim ke layanan edge-tts
     Microsoft untuk dijadikan suara. GPT-SoVITS, suara anime (RVC), dan avatar (VRM
     atau Live2D, termasuk elusan dan colekannya) berjalan lokal (halaman avatar hanya
@@ -1506,6 +1643,9 @@ mendengarkan"; jawaban pertama bisa lebih lama karena model Ollama baru dimuat)
     membacanya).
 - **Cookie HoYoLAB setara kata sandi.** Hanya disimpan di `config.yaml` dan tidak pernah
   ditulis ke log. Riwayat pull ada di `data\gacha\` (nama filenya memuat UID game).
+- **Ingatan Cyrene** (hal yang dia ketahui tentang Master) ada di `data\memory.json`,
+  hanya di PC ini; rahasia seperti kata sandi atau nomor kartu tidak pernah disimpan.
+  Lihat [Privasi ingatan](#privasi-ingatan).
 - **Voiceprint adalah data biometrik.** `data/voiceprint.npy` (dan seluruh `data/`)
   ada di `.gitignore` dan tidak boleh di-commit atau dibagikan. Begitu juga
   `config.yaml` (local key Tuya) dan `models/`.

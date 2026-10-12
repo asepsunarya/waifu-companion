@@ -33,7 +33,7 @@ from time import sleep
 import numpy as np
 from pydantic import ValidationError
 
-from waifu import autostart
+from waifu import autostart, memory
 from waifu.app import Assistant, split_reply
 from waifu.autostart import RunKey, WindowsRunKey
 from waifu.avatar.bus import STATES as AVATAR_STATES
@@ -43,8 +43,9 @@ from waifu.avatar.interactions import InteractionHandler
 from waifu.avatar.lipsync import SHAPE_CENTRE_HZ
 from waifu.avatar.server import AvatarError, AvatarServer, file_under
 from waifu.avatar.window import AvatarWindow
-from waifu.brain.base import ToolCallRecord
+from waifu.brain.base import Brain, ToolCallRecord
 from waifu.brain.factory import build_brain
+from waifu.brain.memory_tools import MemoryTools
 from waifu.brain.tools import ToolProvider
 from waifu.config import (
     AppConfig,
@@ -58,7 +59,7 @@ from waifu.config import (
 from waifu.devices.base import DeviceError
 from waifu.devices.ir_codes import COMMAND_PATTERN, IrCodeStoreError
 from waifu.devices.ir_device import IrDevice
-from waifu.devices.registry import build_registry
+from waifu.devices.registry import DeviceRegistry, build_registry
 from waifu.gacha.games import GAMES, Game, next_daily_reset
 from waifu.gacha.history import (
     GachaHistory,
@@ -72,6 +73,7 @@ from waifu.gacha.reminders import duration_text
 from waifu.gacha.tools import GachaTools
 from waifu.gacha.watcher import GachaWatcher
 from waifu.gate import WakeGate
+from waifu.memory import MemoryStore, memory_prompt_section
 from waifu.notify import build_notifier
 from waifu.single_instance import InstanceLock
 from waifu.voice.audio import MicStream, Player, list_devices
@@ -174,6 +176,11 @@ GACHA_DESCRIPTION = (
 )
 # Where the games keep their logs, which lead to their history caches; tests point it elsewhere.
 GAME_LOGS_DIR = Path.home() / "AppData" / "LocalLow"
+MEMORY_DESCRIPTION = (
+    "Ingatan Cyrene tentang Master: catatan yang dia baca di awal setiap sesi obrolan. "
+    "Perintah ini jalan walau memory.enabled: false; Cyrene yang sedang berjalan melihat "
+    "perubahannya mulai sesi obrolan berikutnya."
+)
 _REGISTERED_DELAY = re.compile(r" --startup-delay (\d+) ")
 # build_command always quotes the folder, and a path in it never contains a quote.
 _REGISTERED_PROJECT = re.compile(r' /d "([^"]+)" ')
@@ -361,6 +368,22 @@ def build_parser() -> argparse.ArgumentParser:
     history.add_argument(
         "--full", action="store_true", help="baca semua halaman riwayat (impor pertama)"
     )
+    memory_command = commands.add_parser(
+        "memory",
+        parents=[shared],
+        help="Ingatan Cyrene tentang Master: lihat, tambah, dan hapus catatan.",
+        description=MEMORY_DESCRIPTION,
+    )
+    memory_actions = memory_command.add_subparsers(dest="action", required=True, metavar="<aksi>")
+    command("list", _memory_list, "Tampilkan semua catatan.", memory_actions)
+    add = command("add", _memory_add, "Simpan satu catatan baru.", memory_actions)
+    add.add_argument("text", nargs="+")
+    forget = command("forget", _memory_forget, "Hapus satu catatan.", memory_actions)
+    forget.add_argument("fact_id", metavar="id", help="id dari 'waifu memory list', misalnya m3")
+    clear = command("clear", _memory_clear, "Hapus semua catatan.", memory_actions)
+    clear.add_argument(
+        "--yes", action="store_true", help="benar-benar hapus (tanpa ini hanya dihitung)"
+    )
     return parser
 
 
@@ -522,7 +545,7 @@ def _listen(args: argparse.Namespace) -> int:
         return 2
     registry = build_registry(config, dry_run=args.dry_run)
     gacha = build_gacha(config) if config.gacha.enabled else None
-    brain = build_brain(config, registry, providers=_game_tools(config, gacha))
+    brain = _companion_brain(config, registry, gacha)
     stt = WhisperStt(config.stt, name)
     gate = WakeGate(config.assistant.wake_words, config.assistant.followup_seconds)
     segmenter = EnergySegmenter(config.audio.sample_rate, config.audio.vad)
@@ -591,7 +614,7 @@ def _chat(args: argparse.Namespace) -> int:
     config = load_config(args.config)
     registry = build_registry(config, dry_run=args.dry_run)
     gacha = build_gacha(config) if config.gacha.enabled else None
-    brain = build_brain(config, registry, providers=_game_tools(config, gacha))
+    brain = _companion_brain(config, registry, gacha)
     with (
         _avatar_bus(config, wanted=args.speak) as avatar,
         _voice_converter(config, wanted=args.speak) as converter,
@@ -619,6 +642,25 @@ def _chat(args: argparse.Namespace) -> int:
             if speech is not None and player is not None:
                 _speak(speech, player, reply.text, avatar=avatar, emotion=emotion)
     return 0
+
+
+def _companion_brain(
+    config: AppConfig, registry: DeviceRegistry, gacha: GachaParts | None
+) -> Brain:
+    """The brain with the game tools when they are on, then her long-term memory when it is on.
+
+    With memory, every new session lists the notes as they are in the file at that moment.
+    """
+    providers = _game_tools(config, gacha)
+    if not config.memory.enabled:
+        return build_brain(config, registry, providers=providers)
+    store = _memory_store(config)
+    return build_brain(
+        config,
+        registry,
+        providers=[*providers, MemoryTools(store)],
+        memory_section=lambda: memory_prompt_section(store.facts()),
+    )
 
 
 def _describe_tool_call(call: ToolCallRecord) -> str:
@@ -1286,6 +1328,67 @@ def _top_pull_text(pull: TopPull) -> str:
     return f"{pull.name} ({pull.pulls} pull{result})"
 
 
+# --- long-term memory ------------------------------------------------------------------------
+
+
+def _memory_store(config: AppConfig) -> MemoryStore:
+    """Her notes about Master, in the file `memory.path` names, whether memory is on or not."""
+    settings = config.memory
+    return MemoryStore(settings.path, max_facts=settings.max_facts, max_chars=settings.max_chars)
+
+
+def _memory_list(args: argparse.Namespace) -> int:
+    facts = _memory_store(load_config(args.config)).facts()
+    if not facts:
+        print("Belum ada catatan.")
+        return 0
+    width = max(len(fact.id) for fact in facts)
+    for fact in facts:
+        print(f"{fact.id.ljust(width)}  {fact.updated:%d-%m-%Y}  {fact.text}")
+    return 0
+
+
+def _memory_add(args: argparse.Namespace) -> int:
+    store = _memory_store(load_config(args.config))
+    saved_ids = {fact.id for fact in store.facts()}
+    try:
+        fact = store.add(" ".join(args.text))
+    except memory.MemoryError as exc:
+        print(f"{FAIL} {exc}")
+        return 1
+    if fact.id in saved_ids:  # the same text was saved before: the store gave that note back
+        print(f"{OK} Catatan itu sudah ada sebagai {fact.id}: {fact.text}")
+    else:
+        print(f"{OK} Tersimpan sebagai {fact.id}: {fact.text}")
+    return 0
+
+
+def _memory_forget(args: argparse.Namespace) -> int:
+    try:
+        fact = _memory_store(load_config(args.config)).forget(args.fact_id)
+    except memory.MemoryError as exc:
+        print(f"{FAIL} {exc}")
+        return 1
+    print(f"{OK} Dihapus {fact.id}: {fact.text}")
+    return 0
+
+
+def _memory_clear(args: argparse.Namespace) -> int:
+    """Delete every note with --yes; without it, only say how many would go."""
+    store = _memory_store(load_config(args.config))
+    count = store.clear() if args.yes else len(store.facts())
+    if count == 0:
+        print("Belum ada catatan; tidak ada yang dihapus.")
+    elif args.yes:
+        print(f"{OK} {count} catatan dihapus.")
+    else:
+        print(
+            f"Ada {count} catatan yang akan dihapus. Jalankan 'waifu memory clear --yes' "
+            "untuk benar-benar menghapusnya."
+        )
+    return 0
+
+
 # --- check -----------------------------------------------------------------------------------
 
 
@@ -1307,6 +1410,7 @@ def _checks(config_path: Path) -> Iterator[Check]:
     yield from _device_checks(config, config_path)
     yield _voiceprint_check(config)
     yield _brain_check(config)
+    yield _memory_check(config)
     yield from _voice_package_checks(config)
     yield _microphone_check(config)
     yield from _anime_voice_checks(config)
@@ -1395,6 +1499,37 @@ def _pulled_models(tags: object) -> set[str]:
         for model in models or []
         if isinstance(model, dict)
     }
+
+
+def _memory_check(config: AppConfig) -> Check:
+    """How many notes she has, and where a broken memory file was moved, if one was."""
+    if not config.memory.enabled:
+        return WARN, "Ingatan mati (memory.enabled: false)"
+    path = config.memory.path
+    try:
+        count = len(_memory_store(config).facts())  # moves a broken file aside, as `run` would
+    except OSError as exc:
+        return FAIL, f"File ingatan {path} tidak bisa dibaca: {exc}"
+    status = f"Ingatan: {count} catatan ({path})"
+    moved = _set_aside_memory_files(path)
+    if moved:
+        return WARN, (
+            f"{status}; file ingatan yang rusak dipindah ke {', '.join(map(str, moved))} "
+            "(cara memulihkannya ada di README, bagian Ingatan Cyrene)"
+        )
+    return OK, status
+
+
+def _set_aside_memory_files(path: Path) -> list[Path]:
+    """The copies a broken memory file was renamed to (`<name>.corrupt-<time>`), oldest first.
+
+    They stay until the owner repairs or deletes them, so `check` points at them every time.
+    """
+    prefix = f"{path.name}.corrupt-"
+    try:
+        return sorted(copy for copy in path.parent.iterdir() if copy.name.startswith(prefix))
+    except OSError:  # no folder yet: nothing was ever saved there
+        return []
 
 
 def _voice_package_checks(config: AppConfig) -> Iterator[Check]:
