@@ -128,11 +128,13 @@ def make_handler(converter: Converter, model_name: str) -> type[BaseHTTPRequestH
 
         def do_POST(self) -> None:
             url = urlsplit(self.path)
-            if url.path != "/convert":
-                self._send_error_json(HTTPStatus.NOT_FOUND, "not found")
-                return
+            # Read the body before any reply: an unread body makes Windows reset the
+            # socket under the reply, so the client would never see its 404.
             body = self._read_body()
             if body is None:
+                return
+            if url.path != "/convert":
+                self._send_error_json(HTTPStatus.NOT_FOUND, "not found")
                 return
             try:
                 params = parse_convert_query(url.query)

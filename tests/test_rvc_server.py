@@ -409,6 +409,19 @@ def test_post_to_an_unknown_path_is_404(serve: Callable[[FakeConverter], str]) -
     assert converter.calls == []
 
 
+def test_a_large_upload_to_an_unknown_path_still_gets_its_404(
+    serve: Callable[[FakeConverter], str],
+) -> None:
+    # Replying before reading the body made Windows reset the socket under the reply:
+    # 126 of 300 such requests ended in ConnectionAbortedError instead of a 404.
+    base_url = serve(FakeConverter())
+    upload = b"RIFF" + bytes(400_000)
+
+    statuses = [http_request(f"{base_url}/health", data=upload)[0] for _ in range(20)]
+
+    assert statuses == [404] * 20
+
+
 def test_a_second_server_cannot_share_the_port_of_a_running_one() -> None:
     # Two stock HTTPServers both set SO_REUSEADDR, which on Windows lets them bind the
     # same port and silently split the requests between them.
