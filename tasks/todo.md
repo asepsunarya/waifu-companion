@@ -229,3 +229,57 @@ named `tests/test_<package>_<module>.py`.
 - [x] README (Indonesian) explains the voice, Applio setup, training commands, the corpus terms/credit, and troubleshooting; `config.example.yaml` documents `tts.rvc`
 
 **Dependencies:** 23 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py`, `README.md`, `config.example.yaml` · **Scope:** M
+
+## Task 25: Emotion tags in replies
+
+**Acceptance criteria:**
+- [ ] `split_emotion` maps Indonesian and English tags (case/space-insensitive) to the six emotions, removes every emotion tag, leaves other brackets alone, defaults to neutral
+- [ ] `config/persona.md` asks for exactly one leading Indonesian tag per reply and lists them
+- [ ] No tag can reach TTS or printed chat output (covered again in task 30)
+
+**Dependencies:** none · **Files:** `src/waifu/avatar/emotion.py`, `tests/test_avatar_emotion.py`, `config/persona.md` · **Scope:** S
+
+## Task 26: Viseme track from audio
+
+**Acceptance criteria:**
+- [ ] Frame count is `ceil(duration*fps)`; silence gives all zeros; weights per frame sum to at most the frame's openness and stay within 0..1
+- [ ] A low tone favours ou/oh, a mid band aa, a high band ee/ih (synthetic signals)
+- [ ] Attack is faster than release (a burst opens within ~2 frames and closes over several)
+
+**Dependencies:** none · **Files:** `src/waifu/avatar/lipsync.py`, `tests/test_avatar_lipsync.py` · **Scope:** S
+
+## Task 27: Event bus and loopback server with SSE
+
+**Acceptance criteria:**
+- [ ] Subscribers get hello + last state first, then published events; a slow subscriber never blocks `publish` (oldest dropped)
+- [ ] Server routes per SPEC: index, static files with traversal protection, `/model.vrm`, SSE with pings and clean disconnect, 405 for non-GET, port-in-use `AvatarError`
+- [ ] `stop()` ends open SSE responses and frees the port (tests on 127.0.0.1 port 0)
+
+**Dependencies:** none · **Files:** `src/waifu/avatar/bus.py`, `src/waifu/avatar/server.py`, `tests/test_avatar_bus.py`, `tests/test_avatar_server.py` · **Scope:** M
+
+## Task 28: Viewer page
+
+**Acceptance criteria:**
+- [ ] `logic.js` functions per SPEC pass `node --test tests/js`
+- [ ] The page loads the VRM through the import map, stands in a relaxed pose, blinks, breathes, follows state/emotion/speak events, and reconnects the event stream
+- [ ] Verified in a real browser against the real VRM (screenshot, no console errors), transparent background in mascot mode, credit line visible
+
+**Dependencies:** none (protocol from SPEC) · **Files:** `src/waifu/avatar/web/index.html`, `src/waifu/avatar/web/logic.js`, `src/waifu/avatar/web/avatar.js`, `tests/js/logic.test.mjs` · **Scope:** M
+
+## Task 29: Window launcher and Electron shell
+
+**Acceptance criteria:**
+- [ ] `AvatarWindow` builds the exact Electron/Edge argv per mode, puts the child in a kill-on-close job, explains a missing Electron/Edge, and closes only what it started
+- [ ] `avatar-app/lib.js` `parseArgs`/`cornerPosition` pass `node --test avatar-app/test`; `main.js` creates the transparent frameless window per SPEC with sandboxed web preferences and blocked navigation
+- [ ] No test spawns Electron or Edge
+
+**Dependencies:** none · **Files:** `src/waifu/avatar/window.py`, `tests/test_avatar_window.py`, `avatar-app/lib.js`, `avatar-app/main.js`, `avatar-app/test/lib.test.js` · **Scope:** M
+
+## Task 30: Integration, CLI, README, example config
+
+**Acceptance criteria:**
+- [ ] `Assistant` publishes thinking → speak (with the reply's emotion and viseme track) → listening, strips tags before speaking, and survives avatar errors
+- [ ] `waifu avatar [--demo]`, and `run`/`say`/`chat --speak` start and stop server + window when enabled (run: inside the lock before ready); `check` reports the avatar without spawning
+- [ ] README (Indonesian) covers setup (model download, Electron install), use, mascot controls, credit/terms; `config.example.yaml` documents `avatar`
+
+**Dependencies:** 25-29 · **Files:** `src/waifu/app.py`, `src/waifu/cli.py`, `tests/test_app.py`, `tests/test_cli.py`, `README.md`, `config.example.yaml` · **Scope:** M

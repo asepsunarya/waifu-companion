@@ -38,6 +38,7 @@ All commands run from the repository root with the project venv.
 | Test (all)      | `.venv\Scripts\python -m pytest`                            |
 | Test (one file) | `.venv\Scripts\python -m pytest tests/test_config.py`       |
 | Lint / format   | `.venv\Scripts\python -m ruff check src tests` / `... ruff format src tests` |
+| JS tests        | `node --test tests/js avatar-app/test` (avatar logic and Electron helpers) |
 | Type check      | none configured; keep full type hints on public functions   |
 
 Run the relevant checks before claiming a task is done. "Seems right" is not evidence.
