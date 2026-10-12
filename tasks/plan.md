@@ -96,7 +96,7 @@ Lip-sync uses a viseme track computed from the very audio about to be played.
 - [x] Task 25: Emotion tags in replies (`avatar/emotion.py`, persona)
 - [x] Task 26: Viseme track from audio (`avatar/lipsync.py`)
 - [x] Task 27: Event bus and loopback server with SSE (`avatar/bus.py`, `avatar/server.py`)
-- [ ] Task 28: Viewer page (`avatar/web/index.html`, `logic.js`, `avatar.js`, JS tests)
+- [x] Task 28: Viewer page (`avatar/web/index.html`, `logic.js`, `avatar.js`, JS tests)
 - [x] Task 29: Window launcher and Electron shell (`avatar/window.py`, `avatar-app/`)
 - [x] Task 30: Integration: Assistant, CLI (`avatar`, run/say/chat, check), README, example config
 

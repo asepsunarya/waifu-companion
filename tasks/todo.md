@@ -257,12 +257,12 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** none · **Files:** `src/waifu/avatar/bus.py`, `src/waifu/avatar/server.py`, `tests/test_avatar_bus.py`, `tests/test_avatar_server.py` · **Scope:** M
 
-## Task 28: Viewer page
+## Task 28: Viewer page ✅
 
 **Acceptance criteria:**
 - [x] `logic.js` functions per SPEC pass `node --test "tests/js/*.test.mjs"` (Node 21+ takes files or globs, not folders)
-- [ ] The page loads the VRM through the import map (every static import resolves to a vendored file: `tests/test_avatar_web.py`), stands in a relaxed pose, blinks, breathes, follows state/emotion/speak events, and reconnects the event stream
-- [ ] Verified in a real browser against the real VRM (screenshot, no console errors), transparent background in mascot mode, credit line visible
+- [x] The page loads the VRM through the import map (every static import resolves to a vendored file: `tests/test_avatar_web.py`), stands in a relaxed pose, blinks, breathes, follows state/emotion/speak events, and reconnects the event stream
+- [x] Verified in a real browser against the real VRM (screenshot, no console errors), transparent background in mascot mode, credit line visible — re-checked 2026-10-12 on the final code: real Electron mascot loaded every module, the VRM and /events; emotions and visemes changed in the demo; mascot page html/body rgba(0,0,0,0), alpha WebGL context, credit shown
 
 **Dependencies:** none (protocol from SPEC) · **Files:** `src/waifu/avatar/web/index.html`, `src/waifu/avatar/web/logic.js`, `src/waifu/avatar/web/avatar.js`, `tests/js/logic.test.mjs` · **Scope:** M
 
