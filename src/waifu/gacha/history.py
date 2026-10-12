@@ -269,13 +269,13 @@ class StoredHistory:
 
 
 class GachaStore:
-    """One JSON file per game account; `load` returns the account saved last."""
+    """One JSON file per game account; `load` returns the account saved last, or a given one."""
 
     def __init__(self, directory: Path) -> None:
         self.directory = directory
 
-    def load(self, game: Game) -> StoredHistory:
-        saved = self._saved(game)
+    def load(self, game: Game, uid: int | None = None) -> StoredHistory:
+        saved = [raw for raw in self._saved(game) if uid is None or raw["uid"] == uid]
         if not saved:
             return StoredHistory(None, [], False)
         latest = max(saved, key=lambda raw: raw["sequence"])
@@ -500,9 +500,9 @@ class GachaHistory:
     ) -> tuple[int | None, list[GachaRecord], list[GachaRecord], bool]:
         fetched, cut_off = self._read(game, stored.records, full)
         if fetched and stored.uid is not None and fetched[0].uid != stored.uid:
-            # Another account: its history starts from nothing.
-            stored = StoredHistory(None, [], False)
-            fetched, cut_off = self._read(game, [], full)
+            # Another account: carry on from its own saved history (empty if it has none).
+            stored = self._store.load(game, uid=fetched[0].uid)
+            fetched, cut_off = self._read(game, stored.records, full)
         uid = fetched[0].uid if fetched else stored.uid
         known = {record.id for record in stored.records}
         new = [record for record in fetched if record.id not in known]

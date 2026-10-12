@@ -744,3 +744,21 @@ def test_the_store_skips_files_it_cannot_read(tmp_path, caplog):
 
     assert (loaded.uid, len(loaded.records)) == (800000001, 3)
     assert "hsr-broken.json" in caplog.text and "hsr-None.json" in caplog.text
+
+
+def test_switching_back_to_an_account_carries_on_from_its_own_history(
+    tmp_path, locallow, hsr_cache
+):
+    store = GachaStore(tmp_path / "gacha")
+    store.save(HSR, 800000001, pulls_until(1, 300), complete=True)  # account A, read in full
+    store.save(HSR, 800000009, pulls_until(301, 5, uid=800000009), complete=True)  # then alt B
+    a_history = [*pulls_until(1, 300), *pulls_until(400, 5)]  # back on A, five new pulls
+    api = FakeLogApi({11: a_history})
+
+    report = make_history(tmp_path, locallow, api).report("hsr")
+
+    assert [c["stop"] for c in api.calls if c["banner"] == 11] == [305, 300]
+    a = store.load(HSR, uid=800000001)
+    assert (len(a.records), a.complete) == (305, True)
+    assert (report.stats[0].total, report.complete) == (305, True)
+    assert len(store.load(HSR, uid=800000009).records) == 5  # B's own history is untouched
