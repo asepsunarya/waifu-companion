@@ -63,6 +63,8 @@ def _is_system_change_command(args: object) -> bool:
         return True
     if "rvc_server" in programs:  # would load Applio and a GPU model
         return True
+    if programs and programs[0] in {"electron", "msedge"}:  # would open a real window
+        return True
     if "reg" in programs:
         verb_index = programs.index("reg") + 1
         return verb_index < len(words) and words[verb_index].lower() in _REG_WRITE_VERBS

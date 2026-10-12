@@ -63,3 +63,15 @@ def test_spawning_the_real_rvc_server_is_refused():
     args = [sys.executable, "tools/rvc_server.py", "--port", "1"]
     with pytest.raises(AssertionError, match="system-change command"):
         subprocess.run(args, capture_output=True, check=False)
+
+
+@pytest.mark.parametrize(
+    "program",
+    [
+        r"C:\x\avatar-app\node_modules\electron\dist\electron.exe",
+        r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+    ],
+)
+def test_opening_a_real_avatar_window_is_refused(program):
+    with pytest.raises(AssertionError, match="system-change command"):
+        subprocess.run([program, "--version"], capture_output=True, check=False)
