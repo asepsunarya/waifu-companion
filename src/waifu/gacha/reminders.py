@@ -3,7 +3,7 @@
 Pure rules over a status snapshot: stamina close to full, dailies left in the
 evening, weeklies left on the last day of the week, a finished expedition batch,
 a HoYoLAB problem the owner must fix, and the check-in she claimed. Each occasion
-is told once; `ReminderState` remembers what was told, across restarts too.
+is told once; `ReminderState` remembers what was told.
 """
 
 from __future__ import annotations
@@ -45,9 +45,16 @@ class Notice:
 
 @dataclass
 class ReminderState:
-    """What was already told: key -> the day it belongs to (ISO date)."""
+    """What was already told.
+
+    Dailies, weeklies, problems, and the check-in are kept across restarts (`fired`: key ->
+    the day it belongs to). A full stamina or a finished expedition batch is remembered for
+    this run only (`occasions`): spending it is only seen by a poll, and a refill found after
+    Cyrene was off, with no poll in between, is a new occasion.
+    """
 
     fired: dict[str, str] = field(default_factory=dict)
+    occasions: set[str] = field(default_factory=set)
 
     @classmethod
     def load(cls, path: Path) -> ReminderState:
@@ -73,8 +80,15 @@ class ReminderState:
         self.fired[key] = day.isoformat()
         return True
 
+    def occasion(self, key: str) -> bool:
+        """Like `once`, for an occasion remembered only while this run lasts."""
+        if key in self.occasions:
+            return False
+        self.occasions.add(key)
+        return True
+
     def rearm(self, key: str) -> None:
-        self.fired.pop(key, None)
+        self.occasions.discard(key)
 
 
 def due_notices(
@@ -92,10 +106,10 @@ def due_notices(
     for game_id, status in statuses.items():
         game = GAMES[game_id]
         candidates = [
-            _stamina(game, status, state, rules, day),
+            _stamina(game, status, state, rules),
             _daily(game, status, state, day, reset) if evening else None,
             _weekly(game, status, state, day, reset) if evening and rules.weekly else None,
-            _expeditions(game, status, state, day) if rules.expeditions else None,
+            _expeditions(game, status, state) if rules.expeditions else None,
         ]
         notices.extend(notice for notice in candidates if notice is not None)
     return notices
@@ -129,14 +143,14 @@ def checkin_notice(results: Iterable[CheckinResult]) -> Notice | None:
 
 
 def _stamina(
-    game: Game, status: GameStatus, state: ReminderState, rules: GachaRemindersConfig, day: date
+    game: Game, status: GameStatus, state: ReminderState, rules: GachaRemindersConfig
 ) -> Notice | None:
     key = f"stamina:{game.id}"
     full = status.stamina >= status.stamina_max or status.stamina_full_in_s <= 0
     if not full and status.stamina_full_in_s > rules.stamina_minutes * 60:
         state.rearm(key)  # Master spent it: the next fill-up is a new occasion
         return None
-    if not state.once(key, day):
+    if not state.occasion(key):
         return None
     amount = f"{status.stamina} dari {status.stamina_max}"
     if full:
@@ -175,12 +189,12 @@ def _weekly(
     return Notice(game.id, "weekly", text, "surprised")
 
 
-def _expeditions(game: Game, status: GameStatus, state: ReminderState, day: date) -> Notice | None:
+def _expeditions(game: Game, status: GameStatus, state: ReminderState) -> Notice | None:
     key = f"expeditions:{game.id}"
     if not status.expeditions_total or status.expeditions_finished < status.expeditions_total:
         state.rearm(key)
         return None
-    if not state.once(key, day):
+    if not state.occasion(key):
         return None
     text = f"Master, semua ekspedisi {game.short} sudah selesai. Ambil hadiahnya yuk."
     return Notice(game.id, "expeditions", text, "surprised")

@@ -1066,16 +1066,18 @@ Perintah `waifu gacha` tetap jalan walau `gacha.enabled: false`; yang dinyalakan
 
 | Pengingat | Kapan | Berapa kali | Mengatur |
 |---|---|---|---|
-| Stamina | penuh dalam `stamina_minutes` menit, atau sudah penuh | sekali, sampai staminanya dipakai lagi | `stamina_minutes` (0 = saat sudah penuh) |
+| Stamina | penuh dalam `stamina_minutes` menit, atau sudah penuh | sekali, sampai staminanya dipakai lagi atau Cyrene dijalankan ulang | `stamina_minutes` (0 = saat sudah penuh) |
 | Daily | mulai `daily_time` kalau daily belum selesai | sekali per hari game (reset 03.00 WIB) | `daily_time` |
 | Mingguan | hari Minggu mulai `daily_time` kalau masih ada sisa | sekali per minggu | `weekly: false` |
-| Ekspedisi | semua ekspedisi HSR / Genshin selesai | sekali per gelombang | `expeditions: false` |
+| Ekspedisi | semua ekspedisi HSR / Genshin selesai | sekali per gelombang (atau setelah Cyrene dijalankan ulang) | `expeditions: false` |
 | Check-in | diambil sendiri; dia bilang hadiahnya | sekali per hari (berganti jam 23.00 WIB) | `checkin: false` |
 | Masalah | cookie tidak berlaku, captcha, Real-Time Notes mati | sekali per hari | — |
 
-HoYoLAB dicek tiap `poll_minutes` (bawaan 15). Status pengingat disimpan di
-`data\gacha\reminders.json`, jadi Cyrene yang di-restart tidak mengulang pengingat yang
-sama. Tidak ada jam tenang: dia juga bicara di malam hari selama `waifu run` jalan.
+HoYoLAB dicek tiap `poll_minutes` (bawaan 15). Pengingat daily, mingguan, masalah, dan
+check-in disimpan di `data\gacha\reminders.json`, jadi Cyrene yang di-restart tidak
+mengulangnya. Stamina dan ekspedisi yang masih penuh disampaikan sekali lagi setelah
+restart, karena selama PC mati dia tidak tahu apakah sempat kamu pakai. Tidak ada jam
+tenang: dia juga bicara di malam hari selama `waifu run` jalan.
 
 ### Ketentuan dan risiko
 

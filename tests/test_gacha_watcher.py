@@ -184,17 +184,32 @@ def test_checkin_turned_off_is_never_claimed(tmp_path, clock):
     assert hoyolab.checkin_calls == []
 
 
-def test_what_was_told_survives_a_restart(tmp_path, clock):
-    hoyolab = FakeHoyolab({"hsr": NEAR_FULL})
-    first, _, _ = make_watcher(tmp_path, hoyolab, clock)
+def test_a_daily_reminder_is_not_repeated_after_a_restart(tmp_path, clock):
+    clock.now = datetime(2026, 10, 12, 20, 30, tzinfo=WIB)  # evening, dailies still open
+    hoyolab = FakeHoyolab({"hsr": replace(QUIET, daily_current=300, daily_done=False)})
+    first, _, told_first = make_watcher(tmp_path, hoyolab, clock)
     first.poll_once()
 
     second, notifier, announced = make_watcher(tmp_path, hoyolab, clock)
     second.poll_once()
 
+    assert [emotion for _, emotion in told_first] == ["surprised"]
     assert (notifier.sent, announced) == ([], [])
     saved = json.loads((tmp_path / "gacha" / "reminders.json").read_text(encoding="utf-8"))
-    assert "stamina:hsr" in saved["fired"]
+    assert "daily:hsr:2026-10-12" in saved["fired"]
+
+
+def test_a_full_stamina_is_told_again_after_a_restart(tmp_path, clock):
+    # Spending it between the runs would go unseen, so a new run tells it once more.
+    hoyolab = FakeHoyolab({"hsr": NEAR_FULL})
+    first, _, _ = make_watcher(tmp_path, hoyolab, clock)
+    first.poll_once()
+
+    second, _, announced = make_watcher(tmp_path, hoyolab, clock)
+    second.poll_once()
+    second.poll_once()
+
+    assert len(announced) == 1
 
 
 def test_without_a_notifier_or_voice_it_still_keeps_track(tmp_path, clock):

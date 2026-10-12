@@ -299,3 +299,27 @@ def test_a_missing_or_broken_state_file_starts_fresh(tmp_path, caplog):
         assert ReminderState.load(broken).fired == {}
 
     assert "broken.json" in caplog.text
+
+
+def test_a_refill_found_after_cyrene_was_off_is_told_again(tmp_path):
+    # Monday 22:30: told. Master spends it and shuts the PC down before the next poll.
+    path = tmp_path / "reminders.json"
+    state = ReminderState()
+    evaluate(replace(HSR, stamina=295, stamina_full_in_s=30 * 60), wib(12, 22, 30), state)
+    state.save(path, today=date(2026, 10, 12))
+
+    # Tuesday 21:00: the PC is on again and the stamina is full once more.
+    restarted = ReminderState.load(path)
+    full = replace(HSR, stamina=300, stamina_full_in_s=0)
+
+    assert kinds(evaluate(full, wib(13, 21, 0), restarted)) == ["stamina"]
+
+
+def test_finished_expeditions_found_after_cyrene_was_off_are_told_again(tmp_path):
+    path = tmp_path / "reminders.json"
+    state = ReminderState()
+    done = replace(HSR, expeditions_finished=4)
+    evaluate(done, MONDAY_NOON, state)
+    state.save(path, today=date(2026, 10, 12))
+
+    assert kinds(evaluate(done, wib(13, 12), ReminderState.load(path))) == ["expeditions"]
