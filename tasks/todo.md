@@ -283,3 +283,94 @@ named `tests/test_<package>_<module>.py`.
 - [x] README (Indonesian) covers setup (model download, Electron install), use, mascot controls, credit/terms; `config.example.yaml` documents `avatar`
 
 **Dependencies:** 25-29 · **Files:** `src/waifu/app.py`, `src/waifu/cli.py`, `tests/test_app.py`, `tests/test_cli.py`, `README.md`, `config.example.yaml` · **Scope:** M
+
+## Task 30a: Gacha and notify config, genshin dependency
+
+**Acceptance criteria:**
+- [ ] `gacha` and `notify` sections validate per SPEC (cookie keys checked by name, `SecretStr`, HH:MM `daily_time`, unique games, https ntfy server, 16-64 char topic when enabled)
+- [ ] A bad cookie or topic is reported without echoing its value
+- [ ] `genshin==1.7.31` (`>=1.7.31,<2`) in the core dependencies; `config.example.yaml` documents both sections (disabled)
+
+**Dependencies:** none · **Files:** `src/waifu/config.py`, `tests/test_config.py`, `pyproject.toml`, `config.example.yaml` · **Scope:** S
+
+## Task 31: Push notifications and the no-internet test guard
+
+**Acceptance criteria:**
+- [ ] `NtfyNotifier.send` posts the JSON body to the server root and returns True on 2xx; HTTP errors, timeouts, and `OSError` return False with a warning that does not contain the topic
+- [ ] `waifu notify-test` sends the test message and prints ✓/✗ with hints; disabled notify explains how to enable it
+- [ ] `tests/conftest.py` refuses urllib and aiohttp requests to non-loopback hosts (covered in `test_safety_guard.py`); the full suite still passes
+
+**Dependencies:** 30a · **Files:** `src/waifu/notify.py`, `tests/test_notify.py`, `tests/conftest.py`, `tests/test_safety_guard.py`, `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** S
+
+## Task 32: Game facts and server-time helpers
+
+**Acceptance criteria:**
+- [ ] Each game lists its banners in display order with hard pity, 50/50 flag, and endpoint (HSR 21/22 → `getLdGachaLog`); standard pools per SPEC
+- [ ] `game_day` changes at 04:00 and `checkin_day` at 00:00 server time, for a local time in WIB (UTC+7) and across midnight
+- [ ] `reminder_due` and `is_last_day_of_week` match the reset rules, including a `daily_time` after midnight
+
+**Dependencies:** none · **Files:** `src/waifu/gacha/__init__.py`, `src/waifu/gacha/games.py`, `tests/test_gacha_games.py` · **Scope:** S
+
+## Task 33: HoYoLAB client
+
+**Acceptance criteria:**
+- [ ] `status` maps real genshin.py note models (built from sample payloads) of all three games to `GameStatus`, with `checked_in` from the reward info and None when only that call fails
+- [ ] `checkin` returns the reward, or `claimed=False` on `AlreadyClaimed`; `authkey` calls `fetch_authkey` for the right uid
+- [ ] Each genshin.py error, a timeout, and a missing cookie become the right `GachaError` kind; no message contains the cookie
+- [ ] uids come from config, else the highest-level account (looked up once)
+
+**Dependencies:** 32 · **Files:** `src/waifu/gacha/hoyolab.py`, `tests/test_gacha_hoyolab.py` · **Scope:** M
+
+## Task 34: Authkey from the game cache and the history API
+
+**Acceptance criteria:**
+- [ ] `find_cached_gacha_url` follows the game log to the newest `data_2` holding a history URL (fixture folders) and returns its base and decoded authkey; no log/no URL → None; a locked file → `GachaError("locked")`
+- [ ] `GachaLogApi.fetch` pages with `end_id`, stops at `stop_at_id`/empty page/`max_pages`, sends the SPEC query, and maps -100/-101/"auth key time out" → authkey, -110 → rate_limit, transport errors → network
+- [ ] The authkey never appears in logs or error messages
+
+**Dependencies:** 32 · **Files:** `src/waifu/gacha/history.py`, `tests/test_gacha_history.py` · **Scope:** S
+
+## Task 35: History store, stats, report
+
+**Acceptance criteria:**
+- [ ] `GachaStore` merges by id, returns only new records, and writes atomically per account
+- [ ] `banner_stats` gives pity, totals, the last five top-rarity items with pulls, `won_5050`, and `guaranteed` (a guaranteed win is neither won nor lost), honouring `off_banner`
+- [ ] `GachaHistory.report` refreshes incrementally, falls back to the cookie authkey, then to saved data with a problem message; `full` reads every page; an incomplete first import says so
+
+**Dependencies:** 34 · **Files:** `src/waifu/gacha/history.py`, `tests/test_gacha_history.py` · **Scope:** M
+
+## Task 36: Tool providers and the game tools
+
+**Acceptance criteria:**
+- [ ] `build_tool_specs`/`run_tool` include providers, reject duplicate names, and turn a provider exception into an error result; both brains and `build_brain` pass providers through
+- [ ] `game_status` and `gacha_history` have strict-compatible schemas (game enum from config) and return the SPEC JSON; errors per game, `is_error` only when nothing worked
+- [ ] Persona section added; existing brain tests unchanged and green
+
+**Dependencies:** 33, 35 · **Files:** `src/waifu/brain/tools.py`, `src/waifu/brain/claude.py`, `src/waifu/brain/ollama_brain.py`, `src/waifu/brain/factory.py`, `src/waifu/gacha/tools.py`, `config/persona.md` + tests · **Scope:** M
+
+## Task 37: Reminder rules and state
+
+**Acceptance criteria:**
+- [ ] Stamina fires once inside the window and re-arms after leaving it; daily fires once per game day after `daily_time` when not done; weekly only on the last game day; expeditions once per finished batch
+- [ ] Problem notices once per game day per kind; check-in notice names claimed rewards and is None when nothing was claimed
+- [ ] State survives a reload (atomic JSON) and drops keys older than 14 days
+
+**Dependencies:** 32, 33 · **Files:** `src/waifu/gacha/reminders.py`, `tests/test_gacha_reminders.py` · **Scope:** M
+
+## Task 38: Watcher and spoken announcements
+
+**Acceptance criteria:**
+- [ ] `poll_once` turns statuses into one push and one announcement, claims check-in once per check-in day (retrying after a network error), and saves the state
+- [ ] `start`/`stop` run and end the thread promptly; a failing poll is logged and polling continues
+- [ ] `Assistant.announce` queues from any thread; `run` speaks queued text between utterances only (`Segmenter.busy`), with `followup=False`
+
+**Dependencies:** 31, 37 · **Files:** `src/waifu/gacha/watcher.py`, `src/waifu/app.py`, `src/waifu/voice/segmenter.py`, `tests/test_gacha_watcher.py`, `tests/test_app.py`, `tests/test_voice_segmenter.py` · **Scope:** M
+
+## Task 39: CLI, wiring, README
+
+**Acceptance criteria:**
+- [ ] `waifu gacha accounts|status|checkin|history` per SPEC with fakes in tests; `run` and `chat` get the game tools, `run` starts/stops the watcher with a cookie; `check` reports gacha and notify without network or secrets
+- [ ] README (Indonesian): cookie and Real-Time Notes setup, ntfy app and topic, config, voice examples, reminders, history and pity, privacy and terms, troubleshooting
+- [ ] Real run on the owner's PC: `waifu gacha history hsr --full` imports the HSR history
+
+**Dependencies:** 31-38 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py`, `README.md`, `config.example.yaml` · **Scope:** M

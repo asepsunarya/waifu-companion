@@ -104,6 +104,33 @@ Lip-sync uses a viseme track computed from the very audio about to be played.
 - [x] Python and JS suites, ruff clean; no test opened a window or loaded the real VRM
 - [ ] On the owner's PC: the VRM renders in the page, lip-sync and emotions follow a real reply, and the mascot window is transparent and draggable
 
+### Phase 9: Gacha buddy (v1.4, see SPEC → notify, gacha buddy)
+Decisions: HoYoLAB (notes, check-in, accounts) through genshin.py behind a sync client
+that runs each call in its own `asyncio.run`, so the voice loop and the watcher thread
+share nothing async. Pull history comes from the game's own history API with the authkey
+the game left in its web cache (verified on the owner's PC), falling back to a cookie-made
+authkey; genshin.py's history routes are stale for HSR and ZZZ, so requests use the cached
+URL's base. Reminders are pure rules over a status snapshot plus a small JSON state, run by
+a watcher thread inside `waifu run`; she speaks them between utterances and pushes them to
+the phone through ntfy (no account, JSON publish). The brain gets the game tools through a
+`ToolProvider` protocol, so devices and games stay independent. No quiet hours (owner's
+choice).
+- [ ] Task 30a: `gacha` and `notify` config, `genshin` dependency, example config (committed with its tests)
+- [ ] Task 31: Push notifications (`notify.py`, `waifu notify-test`) and the no-internet test guard
+- [ ] Task 32: Game facts and server-time helpers (`gacha/games.py`)
+- [ ] Task 33: HoYoLAB client: accounts, status, check-in, authkey, error kinds (`gacha/hoyolab.py`)
+- [ ] Task 34: Authkey from the game cache and the history API (`gacha/history.py`, part 1)
+- [ ] Task 35: History store, pity and 50/50 stats, history report (`gacha/history.py`, part 2)
+- [ ] Task 36: Tool providers for the brain, the game tools, persona (`brain/tools.py`, `gacha/tools.py`)
+- [ ] Task 37: Reminder rules and their state (`gacha/reminders.py`)
+- [ ] Task 38: Watcher thread and spoken announcements (`gacha/watcher.py`, `Assistant.announce`)
+- [ ] Task 39: CLI `gacha` commands, `run`/`chat`/`check` wiring, README
+
+### Checkpoint: Gacha buddy
+- [ ] Full suite and ruff clean; no test reached the internet (conftest guard)
+- [ ] On the owner's PC: `waifu gacha history hsr --full` imports the real HSR history from the cached authkey; pity matches the game
+- [ ] With the owner's cookie and ntfy topic: `gacha status`, `gacha checkin`, `notify-test`, and one spoken + pushed reminder in `run`
+
 ## Risks and Mitigations
 
 | Risk | Impact | Mitigation |
@@ -113,6 +140,10 @@ Lip-sync uses a viseme track computed from the very audio about to be played.
 | Speaker verification on very short clips ("Cyrene!") | False rejects | Threshold is configurable; `speaker-test` shows live scores; `--no-speaker-check` fallback |
 | Tuya local keys and IR learning need the owner's hardware | Can't verify in CI | Fakes in tests; manual checklist in README |
 | LLM claims an action without a tool call | Wrong spoken confirmation | Persona forbids it; replies are spoken only after tool results return |
+| HoYoverse changes an endpoint or the cache layout | Status or history stops working | Errors become honest spoken messages; history uses the URL the game itself cached; genshin.py pinned and upgradable |
+| Unofficial HoYoLAB API (check-in) | Account risk, however small | Read-only except the check-in HoYoLAB itself offers; `gacha.checkin: false` turns it off; README says so |
+| Cookie or authkey leaks into logs | Account takeover / history exposure | `SecretStr`, never logged; URL queries never logged; tests use made-up secrets and assert they never show up |
+| Wrong 50/50 call (HSR Celestial Invitation pick) | Misleading reaction | `gacha.off_banner`; the tool description says it is judged from a list |
 
 ## Open Questions
 

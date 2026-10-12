@@ -12,6 +12,11 @@ Hardware budget is ≤ Rp1 juta, so there is no always-on hub: the PC runs
 everything. Turning the PC *on* is out of scope for the voice loop (the owner
 uses a smart plug + BIOS "power on AC restore" or Wake-on-LAN from a phone).
 
+Since v1.4 she is also the owner's companion for the HoYoverse games they play
+every day (Honkai: Star Rail, Genshin Impact, Zenless Zone Zero, Asia server):
+live status, reminders by voice and phone push, the HoYoLAB daily check-in, and
+pull history with pity (see "gacha buddy (v1.4)").
+
 ### User stories
 
 1. "Cyrene, nyalakan lampu kamar" → light turns on, she answers in voice within ~3 s of the owner finishing speaking (local STT + LLM on the RTX 5060 Ti).
@@ -29,10 +34,15 @@ uses a smart plug + BIOS "power on AC restore" or Wake-on-LAN from a phone).
 | devices | Device contract, registry, Tuya, Broadlink, PC, mock, IR code store | config |
 | brain | Tool specs from the registry, persona prompt, Claude and Ollama backends | config, devices |
 | voice | Mic/speaker I/O, utterance segmenter, speaker verification, STT, TTS | config |
+| notify | Push notifications to the owner's phone through ntfy (v1.4) | config |
+| gacha | HoYoLAB status and check-in, gacha history and pity, reminders, the game tools for the brain (v1.4) | config, notify, brain (`ToolSpec`, `ToolProvider`) |
 | app | Wake gate, listen → verify → transcribe → think → speak loop, CLI | all |
 
 Build order: config → devices, voice → brain → app. `devices` and `voice` are
-independent; `brain` only needs `devices.registry`'s public surface.
+independent; `brain` only needs `devices.registry`'s public surface. v1.4 adds
+config → notify → gacha → app; `gacha` reaches the brain only through the
+`ToolProvider` protocol in `brain/tools.py`, and the voice loop only through
+`Assistant.announce`.
 
 ## Tech Stack
 
@@ -40,7 +50,9 @@ Python 3.14 venv at `.venv` (3.11+ supported). Core: `anthropic` 1.13, `ollama`
 0.6, `pydantic` 2, `pyyaml`, `numpy` 2, `tinytuya` 1.20, `broadlink` 0.19,
 `wakeonlan` 4, `edge-tts` 7, `soundfile`, `sounddevice`. Voice extra:
 `faster-whisper` 1.2 (+ `ctranslate2`), `speechbrain` 1.1, `torch`/`torchaudio`
-from the cu128 index (RTX 50-series needs CUDA 12.8+ builds).
+from the cu128 index (RTX 50-series needs CUDA 12.8+ builds). v1.4 adds `genshin`
+(genshin.py) 1.7.31 to the core (unofficial HoYoLAB client, async on `aiohttp`,
+which edge-tts already brings; only `tenacity` is new besides it).
 
 ## Commands
 
@@ -166,6 +178,80 @@ Electron shell (`avatar-app/`): `package.json` pins `electron` 44.7.0 (devDepend
 
 Safety: `tests/conftest.py` refuses spawning `electron.exe`/`msedge.exe`; tests use fake popen and jobs, bind servers to port 0, never open windows or load the real VRM. Only the owner's real run opens the mascot.
 
+### notify (v1.4)
+
+User story: whatever Cyrene tells the owner by herself (a game reminder, the daily check-in, a HoYoLAB problem) also reaches their phone, wherever they are, as long as the PC is on.
+
+ntfy (open source, Android/iOS app, free public server `ntfy.sh`, no account): the owner subscribes in the app to a topic only they know and Cyrene publishes to it. On the public server anyone who knows a topic name can read it, so the topic must be long and random and is treated like a password.
+
+- Config `notify`: `enabled` (false), `server` (`https://ntfy.sh`; must start with `https://`), `topic` (required when enabled; `^[A-Za-z0-9_-]{16,64}$`, so a short guessable name is refused). The topic never appears in logs; `check` shows its first 4 characters and `…`.
+- `notify.py` — `Notifier` protocol: `send(title: str, message: str, *, tags: Sequence[str] = ()) -> bool`. `NtfyNotifier(config: NotifyConfig, *, http_post=None, timeout_s=10.0)`: one `POST <server>/` with the JSON body `{"topic", "title", "message", "tags"}` (JSON publishing keeps UTF-8 titles and Japanese text intact; ntfy shows a tag such as `video_game` as an emoji); True on 2xx; any failure (HTTP status, timeout, `OSError`) is logged at WARNING without the topic and returns False; never raises. `build_notifier(config) -> Notifier | None` (None when disabled).
+- CLI `waifu notify-test`: sends "Tes notifikasi dari Cyrene. Kalau ini muncul di HP, notifikasi sudah siap." and prints ✓, or ✗ with what to check (`notify.enabled`, the topic subscribed in the ntfy app, the internet connection).
+- Tests never reach the internet: `tests/conftest.py` refuses `urllib.request` openers and `aiohttp` requests to any host that is not a loopback address (an assertion naming the host); `tests/test_safety_guard.py` covers it.
+
+### gacha buddy (v1.4)
+
+User stories (the owner plays Honkai: Star Rail, Genshin Impact, and Zenless Zone Zero on this PC, Asia server):
+
+1. "Cyrene, Trailblaze Power-ku berapa?" → live HoYoLAB numbers: current/max and when it is full. "Cyrene, cek semua game" → a short summary of the three games.
+2. While `waifu run` is on, she speaks up by herself, and pushes the same text to the phone, when stamina will be full within `stamina_minutes` (default 60) or already is; a game's dailies are not done at `daily_time` (default 20:00 local); on the last day before the weekly reset, weeklies are left; every expedition of a game has finished. Each occasion once, at any hour (the owner chose no quiet hours).
+3. Once per HoYoLAB check-in day she claims the check-in reward of every game and says what she got in one sentence; when HoYoLAB asks for a captcha she tells the owner to check in by hand.
+4. "Cyrene, aku barusan pull di HSR" → she refreshes the history and reacts like a friend: happy for a limited 5★ (50/50 won), comforting when the 50/50 was lost, otherwise the pity and how far hard pity is; she mentions that HoYoverse lists pulls about an hour late.
+5. She never suggests spending money or topping up.
+
+Non-goals: build or team advice (the brain already talks about it; no code), reacting to pulls nobody mentioned, quiet hours, anything that plays the game (macros or auto-farming break HoYoverse's terms), servers other than the configured offset, Honkai Impact 3rd.
+
+Data sources:
+- HoYoLAB through genshin.py with the owner's browser cookie (needs `ltuid_v2` + `ltoken_v2`; the whole cookie string is recommended): real-time notes, daily check-in, game accounts. Notes are read with `autoauth=False`: Cyrene never changes HoYoLAB settings; disabled Real-Time Notes become an error that says how to turn them on.
+- Pull history from the game's own history API (`getGachaLog`; `getLdGachaLog` for the HSR collab banners) with an authkey. The authkey comes from the game's web cache, written when the owner last opened the in-game history (valid ~24 h): the game log under `%USERPROFILE%\AppData\LocalLow` → the data folder it names → the `webCaches/*/Cache/Cache_Data/data_2` written last that holds such a URL → its last `getGachaLog`/`getLdGachaLog` URL. When that authkey is missing or expired and the cookie also has `cookie_token_v2` (with `account_id_v2`/`account_mid_v2`), genshin.py's `fetch_authkey(uid, game=...)` makes a fresh one. Checked on the owner's PC on 2026-10-12: HSR history read with the cached authkey (old and new HSR path, minimal query); older Genshin and ZZZ caches answered retcode -101 "authkey timeout" and retcode -1 "auth key time out".
+- genshin.py's own history routes are not used: HSR and ZZZ moved (`public-operation-hkrpg-sg.hoyoverse.com/common/hkrpg_gacha_record/api/`, `public-operation-common-sg.hoyoverse.com/common/gacha_record/api/`). Requests use the base path of the cached URL, else these constants (Genshin: `public-operation-hk4e-sg.hoyoverse.com/gacha_info/api/`).
+
+Modules (`src/waifu/gacha/`):
+
+- `games.py` — per-game facts (frozen dataclasses) keyed by `hsr`, `genshin`, `zzz`: name and short name (HSR, Genshin, ZZZ), the genshin.py game, stamina name (Trailblaze Power, Original Resin, Battery Charge), daily name (Daily Training, Daily Commissions, Engagement), premium currency (Stellar Jade, Primogem, Polychrome; 160 per pull), top rarity (5, 5, and 4 for a ZZZ S-rank), the log files under `LocalLow` and the data-folder name, `game_biz`, the history API constant, and the banners in display order with hard pity and whether a 50/50 applies:
+  - hsr: 11 Character Event Warp (90, 50/50), 12 Light Cone Event Warp (80), 1 Stellar Warp (90), 21 Collaboration Character Warp (90), 22 Collaboration Light Cone Warp (80); 21 and 22 use `getLdGachaLog`.
+  - genshin: 301 Character Event Wish (90, 50/50; the API returns the second character banner, 400, inside 301), 302 Weapon Event Wish (80), 200 Wanderlust Invocation (90), 500 Chronicled Wish (90).
+  - zzz: 2 Exclusive Channel (90, 50/50), 3 W-Engine Channel (80), 1 Stable Channel (90), 5 Bangboo Channel (80), 102 Exclusive Rescreening (90), 103 W-Engine Reverberation (80).
+  Novice banners are not read. Every banner type keeps its own pity (HSR collab and ZZZ rescreening do not share it with the regular banners, per fan guides, 2026).
+  Standard 5★ pools (what a lost 50/50 gives): genshin Dehya, Diluc, Jean, Keqing, Mona, Qiqi, Tighnari, Yumemizuki Mizuki; hsr Bailu, Bronya, Clara, Gepard, Himeko, Welt, Yanqing; zzz Grace, Koleda, Lycaon, Nekomata, Rina, Soldier 11 (also their full names Grace Howard, Koleda Belobog, Von Lycaon, Alexandrina Sebastiane). `gacha.off_banner[game]` adds names (since HSR 4.2 the owner picks the lost-50/50 character in Celestial Invitation).
+  Time helpers (pure, aware datetimes, `offset` = `gacha.server_utc_offset`): `game_day(now, offset)` (changes at 04:00 server time), `checkin_day(now, offset)` (00:00 server time), `next_daily_reset(now, offset)`, `is_last_day_of_week(day)` (Sunday; the weekly reset is Monday 04:00 server time), `reminder_due(now, daily_time, offset)` (the first local `daily_time` at or after the start of the current game day has passed).
+- `hoyolab.py` — `GachaError(kind, message)`: kind is `no_cookie`, `cookie`, `notes_off`, `captcha`, `account`, `rate_limit`, `network`, `authkey`, `locked`, or `other`; the message is Indonesian for the owner. Values: `Account(game, uid, nickname, level, server_name)`, `WeeklyTask(name, current, max)`, `GameStatus(game, stamina, stamina_max, stamina_full_in_s, daily_current, daily_max, daily_done, weekly: tuple[WeeklyTask, ...], expeditions_total, expeditions_finished, checked_in: bool | None)`, `CheckinResult(game, claimed: bool, reward: str | None)` (`claimed=False`: already claimed today). `HoyolabClient(cookie: str | None, *, uids: Mapping[str, int] | None = None, client_factory=None, timeout_s=20.0)`:
+  - `accounts() -> list[Account]` (the owner's accounts of the three games),
+  - `status(games) -> dict[str, GameStatus | GachaError]` (each game's notes and check-in state, concurrently),
+  - `checkin(game) -> CheckinResult`,
+  - `authkey(game) -> str` (`fetch_authkey`).
+  Each call is one `asyncio.run` around `asyncio.wait_for(..., timeout_s)` with a new `genshin.Client(cookie, lang="en-us")` from `client_factory`, so nothing async is shared between the voice loop and the watcher thread. The uid is `uids[game]`, else the highest-level account of that game on the cookie (looked up once, under a lock). genshin.py is imported lazily. Notes → `GameStatus`: hsr `current_stamina`/`max_stamina`/`stamina_recover_time`, Daily Training `current_train_score`/`max_train_score`, weekly Echo of War (`max_weekly_discounts` − `remaining_weekly_discounts` of `max_weekly_discounts`) and Simulated Universe points (`current_rogue_score`/`max_rogue_score`), expeditions; genshin `current_resin`/`max_resin`/`remaining_resin_recovery_time`, `daily_task` completed/max (done also needs `claimed_commission_reward`), weekly bosses (`max_resin_discounts` − `remaining_resin_discounts`), expeditions; zzz `battery_charge` (`seconds_till_full`), `engagement`, the weekly points of `weekly_task` when present, no expeditions. `checked_in` comes from `get_reward_info` (None when only that call fails). Errors: `InvalidCookies` → cookie, retcode 10102 → notes_off, `GeetestError`/`DailyGeetestTriggered` → captcha, `AccountNotFound` → account, `TooManyRequests`/`VisitsTooFrequently` → rate_limit, timeout/`aiohttp.ClientError`/`OSError` → network, any other `GenshinException` → other (retcode logged); `AlreadyClaimed` is `CheckinResult(claimed=False)`. Without a cookie every call raises `GachaError("no_cookie")`. The cookie and authkeys never appear in a log line or an exception message.
+- `history.py` — `GachaRecord(id, banner, name, rarity, item_type, time)` (`time`: the API's server-time text `YYYY-MM-DD HH:MM:SS`). `CachedGachaUrl(base, authkey)`; `find_cached_gacha_url(game, locallow) -> CachedGachaUrl | None` (`PermissionError` → `GachaError("locked")`: close the game and ask again). `GachaLogApi(*, http_get=None, sleep=time.sleep, page_delay_s=0.3)`: `fetch(base, game, banner, authkey, *, stop_at_id=0, max_pages=None) -> list[GachaRecord]` reads 20 records per page with `end_id` until an empty page, a record with id ≤ `stop_at_id`, or `max_pages`; query `authkey_ver=1, sign_type=2, auth_appid=webview_gacha, authkey, lang=en, game_biz, gacha_type, real_gacha_type, size=20, end_id`; retcode -100/-101, or a message containing "auth" and "key", → `GachaError("authkey")`; -110 → `rate_limit`; transport errors → `network`; the URL query is never logged. `GachaStore(directory)`: one JSON file per account, `<game>-<uid>.json` `{"version": 1, "game", "uid", "records": [...]}` ordered by id, written atomically (temp file + `os.replace`); `load(game)` reads the file of that game written last; `merge(game, uid, records) -> list[GachaRecord]` returns the new ones. Pure `banner_stats(game, records, extra_standard) -> list[BannerStats]`, per banner in display order (banners without records left out): `pity` (pulls since the last top-rarity item), `hard_pity`, `total`, `guaranteed` (50/50 banners: walking the top-rarity items oldest first, a standard one sets it and any other clears it; None elsewhere), and the last five top-rarity items newest first, each with `pulls` (pulls it took on that banner) and `won_5050` (True/False on a 50/50 banner; None when it was guaranteed or the banner has no 50/50). `GachaHistory(store, api, *, locallow=None, hoyolab=None, extra_standard=None, server_utc_offset=8, now=...)`: `report(game, *, refresh=True, full=False) -> HistoryReport` gets the cached authkey (else `hoyolab.authkey(game)`), reads every banner newest first down to the newest stored record (at most 5 pages per banner unless `full`), merges, saves, and returns `HistoryReport(game, updated, problem, complete, stats, new_records, latest_pull)`: `new_records` are the new items of the top two rarities with their pity and 50/50, `latest_pull` is in local time, `complete=False` when an empty store could not be filled within the page limit (the hint names `waifu gacha history <game>`), and after a `GachaError` the saved records are used and `problem` carries the message (no usable authkey: "Buka riwayat warp/wish/sinyal di game sekali, lalu tanya lagi"). It never raises `GachaError`.
+- `tools.py` — `GachaTools(hoyolab: HoyolabClient, history: GachaHistory, games)` implements the brain's `ToolProvider`:
+  - `game_status` `{game?: enum[configured games]}` → `{"games": [{"game", "name", "stamina": {"name", "current", "max", "full_in_minutes", "full_at"}, "daily": {"name", "current", "max", "done"}, "weekly": [{"name", "current", "max"}], "expeditions": {"finished", "total"} (games that have them), "checked_in", "daily_reset"}], "errors": [{"game", "message"}]}` with local `HH:MM` times; `is_error` only when every requested game failed.
+  - `gacha_history` `{game: enum[configured games]}` → the `HistoryReport` as JSON (banner names, pity, `to_hard_pity`, `guaranteed`, the last 5★ with `pulls`/`won_5050`/date, new pulls, `latest_pull`, `problem`, a fixed note that HoYoverse lists pulls about an hour late, and `currency_spent_estimate`: pulls × 160 with the currency name); `is_error` only when there is no data at all.
+  The descriptions say when to use each tool, that `won_5050` is judged from the standard pool list, and that she never suggests spending money.
+- `reminders.py` — `Notice(game: str | None, kind, text, emotion)`, kinds `stamina`, `daily`, `weekly`, `expeditions`, `checkin`, `problem`. `ReminderState` (JSON `<data_dir>/reminders.json`, written atomically, keys older than 14 days dropped on save): armed flags and once-keys. Pure `due_notices(statuses, now, state, reminders_config, offset) -> list[Notice]` (updates `state`):
+  - stamina: once when `stamina_full_in_s ≤ stamina_minutes × 60` (or full), re-armed once it is above the window again.
+  - daily: once per game per game day after `reminder_due`, when not `daily_done`; the text gives the progress and the local reset time.
+  - weekly (`reminders.weekly`): once per game per week, on the last game day after `reminder_due`, naming what is left (HSR Echo of War and Simulated Universe points, Genshin weekly bosses, ZZZ weekly points).
+  - expeditions (`reminders.expeditions`): once when every expedition of a game has finished (at least one), re-armed when one is running again.
+  `problem_notice(game, error, now, state)`: for kinds cookie, notes_off, captcha, account, once per game day each (other kinds are only logged). `checkin_notice(results)`: one sentence naming the rewards she claimed (None when nothing new was claimed). Texts are Indonesian, in her voice, without emoji or markdown; emotions: check-in `happy`, reminders `surprised`, problems `sad`.
+- `watcher.py` — `GachaWatcher(hoyolab, config: GachaConfig, *, notifier: Notifier | None, announce: Callable[[str, str], None] | None, title="Cyrene", now=..., state_path=None)`: `poll_once() -> list[Notice]`: the status of the configured games → `due_notices` and `problem_notice`s; when `gacha.checkin` is on and the current check-in day is not handled yet, `checkin` for every game, and the day counts as handled unless a game hit a `network` or `rate_limit` error; delivery is one push (each notice's text on its own line, tag `video_game`) and one announcement (the texts joined, emotion the strongest of sad > surprised > happy); the state is saved. `start()` polls at once and then every `poll_minutes` in a daemon thread; `stop()` wakes and joins it (≤ 5 s); a failing poll is logged and the loop goes on; context manager.
+
+Voice loop: `Assistant.announce(text, emotion=NEUTRAL)` (thread safe) queues a text. In `run`, after a frame that did not complete an utterance and while the segmenter is not inside one (`Segmenter.busy`, a new read-only property of `EnergySegmenter`), the queued texts are spoken together with `followup=False` (mic paused, avatar mouthing, no follow-up window). Never during a reply.
+
+Brain:
+- `brain/tools.py` — `ToolProvider` protocol: `specs() -> list[ToolSpec]`, `run(name, arguments) -> tuple[str, bool]` (never raises). `build_tool_specs(registry, providers=())` is the two device tools plus each provider's specs (a duplicate name is a `ValueError`); `run_tool(registry, name, arguments, providers=())` dispatches to the device tools, then to the provider that declares `name` (an exception from it is logged and becomes an error result), else the unknown-tool error listing every tool. Specs stay byte-identical across turns (prompt cache).
+- `ClaudeBrain`, `OllamaBrain`, and `build_brain` take `providers: Sequence[ToolProvider] = ()`.
+- `config/persona.md` gains a short section: when Master talks about their HoYoverse games and the game tools exist, use them instead of guessing numbers, react to pulls like a friend, and never suggest spending money or topping up.
+
+Config `gacha`: `enabled` (false), `cookie` (`SecretStr`, optional; when given it must hold `ltuid_v2` + `ltoken_v2` or `ltuid` + `ltoken`; the error names the missing cookie, never a value), `games` (default `[hsr, genshin, zzz]`, unique, at least one), `uids` (`{game: uid}`, optional), `server_utc_offset` (8, Asia), `poll_minutes` (15, 5..240), `checkin` (true), `reminders: {stamina_minutes: 60 (0..1440), daily_time: "20:00" (HH:MM), weekly: true, expeditions: true}`, `off_banner` (`{game: [names]}`), `data_dir` (`data/gacha`).
+
+CLI (`waifu gacha <aksi>`, Indonesian output):
+- `accounts` — every game account on the cookie (game, uid, nickname, level, server) and which one Cyrene uses.
+- `status [game]` — the status of each configured game (or one), the same data as `game_status`.
+- `checkin` — claim now; prints each game's reward or "sudah diambil".
+- `history <game> [--full]` — refresh (`--full` reads every page: the first import) and print each banner's pity, guarantee, total, and last 5★.
+- `run` with `gacha.enabled`: the game tools for the brain and, with a cookie, the watcher (started after "ready"/the greeting, stopped on exit), pushing through `notify` when it is enabled. `chat`: the tools only. `check`: gacha disabled, or the cookie's key names (never values) and whether `cookie_token_v2` is there, the games, `genshin` importable, and whether each game's cached history URL exists; notify disabled, or the server and the masked topic. No network call in `check`.
+
+Safety: tests fake genshin.py's client (returning real genshin.py models built from sample payloads), the history API (`http_get`), the clock, the notifier, and the `LocalLow` folder (`tmp_path`); no test reads the real game caches, the real `config.yaml`, or the network (conftest guard). Logs and messages never contain the cookie, an authkey, or a history URL's query.
+
 ## Code Style
 
 See `CLAUDE.md` → Code Conventions and Patterns. Dataclasses for value
@@ -184,7 +270,7 @@ every vendor boundary, lazy imports for heavy libraries, `logging` not `print`.
 
 - Always: lazy-import heavy libraries; verify vendor APIs against installed source; keep spoken text free of markdown/emoji; keep Claude history append-only.
 - Ask first: new dependencies, multi-GB downloads, changes to `base.py` contracts.
-- Never: commit `config.yaml`, `data/`, `models/`, keys; power off the real PC from tests; let an exception escape `Brain.respond` or `DeviceRegistry.execute`.
+- Never: commit `config.yaml`, `data/`, `models/`, keys; power off the real PC from tests; let an exception escape `Brain.respond` or `DeviceRegistry.execute`; log or commit the HoYoLAB cookie, an authkey, the ntfy topic, or gacha history; automate gameplay.
 
 ## Success Criteria
 
@@ -193,9 +279,13 @@ every vendor boundary, lazy imports for heavy libraries, `logging` not `print`.
 3. `waifu say "Halo Master, おかえりなさい!"` produces Indonesian then Japanese speech.
 4. With the voice extra installed: `waifu check` reports CUDA and the Whisper/ECAPA libraries as importable (models load on first `run`/`enroll`); `waifu enroll` then `waifu speaker-test` separates the owner from another voice.
 5. `waifu run` completes user stories 1–5 on real hardware (manual checklist).
+6. v1.4: `pytest` (no internet) and ruff are clean; `waifu gacha history hsr --full` imports the owner's real HSR history with the cached authkey and the pity matches the game; with the cookie, `waifu gacha status` and `waifu gacha checkin` work for all three games; `waifu notify-test` reaches the owner's phone; in `waifu run` a reminder is spoken and pushed once (manual).
 
 ## Open Questions
 
 1. Wake-word spellings: Whisper may write "Cyrene" as "Sairin"/"Sirene"/キュレネ; the example config lists variants, tune after real use.
 2. Samsung AC model: if it has Wi-Fi/SmartThings, a SmartThings backend could replace IR later (out of scope for v1).
 3. Anime voice: resolved in v1.2. RVC (Applio) converts every reply, Indonesian and Japanese, into the Tsukuyomi-chan voice; GPT-SoVITS is skipped because it cannot speak Indonesian.
+4. Gacha 50/50: HSR's lost-50/50 pick (Celestial Invitation) must be listed in `gacha.off_banner.hsr`, or a loss to it reads as a win. HoYoLAB's HSR warp records report `is_up` exactly but need the badge login with `cookie_token_v2`; later, if the list proves annoying.
+5. ZZZ standard agents: whether the history writes short or full names; check on the first import (both are listed).
+6. `cookie_token_v2` lifetime: a newer login elsewhere invalidates it; without it, history needs the in-game history opened within ~24 h.
