@@ -151,6 +151,22 @@ route; spoken reactions use prepared lines, not the LLM, so they are instant.
 - [x] On the owner's PC: the Live2D model renders, lip-syncs, shows emotions, follows the cursor, and reacts to pats/pokes (in-app browser, 2026-10-13); the Electron mascot loads it (all model files served, the window closes with Cyrene)
 - [ ] On the owner's PC, by hand: the mascot drags, lets clicks through on transparent pixels, and stays above normal windows
 
+### Phase 11: Long-term memory (v1.6, see SPEC → long-term memory)
+Decision: a small JSON list of facts the model saves through two tools (`remember`, `forget`),
+put whole into the system prompt at the start of every session. Within a session the prompt
+stays byte-identical (preserved thinking, prompt cache), so a note saved mid-session lives in
+the conversation until the next session lists it. Secrets are refused in code, not only by the
+prompt. No embeddings: 100 short notes fit easily.
+- [ ] Task 47a: `MemoryConfig` (`memory.enabled/path/max_facts/max_chars`) with tests
+- [ ] Task 47: `memory.py`: `MemoryStore`, `Fact`, `looks_secret`, `memory_prompt_section`
+- [ ] Task 48: `brain/memory_tools.py`: `MemoryTools` provider (`remember`, `forget`)
+- [ ] Task 49: Brains read a callable system prompt once per session; `build_brain(memory_section=...)`
+- [ ] Task 50: CLI wiring (`run`, `chat`, `waifu memory`, `check`), README, example config
+
+### Checkpoint: Long-term memory
+- [ ] Python suite and ruff clean; no test touched the repository's `data/memory.json` or called an LLM
+- [ ] On the owner's PC: a fact told in one session is used in the next one; "lupakan ..." deletes it; a password is refused
+
 ## Risks and Mitigations
 
 | Risk | Impact | Mitigation |

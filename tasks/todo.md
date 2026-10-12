@@ -439,3 +439,49 @@ named `tests/test_<package>_<module>.py`.
 - [x] `config.example.yaml` documents `engine`, `live2d_core`, `credit`, `interactions`
 
 **Dependencies:** 40-45 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py`, `README.md`, `config.example.yaml` · **Scope:** M
+
+## Task 47a: Memory config
+
+**Acceptance criteria:**
+- [ ] `AppConfig.memory`: `enabled` (true), `path` (`data/memory.json`), `max_facts` (100, 1-500), `max_chars` (200, 20-1000); unknown keys rejected
+- [ ] `config.example.yaml` still validates
+
+**Dependencies:** none · **Files:** `src/waifu/config.py`, `tests/test_config.py` · **Scope:** XS
+
+## Task 47: Memory store
+
+**Acceptance criteria:**
+- [ ] `MemoryStore` add / replace / forget / clear / facts per SPEC: ids `m<n>` never reused, whitespace collapsed, limits and duplicates, Indonesian `MemoryError` messages
+- [ ] Atomic writes; a missing file reads as empty and is not created by reading; a corrupt file is renamed `<name>.corrupt-<stamp>` and never overwritten; re-read on every call, lock within the process
+- [ ] `looks_secret` catches the SPEC's words, long mixed tokens, and Luhn-valid card numbers, and lets ordinary notes (dates, phone-free sentences, short numbers) through
+- [ ] `memory_prompt_section` matches the SPEC text exactly for empty and non-empty memories, with no square brackets
+
+**Dependencies:** 47a · **Files:** `src/waifu/memory.py`, `tests/test_memory.py` · **Scope:** M
+
+## Task 48: Memory tools
+
+**Acceptance criteria:**
+- [ ] `MemoryTools.specs()` gives strict-compatible `remember` and `forget` (`additionalProperties: false`, no numeric bounds) with the SPEC's guidance in the descriptions
+- [ ] `run` saves, replaces, and forgets through the store; errors (secret, too long, full, unknown id, bad arguments) are `is_error` JSON results; never raises
+- [ ] Works through `brain.tools.run_tool` and `build_tool_specs` beside the device and game tools (no duplicate names)
+
+**Dependencies:** 47 · **Files:** `src/waifu/brain/memory_tools.py`, `tests/test_memory_tools.py` · **Scope:** S
+
+## Task 49: Per-session system prompt
+
+**Acceptance criteria:**
+- [ ] `ClaudeBrain` and `OllamaBrain` accept a string or a callable `system_prompt`; a callable is read once at each session start and the prompt never changes within a session (Claude: rollback of a first turn re-reads it; tools frozen for the brain's lifetime)
+- [ ] `build_brain(..., memory_section=...)` appends the section after the unchanged base prompt; a raising section logs and falls back to the SPEC sentence
+- [ ] Existing brain tests stay green; the request shape is unchanged apart from where `system` comes from
+
+**Dependencies:** 47a · **Files:** `src/waifu/brain/claude.py`, `src/waifu/brain/ollama_brain.py`, `src/waifu/brain/factory.py`, `tests/test_brain_claude.py`, `tests/test_brain_ollama.py`, `tests/test_brain_factory.py` · **Scope:** M
+
+## Task 50: CLI wiring, `waifu memory`, check, README
+
+**Acceptance criteria:**
+- [ ] `run` and `chat` give the brain `MemoryTools` and the memory section when `memory.enabled`; not when it is off
+- [ ] `waifu memory list|add|forget|clear [--yes]` per SPEC; `check` reports the memory
+- [ ] README (Indonesian) section on Cyrene's memory: what she remembers, voice examples, `waifu memory`, privacy (local file; sent to Claude with the Claude backend), editing the file; `config.example.yaml` documents `memory`
+- [ ] No test reads or writes the repository's `data/memory.json`
+
+**Dependencies:** 47, 48, 49 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py`, `README.md`, `config.example.yaml` · **Scope:** M

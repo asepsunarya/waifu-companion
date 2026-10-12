@@ -98,7 +98,7 @@ other modules may rely on.
 - `brain/session.py` — `SessionClock(idle_minutes, max_turns, clock=time.monotonic)`: `should_reset() -> bool`, `record_turn()`, `reset()`. Shared by both backends.
 - `brain/claude.py` — `ClaudeBrain(config: BrainConfig, registry, system_prompt, *, client=None, clock=...)`. Uses `client.beta.messages.create` with model `config.claude.model`, `max_tokens`, `output_config={"effort": ...}`, adaptive thinking by omission, strict tools, top-level `cache_control={"type": "ephemeral"}`, and when `config.claude.fallbacks` is on `betas=["server-side-fallback-2026-07-01"]` + `fallbacks="default"`. Manual tool loop up to `max_tool_rounds`; all tool results of one round go back in a single user message. History is **append-only** within a session (preserved-thinking rule): always append the full `response.content`; never edit or trim earlier turns; when a session should end, start a new empty one. Before echoing a response that contains a `fallback` block, drop `thinking`/`redacted_thinking`/`tool_use` blocks that precede the last `fallback` block. A failed turn (API error) is rolled back by truncating to the length before the turn, then a short Indonesian apology is returned. `stop_reason == "refusal"` → apology, turn rolled back. `pause_turn` → resend. Text is the concatenation of `text` blocks of the final response.
 - `brain/ollama_brain.py` — `OllamaBrain(config: BrainConfig, registry, system_prompt, *, client=None, clock=...)`. `ollama.Client(host).chat(model, messages, tools=[to_ollama...], think=config.ollama.think, keep_alive=...)`; tool calls from `response.message.tool_calls`; tool results appended as `{"role": "tool", "content": ..., "tool_name": ...}`. Same session, rollback, and apology rules. Strips any `<think>...</think>` text from the final reply.
-- `brain/factory.py` — `build_brain(config: AppConfig, registry, *, persona_text=None) -> Brain` (persona read from `assistant.persona_file` when not given).
+- `brain/factory.py` — `build_brain(config: AppConfig, registry, *, persona_text=None) -> Brain` (persona read from `assistant.persona_file` when not given). Since v1.6 also `providers` and `memory_section`, and `system_prompt` may be a callable read once per session (see long-term memory).
 
 ### voice
 
@@ -286,6 +286,50 @@ Electron (`avatar-app/`): `preload.js` (sandbox-compatible, `contextBridge.expos
 CLI: `run` creates the `InteractionHandler` bound to the Assistant and passes `handler.handle` as the server's `on_interact`; `waifu avatar` binds it to printing the line plus an emotion and a short synthetic speak track (no microphone or TTS). `check` reports the engine, and for live2d the model folder files (model3.json, moc3, textures; a reference that is not a relative path inside the folder counts as missing and is never resolved, see `file_under`) and the Cubism Core file.
 
 Safety: tests never load the real Live2D model or Core, never open windows, use port 0, and never send real interactions; `tests/conftest.py` guards stay untouched.
+
+### long-term memory (v1.6)
+
+User stories (the owner talks to Cyrene every day; today she forgets everything when a session ends):
+
+1. "Cyrene, ingat ya, aku alergi udang." → she saves it and confirms in one sentence. Days later, "Cyrene, enaknya masak apa?" → she avoids shrimp without being reminded.
+2. She also saves on her own the lasting things the owner mentions in passing: likes and dislikes, plans with a date ("Jumat ada ujian"), people and pets, routines, favourite games and characters. Small talk, device commands, and anything already saved are not saved.
+3. "Cyrene, apa saja yang kamu ingat tentang aku?" → a short spoken summary, not a list read out.
+4. "Cyrene, lupakan soal udang." → she deletes that note. When a fact changes ("sekarang aku sudah tidak kerja di sana") she updates the old note instead of keeping two that contradict.
+5. Secrets are never kept: a note that looks like a password, PIN, OTP, token, cookie, API key, or card number is refused in code, whatever the model asks for.
+6. The owner can read, add, delete, and wipe the notes from the terminal (`waifu memory`), or edit `data/memory.json` by hand.
+
+Non-goals: a summary of every conversation (only facts the model chose to save), embeddings or semantic search (the whole list fits in the prompt), syncing between PCs, memories per person (there is one owner).
+
+Privacy: the notes live only in `data/memory.json` on this PC (`data/` is gitignored and never committed). With the Claude backend they are sent to the Claude API as part of the system prompt of every session, like the rest of the conversation; with Ollama they stay local. README says so.
+
+Config `memory` (committed with its tests before the parallel tasks): `enabled` (default true), `path` (default `data/memory.json`), `max_facts` (default 100, 1-500), `max_chars` (default 200 characters per note, 20-1000).
+
+`memory.py`:
+- `Fact` (frozen dataclass): `id: str` (`"m1"`, `"m2"`, … never reused), `text: str`, `created: datetime`, `updated: datetime` (local time; minute precision is enough).
+- `MemoryError(Exception)`: its message is Indonesian and safe to show or speak.
+- `looks_secret(text) -> bool`: true when the text names a secret (the case-insensitive whole words or phrases `password`, `kata sandi`, `sandi`, `passcode`, `pin`, `otp`, `cvv`, `api key`, `apikey`, `token`, `cookie`, `seed phrase`), contains a run of 20 or more characters from `[A-Za-z0-9_\-+/=]` that has both letters and digits, or contains 13-19 digits (single spaces or dashes allowed between them) that pass the Luhn check.
+- `MemoryStore(path, *, max_facts=100, max_chars=200, now=datetime.now)`:
+  - `facts() -> list[Fact]` (oldest first), `add(text) -> Fact`, `replace(fact_id, text) -> Fact` (keeps the id and `created`, new text and `updated`), `forget(fact_id) -> Fact` (the removed note), `clear() -> int` (how many were removed).
+  - Text is stripped and its whitespace (newlines included) collapsed to single spaces. `MemoryError` for: empty text, text longer than `max_chars`, `looks_secret`, an unknown id, and `add` when `max_facts` notes exist (the message says to combine or delete old notes first). Adding a text equal to an existing note (case-insensitive) returns that note unchanged.
+  - Every call re-reads the file, so a running Cyrene sees what `waifu memory` changed in another process; a `threading.Lock` serialises calls within one process; between processes the last writer wins (documented).
+  - File: UTF-8 JSON `{"version": 1, "next_id": <int>, "facts": [{"id", "text", "created", "updated"}]}` (ISO 8601 times), written atomically (a temp file in the same folder, then `os.replace`); the folder is created on the first write. A missing file is an empty memory and reading never creates it. A file that is not valid JSON or not this shape is renamed to `<name>.corrupt-<YYYYmmdd-HHMMSS>`, logged as an error, and the memory starts empty: the owner's notes are never overwritten.
+- `memory_prompt_section(facts) -> str`: the system-prompt section. With notes: `Ingatanmu tentang Master (catatan dari obrolan sebelumnya, tersimpan di PC ini):` then one line per note, `- m3 (12-10-2026): Master alergi udang.` (the date is `updated`; no square brackets, which the persona reserves for the emotion tag). Without notes: `Ingatanmu tentang Master: belum ada catatan.` Both end with the line `Pakai ingatan ini secara alami kalau relevan; jangan membacakan daftarnya kecuali Master memintanya. Simpan hal baru yang penting dengan tool remember, perbarui catatan yang berubah dengan replaces, dan hapus dengan forget kalau Master memintanya.`
+
+`brain/memory_tools.py` — `MemoryTools(store)`, a `ToolProvider` with two strict tools (descriptions in English, like the other tools):
+- `remember {text: string, replaces?: string}`: saves one note, or replaces note `replaces`. The description says what to save (lasting facts about Master and anything Master asks to remember, in Indonesian, in the third person, "Master …", one fact per call, with the date for plans, at most `max_chars` characters), what not to save (small talk, device commands, notes already in the list, and secrets: passwords, PINs, OTPs, tokens, cookies, card numbers), and to pass `replaces` with the old note's id when a fact changed. Result `{"ok": true, "id": "m4", "message": "Tersimpan."}` (`"Diperbarui."` for a replace); a `MemoryError` becomes `{"ok": false, "message": <its text>}` with `is_error` true.
+- `forget {id: string}`: deletes one note; result `{"ok": true, "message": "Dihapus: <text>"}`; an unknown id is an error result.
+- Invalid arguments (not an object, unknown keys, missing or empty strings) are error results; `run` never raises.
+
+Brains (`brain/claude.py`, `brain/ollama_brain.py`, `brain/factory.py`):
+- `system_prompt` may be a string or a zero-argument callable. A callable is called once at the start of every session (Claude: when `respond` begins with an empty history, i.e. after construction, `reset`, an idle or turn-cap reset, and a rolled-back first turn; Ollama: in `reset`) and the result stays fixed for that session. Within a session the system prompt and the tools never change (preserved thinking and the prompt cache need a byte-identical prefix); a note saved mid-session is already in the conversation as a tool call, and the next session's prompt lists it. Tools stay fixed for the brain's lifetime.
+- `build_brain(config, registry, *, persona_text=None, providers=(), memory_section=None)`: with `memory_section` (a zero-argument callable returning the section), the system prompt becomes a callable: the base prompt (persona, devices, time note; unchanged) followed by a blank line and `memory_section()`. If `memory_section()` raises, the error is logged and the section reads `Ingatanmu tentang Master tidak bisa dibaca saat ini.`, so the turn still works. The memory section comes last, so the persona and device prefix stays cacheable across sessions.
+
+CLI (`cli.py`):
+- `run` and `chat`: when `memory.enabled`, one `MemoryStore` from the config; `MemoryTools(store)` joins the providers (after the game tools) and `memory_section=lambda: memory_prompt_section(store.facts())` goes to `build_brain`. With `--dry-run` the real memory is used too (dry-run only fakes the devices).
+- `waifu memory list` (each note as `m3  12-10-2026  Master alergi udang.`, or `Belum ada catatan.`), `waifu memory add <text…>`, `waifu memory forget <id>`, `waifu memory clear` (without `--yes` it only says how many notes would be deleted and how to confirm; with `--yes` it deletes them). Errors print `✗ <message>` and exit 1. These work while `memory.enabled` is false too (they manage the file).
+- `check`: `✓ Ingatan: <n> catatan (<path>)`, or `! Ingatan mati (memory.enabled: false)`; a corrupt file shows the rename that happened.
+
+Safety: tests never read or write the repository's `data/memory.json` (every test uses `tmp_path`; CLI tests point `memory.path` into it or turn memory off); no test calls Claude or Ollama.
 
 ## Code Style
 
