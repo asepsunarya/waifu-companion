@@ -15,13 +15,15 @@ import logging
 import math
 import os
 import re
+import socket
 import sys
 import urllib.request
 from collections import deque
 from collections.abc import Callable, Iterator, Sequence
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from importlib import import_module
 from importlib.util import find_spec
+from itertools import count
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from time import sleep
@@ -30,11 +32,24 @@ import numpy as np
 from pydantic import ValidationError
 
 from waifu import autostart
-from waifu.app import Assistant
+from waifu.app import Assistant, split_reply
 from waifu.autostart import RunKey, WindowsRunKey
+from waifu.avatar.bus import STATES as AVATAR_STATES
+from waifu.avatar.bus import AvatarBus
+from waifu.avatar.emotion import EMOTIONS, NEUTRAL, split_emotion
+from waifu.avatar.lipsync import SHAPE_CENTRE_HZ
+from waifu.avatar.server import AvatarError, AvatarServer
+from waifu.avatar.window import AvatarWindow
 from waifu.brain.base import ToolCallRecord
 from waifu.brain.factory import build_brain
-from waifu.config import AppConfig, ConfigError, OllamaConfig, RvcConfig, load_config
+from waifu.config import (
+    AppConfig,
+    AvatarConfig,
+    ConfigError,
+    OllamaConfig,
+    RvcConfig,
+    load_config,
+)
 from waifu.devices.base import DeviceError
 from waifu.devices.ir_codes import COMMAND_PATTERN, IrCodeStoreError
 from waifu.devices.ir_device import IrDevice
@@ -101,6 +116,22 @@ AUTOSTART_DESCRIPTION = (
     "perangkat asli."
 )
 LOG_TAIL_LINES = 5
+AVATAR_OFF = (
+    "Avatar 3D mati. Isi avatar.model lalu avatar.enabled: true di config.yaml "
+    "(lihat README, bagian Avatar 3D)."
+)
+ELECTRON_SETUP = "npm install lalu node node_modules/electron/install.js"
+# `waifu avatar --demo`: a new state and emotion every step, mouthing a made-up voice with
+# one tone syllable per mouth shape (the lip-sync's vowel centres), low to high.
+DEMO_STEP_S = 3.0
+DEMO_SAMPLE_RATE = 24000
+DEMO_SYLLABLE_S = 0.25
+DEMO_PAUSE_S = 0.1
+DEMO_VOLUME = 0.3
+AVATAR_WAIT_S = 60.0  # `waifu avatar` without --demo only waits; Ctrl+C ends a sleep at once
+# `say` and the login greeting speak right after opening the window; a speak event only
+# reaches pages already connected, so they give the loading page this long to connect.
+AVATAR_VIEWER_WAIT_S = 5.0
 _REGISTERED_DELAY = re.compile(r" --startup-delay (\d+) ")
 # build_command always quotes the folder, and a path in it never contains a quote.
 _REGISTERED_PROJECT = re.compile(r' /d "([^"]+)" ')
@@ -218,6 +249,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     command("mics", _mics, "Daftar perangkat audio.")
     command("check", _check, "Periksa konfigurasi, perangkat, dan dependensi.")
+    avatar = command(
+        "avatar", _show_avatar, "Tampilkan avatar 3D saja (tanpa mendengarkan) untuk mengeceknya."
+    )
+    avatar.add_argument(
+        "--demo",
+        action="store_true",
+        help=f"ganti ekspresi dan keadaan setiap {DEMO_STEP_S:g} detik, mulutnya ikut bergerak",
+    )
     autostart_command = commands.add_parser(
         "autostart",
         parents=[shared],
@@ -421,8 +460,9 @@ def _listen(args: argparse.Namespace) -> int:
         logger.error("Could not load the voice models: %s", exc)
         print(f"{FAIL} {exc}")
         return 1
-    # The anime voice loads last: she can listen without it, but not without the models above.
-    with _voice_converter(config) as converter:
+    # The avatar and the anime voice load last: she can listen without them, but not without
+    # the models above. The avatar's window opens first, so it loads while RVC starts.
+    with _avatar_bus(config) as avatar, _voice_converter(config) as converter:
         assistant = Assistant(
             config,
             brain=brain,
@@ -432,6 +472,7 @@ def _listen(args: argparse.Namespace) -> int:
             gate=gate,
             verifier=verifier,
             speaker_check=speaker_check,
+            avatar=avatar,
         )
         with _open_mic(config) as mic:
             mode = " (perangkat simulasi)" if args.dry_run else ""
@@ -444,10 +485,11 @@ def _listen(args: argparse.Namespace) -> int:
                 print("Verifikasi suara mati: semua suara akan dilayani.")
             if args.announce:
                 assistant.set_mic(mic, segmenter)  # so she does not hear her own announcement
-                assistant.speak(f"{name} siap, Master.")
-                # speak() opens the follow-up window for replies; the announcement is not one,
-                # so after login only her name starts a conversation, as in a plain `run`.
-                gate.close()
+                if avatar is not None:
+                    _await_avatar_viewer(avatar, _avatar_viewer_wait_s(config))
+                # Not a reply, so no follow-up window: after login only her name starts a
+                # conversation, as in a plain `run`.
+                assistant.speak(f"{name} siap, Master.", followup=False)
             try:
                 assistant.run(mic, segmenter)
             except SttError as exc:
@@ -461,7 +503,10 @@ def _chat(args: argparse.Namespace) -> int:
     config = load_config(args.config)
     registry = build_registry(config, dry_run=args.dry_run)
     brain = build_brain(config, registry)
-    with _voice_converter(config, wanted=args.speak) as converter:
+    with (
+        _avatar_bus(config, wanted=args.speak) as avatar,
+        _voice_converter(config, wanted=args.speak) as converter,
+    ):
         speech = build_speech_router(config.tts, converter=converter) if args.speak else None
         player = Player(config.audio.output_device) if args.speak else None
         name = config.assistant.name
@@ -477,13 +522,13 @@ def _chat(args: argparse.Namespace) -> int:
                 continue
             if line.lower() in EXIT_WORDS:
                 break
-            reply = brain.respond(line)
+            emotion, reply = split_reply(brain.respond(line))
             if args.verbose:
                 for call in reply.tool_calls:
                     print(_describe_tool_call(call))
             print(f"{name}: {reply.text}")
             if speech is not None and player is not None:
-                _speak(speech, player, reply.text)
+                _speak(speech, player, reply.text, avatar=avatar, emotion=emotion)
     return 0
 
 
@@ -493,14 +538,44 @@ def _describe_tool_call(call: ToolCallRecord) -> str:
     return f"  [{call.name}] {arguments} -> {call.result}{failed}"
 
 
-def _speak(speech: SpeechRouter, player: Player, text: str) -> bool:
+def _speak(
+    speech: SpeechRouter,
+    player: Player,
+    text: str,
+    *,
+    avatar: AvatarBus | None = None,
+    emotion: str = NEUTRAL,
+    viewer_wait_s: float = 0.0,
+) -> bool:
+    """Say `text` (already without its emotion tag), the avatar mouthing it with `emotion`.
+
+    With `viewer_wait_s`, a just-opened avatar page gets that long, after the voice is
+    ready, to connect before she speaks.
+    """
     try:
         audio, sample_rate = speech.synthesize(text)
     except TtsError as exc:
         print(f"(Suara gagal dibuat: {exc})")
         return False
+    if avatar is not None:
+        try:
+            _await_avatar_viewer(avatar, viewer_wait_s)
+            avatar.speak(audio, sample_rate, emotion)
+        except Exception as exc:  # the avatar is a bonus: she speaks without it
+            logger.warning("The avatar could not show this reply: %s", exc)
     player.play(audio, sample_rate)
     return True
+
+
+def _avatar_viewer_wait_s(config: AppConfig) -> float:
+    """How long to wait for a just-opened avatar window; none opens with `window: none`."""
+    return 0.0 if config.avatar.window == "none" else AVATAR_VIEWER_WAIT_S
+
+
+def _await_avatar_viewer(avatar: AvatarBus, timeout_s: float) -> None:
+    """Give the avatar page up to `timeout_s` to connect, so it mouths her first words."""
+    if timeout_s > 0 and not avatar.wait_for_viewer(timeout_s):
+        logger.info("No avatar viewer connected within %g s; speaking without it", timeout_s)
 
 
 @contextmanager
@@ -534,6 +609,42 @@ def _start_voice_conversion(server: RvcServerProcess, config: AppConfig) -> RvcC
         )
         return None
     return RvcClient(config.tts.rvc)
+
+
+@contextmanager
+def _avatar_bus(config: AppConfig, *, wanted: bool = True) -> Iterator[AvatarBus | None]:
+    """The avatar's event bus for the block; None when it is off, unwanted, or cannot start.
+
+    The page is served and the window opened until the block ends. An avatar that
+    cannot start (port in use, no Electron) only costs the avatar, never her voice.
+    """
+    if not (wanted and config.avatar.enabled):
+        yield None
+        return
+    with ExitStack() as shown:
+        try:
+            avatar, _ = shown.enter_context(_open_avatar(config))
+        except AvatarError as exc:
+            logger.warning("Avatar unavailable, going on without it: %s", exc)
+            reason = str(exc).rstrip(".")
+            print(
+                f"{WARN} Avatar tidak tersedia: {reason}. "
+                f"{config.assistant.name} tetap berjalan tanpa avatar."
+            )
+            avatar = None
+        yield avatar
+
+
+@contextmanager
+def _open_avatar(config: AppConfig) -> Iterator[tuple[AvatarBus, str]]:
+    """Serve the avatar page and open its window for the block; yields the bus and page URL.
+
+    Raises AvatarError (Indonesian) when either cannot start; nothing is left running then.
+    """
+    settings = config.avatar
+    bus = AvatarBus(name=config.assistant.name, framing=settings.framing)
+    with AvatarServer(settings, bus) as server, AvatarWindow(settings, server.url):
+        yield bus, server.url
 
 
 # --- speaker verification --------------------------------------------------------------------
@@ -762,11 +873,15 @@ def _say(args: argparse.Namespace) -> int:
         print(
             f"{WARN} Suara anime mati (tts.rvc.enabled: false), jadi tts.rvc.model tidak dipakai."
         )
-    with _voice_converter(config, wanted=not args.raw) as converter:
+    emotion, text = split_emotion(" ".join(args.text))
+    with _avatar_bus(config) as avatar, _voice_converter(config, wanted=not args.raw) as converter:
         spoken = _speak(
             build_speech_router(config.tts, converter=converter),
             Player(config.audio.output_device),
-            " ".join(args.text),
+            text,
+            avatar=avatar,
+            emotion=emotion,
+            viewer_wait_s=_avatar_viewer_wait_s(config),
         )
     return 0 if spoken else 1
 
@@ -774,6 +889,58 @@ def _say(args: argparse.Namespace) -> int:
 def _mics(args: argparse.Namespace) -> int:
     print(list_devices())
     return 0
+
+
+# --- avatar ----------------------------------------------------------------------------------
+
+
+def _show_avatar(args: argparse.Namespace) -> int:
+    """Show the avatar without listening until Ctrl+C; `--demo` runs through her expressions."""
+    config = load_config(args.config)
+    if not config.avatar.enabled:
+        print(AVATAR_OFF)
+        return 2
+    try:
+        with _open_avatar(config) as (avatar, url):
+            print(f"Halaman avatar {config.assistant.name}: {url}. Tekan Ctrl+C untuk berhenti.")
+            if args.demo:
+                _run_demo(avatar)
+            else:
+                while True:
+                    sleep(AVATAR_WAIT_S)
+    except AvatarError as exc:
+        logger.error("The avatar could not be shown: %s", exc)
+        print(f"{FAIL} {exc}")
+        return 1
+    except KeyboardInterrupt:
+        print("\nSelesai.")
+    return 0
+
+
+def _run_demo(avatar: AvatarBus) -> None:
+    """Every DEMO_STEP_S: the next state and emotion, mouthing the demo voice; until Ctrl+C."""
+    voice = _demo_voice()
+    for step in count():
+        state = AVATAR_STATES[step % len(AVATAR_STATES)]
+        emotion = EMOTIONS[step % len(EMOTIONS)]
+        print(f"Keadaan: {state}, ekspresi: {emotion}", flush=True)
+        avatar.state(state)
+        avatar.emotion(emotion, hold_s=DEMO_STEP_S)
+        avatar.speak(voice, DEMO_SAMPLE_RATE, emotion)
+        sleep(DEMO_STEP_S)
+
+
+def _demo_voice() -> np.ndarray:
+    """A stand-in for her voice: one tone syllable per mouth shape, each followed by a pause."""
+    times = np.arange(round(DEMO_SYLLABLE_S * DEMO_SAMPLE_RATE)) / DEMO_SAMPLE_RATE
+    envelope = np.sin(np.pi * times / DEMO_SYLLABLE_S) ** 2
+    pause = np.zeros(round(DEMO_PAUSE_S * DEMO_SAMPLE_RATE))
+    syllables = [
+        part
+        for centre_hz in sorted(SHAPE_CENTRE_HZ.values())
+        for part in (envelope * np.sin(2 * np.pi * centre_hz * times), pause)
+    ]
+    return (DEMO_VOLUME * np.concatenate(syllables)).astype(np.float32)
 
 
 # --- check -----------------------------------------------------------------------------------
@@ -800,6 +967,7 @@ def _checks(config_path: Path) -> Iterator[Check]:
     yield from _voice_package_checks(config)
     yield _microphone_check(config)
     yield from _anime_voice_checks(config)
+    yield from _avatar_checks(config)
 
 
 def _device_checks(config: AppConfig, config_path: Path) -> Iterator[Check]:
@@ -948,12 +1116,12 @@ def _anime_voice_checks(config: AppConfig) -> Iterator[Check]:
         name = config.assistant.name
         yield WARN, f"Suara anime (RVC) mati (tts.rvc.enabled: false); {name} memakai suara biasa"
         return
-    yield _rvc_path_check("Folder Applio", rvc.applio_dir, "tts.rvc.applio_dir", folder=True)
-    yield _rvc_path_check("Python Applio", rvc.python_path, "tts.rvc.python atau applio_dir")
-    yield _rvc_path_check("Model RVC", rvc.model, "tts.rvc.model")
+    yield _path_check("Folder Applio", rvc.applio_dir, "tts.rvc.applio_dir", folder=True)
+    yield _path_check("Python Applio", rvc.python_path, "tts.rvc.python atau applio_dir")
+    yield _path_check("Model RVC", rvc.model, "tts.rvc.model")
     if rvc.index is not None:
-        yield _rvc_path_check("Index RVC", rvc.index, "tts.rvc.index")
-    yield _rvc_path_check("Skrip server RVC", SERVER_SCRIPT, "folder tools/ di repo ini")
+        yield _path_check("Index RVC", rvc.index, "tts.rvc.index")
+    yield _path_check("Skrip server RVC", SERVER_SCRIPT, "folder tools/ di repo ini")
     try:
         require_loopback_host(rvc.host)
     except RvcError as exc:
@@ -977,12 +1145,73 @@ def _rvc_server_check(client: RvcClient, rvc: RvcConfig) -> Check:
     return OK, f"Server suara RVC menjawab di {client.base_url} (model {served})"
 
 
-def _rvc_path_check(label: str, path: Path | None, setting: str, *, folder: bool = False) -> Check:
+def _path_check(label: str, path: Path | None, setting: str, *, folder: bool = False) -> Check:
     if path is None:
         return FAIL, f"{label} belum diisi ({setting})"
     if path.is_dir() if folder else path.is_file():
         return OK, f"{label}: {path}"
     return FAIL, f"{label} tidak ditemukan: {path} (periksa {setting})"
+
+
+def _avatar_checks(config: AppConfig) -> Iterator[Check]:
+    """The VRM, the window's program, and whether the port is free; never starts anything."""
+    avatar = config.avatar
+    if not avatar.enabled:
+        name = config.assistant.name
+        yield WARN, f"Avatar 3D mati (avatar.enabled: false); {name} berjalan tanpa avatar"
+        return
+    yield _path_check("Model VRM avatar", avatar.model, "avatar.model")
+    yield _avatar_window_check(avatar)
+    yield _avatar_port_check(avatar)
+
+
+def _avatar_window_check(avatar: AvatarConfig) -> Check:
+    url = f"http://{avatar.host}:{avatar.port}/"
+    if avatar.window == "none":
+        return OK, (
+            f"Jendela avatar tidak dibuka (avatar.window: none); buka {url} di browser "
+            "selama 'waifu run' berjalan"
+        )
+    program = AvatarWindow(avatar, url).program()
+    label = (
+        "Jendela maskot avatar (Electron)"
+        if avatar.window == "mascot"
+        else "Jendela avatar (Microsoft Edge)"
+    )
+    if program is not None and program.is_file():
+        return OK, f"{label}: {program}"
+    if avatar.window == "mascot":
+        return FAIL, (
+            f"{label} tidak ditemukan: {program}. Pasang dulu: di folder "
+            f"{avatar.electron_dir} jalankan {ELECTRON_SETUP}"
+        )
+    return FAIL, (
+        "Microsoft Edge untuk jendela avatar tidak ditemukan. Pasang dengan "
+        "'winget install --id Microsoft.Edge', atau pakai avatar.window: mascot di config.yaml"
+    )
+
+
+def _avatar_port_check(avatar: AvatarConfig) -> Check:
+    address = f"{avatar.host}:{avatar.port}"
+    if port_is_free(avatar.host, avatar.port):
+        return OK, f"Port avatar {address} bebas"
+    if _instance_running(RUN_LOCK):
+        return WARN, f"Port avatar {address} dipakai Cyrene yang sedang berjalan"
+    return FAIL, (
+        f"Port avatar {address} sudah dipakai program lain; tutup program itu atau ganti "
+        "avatar.port di config.yaml"
+    )
+
+
+def port_is_free(host: str, port: int) -> bool:
+    """Whether a server could listen on host:port now: binds a plain socket briefly, as the
+    avatar server would (no address reuse), and closes it at once; never connects."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        try:
+            probe.bind((host, port))
+        except OSError:
+            return False
+    return True
 
 
 # --- autostart -------------------------------------------------------------------------------

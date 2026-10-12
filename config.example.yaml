@@ -89,6 +89,25 @@ tts:
     port: 9881
     startup_timeout_s: 180   # start pertama memuat model ke GPU dan bisa lama
 
+# Avatar 3D つくよみちゃん (README, bagian "Avatar 3D"): maskot transparan di desktop yang
+# bernapas, berkedip, menggerakkan mulut mengikuti suaranya, dan menunjukkan ekspresi jawaban.
+# Kalau avatar gagal jalan (misalnya Electron belum dipasang), Cyrene tetap jalan tanpa avatar.
+avatar:
+  enabled: false
+  # File VRM, wajib diisi kalau enabled: true. Hanya untuk pemakaian pribadi: jangan
+  # di-commit, dibagikan, atau diunggah ke mana pun.
+  # model: C:/AI/avatars/tsukuyomi_a.vrm
+  window: mascot          # mascot: jendela transparan Electron | app: jendela Edge | none: tanpa jendela
+  width: 360              # ukuran jendela dalam piksel
+  height: 640
+  corner: bottom-right    # posisi awal: bottom-right | bottom-left | top-right | top-left
+  always_on_top: true     # selalu di atas jendela lain
+  framing: full           # full: seluruh badan | upper: setengah badan
+  # Harus alamat IPv4 loopback (127.x.x.x, biasanya 127.0.0.1): halaman avatar hanya bisa
+  # dibuka dari PC ini.
+  host: 127.0.0.1
+  port: 9882
+
 ir_codes_path: data/ir_codes.json
 
 devices:

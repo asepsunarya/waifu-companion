@@ -3,10 +3,13 @@
 Every collaborator is injected, so the loop runs the same against the real
 microphone, Whisper, and speakers or against test fakes. Speech output is half
 duplex: the microphone is paused while she talks so she never answers herself.
+An optional avatar shows what she is doing: thinking, speaking (mouth and face
+following the reply), and listening during the follow-up window.
 """
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 from collections.abc import Callable, Iterator
 from datetime import datetime
@@ -14,7 +17,8 @@ from typing import Protocol
 
 import numpy as np
 
-from waifu.brain.base import Brain, BrainReply
+from waifu.avatar.emotion import NEUTRAL, split_emotion
+from waifu.brain.base import Brain, BrainReply, ToolCallRecord
 from waifu.config import AppConfig
 from waifu.gate import WakeGate
 from waifu.voice.base import SpeechToText, Utterance
@@ -25,6 +29,26 @@ from waifu.voice.tts import TtsError
 logger = logging.getLogger(__name__)
 
 ACKNOWLEDGEMENT = "はい、Master?"
+ACKNOWLEDGEMENT_EMOTION = "happy"
+# A reply that was only an emotion tag (say "[senang]" after a tool call) still gets spoken
+# words, picked like the brains pick theirs for an empty reply.
+TAG_ONLY_DONE = "Sudah, Master."
+TAG_ONLY_FAILED = "Maaf Master, ada perintah yang gagal dijalankan."
+TAG_ONLY_NO_ANSWER = "Maaf Master, aku belum bisa menjawab itu."
+
+
+def split_reply(reply: BrainReply) -> tuple[str, BrainReply]:
+    """The reply's emotion and the reply without its tags, never left without words."""
+    emotion, text = split_emotion(reply.text)
+    if not text:
+        text = _tag_only_fallback(reply.tool_calls)
+    return emotion, dataclasses.replace(reply, text=text)
+
+
+def _tag_only_fallback(tool_calls: list[ToolCallRecord]) -> str:
+    if any(call.is_error for call in tool_calls):
+        return TAG_ONLY_FAILED
+    return TAG_ONLY_DONE if tool_calls else TAG_ONLY_NO_ANSWER
 
 
 class Speech(Protocol):
@@ -53,6 +77,14 @@ class Segmenter(Protocol):
     def reset(self) -> None: ...
 
 
+class Avatar(Protocol):
+    """What the voice loop shows on the avatar (the `AvatarBus`)."""
+
+    def state(self, name: str, followup_s: float | None = None) -> None: ...
+
+    def speak(self, audio: np.ndarray, sample_rate: int, emotion: str) -> None: ...
+
+
 class Assistant:
     def __init__(
         self,
@@ -65,19 +97,23 @@ class Assistant:
         gate: WakeGate,
         verifier: OwnerVerifier | None = None,
         speaker_check: bool = True,
+        avatar: Avatar | None = None,
         now: Callable[[], datetime] = datetime.now,
     ) -> None:
         self._name = config.assistant.name
+        self._followup_s = config.assistant.followup_seconds
         self._brain = brain
         self._stt = stt
         self._speech = speech
         self._player = player
         self._gate = gate
         self._verifier = verifier if speaker_check and config.speaker.enabled else None
+        self._avatar = avatar
         self._now = now
         self._mic: Microphone | None = None
         self._segmenter: Segmenter | None = None
         self._speaker_error_logged = False
+        self._avatar_failing = False
 
     def set_mic(self, mic: Microphone | None, segmenter: Segmenter | None = None) -> None:
         """The microphone to pause, and the segmenter to reset, while she speaks."""
@@ -98,30 +134,32 @@ class Assistant:
         if not result.accepted:
             logger.info("Not addressed to %s (%s); ignoring", self._name, result.reason)
             return None
-        # A bare wake word ("Cyrene?") gets a quick answer without a round trip to the LLM.
-        reply_text = self.handle_text(result.command).text if result.command else ACKNOWLEDGEMENT
-        self.speak(reply_text)
+        if result.command:
+            self._show(lambda avatar: avatar.state("thinking"))
+            emotion, reply = self._think(result.command)
+            reply_text = reply.text
+        else:
+            # A bare wake word ("Cyrene?") gets a quick answer without a round trip to the LLM.
+            emotion, reply_text = ACKNOWLEDGEMENT_EMOTION, ACKNOWLEDGEMENT
+        self.speak(reply_text, emotion)
         return reply_text
 
     def handle_text(self, text: str) -> BrainReply:
-        """Ask the brain directly: no wake word, no voice (text chat)."""
-        reply = self._brain.respond(text, now=self._now())
-        for call in reply.tool_calls:
-            logger.info(
-                "Tool %s(%s) -> %s%s",
-                call.name,
-                call.arguments,
-                call.result,
-                " [error]" if call.is_error else "",
-            )
-        return reply
+        """Ask the brain directly: no wake word, no voice (text chat); the reply has no tag."""
+        return self._think(text)[1]
 
-    def speak(self, text: str) -> None:
-        """Say `text` with the microphone paused; failures are logged, never raised."""
+    def speak(self, text: str, emotion: str = NEUTRAL, *, followup: bool = True) -> None:
+        """Say `text` with the microphone paused and the avatar mouthing it with `emotion`.
+
+        A reply opens the follow-up window afterwards; with `followup=False` (an
+        announcement, not a reply) it stays as it was. Failures are logged, never raised.
+        """
         if self._mic is not None:
             self._mic.pause()
         try:
             audio, sample_rate = self._speech.synthesize(text)
+            self._show(lambda avatar: avatar.state("speaking"))
+            self._show(lambda avatar: avatar.speak(audio, sample_rate, emotion))
             self._player.play(audio, sample_rate)
         except TtsError as exc:
             logger.warning("Could not synthesise the reply: %s", exc)
@@ -132,7 +170,12 @@ class Assistant:
                 self._mic.resume()
             if self._segmenter is not None:
                 self._segmenter.reset()
-            self._gate.open_followup()
+            if followup:
+                self._gate.open_followup()
+            if followup and self._followup_s > 0:
+                self._show(lambda avatar: avatar.state("listening", followup_s=self._followup_s))
+            else:  # an announcement, or no follow-up window: only the wake word is heard
+                self._show(lambda avatar: avatar.state("idle"))
 
     def run(self, mic: Microphone, segmenter: Segmenter) -> None:
         """Listen until Ctrl+C.
@@ -158,6 +201,32 @@ class Assistant:
             logger.info("Stopped listening")
         finally:
             self.set_mic(None)
+
+    def _think(self, text: str) -> tuple[str, BrainReply]:
+        """The brain's reply to `text`, split into its emotion and the reply without the tag."""
+        reply = self._brain.respond(text, now=self._now())
+        for call in reply.tool_calls:
+            logger.info(
+                "Tool %s(%s) -> %s%s",
+                call.name,
+                call.arguments,
+                call.result,
+                " [error]" if call.is_error else "",
+            )
+        return split_reply(reply)
+
+    def _show(self, update: Callable[[Avatar], None]) -> None:
+        """Apply `update` to the avatar, if any; failures are logged once per streak, not raised."""
+        if self._avatar is None:
+            return
+        try:
+            update(self._avatar)
+        except Exception as exc:  # the avatar is a bonus: the voice loop goes on without it
+            if not self._avatar_failing:
+                logger.warning("The avatar could not be updated; going on without it: %s", exc)
+            self._avatar_failing = True
+        else:
+            self._avatar_failing = False
 
     def _is_owner(self, utterance: Utterance) -> bool:
         if self._verifier is None:

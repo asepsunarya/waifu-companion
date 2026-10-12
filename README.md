@@ -30,6 +30,7 @@ Cyrene : "Yakin mau dimatikan sekarang, Master?" (minta konfirmasi dulu)
 - [Pemakaian sehari-hari](#pemakaian-sehari-hari)
 - [Jalan otomatis saat login](#jalan-otomatis-saat-login)
 - [Suara anime (つくよみちゃん)](#suara-anime-つくよみちゃん)
+- [Avatar 3D (つくよみちゃん)](#avatar-3d-つくよみちゃん)
 - [Pemecahan masalah](#pemecahan-masalah)
 - [Checklist uji perangkat keras](#checklist-uji-perangkat-keras)
 - [Privasi](#privasi)
@@ -97,11 +98,14 @@ barang yang lebih murah kalau ingin tetap di bawah Rp1 juta.
  RVC (opsional): seluruh klip diubah ke suara つくよみちゃん oleh server Applio lokal
    │             (gagal → klip edge-tts aslinya yang diputar)
    ▼
+ Avatar (opsional): maskot 3D つくよみちゃん menggerakkan mulut mengikuti klip itu
+   │                dan memasang ekspresi jawaban ([senang], [sedih], ...)
+   ▼
  Speaker  (mic dijeda selama dia bicara, jadi dia tidak mendengar dirinya sendiri)
 ```
 
-Kode ada di `src/waifu/`: `devices/`, `brain/`, `voice/`, lalu `gate.py`, `app.py`,
-dan `cli.py` yang menyatukan semuanya. Detail kontrak tiap modul ada di `SPEC.md`.
+Kode ada di `src/waifu/`: `devices/`, `brain/`, `voice/`, `avatar/`, lalu `gate.py`,
+`app.py`, dan `cli.py` yang menyatukan semuanya. Detail kontrak tiap modul ada di `SPEC.md`.
 
 ## Instalasi
 
@@ -511,7 +515,8 @@ waifu speaker-test    # skor kecocokan langsung, Ctrl+C untuk berhenti
 | `waifu learn-ir <id> <perintah>` / `waifu learn-ir <id> --missing` | Pelajari tombol remote IR |
 | `waifu enroll` / `waifu speaker-test` | Daftarkan suara / cek skor kecocokan |
 | `waifu mics` | Daftar perangkat audio dan nomornya |
-| `waifu check` | Periksa config, kode IR, voiceprint, otak, paket suara, CUDA, mic, dan suara anime |
+| `waifu avatar` / `waifu avatar --demo` | Tampilkan avatar 3D saja, tanpa mendengarkan; `--demo` mengganti ekspresi setiap 3 detik (lihat [Avatar 3D](#avatar-3d-つくよみちゃん)) |
+| `waifu check` | Periksa config, kode IR, voiceprint, otak, paket suara, CUDA, mic, suara anime, dan avatar |
 
 Opsi untuk semua perintah: `--config <file>` (default `config.yaml`), `--dry-run`
 (perangkat simulasi), `-v` (log lebih rinci), `--log-file <file>` (log juga ditulis
@@ -560,7 +565,9 @@ Setiap kali login, Windows menjalankan perintah yang tersimpan di
 Autostart selalu memakai `config.yaml` di folder repo dan perangkat asli;
 `--config` dan `--dry-run` tidak berpengaruh pada perintah yang didaftarkan.
 
-- **Menghentikan:** tutup jendela "Cyrene". Dia jalan lagi pada login berikutnya.
+- **Menghentikan:** tutup jendela konsol "Cyrene" (yang minimize di taskbar, ikon
+  Command Prompt). Dia jalan lagi pada login berikutnya. Maskot avatar adalah jendela
+  lain bernama "Avatar Cyrene"; menutupnya **tidak** menghentikan Cyrene.
 - **Mematikan autostart:** `waifu autostart disable`. Di Task Manager → Startup apps
   (dan Settings → Apps → Startup) entrinya **tidak** bernama "Cyrene", tetapi
   "Windows Command Processor" (penerbit Microsoft Corporation), karena yang dijalankan
@@ -775,6 +782,153 @@ Menyetel suara:
 - **Mematikan suara anime:** `tts.rvc.enabled: false`. Cyrene kembali ke suara
   edge-tts; Applio dan model tidak perlu dihapus.
 
+## Avatar 3D (つくよみちゃん)
+
+Dengan `avatar.enabled: true`, selama Cyrene berjalan seorang gadis anime 3D, model
+resmi つくよみちゃん, berdiri di pojok desktop: tampak transparan, selalu di atas jendela
+lain, dan bisa digeser. Dia bernapas, berkedip, dan menatapmu saat diam; tampak berpikir
+selama menyusun jawaban; mulutnya bergerak mengikuti setiap jawaban yang diucapkan; dan
+wajahnya memasang ekspresi jawaban itu. Persona meminta model mengawali setiap jawaban
+dengan satu tag ekspresi (`[senang]`, `[sedih]`, `[marah]`, `[kaget]`, `[santai]`,
+`[netral]`); tag itu tidak pernah diucapkan atau ditampilkan di `waifu chat`.
+
+- Cyrene melayani halaman avatar di `http://127.0.0.1:9882/` (hanya dari PC ini).
+  Maskotnya aplikasi Electron kecil di folder `avatar-app\` yang menampilkan halaman itu
+  di jendela transparan tanpa bingkai.
+- `waifu run`, `waifu say`, dan `waifu chat --speak` membuka maskot (`run` melakukannya
+  saat memuat model, sebelum bilang siap) dan menutupnya saat Cyrene berhenti: Ctrl+C di
+  terminal, atau jendela konsol "Cyrene" dari autostart ditutup.
+- `waifu say` dan sapaan "Cyrene siap, Master." dari autostart menunggu maskot selesai
+  dimuat, paling lama 5 detik, sebelum bicara, supaya mulutnya ikut bergerak dari kata
+  pertama. Biasanya tidak terasa, karena suara anime (RVC) butuh waktu lebih lama untuk
+  siap.
+- **Dia tidak pernah diam karena avatar.** Kalau avatar gagal jalan, muncul
+  `! Avatar tidak tersedia: ... Cyrene tetap berjalan tanpa avatar.` dan dia tetap
+  mendengar dan bicara seperti biasa.
+
+### Hak model (baca dulu)
+
+- Model: **つくよみちゃん公式3Dモデル タイプA** (© Rei Yumesaki). Ketentuannya ada di
+  halaman unduhannya, <https://tyc.rei-yumesaki.net/material/avatar/3d-a/>; baca dulu.
+- Pemakaian pribadi seperti ini boleh. Kredit **つくよみちゃん（© Rei Yumesaki）**
+  selalu tampil kecil di pojok halaman avatar; jangan dihapus.
+- **Jangan menyebarkan ulang atau mengunggah** file model ke mana pun (termasuk VRoid
+  Hub atau repo ini). File VRM tinggal di `C:\AI\avatars\`, di luar repo, dan tidak
+  pernah di-commit.
+
+### 1. Unduh model (sekali)
+
+Dari <https://tyc.rei-yumesaki.net/material/avatar/3d-a/>, unduh paket modelnya
+(`tyc-3d-a.zip`). Yang dipakai Cyrene adalah versi **01 通常版（VRM）**, file
+`【輪郭線あり】つくよみちゃん公式3Dモデル タイプA（通常版）.vrm` (dengan garis tepi).
+
+**Jangan ekstrak dengan "Extract All" di Explorer atau `Expand-Archive`.** Nama file di
+zip ini memakai encoding Jepang (Shift-JIS) tanpa penanda, jadi Windows berbahasa
+Inggris/Indonesia mengubahnya jadi huruf acak (`é┬é¡éµ…`), dan `Expand-Archive` bahkan
+gagal di tengah jalan. Ekstrak dengan perintah ini, yang membaca namanya sebagai
+Shift-JIS (kode 932), lalu salin file VRM-nya menjadi `C:\AI\avatars\tsukuyomi_a.vrm`:
+
+```powershell
+New-Item -ItemType Directory -Force C:\AI\avatars
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+[IO.Compression.ZipFile]::ExtractToDirectory("$HOME\Downloads\tyc-3d-a.zip", "C:\AI\avatars\tyc-3d-a", [Text.Encoding]::GetEncoding(932))
+Copy-Item "C:\AI\avatars\tyc-3d-a\つくよみちゃん公式3Dモデル タイプA\01 通常版（VRM）\【輪郭線あり】つくよみちゃん公式3Dモデル タイプA（通常版）.vrm" C:\AI\avatars\tsukuyomi_a.vrm
+```
+
+Ganti path zip-nya kalau tidak ada di folder Downloads. 7-Zip juga bisa dipakai. Satu
+file teks di folder `03 Recotte Studio用（VRM）` tetap bernama aneh
+(`肩周辺の・示が…txt`) karena namanya memang rusak di dalam zip; itu wajar dan tidak
+dipakai.
+
+### 2. Pasang Electron (sekali)
+
+Butuh [Node.js](https://nodejs.org/) (versi LTS atau lebih baru). Dari folder repo:
+
+```powershell
+Set-Location avatar-app
+npm install
+node node_modules/electron/install.js
+Set-Location ..
+```
+
+`npm install` memasang Electron 44 ke `avatar-app\node_modules\`, tapi di PC ini npm
+melewati skrip unduhan Electron, jadi `node node_modules/electron/install.js` yang
+mengunduh programnya ke `node_modules\electron\dist\`. Folder `node_modules\` tidak
+di-commit.
+
+### 3. Aktifkan di config.yaml
+
+```yaml
+avatar:
+  enabled: true
+  model: C:/AI/avatars/tsukuyomi_a.vrm
+  window: mascot          # mascot | app (jendela Edge) | none (halaman saja)
+  width: 360
+  height: 640
+  corner: bottom-right    # posisi awal maskot
+  always_on_top: true
+  framing: full           # full: seluruh badan | upper: setengah badan
+  port: 9882
+```
+
+Penjelasan tiap kunci ada di `config.example.yaml`. Lalu cek:
+
+```powershell
+waifu check            # ✓ Model VRM avatar, ✓ Jendela maskot avatar (Electron), ✓ Port avatar bebas
+waifu avatar --demo    # avatar saja, tanpa mendengarkan; Ctrl+C untuk berhenti
+```
+
+`waifu avatar --demo` mengganti ekspresi (netral, senang, sedih, marah, kaget, santai)
+dan keadaan (diam, mendengarkan, berpikir, bicara) setiap 3 detik, dengan mulut yang
+bergerak melewati semua bentuk vokal, jadi kamu bisa mengecek modelnya tanpa bicara.
+`waifu avatar` tanpa `--demo` hanya menampilkannya diam. Untuk mengecek modelnya, pakai
+perintah ini. Satu ekspresi dengan suara bisa dicoba lewat
+`waifu say "[senang] Halo Master!"` (tag-nya tidak diucapkan): `say` menunggu maskot
+dimuat (paling lama 5 detik), bicara, lalu langsung menutup maskotnya. Kalau maskot
+belum muncul dalam 5 detik (misalnya PC sedang sibuk), dia tetap bicara tanpa gerakan
+mulut.
+
+### Kontrol maskot
+
+- **Geser:** tarik bagian mana saja dari maskot.
+- **Area kosong di sekitar maskot ikut menangkap klik.** Seluruh kotak jendela maskot
+  (bawaan 360×640 px) menghalangi klik ke jendela di bawahnya, termasuk bagian yang
+  tampak transparan. Geser maskot ke tempat kosong, perkecil `avatar.width` /
+  `avatar.height`, ganti `avatar.corner`, atau klik × untuk menyembunyikannya.
+- **Sembunyikan:** arahkan mouse ke pojok kanan atas maskot, lalu klik **×**. Hanya
+  maskotnya yang tertutup; Cyrene tetap mendengar dan menjawab dengan suara. Maskot
+  muncul lagi pada `waifu run` berikutnya.
+- Di taskbar dan Alt+Tab maskot bernama **"Avatar Cyrene"**. Menutupnya (× atau
+  Alt+F4) sama dengan menyembunyikannya; yang menghentikan Cyrene adalah jendela konsol
+  "Cyrene" atau Ctrl+C di terminal `waifu run`.
+- Titik di sebelah × hijau kalau maskot terhubung ke Cyrene, merah kalau terputus (dia
+  menyambung lagi sendiri). Titik itu baru hijau setelah modelnya selesai dimuat.
+- Maskot ikut tertutup saat Cyrene berhenti (Ctrl+C, atau jendela konsol "Cyrene" dari
+  autostart ditutup).
+
+**Tanpa Electron:** `avatar.window: app` menampilkan avatar di jendela aplikasi Microsoft
+Edge biasa (berlatar, berbingkai, bisa diubah ukurannya) dengan profil Edge sendiri di
+`data\avatar-edge-profile`, jadi browser-mu tidak tersentuh. `avatar.window: none` hanya
+melayani halamannya; buka `http://127.0.0.1:9882/` sendiri di browser.
+
+### Pemecahan masalah avatar
+
+- **"Avatar tidak tersedia: Port 127.0.0.1:9882 sudah dipakai ...".** Cyrene lain
+  (misalnya dari autostart) atau program lain memakai port itu. Cek dengan
+  `netstat -ano | findstr :9882`, tutup programnya, atau ganti `avatar.port`.
+- **"Program maskot (Electron) tidak ditemukan".** Jalankan langkah 2.
+- **Latar hitam, bukan transparan.** Jendela transparan Electron butuh akselerasi GPU
+  yang berjalan baik: perbarui driver NVIDIA. Sementara itu, pakai `avatar.window: app`.
+- **Pesan "Pustaka 3D avatar tidak bisa dimuat" di maskot.** Ada file yang hilang di
+  `src\waifu\avatar\web\vendor\` (lihat `VENDOR.md` di sana). Ambil ulang folder itu dari
+  repo; `pytest tests/test_avatar_web.py` menyebut file yang hilang.
+- **Pesan "Model avatar tidak bisa dimuat" di maskot.** `avatar.model` menunjuk file
+  yang tidak ada atau bukan VRM. File yang tidak ada ditandai `waifu check` dengan
+  `✗ Model VRM avatar tidak ditemukan` beserta path-nya.
+- **Maskot diam saja saat dia bicara.** Titik di pojok kanan atas merah berarti maskot
+  terputus dari Cyrene; tunggu sebentar atau jalankan ulang `waifu run`.
+- **Mematikan avatar:** `avatar.enabled: false`. Model dan Electron tidak perlu dihapus.
+
 ## Pemecahan masalah
 
 Log `waifu run` tampil di terminal dalam bahasa Inggris. Baris seperti
@@ -915,6 +1069,22 @@ mendengarkan"; jawaban pertama bisa lebih lama karena model Ollama baru dimuat)
 - [ ] Setelah `waifu run` bilang siap, menutup jendelanya juga mematikan server RVC:
       `netstat -ano | findstr :9881` tidak menampilkan apa-apa lagi.
 
+**Opsional: avatar 3D**
+
+- [ ] `waifu check` menampilkan `✓` untuk Model VRM avatar, Jendela maskot avatar
+      (Electron), dan Port avatar.
+- [ ] `waifu avatar --demo`: maskot transparan muncul di pojok kanan bawah dengan kredit
+      つくよみちゃん（© Rei Yumesaki）, ekspresi dan keadaannya berganti setiap 3 detik,
+      mulutnya bergerak, dan bisa digeser. Ctrl+C menutupnya.
+- [ ] Dengan `waifu run`, maskot muncul sebelum "siap mendengarkan". "Cyrene, nyalakan
+      lampu kamar": dia tampak berpikir, mulutnya bergerak seirama suaranya, wajahnya
+      memasang ekspresi jawaban, lalu dia condong mendengarkan selama jendela lanjutan.
+- [ ] Menutup maskot dengan × tidak menghentikan Cyrene; menutup jendela konsol
+      "Cyrene" juga menutup maskot. Di taskbar dan Alt+Tab maskot bernama
+      "Avatar Cyrene", bukan "Cyrene".
+- [ ] Dengan `tts.rvc.enabled: false`, `waifu say "[senang] Halo Master!"`: maskot
+      muncul, mulutnya bergerak sejak kata pertama dengan wajah senang, lalu tertutup.
+
 ## Privasi
 
 - **Suara tidak pernah keluar dari PC.** Rekaman mic, verifikasi suara, dan
@@ -924,7 +1094,8 @@ mendengarkan"; jawaban pertama bisa lebih lama karena model Ollama baru dimuat)
     bentuk teks), persona, daftar perangkat, dan hasil perintah perangkat dikirim
     ke API Anthropic. Dengan Ollama, semuanya lokal;
   - dengan engine `edge` di `tts`, teks jawaban Cyrene dikirim ke layanan edge-tts
-    Microsoft untuk dijadikan suara. GPT-SoVITS dan suara anime (RVC) berjalan lokal.
+    Microsoft untuk dijadikan suara. GPT-SoVITS, suara anime (RVC), dan avatar 3D
+    berjalan lokal (halaman avatar hanya bisa dibuka dari PC ini).
 - **Voiceprint adalah data biometrik.** `data/voiceprint.npy` (dan seluruh `data/`)
   ada di `.gitignore` dan tidak boleh di-commit atau dibagikan. Begitu juga
   `config.yaml` (local key Tuya) dan `models/`.
@@ -969,6 +1140,7 @@ Test dan lint (tanpa GPU, mic, atau jaringan):
 .venv\Scripts\python -m pytest
 .venv\Scripts\python -m ruff check src tests
 .venv\Scripts\python -m ruff format src tests
+node --test "tests/js/*.test.mjs" "avatar-app/test/*.test.js"   # logika halaman avatar dan maskot
 ```
 
 Suite test men-set `WAIFU_DISABLE_POWER=1` (`tests/conftest.py`) supaya tidak ada test

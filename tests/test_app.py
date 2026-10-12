@@ -5,7 +5,13 @@ from datetime import datetime
 import numpy as np
 import pytest
 
-from waifu.app import ACKNOWLEDGEMENT, Assistant
+from waifu.app import (
+    ACKNOWLEDGEMENT,
+    TAG_ONLY_DONE,
+    TAG_ONLY_FAILED,
+    TAG_ONLY_NO_ANSWER,
+    Assistant,
+)
 from waifu.brain.base import Brain, BrainReply, ToolCallRecord
 from waifu.config import AppConfig, SpeakerConfig
 from waifu.gate import WakeGate
@@ -28,7 +34,8 @@ class FakeClock:
 
 
 class FakeBrain(Brain):
-    def __init__(self) -> None:
+    def __init__(self, reply: str = REPLY) -> None:
+        self.reply = reply
         self.turns: list[tuple[str, datetime | None]] = []
 
     def respond(self, user_text: str, *, now: datetime | None = None) -> BrainReply:
@@ -36,7 +43,7 @@ class FakeBrain(Brain):
         call = ToolCallRecord(
             "control_device", {"device": "lampu_kamar", "command": "on"}, '{"ok": true}', False
         )
-        return BrainReply(REPLY, [call])
+        return BrainReply(self.reply, [call])
 
     def reset(self) -> None:
         self.turns.clear()
@@ -128,6 +135,27 @@ class FakeSegmenter:
         self.events.append("segmenter.reset")
 
 
+class FakeAvatar:
+    """Stands in for the AvatarBus: logs what the voice loop shows, or fails like a broken one."""
+
+    def __init__(self, events: list[str], error: Exception | None = None) -> None:
+        self.events = events
+        self.error = error
+        self.spoken: list[tuple[int, int, str]] = []
+
+    def state(self, name: str, followup_s: float | None = None) -> None:
+        followup = "" if followup_s is None else f" {followup_s:g}"
+        self.events.append(f"avatar.state {name}{followup}")
+        if self.error is not None:
+            raise self.error
+
+    def speak(self, audio: np.ndarray, sample_rate: int, emotion: str) -> None:
+        self.events.append(f"avatar.speak {emotion}")
+        if self.error is not None:
+            raise self.error
+        self.spoken.append((len(audio), sample_rate, emotion))
+
+
 class Rig:
     """An Assistant wired to fakes that share one event log and one clock."""
 
@@ -135,20 +163,25 @@ class Rig:
         self,
         *heard: str | Exception,
         owner: tuple[bool, float] | Exception = (True, 0.71),
+        reply: str = REPLY,
+        brain: type[FakeBrain] = FakeBrain,
         speech_error: Exception | None = None,
         player_error: Exception | None = None,
         config: AppConfig | None = None,
         with_verifier: bool = True,
         speaker_check: bool = True,
+        with_avatar: bool = False,
+        avatar_error: Exception | None = None,
     ) -> None:
         config = config or AppConfig()
         self.events: list[str] = []
         self.clock = FakeClock()
-        self.brain = FakeBrain()
+        self.brain = brain(reply)
         self.stt = FakeStt(*heard)
         self.verifier = FakeVerifier(owner)
         self.speech = FakeSpeech(self.events, speech_error)
         self.player = FakePlayer(self.events, player_error)
+        self.avatar = FakeAvatar(self.events, avatar_error)
         self.gate = WakeGate(
             config.assistant.wake_words, config.assistant.followup_seconds, clock=self.clock
         )
@@ -161,6 +194,7 @@ class Rig:
             gate=self.gate,
             verifier=self.verifier if with_verifier else None,
             speaker_check=speaker_check,
+            avatar=self.avatar if with_avatar or avatar_error else None,
             now=lambda: NOW,
         )
 
@@ -362,3 +396,197 @@ def test_run_stops_on_a_failure_that_every_utterance_would_hit(failure):
 
     assert rig.stt.calls == 1
     assert rig.brain.turns == []
+
+
+TAGGED_REPLY = "[senang] Siap, Master! Lampu kamar sudah menyala."
+
+
+def test_the_emotion_tag_is_never_spoken_nor_returned():
+    rig = Rig("Cyrene, nyalakan lampu kamar", reply=TAGGED_REPLY)
+
+    reply = rig.assistant.handle_utterance(rig.utterance())
+
+    assert reply == REPLY
+    assert rig.speech.texts == [REPLY]
+
+
+def test_a_reply_that_is_only_a_tag_after_a_tool_call_is_still_answered_aloud():
+    rig = Rig("Cyrene, nyalakan lampu kamar", reply="[senang]", with_avatar=True)
+
+    reply = rig.assistant.handle_utterance(rig.utterance())
+
+    assert reply == TAG_ONLY_DONE == "Sudah, Master."
+    assert rig.speech.texts == [TAG_ONLY_DONE]
+    assert rig.player.played == [24000]
+    assert "avatar.speak happy" in rig.events
+
+
+class FailedToolBrain(FakeBrain):
+    def respond(self, user_text: str, *, now: datetime | None = None) -> BrainReply:
+        call = ToolCallRecord("control_device", {"device": "ac"}, '{"ok": false}', True)
+        return BrainReply(self.reply, [call])
+
+
+class ToollessBrain(FakeBrain):
+    def respond(self, user_text: str, *, now: datetime | None = None) -> BrainReply:
+        return BrainReply(self.reply, [])
+
+
+@pytest.mark.parametrize(
+    ("brain", "expected"),
+    [(FailedToolBrain, TAG_ONLY_FAILED), (ToollessBrain, TAG_ONLY_NO_ANSWER)],
+    ids=["tool-failed", "no-tool"],
+)
+def test_a_tag_only_reply_says_what_the_tools_did(brain, expected):
+    rig = Rig(reply=" [ sedih ] ", brain=brain)
+
+    reply = rig.assistant.handle_text("nyalakan AC")
+
+    assert reply.text == expected
+    assert expected.startswith("Maaf Master")
+
+
+def test_handle_text_returns_the_reply_without_its_tag_and_keeps_the_tool_calls():
+    rig = Rig(reply="[ kaget ] えっ? Lampu kamar [senang] sudah menyala.")
+
+    reply = rig.assistant.handle_text("nyalakan lampu kamar")
+
+    assert reply.text == "えっ? Lampu kamar sudah menyala."
+    assert [call.name for call in reply.tool_calls] == ["control_device"]
+
+
+def test_the_avatar_thinks_then_speaks_with_the_reply_s_emotion_then_listens():
+    rig = Rig("Cyrene, nyalakan lampu kamar", reply=TAGGED_REPLY, with_avatar=True)
+    rig.assistant.set_mic(FakeMic(rig.events, []), FakeSegmenter(rig.events, []))
+
+    rig.assistant.handle_utterance(rig.utterance())
+
+    assert rig.events == [
+        "avatar.state thinking",
+        "mic.pause",
+        "synthesize",
+        "avatar.state speaking",
+        "avatar.speak happy",
+        "play",
+        "mic.resume",
+        "segmenter.reset",
+        "avatar.state listening 8",
+    ]
+    assert rig.avatar.spoken == [(2400, 24000, "happy")]
+
+
+def test_the_avatar_mouths_exactly_the_audio_that_is_played():
+    rig = Rig("Cyrene, nyalakan lampu kamar", with_avatar=True)
+
+    rig.assistant.handle_utterance(rig.utterance())
+
+    assert [(length, rate) for length, rate, _ in rig.avatar.spoken] == [(2400, 24000)]
+    assert rig.player.played == [24000]
+
+
+def test_a_reply_without_a_tag_is_shown_neutral():
+    rig = Rig("Cyrene, nyalakan lampu kamar", with_avatar=True)
+
+    rig.assistant.handle_utterance(rig.utterance())
+
+    assert "avatar.speak neutral" in rig.events
+
+
+def test_the_follow_up_window_shown_by_the_avatar_is_the_configured_one():
+    config = AppConfig.model_validate({"assistant": {"followup_seconds": 5.5}})
+    rig = Rig("Cyrene, nyalakan lampu kamar", config=config, with_avatar=True)
+
+    rig.assistant.handle_utterance(rig.utterance())
+
+    assert rig.events[-1] == "avatar.state listening 5.5"
+
+
+def test_without_a_follow_up_window_the_avatar_returns_to_idle_after_a_reply():
+    config = AppConfig.model_validate({"assistant": {"followup_seconds": 0}})
+    rig = Rig("Cyrene, nyalakan lampu kamar", "matikan lampu", config=config, with_avatar=True)
+
+    rig.assistant.handle_utterance(rig.utterance())
+    ignored = rig.assistant.handle_utterance(rig.utterance())
+
+    assert ignored is None  # the wake word is needed again at once
+    assert rig.events[-1] == "avatar.state idle"
+    assert not any(event.startswith("avatar.state listening") for event in rig.events)
+
+
+def test_a_bare_wake_word_is_acknowledged_happily_without_thinking():
+    rig = Rig("Cyrene?", with_avatar=True)
+
+    rig.assistant.handle_utterance(rig.utterance())
+
+    assert rig.events == [
+        "synthesize",
+        "avatar.state speaking",
+        "avatar.speak happy",
+        "play",
+        "avatar.state listening 8",
+    ]
+
+
+def test_speech_that_is_ignored_leaves_the_avatar_alone():
+    rig = Rig("nyalakan lampu kamar", with_avatar=True)
+
+    assert rig.assistant.handle_utterance(rig.utterance()) is None
+    assert rig.events == []
+
+
+def test_when_the_reply_cannot_be_voiced_the_avatar_still_returns_to_listening():
+    rig = Rig("Cyrene, nyalakan lampu kamar", with_avatar=True, speech_error=TtsError("offline"))
+
+    rig.assistant.handle_utterance(rig.utterance())
+
+    assert rig.events == ["avatar.state thinking", "synthesize", "avatar.state listening 8"]
+
+
+def test_a_broken_avatar_never_stops_the_reply(caplog):
+    rig = Rig(
+        "Cyrene, nyalakan lampu kamar",
+        "terus nyalakan TV juga",
+        reply=TAGGED_REPLY,
+        avatar_error=RuntimeError("viewer queue broke"),
+    )
+
+    with caplog.at_level(logging.WARNING, logger="waifu.app"):
+        reply = rig.assistant.handle_utterance(rig.utterance())
+        rig.clock.now += 3
+        follow_up = rig.assistant.handle_utterance(rig.utterance())
+
+    assert reply == follow_up == REPLY
+    assert rig.speech.texts == [REPLY, REPLY]
+    assert rig.player.played == [24000, 24000]
+    warnings = [record for record in caplog.records if "viewer queue broke" in record.getMessage()]
+    assert len(warnings) == 1
+
+
+def test_an_avatar_that_fails_again_after_recovering_is_reported_again(caplog):
+    rig = Rig("Cyrene, lampu", "Cyrene, TV", "Cyrene, AC", with_avatar=True)
+
+    with caplog.at_level(logging.WARNING, logger="waifu.app"):
+        for error in (RuntimeError("first streak"), None, RuntimeError("second streak")):
+            rig.avatar.error = error
+            rig.assistant.handle_utterance(rig.utterance())
+
+    messages = [record.getMessage() for record in caplog.records]
+    assert sum("first streak" in message for message in messages) == 1
+    assert sum("second streak" in message for message in messages) == 1
+
+
+def test_speaking_without_follow_up_leaves_the_window_closed_and_the_avatar_idle():
+    rig = Rig("matikan semua lampu", with_avatar=True)
+
+    rig.assistant.speak("Cyrene siap, Master.", followup=False)
+    ignored = rig.assistant.handle_utterance(rig.utterance())
+
+    assert ignored is None
+    assert rig.speech.texts == ["Cyrene siap, Master."]
+    assert rig.events == [
+        "synthesize",
+        "avatar.state speaking",
+        "avatar.speak neutral",
+        "play",
+        "avatar.state idle",
+    ]

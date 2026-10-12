@@ -4,6 +4,7 @@ import logging
 import re
 import runpy
 import shutil
+import socket
 import sys
 import types
 import urllib.error
@@ -22,8 +23,13 @@ from tinytuya.core.XenonDevice import XenonDevice
 from waifu import cli
 from waifu.app import Assistant
 from waifu.autostart import DEFAULT_DELAY_S, build_command
+from waifu.avatar.bus import STATES
+from waifu.avatar.emotion import EMOTIONS
+from waifu.avatar.lipsync import VISEMES, viseme_track
+from waifu.avatar.server import AvatarError
+from waifu.avatar.window import AvatarWindow
 from waifu.brain.base import Brain, BrainReply, ToolCallRecord
-from waifu.config import RvcConfig
+from waifu.config import AvatarConfig, RvcConfig
 from waifu.devices.base import DeviceError
 from waifu.devices.ir_codes import IrCodeStore
 from waifu.devices.ir_device import IrDevice
@@ -66,6 +72,19 @@ def no_real_rvc(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def no_real_avatar(monkeypatch):
+    """A test that forgets the avatar fakes fails instead of binding port 9882 or opening the
+    mascot (tests/conftest.py also refuses to spawn electron.exe and msedge.exe)."""
+
+    def refuse(*args, **kwargs):
+        raise AssertionError("a test reached the real avatar server, window, or port probe")
+
+    monkeypatch.setattr(cli, "AvatarServer", refuse)
+    monkeypatch.setattr(cli, "AvatarWindow", refuse)
+    monkeypatch.setattr(cli, "port_is_free", refuse)
+
+
+@pytest.fixture(autouse=True)
 def restore_library_log_levels():
     """main() tunes third-party loggers process-wide; give later tests the levels back."""
     loggers = [logging.getLogger(name) for name in ("tinytuya", "httpx")]
@@ -87,8 +106,14 @@ def write_config(home: Path, text: str) -> None:
     (home / "config.yaml").write_text(text, encoding="utf-8")
 
 
+REPLY = "Siap, Master! Lampu kamar sudah menyala."
+TAGGED_REPLY = f"[senang] {REPLY}"
+
+
 class HouseBrain(Brain):
     """Turns every message into one control_device call on the registry it was built with."""
+
+    reply = REPLY
 
     def __init__(self, registry: DeviceRegistry) -> None:
         self.registry = registry
@@ -100,7 +125,7 @@ class HouseBrain(Brain):
         call = ToolCallRecord(
             "control_device", {"device": "lampu_kamar", "command": "on"}, result.message, False
         )
-        return BrainReply("Siap, Master! Lampu kamar sudah menyala.", [call])
+        return BrainReply(self.reply, [call])
 
     def reset(self) -> None:
         self.heard.clear()
@@ -291,6 +316,142 @@ def enable_rvc(home: Path, *, index: bool = False, enabled: bool = True, extra: 
     write_config(home, text + extra)
 
 
+@dataclass
+class AvatarFakes:
+    """The avatar faked: `server_error` fails binding its port, `window_error` opening its
+    window, `speak_error` every speak event; `on_start` runs when the page starts being served;
+    `viewer_connects` answers wait_for_viewer()."""
+
+    events: list[str]
+    buses: list["FakeAvatarBus"] = field(default_factory=list)
+    servers: list["FakeAvatarServer"] = field(default_factory=list)
+    windows: list["FakeAvatarWindow"] = field(default_factory=list)
+    server_error: AvatarError | None = None
+    window_error: AvatarError | None = None
+    speak_error: Exception | None = None
+    on_start: Callable[[], None] | None = None
+    viewer_connects: bool = True
+
+
+class FakeAvatarBus:
+    """Stands in for AvatarBus: logs what is shown and keeps what she would mouth."""
+
+    def __init__(self, fakes: AvatarFakes, name: str, framing: str) -> None:
+        self.name = name
+        self.framing = framing
+        self.events = fakes.events
+        self.speak_error = fakes.speak_error
+        self.viewer_connects = fakes.viewer_connects
+        self.calls: list[tuple] = []
+        self.voices: list[tuple[np.ndarray, int]] = []
+
+    def wait_for_viewer(self, timeout: float) -> bool:
+        self.calls.append(("wait_for_viewer", timeout))
+        self.events.append("avatar awaits a viewer")
+        return self.viewer_connects
+
+    def state(self, name: str, followup_s: float | None = None) -> None:
+        self.calls.append(("state", name, followup_s))
+        self.events.append(f"avatar {name}")
+
+    def emotion(self, name: str, hold_s: float = 4) -> None:
+        self.calls.append(("emotion", name, hold_s))
+        self.events.append(f"avatar looks {name}")
+
+    def speak(self, audio: np.ndarray, sample_rate: int, emotion: str) -> None:
+        self.calls.append(("speak", emotion))
+        self.voices.append((audio, sample_rate))
+        self.events.append(f"avatar speaks {emotion}")
+        if self.speak_error is not None:
+            raise self.speak_error
+
+
+class FakeAvatarServer:
+    """Stands in for AvatarServer: never binds a port."""
+
+    def __init__(self, config: AvatarConfig, bus: FakeAvatarBus, fakes: AvatarFakes) -> None:
+        if fakes.server_error is not None:
+            raise fakes.server_error
+        self.config = config
+        self.bus = bus
+        self.url = f"http://{config.host}:{config.port}/"
+        self._fakes = fakes
+
+    def __enter__(self) -> "FakeAvatarServer":
+        self._fakes.events.append("avatar served")
+        if self._fakes.on_start is not None:
+            self._fakes.on_start()
+        return self
+
+    def __exit__(self, *exc_info) -> None:
+        self._fakes.events.append("avatar server stopped")
+
+
+class FakeAvatarWindow:
+    """Stands in for AvatarWindow: never starts a program."""
+
+    def __init__(self, config: AvatarConfig, url: str, fakes: AvatarFakes) -> None:
+        self.config = config
+        self.url = url
+        self._fakes = fakes
+
+    def __enter__(self) -> "FakeAvatarWindow":
+        if self._fakes.window_error is not None:
+            raise self._fakes.window_error
+        self._fakes.events.append("avatar window opened")
+        return self
+
+    def __exit__(self, *exc_info) -> None:
+        self._fakes.events.append("avatar window closed")
+
+
+@pytest.fixture
+def avatar(events, monkeypatch) -> AvatarFakes:
+    fakes = AvatarFakes(events)
+
+    def bus(name: str = "Cyrene", framing: str = "full") -> FakeAvatarBus:
+        fakes.buses.append(FakeAvatarBus(fakes, name, framing))
+        return fakes.buses[-1]
+
+    def server(config: AvatarConfig, bus: FakeAvatarBus) -> FakeAvatarServer:
+        fakes.servers.append(FakeAvatarServer(config, bus, fakes))
+        return fakes.servers[-1]
+
+    def window(config: AvatarConfig, url: str) -> FakeAvatarWindow:
+        fakes.windows.append(FakeAvatarWindow(config, url, fakes))
+        return fakes.windows[-1]
+
+    monkeypatch.setattr(cli, "AvatarBus", bus)
+    monkeypatch.setattr(cli, "AvatarServer", server)
+    monkeypatch.setattr(cli, "AvatarWindow", window)
+    return fakes
+
+
+VRM = Path("avatars/tsukuyomi_a.vrm")
+
+
+def enable_avatar(home: Path, *, window: str = "mascot", extra: str = "") -> None:
+    """config.yaml with only the avatar set up; its paths are relative to `home`."""
+    write_config(
+        home,
+        f"avatar:\n  enabled: true\n  model: {VRM.as_posix()}\n  window: {window}\n" + extra,
+    )
+
+
+@pytest.fixture
+def event_player(events, monkeypatch) -> None:
+    """A Player that logs each playback in `events`, to see what happens right before it."""
+
+    class EventPlayer:
+        def __init__(self, device=None) -> None:
+            pass
+
+        def play(self, audio: np.ndarray, sample_rate: int) -> None:
+            events.append("play")
+
+    monkeypatch.setattr(cli, "Player", EventPlayer)
+
+
 # --- parsing -------------------------------------------------------------------------------
 
 
@@ -311,6 +472,8 @@ def enable_rvc(home: Path, *, index: bool = False, enabled: bool = True, extra: 
         (["say", "--raw", "Halo"], "say"),
         (["mics"], "mics"),
         (["check"], "check"),
+        (["avatar"], "avatar"),
+        (["avatar", "--demo"], "avatar"),
     ],
 )
 def test_every_subcommand_in_the_spec_parses(argv, command):
@@ -736,6 +899,81 @@ def test_chat_without_speak_never_starts_the_rvc_server(home, brains, rvc, speec
     assert rvc.servers == [] and speech == []
 
 
+def test_chat_never_prints_or_speaks_the_emotion_tag(
+    home, brains, player, speech, monkeypatch, capsys
+):
+    monkeypatch.setattr(HouseBrain, "reply", TAGGED_REPLY)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("halo\n"))
+
+    assert cli.main(["chat", "--dry-run", "--speak"]) == 0
+
+    out = capsys.readouterr().out
+    assert f"Cyrene: {REPLY}" in out
+    assert "senang" not in out
+    assert speech[0].texts == [REPLY]
+
+
+def test_chat_answers_a_reply_that_is_only_a_tag_instead_of_printing_nothing(
+    home, brains, player, speech, monkeypatch, capsys
+):
+    monkeypatch.setattr(HouseBrain, "reply", "[senang]")
+    monkeypatch.setattr(sys, "stdin", io.StringIO("nyalakan lampu kamar\n"))
+
+    assert cli.main(["chat", "--dry-run", "--speak"]) == 0
+
+    out = capsys.readouterr().out
+    assert "Cyrene: Sudah, Master." in out
+    assert "Suara gagal" not in out
+    assert speech[0].texts == ["Sudah, Master."]
+
+
+def test_chat_speak_shows_the_avatar_mouthing_each_reply_with_its_emotion(
+    home, brains, event_player, speech, avatar, events, monkeypatch
+):
+    enable_avatar(home)
+    monkeypatch.setattr(HouseBrain, "reply", TAGGED_REPLY)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("halo\n"))
+
+    assert cli.main(["chat", "--dry-run", "--speak"]) == 0
+
+    assert events == [
+        "avatar served",
+        "avatar window opened",
+        f"say {REPLY}",
+        "avatar speaks happy",
+        "play",
+        "avatar window closed",
+        "avatar server stopped",
+    ]
+    assert (avatar.buses[0].name, avatar.buses[0].framing) == ("Cyrene", "full")
+    assert avatar.windows[0].url == avatar.servers[0].url == "http://127.0.0.1:9882/"
+
+
+def test_chat_speak_still_voices_a_reply_the_avatar_cannot_show(
+    home, brains, event_player, speech, avatar, events, monkeypatch, caplog
+):
+    enable_avatar(home)
+    avatar.speak_error = ValueError("viseme track failed")
+    monkeypatch.setattr(sys, "stdin", io.StringIO("halo\n"))
+    caplog.set_level(logging.INFO)
+
+    assert cli.main(["chat", "--dry-run", "--speak"]) == 0
+
+    assert events[2:5] == [f"say {REPLY}", "avatar speaks neutral", "play"]
+    assert "viseme track failed" in caplog.text
+
+
+def test_chat_without_speak_never_shows_the_avatar(home, brains, avatar, monkeypatch, capsys):
+    enable_avatar(home)
+    monkeypatch.setattr(HouseBrain, "reply", TAGGED_REPLY)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("halo\n"))
+
+    assert cli.main(["chat", "--dry-run"]) == 0
+
+    assert avatar.servers == [] and avatar.windows == []
+    assert f"Cyrene: {REPLY}" in capsys.readouterr().out
+
+
 # --- learn-ir --------------------------------------------------------------------------------
 
 
@@ -988,6 +1226,103 @@ def test_say_stops_the_rvc_server_even_when_playback_fails(home, rvc, speech, ev
     assert cli.main(["say", "Halo"]) == 1
 
     assert events[-1] == "rvc stopped"
+
+
+def test_say_shows_the_avatar_mouthing_the_words_with_their_tag_s_emotion(
+    home, event_player, speech, avatar, events
+):
+    enable_avatar(home)
+
+    assert cli.main(["say", "[senang]", "Halo", "Master"]) == 0
+
+    assert events == [
+        "avatar served",
+        "avatar window opened",
+        "say Halo Master",
+        "avatar awaits a viewer",
+        "avatar speaks happy",
+        "play",
+        "avatar window closed",
+        "avatar server stopped",
+    ]
+
+
+def test_say_gives_the_just_opened_avatar_window_up_to_five_seconds_to_connect(
+    home, player, speech, avatar
+):
+    # The speak event reaches only viewers already connected: without the wait the mascot,
+    # still loading, would miss it and keep its mouth shut.
+    enable_avatar(home)
+
+    assert cli.main(["say", "Halo"]) == 0
+
+    assert avatar.buses[0].calls == [("wait_for_viewer", 5.0), ("speak", "neutral")]
+
+
+def test_say_speaks_anyway_when_the_avatar_window_does_not_connect_in_time(
+    home, event_player, speech, avatar, events, caplog
+):
+    enable_avatar(home)
+    avatar.viewer_connects = False
+    caplog.set_level(logging.INFO)
+
+    assert cli.main(["say", "Halo"]) == 0
+
+    assert events[2:6] == ["say Halo", "avatar awaits a viewer", "avatar speaks neutral", "play"]
+    assert "No avatar viewer" in caplog.text
+
+
+def test_say_does_not_wait_for_a_viewer_when_the_avatar_opens_no_window(
+    home, player, speech, avatar
+):
+    enable_avatar(home, window="none")
+
+    assert cli.main(["say", "Halo"]) == 0
+
+    assert avatar.buses[0].calls == [("speak", "neutral")]
+
+
+def test_say_never_speaks_an_emotion_tag(home, player, speech):
+    assert cli.main(["say", "[kaget]", "えっ?", "Master!"]) == 0
+
+    assert speech[0].texts == ["えっ? Master!"]
+
+
+def test_say_speaks_without_the_avatar_when_its_window_cannot_open(
+    home, player, speech, avatar, events, caplog, capsys
+):
+    enable_avatar(home)
+    avatar.window_error = AvatarError(
+        "Program maskot (Electron) tidak ditemukan: avatar-app\\electron.exe. Pasang dulu."
+    )
+    caplog.set_level(logging.INFO)
+
+    assert cli.main(["say", "Halo"]) == 0
+
+    assert (
+        "! Avatar tidak tersedia: Program maskot (Electron) tidak ditemukan: "
+        "avatar-app\\electron.exe. Pasang dulu. Cyrene tetap berjalan tanpa avatar."
+        in capsys.readouterr().out.splitlines()
+    )
+    assert "electron.exe" in caplog.text  # the autostart window closes; the log keeps why
+    assert events == ["avatar served", "avatar server stopped", "say Halo"]
+    assert len(player.played) == 1
+
+
+def test_say_closes_the_avatar_even_when_playback_fails(home, speech, avatar, events, monkeypatch):
+    class UnpluggedPlayer:
+        def __init__(self, device=None) -> None:
+            pass
+
+        def play(self, audio: np.ndarray, sample_rate: int) -> None:
+            raise RuntimeError("speaker unplugged")
+
+    monkeypatch.setattr(cli, "Player", UnpluggedPlayer)
+    enable_avatar(home)
+
+    assert cli.main(["say", "Halo"]) == 1
+
+    assert events[-2:] == ["avatar window closed", "avatar server stopped"]
 
 
 def test_mics_prints_the_audio_device_list(monkeypatch, capsys):
@@ -1427,6 +1762,130 @@ def test_run_refused_by_the_lock_starts_no_rvc_server(run_fakes, rvc, home):
     assert rvc.servers == []
 
 
+def test_run_shows_the_avatar_holding_the_lock_after_the_models_and_before_ready(
+    announcing, avatar, home, capsys
+):
+    enable_avatar(home)
+    at_start: list[tuple[bool, str]] = []
+    avatar.on_start = lambda: at_start.append(
+        (lock_is_free(announcing.lock), capsys.readouterr().out)
+    )
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check", "--announce"]) == 0
+
+    ((lock_free, printed_before),) = at_start
+    assert not lock_free
+    assert "Memuat model suara" in printed_before and "siap" not in printed_before
+    assert "Cyrene siap mendengarkan" in capsys.readouterr().out
+    events = announcing.events
+    assert events.index("whisper loaded") < events.index("avatar served")
+    assert events.index("avatar window opened") < events.index("mic opened")
+    assert events[-3:] == ["mic closed", "avatar window closed", "avatar server stopped"]
+
+
+def test_run_hands_the_avatar_to_the_assistant(run_fakes, avatar, home):
+    enable_avatar(home, extra="  framing: upper\nassistant:\n  name: Aiko\n  wake_words: [aiko]\n")
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    [bus] = avatar.buses
+    assert RecordingAssistant.instances[0].collaborators["avatar"] is bus
+    assert (bus.name, bus.framing) == ("Aiko", "upper")
+    assert avatar.servers[0].bus is bus
+
+
+def test_run_announces_with_the_avatar_and_leaves_her_idle_not_listening(
+    announcing, avatar, home, player
+):
+    enable_avatar(home)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check", "--announce"]) == 0
+
+    assert avatar.buses[0].calls == [
+        ("wait_for_viewer", 5.0),
+        ("state", "speaking", None),
+        ("speak", "neutral"),
+        ("state", "idle", None),
+    ]
+
+
+def test_run_announce_does_not_wait_for_a_viewer_when_the_avatar_opens_no_window(
+    announcing, avatar, home, player
+):
+    enable_avatar(home, window="none")
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check", "--announce"]) == 0
+
+    assert ("wait_for_viewer", 5.0) not in avatar.buses[0].calls
+    assert ("speak", "neutral") in avatar.buses[0].calls
+
+
+def test_run_answers_with_the_tag_s_emotion_and_never_says_the_tag(
+    announcing, avatar, brains, home, speech, monkeypatch
+):
+    enable_avatar(home)
+    monkeypatch.setattr(HouseBrain, "reply", TAGGED_REPLY)
+    frames = [SILENT_FRAME] * 10 + [LOUD_FRAME] * 40 + [SILENT_FRAME] * 40
+    monkeypatch.setattr(cli, "MicStream", lambda *args, **kwargs: FakeMic(frames))
+    monkeypatch.setattr(cli, "WhisperStt", lambda config, name: HearingStt("Cyrene, lampu"))
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    assert speech[0].texts == [REPLY]
+    assert avatar.buses[0].calls == [
+        ("state", "thinking", None),
+        ("state", "speaking", None),
+        ("speak", "happy"),
+        ("state", "listening", 8.0),
+    ]
+
+
+def test_run_listens_without_the_avatar_when_its_port_is_taken(run_fakes, avatar, home, capsys):
+    enable_avatar(home)
+    avatar.server_error = AvatarError("Port 127.0.0.1:9882 sudah dipakai program lain.")
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    out = capsys.readouterr().out
+    warning = out.index(
+        "! Avatar tidak tersedia: Port 127.0.0.1:9882 sudah dipakai program lain. "
+        "Cyrene tetap berjalan tanpa avatar."
+    )
+    assert warning < out.index("Cyrene siap mendengarkan")
+    assert RecordingAssistant.instances[0].collaborators["avatar"] is None
+    assert RecordingAssistant.instances[0].ran_with is not None
+    assert avatar.windows == []
+
+
+def test_run_with_the_avatar_off_shows_none(run_fakes, avatar):
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    assert RecordingAssistant.instances[0].collaborators["avatar"] is None
+    assert avatar.buses == [] and avatar.servers == []
+
+
+def test_run_closes_the_avatar_after_ctrl_c(run_fakes, avatar, home, monkeypatch):
+    def interrupted(self, mic, segmenter) -> None:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(RecordingAssistant, "run", interrupted)
+    enable_avatar(home)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 130
+
+    assert run_fakes.events[-2:] == ["avatar window closed", "avatar server stopped"]
+
+
+def test_run_shows_no_avatar_when_the_voice_models_fail_to_load(run_fakes, avatar, home):
+    enable_avatar(home)
+    (home / "data").mkdir()
+    (home / "data" / "voiceprint.npy").write_bytes(b"bukan voiceprint")
+
+    assert cli.main(["run", "--dry-run"]) == 1
+
+    assert avatar.servers == []
+
+
 @pytest.fixture
 def one_utterance(home, brains, player, monkeypatch):
     """`waifu run` with the real Assistant and Whisper wrapper, hearing one spoken phrase."""
@@ -1465,6 +1924,102 @@ def test_run_stops_with_the_cuda_hint_when_whisper_cannot_use_the_gpu(
     out = capsys.readouterr().out
     assert "✗ Whisper gagal berjalan di GPU: cublas64_12.dll" in out
     assert "cu128" in out
+
+
+# --- avatar ----------------------------------------------------------------------------------
+
+
+class InterruptingSleep:
+    """A `sleep` that lets `waits - 1` waits pass, then acts like Ctrl+C during the last."""
+
+    def __init__(self, waits: int) -> None:
+        self.waits = waits
+        self.seconds: list[float] = []
+
+    def __call__(self, seconds: float) -> None:
+        self.seconds.append(seconds)
+        if len(self.seconds) == self.waits:
+            raise KeyboardInterrupt
+
+
+def test_avatar_shows_her_and_prints_the_page_until_ctrl_c(
+    home, avatar, events, monkeypatch, capsys
+):
+    enable_avatar(home)
+    monkeypatch.setattr(cli, "sleep", InterruptingSleep(1))
+
+    assert cli.main(["avatar"]) == 0
+
+    out = capsys.readouterr().out
+    assert "http://127.0.0.1:9882/" in out and "Ctrl+C" in out
+    assert events == [
+        "avatar served",
+        "avatar window opened",
+        "avatar window closed",
+        "avatar server stopped",
+    ]
+    assert avatar.buses[0].calls == []
+
+
+def test_avatar_demo_cycles_every_emotion_and_state_with_her_mouth_moving(
+    home, avatar, events, monkeypatch
+):
+    enable_avatar(home)
+    sleep = InterruptingSleep(12)
+    monkeypatch.setattr(cli, "sleep", sleep)
+
+    assert cli.main(["avatar", "--demo"]) == 0
+
+    calls = avatar.buses[0].calls
+    assert calls[:3] == [("state", "idle", None), ("emotion", "neutral", 3.0), ("speak", "neutral")]
+    emotions = [call[1] for call in calls if call[0] == "emotion"]
+    assert emotions == [EMOTIONS[step % len(EMOTIONS)] for step in range(12)]
+    assert set(emotions) == {"neutral", "happy", "sad", "angry", "surprised", "relaxed"}
+    assert [call[1] for call in calls if call[0] == "state"] == [
+        STATES[step % len(STATES)] for step in range(12)
+    ]
+    assert [call[1] for call in calls if call[0] == "speak"] == emotions
+    assert sleep.seconds == [3.0] * 12
+    assert events[-2:] == ["avatar window closed", "avatar server stopped"]
+
+
+def test_avatar_demo_voice_opens_and_closes_her_mouth_through_every_vowel_shape(
+    home, avatar, monkeypatch
+):
+    enable_avatar(home)
+    monkeypatch.setattr(cli, "sleep", InterruptingSleep(1))
+
+    assert cli.main(["avatar", "--demo"]) == 0
+
+    [(voice, sample_rate)] = avatar.buses[0].voices
+    track = viseme_track(voice, sample_rate)
+    openness = [sum(frame) for frame in track]
+    before = [0.0, *openness[:-1]]
+    syllables = sum(was <= 0.5 < now for was, now in zip(before, openness, strict=True))
+    assert syllables == len(VISEMES)  # the mouth closes between them
+    assert max(openness) > 0.8
+    shapes = {VISEMES[int(np.argmax(frame))] for frame in track if sum(frame) > 0.5}
+    assert shapes == set(VISEMES)
+    assert len(voice) / sample_rate < 3.0  # over before the next step
+
+
+def test_avatar_when_turned_off_explains_how_to_turn_it_on(home, avatar, capsys):
+    assert cli.main(["avatar", "--demo"]) == 2
+
+    out = capsys.readouterr().out
+    assert "avatar.enabled: true" in out and "README" in out
+    assert avatar.servers == []
+
+
+def test_avatar_that_cannot_open_its_window_says_why_and_exits_1(home, avatar, events, capsys):
+    enable_avatar(home)
+    avatar.window_error = AvatarError("Program maskot (Electron) tidak ditemukan: x. Pasang dulu.")
+
+    assert cli.main(["avatar", "--demo"]) == 1
+
+    assert "✗ Program maskot (Electron) tidak ditemukan: x. Pasang dulu." in capsys.readouterr().out
+    assert events == ["avatar served", "avatar server stopped"]
+    assert avatar.buses[0].calls == []
 
 
 # --- autostart -------------------------------------------------------------------------------
@@ -2178,3 +2733,166 @@ def test_check_leaves_out_the_index_when_none_is_configured(
     cli.main(["check"])
 
     assert not any("Index" in line for line in rvc_lines(capsys.readouterr().out))
+
+
+def avatar_lines(out: str) -> list[str]:
+    return [line for line in out.splitlines() if "avatar" in line.lower()]
+
+
+@dataclass
+class AvatarInstall:
+    """Where `check` looks for the avatar's parts under `home`; nothing exists yet."""
+
+    model: Path
+    electron_dir: Path
+    electron: Path
+    probed: list[tuple[str, int]]
+    port_free: bool = True
+
+
+@pytest.fixture
+def avatar_install(home, monkeypatch) -> AvatarInstall:
+    """The real AvatarWindow, which only names its program here, and a faked port probe."""
+    electron_dir = home / "avatar-app"
+    install = AvatarInstall(
+        model=VRM,
+        electron_dir=electron_dir,
+        electron=electron_dir / "node_modules" / "electron" / "dist" / "electron.exe",
+        probed=[],
+    )
+
+    def probe(host: str, port: int) -> bool:
+        install.probed.append((host, port))
+        return install.port_free
+
+    monkeypatch.setattr(cli, "AvatarWindow", AvatarWindow)
+    monkeypatch.setattr(cli, "port_is_free", probe)
+    return install
+
+
+def enable_checked_avatar(home: Path, install: AvatarInstall, *, window: str = "mascot") -> None:
+    enable_avatar(home, window=window, extra=f"  electron_dir: {install.electron_dir.as_posix()}\n")
+
+
+def create(*paths: Path) -> None:
+    for path in paths:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"")
+
+
+def test_check_reports_the_avatar_off_without_probing_its_port(home, nothing_installed, capsys):
+    cli.main(["check"])
+
+    assert avatar_lines(capsys.readouterr().out) == [
+        "! Avatar 3D mati (avatar.enabled: false); Cyrene berjalan tanpa avatar"
+    ]
+
+
+def test_check_with_the_avatar_ready_marks_the_model_the_mascot_and_the_free_port(
+    home, nothing_installed, avatar_install, capsys
+):
+    enable_checked_avatar(home, avatar_install)
+    create(avatar_install.model, avatar_install.electron)
+
+    cli.main(["check"])
+
+    assert avatar_lines(capsys.readouterr().out) == [
+        f"✓ Model VRM avatar: {VRM}",
+        f"✓ Jendela maskot avatar (Electron): {avatar_install.electron}",
+        "✓ Port avatar 127.0.0.1:9882 bebas",
+    ]
+    assert avatar_install.probed == [("127.0.0.1", 9882)]
+
+
+def test_check_marks_a_missing_vrm_and_a_missing_electron_with_how_to_fix_them(
+    home, nothing_installed, avatar_install, capsys
+):
+    enable_checked_avatar(home, avatar_install)
+
+    assert cli.main(["check"]) == 1
+
+    model, window, _ = avatar_lines(capsys.readouterr().out)
+    assert model == f"✗ Model VRM avatar tidak ditemukan: {VRM} (periksa avatar.model)"
+    assert window.startswith(
+        f"✗ Jendela maskot avatar (Electron) tidak ditemukan: {avatar_install.electron}"
+    )
+    assert "npm install" in window and "node node_modules/electron/install.js" in window
+
+
+def test_check_fails_an_avatar_port_taken_by_another_program(
+    home, nothing_installed, avatar_install, capsys
+):
+    enable_checked_avatar(home, avatar_install)
+    create(avatar_install.model, avatar_install.electron)
+    avatar_install.port_free = False
+
+    assert cli.main(["check"]) == 1
+
+    port = avatar_lines(capsys.readouterr().out)[-1]
+    assert port.startswith("✗ Port avatar 127.0.0.1:9882 sudah dipakai program lain")
+    assert "avatar.port" in port
+
+
+def test_check_only_warns_about_an_avatar_port_held_by_a_running_cyrene(
+    home, nothing_installed, avatar_install, capsys
+):
+    enable_checked_avatar(home, avatar_install)
+    create(avatar_install.model, avatar_install.electron)
+    avatar_install.port_free = False
+
+    with InstanceLock(home / "data" / "run.lock"):
+        cli.main(["check"])
+
+    port = avatar_lines(capsys.readouterr().out)[-1]
+    assert port == "! Port avatar 127.0.0.1:9882 dipakai Cyrene yang sedang berjalan"
+
+
+@pytest.mark.parametrize("installed", [True, False], ids=["edge", "no-edge"])
+def test_check_looks_for_edge_for_the_app_window(
+    installed, home, nothing_installed, avatar_install, monkeypatch, capsys
+):
+    enable_checked_avatar(home, avatar_install, window="app")
+    create(avatar_install.model)
+    for folder in ("ProgramFiles(x86)", "ProgramFiles"):
+        monkeypatch.setenv(folder, str(home / folder))
+    edge = home / "ProgramFiles" / "Microsoft" / "Edge" / "Application" / "msedge.exe"
+    if installed:
+        create(edge)
+
+    cli.main(["check"])
+
+    window = avatar_lines(capsys.readouterr().out)[1]
+    if installed:
+        assert window == f"✓ Jendela avatar (Microsoft Edge): {edge}"
+    else:
+        assert window.startswith("✗ Microsoft Edge untuk jendela avatar tidak ditemukan")
+        assert "avatar.window: mascot" in window
+
+
+def test_check_with_the_avatar_window_off_names_the_page_to_open(
+    home, nothing_installed, avatar_install, capsys
+):
+    enable_checked_avatar(home, avatar_install, window="none")
+    create(avatar_install.model)
+
+    assert cli.main(["check"]) == 1  # nothing installed; the avatar lines are all fine
+
+    lines = avatar_lines(capsys.readouterr().out)
+    assert lines[1].startswith("✓ Jendela avatar tidak dibuka (avatar.window: none)")
+    assert "http://127.0.0.1:9882/" in lines[1]
+    assert not any(line.startswith("✗") for line in lines)
+
+
+# Taken at import, before the autouse no_real_avatar fixture swaps it out for every test.
+REAL_PORT_IS_FREE = cli.port_is_free
+
+
+def test_port_is_free_is_false_while_another_socket_listens_and_true_once_it_closes():
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen()
+        port = listener.getsockname()[1]
+
+        assert REAL_PORT_IS_FREE("127.0.0.1", port) is False
+
+    assert REAL_PORT_IS_FREE("127.0.0.1", port) is True
