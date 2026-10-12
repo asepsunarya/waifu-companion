@@ -35,6 +35,7 @@ import {
   live2dEmotionParams,
   live2dHeadBox,
   live2dMouth,
+  live2dPlacement,
   live2dRegionAt,
   mapToRange,
   sampleVisemes,
@@ -55,12 +56,6 @@ const MOUTH_SPEED = 30;
 const LOOK_SPEED = 5;
 const POSE_SPEED = 4;
 
-// Framing: the part of her visible height (0 = top of the hair, 1 = feet) that fills the window.
-const FRAMINGS = {
-  full: { top: 0, bottom: 1 },
-  upper: { top: 0, bottom: 0.5 },
-};
-const FRAME_MARGIN = 0.04;
 const MIN_VISIBLE_OPACITY = 0.01;
 const FRAMING_ATTEMPTS = 10;
 
@@ -237,18 +232,14 @@ function headBounds(internalModel, params, drawables) {
 }
 
 /**
- * Scales and centres the model so the framed part of `bounds` fits the window. Returns `toCanvas(box)`, which
- * puts a box of the model's local space ({x, y, width, height}) on the canvas ({left, top, width, height}).
+ * Scales and centres the model so the framed part of `bounds` fills the window (logic.live2dPlacement). Returns
+ * `toCanvas(box)`, which puts a box of the model's local space ({x, y, width, height}) on the canvas ({left, top,
+ * width, height}).
  */
 function placeModel(model, bounds, framingName) {
-  const framing = FRAMINGS[framingName] ?? FRAMINGS.full;
   const width = window.innerWidth;
   const height = window.innerHeight;
-  const margin = height * FRAME_MARGIN;
-  const spanTop = bounds.y + framing.top * bounds.height;
-  const spanHeight = (framing.bottom - framing.top) * bounds.height;
-  const scale = Math.max(Math.min((width - 2 * margin) / bounds.width, (height - 2 * margin) / spanHeight), 0);
-  const pivot = { x: bounds.x + bounds.width / 2, y: spanTop + spanHeight / 2 };
+  const { scale, pivot } = live2dPlacement(bounds, framingName, width, height);
   model.scale.set(scale);
   model.pivot.set(pivot.x, pivot.y);
   model.position.set(width / 2, height / 2);

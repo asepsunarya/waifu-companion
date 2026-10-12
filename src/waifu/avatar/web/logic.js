@@ -188,6 +188,32 @@ export function framingFor(name, headY) {
   };
 }
 
+// Live2D framing: the part of her visible bounds (0 = top, 1 = bottom) that fills the window.
+const LIVE2D_FRAMINGS = {
+  full: { top: 0, bottom: 1 },
+  upper: { top: 0, bottom: 0.5 },
+};
+const LIVE2D_FRAME_MARGIN = 0.04;
+
+/**
+ * `scale` and `pivot` (model space) that put the framed part of a Live2D model's visible `bounds` ({x, y, width,
+ * height}, y down) in a `width` x `height` window, centred. "full" fits the whole model. "upper" fills the window's
+ * height with the top half of her and lets whatever is wider, like wings or spread arms, run past the sides: fitted
+ * to the width as well, a model wider than the window would stay as small as in "full".
+ */
+export function live2dPlacement(bounds, framingName, width, height) {
+  const framing = LIVE2D_FRAMINGS[framingName] ?? LIVE2D_FRAMINGS.full;
+  const margin = height * LIVE2D_FRAME_MARGIN;
+  const spanTop = bounds.y + framing.top * bounds.height;
+  const spanHeight = (framing.bottom - framing.top) * bounds.height;
+  const heightFit = (height - 2 * margin) / spanHeight;
+  const fit = framing === LIVE2D_FRAMINGS.upper ? heightFit : Math.min((width - 2 * margin) / bounds.width, heightFit);
+  return {
+    scale: Math.max(fit, 0),
+    pivot: { x: bounds.x + bounds.width / 2, y: spanTop + spanHeight / 2 },
+  };
+}
+
 function clamp(value, low, high) {
   return Math.min(Math.max(value, low), high);
 }

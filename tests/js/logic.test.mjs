@@ -21,6 +21,7 @@ import {
   live2dEmotionParams,
   live2dHeadBox,
   live2dMouth,
+  live2dPlacement,
   live2dRegionAt,
   mapToRange,
   nextBlinkDelay,
@@ -1043,6 +1044,60 @@ describe("classifyPointer", () => {
     assert.equal(classifyPointer(press(0, HEAD, [[10, 0]]), inHead), "click");
     assert.equal(classifyPointer(press(0, HEAD, [[10, 0]])), "drag");
     assert.equal(classifyPointer(press(0, HEAD, [[10, 0]]), "head"), "drag");
+  });
+});
+
+describe("live2dPlacement", () => {
+  // Model space, y down. A narrow model (arms down) and one whose wings make it wider than the window's aspect, so
+  // full is bound by its width.
+  const NARROW = { x: -0.2, y: -0.6, width: 0.4, height: 1.2 };
+  const WINGED = { x: -0.5, y: -0.6, width: 1.0, height: 1.2 };
+  const WIDTH = 360;
+  const HEIGHT = 640;
+  const MARGIN = HEIGHT * 0.04;
+
+  function onCanvas(placement, y) {
+    return HEIGHT / 2 + (y - placement.pivot.y) * placement.scale;
+  }
+
+  it("fits the whole model inside the window for full", () => {
+    for (const bounds of [NARROW, WINGED]) {
+      const placement = live2dPlacement(bounds, "full", WIDTH, HEIGHT);
+      assert.ok(bounds.width * placement.scale <= WIDTH - 2 * MARGIN + CLOSE);
+      assert.ok(bounds.height * placement.scale <= HEIGHT - 2 * MARGIN + CLOSE);
+      assert.ok(Math.abs(onCanvas(placement, bounds.y) - (HEIGHT - bounds.height * placement.scale) / 2) < 1e-6);
+      assert.equal(placement.pivot.x, bounds.x + bounds.width / 2);
+    }
+    const winged = live2dPlacement(WINGED, "full", WIDTH, HEIGHT);
+    assert.ok(Math.abs(WINGED.width * winged.scale - (WIDTH - 2 * MARGIN)) < 1e-6, "as wide as the window allows");
+    const narrow = live2dPlacement(NARROW, "full", WIDTH, HEIGHT);
+    assert.ok(Math.abs(NARROW.height * narrow.scale - (HEIGHT - 2 * MARGIN)) < 1e-6, "as tall as the window allows");
+  });
+
+  it("fills the window's height with the top half of her for upper, even when she is wider than the window", () => {
+    for (const bounds of [NARROW, WINGED]) {
+      const placement = live2dPlacement(bounds, "upper", WIDTH, HEIGHT);
+      assert.ok(Math.abs(onCanvas(placement, bounds.y) - MARGIN) < 1e-6, "the top of her at the top margin");
+      assert.ok(Math.abs(onCanvas(placement, bounds.y + bounds.height / 2) - (HEIGHT - MARGIN)) < 1e-6);
+      assert.equal(placement.pivot.x, bounds.x + bounds.width / 2);
+    }
+  });
+
+  it("shows her bigger for upper than for full", () => {
+    for (const bounds of [NARROW, WINGED]) {
+      const full = live2dPlacement(bounds, "full", WIDTH, HEIGHT);
+      const upper = live2dPlacement(bounds, "upper", WIDTH, HEIGHT);
+      assert.ok(upper.scale > full.scale * 1.5);
+    }
+  });
+
+  it("treats an unknown framing as full", () => {
+    const full = live2dPlacement(WINGED, "full", WIDTH, HEIGHT);
+    assert.deepEqual(live2dPlacement(WINGED, "portrait", WIDTH, HEIGHT), full);
+  });
+
+  it("never scales below zero in a window narrower than its margins", () => {
+    assert.equal(live2dPlacement(NARROW, "full", 10, HEIGHT).scale, 0);
   });
 });
 

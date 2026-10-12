@@ -1025,8 +1025,13 @@ avatar:
   live2d_core: C:/AI/avatars/live2d/live2dcubismcore.min.js
   credit: "Cyrene © miHoYo · Live2D: MomokaSono"
   window: mascot
-  framing: full           # full: seluruh badan | upper: kepala sampai pinggang
+  framing: upper          # upper: setengah atas badan memenuhi tinggi jendela | full: seluruh model
 ```
+
+Untuk Cyrene20251105 pakai `framing: upper`: sayapnya membuat model ini jauh lebih lebar
+daripada jendela maskot, jadi dengan `full` dia tampil kecil (wajahnya sekitar 25 piksel di
+jendela 360×640). Dengan `upper`, kepala sampai lutut memenuhi tinggi jendela dan ujung
+sayap terpotong di sisi kiri-kanan.
 
 Lalu cek:
 
@@ -1111,6 +1116,11 @@ satu kalimat.
   moc3 Cubism 5 juga butuh Core dari SDK versi 5. Core 6 dari SDK 5-r.5 sudah didukung;
   model yang memakai fitur *offscreen* atau *blend mode* baru Cubism 5.3 belum bisa
   digambar engine ini (konsol halaman menyebut "offscreens" atau "blend modes").
+- **Cyrene kecil sekali di maskot.** Model dengan sayap, jubah, atau properti lebar dipaskan
+  utuh ke jendela pada `framing: full`. Pakai `framing: upper` (lalu perbesar
+  `avatar.height` kalau perlu; `avatar.width` hanya menambah bagian sayap yang terlihat),
+  atau tetap `framing: full` dan perbesar `avatar.width` (menambah `avatar.height` saja
+  malah membuatnya lebih kecil).
 - **Latar hitam, bukan transparan.** Sama seperti avatar 3D: jendela transparan Electron
   butuh akselerasi GPU yang berjalan baik, jadi perbarui driver NVIDIA. Sementara itu,
   pakai `avatar.window: app`.
