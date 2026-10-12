@@ -157,14 +157,14 @@ put whole into the system prompt at the start of every session. Within a session
 stays byte-identical (preserved thinking, prompt cache), so a note saved mid-session lives in
 the conversation until the next session lists it. Secrets are refused in code, not only by the
 prompt. No embeddings: 100 short notes fit easily.
-- [ ] Task 47a: `MemoryConfig` (`memory.enabled/path/max_facts/max_chars`) with tests
-- [ ] Task 47: `memory.py`: `MemoryStore`, `Fact`, `looks_secret`, `memory_prompt_section`
-- [ ] Task 48: `brain/memory_tools.py`: `MemoryTools` provider (`remember`, `forget`)
-- [ ] Task 49: Brains read a callable system prompt once per session; `build_brain(memory_section=...)`
-- [ ] Task 50: CLI wiring (`run`, `chat`, `waifu memory`, `check`), README, example config
+- [x] Task 47a: `MemoryConfig` (`memory.enabled/path/max_facts/max_chars`) with tests (committed)
+- [x] Task 47: `memory.py`: `MemoryStore`, `Fact`, `looks_secret`, `memory_prompt_section`
+- [x] Task 48: `brain/memory_tools.py`: `MemoryTools` provider (`remember`, `forget`)
+- [x] Task 49: Brains read a callable system prompt once per session; `build_brain(memory_section=...)`
+- [x] Task 50: CLI wiring (`run`, `chat`, `waifu memory`, `check`), README, example config
 
 ### Checkpoint: Long-term memory
-- [ ] Python suite and ruff clean; no test touched the repository's `data/memory.json` or called an LLM
+- [x] Python suite and ruff clean; no test touched the repository's `data/memory.json` or called an LLM (2026-10-13: 1966 pytest)
 - [ ] On the owner's PC: a fact told in one session is used in the next one; "lupakan ..." deletes it; a password is refused
 
 ## Risks and Mitigations
