@@ -613,7 +613,7 @@ def test_nothing_is_written_when_a_corrupt_file_cannot_be_moved(tmp_path, monkey
         "Master punya apikey baru",
         "my_api_key ada di catatan",
         "Token GitHub Master",
-        "Cookie HoYoLAB Master: ltuid_v2=12345678; ltoken_v2=v2_CAISDGNlMmg4NnN4YjQ1cxAB",
+        "Cookie HoYoLAB Master: ltuid_v2=12345678; ltoken_v2=v2_FAKEtokenForTests1234567890",
         "Seed phrase dompet kripto Master",
         "ltoken_v2=AbCdEf1234567890XyZq",
         "kuncinya sk-ant-api03-AbCdEfGh1234 ya",
