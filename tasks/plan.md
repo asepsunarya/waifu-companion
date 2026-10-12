@@ -141,14 +141,15 @@ route; spoken reactions use prepared lines, not the LLM, so they are instant.
 - [x] Task 40: Server: `/config.json`, Live2D model and Core routes, Host check, token-protected `POST /interact`
 - [x] Task 41: `InteractionHandler` and Assistant hooks (`busy`, `speak_reaction`, `listen_now`)
 - [x] Task 42: Pure interaction and Live2D logic in `logic.js` with node tests
-- [ ] Task 43: Live2D renderer (`live2d.js`) and the engine switch in `index.html` (browser check with the owner's Cubism Core pending)
+- [x] Task 43: Live2D renderer (`live2d.js`) and the engine switch in `index.html` (browser-checked 2026-10-13 with the owner's Core 6 and model)
 - [x] Task 44: Shared input layer (`interaction.js`) and VRM renderer hooks
 - [x] Task 45: Electron preload: cursor feed, custom drag, click-through
 - [x] Task 46: CLI wiring, `check`, README, example config
 
 ### Checkpoint: Live2D and interactions
 - [x] Python and JS suites, ruff clean; no test loaded the real model or Core or opened a window (2026-10-12: 1715 pytest, 204 node tests)
-- [ ] On the owner's PC: the Live2D model renders, lip-syncs, shows emotions, follows the cursor, reacts to pats/pokes, and the mascot drags and lets clicks through
+- [x] On the owner's PC: the Live2D model renders, lip-syncs, shows emotions, follows the cursor, and reacts to pats/pokes (in-app browser, 2026-10-13); the Electron mascot loads it (all model files served, the window closes with Cyrene)
+- [ ] On the owner's PC, by hand: the mascot drags, lets clicks through on transparent pixels, and stays above normal windows
 
 ## Risks and Mitigations
 

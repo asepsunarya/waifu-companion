@@ -663,7 +663,7 @@ describe("cursorLook", () => {
 
 describe("live2dHeadBox and live2dRegionAt", () => {
   // A full-body model 1000 px tall (y downward) drawn at 1:1 on the canvas, laid out like Cyrene20251105 with
-  // her cape panels: her head drawables span 0-15 %, her chest 18-24 %, and a ribbon that turns with her head
+  // her wings: her head drawables span 0-15 %, her chest 18-24 %, and a ribbon that turns with her head
   // hangs to her feet, so the top 28 % of her bounds (the old rule) reached down over her chest.
   const rect = (left, top, right, bottom) => [left, top, right, top, right, bottom, left, bottom];
   const hair = { vertices: rect(400, 0, 600, 120), head: true, mouth: false };

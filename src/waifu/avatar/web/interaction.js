@@ -13,7 +13,7 @@ const FEEDBACK_HOLD_S = 3;
 // The switch in config.interactions that allows each kind of interaction.
 const SWITCHES = { head_pat: "head_pat", body_touch: "body_touch", double_click: "double_click_listen" };
 const RUB_PAT_GAP_MS = 1500;
-// isOpaqueAt casts a ray through the model, so the mascot asks at most 15 times a second.
+// isOpaqueAt reads a pixel back from the GPU (a pipeline stall), so the mascot asks at most 15 times a second.
 const CLICK_THROUGH_GAP_MS = 1000 / 15;
 const IDLE_CHECK_MS = 1000;
 const MS_PER_MIN = 60_000;
@@ -127,7 +127,8 @@ export function startInteractions({
   // The samples of the last press while it may be the first half of a double-click, and of the current one.
   let previousSamples = [];
   let press = null;
-  // classifyPointer replays every sample on each call; hitTest may cast a ray, so ask once per point.
+  // classifyPointer replays every sample on each call; hitTest may read a pixel back from the GPU, so ask once per
+  // point.
   let headAt = new Map();
 
   function inHead(x, y) {

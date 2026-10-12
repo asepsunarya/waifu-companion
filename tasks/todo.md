@@ -402,14 +402,14 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** none · **Files:** `src/waifu/avatar/web/logic.js`, `tests/js/logic.test.mjs` · **Scope:** S
 
-## Task 43: Live2D renderer and engine switch
+## Task 43: Live2D renderer and engine switch ✅
 
 **Acceptance criteria:**
 - [x] `index.html` boots from `/config.json`, loads the Core then `live2d.js` for live2d, `avatar.js` for vrm, then the event stream
 - [x] `live2d.js` renders the model transparently in mascot mode with lip-sync, emotions, cursor look, thinking, bored, blink and physics, and exposes `hitTest`/`isOpaqueAt`; the head region is measured on the model (drawables that turn with `ParamAngleX/Y`, cut above the chin found with `ParamMouthOpenY`)
 - [x] `index.html` has a Content-Security-Policy that keeps every fetch on Cyrene's own server
-- [ ] Verified in a real browser with the owner's model and Core when the Core is present (otherwise reported as pending), including: a click on her bust gives `body_touch`, never `head_pat` (with all drawables her bust is at about 18–24 % of the full bounds; from the halo to her feet, without the PFZ01/PFZ04 cape panels, at about 29–39 %), and a click on her hair or forehead gives `head_pat`. Offline check on the owner's moc3 geometry: head 0–16.5 % of the bounds, 0 of 417 chest vertices in it
-  - Pending (2026-10-12): there is no Cubism Core on the owner's PC yet (`C:\AI\avatars\live2d\` does not exist), so the Live2D model has not been drawn in a browser at all (the two criteria above are checked against the code and the vendored engine only), and the page with its CSP has not been loaded in a browser for either engine
+- [x] Verified in a real browser with the owner's model and Core when the Core is present (otherwise reported as pending), including: a click on her bust gives `body_touch`, never `head_pat` (with all drawables her bust is at about 18–24 % of the full bounds; from the halo to her feet, without the PFZ01/PFZ04 wings, at about 29–39 %), and a click on her hair or forehead gives `head_pat`. Offline check on the owner's moc3 geometry: head 0–16.5 % of the bounds, 0 of 417 chest vertices in it
+  - Verified 2026-10-13 in the in-app browser with Cubism Core 06.00.0001 (SDK 5-r.5) and Cyrene20251105: Core 6 first crashed the engine's draw (`drawables.renderOrders` moved to `model.getRenderOrders()`), fixed by `logic.adaptCubismCore`; no console errors after. Read from the live parameters: cursor left/right/up/down gives AngleX -19/+22, AngleY +30/-30 and the eyes follow (and the face turns that way on screen); the six emotions reach their targets, and on this rig BrowAngle +1 lowers the inner brow ends (angry) and -1 raises them (sad), matching `live2dEmotionParams`; a 3 s speak track opens the mouth 0.45-0.9 with the form wide for i/e and round for u/o, closes at the end, and the happy face fades after its tail; thinking tilts the head (AngleZ 14) with the eyes up; listening raises the brows for the follow-up window; bored yawns 2 s in (mouth 0.9, eyes 0.45). Real clicks: head and forehead give `head_pat`, her bust and neck `body_touch`, empty space nothing, a double-click only `double_click`. Head box: hair top to the chin. Mascot mode draws on a transparent background; `framing: upper` was width-bound by her wings (as small as full) until `logic.live2dPlacement` let upper fill the window's height.
 
 **Dependencies:** 42 · **Files:** `src/waifu/avatar/web/live2d.js`, `src/waifu/avatar/web/index.html`, `tests/test_avatar_web.py` · **Scope:** M
 
