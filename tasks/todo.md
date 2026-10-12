@@ -375,64 +375,67 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 31-38 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py`, `README.md`, `config.example.yaml` · **Scope:** M
 
-## Task 40: Server routes for Live2D and interactions
+## Task 40: Server routes for Live2D and interactions ✅
 
 **Acceptance criteria:**
-- [ ] `/config.json` and `hello` carry engine, model URL, core URL, credit, interaction switches (token only in `/config.json`); `/model/<path>` serves only the Live2D model folder (traversal-protected) and `/live2d/...` only the configured Core, unmodified
-- [ ] Every request with a foreign `Host` gets 403; `POST /interact` checks Origin, JSON, size, token, kind, and rate (403/400/429), answers 202 and calls `on_interact`
-- [ ] Existing VRM behaviour and tests unchanged
+- [x] `/config.json` and `hello` carry engine, model URL, core URL, credit, interaction switches (token only in `/config.json`); `/model/<path>` serves only the Live2D model folder (traversal-protected) and `/live2d/...` only the configured Core, unmodified
+- [x] Every request with a foreign `Host` gets 403; `POST /interact` checks Origin, JSON, size, token, kind, and rate (403/400/429), answers 202 and calls `on_interact`
+- [x] Every response carries `Cross-Origin-Resource-Policy: same-origin`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Content-Security-Policy: frame-ancestors 'none'`; `file_under` refuses UNC, drive, absolute and URL names before resolving anything
+- [x] Existing VRM behaviour and tests unchanged, except the foreign-Host status, which changes from 421 to 403 (the three Host tests in `tests/test_avatar_server.py` now assert 403)
 
 **Dependencies:** 40a · **Files:** `src/waifu/avatar/server.py`, `src/waifu/avatar/bus.py`, `tests/test_avatar_server.py`, `tests/test_avatar_bus.py` · **Scope:** M
 
-## Task 41: InteractionHandler and Assistant hooks
+## Task 41: InteractionHandler and Assistant hooks ✅
 
 **Acceptance criteria:**
-- [ ] `handle` never blocks (enqueue + worker); switches, busy skip, cooldown, no immediate repeat, welcome-back limit honoured
-- [ ] `Assistant.busy`, `speak_reaction` (normal speak path), `listen_now` (follow-up window + listening state + a listen line)
-- [ ] Thread-safe start/stop; exceptions in speak are logged
+- [x] `handle` never blocks (enqueue + worker); switches, busy skip (a double-click too), cooldown counted from the end of the previous line, no immediate repeat, welcome-back limit honoured
+- [x] `Assistant.busy`, `speak_reaction` (normal speak path), `listen_now` (follow-up window + listening state, nothing said; it waits for a reply or announcement that started after the busy check); the handler then says a listen line
+- [x] Thread-safe start/stop; exceptions in speak are logged
 
 **Dependencies:** 40a · **Files:** `src/waifu/avatar/interactions.py`, `src/waifu/app.py`, `tests/test_avatar_interactions.py`, `tests/test_app.py` · **Scope:** M
 
-## Task 42: Pure interaction and Live2D logic
+## Task 42: Pure interaction and Live2D logic ✅
 
 **Acceptance criteria:**
-- [ ] `live2dMouth`, `live2dEmotionParams`, `mapToRange`, `cursorLook`, `classifyPointer`, `idlePhase` per SPEC
-- [ ] `node --test "tests/js/*.test.mjs"` covers each, including edge cases (no movement, tiny jitter, exact thresholds)
+- [x] `live2dMouth`, `live2dEmotionParams`, `mapToRange`, `cursorLook`, `classifyPointer` (double-click window 500 ms, Windows' default), `idlePhase`, `live2dHeadBox`, `live2dRegionAt` per SPEC
+- [x] `node --test "tests/js/*.test.mjs"` covers each, including edge cases (no movement, tiny jitter, exact thresholds, a chest below a full-body model's head is body)
 
 **Dependencies:** none · **Files:** `src/waifu/avatar/web/logic.js`, `tests/js/logic.test.mjs` · **Scope:** S
 
 ## Task 43: Live2D renderer and engine switch
 
 **Acceptance criteria:**
-- [ ] `index.html` boots from `/config.json`, loads the Core then `live2d.js` for live2d, `avatar.js` for vrm, then the event stream
-- [ ] `live2d.js` renders the model transparently in mascot mode with lip-sync, emotions, cursor look, thinking, bored, blink and physics, and exposes `hitTest`/`isOpaqueAt`
-- [ ] Verified in a real browser with the owner's model and Core when the Core is present (otherwise reported as pending)
+- [x] `index.html` boots from `/config.json`, loads the Core then `live2d.js` for live2d, `avatar.js` for vrm, then the event stream
+- [x] `live2d.js` renders the model transparently in mascot mode with lip-sync, emotions, cursor look, thinking, bored, blink and physics, and exposes `hitTest`/`isOpaqueAt`; the head region is measured on the model (drawables that turn with `ParamAngleX/Y`, cut above the chin found with `ParamMouthOpenY`)
+- [x] `index.html` has a Content-Security-Policy that keeps every fetch on Cyrene's own server
+- [ ] Verified in a real browser with the owner's model and Core when the Core is present (otherwise reported as pending), including: a click on her bust gives `body_touch`, never `head_pat` (with all drawables her bust is at about 18–24 % of the full bounds; from the halo to her feet, without the PFZ01/PFZ04 cape panels, at about 29–39 %), and a click on her hair or forehead gives `head_pat`. Offline check on the owner's moc3 geometry: head 0–16.5 % of the bounds, 0 of 417 chest vertices in it
+  - Pending (2026-10-12): there is no Cubism Core on the owner's PC yet (`C:\AI\avatars\live2d\` does not exist), so the Live2D model has not been drawn in a browser at all (the two criteria above are checked against the code and the vendored engine only), and the page with its CSP has not been loaded in a browser for either engine
 
 **Dependencies:** 42 · **Files:** `src/waifu/avatar/web/live2d.js`, `src/waifu/avatar/web/index.html`, `tests/test_avatar_web.py` · **Scope:** M
 
-## Task 44: Shared input layer and VRM hooks
+## Task 44: Shared input layer and VRM hooks ✅
 
 **Acceptance criteria:**
-- [ ] `interaction.js` turns pointer input into head_pat / body_touch / double_click / drag per SPEC, sends `POST /interact` with the token, drives click-through and idle/welcome-back
-- [ ] `avatar.js` exposes cursor look, `hitTest`, `isOpaqueAt`, and the bored animation
-- [ ] Local expression feedback is immediate
+- [x] `interaction.js` turns pointer input into head_pat / body_touch / double_click / drag per SPEC, sends `POST /interact` with the token, drives click-through and idle/welcome-back (the greeting only from the mascot's cursor feed and presses; never in the app window or when the feed resumes after a minimize)
+- [x] `avatar.js` exposes cursor look, `hitTest`, `isOpaqueAt`, and the bored animation
+- [x] Local expression feedback is immediate
 
 **Dependencies:** 42 · **Files:** `src/waifu/avatar/web/interaction.js`, `src/waifu/avatar/web/avatar.js` · **Scope:** M
 
-## Task 45: Electron preload, cursor feed, drag, click-through
+## Task 45: Electron preload, cursor feed, drag, click-through ✅
 
 **Acceptance criteria:**
-- [ ] `preload.js` exposes exactly `onCursor`, `dragBy`, `setClickThrough` via `contextBridge`; sandbox and context isolation stay on
-- [ ] `main.js` polls the cursor every 33 ms while visible, validates IPC input, clamps drags to the work area, toggles `setIgnoreMouseEvents(flag, {forward: true})`
-- [ ] `lib.js` `relativeCursor` and `clampToWorkArea` covered by `node --test`
+- [x] `preload.js` exposes exactly `onCursor`, `dragBy`, `setClickThrough` via `contextBridge`; sandbox and context isolation stay on
+- [x] `main.js` polls the cursor every 33 ms while visible, marks the first report after a minimize `resumed`, validates IPC input, clamps drags to the work area, toggles `setIgnoreMouseEvents(flag, {forward: true})`
+- [x] `lib.js` `relativeCursor`, `clampToWorkArea` and `cursorReport` covered by `node --test`
 
 **Dependencies:** none · **Files:** `avatar-app/preload.js`, `avatar-app/main.js`, `avatar-app/lib.js`, `avatar-app/test/lib.test.js` · **Scope:** M
 
-## Task 46: CLI wiring, check, README, example config
+## Task 46: CLI wiring, check, README, example config ✅
 
 **Acceptance criteria:**
-- [ ] `run` passes the Assistant-bound handler to the server; `waifu avatar` uses a printing handler; `check` reports the engine, the Live2D files, and the Core
-- [ ] README (Indonesian): Live2D setup (SDK download, Core path, model folder), the model's rules and credit, mascot controls (drag, pat, poke, double-click, click-through), interaction settings
-- [ ] `config.example.yaml` documents `engine`, `live2d_core`, `credit`, `interactions`
+- [x] `run` passes the Assistant-bound handler to the server; `waifu avatar` uses a printing handler; `check` reports the engine, the Live2D files (a UNC, drive, absolute or URL reference in model3.json counts as missing and is never resolved), and the Core
+- [x] README (Indonesian): Live2D setup (SDK download, a Core copy command that finds the file in Explorer's nested extraction and stops with an error when it is missing, model folder), the model's rules and credit, mascot controls (drag, pat, poke, double-click, click-through), interaction settings
+- [x] `config.example.yaml` documents `engine`, `live2d_core`, `credit`, `interactions`
 
 **Dependencies:** 40-45 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py`, `README.md`, `config.example.yaml` · **Scope:** M

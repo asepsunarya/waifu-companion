@@ -138,16 +138,16 @@ Live2D's proprietary Cubism Core comes from the owner's own SDK download and is 
 committed. Interactions run in the page and reach Python through one token-protected POST
 route; spoken reactions use prepared lines, not the LLM, so they are instant.
 - [x] Task 40a: avatar engine/interactions config, vendored PixiJS 8.21 and the Live2D engine, Core ignore rule (committed)
-- [ ] Task 40: Server: `/config.json`, Live2D model and Core routes, Host check, token-protected `POST /interact`
-- [ ] Task 41: `InteractionHandler` and Assistant hooks (`busy`, `speak_reaction`, `listen_now`)
-- [ ] Task 42: Pure interaction and Live2D logic in `logic.js` with node tests
-- [ ] Task 43: Live2D renderer (`live2d.js`) and the engine switch in `index.html`
-- [ ] Task 44: Shared input layer (`interaction.js`) and VRM renderer hooks
-- [ ] Task 45: Electron preload: cursor feed, custom drag, click-through
-- [ ] Task 46: CLI wiring, `check`, README, example config
+- [x] Task 40: Server: `/config.json`, Live2D model and Core routes, Host check, token-protected `POST /interact`
+- [x] Task 41: `InteractionHandler` and Assistant hooks (`busy`, `speak_reaction`, `listen_now`)
+- [x] Task 42: Pure interaction and Live2D logic in `logic.js` with node tests
+- [ ] Task 43: Live2D renderer (`live2d.js`) and the engine switch in `index.html` (browser check with the owner's Cubism Core pending)
+- [x] Task 44: Shared input layer (`interaction.js`) and VRM renderer hooks
+- [x] Task 45: Electron preload: cursor feed, custom drag, click-through
+- [x] Task 46: CLI wiring, `check`, README, example config
 
 ### Checkpoint: Live2D and interactions
-- [ ] Python and JS suites, ruff clean; no test loaded the real model or Core or opened a window
+- [x] Python and JS suites, ruff clean; no test loaded the real model or Core or opened a window (2026-10-12: 1715 pytest, 204 node tests)
 - [ ] On the owner's PC: the Live2D model renders, lip-syncs, shows emotions, follows the cursor, reacts to pats/pokes, and the mascot drags and lets clicks through
 
 ## Risks and Mitigations
