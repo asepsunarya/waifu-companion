@@ -119,7 +119,7 @@ choice).
 - [x] Task 31: Push notifications (`notify.py`, `waifu notify-test`) and the no-internet test guard
 - [x] Task 32: Game facts and server-time helpers (`gacha/games.py`)
 - [x] Task 33: HoYoLAB client: accounts, status, check-in, authkey, error kinds (`gacha/hoyolab.py`)
-- [ ] Task 34: Authkey from the game cache and the history API (`gacha/history.py`, part 1)
+- [x] Task 34: Authkey from the game cache and the history API (`gacha/history.py`, part 1)
 - [ ] Task 35: History store, pity and 50/50 stats, history report (`gacha/history.py`, part 2)
 - [ ] Task 36: Tool providers for the brain, the game tools, persona (`brain/tools.py`, `gacha/tools.py`)
 - [ ] Task 37: Reminder rules and their state (`gacha/reminders.py`)
