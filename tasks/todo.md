@@ -311,13 +311,13 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** none · **Files:** `src/waifu/gacha/__init__.py`, `src/waifu/gacha/games.py`, `tests/test_gacha_games.py` · **Scope:** S
 
-## Task 33: HoYoLAB client
+## Task 33: HoYoLAB client ✅
 
 **Acceptance criteria:**
-- [ ] `status` maps real genshin.py note models (built from sample payloads) of all three games to `GameStatus`, with `checked_in` from the reward info and None when only that call fails
-- [ ] `checkin` returns the reward, or `claimed=False` on `AlreadyClaimed`; `authkey` calls `fetch_authkey` for the right uid
-- [ ] Each genshin.py error, a timeout, and a missing cookie become the right `GachaError` kind; no message contains the cookie
-- [ ] uids come from config, else the highest-level account (looked up once)
+- [x] `status` maps real genshin.py note models (built from sample payloads) of all three games to `GameStatus`, with `checked_in` from the reward info and None when only that call fails
+- [x] `checkin` returns the reward, or `claimed=False` on `AlreadyClaimed`; `authkey` calls `fetch_authkey` for the right uid
+- [x] Each genshin.py error, a timeout, and a missing cookie become the right `GachaError` kind; no message contains the cookie
+- [x] uids come from config, else the highest-level account (looked up once)
 
 **Dependencies:** 32 · **Files:** `src/waifu/gacha/hoyolab.py`, `tests/test_gacha_hoyolab.py` · **Scope:** M
 
