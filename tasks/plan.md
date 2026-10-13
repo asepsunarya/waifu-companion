@@ -257,13 +257,13 @@ persona and memory, and calls the game tool itself.
 Decision: record the `usage` of every Claude response in a local ledger and price it with the
 published per-model rates (overridable); the owner asks by voice or `waifu usage`, and an
 optional monthly budget warns at 80 % and 100 % without ever stopping her.
-- [ ] Task 70a: `usage` config
-- [ ] Task 70: `usage.py`: `TokenUsage`, `cost_usd`, `UsageLedger`
-- [ ] Task 71: `ClaudeBrain(on_usage=...)` and `brain/usage_tools.py`
-- [ ] Task 72: wiring (ledger, budget notices), `waifu usage`, check, README
+- [x] Task 70a: `usage` config
+- [x] Task 70: `usage.py`: `TokenUsage`, `cost_usd`, `UsageLedger`
+- [x] Task 71: `ClaudeBrain(on_usage=...)` and `brain/usage_tools.py`
+- [x] Task 72: wiring (ledger, budget notices), `waifu usage`, check, README
 
 ### Checkpoint: API cost monitor
-- [ ] Python suite and ruff clean; no test called Claude or touched `data/`
+- [x] Python suite and ruff clean; no test called Claude or touched `data/` (2026-10-14: 3235 pytest on the committed tree plus tasks 70-72)
 - [ ] On the owner's PC: after a few replies, "biaya hari ini berapa?" and `waifu usage` show plausible tokens and dollars
 
 ## Risks and Mitigations

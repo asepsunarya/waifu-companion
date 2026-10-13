@@ -698,33 +698,36 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 69a · **Files:** across `src/waifu/` and tests · **Scope:** M
 
-## Task 70a: Usage config
+## Task 70a: Usage config ✅
 
 **Acceptance criteria:**
-- [ ] `AppConfig.usage` per SPEC (budget and rate positive when set; prices non-negative with all four keys)
+- [x] `AppConfig.usage` per SPEC (budget and rate positive when set; prices non-negative with all four keys)
 
 **Dependencies:** none · **Files:** `src/waifu/config.py`, `tests/test_config.py` · **Scope:** XS
 
-## Task 70: Usage ledger
+## Task 70: Usage ledger ✅
 
 **Acceptance criteria:**
-- [ ] `TokenUsage.from_usage` reads the four `usage` fields (missing or None = 0); `cost_usd` per SPEC with the fallback-model estimate flag
-- [ ] `UsageLedger` records per local day and model, summarises a day and a month, and gives each budget notice once per month; store file rules as memory/schedule
+- [x] `TokenUsage.from_usage` reads the four `usage` fields (missing or None = 0); `cost_usd` per SPEC with the fallback-model estimate flag
+- [x] `UsageLedger` records per local day and model, summarises a day and a month, and gives each budget notice once per month; store file rules as memory/schedule
+- [x] `UsageLedger` refuses (ConfigError) a `default_model` without prices; a month never counts the same month of another year
 
 **Dependencies:** 70a · **Files:** `src/waifu/usage.py`, `tests/test_usage.py` · **Scope:** M
 
-## Task 71: Brain hook and usage tool
+## Task 71: Brain hook and usage tool ✅
 
 **Acceptance criteria:**
-- [ ] `ClaudeBrain(on_usage=...)` called after every `messages.create` (tool rounds and refusals too) with `response.model` and the tokens; its exceptions are logged; requests unchanged
-- [ ] `UsageTools.api_usage {period}` per SPEC
+- [x] `ClaudeBrain(on_usage=...)` called after every `messages.create` (tool rounds and refusals too) with `response.model` and the tokens; its exceptions are logged; requests unchanged
+- [x] After a server-side fallback, `on_usage` hears every attempt in `usage.iterations` (the declined one too) with its own model and tokens
+- [x] `UsageTools.api_usage {period}` per SPEC
 
 **Dependencies:** 70 · **Files:** `src/waifu/brain/claude.py`, `tests/test_brain_claude.py`, `src/waifu/brain/factory.py`, `tests/test_brain_factory.py`, `src/waifu/brain/usage_tools.py`, `tests/test_usage_tools.py` · **Scope:** S
 
-## Task 72: Wiring, `waifu usage`, check, README
+## Task 72: Wiring, `waifu usage`, check, README ✅
 
 **Acceptance criteria:**
-- [ ] `run`/`chat` (Claude) record usage and offer the tool; `run` announces and pushes budget notices once
-- [ ] `waifu usage [--month YYYY-MM]`, `check` line, README (Indonesian), `config.example.yaml`; no test touches `data/` or calls Claude
+- [x] `run`/`chat` (Claude) record usage and offer the tool; `run` announces and pushes budget notices once
+- [x] A budget notice waits until the follow-up window after the reply that crossed the line has closed (`Assistant.announce(..., wait_for_followup=True)`); `chat` leaves the notices to a running `waifu run`
+- [x] `waifu usage [--month YYYY-MM]`, `check` line, README (Indonesian), `config.example.yaml`; no test touches `data/` or calls Claude
 
-**Dependencies:** 71 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py`, `README.md`, `config.example.yaml` · **Scope:** M
+**Dependencies:** 71 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py`, `src/waifu/app.py`, `tests/test_app.py`, `README.md`, `config.example.yaml` · **Scope:** M
