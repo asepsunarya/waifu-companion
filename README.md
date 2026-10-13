@@ -16,7 +16,7 @@ Master : "Cyrene, nyalakan lampu kamar."
 Cyrene : "はい! Lampu kamar sudah menyala, Master."
 Master : "Terus nyalakan TV juga."              (tanpa memanggil nama, masih dalam jendela lanjutan)
 Master : "Cyrene, matikan komputer."
-Cyrene : "Yakin mau dimatikan sekarang, Master?" (minta konfirmasi dulu)
+Cyrene : "Komputer mau kumatikan sekarang, Master? Jawab iya kalau jadi." (minta konfirmasi dulu)
 ```
 
 ## Daftar isi
@@ -442,16 +442,50 @@ Perangkat `komputer` (`type: pc`, `local: true`) adalah PC yang menjalankan Cyre
 | `cancel_shutdown` | membatalkan jadwal di atas (`shutdown /a`) |
 | `sleep` | PC masuk sleep sekitar 5 detik kemudian, supaya Cyrene sempat selesai bicara |
 
-**Aturan keselamatan:** sebelum mematikan atau me-restart PC, Cyrene **bertanya
-dulu** dan baru memanggil perintahnya setelah kamu menjawab "iya". Setelah itu ada
-jeda 30 detik; bilang **"Cyrene, batalkan"** untuk membatalkan (dalam 8 detik pertama
-setelah dia selesai bicara, "batalkan" saja sudah cukup). Kamu juga bisa membatalkan
-manual dengan `shutdown /a` atau `waifu device komputer cancel_shutdown`.
+**Aturan keselamatan:** sebelum mematikan, me-restart, atau menidurkan PC (`shutdown`,
+`restart`, `sleep`), Cyrene **bertanya dulu**, dan perintahnya baru jalan setelah kamu
+menjawab ya. Ini dikunci di kode, bukan sekadar sifat model: perintah pertama selalu
+ditahan, dan pertanyaannya diucapkan oleh kode sendiri di akhir jawabannya, jadi model
+yang lupa bertanya atau salah dengar tidak bisa mematikan PC, dan kamu selalu tahu apa
+yang akan dijalankan oleh "iya"-mu.
 
-> Konfirmasi itu adalah aturan di persona (`config/persona.md`), jadi itu perilaku
-> model, bukan kunci di kode. Jeda 30 detik dan "batalkan" adalah pengamannya.
-> Perintah CLI `waifu device komputer shutdown` langsung menjadwalkan shutdown tanpa
-> bertanya.
+1. "Cyrene, matikan komputer." Dia belum mematikan apa pun dan bertanya "Komputer mau
+   kumatikan sekarang, Master? Jawab iya kalau jadi." (untuk restart "kunyalakan
+   ulang", untuk sleep "kutidurkan").
+2. Jawab di ucapanmu berikutnya, paling lambat sekitar 40 detik setelah dia selesai
+   bertanya: batasnya satu menit sejak perintahnya ditahan, dan waktu dia menyusun lalu
+   mengucapkan pertanyaannya ikut terhitung. Dalam 8 detik pertama setelah dia selesai
+   bicara, "iya" saja sudah cukup; setelah itu "Cyrene, iya".
+3. Jawaban dihitung **ya** hanya kalau berupa "iya" yang polos: diawali kata seperti
+   *iya*, *ya*, *boleh*, *oke*, *lanjut*, *betul*, *silakan*, *gas*, *yakin*, *siap*,
+   *yaudah*, atau はい, lalu paling banyak diikuti kata yang mengulang perintahnya
+   (*matikan*, *matiin*, *restart*, *sleep*, *tidurkan*, *komputernya*, *colokannya*,
+   *sekarang*, *aja*, *deh*, *dong*, *udah*), "Master", atau nama Cyrene. "Iya, matikan",
+   "Cyrene, boleh", dan "ya udah, matiin aja" adalah ya. Kalimat lain **bukan** ya,
+   walaupun ada "ya"-nya: "oke makasih ya", "nyalakan lampu kamar ya", "iya ntar",
+   "bentar ya, aku save dulu", "ya kali, aku lagi main game", "ya udah, lampunya aja",
+   "eh jangan, tunggu", "kurang yakin", dan pertanyaan seperti "iya?".
+4. Selain ya, PC tetap menyala: "tidak" atau kalimat lain, "iya" yang terlambat (lewat
+   batas di langkah 2, atau baru di ucapan sesudahnya), dan "iya" yang diucapkan
+   bersamaan dengan perintahnya ("iya, matikan komputer sekarang") tidak dihitung. Kalau
+   masih mau, ulangi perintahnya dari awal.
+
+Yang dihitung hanya kata-katamu sendiri seperti yang didengar Cyrene (atau yang kamu
+ketik di `waifu chat`); model tidak bisa mengiyakan atas namamu, dan satu "iya" hanya
+berlaku sekali, untuk perintah yang dia tanyakan. Sekali bertanya hanya untuk satu
+perintah: "matikan komputer dan colokannya" ditanyakan satu per satu, dan masing-masing
+butuh "iya"-nya sendiri. Kalau jawabannya batal di tengah jalan (misalnya koneksi ke
+Claude atau Ollama putus dan dia hanya minta maaf), perintahnya ikut dilupakan; ulangi
+dari awal. `wake` dan `cancel_shutdown` tidak perlu konfirmasi.
+
+Setelah shutdown atau restart diiyakan, jeda 30 detik tetap berlaku; bilang
+**"Cyrene, batalkan"** untuk membatalkan (dalam 8 detik pertama setelah dia selesai
+bicara, "batalkan" saja sudah cukup). Kamu juga bisa membatalkan manual dengan
+`shutdown /a` atau `waifu device komputer cancel_shutdown`.
+
+> Perintah dari terminal tidak ditanya lagi: `waifu device komputer shutdown` langsung
+> menjadwalkan shutdown (dengan jeda 30 detik yang sama), karena kamu sendiri yang
+> mengetiknya. Jadwal dan rutinitas tidak pernah mematikan PC sama sekali.
 
 **Menyalakan PC** ada di luar loop suara, karena Cyrene berjalan di PC itu sendiri.
 Pilih salah satu:
@@ -470,9 +504,16 @@ Pilih salah satu:
 > mencabut kabel. Contoh config berisi `colokan_pc` supaya terlihat di
 > `waifu devices`; kalau khawatir salah perintah suara, hapus blok itu dari
 > `config.yaml` dan kendalikan colokan hanya dari aplikasi. `powers_pc: true` pada
-> `colokan_pc` membuat Cyrene menjaganya seperti PC: dia minta konfirmasi dulu sebelum
-> mematikannya, dan colokan itu tidak pernah bisa dijadwalkan atau jadi langkah rutinitas
-> (lihat [Cara jadwal dijalankan](#cara-jadwal-dijalankan)). Tandai juga colokan lain yang
+> `colokan_pc` membuat Cyrene menjaganya seperti PC: mematikan atau membaliknya (`off`,
+> `toggle`) lewat suara juga ditahan kode sampai kamu menjawab ya, dengan aturan yang sama
+> seperti di atas (`on` tidak perlu konfirmasi); pertanyaannya "Colokan PC mau kumatikan
+> sekarang, Master? Listrik PC bisa langsung putus. Jawab iya kalau jadi." Bedanya, colokan
+> tidak punya jeda 30 detik dan tidak bisa dibatalkan: begitu kamu menjawab ya, listriknya
+> langsung putus, jadi jangan mengiyakannya selagi Windows masih menyala atau sedang
+> shutdown. Colokan itu
+> juga tidak pernah bisa dijadwalkan atau jadi langkah rutinitas (lihat
+> [Cara jadwal dijalankan](#cara-jadwal-dijalankan)), sedangkan `waifu device colokan_pc off`
+> dari terminal langsung mematikannya tanpa bertanya. Tandai juga colokan lain yang
 > mengalirkan listrik ke PC dengan `powers_pc: true`.
 
 **B. Wake-on-LAN.**

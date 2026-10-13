@@ -6,11 +6,13 @@ import ollama
 import pytest
 from anthropic.types.beta import BetaToolParam
 
-from waifu.brain.base import ToolSpec
+from waifu.brain.base import ToolCallRecord, ToolSpec
+from waifu.brain.confirm import ConfirmationGate
 from waifu.brain.tools import (
     build_tool_specs,
     describe_commands,
     device_lines,
+    held_for_yes,
     run_tool,
     to_anthropic,
     to_ollama,
@@ -524,5 +526,126 @@ def test_device_line_warns_that_the_plug_powers_the_pc_but_leaves_the_pc_s_own_l
     assert device_lines(registry) == [
         "- komputer: Komputer — perintah: wake, shutdown",
         "- colokan_pc: Colokan PC — perintah: on, off, toggle — mengalirkan listrik ke PC: "
-        "mematikan atau membaliknya (toggle) sama dengan mematikan PC, jadi minta konfirmasi dulu",
+        "mematikan atau membaliknya (toggle) sama dengan mematikan PC, jadi perlu konfirmasi "
+        "Master dulu",
     ]
+
+
+# run_tool: Master's yes before the PC turns off
+
+SHUTDOWN = {"device": "komputer", "command": "shutdown"}
+
+
+def pc_house() -> DeviceRegistry:
+    """Mock devices only: the PC, the plug that feeds it, and a lamp."""
+    return DeviceRegistry(
+        [
+            MockDevice(
+                "komputer", "Komputer", commands=["wake", "shutdown", "cancel_shutdown"], kind="pc"
+            ),
+            MockDevice("colokan_pc", "Colokan PC", commands=["on", "off", "toggle"], kind="plug"),
+            MockDevice("lampu", "Lampu kamar", commands=["on", "off"], kind="light"),
+        ],
+        pc_power_ids={"colokan_pc"},
+    )
+
+
+def gate_in_turn(user_text: str) -> ConfirmationGate:
+    gate = ConfirmationGate(clock=lambda: 1000.0)
+    gate.begin_turn(user_text)
+    return gate
+
+
+@pytest.mark.parametrize(
+    "arguments", [SHUTDOWN, {"device": "colokan_pc", "command": "off"}], ids=["pc", "its_plug"]
+)
+def test_turning_the_pc_off_waits_for_masters_yes_and_never_reaches_the_device(arguments):
+    registry = pc_house()
+    gate = gate_in_turn("Cyrene, matikan komputer.")
+
+    result, is_error = run_tool(registry, "control_device", arguments, confirmations=gate)
+
+    assert is_error
+    payload = json.loads(result)
+    assert payload.keys() == {"ok", "needs_confirmation", "message"}
+    assert payload["ok"] is False
+    assert payload["needs_confirmation"] is True
+    assert "belum dijalankan" in payload["message"]
+    assert registry.get(arguments["device"]).calls == []
+
+
+def test_the_held_command_runs_once_when_master_says_yes_in_the_next_turn():
+    registry = pc_house()
+    gate = gate_in_turn("Cyrene, matikan komputer.")
+    run_tool(registry, "control_device", SHUTDOWN, confirmations=gate)
+    gate.begin_turn("iya")
+
+    result, is_error = run_tool(registry, "control_device", SHUTDOWN, confirmations=gate)
+
+    assert not is_error
+    assert json.loads(result)["ok"] is True
+    assert registry.get("komputer").calls == [("shutdown", None)]
+
+
+@pytest.mark.parametrize(
+    ("device", "command"), [("lampu", "off"), ("komputer", "cancel_shutdown"), ("colokan_pc", "on")]
+)
+def test_commands_that_need_no_confirmation_run_through_the_gate(device, command):
+    registry = pc_house()
+    gate = gate_in_turn(f"{command} {device}")
+
+    _, is_error = run_tool(
+        registry, "control_device", {"device": device, "command": command}, confirmations=gate
+    )
+
+    assert not is_error
+    assert registry.get(device).calls == [(command, None)]
+
+
+def test_invalid_arguments_are_rejected_before_the_gate_records_a_request():
+    registry = pc_house()
+    gate = gate_in_turn("matikan komputer 30 detik lagi")
+
+    result, is_error = run_tool(
+        registry, "control_device", {**SHUTDOWN, "value": "30"}, confirmations=gate
+    )
+    gate.begin_turn("iya")
+    _, still_held = run_tool(registry, "control_device", SHUTDOWN, confirmations=gate)
+
+    assert is_error
+    assert "needs_confirmation" not in json.loads(result)
+    assert still_held
+    assert registry.get("komputer").calls == []
+
+
+def test_held_for_yes_tells_a_held_call_from_one_that_ran_or_failed():
+    registry = pc_house()
+    gate = gate_in_turn("matikan komputer, lampu, dan kulkas")
+
+    def record(name: str, arguments: dict) -> ToolCallRecord:
+        return ToolCallRecord(
+            name, arguments, *run_tool(registry, name, arguments, confirmations=gate)
+        )
+
+    held = record("control_device", SHUTDOWN)
+    ran = record("control_device", {"device": "lampu", "command": "off"})
+    failed = record("control_device", {"device": "kulkas", "command": "off"})
+    listed = record("list_devices", {})
+
+    assert [held_for_yes(call) for call in (held, ran, failed, listed)] == [
+        True,
+        False,
+        False,
+        False,
+    ]
+
+
+def test_list_devices_is_not_gated():
+    registry = pc_house()
+
+    result, is_error = run_tool(
+        registry, "list_devices", {}, confirmations=gate_in_turn("ada perangkat apa?")
+    )
+
+    assert not is_error
+    assert json.loads(result) == registry.describe_all()

@@ -9,6 +9,7 @@ import ollama
 import pytest
 
 from waifu.brain.base import ToolCallRecord, ToolSpec
+from waifu.brain.confirm import ConfirmationGate
 from waifu.brain.memory_tools import MemoryTools
 from waifu.brain.ollama_brain import OllamaBrain
 from waifu.brain.persona import format_user_turn
@@ -771,3 +772,215 @@ def test_rolled_back_turn_that_deleted_a_note_ends_the_session_so_the_next_one_d
         {"role": "system", "content": memory_prompt_section([])},
         {"role": "user", "content": format_user_turn("apa yang kamu ingat?", NOW)},
     ]
+
+
+# Master's yes before the PC turns off
+
+
+SHUTDOWN_QUESTION = "Komputer mau kumatikan sekarang, Master? Jawab iya kalau jadi."
+PLUG_QUESTION = (
+    "Colokan PC mau kumatikan sekarang, Master? Listrik PC bisa langsung putus. "
+    "Jawab iya kalau jadi."
+)
+
+
+def pc_house() -> DeviceRegistry:
+    """Mock devices only: the PC, the plug that feeds it, and a desk lamp."""
+    return DeviceRegistry(
+        [
+            MockDevice("komputer", "Komputer", commands=["shutdown", "cancel_shutdown"], kind="pc"),
+            MockDevice("colokan_pc", "Colokan PC", commands=["on", "off"], kind="plug"),
+            MockDevice("lampu_meja", "Lampu meja", commands=["on", "off"], kind="light"),
+        ],
+        pc_power_ids={"colokan_pc"},
+    )
+
+
+def shutdown() -> ollama.ChatResponse:
+    return reply("", call("control_device", device="komputer", command="shutdown"))
+
+
+def gated_brain(client: FakeOllama, registry: DeviceRegistry, **kwargs) -> OllamaBrain:
+    return brain_with(client, registry, confirmations=ConfirmationGate(clock=FakeClock()), **kwargs)
+
+
+def test_turning_the_pc_off_is_held_until_master_says_yes_in_the_next_turn():
+    registry = pc_house()
+    client = FakeOllama(
+        shutdown(),
+        reply("Baik, Master."),
+        shutdown(),
+        reply("Komputer mati dalam 30 detik, Master."),
+    )
+    brain = gated_brain(client, registry)
+
+    asked = brain.respond("Cyrene, matikan komputer.", now=NOW)
+
+    assert registry.get("komputer").calls == []
+    held = client.requests[1]["messages"][-1]
+    assert held["role"] == "tool"
+    assert json.loads(held["content"])["needs_confirmation"] is True
+    assert asked.text == f"Baik, Master. {SHUTDOWN_QUESTION}"
+    assert [record.is_error for record in asked.tool_calls] == [True]
+
+    done = brain.respond("iya", now=NOW)
+
+    assert registry.get("komputer").calls == [("shutdown", None)]
+    assert [record.is_error for record in done.tool_calls] == [False]
+    # The model sees the question it was heard asking.
+    assert client.requests[2]["messages"][4] == {"role": "assistant", "content": asked.text}
+
+
+@pytest.mark.parametrize(
+    ("device", "command", "question"),
+    [("komputer", "shutdown", SHUTDOWN_QUESTION), ("colokan_pc", "off", PLUG_QUESTION)],
+    ids=["pc", "its_plug"],
+)
+def test_a_model_that_skips_the_question_still_asks_it_and_thanks_is_no_yes(
+    device, command, question
+):
+    registry = pc_house()
+    client = FakeOllama(
+        reply(
+            "",
+            call("control_device", device="lampu_meja", command="off"),
+            call("control_device", device=device, command=command),
+        ),
+        reply("Lampu meja sudah mati, Master."),
+        reply("", call("control_device", device=device, command=command)),
+        reply("Sama-sama, Master."),
+    )
+    brain = gated_brain(client, registry)
+
+    first = brain.respond("Cyrene, matikan semua di meja.", now=NOW)
+    second = brain.respond("oke makasih ya", now=NOW)
+
+    assert first.text == f"Lampu meja sudah mati, Master. {question}"
+    assert registry.get(device).calls == []
+    assert [record.is_error for record in second.tool_calls] == [True]
+
+
+def test_a_rolled_back_turn_drops_its_request_because_master_never_heard_the_question():
+    registry = pc_house()
+    client = FakeOllama(shutdown(), ConnectionError("refused"), shutdown(), reply("Baik, Master."))
+    brain = gated_brain(client, registry)
+
+    apology = brain.respond("Cyrene, matikan lampu meja komputer.", now=NOW)
+    retry = brain.respond("iya", now=NOW)
+
+    assert apology.text.startswith("Maaf, Master")
+    assert "Jawab iya" not in apology.text
+    assert registry.get("komputer").calls == []
+    [held] = retry.tool_calls
+    assert json.loads(held.result)["needs_confirmation"] is True
+    assert retry.text == f"Baik, Master. {SHUTDOWN_QUESTION}"
+
+
+@pytest.mark.parametrize(
+    ("ending", "max_tool_rounds", "spoken"),
+    [
+        (reply("<think>tanya Master</think>"), 5, SHUTDOWN_QUESTION),
+        (shutdown(), 1, f"{ROUND_LIMIT_APOLOGY} {SHUTDOWN_QUESTION}"),
+    ],
+    ids=["empty_reply", "round_limit"],
+)
+def test_a_canned_reply_after_a_held_call_still_asks_and_a_yes_then_runs_it(
+    ending, max_tool_rounds, spoken
+):
+    registry = pc_house()
+    client = FakeOllama(
+        shutdown(), ending, shutdown(), reply("Komputer mati dalam 30 detik, Master.")
+    )
+    brain = OllamaBrain(
+        BrainConfig(max_tool_rounds=max_tool_rounds),
+        registry,
+        SYSTEM_PROMPT,
+        client=client,
+        confirmations=ConfirmationGate(clock=FakeClock()),
+    )
+
+    asked = brain.respond("Cyrene, matikan komputer.", now=NOW)
+    brain.respond("iya", now=NOW)
+
+    assert asked.text == spoken
+    assert registry.get("komputer").calls == [("shutdown", None)]
+
+
+def test_an_empty_reply_after_a_held_call_never_reads_the_models_instructions_aloud():
+    registry = pc_house()
+    client = FakeOllama(
+        reply(
+            "",
+            call("control_device", device="lampu_meja", command="off"),
+            call("control_device", device="komputer", command="shutdown"),
+        ),
+        reply(""),
+    )
+
+    result = gated_brain(client, registry).respond("matikan semua di meja", now=NOW)
+
+    assert result.text == f"Sudah, Master! {SHUTDOWN_QUESTION}"
+
+
+def test_a_session_at_its_turn_cap_waits_for_the_answer_to_its_question():
+    registry = pc_house()
+    client = FakeOllama(
+        shutdown(),
+        reply("Baik, Master."),
+        shutdown(),
+        reply("Komputer mati dalam 30 detik, Master."),
+        reply("Halo!"),
+    )
+    brain = gated_brain(client, registry, clock=FakeClock(), max_session_turns=1)
+
+    brain.respond("Cyrene, matikan komputer.", now=NOW)
+    brain.respond("iya", now=NOW)
+    brain.respond("halo", now=NOW)
+
+    assert registry.get("komputer").calls == [("shutdown", None)]
+    assert client.requests[2]["messages"][1] == {
+        "role": "user",
+        "content": format_user_turn("Cyrene, matikan komputer.", NOW),
+    }
+    assert len(client.requests[4]["messages"]) == 2
+
+
+def test_a_no_keeps_the_pc_on_even_when_the_model_calls_again():
+    registry = pc_house()
+    client = FakeOllama(shutdown(), reply("Yakin, Master?"), shutdown(), reply("Baik, tidak jadi."))
+    brain = gated_brain(client, registry)
+
+    brain.respond("Cyrene, matikan komputer.", now=NOW)
+    result = brain.respond("tidak", now=NOW)
+
+    assert registry.get("komputer").calls == []
+    assert [record.is_error for record in result.tool_calls] == [True]
+
+
+def test_retrying_in_the_same_turn_is_held_again_even_after_a_yes_in_that_turn():
+    registry = pc_house()
+    client = FakeOllama(shutdown(), shutdown(), reply("Yakin, Master?"))
+
+    result = gated_brain(client, registry).respond("iya, matikan komputer sekarang", now=NOW)
+
+    assert registry.get("komputer").calls == []
+    assert [record.is_error for record in result.tool_calls] == [True, True]
+
+
+def test_a_rolled_back_turn_still_counts_so_a_yes_after_it_comes_too_late():
+    registry = pc_house()
+    client = FakeOllama(
+        shutdown(),
+        reply("Yakin, Master?"),
+        ConnectionError("refused"),
+        shutdown(),
+        reply("Yakin, Master?"),
+    )
+    brain = gated_brain(client, registry)
+
+    brain.respond("Cyrene, matikan komputer.", now=NOW)
+    brain.respond("iya", now=NOW)
+    result = brain.respond("iya", now=NOW)
+
+    assert registry.get("komputer").calls == []
+    assert [record.is_error for record in result.tool_calls] == [True]

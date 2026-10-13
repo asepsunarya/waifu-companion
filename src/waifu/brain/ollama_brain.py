@@ -8,6 +8,10 @@ brain is built, maybe hours before) and kept for the rest of that session, so
 the prompt never changes mid-session. A rolled-back turn that saved or deleted
 a note ends its session: the note would be missing from both that session's
 prompt and its history.
+
+A call held for Master's yes (`confirmations`) ends the reply with the gate's
+question, kept in the history like the rest of what she said; a rolled-back turn
+drops its request instead, since Master never hears its question.
 """
 
 from __future__ import annotations
@@ -24,10 +28,11 @@ import httpx
 import ollama
 
 from waifu.brain.base import Brain, BrainReply, ToolCallRecord
+from waifu.brain.confirm import ConfirmationGate
 from waifu.brain.memory_tools import changed_memory
 from waifu.brain.persona import format_user_turn
 from waifu.brain.session import SessionClock
-from waifu.brain.tools import ToolProvider, build_tool_specs, run_tool, to_ollama
+from waifu.brain.tools import ToolProvider, build_tool_specs, held_for_yes, run_tool, to_ollama
 from waifu.config import AssistantConfig, BrainConfig
 from waifu.devices.registry import DeviceRegistry
 
@@ -60,10 +65,12 @@ class OllamaBrain(Brain):
         session_idle_minutes: float = _ASSISTANT_DEFAULTS.session_idle_minutes,
         max_session_turns: int = _ASSISTANT_DEFAULTS.max_session_turns,
         providers: Sequence[ToolProvider] = (),
+        confirmations: ConfirmationGate | None = None,
     ) -> None:
         self._config = config
         self._registry = registry
         self._providers = tuple(providers)
+        self._confirmations = confirmations
         self._system_prompt = system_prompt
         self._session_system = ""
         self._client = client
@@ -72,7 +79,12 @@ class OllamaBrain(Brain):
         self._history: list[dict[str, Any]] = []
 
     def respond(self, user_text: str, *, now: datetime | None = None) -> BrainReply:
-        if self._session.should_reset():
+        gate = self._confirmations
+        if gate is not None:
+            # Every turn counts, even one rolled back later: only the very next one can say yes.
+            gate.begin_turn(user_text)
+        # A new session would hide the question this turn may answer, so it waits one turn.
+        if self._session.should_reset() and not (gate is not None and gate.awaiting_answer()):
             logger.info("Session idle or at its turn cap; starting a new one")
             self.reset()
         if not self._history:
@@ -86,6 +98,8 @@ class OllamaBrain(Brain):
         try:
             text = self._run_turn(records)
         except Exception as exc:
+            if gate is not None:
+                gate.discard_turn()
             if changed_memory(records):
                 logger.info("Rolled back a turn that changed a note; starting a new session")
                 self.reset()
@@ -101,6 +115,8 @@ class OllamaBrain(Brain):
 
     def _run_turn(self, records: list[ToolCallRecord]) -> str:
         text = self._chat_until_answered(records)
+        if self._confirmations is not None:
+            text = self._confirmations.with_question(text)
         self._history.append({"role": "assistant", "content": text})
         return text
 
@@ -152,7 +168,9 @@ class OllamaBrain(Brain):
             }
         )
         for name, arguments in calls:
-            result, is_error = run_tool(self._registry, name, arguments, self._providers)
+            result, is_error = run_tool(
+                self._registry, name, arguments, self._providers, confirmations=self._confirmations
+            )
             logger.debug("Tool %s(%s) -> %s", name, arguments, result)
             records.append(ToolCallRecord(name, _as_dict(arguments), result, is_error))
             self._history.append({"role": "tool", "content": result, "tool_name": name})
@@ -206,12 +224,17 @@ def _spoken_text(content: str | None) -> str:
 
 
 def _fallback_text(records: list[ToolCallRecord]) -> str:
-    """What to say when the model's final reply is empty, based on what the tools did."""
+    """What to say when the model's final reply is empty, based on what the tools did.
+
+    Calls held for Master's yes are left out, and their message (meant for the model) is
+    never spoken: the gate's question follows, and is the whole reply when every call was held.
+    """
     if not records:
         return _NO_ANSWER
-    failures = [
-        json.loads(record.result).get("message", "") for record in records if record.is_error
-    ]
+    ran = [record for record in records if not held_for_yes(record)]
+    if not ran:
+        return ""
+    failures = [json.loads(record.result).get("message", "") for record in ran if record.is_error]
     if not failures:
         return _DONE
     return " ".join([_SOME_FAILED, *filter(None, failures)])

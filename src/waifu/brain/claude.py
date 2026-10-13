@@ -12,6 +12,11 @@ once when a session starts (a turn begins with an empty history) and kept for
 the rest of that session, so what it returns can change between sessions only.
 A rolled-back turn that saved or deleted a note ends its session instead: the
 note would be missing from both that session's prompt and its history.
+
+A call held for Master's yes (`confirmations`) is answered like any failed tool
+call, so the gate never touches the system prompt, the tools, or earlier turns.
+The gate's question is added to the spoken reply only, never to the history; a
+rolled-back turn drops its request instead, since Master never hears its question.
 """
 
 from __future__ import annotations
@@ -33,10 +38,17 @@ from anthropic.types.beta import (
 )
 
 from waifu.brain.base import Brain, BrainReply, ToolCallRecord
+from waifu.brain.confirm import ConfirmationGate
 from waifu.brain.memory_tools import changed_memory
 from waifu.brain.persona import format_user_turn
 from waifu.brain.session import SessionClock
-from waifu.brain.tools import ToolProvider, build_tool_specs, run_tool, to_anthropic
+from waifu.brain.tools import (
+    ToolProvider,
+    build_tool_specs,
+    held_for_yes,
+    run_tool,
+    to_anthropic,
+)
 from waifu.config import AssistantConfig, BrainConfig, ClaudeConfig
 from waifu.devices.registry import DeviceRegistry
 
@@ -86,10 +98,12 @@ class ClaudeBrain(Brain):
         session_idle_minutes: float = _SESSION_DEFAULTS.session_idle_minutes,
         max_session_turns: int = _SESSION_DEFAULTS.max_session_turns,
         providers: Sequence[ToolProvider] = (),
+        confirmations: ConfirmationGate | None = None,
     ) -> None:
         self._max_tool_rounds = config.max_tool_rounds
         self._registry = registry
         self._providers = tuple(providers)
+        self._confirmations = confirmations
         self._client = client
         self._session = SessionClock(session_idle_minutes, max_session_turns, clock)
         self._request = _frozen_request(config.claude, registry, self._providers)
@@ -98,7 +112,12 @@ class ClaudeBrain(Brain):
         self._history: list[dict[str, Any]] = []
 
     def respond(self, user_text: str, *, now: datetime | None = None) -> BrainReply:
-        if self._session.should_reset():
+        gate = self._confirmations
+        if gate is not None:
+            # Every turn counts, even one rolled back later: only the very next one can say yes.
+            gate.begin_turn(user_text)
+        # A new session would hide the question this turn may answer, so it waits one turn.
+        if self._session.should_reset() and not (gate is not None and gate.awaiting_answer()):
             logger.info("Claude session idle too long or at its turn cap; starting a new one")
             self.reset()
         if not self._history:
@@ -139,6 +158,8 @@ class ClaudeBrain(Brain):
         if text is None:
             return self._roll_back(turn_start, _REFUSED, tool_calls)
         self._session.record_turn()
+        if gate is not None:
+            text = gate.with_question(text)
         return BrainReply(text, tool_calls)
 
     def reset(self) -> None:
@@ -181,7 +202,13 @@ class ClaudeBrain(Brain):
     def _run_tool(
         self, call: BetaToolUseBlock, tool_calls: list[ToolCallRecord]
     ) -> BetaToolResultBlockParam:
-        result, is_error = run_tool(self._registry, call.name, call.input, self._providers)
+        result, is_error = run_tool(
+            self._registry,
+            call.name,
+            call.input,
+            self._providers,
+            confirmations=self._confirmations,
+        )
         logger.info("Tool %s %s -> %s", call.name, call.input, "error" if is_error else "ok")
         arguments = dict(call.input) if isinstance(call.input, Mapping) else {}
         tool_calls.append(ToolCallRecord(call.name, arguments, result, is_error))
@@ -198,6 +225,8 @@ class ClaudeBrain(Brain):
     def _roll_back(
         self, turn_start: int, apology: str, tool_calls: list[ToolCallRecord]
     ) -> BrainReply:
+        if self._confirmations is not None:
+            self._confirmations.discard_turn()
         if changed_memory(tool_calls):
             # Neither this session's prompt nor its history would show the saved or deleted
             # note; the next session lists the notes as they are.
@@ -273,13 +302,21 @@ def _tool_result(tool_use_id: str, content: str, is_error: bool) -> BetaToolResu
 
 
 def _final_text(content: Sequence[BetaContentBlock], tool_calls: list[ToolCallRecord]) -> str:
+    """The reply's text, or when it has none, what the tool calls did.
+
+    Calls held for Master's yes are left out: the gate's question follows the reply, and is
+    the whole reply when every call was held.
+    """
     parts = [block.text.strip() for block in content if block.type == "text"]
     text = " ".join(part for part in parts if part)
     if text:
         return text
-    if any(call.is_error for call in tool_calls):
-        return _TOOLS_FAILED
-    return _DONE if tool_calls else _NO_ANSWER
+    if not tool_calls:
+        return _NO_ANSWER
+    ran = [call for call in tool_calls if not held_for_yes(call)]
+    if not ran:
+        return ""
+    return _TOOLS_FAILED if any(call.is_error for call in ran) else _DONE
 
 
 def _log_cache_use(response: BetaMessage) -> None:

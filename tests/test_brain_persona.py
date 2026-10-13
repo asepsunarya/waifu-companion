@@ -57,6 +57,21 @@ def test_committed_persona_uses_the_game_tools_and_never_pushes_spending():
     assert "top-up" in games
 
 
+def test_committed_persona_leaves_the_question_to_the_code_that_holds_turning_the_pc_off():
+    # control_device refuses the first call until Master's next words say yes, and the code
+    # itself asks her; a model that also asked would ask twice, and one that retried instead
+    # would only be refused again.
+    persona = load_persona(ROOT / "config" / "persona.md")
+
+    house_rules = persona.split("Mengendalikan rumah", 1)[1].split("\n\n", 1)[0]
+
+    assert "konfirmasi Master dulu" in house_rules
+    assert "colokan yang mengalirkan listrik ke PC" in house_rules
+    assert "needs_confirmation" in house_rules
+    assert "tanpa bertanya dulu" in house_rules
+    assert "jangan menanyakannya lagi" in house_rules
+
+
 def test_missing_persona_file_is_a_config_error_naming_the_path(tmp_path):
     with pytest.raises(ConfigError, match="persona_hilang.md"):
         load_persona(tmp_path / "persona_hilang.md")

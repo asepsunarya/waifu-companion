@@ -7,6 +7,7 @@ import ollama
 import pytest
 
 from waifu.brain.base import Brain, BrainReply, ToolSpec
+from waifu.brain.confirm import ConfirmationGate
 from waifu.brain.factory import build_brain
 from waifu.brain.ollama_brain import OllamaBrain
 from waifu.brain.persona import build_system_prompt
@@ -56,10 +57,12 @@ class FakeClaudeBrain(Brain):
         session_idle_minutes=10.0,
         max_session_turns=40,
         providers=(),
+        confirmations=None,
     ):
         self.config, self.registry, self.system_prompt = config, registry, system_prompt
         self.session_idle_minutes, self.max_session_turns = session_idle_minutes, max_session_turns
         self.providers = providers
+        self.confirmations = confirmations
 
     def respond(self, user_text: str, *, now: datetime | None = None) -> BrainReply:
         return BrainReply(text="")
@@ -293,3 +296,67 @@ def test_unreadable_memory_is_logged_and_the_prompt_says_so_so_the_turn_still_wo
     assert record.levelno == logging.ERROR
     assert record.exc_info is not None
     assert isinstance(record.exc_info[1], OSError)
+
+
+# Master's yes before the PC turns off
+
+
+class ScriptedOllama:
+    """Stands in for ollama.Client and answers each chat with the next queued message."""
+
+    def __init__(self, *messages: ollama.Message) -> None:
+        self.messages = list(messages)
+
+    def chat(self, model="", messages=None, **kwargs) -> ollama.ChatResponse:
+        return ollama.ChatResponse(message=self.messages.pop(0))
+
+
+def test_every_claude_brain_gets_its_own_confirmation_gate(monkeypatch):
+    monkeypatch.setattr("waifu.brain.claude.ClaudeBrain", FakeClaudeBrain)
+
+    first = build_brain(claude_config(), house(), persona_text=PERSONA)
+    second = build_brain(claude_config(), house(), persona_text=PERSONA)
+
+    assert isinstance(first.confirmations, ConfirmationGate)
+    assert isinstance(second.confirmations, ConfirmationGate)
+    assert first.confirmations is not second.confirmations
+
+
+def held_then_answered(monkeypatch, config: AppConfig, answer: str) -> DeviceRegistry:
+    """A built brain whose model asks to shut the mock PC down in both turns."""
+    shutdown = ollama.Message.ToolCall(
+        function=ollama.Message.ToolCall.Function(
+            name="control_device", arguments={"device": "komputer", "command": "shutdown"}
+        )
+    )
+    client = ScriptedOllama(
+        ollama.Message(role="assistant", content="", tool_calls=[shutdown]),
+        ollama.Message(role="assistant", content="Baik, Master."),
+        ollama.Message(role="assistant", content="", tool_calls=[shutdown]),
+        ollama.Message(role="assistant", content="Komputer mati dalam 30 detik, Master."),
+    )
+    monkeypatch.setattr(ollama, "Client", lambda host, **kwargs: client)
+    # A mock PC only: no test reaches a real power command.
+    registry = DeviceRegistry(
+        [MockDevice("komputer", "Komputer", commands=["shutdown"], kind="pc")]
+    )
+    brain = build_brain(config, registry, persona_text=PERSONA)
+
+    brain.respond("Cyrene, matikan komputer.", now=NOW)
+    assert registry.get("komputer").calls == []
+    brain.respond(answer, now=NOW)
+    return registry
+
+
+def test_the_ollama_brain_holds_turning_the_pc_off_until_masters_next_words_say_yes(monkeypatch):
+    registry = held_then_answered(monkeypatch, AppConfig(), "iya")
+
+    assert registry.get("komputer").calls == [("shutdown", None)]
+
+
+def test_the_gate_hears_master_through_the_assistants_name_and_wake_words(monkeypatch):
+    config = AppConfig(assistant=AssistantConfig(name="Hikari", wake_words=["hei hikari"]))
+
+    registry = held_then_answered(monkeypatch, config, "Hei Hikari, iya. Hikari, boleh.")
+
+    assert registry.get("komputer").calls == [("shutdown", None)]

@@ -16,7 +16,8 @@ import re
 from collections.abc import Mapping, Sequence
 from typing import Any, Protocol
 
-from waifu.brain.base import ToolSpec
+from waifu.brain.base import ToolCallRecord, ToolSpec
+from waifu.brain.confirm import ConfirmationGate
 from waifu.devices.base import Device
 from waifu.devices.registry import KIND_VALUE_RANGES, DeviceRegistry
 
@@ -92,10 +93,16 @@ def run_tool(
     name: str,
     arguments: object,
     providers: Sequence[ToolProvider] = (),
+    *,
+    confirmations: ConfirmationGate | None = None,
 ) -> tuple[str, bool]:
-    """Run one tool call from the model. Returns (compact JSON, is_error) and never raises."""
+    """Run one tool call from the model. Returns (compact JSON, is_error) and never raises.
+
+    With `confirmations`, a `control_device` call that would turn the PC off is held until
+    Master's next words say yes; the brains always pass one.
+    """
     if name == CONTROL_DEVICE:
-        return _run_control_device(registry, arguments)
+        return _run_control_device(registry, arguments, confirmations)
     if name == LIST_DEVICES:
         return _run_list_devices(registry, arguments)
     for provider in providers:
@@ -108,6 +115,15 @@ def run_tool(
     logger.warning("Model called unknown tool '%s'", name)
     available = [*TOOL_NAMES, *(spec.name for p in providers for spec in p.specs())]
     return _error(f"Tool '{name}' tidak dikenal. Tool yang tersedia: {', '.join(available)}.")
+
+
+def held_for_yes(record: ToolCallRecord) -> bool:
+    """Whether a tool call was a `control_device` held for Master's yes instead of run."""
+    return (
+        record.name == CONTROL_DEVICE
+        and record.is_error
+        and json.loads(record.result).get("needs_confirmation") is True
+    )
 
 
 def to_anthropic(spec: ToolSpec) -> dict[str, Any]:
@@ -151,10 +167,10 @@ def _device_line(device: Device, feeds_pc: bool = False) -> str:
     commands = describe_commands(device.commands(), device.kind)
     note = ""
     if feeds_pc:
-        # So the persona's "confirm before turning the PC off" covers cutting its power too.
+        # So the persona's "the PC waits for Master's yes" covers cutting its power too.
         note = (
             " — mengalirkan listrik ke PC: mematikan atau membaliknya (toggle) sama dengan "
-            "mematikan PC, jadi minta konfirmasi dulu"
+            "mematikan PC, jadi perlu konfirmasi Master dulu"
         )
     elif device.kind == "media":
         # A scheduled toggle runs silently while Master may sleep: it can restart paused music.
@@ -208,11 +224,19 @@ def _list_devices_spec() -> ToolSpec:
     )
 
 
-def _run_control_device(registry: DeviceRegistry, arguments: object) -> tuple[str, bool]:
+def _run_control_device(
+    registry: DeviceRegistry, arguments: object, confirmations: ConfirmationGate | None
+) -> tuple[str, bool]:
     try:
         device_id, command, value = _parse_control_arguments(arguments)
     except _InvalidArguments as exc:
         return _invalid(CONTROL_DEVICE, arguments, exc)
+    if confirmations is not None:
+        refusal = confirmations.check(registry, device_id, command, value)
+        if refusal is not None:
+            # An error result, so an empty final reply never tells Master it is done.
+            payload = {"ok": False, "needs_confirmation": True, "message": refusal}
+            return _to_json(payload), True
     result = registry.execute(device_id, command, value)
     payload = {"ok": result.ok, "message": result.message, "state": result.state}
     return _to_json(payload), not result.ok

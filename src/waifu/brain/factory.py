@@ -6,6 +6,7 @@ import logging
 from collections.abc import Callable, Sequence
 
 from waifu.brain.base import Brain
+from waifu.brain.confirm import ConfirmationGate
 from waifu.brain.ollama_brain import OllamaBrain
 from waifu.brain.persona import build_system_prompt, load_persona
 from waifu.brain.tools import ToolProvider
@@ -28,7 +29,8 @@ def build_brain(
     """The configured backend; the persona comes from `assistant.persona_file` unless given.
 
     With `memory_section`, the brain reads the system prompt at each session start,
-    and the section follows the unchanged base prompt.
+    and the section follows the unchanged base prompt. Every brain gets its own
+    confirmation gate.
     """
     persona = load_persona(config.assistant.persona_file) if persona_text is None else persona_text
     base_prompt = build_system_prompt(persona, config.assistant.name, registry)
@@ -39,6 +41,11 @@ def build_brain(
         "session_idle_minutes": config.assistant.session_idle_minutes,
         "max_session_turns": config.assistant.max_session_turns,
         "providers": providers,
+        # Never off: turning the PC off or cutting its power waits for Master's own yes, which
+        # still carries her name ("iya, Cyrene") in the follow-up window and in chat.
+        "confirmations": ConfirmationGate(
+            names=[config.assistant.name, *config.assistant.wake_words]
+        ),
     }
     if config.brain.backend == "claude":
         # Imported here so the Ollama path never loads the Anthropic SDK.

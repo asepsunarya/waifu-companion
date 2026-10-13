@@ -13,6 +13,7 @@ import pytest
 from waifu.brain import claude as claude_module
 from waifu.brain.base import ToolSpec
 from waifu.brain.claude import ClaudeBrain
+from waifu.brain.confirm import ConfirmationGate
 from waifu.brain.memory_tools import MemoryTools
 from waifu.brain.persona import format_user_turn
 from waifu.config import BrainConfig, ClaudeConfig
@@ -1058,3 +1059,230 @@ def test_rolled_back_turn_whose_note_was_refused_keeps_the_session(tmp_path):
     third = client.requests[3]["messages"]
     assert [entry["role"] for entry in third] == ["user", "assistant", "user"]
     assert third[2]["content"] == format_user_turn("coba lagi", NOW)
+
+
+# Master's yes before the PC turns off
+
+
+SHUTDOWN_QUESTION = "Komputer mau kumatikan sekarang, Master? Jawab iya kalau jadi."
+PLUG_QUESTION = (
+    "Colokan PC mau kumatikan sekarang, Master? Listrik PC bisa langsung putus. "
+    "Jawab iya kalau jadi."
+)
+
+
+def pc_house() -> DeviceRegistry:
+    """Mock devices only: the PC, the plug that feeds it, and a desk lamp."""
+    return DeviceRegistry(
+        [
+            MockDevice("komputer", "Komputer", commands=["shutdown", "cancel_shutdown"], kind="pc"),
+            MockDevice("colokan_pc", "Colokan PC", commands=["on", "off"], kind="plug"),
+            MockDevice("lampu_meja", "Lampu meja", commands=["on", "off"], kind="light"),
+        ],
+        pc_power_ids={"colokan_pc"},
+    )
+
+
+def shutdown(block_id: str) -> SimpleNamespace:
+    arguments = {"device": "komputer", "command": "shutdown"}
+    return message([tool_use(block_id, "control_device", arguments)], "tool_use")
+
+
+def gated_brain(client: FakeAnthropic, registry: DeviceRegistry, **kwargs: object) -> ClaudeBrain:
+    return make_brain(client, registry, confirmations=ConfirmationGate(clock=FakeClock()), **kwargs)
+
+
+def test_turning_the_pc_off_is_held_until_master_says_yes_in_the_next_turn():
+    registry = pc_house()
+    model_reply = text("Baik, Master.")
+    client = FakeAnthropic(
+        shutdown("call_1"),
+        message([model_reply], "end_turn"),
+        shutdown("call_2"),
+        message([text("Komputer mati dalam 30 detik, Master.")], "end_turn"),
+    )
+    brain = gated_brain(client, registry)
+
+    asked = brain.respond("Cyrene, matikan komputer.", now=NOW)
+
+    assert registry.get("komputer").calls == []
+    [held] = tool_results(client.requests[1]["messages"][-1])
+    assert held["is_error"] is True
+    assert json.loads(held["content"])["needs_confirmation"] is True
+    assert asked.text == f"Baik, Master. {SHUTDOWN_QUESTION}"
+
+    done = brain.respond("iya", now=NOW)
+
+    assert registry.get("komputer").calls == [("shutdown", None)]
+    assert [call.is_error for call in done.tool_calls] == [False]
+    # The spoken question never enters the append-only history: the model's turn is echoed as is.
+    assert client.requests[2]["messages"][3] == {"role": "assistant", "content": [model_reply]}
+
+
+@pytest.mark.parametrize(
+    ("device", "command", "question"),
+    [("komputer", "shutdown", SHUTDOWN_QUESTION), ("colokan_pc", "off", PLUG_QUESTION)],
+    ids=["pc", "its_plug"],
+)
+def test_a_model_that_skips_the_question_still_asks_it_and_thanks_is_no_yes(
+    device, command, question
+):
+    registry = pc_house()
+    lamp_off = {"device": "lampu_meja", "command": "off"}
+    gated = {"device": device, "command": command}
+    client = FakeAnthropic(
+        message(
+            [
+                tool_use("call_1", "control_device", lamp_off),
+                tool_use("call_2", "control_device", gated),
+            ],
+            "tool_use",
+        ),
+        message([text("Lampu meja sudah mati, Master.")], "end_turn"),
+        message([tool_use("call_3", "control_device", gated)], "tool_use"),
+        message([text("Sama-sama, Master.")], "end_turn"),
+    )
+    brain = gated_brain(client, registry)
+
+    first = brain.respond("Cyrene, matikan semua di meja.", now=NOW)
+    second = brain.respond("oke makasih ya", now=NOW)
+
+    assert first.text == f"Lampu meja sudah mati, Master. {question}"
+    assert registry.get(device).calls == []
+    assert [call.is_error for call in second.tool_calls] == [True]
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [connection_error(), message([text("Aku")], "refusal")],
+    ids=["connection_error", "refusal"],
+)
+def test_a_rolled_back_turn_drops_its_request_because_master_never_heard_the_question(failure):
+    registry = pc_house()
+    client = FakeAnthropic(
+        shutdown("call_1"),
+        failure,
+        shutdown("call_2"),
+        message([text("Baik, Master.")], "end_turn"),
+    )
+    brain = gated_brain(client, registry)
+
+    apology = brain.respond("Cyrene, matikan lampu meja komputer.", now=NOW)
+    retry = brain.respond("iya", now=NOW)
+
+    assert apology.text.startswith("Maaf Master")
+    assert "Jawab iya" not in apology.text
+    assert registry.get("komputer").calls == []
+    [held] = retry.tool_calls
+    assert json.loads(held.result)["needs_confirmation"] is True
+    assert retry.text == f"Baik, Master. {SHUTDOWN_QUESTION}"
+
+
+@pytest.mark.parametrize(
+    ("ending", "max_tool_rounds", "spoken"),
+    [
+        (message([], "end_turn"), 5, SHUTDOWN_QUESTION),
+        (
+            shutdown("call_2"),
+            1,
+            "Maaf Master, permintaannya butuh terlalu banyak langkah, jadi aku berhenti dulu. "
+            + SHUTDOWN_QUESTION,
+        ),
+        (
+            message([tool_use("call_2", "control_device", {"device": "komputer"})], "max_tokens"),
+            5,
+            f"Maaf Master, jawabanku terpotong. Coba ulangi, ya. {SHUTDOWN_QUESTION}",
+        ),
+    ],
+    ids=["empty_reply", "round_limit", "cut_off"],
+)
+def test_a_canned_reply_after_a_held_call_still_asks_and_a_yes_then_runs_it(
+    ending, max_tool_rounds, spoken
+):
+    registry = pc_house()
+    client = FakeAnthropic(
+        shutdown("call_1"),
+        ending,
+        shutdown("call_3"),
+        message([text("Komputer mati dalam 30 detik, Master.")], "end_turn"),
+    )
+    brain = gated_brain(client, registry, max_tool_rounds=max_tool_rounds)
+
+    asked = brain.respond("Cyrene, matikan komputer.", now=NOW)
+    brain.respond("iya", now=NOW)
+
+    assert asked.text == spoken
+    assert registry.get("komputer").calls == [("shutdown", None)]
+
+
+def test_a_session_at_its_turn_cap_waits_for_the_answer_to_its_question():
+    registry = pc_house()
+    client = FakeAnthropic(
+        shutdown("call_1"),
+        message([text("Baik, Master.")], "end_turn"),
+        shutdown("call_2"),
+        message([text("Komputer mati dalam 30 detik, Master.")], "end_turn"),
+        message([text("Halo!")], "end_turn"),
+    )
+    brain = gated_brain(client, registry, clock=FakeClock(), max_session_turns=1)
+
+    brain.respond("Cyrene, matikan komputer.", now=NOW)
+    brain.respond("iya", now=NOW)
+    brain.respond("halo", now=NOW)
+
+    assert registry.get("komputer").calls == [("shutdown", None)]
+    assert client.requests[2]["messages"][0]["content"] == format_user_turn(
+        "Cyrene, matikan komputer.", NOW
+    )
+    assert len(client.requests[4]["messages"]) == 1
+
+
+def test_a_no_keeps_the_pc_on_even_when_the_model_calls_again():
+    registry = pc_house()
+    client = FakeAnthropic(
+        shutdown("call_1"),
+        message([text("Yakin, Master?")], "end_turn"),
+        shutdown("call_2"),
+        message([text("Baik, tidak jadi.")], "end_turn"),
+    )
+    brain = gated_brain(client, registry)
+
+    brain.respond("Cyrene, matikan komputer.", now=NOW)
+    reply = brain.respond("tidak", now=NOW)
+
+    assert registry.get("komputer").calls == []
+    assert [call.is_error for call in reply.tool_calls] == [True]
+
+
+def test_retrying_in_the_same_turn_is_held_again_even_after_a_yes_in_that_turn():
+    registry = pc_house()
+    client = FakeAnthropic(
+        shutdown("call_1"),
+        shutdown("call_2"),
+        message([], "end_turn"),
+    )
+
+    reply = gated_brain(client, registry).respond("iya, matikan komputer sekarang", now=NOW)
+
+    assert registry.get("komputer").calls == []
+    assert [call.is_error for call in reply.tool_calls] == [True, True]
+    assert reply.text == SHUTDOWN_QUESTION
+
+
+def test_a_rolled_back_turn_still_counts_so_a_yes_after_it_comes_too_late():
+    registry = pc_house()
+    client = FakeAnthropic(
+        shutdown("call_1"),
+        message([text("Yakin, Master?")], "end_turn"),
+        connection_error(),
+        shutdown("call_2"),
+        message([text("Yakin, Master?")], "end_turn"),
+    )
+    brain = gated_brain(client, registry)
+
+    brain.respond("Cyrene, matikan komputer.", now=NOW)
+    brain.respond("iya", now=NOW)
+    reply = brain.respond("iya", now=NOW)
+
+    assert registry.get("komputer").calls == []
+    assert [call.is_error for call in reply.tool_calls] == [True]
