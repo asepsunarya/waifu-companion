@@ -280,8 +280,24 @@ the phone instead of speaking on the PC.
 
 ### Checkpoint: Cyrene on the phone
 - [x] Python and JS suites, ruff clean; no test reached the network, Tailscale, a real brain, or `data/` (2026-10-14: 3731 pytest and 313 node tests on the committed tree plus tasks 73-76)
-- [x] In a browser at phone size against a fake backend: pairing, chat, a talk round trip, audio and mouth (task 75's check; service-worker registration and the locked-sound fallback could not be exercised there, and the later offline, no-model and scrolling fixes are covered by node tests only)
+- [x] In a browser at phone size against a fake backend: pairing, chat, a talk round trip, audio and mouth (task 75's check, repeated 2026-10-14 after the review fixes against the real PhoneServer with a fake backend: wrong code 403, pairing, chat with the mouth moving, a long reply shown from its first line, and a talk round trip with a stubbed microphone; the in-app browser cannot register any service worker, so installing the app is checked on the phone)
 - [ ] On the owner's Android: install via Tailscale URL, pair, chat and talk, "matikan lampu" works
+
+### Phase 20: seeing through the phone camera (v1.15, see SPEC → seeing through the phone camera)
+Decision: the photo rides in the owner's own message (an image block before the turn's text), not
+a tool call: the owner opened the viewfinder, so the photo is already what they want her to see,
+and one request answers it. A `TurnImages` holder injected into the Claude brain carries it, so
+the `Brain` contract stays as it is; the PC webcam and presence detection wait for a later version.
+- [x] Task 77a: `phone.camera` config
+- [ ] Task 77: `TurnImages` and photos in the Claude brain's user messages
+- [ ] Task 78: photos on the phone server (`/chat`, `/talk` JSON, `jpeg.py`, `/config.json`)
+- [ ] Task 79: the viewfinder on the phone page and its pure JS helpers
+- [ ] Task 80: Assistant and `run` wiring, check, README
+
+### Checkpoint: seeing through the phone camera
+- [ ] Python and JS suites, ruff clean; no test opened a camera or reached Claude
+- [ ] In a browser at phone size with a stubbed camera: viewfinder, flip, a photo with a chat and with a talk, the thumbnail, the camera off after close/hide/2 minutes
+- [ ] On the owner's Android: "ini apa?" with the camera open is answered about what it shows
 
 ## Risks and Mitigations
 

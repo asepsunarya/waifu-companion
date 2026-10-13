@@ -592,6 +592,44 @@ CLI: `run` starts the phone server when `phone.enabled` (with the Assistant as t
 
 Safety: tests use 127.0.0.1 and port 0, fake backends (no brain, STT, TTS, or network), tmp state paths, and never run the Tailscale CLI (an injected runner).
 
+### seeing through the phone camera (v1.15)
+
+User stories (on the phone page from v1.14):
+
+1. The owner taps the camera button: a viewfinder opens over the lower part of the page (the back camera; a flip button switches to the front one). Whatever they then type or say goes to Cyrene together with one photo taken at that moment, so "ini apa?", "lihat ini, bagus nggak bajuku?", "tanaman ini kenapa daunnya kuning?" are answered about what the camera shows. The owner's bubble shows a small thumbnail of exactly what she saw.
+2. With the viewfinder closed, nothing is ever photographed; she cannot open the camera herself.
+3. The camera turns itself off when the owner closes the viewfinder, hides or leaves the page, or sends nothing for 2 minutes (Android also shows its own camera indicator while it is on).
+
+Non-goals (v1.15): video or continuous watching, her commenting without being asked, the PC webcam and presence detection (a later version), saving photos, the Ollama backend (no vision: the button is hidden and the server refuses photos).
+
+Privacy: the photo goes to the Claude API with that message and stays in the session's history until the session ends, like a screenshot; it is never written to disk or logged (only its byte size and dimensions), never kept by the page beyond its in-memory thumbnail (no localStorage, no Cache Storage), and she never saves what she sees with `remember` unless the owner asks. The README says so.
+
+Config: `phone.camera` (default true; committed with its tests before the parallel tasks). The camera is offered only when `phone.camera`, `vision.enabled`, and `brain.backend == "claude"`; photos are scaled by the page so the longer side is at most `vision.max_side`.
+
+Brain (`brain/attachments.py`, `brain/claude.py`):
+- `TurnImages` (thread-safe): `put(image: ToolImage)` (at most one waiting; a second put replaces it), `take() -> list[ToolImage]` (hands over and forgets), `clear()`. The Assistant and the Claude brain share one through constructor injection: `ClaudeBrain(..., turn_images: TurnImages | None = None)`. The `Brain` contract in `brain/base.py` is unchanged.
+- `ClaudeBrain.respond`: right after the providers' `begin_turn`, takes the turn images. With none, the user message is the plain string as today (requests byte-identical to v1.14, the cache stays warm). With one, the user message content is a list: the image block (base64, its media type), a text block `[Foto dari kamera HP {owner}, diambil saat pesan ini dikirim. Jangan simpan isinya dengan remember kecuali diminta.]` (`{owner}` = owner_call), then the turn's text block (`format_user_turn` as today). The history keeps it exactly as sent; a rolled-back turn drops it with the rest.
+- `_image_bytes` counts the base64 data of images both inside tool results and directly in user messages (today it would raise `KeyError` on a user message whose list holds an image or text block instead of tool results). The 16 MB session rule covers photos too; its log says "images" instead of "screenshots".
+- `OllamaBrain` gets no `TurnImages` (the factory never passes one) and needs no change.
+
+Phone server (`phone/server.py`, `phone/jpeg.py`):
+- `PhoneServer(..., camera_max_side: int | None = None)`: None means the camera is off. `/config.json` gains `"camera": {"enabled": bool, "max_side": int | null}`.
+- `POST /chat` accepts an optional `"image"` (base64 JPEG string) next to `"text"`. `POST /talk` accepts, besides the `audio/wav` body of v1.14, `application/json` `{"audio": <base64 WAV>, "image": <base64 JPEG>}`; the decoded WAV is checked exactly as the binary body is. The body limit is chosen from the Content-Type before the body is read: with the camera on, 5 MB for /chat JSON and 8 MB for /talk JSON (the 2 MB recording and a 3.5 MB photo as base64); the v1.14 limits otherwise and for `audio/wav`.
+- A photo is accepted only when the camera is on (otherwise 400 `Kamera HP tidak aktif.`), decodes as strict base64 (`base64.b64decode(..., validate=True)`), is at most 3.5 MB decoded (its base64 then stays under the API's 5 MB image limit), starts with the JPEG SOI marker `FF D8 FF`, and `jpeg.jpeg_size(data) -> tuple[int, int]` (walks the marker segments to the first SOF0-SOF15 frame header except DHT `C4`, JPG `C8`, and DAC `CC`; raises `ValueError` on truncated data, a missing frame header, or a zero size) reads a longer side between 16 and `camera_max_side` pixels and a shorter side of at least 16; anything else is 400 `Foto tidak valid.`.
+- `PhoneBackend.chat(text, image: bytes | None = None) -> PhoneReply` (JPEG bytes); `transcribe` is unchanged. The server passes the photo through untouched and logs only its byte size and dimensions.
+
+Assistant (`app.py`): `reply_for_phone(text, image: bytes | None = None)` and `PhoneAnswers.chat(text, image=None)`. Inside the turn lock, right before the brain turn, the photo (`ToolImage("image/jpeg", data)`) is put into the shared `TurnImages`, and the holder is cleared in a `finally` after it, so a failed turn never leaks it into the next one (a voice turn included). Without a `TurnImages` (camera off, Ollama) a photo is dropped with a warning. The voice loop never puts images. `run` creates one `TurnImages` when the camera is offered and passes it to the Claude brain, the Assistant, and (as `camera_max_side=vision.max_side`) the phone server.
+
+Page (`avatar/web/phone/`):
+- A camera button next to send (hidden when `/config.json` says the camera is off). Tapping it opens the viewfinder: `getUserMedia({video: {facingMode: {ideal: "environment"}, width: {ideal: 1920}, height: {ideal: 1080}}, audio: false})` into a muted, `playsinline`, `autoplay` `<video>`; a flip button (environment ↔ user) and a close button. Errors in Indonesian: permission denied (how to allow it in Chrome's site settings), no camera, camera in use by another app.
+- While it is open, sending text or releasing the talk button grabs one frame: drawn on a canvas sized by `fitWithin(width, height, maxSide)` (aspect kept, never upscaled), `canvas.toBlob(..., "image/jpeg", 0.85)`; a blob over 3.5 MB is encoded again at 0.7, then 0.5, and dropped with a message if still too big. The photo goes with the message (`/chat` JSON or `/talk` JSON) and shows as a thumbnail (an object URL, revoked when its bubble leaves the strip) in the owner's bubble.
+- The stream's tracks stop on close, on `visibilitychange` to hidden, on `pagehide`, and 2 minutes after the viewfinder opened or the last photo, whichever is later.
+- Pure helpers in `phone/camera.js` with `node --test` coverage: `fitWithin`, `bytesToBase64` (chunked, for multi-megabyte input), the /chat and /talk request builders with and without a photo, and the JPEG quality fallback order.
+
+CLI: `check` adds `✓ Kamera HP: aktif`, `! Kamera HP: tidak tersedia dengan Ollama`, `! Kamera HP mati (vision.enabled: false)`, or `! Kamera HP mati (phone.camera: false)` when the phone is enabled. README (Indonesian), in "Cyrene di HP": using the camera, privacy, the camera permission, and turning it off with `phone.camera: false`.
+
+Safety: tests never open a camera: the page's browser check stubs `getUserMedia` with a canvas `captureStream()` showing a synthetic pattern; Python tests build tiny JPEG byte fixtures by hand (marker segments only; no image library); nothing reaches Claude.
+
 ## Code Style
 
 See `CLAUDE.md` → Code Conventions and Patterns. Dataclasses for value

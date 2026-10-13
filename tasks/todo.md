@@ -768,3 +768,41 @@ named `tests/test_<package>_<module>.py`.
 - [x] `run` starts the server when enabled; `waifu phone setup|pair|devices|forget`; `check`; README (Tailscale on PC and Android, HTTPS certificates, `tailscale serve`, pairing, installing the page)
 
 **Dependencies:** 74, 75 · **Files:** `src/waifu/app.py`, `src/waifu/cli.py`, tests, `README.md`, `config.example.yaml` · **Scope:** L
+
+## Task 77a: Phone camera config ✅
+
+**Acceptance criteria:**
+- [x] `PhoneConfig.camera` (default true)
+
+**Dependencies:** none · **Files:** `src/waifu/config.py`, `tests/test_config.py` · **Scope:** XS
+
+## Task 77: Photos in the Claude brain
+
+**Acceptance criteria:**
+- [ ] `TurnImages` (put/take/clear, thread-safe); `ClaudeBrain(..., turn_images=...)` puts a waiting photo before the turn's text with the camera note, plain string user messages otherwise (byte-identical requests)
+- [ ] `_image_bytes` counts images in tool results and in user messages; the 16 MB session rule covers photos; rolled-back turns drop them
+
+**Dependencies:** 77a · **Files:** `src/waifu/brain/attachments.py`, `src/waifu/brain/claude.py`, `tests/test_brain_attachments.py`, `tests/test_brain_claude.py` · **Scope:** M
+
+## Task 78: Photos on the phone server
+
+**Acceptance criteria:**
+- [ ] `/chat` with `image`, `/talk` as JSON `{audio, image}`, limits chosen from the Content-Type, photo checks (camera on, strict base64, 3.5 MB, SOI, `jpeg_size` within 16..max_side), `/config.json` camera fields, `PhoneBackend.chat(text, image)`; photos never logged
+
+**Dependencies:** 77a · **Files:** `src/waifu/phone/server.py`, `src/waifu/phone/jpeg.py`, `tests/test_phone_server.py`, `tests/test_phone_jpeg.py` · **Scope:** M
+
+## Task 79: The viewfinder on the phone page
+
+**Acceptance criteria:**
+- [ ] Camera button, viewfinder (back camera, flip, close), a frame with each chat or talk while open, thumbnail in the owner's bubble, camera off on close/hide/pagehide/2 minutes, Indonesian errors
+- [ ] `phone/camera.js` helpers covered by `node --test`; checked in a browser at phone size with a stubbed camera
+
+**Dependencies:** 77a · **Files:** `src/waifu/avatar/web/phone/*`, `tests/js/phone_camera.test.mjs` · **Scope:** M
+
+## Task 80: Assistant, wiring, check, README
+
+**Acceptance criteria:**
+- [ ] `reply_for_phone(text, image)` and `PhoneAnswers.chat(text, image)` put the photo inside the turn lock and clear it after; `run` shares one `TurnImages` with the brain, the Assistant, and the server only when the camera is offered
+- [ ] `check` camera lines; README camera section; `config.example.yaml`
+
+**Dependencies:** 77, 78, 79 · **Files:** `src/waifu/app.py`, `src/waifu/cli.py`, tests, `README.md`, `config.example.yaml` · **Scope:** M
