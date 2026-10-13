@@ -97,13 +97,27 @@ class FakePlayer:
         self.error = error
         self.played: list[int] = []
         self.on_play: Callable[[], None] = lambda: None  # runs while the audio "plays"
+        self.playing = False
+        self.cut = threading.Event()  # set by `stop()` while the audio plays
 
-    def play(self, audio: np.ndarray, sample_rate: int) -> None:
+    def play(self, audio: np.ndarray, sample_rate: int) -> bool:
         self.events.append("play")
-        self.on_play()
+        self.cut.clear()
+        self.playing = True
+        try:
+            self.on_play()
+        finally:
+            self.playing = False
         if self.error is not None:
             raise self.error
         self.played.append(sample_rate)
+        return not self.cut.is_set()
+
+    def stop(self) -> bool:
+        if not self.playing:
+            return False
+        self.cut.set()
+        return True
 
 
 class FakeMic:
@@ -204,6 +218,7 @@ class Rig:
             speaker_check=speaker_check,
             avatar=self.avatar if with_avatar or avatar_error else None,
             now=lambda: NOW,
+            clock=self.clock,
         )
 
     def utterance(self) -> Utterance:
@@ -902,3 +917,158 @@ def test_a_reply_waits_until_the_reaction_has_been_spoken():
     assert said == [PAT_LINE]
     assert rig.speech.texts == [PAT_LINE, REPLY]
     assert rig.events == ["synthesize", "play", "synthesize", "play"]
+
+
+# Cutting her off: a double-click on the avatar stops what she is saying
+
+
+def play_until_cut(rig: Rig) -> threading.Event:
+    """Make `play` last until the player is stopped; returns the event set once it plays."""
+    playing = threading.Event()
+
+    def hold() -> None:
+        playing.set()
+        rig.player.cut.wait(WAIT_S)
+
+    rig.player.on_play = hold
+    return playing
+
+
+def test_interrupt_cuts_her_reply_short_and_she_still_listens_afterwards(caplog):
+    rig = Rig("Cyrene, nyalakan lampu kamar", with_avatar=True)
+    rig.assistant.set_mic(FakeMic(rig.events, []), FakeSegmenter(rig.events, []))
+    playing = play_until_cut(rig)
+    reply = threading.Thread(target=rig.assistant.handle_utterance, args=(rig.utterance(),))
+
+    with caplog.at_level(logging.INFO, logger="waifu.app"):
+        reply.start()
+        assert playing.wait(WAIT_S)
+        interrupted = rig.assistant.interrupt()  # from the avatar server's thread
+        reply.join(WAIT_S)
+
+    assert interrupted is True
+    assert not reply.is_alive()
+    assert rig.events == [
+        "avatar.state thinking",
+        "mic.pause",
+        "synthesize",
+        "avatar.state speaking",
+        "avatar.speak neutral",
+        "play",
+        "mic.resume",
+        "segmenter.reset",
+        "avatar.state listening 8",
+    ]
+    assert "cut off" in caplog.text
+    assert rig.gate.check("matikan TV").accepted is True  # no wake word needed now
+    assert (rig.assistant.speaking, rig.assistant.busy) == (False, False)
+
+
+def test_an_interrupted_announcement_leaves_her_idle_without_a_follow_up_window():
+    rig = Rig(with_avatar=True)
+    playing = play_until_cut(rig)
+    announcement = threading.Thread(
+        target=rig.assistant.speak, args=(ANNOUNCEMENT,), kwargs={"followup": False}
+    )
+
+    announcement.start()
+    assert playing.wait(WAIT_S)
+    interrupted = rig.assistant.interrupt()
+    announcement.join(WAIT_S)
+
+    assert interrupted is True
+    assert not announcement.is_alive()
+    assert rig.events[-2:] == ["play", "avatar.state idle"]
+    assert rig.gate.check("matikan lampu").accepted is False
+
+
+def announce_and_cut_the_first_clip(rig: Rig) -> list[bool]:
+    """Queue an announcement and cut the first clip while it plays; returns what the cut said."""
+    cuts: list[bool] = []
+
+    def announce_and_cut() -> None:
+        if not cuts:
+            rig.assistant.announce(ANNOUNCEMENT)
+            cuts.append(rig.assistant.interrupt())
+
+    rig.player.on_play = announce_and_cut
+    return cuts
+
+
+def test_after_a_cut_an_announcement_waits_until_master_has_been_heard():
+    # Master cut her off to talk: an announcement queued during the reply must not pause the
+    # microphone again (dropping Master's words) before the follow-up has been heard.
+    rig = Rig("Cyrene, nyalakan lampu kamar", "matikan TV", with_avatar=True)
+    cuts = announce_and_cut_the_first_clip(rig)
+    mic = FakeMic(rig.events, [SILENT_FRAME] * 4)
+    segmenter = FakeSegmenter(rig.events, [rig.utterance(), None, rig.utterance(), None])
+
+    rig.assistant.run(mic, segmenter)
+
+    assert cuts == [True]
+    after_cut = rig.events[rig.events.index("mic.resume") + 1 :]
+    assert after_cut[:3] == ["segmenter.reset", "avatar.state listening 8", "avatar.state thinking"]
+    assert [text for text, _ in rig.brain.turns] == ["nyalakan lampu kamar", "matikan TV"]
+    assert rig.speech.texts == [REPLY, REPLY, ANNOUNCEMENT]  # held, not lost
+
+
+def test_an_announcement_held_after_a_cut_is_said_once_the_follow_up_window_closes():
+    rig = Rig("Cyrene, nyalakan lampu kamar")
+    announce_and_cut_the_first_clip(rig)
+    rig.assistant.run(
+        FakeMic(rig.events, [SILENT_FRAME] * 2), FakeSegmenter(rig.events, [rig.utterance(), None])
+    )
+    held = list(rig.speech.texts)
+
+    rig.clock.now += 8  # followup_seconds: Master said nothing
+    rig.assistant.run(FakeMic(rig.events, [SILENT_FRAME]), FakeSegmenter(rig.events, [None]))
+
+    assert held == [REPLY]
+    assert rig.speech.texts == [REPLY, ANNOUNCEMENT]
+
+
+def test_interrupt_while_she_is_silent_stops_nothing():
+    rig = Rig("Cyrene, nyalakan lampu kamar")
+
+    before = rig.assistant.interrupt()
+    rig.assistant.handle_utterance(rig.utterance())
+    after = rig.assistant.interrupt()
+
+    assert before is False
+    assert after is False
+    assert rig.player.played == [24000]
+
+
+def test_interrupt_while_she_thinks_leaves_the_reply_to_be_spoken_in_full(caplog):
+    rig = Rig("Cyrene, nyalakan lampu kamar", brain=WatchingBrain)
+    rig.brain.watch = rig.assistant.interrupt
+
+    with caplog.at_level(logging.INFO, logger="waifu.app"):
+        rig.assistant.handle_utterance(rig.utterance())
+
+    assert rig.brain.seen == [False]
+    assert rig.player.played == [24000]
+    assert "cut off" not in caplog.text
+
+
+def test_she_is_speaking_only_while_a_clip_plays():
+    rig = Rig("Cyrene, nyalakan lampu kamar", brain=WatchingBrain)
+    rig.brain.watch = lambda: rig.assistant.speaking
+    while_playing: list[tuple[bool, bool]] = []
+    rig.player.on_play = lambda: while_playing.append((rig.assistant.speaking, rig.assistant.busy))
+    before = rig.assistant.speaking
+
+    rig.assistant.handle_utterance(rig.utterance())
+
+    assert before is False
+    assert rig.brain.seen == [False]  # thinking keeps her busy, but she is not speaking yet
+    assert while_playing == [(True, True)]
+    assert (rig.assistant.speaking, rig.assistant.busy) == (False, False)
+
+
+def test_she_is_no_longer_speaking_after_playback_fails():
+    rig = Rig(player_error=RuntimeError("PortAudio error"))
+
+    rig.assistant.speak(ANNOUNCEMENT, followup=False)
+
+    assert rig.assistant.speaking is False

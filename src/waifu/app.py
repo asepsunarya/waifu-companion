@@ -18,6 +18,7 @@ import dataclasses
 import logging
 import queue
 import threading
+import time
 from collections.abc import Callable, Iterator
 from datetime import datetime
 from typing import Protocol
@@ -63,7 +64,13 @@ class Speech(Protocol):
 
 
 class AudioPlayer(Protocol):
-    def play(self, audio: np.ndarray, sample_rate: int) -> None: ...
+    def play(self, audio: np.ndarray, sample_rate: int) -> bool:
+        """Play `audio` until it ends; True when it played to the end, False when cut."""
+        ...
+
+    def stop(self) -> bool:
+        """Cut the clip being played, from any thread; False when nothing is playing."""
+        ...
 
 
 class OwnerVerifier(Protocol):
@@ -111,6 +118,7 @@ class Assistant:
         speaker_check: bool = True,
         avatar: Avatar | None = None,
         now: Callable[[], datetime] = datetime.now,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self._name = config.assistant.name
         self._followup_s = config.assistant.followup_seconds
@@ -122,14 +130,18 @@ class Assistant:
         self._verifier = verifier if speaker_check and config.speaker.enabled else None
         self._avatar = avatar
         self._now = now
+        self._clock = clock
         self._mic: Microphone | None = None
         self._segmenter: Segmenter | None = None
         self._speaker_error_logged = False
         self._avatar_failing = False
         self._announcements: queue.SimpleQueue[tuple[str, str]] = queue.SimpleQueue()
+        # After a cut, on `clock`: announcements wait until then (see `_hold_announcements`).
+        self._announcements_held_until: float | None = None
         self._voice = threading.Lock()  # one voice: replies, announcements, and reactions
         self._engaged_lock = threading.Lock()
         self._engaged_count = 0
+        self._speaking = False
 
     @property
     def busy(self) -> bool:
@@ -142,6 +154,21 @@ class Assistant:
             engaged = self._engaged_count > 0
         segmenter = self._segmenter
         return engaged or (segmenter is not None and segmenter.busy)
+
+    @property
+    def speaking(self) -> bool:
+        """Whether a clip is playing: narrower than `busy`, which also covers thinking."""
+        return self._speaking
+
+    def interrupt(self) -> bool:
+        """Stop what she is saying (a double-click on the avatar); True when something was playing.
+
+        Safe from any thread and never waits for her voice: it only stops the player.
+        The interrupted `speak` finishes as usual (microphone resumed, segmenter reset,
+        follow-up window opened after a reply) and holds queued announcements back so
+        Master can talk. A reply still being thought up is not cut.
+        """
+        return self._player.stop()
 
     def set_mic(self, mic: Microphone | None, segmenter: Segmenter | None = None) -> None:
         """The microphone to pause, and the segmenter to reset, while she speaks."""
@@ -163,6 +190,7 @@ class Assistant:
             if not result.accepted:
                 logger.info("Not addressed to %s (%s); ignoring", self._name, result.reason)
                 return None
+            self._announcements_held_until = None  # Master has been heard after a cut
             if result.command:
                 self._show(lambda avatar: avatar.state("thinking"))
                 emotion, reply = self._think(result.command)
@@ -180,17 +208,19 @@ class Assistant:
     def announce(self, text: str, emotion: str = NEUTRAL) -> None:
         """Queue something to say by herself; safe from any thread (the gacha watcher's).
 
-        `run` says it between utterances, never during a reply or while Master speaks.
+        `run` says it between utterances, never during a reply, while Master speaks, or
+        while she listens for Master after being cut off.
         """
         self._announcements.put((text, emotion))
 
     def speak(self, text: str, emotion: str = NEUTRAL, *, followup: bool = True) -> None:
         """Say `text` with the microphone paused and the avatar mouthing it with `emotion`.
 
-        A reply opens the follow-up window afterwards; with `followup=False` (an
-        announcement, not a reply) it stays as it was. Failures are logged, never raised.
-        Safe from any thread: she says one thing at a time, so this waits for whatever
-        she is saying first.
+        A reply opens the follow-up window afterwards, also when `interrupt()` cuts it
+        short; with `followup=False` (an announcement, not a reply) it stays as it was.
+        Speech that was cut holds queued announcements back (`_hold_announcements`).
+        Failures are logged, never raised. Safe from any thread: she says one thing at a
+        time, so this waits for whatever she is saying first.
         """
         with self._engaged(), self._voice:
             mic, segmenter = self._mic, self._segmenter
@@ -200,12 +230,16 @@ class Assistant:
                 audio, sample_rate = self._speech.synthesize(text)
                 self._show(lambda avatar: avatar.state("speaking"))
                 self._show(lambda avatar: avatar.speak(audio, sample_rate, emotion))
-                self._player.play(audio, sample_rate)
+                self._speaking = True
+                if not self._player.play(audio, sample_rate):
+                    logger.info("Speech was cut off before its end")
+                    self._hold_announcements()
             except TtsError as exc:
                 logger.warning("Could not synthesise the reply: %s", exc)
             except Exception:
                 logger.exception("Could not play the reply")
             finally:
+                self._speaking = False
                 if mic is not None:
                     mic.resume()
                 if segmenter is not None:
@@ -249,7 +283,7 @@ class Assistant:
             for frame in mic.frames():
                 utterance = segmenter.feed(frame)
                 if utterance is None:
-                    if not segmenter.busy:
+                    if not segmenter.busy and not self._announcements_held():
                         self._say_announcements()
                     continue
                 try:
@@ -262,6 +296,20 @@ class Assistant:
             logger.info("Stopped listening")
         finally:
             self.set_mic(None)
+
+    def _hold_announcements(self) -> None:
+        """Keep queued announcements for the follow-up window after a cut.
+
+        Master cut her off to talk, and an announcement would pause the microphone again
+        at once. They wait until Master's next words are accepted (`handle_utterance`)
+        or `followup_seconds` have passed. Called on the thread that was speaking, before
+        the microphone resumes, so `run` never sees the cut without the hold.
+        """
+        self._announcements_held_until = self._clock() + self._followup_s
+
+    def _announcements_held(self) -> bool:
+        held_until = self._announcements_held_until
+        return held_until is not None and self._clock() < held_until
 
     def _say_announcements(self) -> None:
         """Say every queued announcement in one go, with the first one's emotion."""

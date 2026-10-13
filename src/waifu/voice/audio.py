@@ -10,6 +10,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import queue
+import threading
 import time
 from collections.abc import Callable, Iterator
 from types import TracebackType
@@ -22,6 +23,7 @@ logger = logging.getLogger(__name__)
 MAX_QUEUED_S = 5.0
 POLL_S = 0.1
 STALL_S = 2.0
+END_POLL_S = 0.05  # how often `Player.play` checks whether its clip has played out
 
 
 class MicrophoneError(Exception):
@@ -216,23 +218,70 @@ class MicStream:
 
 
 class Player:
-    """Blocking speaker output at the speaker's own rate.
+    """Blocking speaker output at the speaker's own rate, which `stop()` can cut short.
 
     WASAPI and WDM-KS outputs refuse any rate but the device's mix rate, so a
     24 kHz TTS clip is resampled first, as the microphone does on the way in.
+
+    Only the thread in `play` calls PortAudio. `sounddevice.wait()` closes the stream
+    once its finished callback fires, and PortAudio fires that from inside the
+    `Pa_StopStream` of `sounddevice.stop()`, so a stop made from another thread would
+    still be stopping (then closing) the stream while the waiting thread closes it: a
+    use-after-free or double free inside PortAudio. `stop()` therefore only asks:
+    `play` watches the stream and the request, and calls `sounddevice.stop()` (stop and
+    close) itself, whether the clip played out or was cut.
+
+    `stop()` and the end of `play` agree under one lock, so the caller always gets one
+    answer: a `stop()` that lands after the clip reached its end but before `play`
+    noticed counts as a cut for both (the clip was heard to the end anyway), and a
+    `stop()` while `sounddevice.play` is still opening the stream finds nothing
+    playing and returns False (the clip then plays). Each `play` starts with no
+    request, so a late `stop()` can never cut the next clip.
     """
 
     def __init__(self, device: int | str | None = None, *, sd_module: Any = None) -> None:
         self._device = device
         self._sd = _sounddevice(sd_module)
+        self._lock = threading.Lock()  # `stop()` and the end of `play` agree on both under it
+        self._playing = False
+        self._cut = threading.Event()  # `stop()`'s request; wakes `play` at once
 
-    def play(self, audio: np.ndarray, sample_rate: int) -> None:
+    def play(self, audio: np.ndarray, sample_rate: int) -> bool:
+        """Play `audio` and wait; True when it played to the end, False when `stop()` cut it."""
         info = self._sd.query_devices(self._device, "output")
         device_rate = round(info["default_samplerate"])
         self._sd.play(
             resample(audio, sample_rate, device_rate), samplerate=device_rate, device=self._device
         )
-        self._sd.wait()
+        with self._lock:
+            self._playing = True
+            self._cut.clear()
+        try:
+            self._await_end_or_cut(self._sd.get_stream())
+        finally:
+            with self._lock:
+                self._playing = False
+                cut = self._cut.is_set()
+            self._sd.stop()  # stops the stream when cut, and closes it, on this thread
+        return not cut
+
+    def stop(self) -> bool:
+        """Ask `play` to cut the clip being played; safe from any thread, never waits.
+
+        It makes no PortAudio call itself (see the class). Returns False when nothing
+        is playing.
+        """
+        with self._lock:
+            if not self._playing:
+                return False
+            self._cut.set()
+        return True
+
+    def _await_end_or_cut(self, stream: Any) -> None:
+        """Return once the clip has played out or `stop()` asked to cut it, whichever is first."""
+        while stream.active:
+            if self._cut.wait(END_POLL_S):
+                return
 
 
 def list_devices(sd_module: Any = None) -> str:
