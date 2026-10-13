@@ -191,13 +191,13 @@ runs work with them unchanged. Media and volume go through the keyboard's own me
 (`SendInput`, no new dependency); apps start only from the owner's list in config.yaml, and
 nothing is ever closed. The test guards are strengthened first so no test can press a real
 key or open a real program.
-- [ ] Task 57a: `media` and `apps` device config; conftest refuses `os.startfile` and real key presses
-- [ ] Task 57: `devices/media.py`: `MediaKeys`
-- [ ] Task 58: `devices/apps.py`: `AppLauncher`
-- [ ] Task 59: registry, value ranges, `check`, README, example config
+- [x] Task 57a: `media` and `apps` device config; conftest refuses `os.startfile` and real key presses
+- [x] Task 57: `devices/media.py`: `MediaKeys`
+- [x] Task 58: `devices/apps.py`: `AppLauncher`
+- [x] Task 59: registry, value ranges, `check`, README, example config
 
 ### Checkpoint: PC media and apps
-- [ ] Python suite and ruff clean; no test pressed a key or started a program
+- [x] Python suite and ruff clean; no test pressed a key or started a program (2026-10-13: 2482 pytest)
 - [ ] On the owner's PC: "pause musiknya", "volume 30", and "buka Spotify" work by voice; a routine with `media stop` runs
 
 ## Risks and Mitigations

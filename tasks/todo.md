@@ -550,34 +550,36 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 51-55 · **Files:** `src/waifu/config.py`, `src/waifu/devices/registry.py`, `src/waifu/routines.py`, `src/waifu/scheduler.py`, `src/waifu/brain/schedule_tools.py`, `src/waifu/brain/tools.py`, `config/persona.md`, `config.example.yaml`, tests, README, SPEC · **Scope:** M
 
-## Task 57a: Media and apps config, stronger test guards
+## Task 57a: Media and apps config, stronger test guards ✅
 
 **Acceptance criteria:**
-- [ ] `DeviceConfig.type` accepts `media` and `apps`; `apps` required for `type: apps` (1-30, slug names) and refused elsewhere; targets limited to `steam://`, `com.epicgames.launcher://`, or absolute `.exe`/`.lnk`/`.url` paths
-- [ ] `tests/conftest.py` refuses `os.startfile` and `SendInput`/`keybd_event` through `ctypes.WinDLL` and `ctypes.windll`; `tests/test_safety_guard.py` proves it
+- [x] `DeviceConfig.type` accepts `media` and `apps`; `apps` required for `type: apps` (1-30, slug names) and refused elsewhere; targets limited to `steam://`, `com.epicgames.launcher://`, or absolute `.exe`/`.lnk`/`.url` paths
+- [x] `tests/conftest.py` refuses `os.startfile` and `SendInput`/`keybd_event` through `ctypes.WinDLL` and `ctypes.windll`; `tests/test_safety_guard.py` proves it
 
 **Dependencies:** none · **Files:** `src/waifu/config.py`, `tests/test_config.py`, `tests/conftest.py`, `tests/test_safety_guard.py` · **Scope:** S
 
-## Task 57: Media keys device
+## Task 57: Media keys device ✅
 
 **Acceptance criteria:**
-- [ ] `MediaKeys` commands and key sequences per SPEC (volume steps, absolute volume, ranges, errors), Indonesian messages, state
-- [ ] `press_keys` builds correct `INPUT` structures for `SendInput` (checked against the Win32 layout with ctypes sizes, never sent in tests) and raises on a short send
+- [x] `MediaKeys` commands and key sequences per SPEC (volume changes in percent, absolute volume, ranges, errors), Indonesian messages that say which key was pressed, state
+- [x] `press_keys` builds correct `INPUT` structures for `SendInput` (checked against the Win32 layout with ctypes sizes, never sent in tests) and raises on a short send; the default sender sends every key (checked through a fake user32)
 
 **Dependencies:** 57a · **Files:** `src/waifu/devices/media.py`, `tests/test_devices_media.py` · **Scope:** M
 
-## Task 58: App launcher device
+## Task 58: App launcher device ✅
 
 **Acceptance criteria:**
-- [ ] `AppLauncher` exposes `open_<slug>` per app, starts only configured targets with the injected starter, refuses missing files, turns start failures into `DeviceError`
-- [ ] Never starts anything in tests
+- [x] `AppLauncher` exposes `open_<slug>` per app, starts only configured targets with the injected starter, refuses missing files, turns start failures into `DeviceError`
+- [x] A `.exe` starts in its own folder; a refused administrator prompt is told as such
+- [x] Never starts anything in tests
 
 **Dependencies:** 57a · **Files:** `src/waifu/devices/apps.py`, `tests/test_devices_apps.py` · **Scope:** S
 
-## Task 59: Wiring, check, README
+## Task 59: Wiring, check, README ✅
 
 **Acceptance criteria:**
-- [ ] `build_registry` builds both types (and dry-run mocks keep kind and commands); `describe_commands` shows the media value ranges
-- [ ] `waifu check` reports each app target; README (Indonesian) section and commented `config.example.yaml` devices per SPEC
+- [x] `build_registry` builds both types (and dry-run mocks keep kind and commands); `describe_commands` shows the media value ranges
+- [x] Kind value ranges live in the registry and are checked by `execute`, the schedule tools, and `routine_problems`; schedules refuse `play_pause`/`mute` on media; the model is told volume values are percentages and that the toggles toggle
+- [x] `waifu check` reports each app target (and where a `.url` shortcut points); README (Indonesian) section and commented `config.example.yaml` devices per SPEC
 
-**Dependencies:** 57, 58 · **Files:** `src/waifu/devices/registry.py`, `src/waifu/brain/tools.py`, `src/waifu/cli.py`, tests, `README.md`, `config.example.yaml` · **Scope:** M
+**Dependencies:** 57, 58 · **Files:** `src/waifu/devices/registry.py`, `src/waifu/brain/tools.py`, `src/waifu/brain/schedule_tools.py`, `src/waifu/routines.py`, `src/waifu/cli.py`, tests, `README.md`, `config.example.yaml` · **Scope:** M
