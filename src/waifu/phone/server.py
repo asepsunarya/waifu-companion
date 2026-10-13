@@ -1,0 +1,782 @@
+"""The phone server: Cyrene's page, her avatar, and her answers for the owner's paired phone.
+
+It listens on 127.0.0.1 only. `tailscale serve` shares it over HTTPS with the owner's
+tailnet, where the phone opens it as https://<phone.host>/ (the PC's *.ts.net name), and a
+phone pairs once with the six-digit code `waifu phone pair` shows (see `auth.py`).
+
+Without the device cookie that pairing sets, only the page shell is served: the page, its
+own files under /phone/, the manifest, the service worker, and the icons. Her settings
+(/config.json), the renderers and vendored libraries, the Live2D model, the Cubism Core, and
+her answers all need it (401 otherwise, and the page shows its pairing form). Every request
+must name this server as Host (DNS rebinding) and come from the tailnet, never from the
+internet through Tailscale Funnel; every POST must come from the page's own origin, and every
+response keeps other websites from embedding or framing what it serves. The files the phone
+keeps (the model, the Core, the libraries, the page's own scripts) carry their date, so a
+phone that already has one gets a 304 instead of the file again.
+
+The server never touches the brain, the STT, or the TTS: a `PhoneBackend` (the Assistant in
+`waifu run`) answers. A device asks one thing at a time; asking again while she is still
+answering it is refused with 429.
+"""
+
+from __future__ import annotations
+
+import base64
+import functools
+import io
+import ipaddress
+import json
+import logging
+import re
+import sys
+import threading
+import time
+import wave
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
+from email.message import Message
+from http import HTTPStatus
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from types import TracebackType
+from typing import Any, Protocol
+from urllib.parse import unquote, urlsplit
+
+import numpy as np
+
+from waifu.avatar.bus import viewer_settings
+from waifu.avatar.server import (
+    CONTENT_TYPES,
+    INDEX,
+    METHOD_NOT_ALLOWED_TEXT,
+    NOT_FOUND_TEXT,
+    POST_ONLY_TEXT,
+    PROTECTING_HEADERS,
+    WEB_ROOT,
+    AvatarFiles,
+    ServedFile,
+    send_file,
+    web_file,
+)
+from waifu.config import AvatarConfig, PhoneConfig
+from waifu.phone.auth import CODE_LIFETIME, Device, PhoneAuth, Refusal
+from waifu.screen import encode_png
+
+logger = logging.getLogger(__name__)
+
+LOOPBACK = "127.0.0.1"
+CONFIG_URL = "/config.json"
+PAIR_URL = "/pair"
+CHAT_URL = "/chat"
+TALK_URL = "/talk"
+POST_ROUTES = (PAIR_URL, CHAT_URL, TALK_URL)
+
+# The page shell, served without a cookie: these URLs, and /phone/<file>, name files of the
+# page's own folder under the web root.
+PAGE_FOLDER = "phone"
+PAGE_PREFIX = "/phone/"
+SHELL_FILES = {"/": INDEX, "/manifest.webmanifest": "manifest.webmanifest", "/sw.js": "sw.js"}
+PAGE_CONTENT_TYPES = {**CONTENT_TYPES, ".webmanifest": "application/manifest+json"}
+ICON_SIZES = {"/icon-192.png": 192, "/icon-512.png": 512}
+
+COOKIE_NAME = "cyrene_device"
+COOKIE_MAX_AGE_S = 365 * 24 * 60 * 60
+# Device cookies of a request looked up at most: another page of the same site may add its
+# own of that name ahead of the real one, but a phone has one.
+MAX_DEVICE_COOKIES = 4
+DEVICE_NAME = "Android"
+PAIR_CODE = re.compile(r"[0-9]{6}")
+# A url-safe token as PhoneAuth makes them; any other cookie value is never looked up.
+TOKEN_SHAPE = re.compile(r"[A-Za-z0-9_-]{1,128}")
+# Tailscale marks every request that `tailscale funnel` brings in from the internet with this
+# header, and drops any copy a client sends.
+FUNNEL_HEADER = "Tailscale-Funnel-Request"
+
+MAX_CHAT_CHARS = 2000
+# JSON may escape every character of a 2000-character text, as \uXXXX or a surrogate pair.
+CHAT_MAX_BYTES = 32 * 1024
+PAIR_MAX_BYTES = 1024
+TALK_MAX_BYTES = 2 * 1024 * 1024
+TALK_RATE = 16000
+TALK_SAMPLE_BYTES = 2
+TALK_MAX_S = 60
+JSON_TYPES = ("application/json", "application/json;charset=utf-8")
+WAV_TYPE = "audio/wav"
+# A refused request's body is read first when it is at most this long: on Windows a socket
+# closed with unread data is reset, and the reset can throw away the refusal before the
+# client has read it. A larger body is left unread.
+REFUSAL_READ_BYTES = 4096
+# A client that stops sending its request, or stops reading the answer, is dropped.
+SOCKET_TIMEOUT_S = 30
+
+FOREIGN_HOST_TEXT = (
+    "Server HP Cyrene hanya melayani alamat Tailscale PC ini, 127.0.0.1, atau localhost."
+)
+FUNNEL_TEXT = (
+    "Server HP Cyrene hanya melayani jaringan Tailscale-mu, bukan internet lewat Tailscale "
+    "Funnel. Matikan Funnel di PC."
+)
+FOREIGN_ORIGIN_TEXT = "Permintaan hanya diterima dari halaman Cyrene sendiri."
+UNPAIRED_TEXT = "HP ini belum dipasangkan. Jalankan waifu phone pair di PC, lalu masukkan kodenya."
+WRONG_CODE_TEXT = "Kodenya salah atau sudah kedaluwarsa."
+CODE_BURNED_TEXT = "Terlalu banyak percobaan. Buat kode baru di PC dengan waifu phone pair."
+LENGTH_REQUIRED_TEXT = "Permintaan harus menyertakan Content-Length."
+BAD_REQUEST_TEXT = "Permintaan tidak valid."
+TOO_LARGE_TEXT = "Permintaan terlalu besar."
+WRONG_TYPE_TEXT = "Jenis isi permintaan tidak didukung."
+TEXT_TOO_LONG_TEXT = f"Pesannya terlalu panjang. Maksimal {MAX_CHAT_CHARS} karakter."
+BAD_AUDIO_TEXT = "Rekamannya harus WAV mono 16-bit 16 kHz."
+AUDIO_TOO_LONG_TEXT = f"Rekamannya terlalu panjang. Maksimal {TALK_MAX_S} detik."
+# Said in her voice: `{owner}` is assistant.owner_call, used as written mid-sentence.
+BUSY_TEXT = "Sebentar ya, {owner}, aku masih menjawab yang tadi."
+FAILED_TEXT = "Maaf, {owner}, ada masalah di PC. Coba lagi nanti ya."
+
+# The icon: her initial in white on a pink disc, on the page's background colour.
+ICON_BACKGROUND = np.array((0xE9, 0xE4, 0xF7), dtype=float)
+ICON_DISC = np.array((0xF0, 0x8C, 0xB8), dtype=float)
+ICON_LETTER = (0xFF, 0xFF, 0xFF)
+ICON_DISC_RADIUS = 0.46  # of the icon's width
+ICON_CELLS = 12  # the icon's width in letter cells; a letter is 5 x 7 cells
+# A 5 x 7 capital per letter, one number per row, its bit 16 the leftmost cell.
+GLYPHS = {
+    "A": (14, 17, 17, 31, 17, 17, 17),
+    "B": (30, 17, 17, 30, 17, 17, 30),
+    "C": (14, 17, 16, 16, 16, 17, 14),
+    "D": (30, 17, 17, 17, 17, 17, 30),
+    "E": (31, 16, 16, 30, 16, 16, 31),
+    "F": (31, 16, 16, 30, 16, 16, 16),
+    "G": (14, 17, 16, 23, 17, 17, 15),
+    "H": (17, 17, 17, 31, 17, 17, 17),
+    "I": (14, 4, 4, 4, 4, 4, 14),
+    "J": (7, 2, 2, 2, 2, 18, 12),
+    "K": (17, 18, 20, 24, 20, 18, 17),
+    "L": (16, 16, 16, 16, 16, 16, 31),
+    "M": (17, 27, 21, 21, 17, 17, 17),
+    "N": (17, 17, 25, 21, 19, 17, 17),
+    "O": (14, 17, 17, 17, 17, 17, 14),
+    "P": (30, 17, 17, 30, 16, 16, 16),
+    "Q": (14, 17, 17, 17, 21, 18, 13),
+    "R": (30, 17, 17, 30, 20, 18, 17),
+    "S": (15, 16, 16, 14, 1, 1, 30),
+    "T": (31, 4, 4, 4, 4, 4, 4),
+    "U": (17, 17, 17, 17, 17, 17, 14),
+    "V": (17, 17, 17, 17, 17, 10, 4),
+    "W": (17, 17, 17, 21, 21, 21, 10),
+    "X": (17, 17, 10, 4, 10, 17, 17),
+    "Y": (17, 17, 10, 4, 4, 4, 4),
+    "Z": (31, 1, 2, 4, 8, 16, 31),
+}
+GLYPH_WIDTH = 5
+
+# A phone closing the page mid-response surfaces as one of these.
+_DISCONNECTS = (BrokenPipeError, ConnectionResetError, ConnectionAbortedError)
+
+
+class PhoneError(Exception):
+    """The phone server cannot start; the message is Indonesian and safe to show."""
+
+
+@dataclass(frozen=True)
+class PhoneReply:
+    """Her answer for the phone: what she says, with her voice and its mouth track."""
+
+    text: str  # without the emotion tag
+    emotion: str  # one of avatar.emotion.EMOTIONS
+    audio_wav: bytes | None  # her voice as a 16-bit WAV; None when it could not be made
+    fps: int  # frames per second of `visemes`
+    visemes: Sequence[Sequence[float]]  # per frame (aa, ih, ou, ee, oh), each 0..1
+    duration: float  # seconds of audio
+
+
+class PhoneBackend(Protocol):
+    """What answers the phone: in `waifu run`, the Assistant.
+
+    Both are called on the server's request threads and may take seconds; one device has
+    at most one call running, but two devices may call at once.
+    """
+
+    def chat(self, text: str) -> PhoneReply:
+        """Her reply to `text`, not spoken on the PC."""
+        ...
+
+    def transcribe(self, wav_bytes: bytes) -> str:
+        """The words in a mono 16-bit 16 kHz WAV; empty when nothing was understood."""
+        ...
+
+
+class _BurnedCode:
+    """When this server last burned a pairing code; a pairing forgets it.
+
+    The page is told to make a new code (429) instead of to check the one it typed (403) by
+    the refusal that burns the waiting code, and by a refusal for want of a code within
+    CODE_LIFETIME after it. Any other refusal, a typo in a new code included, is a 403.
+    """
+
+    def __init__(self, clock: Callable[[], float]) -> None:
+        self._clock = clock
+        self._window_s = CODE_LIFETIME.total_seconds()
+        self._burned_at: float | None = None
+        self._lock = threading.Lock()
+
+    def calls_for_a_new_code(self, refusal: Refusal) -> bool:
+        """Notes `refusal`; whether the page must be told to make a new code."""
+        with self._lock:
+            now = self._clock()
+            if refusal is Refusal.BURNED:
+                self._burned_at = now
+                return True
+            burned_at = self._burned_at
+            return (
+                refusal is Refusal.NO_CODE
+                and burned_at is not None
+                and now - burned_at < self._window_s
+            )
+
+    def forget(self) -> None:
+        with self._lock:
+            self._burned_at = None
+
+
+class PhoneServer(ThreadingHTTPServer):
+    """Serves the phone page on `host:config.port`; a port in use raises PhoneError.
+
+    `host` must be an IPv4 loopback address: Tailscale, not this server, faces the network.
+    `clock` times how long a burned pairing code is remembered.
+    """
+
+    daemon_threads = True
+    # HTTPServer sets SO_REUSEADDR, which on Windows lets a second server bind the port of
+    # one that is already listening; the two would silently split the requests.
+    allow_reuse_address = sys.platform != "win32"
+    # How long the accept loop may take to notice stop().
+    poll_interval_s: float = 0.2
+
+    def __init__(
+        self,
+        config: PhoneConfig,
+        avatar: AvatarConfig,
+        auth: PhoneAuth,
+        backend: PhoneBackend,
+        *,
+        owner_call: str,
+        assistant_name: str,
+        web_root: Path = WEB_ROOT,
+        host: str = LOOPBACK,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        if not _is_ipv4_loopback(host):
+            raise ValueError(f"The phone server listens only on IPv4 loopback, not {host!r}")
+        self.auth = auth
+        self.backend = backend
+        self.files = AvatarFiles(avatar, web_root)
+        self.page_root = (self.files.web_root / PAGE_FOLDER).resolve()
+        settings = viewer_settings(avatar, assistant_name)
+        self.page_config: dict[str, Any] = {
+            "engine": settings["engine"],
+            "model": settings["model"],
+            "core": settings["core"],
+            "credit": avatar.credit,
+            "name": assistant_name,
+            "owner_call": owner_call,
+            "framing": "upper",
+        }
+        self.initial = assistant_name.strip()[:1].upper()
+        self.busy_text = BUSY_TEXT.replace("{owner}", owner_call)
+        self.failed_text = FAILED_TEXT.replace("{owner}", owner_call)
+        self.burned_code = _BurnedCode(clock)
+        self._answering: set[str] = set()
+        self._answering_lock = threading.Lock()
+        self._thread: threading.Thread | None = None
+        try:
+            super().__init__((host, config.port), _PhoneRequestHandler)
+        except OSError as exc:
+            raise PhoneError(
+                f"Port {host}:{config.port} sudah dipakai program lain (mungkin Cyrene yang "
+                "lain masih berjalan) atau diblokir Windows. Tutup program itu atau ganti "
+                "phone.port di config.yaml."
+            ) from exc
+        bound_host, port = self.server_address[:2]
+        own = {f"{bound_host}:{port}", f"localhost:{port}"}
+        self.own_hosts = frozenset(own | ({config.host} if config.host else set()))
+        self.own_origins = frozenset(
+            {f"http://{name}" for name in own}
+            | ({f"https://{config.host}"} if config.host else set())
+        )
+
+    @property
+    def url(self) -> str:
+        host, port = self.server_address[:2]
+        return f"http://{host}:{port}/"
+
+    def claim(self, device_id: str) -> bool:
+        """Marks `device_id` as being answered; False while an earlier request of it still is."""
+        with self._answering_lock:
+            if device_id in self._answering:
+                return False
+            self._answering.add(device_id)
+            return True
+
+    def release(self, device_id: str) -> None:
+        with self._answering_lock:
+            self._answering.discard(device_id)
+
+    def start(self) -> None:
+        """Serves in a daemon thread."""
+        self._thread = threading.Thread(
+            target=self.serve_forever,
+            kwargs={"poll_interval": self.poll_interval_s},
+            name="phone-server",
+            daemon=True,
+        )
+        self._thread.start()
+        logger.info("Phone server listening on %s", self.url)
+
+    def stop(self) -> None:
+        """Stops serving and frees the port; safe to repeat."""
+        if self._thread is not None:
+            self.shutdown()
+            self._thread.join()
+            self._thread = None
+        self.server_close()
+
+    def __enter__(self) -> PhoneServer:
+        self.start()
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        self.stop()
+
+    def handle_error(self, request: Any, client_address: Any) -> None:
+        if isinstance(sys.exception(), _DISCONNECTS):
+            logger.debug("Phone client %s disconnected", client_address[0])
+        else:
+            logger.exception("Phone request from %s failed", client_address[0])
+
+
+class _PhoneRequestHandler(BaseHTTPRequestHandler):
+    server: PhoneServer
+    timeout = SOCKET_TIMEOUT_S
+    # Whether this request's body has been read (a refusal then reads nothing more).
+    _body_read = False
+
+    def parse_request(self) -> bool:
+        """Parses the request and refuses (403) any Host but this server's own names, and any
+        request from the internet through Tailscale Funnel.
+
+        A web page whose host name an attacker re-points at 127.0.0.1 (DNS rebinding)
+        counts as same-origin with this server, but its requests still carry that name.
+        Funnel opens the whole host:port to the internet with the tailnet's own Host.
+        """
+        if not super().parse_request():
+            return False
+        if self.request_version == "HTTP/0.9":
+            # Without headers there is no Host, and HTTP/0.9 has no status line to refuse with.
+            logger.debug("Ignored an HTTP/0.9 request from %s", self.client_address[0])
+            return False
+        host = (self.headers.get("Host") or "").strip().lower()
+        if host not in self.server.own_hosts:
+            logger.warning(
+                "Refused a phone request for host %r from %s", host, self.client_address[0]
+            )
+            self._send_error(HTTPStatus.FORBIDDEN, FOREIGN_HOST_TEXT)
+            return False
+        if FUNNEL_HEADER in self.headers:
+            logger.warning(
+                "Refused a phone request from the internet through Tailscale Funnel; turn "
+                "Funnel off for this PC"
+            )
+            self._send_error(HTTPStatus.FORBIDDEN, FUNNEL_TEXT)
+            return False
+        return True
+
+    def do_GET(self) -> None:
+        path = urlsplit(self.path).path
+        if path in POST_ROUTES:
+            self._refuse_method()
+        elif path in ICON_SIZES:
+            self._send_bytes(icon_png(ICON_SIZES[path], self.server.initial), "image/png")
+        elif path in SHELL_FILES:
+            self._send_found(web_file(self.server.page_root, SHELL_FILES[path], PAGE_CONTENT_TYPES))
+        elif path.startswith(PAGE_PREFIX):
+            relative = unquote(path.removeprefix(PAGE_PREFIX)).lstrip("/")
+            self._send_found(web_file(self.server.page_root, relative, PAGE_CONTENT_TYPES))
+        elif self._device() is None:
+            self._send_error(HTTPStatus.UNAUTHORIZED, UNPAIRED_TEXT)
+        elif path == CONFIG_URL:
+            self._send_json(HTTPStatus.OK, self.server.page_config)
+        else:
+            self._send_found(self.server.files.find(path))
+
+    def do_POST(self) -> None:
+        path = urlsplit(self.path).path
+        if path not in POST_ROUTES:
+            self._refuse_method()
+            return
+        origins = self.headers.get_all("Origin") or []
+        if len(origins) != 1 or origins[0] not in self.server.own_origins:
+            logger.warning(
+                "Refused a phone %s from %s: foreign origin", path, self.client_address[0]
+            )
+            self._send_error(HTTPStatus.FORBIDDEN, FOREIGN_ORIGIN_TEXT)
+            return
+        if path == PAIR_URL:
+            self._pair()
+            return
+        device = self._device()
+        if device is None:
+            self._send_error(HTTPStatus.UNAUTHORIZED, UNPAIRED_TEXT)
+        elif path == CHAT_URL:
+            self._chat(device)
+        else:
+            self._talk(device)
+
+    def _refuse_method(self) -> None:
+        if urlsplit(self.path).path in POST_ROUTES:
+            allowed, text = "POST", POST_ONLY_TEXT
+        else:
+            allowed, text = "GET", METHOD_NOT_ALLOWED_TEXT
+        self._send_error(HTTPStatus.METHOD_NOT_ALLOWED, text, headers={"Allow": allowed})
+
+    do_HEAD = do_PUT = do_DELETE = do_PATCH = _refuse_method
+    do_OPTIONS = do_CONNECT = do_TRACE = _refuse_method
+
+    def _device(self) -> Device | None:
+        """The paired device of the first device cookie of this request PhoneAuth knows, or None.
+
+        Each of the first MAX_DEVICE_COOKIES cookies of that name shaped like a token is
+        tried: a cookie another page of the site set ahead of the real one never hides it.
+        """
+        tokens = [
+            token for token in _cookies(self.headers, COOKIE_NAME) if TOKEN_SHAPE.fullmatch(token)
+        ]
+        for token in tokens[:MAX_DEVICE_COOKIES]:
+            device = self.server.auth.check(token)
+            if device is not None:
+                return device
+        return None
+
+    # --- pairing ------------------------------------------------------------------------------
+
+    def _pair(self) -> None:
+        body = self._read_body(PAIR_MAX_BYTES)
+        if body is None:
+            return
+        code = self._json_text(body, "code")
+        if code is None:
+            return
+        if not PAIR_CODE.fullmatch(code):
+            self._send_error(HTTPStatus.BAD_REQUEST, BAD_REQUEST_TEXT)
+            return
+        token = self.server.auth.redeem(code, DEVICE_NAME)
+        if isinstance(token, Refusal):
+            if self.server.burned_code.calls_for_a_new_code(token):
+                self._send_error(HTTPStatus.TOO_MANY_REQUESTS, CODE_BURNED_TEXT)
+            else:
+                self._send_error(HTTPStatus.FORBIDDEN, WRONG_CODE_TEXT)
+            return
+        self.server.burned_code.forget()
+        self.send_response(HTTPStatus.NO_CONTENT)
+        # Secure also holds on http://127.0.0.1: browsers treat loopback as a secure context.
+        self.send_header(
+            "Set-Cookie",
+            f"{COOKIE_NAME}={token}; Max-Age={COOKIE_MAX_AGE_S}; Path=/; Secure; HttpOnly; "
+            "SameSite=Strict",
+        )
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+
+    # --- her answers --------------------------------------------------------------------------
+
+    def _chat(self, device: Device) -> None:
+        body = self._read_body(CHAT_MAX_BYTES)
+        if body is None:
+            return
+        text = self._json_text(body, "text")
+        if text is None:
+            return
+        text = text.strip()
+        if not text:
+            self._send_error(HTTPStatus.BAD_REQUEST, BAD_REQUEST_TEXT)
+        elif len(text) > MAX_CHAT_CHARS:
+            self._send_error(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, TEXT_TOO_LONG_TEXT)
+        else:
+            self._answer(device, "chat", lambda backend: _reply_fields(backend.chat(text)))
+
+    def _talk(self, device: Device) -> None:
+        body = self._read_body(TALK_MAX_BYTES)
+        if body is None:
+            return
+        if _content_type(self.headers) != WAV_TYPE:
+            self._send_error(HTTPStatus.UNSUPPORTED_MEDIA_TYPE, WRONG_TYPE_TEXT)
+            return
+        problem = _recording_problem(body)
+        if problem is HTTPStatus.BAD_REQUEST:
+            self._send_error(problem, BAD_AUDIO_TEXT)
+        elif problem is HTTPStatus.REQUEST_ENTITY_TOO_LARGE:
+            self._send_error(problem, AUDIO_TOO_LONG_TEXT)
+        else:
+            self._answer(device, "talk", lambda backend: _talk_fields(backend, body))
+
+    def _answer(
+        self,
+        device: Device,
+        route: str,
+        ask: Callable[[PhoneBackend], Mapping[str, Any]],
+    ) -> None:
+        """Asks the backend for `device`, one request at a time, and sends its JSON answer."""
+        if not self.server.claim(device.id):
+            logger.info("Refused a phone %s of device %s: still answering it", route, device.id)
+            self._send_error(HTTPStatus.TOO_MANY_REQUESTS, self.server.busy_text)
+            return
+        try:
+            body = _json_bytes(ask(self.server.backend))
+        except Exception:
+            logger.exception("Answering the phone %s of device %s failed", route, device.id)
+            self._send_error(HTTPStatus.INTERNAL_SERVER_ERROR, self.server.failed_text)
+            return
+        finally:
+            self.server.release(device.id)
+        logger.debug("Answered the phone %s of device %s", route, device.id)
+        self._send_body(HTTPStatus.OK, body)
+
+    # --- request bodies -----------------------------------------------------------------------
+
+    def _read_body(self, limit: int) -> bytes | None:
+        """The body, read only when its Content-Length allows `limit`; None once refused."""
+        length = _body_length(self.headers, limit)
+        if length is HTTPStatus.LENGTH_REQUIRED:
+            self._send_error(length, LENGTH_REQUIRED_TEXT)
+            return None
+        if length is HTTPStatus.REQUEST_ENTITY_TOO_LARGE:
+            self._send_error(length, TOO_LARGE_TEXT)
+            return None
+        if isinstance(length, HTTPStatus):
+            self._send_error(length, BAD_REQUEST_TEXT)
+            return None
+        body = self.rfile.read(length)
+        self._body_read = True
+        if len(body) != length:
+            self._send_error(HTTPStatus.BAD_REQUEST, BAD_REQUEST_TEXT)
+            return None
+        return body
+
+    def _json_text(self, body: bytes, key: str) -> str | None:
+        """The text of a JSON body `{key: "..."}`; None after refusing anything else."""
+        if _content_type(self.headers) not in JSON_TYPES:
+            self._send_error(HTTPStatus.UNSUPPORTED_MEDIA_TYPE, WRONG_TYPE_TEXT)
+            return None
+        text = _json_string(body, key)
+        if text is None:
+            self._send_error(HTTPStatus.BAD_REQUEST, BAD_REQUEST_TEXT)
+        return text
+
+    def _discard_small_body(self) -> None:
+        """Reads a refused request's unread body when it is at most REFUSAL_READ_BYTES."""
+        if self._body_read:
+            return
+        length = _body_length(self.headers, REFUSAL_READ_BYTES)
+        if not isinstance(length, HTTPStatus):  # an IntEnum: test it before int
+            self.rfile.read(length)
+            self._body_read = True
+
+    # --- replies ------------------------------------------------------------------------------
+
+    def end_headers(self) -> None:
+        """Ends every response's headers, refusals and errors included, with PROTECTING_HEADERS."""
+        for name, value in PROTECTING_HEADERS.items():
+            self.send_header(name, value)
+        super().end_headers()
+
+    def _send_found(self, found: ServedFile | str | None) -> None:
+        """Sends a file the phone may keep (the page itself is never kept), or a 404 with the
+        reason `AvatarFiles.find` gave, if any."""
+        if isinstance(found, ServedFile):
+            send_file(self, found, revalidate=True)
+        else:
+            self._send_error(HTTPStatus.NOT_FOUND, found or NOT_FOUND_TEXT)
+
+    def _send_bytes(self, body: bytes, content_type: str) -> None:
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _send_json(self, status: HTTPStatus, payload: Mapping[str, Any]) -> None:
+        self._send_body(status, _json_bytes(payload))
+
+    def _send_error(
+        self, status: HTTPStatus, text: str, *, headers: Mapping[str, str] | None = None
+    ) -> None:
+        """Refuses the request with `{"error": text}`, reading a small unread body first."""
+        self._discard_small_body()
+        self._send_body(status, _json_bytes({"error": text}), headers=headers)
+
+    def _send_body(
+        self, status: HTTPStatus, body: bytes, *, headers: Mapping[str, str] | None = None
+    ) -> None:
+        """Sends a JSON body, never cached, and never with a HEAD answer."""
+        self.send_response(status)
+        self.send_header("Content-Type", CONTENT_TYPES[".json"])
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        for name, value in (headers or {}).items():
+            self.send_header(name, value)
+        self.end_headers()
+        if self.command != "HEAD":
+            self.wfile.write(body)
+
+    def log_message(self, format: str, *args: Any) -> None:
+        logger.debug("%s %s", self.address_string(), format % args)
+
+
+@functools.cache
+def icon_png(size: int, initial: str) -> bytes:
+    """The app icon, `size` pixels square: `initial` (A-Z) on a pink disc.
+
+    Any other initial leaves the disc plain.
+    """
+    rows, columns = np.mgrid[0:size, 0:size] + 0.5
+    distance = np.hypot(rows - size / 2, columns - size / 2)
+    # How much of each pixel the disc covers: a one-pixel ramp keeps its edge smooth.
+    cover = np.clip(ICON_DISC_RADIUS * size - distance + 0.5, 0.0, 1.0)[..., None]
+    image = (1.0 - cover) * ICON_BACKGROUND + cover * ICON_DISC
+    glyph = GLYPHS.get(initial)
+    if glyph is not None:
+        cell = size // ICON_CELLS
+        bits = np.array(
+            [
+                [(row >> (GLYPH_WIDTH - 1 - column)) & 1 for column in range(GLYPH_WIDTH)]
+                for row in glyph
+            ],
+            dtype=bool,
+        )
+        letter = bits.repeat(cell, axis=0).repeat(cell, axis=1)
+        top = (size - letter.shape[0]) // 2
+        left = (size - letter.shape[1]) // 2
+        image[top : top + letter.shape[0], left : left + letter.shape[1]][letter] = ICON_LETTER
+    return encode_png(np.round(image).astype(np.uint8))
+
+
+def _is_ipv4_loopback(host: str) -> bool:
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return address.version == 4 and address.is_loopback
+
+
+def _cookies(headers: Message, name: str) -> list[str]:
+    """The values of every cookie `name` in the request's Cookie headers, in their order.
+
+    Read by hand: http.cookies.SimpleCookie drops every cookie of a header when one of them
+    is not to its liking, and browsers do not keep cookies apart by port, so any other
+    program's page on 127.0.0.1 may add one.
+    """
+    values = []
+    for header in headers.get_all("Cookie") or []:
+        for pair in header.split(";"):
+            key, separator, value = pair.strip().partition("=")
+            if separator and key == name:
+                values.append(value.strip())
+    return values
+
+
+def _content_type(headers: Message) -> str:
+    """The request's Content-Type, lowercased and without whitespace (`a/b;charset=utf-8`)."""
+    return "".join((headers.get("Content-Type") or "").split()).lower()
+
+
+def _body_length(headers: Message, limit: int) -> int | HTTPStatus:
+    """The body length a request declares when it is at most `limit`.
+
+    Otherwise the status that refuses it: LENGTH_REQUIRED without a Content-Length,
+    BAD_REQUEST for several or one that is not plain decimal digits, and
+    REQUEST_ENTITY_TOO_LARGE above `limit`.
+    """
+    lengths = headers.get_all("Content-Length") or []
+    if not lengths:
+        return HTTPStatus.LENGTH_REQUIRED
+    length = lengths[0].strip()
+    if len(lengths) != 1 or not (length.isascii() and length.isdigit()):
+        return HTTPStatus.BAD_REQUEST
+    digits = length.lstrip("0") or "0"
+    # The digits are counted before int(), which refuses numbers over 4300 digits.
+    if len(digits) > len(str(limit)) or int(digits) > limit:
+        return HTTPStatus.REQUEST_ENTITY_TOO_LARGE
+    return int(digits)
+
+
+def _json_string(body: bytes, key: str) -> str | None:
+    """The string of a JSON body `{key: str}` that is valid UTF-8 text; None otherwise."""
+    try:
+        data = json.loads(body.decode("utf-8"))
+    except (ValueError, RecursionError):  # also UnicodeDecodeError; deep nesting on 3.11-3.13
+        return None
+    if not isinstance(data, dict) or data.keys() != {key} or not isinstance(data[key], str):
+        return None
+    text = data[key]
+    try:
+        text.encode("utf-8")  # a lone surrogate from a \ud800 escape is not text
+    except UnicodeEncodeError:
+        return None
+    return text
+
+
+def _recording_problem(body: bytes) -> HTTPStatus | None:
+    """Why POST /talk refuses `body`, or None for a mono 16-bit PCM WAV at 16 kHz.
+
+    BAD_REQUEST for anything else, an empty recording, or one whose data is shorter than it
+    declares; REQUEST_ENTITY_TOO_LARGE for one over TALK_MAX_S.
+    """
+    try:
+        with wave.open(io.BytesIO(body), "rb") as recording:
+            shape = (
+                recording.getnchannels(),
+                recording.getsampwidth(),
+                recording.getframerate(),
+            )
+            frames = recording.getnframes()
+            data = recording.readframes(frames)
+    # wave raises EOFError for a cut-off header and RuntimeError for a chunk that claims
+    # to reach past the RIFF chunk holding it.
+    except (wave.Error, EOFError, RuntimeError):
+        return HTTPStatus.BAD_REQUEST
+    if shape != (1, TALK_SAMPLE_BYTES, TALK_RATE) or frames == 0:
+        return HTTPStatus.BAD_REQUEST
+    if len(data) != frames * TALK_SAMPLE_BYTES:
+        return HTTPStatus.BAD_REQUEST
+    if frames > TALK_MAX_S * TALK_RATE:
+        return HTTPStatus.REQUEST_ENTITY_TOO_LARGE
+    return None
+
+
+def _talk_fields(backend: PhoneBackend, wav_bytes: bytes) -> dict[str, Any]:
+    """The /talk answer: what she heard and her reply, or no reply when nothing was heard."""
+    heard = backend.transcribe(wav_bytes).strip()
+    if not heard:
+        return {"heard": "", "text": None}
+    return {"heard": heard, **_reply_fields(backend.chat(heard))}
+
+
+def _reply_fields(reply: PhoneReply) -> dict[str, Any]:
+    """The /chat answer; the mouth track rounded like the avatar's speak events."""
+    audio = None if reply.audio_wav is None else base64.b64encode(reply.audio_wav).decode("ascii")
+    return {
+        "text": reply.text,
+        "emotion": reply.emotion,
+        "audio": audio,
+        "fps": reply.fps,
+        "visemes": [[round(float(weight), 2) for weight in frame] for frame in reply.visemes],
+        "duration": round(float(reply.duration), 3),
+    }
+
+
+def _json_bytes(payload: Mapping[str, Any]) -> bytes:
+    """`payload` as compact UTF-8 JSON; a NaN or infinity is a ValueError, never sent."""
+    return json.dumps(payload, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode()

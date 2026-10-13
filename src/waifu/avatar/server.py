@@ -27,6 +27,10 @@ import threading
 import time
 from collections import deque
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from email.message import Message
+from email.utils import formatdate, parsedate_to_datetime
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -79,6 +83,8 @@ INTERACT_RATE_WINDOW_S = 1.0
 TOKEN_BYTES = 24
 SSE_RETRY_MS = 2000
 FILE_CHUNK_BYTES = 64 * 1024
+# Kept by the browser, which asks before each use whether the file changed (a 304 if not).
+REVALIDATE = "no-cache"
 # A client that stops sending its request, or stops reading the stream, is dropped.
 SOCKET_TIMEOUT_S = 30
 NOT_FOUND_TEXT = "Tidak ditemukan."
@@ -117,6 +123,74 @@ _FORBIDDEN_PATH_CHARS = ("\\", ":", "\0")
 
 class AvatarError(Exception):
     """The avatar cannot be shown; the message is Indonesian and safe to show."""
+
+
+@dataclass(frozen=True)
+class ServedFile:
+    """A file a GET route answers with, its Content-Type, and its Cache-Control, if any."""
+
+    path: Path
+    content_type: str
+    cache_control: str | None = None
+
+
+class AvatarFiles:
+    """The files behind the avatar's GET routes, every one found through `file_under`.
+
+    `/model.vrm` is the VRM (engine vrm); `/model/<path>` is a file of the Live2D model's
+    folder and `/live2d/live2dcubismcore.min.js` the owner's Cubism Core (engine live2d); any
+    other path names a file under the web root, `/` its index.html. The avatar server and the
+    phone server both serve them.
+    """
+
+    def __init__(self, config: AvatarConfig, web_root: Path = WEB_ROOT) -> None:
+        self.web_root = web_root.resolve()
+        self._engine = config.engine
+        self._model_path = config.model
+        live2d = config.engine == "live2d"
+        # A model3.json loads its moc3, physics, and textures from its own folder.
+        self._model_root = (
+            config.model.parent.resolve() if live2d and config.model is not None else None
+        )
+        self._core_path = config.live2d_core if live2d else None
+
+    def find(self, url_path: str) -> ServedFile | str:
+        """The file a request's URL path (still %-encoded) names, or the text of its 404."""
+        if url_path == MODEL_URL:
+            return self._model()
+        if url_path.startswith(LIVE2D_MODEL_PREFIX):
+            return self._live2d_file(url_path.removeprefix(LIVE2D_MODEL_PREFIX))
+        if url_path == LIVE2D_CORE_URL:
+            return self._core()
+        relative = unquote(url_path).lstrip("/") or INDEX
+        return web_file(self.web_root, relative) or NOT_FOUND_TEXT
+
+    def _model(self) -> ServedFile | str:
+        if self._engine != "vrm":
+            return NOT_FOUND_TEXT
+        model = self._model_path
+        if model is None or not model.is_file():
+            logger.warning("Avatar model not found: %s", model)
+            return MODEL_NOT_FOUND_TEXT
+        return ServedFile(model, MODEL_CONTENT_TYPE)
+
+    def _live2d_file(self, url_path: str) -> ServedFile | str:
+        """A file of the Live2D model folder; `url_path` is relative to `/model/`."""
+        root = self._model_root
+        path = None if root is None else _file_under(root, unquote(url_path))
+        content_type = None if path is None else LIVE2D_CONTENT_TYPES.get(path.suffix.lower())
+        if path is None or content_type is None:
+            return NOT_FOUND_TEXT
+        return ServedFile(path, content_type)
+
+    def _core(self) -> ServedFile | str:
+        core = self._core_path
+        if core is None:
+            return NOT_FOUND_TEXT
+        if not core.is_file():
+            logger.warning("Live2D Cubism Core not found: %s", core)
+            return CORE_NOT_FOUND_TEXT
+        return ServedFile(core, CONTENT_TYPES[".js"])
 
 
 class _RollingLimit:
@@ -166,15 +240,7 @@ class AvatarServer(ThreadingHTTPServer):
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.bus = bus
-        self.web_root = web_root.resolve()
-        self.engine = config.engine
-        self.model_path = config.model
-        live2d = config.engine == "live2d"
-        # A model3.json loads its moc3, physics, and textures from its own folder.
-        self.model_root = (
-            config.model.parent.resolve() if live2d and config.model is not None else None
-        )
-        self.core_path = config.live2d_core if live2d else None
+        self.files = AvatarFiles(config, web_root)
         self.on_interact = on_interact
         self.interaction_limit = _RollingLimit(INTERACT_RATE_LIMIT, INTERACT_RATE_WINDOW_S, clock)
         self._token = secrets.token_urlsafe(TOKEN_BYTES)
@@ -289,16 +355,10 @@ class _AvatarRequestHandler(BaseHTTPRequestHandler):
             self._stream_events()
         elif path == CONFIG_URL:
             self._send_json(HTTPStatus.OK, self.server.page_config())
-        elif path == MODEL_URL:
-            self._send_model()
-        elif path.startswith(LIVE2D_MODEL_PREFIX):
-            self._send_live2d_file(path.removeprefix(LIVE2D_MODEL_PREFIX))
-        elif path == LIVE2D_CORE_URL:
-            self._send_core()
         elif path == INTERACT_URL:
             self._refuse_method()
         else:
-            self._send_static(path)
+            self._send_found(self.server.files.find(path))
 
     def do_POST(self) -> None:
         if urlsplit(self.path).path == INTERACT_URL:
@@ -350,62 +410,12 @@ class _AvatarRequestHandler(BaseHTTPRequestHandler):
 
     # --- files --------------------------------------------------------------------------------
 
-    def _send_model(self) -> None:
-        if self.server.engine != "vrm":
-            self._send_text(HTTPStatus.NOT_FOUND, NOT_FOUND_TEXT)
-            return
-        model = self.server.model_path
-        if model is None or not model.is_file():
-            logger.warning("Avatar model not found: %s", model)
-            self._send_text(HTTPStatus.NOT_FOUND, MODEL_NOT_FOUND_TEXT)
-            return
-        self._send_file(model, MODEL_CONTENT_TYPE)
-
-    def _send_live2d_file(self, url_path: str) -> None:
-        """A file of the Live2D model folder; `url_path` is relative to `/model/`."""
-        root = self.server.model_root
-        path = None if root is None else _file_under(root, unquote(url_path))
-        content_type = None if path is None else LIVE2D_CONTENT_TYPES.get(path.suffix.lower())
-        if path is None or content_type is None:
-            self._send_text(HTTPStatus.NOT_FOUND, NOT_FOUND_TEXT)
-            return
-        self._send_file(path, content_type)
-
-    def _send_core(self) -> None:
-        core = self.server.core_path
-        if core is None:
-            self._send_text(HTTPStatus.NOT_FOUND, NOT_FOUND_TEXT)
-            return
-        if not core.is_file():
-            logger.warning("Live2D Cubism Core not found: %s", core)
-            self._send_text(HTTPStatus.NOT_FOUND, CORE_NOT_FOUND_TEXT)
-            return
-        self._send_file(core, CONTENT_TYPES[".js"])
-
-    def _send_static(self, url_path: str) -> None:
-        path = _file_under(self.server.web_root, unquote(url_path).lstrip("/") or INDEX)
-        if path is None:
-            self._send_text(HTTPStatus.NOT_FOUND, NOT_FOUND_TEXT)
-            return
-        suffix = path.suffix.lower()
-        self._send_file(
-            path,
-            CONTENT_TYPES.get(suffix, DEFAULT_CONTENT_TYPE),
-            cache_control="no-store" if suffix == ".html" else None,
-        )
-
-    def _send_file(
-        self, path: Path, content_type: str, *, cache_control: str | None = None
-    ) -> None:
-        with path.open("rb") as file:
-            size = os.fstat(file.fileno()).st_size
-            self.send_response(HTTPStatus.OK)
-            self.send_header("Content-Type", content_type)
-            self.send_header("Content-Length", str(size))
-            if cache_control is not None:
-                self.send_header("Cache-Control", cache_control)
-            self.end_headers()
-            shutil.copyfileobj(file, self.wfile, FILE_CHUNK_BYTES)
+    def _send_found(self, found: ServedFile | str) -> None:
+        """Sends what `AvatarFiles.find` found: the file, or a 404 with its text."""
+        if isinstance(found, str):
+            self._send_text(HTTPStatus.NOT_FOUND, found)
+        else:
+            send_file(self, found)
 
     # --- interactions -------------------------------------------------------------------------
 
@@ -548,6 +558,77 @@ def file_under(root: Path, relative: str) -> Path | None:
 def _file_under(root: Path, url_path: str) -> Path | None:
     """The file a decoded URL path names inside `root`; its leading slashes are dropped."""
     return file_under(root, url_path.lstrip("/"))
+
+
+def web_file(
+    root: Path, relative: str, content_types: Mapping[str, str] = CONTENT_TYPES
+) -> ServedFile | None:
+    """The file `relative` names inside `root` (see `file_under`), typed by its suffix.
+
+    A suffix missing from `content_types` is served as bytes; HTML is never cached.
+    """
+    path = file_under(root, relative)
+    if path is None:
+        return None
+    suffix = path.suffix.lower()
+    return ServedFile(
+        path,
+        content_types.get(suffix, DEFAULT_CONTENT_TYPE),
+        "no-store" if suffix == ".html" else None,
+    )
+
+
+def send_file(
+    handler: BaseHTTPRequestHandler, file: ServedFile, *, revalidate: bool = False
+) -> None:
+    """Streams `file` as the 200 answer to `handler`'s request.
+
+    With `revalidate`, a file without a Cache-Control of its own is sent as REVALIDATE with
+    its Last-Modified, and a request whose If-Modified-Since is not older than that gets a
+    304 without a body: the browser keeps the file and asks before each use.
+    """
+    with file.path.open("rb") as stream:
+        stat = os.fstat(stream.fileno())
+        kept = revalidate and file.cache_control is None
+        # HTTP dates count whole seconds.
+        modified = datetime.fromtimestamp(int(stat.st_mtime), UTC)
+        if kept and _unchanged_since(handler.headers, modified):
+            handler.send_response(HTTPStatus.NOT_MODIFIED)
+            _send_validators(handler, modified)
+            handler.end_headers()
+            return
+        handler.send_response(HTTPStatus.OK)
+        handler.send_header("Content-Type", file.content_type)
+        handler.send_header("Content-Length", str(stat.st_size))
+        if kept:
+            _send_validators(handler, modified)
+        elif file.cache_control is not None:
+            handler.send_header("Cache-Control", file.cache_control)
+        handler.end_headers()
+        shutil.copyfileobj(stream, handler.wfile, FILE_CHUNK_BYTES)
+
+
+def _send_validators(handler: BaseHTTPRequestHandler, modified: datetime) -> None:
+    handler.send_header("Cache-Control", REVALIDATE)
+    handler.send_header("Last-Modified", formatdate(modified.timestamp(), usegmt=True))
+
+
+def _unchanged_since(headers: Message, modified: datetime) -> bool:
+    """Whether the request's If-Modified-Since is `modified` or later.
+
+    Like http.server: one that cannot be read, or one beside an If-None-Match (a validator
+    these servers never give), asks for the whole file.
+    """
+    since = headers.get("If-Modified-Since")
+    if since is None or "If-None-Match" in headers:
+        return False
+    try:
+        date = parsedate_to_datetime(since)
+    except (TypeError, IndexError, OverflowError, ValueError):
+        return False
+    if date.tzinfo is None:  # an obsolete date format without a zone is in GMT
+        date = date.replace(tzinfo=UTC)
+    return modified <= date
 
 
 def _interaction_fields(content_type: str, body: bytes) -> tuple[str, str] | None:
