@@ -147,6 +147,26 @@ def test_pressing_real_keys_through_user32_is_refused(function):
         getattr(ctypes.windll.user32, function)
 
 
+@pytest.mark.parametrize(
+    ("library", "function"),
+    [("gdi32", "BitBlt"), ("gdi32", "StretchBlt"), ("user32", "PrintWindow")],
+)
+def test_capturing_the_real_screen_is_refused(library, function):
+    if not hasattr(ctypes, "WinDLL"):
+        pytest.skip("gdi32 and user32 only exist on Windows")
+    # Refused as soon as the function is looked up, so nothing is ever captured.
+    with pytest.raises(AssertionError, match=function):
+        getattr(ctypes.WinDLL(library), function)
+    with pytest.raises(AssertionError, match=function):
+        getattr(getattr(ctypes.windll, library), function)
+
+
+def test_other_gdi32_functions_still_load():
+    if not hasattr(ctypes, "WinDLL"):
+        pytest.skip("gdi32 only exists on Windows")
+    assert ctypes.WinDLL("gdi32").GetStockObject is not None
+
+
 def test_other_user32_functions_still_work():
     if not hasattr(ctypes, "WinDLL"):
         pytest.skip("user32 only exists on Windows")

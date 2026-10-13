@@ -6,7 +6,7 @@ PowrProf, no registry writes, no scheduled-task or reg.exe changes. No test may
 reach beyond this PC either: a forgotten fake must not push to the owner's phone
 or check in on their HoYoLAB account. Nor may a test read the owner's game logs and
 caches, which hold their history authkeys, press real keys (media keys would change the
-owner's music and volume), or open real programs and URLs.
+owner's music and volume), open real programs and URLs, or capture the owner's real screen.
 """
 
 import ctypes
@@ -33,7 +33,15 @@ except ImportError:  # not Windows
 os.environ["WAIFU_DISABLE_POWER"] = "1"
 
 _POWER_PROGRAMS = {"shutdown", "rundll32"}
-_KEY_PRESSERS = {"sendinput", "keybd_event"}
+# Functions refused per library, each with what a test was trying to do.
+_REFUSED_FUNCTIONS = {
+    "user32": {
+        "sendinput": "press real keys",
+        "keybd_event": "press real keys",
+        "printwindow": "capture the real screen",
+    },
+    "gdi32": {"bitblt": "capture the real screen", "stretchblt": "capture the real screen"},
+}
 _REG_WRITE_VERBS = {"add", "delete", "import", "restore", "copy", "load", "unload"}
 _REGISTRY_WRITERS = (
     "SetValue",
@@ -96,18 +104,20 @@ class _GuardedPopen(_REAL_POPEN):  # type: ignore[misc, valid-type]
         super().__init__(args, *pargs, **kwargs)
 
 
-class _GuardedUser32:
-    """user32 without its key-pressing functions: looking one up already fails."""
+class _GuardedDll:
+    """A system library without its refused functions: looking one up already fails."""
 
-    def __init__(self, dll) -> None:
+    def __init__(self, dll, library: str) -> None:
         self._dll = dll
+        self._library = library
 
     def __getattr__(self, name: str):
         return self[name]
 
     def __getitem__(self, name: str):
-        if name.lower() in _KEY_PRESSERS:
-            raise AssertionError(f"a test tried to press real keys with user32.{name}")
+        purpose = _REFUSED_FUNCTIONS[self._library].get(name.lower())
+        if purpose:
+            raise AssertionError(f"a test tried to {purpose} with {self._library}.{name}")
         return getattr(self._dll, name)
 
 
@@ -116,7 +126,7 @@ def _guarded_windll(name, *args, **kwargs):
     if "powrprof" in stem:
         raise AssertionError("a test tried to load the real PowrProf.dll")
     dll = _REAL_WINDLL(name, *args, **kwargs)
-    return _GuardedUser32(dll) if stem == "user32" else dll
+    return _GuardedDll(dll, stem) if stem in _REFUSED_FUNCTIONS else dll
 
 
 def _refuse_startfile(*args, **kwargs):
