@@ -544,3 +544,15 @@ def test_briefing_clock_times_and_place_are_read_including_bare_yaml_times(tmp_p
 def test_bad_briefing_settings_are_refused(tmp_path, lines):
     with pytest.raises(ConfigError, match="briefing"):
         load_config(write_yaml(tmp_path, "briefing:\n" + lines))
+
+
+def test_she_calls_the_owner_master_unless_told_otherwise(tmp_path):
+    assert AppConfig().assistant.owner_call == "Master"
+    text = "assistant:\n  owner_call: Sayang\n"
+    assert load_config(write_yaml(tmp_path, text)).assistant.owner_call == "Sayang"
+
+
+@pytest.mark.parametrize("word", ["''", "'   '", "'" + "x" * 31 + "'", "'Say{ang'"])
+def test_the_owner_call_is_a_short_plain_word(tmp_path, word):
+    with pytest.raises(ConfigError, match="owner_call"):
+        load_config(write_yaml(tmp_path, f"assistant:\n  owner_call: {word}\n"))

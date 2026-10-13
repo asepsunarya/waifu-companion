@@ -159,6 +159,28 @@ def test_committed_persona_becomes_a_prompt_with_the_configured_name():
     assert "Cyrene" not in prompt
 
 
+def test_system_prompt_fills_the_owner_placeholder_and_defaults_to_master():
+    persona = 'Panggil pemilikmu "{owner}". Contoh: Halo, {owner}!'
+
+    assert build_system_prompt(persona, "Cyrene", house(), owner_call="Sayang").startswith(
+        'Panggil pemilikmu "Sayang". Contoh: Halo, Sayang!'
+    )
+    assert build_system_prompt(persona, "Cyrene", house()).startswith(
+        'Panggil pemilikmu "Master". Contoh: Halo, Master!'
+    )
+
+
+def test_committed_persona_calls_the_owner_by_the_configured_word():
+    persona = load_persona(ROOT / "config" / "persona.md")
+
+    prompt = build_system_prompt(persona, "Cyrene", house(), owner_call="Sayang")
+
+    assert 'Panggil pemilikmu "Sayang"' in prompt
+    assert "{owner}" not in prompt
+    # The instructions keep "Master" as the owner's role name and say so.
+    assert "disebut Master" in prompt
+
+
 # format_user_turn
 
 

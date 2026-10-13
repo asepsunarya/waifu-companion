@@ -33,7 +33,9 @@ def build_brain(
     confirmation gate.
     """
     persona = load_persona(config.assistant.persona_file) if persona_text is None else persona_text
-    base_prompt = build_system_prompt(persona, config.assistant.name, registry)
+    base_prompt = build_system_prompt(
+        persona, config.assistant.name, registry, owner_call=config.assistant.owner_call
+    )
     system_prompt: str | Callable[[], str] = (
         base_prompt if memory_section is None else _with_memory(base_prompt, memory_section)
     )

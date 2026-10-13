@@ -38,10 +38,16 @@ def load_persona(path: Path | str) -> str:
         raise ConfigError(f"Persona file {persona_path} is not valid UTF-8: {exc}") from exc
 
 
-def build_system_prompt(persona_text: str, assistant_name: str, registry: DeviceRegistry) -> str:
-    """Persona with `{name}` filled in, then the device list, then how to read the time stamp."""
+def build_system_prompt(
+    persona_text: str,
+    assistant_name: str,
+    registry: DeviceRegistry,
+    *,
+    owner_call: str = "Master",
+) -> str:
+    """Persona with `{name}` and `{owner}` filled in, then the devices, then the time stamp note."""
     # str.replace, not str.format: persona text may contain other braces.
-    persona = persona_text.replace("{name}", assistant_name).strip()
+    persona = persona_text.replace("{name}", assistant_name).replace("{owner}", owner_call).strip()
     devices = "\n".join(device_lines(registry)) or "(belum ada perangkat)"
     device_section = (
         f"Perangkat di rumah:\n{devices}\n"

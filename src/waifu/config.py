@@ -65,11 +65,22 @@ class _Strict(BaseModel):
 
 class AssistantConfig(_Strict):
     name: str = "Cyrene"
+    # What she calls the owner when she speaks ("Master", "Sayang"); instructions keep "Master".
+    owner_call: str = Field(default="Master", max_length=30)
     wake_words: list[str] = Field(default_factory=lambda: ["cyrene", "hai cyrene", "hei cyrene"])
     followup_seconds: float = Field(default=8.0, ge=0)
     persona_file: Path = Path("config/persona.md")
     session_idle_minutes: float = Field(default=10.0, gt=0)
     max_session_turns: int = Field(default=40, ge=1)
+
+    @field_validator("owner_call")
+    @classmethod
+    def _owner_call_is_a_plain_word(cls, value: str) -> str:
+        value = value.strip()
+        # Square brackets mark her emotion tag, and braces are prompt placeholders.
+        if not value or any(mark in value for mark in "[]{}"):
+            raise ValueError("owner_call must be a short word without brackets or braces")
+        return value
 
     @field_validator("wake_words")
     @classmethod
