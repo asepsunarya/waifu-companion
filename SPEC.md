@@ -519,6 +519,16 @@ CLI:
 
 Safety: tests never reach the internet (fake fetch; the conftest guard), never sleep for real, and never touch `data/`.
 
+### how she calls the owner (v1.12.1)
+
+User story: the owner changed her persona to call them "Sayang"; every sentence she says, pushes, or prints must use the same word, not "Master" in some and "Sayang" in others.
+
+- Config `assistant.owner_call` (default "Master", at most 30 characters, stripped, no square brackets or braces: brackets mark her emotion tag, braces are prompt placeholders).
+- Persona: `{owner}` is filled by `build_system_prompt(..., owner_call=...)` like `{name}`; the committed persona says that its instructions call the owner Master and that she calls them `{owner}`, and its spoken examples use `{owner}`. Model-facing English tool descriptions keep "Master" as the owner's role name, but any example sentence in them that she might say uses the configured word.
+- Every hardcoded Indonesian sentence that is spoken, pushed, or printed for the owner (confirmation questions, reminders and missed-reminder notices, schedule failures, the bare-wake-word answer, avatar reaction lines, apologies in both brains, game reminders, briefing and memory texts, CLI messages that address the owner) uses `owner_call`, passed in by constructor (default "Master"), never read from a global. Default avatar lines hold `{owner}` and are filled when used; lines the owner wrote in config are filled the same way.
+- `is_yes` and the screen tool's look-word gate skip the owner_call words like her names ("iya sayang" is a yes).
+- Tests pin the default ("Master") everywhere and one non-default word through each path.
+
 ## Code Style
 
 See `CLAUDE.md` → Code Conventions and Patterns. Dataclasses for value

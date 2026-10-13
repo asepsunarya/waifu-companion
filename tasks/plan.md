@@ -249,6 +249,10 @@ persona and memory, and calls the game tool itself.
 - [x] Python suite and ruff clean; no test reached the internet, slept for real, or touched `data/` (2026-10-14: 2985 pytest on the committed tree plus tasks 66-68)
 - [ ] On the owner's PC: with `briefing.city` set, the morning greeting comes once, names the weather and the day's schedule, and "cuaca hari ini?" works any time
 
+### Phase 17b: How she calls the owner (v1.12.1, see SPEC → how she calls the owner)
+- [x] Task 69a: `assistant.owner_call`, `{owner}` in the persona and `build_system_prompt`
+- [ ] Task 69: every spoken, pushed, or printed sentence uses `owner_call`; gates skip it
+
 ## Risks and Mitigations
 
 | Risk | Impact | Mitigation |

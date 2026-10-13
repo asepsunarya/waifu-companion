@@ -680,3 +680,19 @@ named `tests/test_<package>_<module>.py`.
 - [x] README (Indonesian) and `config.example.yaml`; no test touches the internet or `data/`
 
 **Dependencies:** 66, 67 · **Files:** `src/waifu/app.py`, `tests/test_app.py`, `src/waifu/cli.py`, `tests/test_cli.py`, `README.md`, `config.example.yaml` · **Scope:** M
+
+## Task 69a: Owner call setting ✅
+
+**Acceptance criteria:**
+- [x] `assistant.owner_call` (default "Master", plain short word) and `{owner}` filled in the system prompt; the committed persona uses it
+
+**Dependencies:** none · **Files:** `src/waifu/config.py`, `src/waifu/brain/persona.py`, `src/waifu/brain/factory.py`, `config/persona.md`, tests · **Scope:** XS
+
+## Task 69: Use the owner call everywhere
+
+**Acceptance criteria:**
+- [ ] Every hardcoded spoken/pushed/printed Indonesian sentence addressing the owner uses the injected `owner_call` (default "Master"); avatar default lines use `{owner}`
+- [ ] `is_yes` and the screen look-word gate skip the owner_call words; CLI wires `config.assistant.owner_call` everywhere
+- [ ] Tests: the default unchanged everywhere, and one non-default word through each path
+
+**Dependencies:** 69a · **Files:** across `src/waifu/` and tests · **Scope:** M
