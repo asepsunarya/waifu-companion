@@ -461,6 +461,30 @@ CLI: `run` and `chat` add `ScreenTools(max_side=config.vision.max_side, names=[a
 
 Safety: tests never capture the real screen: `tests/conftest.py` is strengthened (never weakened) to refuse `BitBlt`, `StretchBlt` (gdi32) and `PrintWindow` (user32) through `ctypes.WinDLL` and `ctypes.windll`; `capture_screen` is injected as a fake in every test; `tests/test_safety_guard.py` covers the new guards.
 
+### cutting her off (v1.11)
+
+User story: Cyrene is reading out a long answer, an announcement, or a reminder; the owner double-clicks her avatar → she stops at once and listens (the follow-up window opens and the avatar shows listening), so the owner can talk right away without the wake word. A double-click while she is not speaking works as before (she listens and says a `listen` line). Without the avatar nothing changes.
+
+Non-goals: stopping her by voice while she speaks (the microphone is paused during her speech so she never hears herself; voice barge-in needs echo cancellation), a keyboard shortcut, cancelling a reply that is still being thought up (only speech that is playing is cut), resuming a cut-off reply.
+
+`voice/audio.Player`:
+- `play(audio, sample_rate) -> bool`: True when the clip played to the end, False when `stop()` cut it.
+- `stop() -> bool`: safe from any thread and never blocks; stops the clip being played (`sounddevice.stop()`, which also makes the waiting `sounddevice.wait()` return) and returns True, or returns False when nothing is playing.
+
+`app.Assistant`:
+- `interrupt() -> bool`: safe from any thread and never blocks; stops whatever she is saying (a reply, an announcement, a reaction) through the player. True when something was playing. The interrupted `speak` finishes as usual (microphone resumed, segmenter reset, the follow-up window opened after a reply); it logs that the speech was cut.
+- `speaking` (property): True only while a clip is playing (narrower than `busy`, which also covers thinking).
+
+`avatar/interactions.InteractionHandler` gains `interrupt: Callable[[], bool]` (constructor keyword, default a function returning False):
+- `handle("double_click")`, when the switch is on: calls `interrupt()` right away on the calling thread (it never blocks); when that stopped her speech, it queues an internal `listen_after_cut` instead of `double_click`. The worker answers it with `listen()` only (no `listen` line, no cooldown, not skipped while busy: `listen_now` waits for the cut speech to finish and then opens the window).
+- Everything else is unchanged; a double-click while she is busy thinking (not speaking) is still ignored.
+
+Avatar page (both renderers, `live2d.js` and `avatar.js`): `setState(state)` with any state other than `speaking` ends the current speak track at once, so the mouth closes when she is cut off (the track would otherwise run to its planned end). A normal reply's track has ended by the time `idle`/`listening` arrives, so nothing else changes.
+
+CLI: `run` passes `interrupt=assistant.interrupt` to the handler; `waifu avatar` (no voice) passes nothing. README (Indonesian): "double-click Cyrene while she is talking to cut her off; she listens right away".
+
+Safety: tests use a fake `sounddevice` module and fake players; nothing plays or records real audio.
+
 ## Code Style
 
 See `CLAUDE.md` → Code Conventions and Patterns. Dataclasses for value

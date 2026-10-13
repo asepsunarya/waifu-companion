@@ -224,6 +224,17 @@ owner's real screen.
 - [x] Python suite and ruff clean; no test captured the real screen or called Claude (2026-10-13: 2758 pytest)
 - [ ] On the owner's PC: "Cyrene, lihat layarku" with the Claude backend gets an answer about what is on screen; a question that does not ask her to look never captures
 
+### Phase 16: Cutting her off (v1.11, see SPEC → cutting her off)
+Decision: a double-click on the avatar while she speaks stops the playing clip at once and
+opens listening; the microphone stays paused during her speech (no voice barge-in without
+echo cancellation).
+- [ ] Task 64: `Player.play`/`stop`, `Assistant.interrupt` and `speaking`
+- [ ] Task 65: handler interrupt on double-click, renderers close the mouth, CLI wiring, README
+
+### Checkpoint: Cutting her off
+- [ ] Python and JS suites, ruff clean; no test played or recorded real audio
+- [ ] On the owner's PC: a double-click during a long answer stops her at once and she listens
+
 ## Risks and Mitigations
 
 | Risk | Impact | Mitigation |
