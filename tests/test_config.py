@@ -490,3 +490,21 @@ def test_only_an_apps_device_lists_apps(tmp_path):
     )
     with pytest.raises(ConfigError, match="apps"):
         load_config(write_yaml(tmp_path, text))
+
+
+def test_vision_is_on_by_default_at_1280_pixels():
+    vision = AppConfig().vision
+    assert (vision.enabled, vision.max_side) == (True, 1280)
+
+
+@pytest.mark.parametrize("line", ["max_side: 511", "max_side: 1569", "camera: 1"])
+def test_vision_limits_are_bounded_and_unknown_keys_refused(tmp_path, line):
+    with pytest.raises(ConfigError, match="vision"):
+        load_config(write_yaml(tmp_path, f"vision:\n  {line}\n"))
+
+
+def test_vision_settings_are_read(tmp_path):
+    vision = load_config(
+        write_yaml(tmp_path, "vision:\n  enabled: false\n  max_side: 1568\n")
+    ).vision
+    assert (vision.enabled, vision.max_side) == (False, 1568)

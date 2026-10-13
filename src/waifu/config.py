@@ -473,6 +473,15 @@ def _is_app_target(target: str) -> bool:
     return len(path.drive) == 2 and path.is_absolute() and path.suffix.lower() in APP_FILE_SUFFIXES
 
 
+class VisionConfig(_Strict):
+    """Looking at the screen when Master asks (Claude backend only)."""
+
+    enabled: bool = True
+    # The screenshot's longer side: Claude reads up to about 1568 pixels, and a smaller PNG
+    # stays well within the API's 5 MB image limit.
+    max_side: int = Field(default=1280, ge=512, le=1568)
+
+
 class MemoryConfig(_Strict):
     """Cyrene's long-term memory: facts about the owner kept between sessions."""
 
@@ -554,6 +563,7 @@ class AppConfig(_Strict):
     gacha: GachaConfig = Field(default_factory=GachaConfig)
     notify: NotifyConfig = Field(default_factory=NotifyConfig)
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
+    vision: VisionConfig = Field(default_factory=VisionConfig)
     schedule: ScheduleConfig = Field(default_factory=ScheduleConfig)
     routines: dict[str, RoutineConfig] = Field(default_factory=dict)
     devices: list[DeviceConfig] = Field(default_factory=list)
