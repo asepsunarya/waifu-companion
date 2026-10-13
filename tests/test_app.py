@@ -1,15 +1,24 @@
+import base64
+import http.client
+import io
+import json
 import logging
 import threading
+import wave
 from collections.abc import Callable, Iterator
 from datetime import datetime
+from pathlib import Path
 
 import numpy as np
 import pytest
 
-from waifu.app import Assistant
+from waifu.app import Assistant, PhoneAnswers
+from waifu.avatar.lipsync import viseme_track
 from waifu.brain.base import Brain, BrainReply, ToolCallRecord
-from waifu.config import AppConfig, AssistantConfig, SpeakerConfig
+from waifu.config import AppConfig, AssistantConfig, AvatarConfig, PhoneConfig, SpeakerConfig
 from waifu.gate import WakeGate
+from waifu.phone.auth import PhoneAuth
+from waifu.phone.server import PhoneBackend, PhoneReply, PhoneServer
 from waifu.voice.base import SpeechToText, Transcript, Utterance
 from waifu.voice.speaker import SpeakerError
 from waifu.voice.stt import SttError
@@ -50,9 +59,11 @@ class FakeStt(SpeechToText):
     def __init__(self, *heard: str | Exception) -> None:
         self.heard = list(heard)
         self.calls = 0
+        self.audio: list[tuple[np.ndarray, int]] = []
 
     def transcribe(self, audio: np.ndarray, sample_rate: int) -> Transcript:
         self.calls += 1
+        self.audio.append((audio, sample_rate))
         text = self.heard.pop(0)
         if isinstance(text, Exception):
             raise text
@@ -72,17 +83,20 @@ class FakeVerifier:
 
 
 class FakeSpeech:
+    """Voices every text as `voice` (audio, sample rate), or fails with `error`."""
+
     def __init__(self, events: list[str], error: Exception | None = None) -> None:
         self.events = events
         self.error = error
         self.texts: list[str] = []
+        self.voice = (np.zeros(2400, dtype=np.float32), 24000)
 
     def synthesize(self, text: str) -> tuple[np.ndarray, int]:
         self.events.append("synthesize")
         self.texts.append(text)
         if self.error is not None:
             raise self.error
-        return np.zeros(2400, dtype=np.float32), 24000
+        return self.voice
 
 
 class FakePlayer:
@@ -1552,3 +1566,256 @@ def test_a_request_that_fails_is_logged_and_she_keeps_listening(caplog):
     assert "brain crashed" in caplog.text
     assert rig.speech.texts == [ANNOUNCEMENT]
     assert rig.assistant.busy is False
+
+
+# Cyrene on the phone: her answers for the paired phone, voiced there and never on the PC
+
+PHONE_TEXT = "nyalakan lampu kamar"
+
+
+def wav_bytes(frames: bytes, sample_rate: int, *, channels: int = 1, width: int = 2) -> bytes:
+    """A PCM WAV file of `frames`, as the phone page sends it."""
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as recording:
+        recording.setnchannels(channels)
+        recording.setsampwidth(width)
+        recording.setframerate(sample_rate)
+        recording.writeframes(frames)
+    return buffer.getvalue()
+
+
+def read_wav(data: bytes) -> tuple[tuple[int, int, int], np.ndarray]:
+    """(channels, sample width, rate) of a WAV file and its frames as 16-bit samples."""
+    with wave.open(io.BytesIO(data), "rb") as recording:
+        shape = (recording.getnchannels(), recording.getsampwidth(), recording.getframerate())
+        frames = recording.readframes(recording.getnframes())
+    return shape, np.frombuffer(frames, dtype="<i2")
+
+
+def test_a_phone_message_gets_her_reply_and_voice_without_a_sound_on_the_pc():
+    rig = Rig(reply=f"[senang] {REPLY}", with_avatar=True)
+    rig.assistant.set_mic(FakeMic(rig.events, []), FakeSegmenter(rig.events, []))
+
+    reply = rig.assistant.reply_for_phone(PHONE_TEXT)
+
+    assert rig.brain.turns == [(PHONE_TEXT, NOW)]
+    assert (reply.text, reply.emotion) == (REPLY, "happy")
+    assert rig.speech.texts == [REPLY]
+    assert reply.audio_wav is not None
+    # No microphone pause, playback, or avatar on the PC: Master is on the phone.
+    assert rig.events == ["synthesize"]
+    assert rig.player.played == []
+
+
+def test_a_phone_turn_leaves_the_pc_s_follow_up_window_closed():
+    rig = Rig("matikan lampu kamar")
+
+    rig.assistant.reply_for_phone(PHONE_TEXT)
+    rig.clock.now += 3
+
+    assert rig.assistant.handle_utterance(rig.utterance()) is None  # the wake word is needed
+    assert rig.brain.turns == [(PHONE_TEXT, NOW)]
+
+
+def test_her_phone_voice_is_a_16_bit_mono_wav_at_24_khz_with_the_avatar_s_mouth_track():
+    rig = Rig()
+    times = np.arange(24000) / 48000  # half a second at 48 kHz
+    rig.speech.voice = ((0.5 * np.sin(2 * np.pi * 440 * times)).astype(np.float32), 48000)
+
+    reply = rig.assistant.reply_for_phone(PHONE_TEXT)
+
+    shape, samples = read_wav(reply.audio_wav)
+    assert shape == (1, 2, 24000)
+    assert len(samples) == 12000
+    assert reply.duration == pytest.approx(0.5)
+    assert np.abs(samples).max() == pytest.approx(0.5 * 32767, rel=0.01)
+    assert reply.fps == 60
+    assert len(reply.visemes) == 30
+    np.testing.assert_allclose(reply.visemes, viseme_track(samples / 32767, 24000, 60), atol=0.01)
+
+
+def test_her_phone_voice_is_clipped_where_it_is_too_loud_instead_of_wrapping_around():
+    rig = Rig()
+    rig.speech.voice = (np.array([1.5, -1.5, 0.25] * 800, dtype=np.float32), 24000)
+
+    reply = rig.assistant.reply_for_phone(PHONE_TEXT)
+
+    assert read_wav(reply.audio_wav)[1][:3].tolist() == [32767, -32767, 8192]
+
+
+@pytest.mark.parametrize("error", [TtsError("Edge TTS gagal"), RuntimeError("RVC rusak")])
+def test_a_phone_reply_she_cannot_voice_still_comes_back_as_text(error, caplog):
+    rig = Rig(reply=f"[senang] {REPLY}", speech_error=error)
+
+    with caplog.at_level(logging.WARNING, logger="waifu.app"):
+        reply = rig.assistant.reply_for_phone(PHONE_TEXT)
+
+    assert reply == PhoneReply(REPLY, "happy", None, 60, [], 0.0)
+    assert str(error) in caplog.text
+
+
+class SlowBrain(FakeBrain):
+    """Holds its first turn until `release` is set, and counts the turns thought up at once."""
+
+    def __init__(self, reply: str = REPLY) -> None:
+        super().__init__(reply)
+        self.thinking = threading.Event()
+        self.release = threading.Event()
+        self.most_at_once = 0
+        self._at_once = 0
+        self._counting = threading.Lock()
+
+    def respond(self, user_text: str, *, now: datetime | None = None) -> BrainReply:
+        with self._counting:
+            self._at_once += 1
+            self.most_at_once = max(self.most_at_once, self._at_once)
+        try:
+            if not self.thinking.is_set():
+                self.thinking.set()
+                self.release.wait(WAIT_S)
+            return super().respond(user_text, now=now)
+        finally:
+            with self._counting:
+                self._at_once -= 1
+
+
+def test_a_phone_turn_waits_until_the_voice_loop_s_turn_has_been_thought_up():
+    rig = Rig("Cyrene, matikan TV", brain=SlowBrain)
+    voice = threading.Thread(target=rig.assistant.handle_utterance, args=(rig.utterance(),))
+    voice.start()
+    assert rig.brain.thinking.wait(WAIT_S)
+
+    phone = threading.Thread(target=rig.assistant.reply_for_phone, args=(PHONE_TEXT,))
+    phone.start()
+    phone.join(0.1)
+    waiting = phone.is_alive()
+    rig.brain.release.set()
+    voice.join(WAIT_S)
+    phone.join(WAIT_S)
+
+    assert waiting
+    assert rig.brain.most_at_once == 1  # the history only ever gets one turn at a time
+    assert [text for text, _ in rig.brain.turns] == ["matikan TV", PHONE_TEXT]
+
+
+def test_a_phone_turn_goes_ahead_while_she_is_still_speaking_on_the_pc():
+    rig = Rig("Cyrene, nyalakan lampu kamar")
+    playing, release = hold_first_play(rig)
+    voice = threading.Thread(target=rig.assistant.handle_utterance, args=(rig.utterance(),))
+    voice.start()
+    assert playing.wait(WAIT_S)
+
+    reply = rig.assistant.reply_for_phone(PHONE_TEXT)
+    still_speaking = voice.is_alive()
+    release.set()
+    voice.join(WAIT_S)
+
+    assert reply.text == REPLY
+    assert still_speaking  # the turn is not held while the PC plays her reply
+
+
+def test_phone_audio_is_transcribed_without_speaker_verification_or_the_wake_word():
+    rig = Rig(" nyalakan lampu kamar ", owner=(False, 0.05))
+    samples = np.array([-32768, -16384, 0, 16384, 32767] * 3200, dtype="<i2")
+
+    heard = rig.assistant.transcribe_for_phone(wav_bytes(samples.tobytes(), 16000))
+
+    assert heard == "nyalakan lampu kamar"
+    assert rig.verifier.calls == 0
+    assert rig.brain.turns == []  # what was heard goes back to the phone first
+    audio, sample_rate = rig.stt.audio[0]
+    assert sample_rate == 16000
+    assert audio.dtype == np.float32
+    np.testing.assert_allclose(audio, samples / 32768)
+
+
+def test_phone_audio_without_words_is_an_empty_transcript():
+    rig = Rig("")
+
+    assert rig.assistant.transcribe_for_phone(wav_bytes(bytes(32000), 16000)) == ""
+
+
+@pytest.mark.parametrize(("channels", "width"), [(2, 2), (1, 1)])
+def test_phone_audio_that_is_not_mono_16_bit_pcm_is_refused(channels, width):
+    rig = Rig("halo")
+    recording = wav_bytes(bytes(3200), 16000, channels=channels, width=width)
+
+    with pytest.raises(ValueError, match="mono 16-bit"):
+        rig.assistant.transcribe_for_phone(recording)
+
+    assert rig.stt.calls == 0
+
+
+def test_the_assistant_answers_the_phone_server_through_phone_answers():
+    rig = Rig("halo Cyrene")
+    backend: PhoneBackend = PhoneAnswers(rig.assistant)
+
+    heard = backend.transcribe(wav_bytes(bytes(32000), 16000))
+    reply = backend.chat(heard)
+
+    assert heard == "halo Cyrene"
+    assert rig.brain.turns == [("halo Cyrene", NOW)]
+    assert reply.text == REPLY
+
+
+def ask_phone_server(
+    rig: Rig, state_path: Path, route: str, body: bytes, content_type: str
+) -> tuple[int, dict]:
+    """POSTs `body` from a paired phone to a real PhoneServer on 127.0.0.1 (a free port) whose
+    backend is the rig's Assistant; the status and the JSON answer."""
+    auth = PhoneAuth(state_path)
+    token = auth.redeem(auth.new_code(), "Android")
+    with PhoneServer(
+        PhoneConfig().model_copy(update={"port": 0}),  # a free port, never 9883
+        AvatarConfig(),
+        auth,
+        PhoneAnswers(rig.assistant),
+        owner_call="Master",
+        assistant_name="Cyrene",
+    ) as server:
+        host, port = server.server_address[:2]
+        connection = http.client.HTTPConnection(host, port, timeout=WAIT_S)
+        try:
+            connection.request(
+                "POST",
+                route,
+                body,
+                {
+                    "Origin": f"http://{host}:{port}",
+                    "Content-Type": content_type,
+                    "Cookie": f"cyrene_device={token}",
+                },
+            )
+            response = connection.getresponse()
+            return response.status, json.loads(response.read())
+        finally:
+            connection.close()
+
+
+def test_a_paired_phone_s_message_gets_her_reply_and_voice_from_the_phone_server(tmp_path):
+    rig = Rig(reply=f"[senang] {REPLY}")
+    message = json.dumps({"text": PHONE_TEXT}).encode()
+
+    status, answer = ask_phone_server(
+        rig, tmp_path / "phone.json", "/chat", message, "application/json"
+    )
+
+    assert status == 200
+    assert (answer["text"], answer["emotion"]) == (REPLY, "happy")
+    shape, samples = read_wav(base64.b64decode(answer["audio"]))
+    assert (shape, len(samples)) == ((1, 2, 24000), 2400)
+    assert (answer["fps"], len(answer["visemes"]), answer["duration"]) == (60, 6, 0.1)
+    assert rig.brain.turns == [(PHONE_TEXT, NOW)]
+    assert rig.player.played == []
+
+
+def test_what_a_paired_phone_says_is_heard_and_answered_through_the_phone_server(tmp_path):
+    rig = Rig(PHONE_TEXT, owner=(False, 0.05))
+    recording = wav_bytes(bytes(32000), 16000)
+
+    status, answer = ask_phone_server(rig, tmp_path / "phone.json", "/talk", recording, "audio/wav")
+
+    assert status == 200
+    assert (answer["heard"], answer["text"]) == (PHONE_TEXT, REPLY)
+    assert rig.verifier.calls == 0
+    assert rig.brain.turns == [(PHONE_TEXT, NOW)]

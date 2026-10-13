@@ -13,26 +13,37 @@ share one voice lock, and `busy` tells the interaction handler when to stay quie
 Other threads make her speak up by herself in two ways, both queued and handled by
 `run` between Master's utterances: `announce` says a fixed text (a reminder), and
 `ask_aloud` has the brain answer a prompt (the morning greeting) and says the reply.
+
+The owner's paired phone (`waifu.phone`) talks to her from the phone server's threads:
+`reply_for_phone` and `transcribe_for_phone`, handed to the server as `PhoneAnswers`. Brain
+turns, the voice loop's and the phone's, are taken one at a time (the history is
+append-only), and a phone reply is voiced for the phone, never on the PC.
 """
 
 from __future__ import annotations
 
 import contextlib
 import dataclasses
+import io
 import logging
 import queue
 import threading
 import time
+import wave
 from collections.abc import Callable, Iterator
 from datetime import datetime
 from typing import Protocol
 
 import numpy as np
 
+from waifu.avatar.bus import SPEAK_FPS
 from waifu.avatar.emotion import NEUTRAL, split_emotion
+from waifu.avatar.lipsync import viseme_track
 from waifu.brain.base import Brain, BrainReply, ToolCallRecord
 from waifu.config import AppConfig
 from waifu.gate import WakeGate
+from waifu.phone.server import PhoneReply
+from waifu.voice.audio import resample
 from waifu.voice.base import SpeechToText, Utterance
 from waifu.voice.speaker import SpeakerError
 from waifu.voice.stt import SttError
@@ -48,6 +59,9 @@ ACKNOWLEDGEMENT_EMOTION = "happy"
 TAG_ONLY_DONE = "Sudah, {owner}."
 TAG_ONLY_FAILED = "Maaf {owner}, ada perintah yang gagal dijalankan."
 TAG_ONLY_NO_ANSWER = "Maaf {owner}, aku belum bisa menjawab itu."
+# Her voice on the phone: a mono 16-bit PCM WAV at this rate.
+PHONE_SAMPLE_RATE = 24000
+PCM16_SCALE = 32767  # full scale of a 16-bit sample, symmetric so +1 and -1 both fit
 
 
 def split_reply(reply: BrainReply, *, owner_call: str = "Master") -> tuple[str, BrainReply]:
@@ -84,6 +98,31 @@ def _pass_on(on_reply: ReplyHandler, text: str) -> None:
         on_reply(text)
     except Exception:
         logger.exception("Could not pass on what she said by herself")
+
+
+def _pcm16_wav(audio: np.ndarray, sample_rate: int) -> bytes:
+    """Mono float audio as a 16-bit PCM WAV file; samples beyond -1..1 are clipped."""
+    samples = np.round(np.clip(audio, -1.0, 1.0) * PCM16_SCALE).astype("<i2")
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as clip:
+        clip.setnchannels(1)
+        clip.setsampwidth(2)
+        clip.setframerate(sample_rate)
+        clip.writeframes(samples.tobytes())
+    return buffer.getvalue()
+
+
+def _read_pcm16_wav(wav_bytes: bytes) -> tuple[np.ndarray, int]:
+    """The float32 samples (-1..1) and rate of a mono 16-bit PCM WAV.
+
+    ValueError for a WAV of another shape; wave.Error or EOFError for bytes that are not one.
+    """
+    with wave.open(io.BytesIO(wav_bytes), "rb") as recording:
+        if (recording.getnchannels(), recording.getsampwidth()) != (1, 2):
+            raise ValueError("expected a mono 16-bit PCM WAV")
+        sample_rate = recording.getframerate()
+        frames = recording.readframes(recording.getnframes())
+    return np.frombuffer(frames, dtype="<i2").astype(np.float32) / 32768, sample_rate
 
 
 class Speech(Protocol):
@@ -188,6 +227,8 @@ class Assistant:
         # wait until then, since Master may still answer her.
         self._followup_until: float | None = None
         self._voice = threading.Lock()  # one voice: replies, announcements, and reactions
+        # One brain turn at a time, the voice loop's or the phone's; never held while speaking.
+        self._turn = threading.Lock()
         self._engaged_lock = threading.Lock()
         self._engaged_count = 0
         self._speaking = False
@@ -254,6 +295,49 @@ class Assistant:
     def handle_text(self, text: str) -> BrainReply:
         """Ask the brain directly: no wake word, no voice (text chat); the reply has no tag."""
         return self._think(text)[1]
+
+    def reply_for_phone(self, text: str) -> PhoneReply:
+        """Her reply to what Master typed or said on the paired phone, voiced for the phone.
+
+        One brain turn like any other (the confirmation and screen gates count it), taken
+        after the turn another thread is thinking up. Nothing is said on the PC, whose
+        microphone, follow-up window, and avatar stay as they are. Her voice comes back as a
+        16-bit WAV at PHONE_SAMPLE_RATE with the avatar's mouth track; when it cannot be made
+        (the logs say why), the reply is only its text. Safe from any thread.
+        """
+        logger.info("Phone message: %s", text)
+        emotion, reply = self._think(text)
+        try:
+            audio, sample_rate = self._speech.synthesize(reply.text)
+        except Exception as exc:
+            if isinstance(exc, TtsError):
+                logger.warning("Could not synthesise the phone reply: %s", exc)
+            else:
+                logger.exception("Could not synthesise the phone reply")
+            return PhoneReply(reply.text, emotion, None, SPEAK_FPS, [], 0.0)
+        voice = resample(audio, sample_rate, PHONE_SAMPLE_RATE)
+        return PhoneReply(
+            reply.text,
+            emotion,
+            _pcm16_wav(voice, PHONE_SAMPLE_RATE),
+            SPEAK_FPS,
+            viseme_track(voice, PHONE_SAMPLE_RATE, SPEAK_FPS),
+            len(voice) / PHONE_SAMPLE_RATE,
+        )
+
+    def transcribe_for_phone(self, wav_bytes: bytes) -> str:
+        """The words in a mono 16-bit PCM WAV recorded on the paired phone; empty when none.
+
+        No speaker verification (the voiceprint fits the PC's microphone, and only a paired
+        phone gets here) and no wake word: everything said on the phone is for her. Safe
+        from any thread.
+        """
+        audio, sample_rate = _read_pcm16_wav(wav_bytes)
+        transcript = self._stt.transcribe(audio, sample_rate)
+        text = transcript.text.strip()
+        if text:
+            logger.info("Heard on the phone (%s): %s", transcript.language, text)
+        return text
 
     def announce(
         self, text: str, emotion: str = NEUTRAL, *, wait_for_followup: bool = False
@@ -457,8 +541,12 @@ class Assistant:
             ).start()
 
     def _think(self, text: str) -> tuple[str, BrainReply]:
-        """The brain's reply to `text`, split into its emotion and the reply without the tag."""
-        reply = self._brain.respond(text, now=self._now())
+        """The brain's reply to `text`, split into its emotion and the reply without the tag.
+
+        Waits while another thread's turn is thought up: the history takes one turn at a time.
+        """
+        with self._turn:
+            reply = self._brain.respond(text, now=self._now())
         for call in reply.tool_calls:
             # The result itself only at DEBUG: the INFO log (logs\waifu.log under autostart)
             # must not collect the owner's pull history.
@@ -513,3 +601,16 @@ class Assistant:
         if not accepted:
             logger.info("Ignoring another speaker (similarity %.2f)", score)
         return accepted
+
+
+class PhoneAnswers:
+    """The Assistant as the phone server's `PhoneBackend`."""
+
+    def __init__(self, assistant: Assistant) -> None:
+        self._assistant = assistant
+
+    def chat(self, text: str) -> PhoneReply:
+        return self._assistant.reply_for_phone(text)
+
+    def transcribe(self, wav_bytes: bytes) -> str:
+        return self._assistant.transcribe_for_phone(wav_bytes)

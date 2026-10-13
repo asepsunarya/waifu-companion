@@ -261,6 +261,23 @@ schedule:
 #     claude-opus-5-5: {input: 4.00, output: 20.00, cache_write: 5.00, cache_read: 0.20}
 #   default_model: claude-opus-5-5   # harga model ini dipakai untuk model yang tidak ada di prices (perkiraan); harus punya harga
 
+# Cyrene di HP (README, bagian "Cyrene di HP"): selama `waifu run` berjalan, HP Android Master
+# membuka halaman Cyrene (avatar, chat, dan tombol tahan-untuk-bicara) lewat Tailscale, di
+# rumah atau di luar. Server HP hanya mendengarkan di 127.0.0.1; `tailscale serve` yang
+# membagikannya lewat HTTPS, hanya ke perangkat di jaringan Tailscale-mu (jangan pakai
+# `tailscale funnel` untuk alamat ini: server HP menolak permintaan dari internet), dan hanya HP
+# yang sudah dipasangkan dengan kode dari `waifu phone pair` yang dilayani. Cara menyiapkannya:
+# pasang Tailscale di PC dan HP (akun yang sama), nyalakan MagicDNS dan HTTPS Certificates di
+# admin console Tailscale, jalankan `waifu phone setup` dan sekali perintah `tailscale serve`
+# yang ditampilkannya, lalu tulis bagian ini tanpa tanda # di depannya. Avatarnya memakai
+# model di bagian avatar di atas (avatar.engine, avatar.model, avatar.live2d_core), juga kalau
+# avatar.enabled: false. Cek dengan `waifu check`.
+# phone:
+#   enabled: true
+#   host: nama-pc.tailnet-kamu.ts.net   # nama PC ini di Tailscale, dari `waifu phone setup`
+#   port: 9883                          # server HP di 127.0.0.1; sama dengan port di perintah `tailscale serve`
+#   state_path: data/phone.json         # HP yang dipasangkan (token tersimpan sebagai hash), hanya di PC ini
+
 ir_codes_path: data/ir_codes.json
 
 devices:

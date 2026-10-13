@@ -7,6 +7,7 @@ import re
 import runpy
 import shutil
 import socket
+import subprocess
 import sys
 import tempfile
 import threading
@@ -61,6 +62,8 @@ from waifu.gacha.hoyolab import (
 )
 from waifu.gacha.tools import GachaTools
 from waifu.memory import MemoryStore, memory_prompt_section
+from waifu.phone.auth import CODE_LIFETIME, PhoneAuth, Refusal
+from waifu.phone.server import PhoneError, PhoneReply
 from waifu.schedule import DeviceAction, Reminder, RoutineAction, ScheduleStore
 from waifu.scheduler import MONTHS_ID, Scheduler
 from waifu.screen import ScreenImage
@@ -141,6 +144,27 @@ def no_real_usage_ledger(tmp_path, monkeypatch):
     records in data/usage.json (building a ledger touches no file, so the refusal comes
     first)."""
     monkeypatch.setattr(cli, "UsageLedger", only_under(tmp_path, cli.UsageLedger))
+
+
+@pytest.fixture(autouse=True)
+def no_real_phone(tmp_path, monkeypatch):
+    """A test that forgets the phone fakes fails instead of binding port 9883, reading or
+    writing the owner's paired phones in data/phone.json, or running the owner's Tailscale CLI
+    (which `waifu phone setup` and `check` look for only under tmp_path here)."""
+
+    def refuse_server(*args, **kwargs):
+        raise AssertionError("a test reached the real phone server")
+
+    def refuse_tailscale(command):
+        raise AssertionError(f"a test ran the Tailscale CLI: {command}")
+
+    monkeypatch.setattr(cli, "PhoneServer", refuse_server)
+    monkeypatch.setattr(cli, "PhoneAuth", only_under(tmp_path, cli.PhoneAuth))
+    monkeypatch.setattr(cli, "TAILSCALE_RUNNER", refuse_tailscale)
+    monkeypatch.setattr(cli, "TAILSCALE_SEARCH_PATH", str(tmp_path / "PATH"))
+    monkeypatch.setattr(
+        cli, "TAILSCALE_INSTALLED", tmp_path / "Program Files" / "Tailscale" / "tailscale.exe"
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -670,6 +694,10 @@ def event_player(events, monkeypatch) -> None:
         (["briefing"], "briefing"),
         (["usage"], "usage"),
         (["usage", "--month", "2026-10"], "usage"),
+        (["phone", "setup"], "phone"),
+        (["phone", "pair"], "phone"),
+        (["phone", "devices"], "phone"),
+        (["phone", "forget", "d1"], "phone"),
     ],
 )
 def test_every_subcommand_in_the_spec_parses(argv, command):
@@ -1550,7 +1578,7 @@ class RecordingAssistant:
     nothing was playing); `cuts` counts those calls; `reacted` counts each reaction
     (`speak_reaction` or `listen_now`); `asked` holds each `ask_aloud` with its `on_reply` and
     `required_tool`; `waiting_for_followup` the texts of announcements that wait while the
-    follow-up window is open."""
+    follow-up window is open; `phone_messages` and `phone_recordings` what the phone asked."""
 
     instances: list["RecordingAssistant"] = []
 
@@ -1565,6 +1593,8 @@ class RecordingAssistant:
         self.cuts = 0
         self.reactions: list[tuple[str, ...]] = []
         self.reacted = threading.Semaphore(0)
+        self.phone_messages: list[str] = []
+        self.phone_recordings: list[bytes] = []
         RecordingAssistant.instances.append(self)
 
     def run(self, mic, segmenter) -> None:
@@ -1597,6 +1627,14 @@ class RecordingAssistant:
 
     def ask_aloud(self, prompt: str, *, on_reply=None, required_tool=None) -> None:
         self.asked.append((prompt, on_reply, required_tool))
+
+    def reply_for_phone(self, text: str) -> PhoneReply:
+        self.phone_messages.append(text)
+        return PhoneReply(REPLY, "happy", None, 60, [], 0.0)
+
+    def transcribe_for_phone(self, wav_bytes: bytes) -> str:
+        self.phone_recordings.append(wav_bytes)
+        return "nyalakan lampu kamar"
 
 
 class PreloadingStt(SpeechToText):
@@ -6088,3 +6126,535 @@ def test_check_fails_a_usage_file_it_cannot_read(home, nothing_installed, capsys
 
     line = usage_line(capsys.readouterr().out)
     assert line.startswith(f"✗ File biaya API {Path('data/usage.json')} tidak bisa dibaca")
+
+
+# --- Cyrene on the phone -----------------------------------------------------------------------
+
+TAILNET_NAME = "cyrene-pc.tail1234.ts.net"
+PHONE_ON = f"phone:\n  enabled: true\n  host: {TAILNET_NAME}\n"
+# The phone shows the avatar's model, also while the mascot on the PC is off.
+PHONE_READY = PHONE_ON + f"avatar:\n  model: {VRM.as_posix()}\n"
+
+
+def phone_file(home: Path) -> Path:
+    """Where the example config keeps the paired phones, inside the test's working directory."""
+    return home / "data" / "phone.json"
+
+
+def pair_phone(home: Path, at: datetime) -> str:
+    """Pairs one phone at `at` through the pairing file, as the phone server would; its token."""
+    auth = PhoneAuth(phone_file(home), now=lambda: at)
+    token = auth.redeem(auth.new_code(), "Android")
+    assert isinstance(token, str)
+    return token
+
+
+def tailscale_status(name: str = TAILNET_NAME, state: str = "Running") -> dict:
+    """What `tailscale status --json` says about this PC (the parts Cyrene reads)."""
+    return {"BackendState": state, "Self": {"DNSName": f"{name}.", "OS": "windows"}}
+
+
+def serving(
+    port: int = 9883, *, https_port: int = 443, target: str = "127.0.0.1", funnel: bool = False
+) -> dict[str, object]:
+    """What `tailscale serve status --json` says after
+    `tailscale serve --bg --https=<https_port> http://<target>:<port>`; with `funnel`, after
+    `tailscale funnel` turned Funnel on for that host and port as well."""
+    status: dict[str, object] = {
+        "TCP": {str(https_port): {"HTTPS": True}},
+        "Web": {
+            f"{TAILNET_NAME}:{https_port}": {
+                "Handlers": {"/": {"Proxy": f"http://{target}:{port}"}}
+            }
+        },
+    }
+    if funnel:
+        status["AllowFunnel"] = {f"{TAILNET_NAME}:{https_port}": True}
+    return status
+
+
+class FakeTailscale:
+    """Stands in for the Tailscale CLI: answers the two commands that only read its state with
+    `status` and `serve`, or fails as `failure` says (an exception it raises, or the finished
+    process it returns), and records every command. Any other command, one that could change
+    Tailscale, fails the test."""
+
+    def __init__(self) -> None:
+        self.status: object = tailscale_status()
+        self.serve: object = serving()
+        self.failure: Exception | subprocess.CompletedProcess[str] | None = None
+        self.commands: list[list[str]] = []
+
+    def __call__(self, command) -> subprocess.CompletedProcess[str]:
+        command = [str(word) for word in command]
+        self.commands.append(command)
+        answers = {("status", "--json"): self.status, ("serve", "status", "--json"): self.serve}
+        arguments = tuple(command[1:])
+        assert arguments in answers, f"a test ran a Tailscale command that changes it: {command}"
+        if isinstance(self.failure, Exception):
+            raise self.failure
+        if self.failure is not None:
+            return self.failure
+        return subprocess.CompletedProcess(command, 0, json.dumps(answers[arguments]), "")
+
+
+@pytest.fixture
+def tailscale(monkeypatch) -> FakeTailscale:
+    """Tailscale installed where its Windows installer puts it (here under tmp_path, in a folder
+    named Program Files), its CLI answering from a FakeTailscale."""
+    cli.TAILSCALE_INSTALLED.parent.mkdir(parents=True)
+    cli.TAILSCALE_INSTALLED.write_bytes(b"MZ")
+    fake = FakeTailscale()
+    monkeypatch.setattr(cli, "TAILSCALE_RUNNER", fake)
+    return fake
+
+
+def installed_serve_command(port: int = 9883) -> str:
+    return f'"{cli.TAILSCALE_INSTALLED}" serve --bg --https=443 http://127.0.0.1:{port}'
+
+
+def test_phone_auth_outside_tmp_path_is_refused_so_no_test_touches_the_owner_s_phones():
+    with pytest.raises(AssertionError, match="PhoneAuth outside tmp_path"):
+        cli.PhoneAuth(ROOT / "data" / "phone.json")
+
+
+def test_phone_setup_prints_the_serve_command_the_url_and_the_phone_host_line(
+    home, tailscale, capsys
+):
+    assert cli.main(["phone", "setup"]) == 0
+
+    lines = [line.strip() for line in capsys.readouterr().out.splitlines()]
+    assert f"✓ Tailscale: {cli.TAILSCALE_INSTALLED}" in lines
+    assert installed_serve_command() in lines
+    assert f"host: {TAILNET_NAME}" in lines
+    assert f"https://{TAILNET_NAME}/" in lines
+    # Only read: running `tailscale serve` is left to the owner.
+    assert tailscale.commands == [[str(cli.TAILSCALE_INSTALLED), "status", "--json"]]
+
+
+def test_phone_setup_finds_tailscale_on_the_path_and_shares_the_configured_port(
+    home, tailscale, tmp_path, capsys
+):
+    on_path = tmp_path / "PATH" / "tailscale.exe"
+    on_path.parent.mkdir()
+    on_path.write_bytes(b"MZ")
+    append_config(home, "phone:\n  port: 9990\n")
+
+    assert cli.main(["phone", "setup"]) == 0
+
+    lines = [line.strip() for line in capsys.readouterr().out.splitlines()]
+    assert "tailscale serve --bg --https=443 http://127.0.0.1:9990" in lines
+    assert os.path.samefile(tailscale.commands[0][0], on_path)
+
+
+def test_phone_setup_without_tailscale_says_where_to_get_it(home, capsys):
+    assert cli.main(["phone", "setup"]) == 1
+
+    out = capsys.readouterr().out
+    assert out.startswith("✗ Tailscale belum terpasang")
+    assert "https://tailscale.com/download" in out
+
+
+@pytest.mark.parametrize(
+    ("status", "explained"),
+    [
+        (tailscale_status(state="NeedsLogin"), "login"),
+        (tailscale_status(state="Stopped"), "login"),
+        (tailscale_status(name=""), "MagicDNS"),
+        ({"BackendState": "Running"}, "MagicDNS"),
+        ([], "login"),
+    ],
+)
+def test_phone_setup_explains_a_tailscale_that_cannot_share_her_yet(
+    status, explained, home, tailscale, capsys
+):
+    tailscale.status = status
+
+    assert cli.main(["phone", "setup"]) == 1
+
+    out = capsys.readouterr().out
+    assert any(line.startswith("✗") and explained in line for line in out.splitlines())
+    assert "serve --bg" not in out
+
+
+@pytest.mark.parametrize(
+    ("failure", "shown"),
+    [
+        (OSError("Access is denied"), "Access is denied"),
+        (subprocess.TimeoutExpired(["tailscale"], 10), "10 detik"),
+        (
+            subprocess.CompletedProcess(
+                [], 1, "", "failed to connect to local Tailscale service; is Tailscale running?\n"
+            ),
+            "is Tailscale running?",
+        ),
+        (subprocess.CompletedProcess([], 0, "not json", ""), "JSON"),
+    ],
+)
+def test_phone_setup_reports_a_tailscale_cli_that_fails(failure, shown, home, tailscale, capsys):
+    tailscale.failure = failure
+
+    assert cli.main(["phone", "setup"]) == 1
+
+    failed = [line for line in capsys.readouterr().out.splitlines() if line.startswith("✗")]
+    assert len(failed) == 1 and shown in failed[0]
+
+
+def test_phone_pair_prints_a_code_that_pairs_one_phone_and_is_never_logged_or_saved(
+    home, caplog, capsys
+):
+    append_config(home, PHONE_ON)
+    before = datetime.now()
+
+    with caplog.at_level(logging.DEBUG):
+        assert cli.main(["phone", "pair"]) == 0
+    after = datetime.now()
+
+    out = capsys.readouterr().out
+    [code] = re.findall(r"\b[0-9]{6}\b", out)
+    assert code not in caplog.text
+    assert code not in phone_file(home).read_text(encoding="utf-8")
+    auth = PhoneAuth(phone_file(home))
+    assert isinstance(auth.redeem(code, "Android"), str)
+    assert auth.redeem(code, "Android") is Refusal.NO_CODE  # one phone per code
+    expiries = {f"jam {moment + CODE_LIFETIME:%H.%M}" for moment in (before, after)}
+    assert any(expiry in out for expiry in expiries)
+    assert f"https://{TAILNET_NAME}/" in out
+
+
+def test_phone_pair_says_what_is_missing_before_the_phone_can_open_her(home, capsys):
+    assert cli.main(["phone", "pair"]) == 0
+
+    out = capsys.readouterr().out
+    assert re.search(r"\b[0-9]{6}\b", out)
+    assert "phone.enabled" in out
+    assert "waifu phone setup" in out
+
+
+def test_phone_devices_lists_each_paired_phone_with_when_it_was_paired_and_last_used(home, capsys):
+    pair_phone(home, datetime(2026, 10, 13, 20, 5))
+    pair_phone(home, datetime(2026, 10, 14, 7, 30))
+
+    assert cli.main(["phone", "devices"]) == 0
+
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0].split() == ["ID", "NAMA", "DIPASANGKAN", "TERAKHIR", "DIPAKAI"]
+    assert lines[1].split() == ["d1", "Android", "13-10-2026", "20:05", "13-10-2026", "20:05"]
+    assert lines[2].split() == ["d2", "Android", "14-10-2026", "07:30", "14-10-2026", "07:30"]
+
+
+def test_phone_devices_without_a_paired_phone_says_how_to_pair_one(home, capsys):
+    assert cli.main(["phone", "devices"]) == 0
+
+    out = capsys.readouterr().out
+    assert out.startswith("Belum ada HP yang dipasangkan.") and "waifu phone pair" in out
+
+
+def test_phone_forget_unpairs_the_phone_so_its_cookie_no_longer_opens_her(home, capsys):
+    token = pair_phone(home, datetime(2026, 10, 14, 7, 30))
+
+    assert cli.main(["phone", "forget", "d1"]) == 0
+
+    assert capsys.readouterr().out.startswith("✓ HP d1 dilupakan")
+    assert PhoneAuth(phone_file(home)).check(token) is None
+
+
+def test_phone_forget_of_an_unknown_phone_fails_and_points_at_the_list(home, capsys):
+    pair_phone(home, datetime(2026, 10, 14, 7, 30))
+
+    assert cli.main(["phone", "forget", "d9"]) == 1
+
+    out = capsys.readouterr().out
+    assert out.startswith("✗") and "waifu phone devices" in out
+    assert [device.id for device in PhoneAuth(phone_file(home)).devices()] == ["d1"]
+
+
+class FakePhoneServer:
+    """Stands in for PhoneServer without a port, remembering whether `waifu run` listened when it
+    started and stopped serving."""
+
+    def __init__(self, config, avatar, auth, backend, *, owner_call, assistant_name) -> None:
+        self.config = config
+        self.avatar = avatar
+        self.auth = auth
+        self.backend = backend
+        self.owner_call = owner_call
+        self.assistant_name = assistant_name
+        self.url = f"http://127.0.0.1:{config.port}/"
+        self.listening: list[bool] = []
+
+    def __enter__(self) -> "FakePhoneServer":
+        self.listening.append(listening())
+        return self
+
+    def __exit__(self, *exc_info) -> None:
+        self.listening.append(listening())
+
+
+@pytest.fixture
+def phone_servers(monkeypatch) -> list[FakePhoneServer]:
+    built: list[FakePhoneServer] = []
+
+    def build(*args, **kwargs) -> FakePhoneServer:
+        built.append(FakePhoneServer(*args, **kwargs))
+        return built[-1]
+
+    monkeypatch.setattr(cli, "PhoneServer", build)
+    return built
+
+
+def test_run_serves_her_to_the_paired_phone_for_as_long_as_she_listens(
+    home, run_fakes, phone_servers, capsys
+):
+    write_config(home, PHONE_ON + "assistant:\n  owner_call: Sayang\n")
+
+    assert cli.main(["run", "--no-speaker-check", "--dry-run"]) == 0
+
+    [server] = phone_servers
+    assert server.listening == [False, True]
+    assert (server.config.host, server.config.port) == (TAILNET_NAME, 9883)
+    assert server.avatar.engine == "vrm"
+    assert server.auth.path == Path("data/phone.json")
+    assert (server.owner_call, server.assistant_name) == ("Sayang", "Cyrene")
+    assert f"https://{TAILNET_NAME}/" in capsys.readouterr().out
+
+
+def test_run_hands_the_phone_s_messages_and_recordings_to_her(home, run_fakes, phone_servers):
+    append_config(home, PHONE_ON)
+    assert cli.main(["run", "--no-speaker-check", "--dry-run"]) == 0
+    [server] = phone_servers
+    assistant = RecordingAssistant.instances[0]
+
+    heard = server.backend.transcribe(b"RIFF....WAVE")
+    reply = server.backend.chat(heard)
+
+    assert assistant.phone_recordings == [b"RIFF....WAVE"]
+    assert assistant.phone_messages == ["nyalakan lampu kamar"]
+    assert reply.text == REPLY
+
+
+def test_run_says_the_phone_cannot_reach_her_until_phone_host_is_set(
+    home, run_fakes, phone_servers, capsys
+):
+    append_config(home, "phone:\n  enabled: true\n")
+
+    assert cli.main(["run", "--no-speaker-check", "--dry-run"]) == 0
+
+    assert len(phone_servers) == 1
+    line = next(line for line in capsys.readouterr().out.splitlines() if "phone.host" in line)
+    assert line.startswith("!") and "waifu phone setup" in line
+
+
+def test_run_listens_without_the_phone_when_its_port_is_taken(home, run_fakes, monkeypatch, capsys):
+    append_config(home, PHONE_ON)
+
+    def taken(*args, **kwargs):
+        raise PhoneError("Port 127.0.0.1:9883 sudah dipakai program lain.")
+
+    monkeypatch.setattr(cli, "PhoneServer", taken)
+
+    assert cli.main(["run", "--no-speaker-check", "--dry-run"]) == 0
+
+    out = capsys.readouterr().out
+    assert "! Cyrene di HP tidak tersedia: Port 127.0.0.1:9883 sudah dipakai program lain." in out
+    assert RecordingAssistant.instances[0].ran_with is not None
+
+
+@pytest.mark.parametrize(
+    ("argv", "phone"),
+    [(["run", "--no-speaker-check", "--dry-run"], ""), (["chat", "--dry-run"], PHONE_ON)],
+    ids=["run-with-the-phone-off", "chat"],
+)
+def test_the_phone_is_served_only_by_run_and_only_when_it_is_on(
+    argv, phone, home, run_fakes, phone_servers, monkeypatch
+):
+    append_config(home, phone)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main(argv) == 0
+
+    assert phone_servers == []
+
+
+def phone_lines(out: str) -> list[str]:
+    """The phone part of `waifu check`, its last lines."""
+    lines = out.splitlines()
+    return lines[next(index for index, line in enumerate(lines) if "Cyrene di HP" in line) :]
+
+
+def test_check_reports_the_phone_off_without_running_tailscale(home, nothing_installed, capsys):
+    cli.main(["check"])
+
+    assert phone_lines(capsys.readouterr().out) == ["! Cyrene di HP mati (phone.enabled: false)"]
+
+
+@pytest.mark.parametrize("target", ["127.0.0.1", "localhost"])
+def test_check_with_the_phone_ready_marks_tailscale_its_serve_the_host_and_the_paired_phone(
+    target, home, nothing_installed, tailscale, capsys
+):
+    write_config(home, PHONE_READY)
+    tailscale.serve = serving(target=target)
+    pair_phone(home, datetime(2026, 10, 14, 7, 30))
+
+    cli.main(["check"])
+
+    assert phone_lines(capsys.readouterr().out) == [
+        "✓ Cyrene di HP: server di 127.0.0.1:9883 selama 'waifu run'",
+        f"✓ Tailscale: {cli.TAILSCALE_INSTALLED}",
+        f"✓ Tailscale tersambung; nama PC ini {TAILNET_NAME}",
+        f"✓ tailscale serve membagikan https://{TAILNET_NAME}/ ke 127.0.0.1:9883",
+        f"✓ phone.host: {TAILNET_NAME}",
+        "✓ HP terpasang: 1 (lihat 'waifu phone devices')",
+    ]
+    assert [command[1:] for command in tailscale.commands] == [
+        ["status", "--json"],
+        ["serve", "status", "--json"],
+    ]
+
+
+@pytest.mark.parametrize(
+    "serve",
+    [
+        {},
+        serving(9990),
+        serving(https_port=8443),
+        serving(target="192.168.1.20"),
+        {"Foreground": {"session": serving()}},
+        {"Web": {f"{TAILNET_NAME}:443": {"Handlers": {"/": {"Path": "C:/web"}}}}},
+        {"Web": []},
+    ],
+    ids=[
+        "nothing",
+        "another-port",
+        "another-https-port",
+        "another-computer",
+        "only-in-the-foreground",
+        "files",
+        "not-a-serve-config",
+    ],
+)
+def test_check_fails_a_phone_that_tailscale_does_not_serve_and_gives_the_command(
+    serve, home, nothing_installed, tailscale, capsys
+):
+    append_config(home, PHONE_ON)
+    tailscale.serve = serve
+
+    assert cli.main(["check"]) == 1
+
+    [line] = [line for line in phone_lines(capsys.readouterr().out) if "tailscale serve" in line]
+    assert line == (
+        "✗ tailscale serve belum membagikan 127.0.0.1:9883 lewat HTTPS port 443. Jalankan "
+        f"sekali di Command Prompt: {installed_serve_command()}"
+    )
+
+
+def test_check_fails_a_phone_server_that_tailscale_funnel_opens_to_the_internet(
+    home, nothing_installed, tailscale, capsys
+):
+    append_config(home, PHONE_ON)
+    tailscale.serve = serving(funnel=True)
+
+    assert cli.main(["check"]) == 1
+
+    [line] = [line for line in phone_lines(capsys.readouterr().out) if "Funnel" in line]
+    assert line == (
+        f"✗ Tailscale Funnel menyala untuk {TAILNET_NAME}: server HP terbuka ke seluruh "
+        "internet, bukan hanya ke jaringan Tailscale-mu. Matikan sekali di Command Prompt: "
+        f'"{cli.TAILSCALE_INSTALLED}" funnel --https=443 off, lalu bagikan lagi dengan: '
+        f"{installed_serve_command()}"
+    )
+
+
+def test_check_leaves_funnel_on_another_https_port_alone(
+    home, nothing_installed, tailscale, capsys
+):
+    append_config(home, PHONE_ON)
+    serve = serving()
+    serve["AllowFunnel"] = {f"{TAILNET_NAME}:8443": True, "other-pc.tail1234.ts.net:443": True}
+    tailscale.serve = serve
+
+    cli.main(["check"])
+
+    lines = phone_lines(capsys.readouterr().out)
+    assert f"✓ tailscale serve membagikan https://{TAILNET_NAME}/ ke 127.0.0.1:9883" in lines
+
+
+def test_check_warns_that_the_phone_shows_no_avatar_without_avatar_model(
+    home, nothing_installed, capsys
+):
+    append_config(home, PHONE_ON)  # the example config leaves avatar.model out
+
+    cli.main(["check"])
+
+    [line] = [line for line in phone_lines(capsys.readouterr().out) if "avatar.model" in line]
+    assert line == (
+        "! avatar.model belum diisi, jadi halaman HP hanya menampilkan chat tanpa avatar. Isi "
+        "avatar.model (dan avatar.live2d_core untuk Live2D) di config.yaml, juga kalau "
+        "avatar.enabled: false"
+    )
+
+
+def test_check_fails_a_phone_without_tailscale_and_still_checks_the_rest(
+    home, nothing_installed, capsys
+):
+    write_config(home, PHONE_READY)
+
+    cli.main(["check"])
+
+    lines = phone_lines(capsys.readouterr().out)
+    assert lines[1].startswith("✗ Tailscale belum terpasang")
+    assert lines[2:] == [
+        f"✓ phone.host: {TAILNET_NAME}",
+        "! Belum ada HP yang dipasangkan; jalankan 'waifu phone pair'",
+    ]
+
+
+def test_check_fails_a_phone_whose_tailscale_is_not_logged_in(
+    home, nothing_installed, tailscale, capsys
+):
+    append_config(home, PHONE_ON)
+    tailscale.status = tailscale_status(state="NeedsLogin")
+
+    cli.main(["check"])
+
+    lines = phone_lines(capsys.readouterr().out)
+    assert any(line.startswith("✗ Tailscale belum tersambung") for line in lines)
+    assert f"✓ phone.host: {TAILNET_NAME}" in lines
+
+
+def test_check_fails_a_phone_host_that_is_not_this_pc_s_tailscale_name(
+    home, nothing_installed, tailscale, capsys
+):
+    append_config(home, "phone:\n  enabled: true\n  host: other-pc.tail1234.ts.net\n")
+
+    cli.main(["check"])
+
+    [line] = [line for line in phone_lines(capsys.readouterr().out) if "phone.host" in line]
+    assert line == (
+        "✗ phone.host other-pc.tail1234.ts.net bukan nama PC ini di Tailscale; ganti dengan "
+        f"host: {TAILNET_NAME}"
+    )
+
+
+def test_check_fails_a_phone_without_phone_host_and_says_how_to_get_it(
+    home, nothing_installed, capsys
+):
+    append_config(home, "phone:\n  enabled: true\n")
+
+    cli.main(["check"])
+
+    [line] = [line for line in phone_lines(capsys.readouterr().out) if "phone.host" in line]
+    assert line == (
+        "✗ phone.host belum diisi; jalankan 'waifu phone setup' lalu isi baris host yang "
+        "ditampilkannya"
+    )
+
+
+def test_check_fails_a_pairing_file_it_cannot_read(home, nothing_installed, capsys):
+    append_config(home, PHONE_ON)
+    phone_file(home).mkdir(parents=True)  # a folder where the file should be
+
+    cli.main(["check"])
+
+    line = phone_lines(capsys.readouterr().out)[-1]
+    assert line.startswith(f"✗ File HP terpasang {Path('data/phone.json')} tidak bisa dibaca")

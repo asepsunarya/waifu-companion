@@ -16,10 +16,13 @@ import logging
 import math
 import os
 import re
+import shutil
 import socket
+import subprocess
 import sys
 import tempfile
 import threading
+import urllib.parse
 import urllib.request
 from collections import deque
 from collections.abc import Callable, Iterator, Sequence
@@ -37,7 +40,7 @@ import numpy as np
 from pydantic import ValidationError
 
 from waifu import autostart, memory
-from waifu.app import Assistant, split_reply
+from waifu.app import Assistant, PhoneAnswers, split_reply
 from waifu.autostart import RunKey, WindowsRunKey
 from waifu.avatar.bus import STATES as AVATAR_STATES
 from waifu.avatar.bus import AvatarBus
@@ -57,11 +60,13 @@ from waifu.brain.usage_tools import UsageTools
 from waifu.briefing import DAILY_BRIEFING, BriefingTimer, BriefingTools
 from waifu.config import (
     APP_URL_SCHEMES,
+    TAILSCALE_HOST_PATTERN,
     AppConfig,
     AvatarConfig,
     BriefingConfig,
     ConfigError,
     OllamaConfig,
+    PhoneConfig,
     RvcConfig,
     cookie_names,
     load_config,
@@ -85,6 +90,8 @@ from waifu.gacha.watcher import GachaWatcher
 from waifu.gate import WakeGate
 from waifu.memory import MemoryStore, memory_prompt_section
 from waifu.notify import Notifier, build_notifier
+from waifu.phone.auth import CODE_LIFETIME, MAX_TRIES, PhoneAuth
+from waifu.phone.server import LOOPBACK, PhoneError, PhoneServer
 from waifu.routines import describe_routine, routine_problems, run_routine
 from waifu.schedule import (
     Action,
@@ -231,6 +238,26 @@ NO_ROUTINES = (
 )
 BRIEFING_TAG = "sunrise"  # ntfy shows it as a sunrise emoji
 BUDGET_TAG = "money_with_wings"  # ntfy shows it as an emoji of money flying away
+PHONE_DESCRIPTION = (
+    "Cyrene di HP: halaman dengan avatar, chat, dan tombol bicara yang dibagikan ke HP Master "
+    "lewat Tailscale (lihat README, bagian Cyrene di HP). Perintah ini jalan walau "
+    "phone.enabled: false; yang menyalakan server HP hanyalah phone.enabled saat 'waifu run'."
+)
+# The Tailscale CLI, which `waifu phone setup` and `check` only ever ask about its state: looked
+# for on the PATH (TAILSCALE_SEARCH_PATH; None is the environment's), else where its Windows
+# installer puts it. Tests point both under tmp_path and swap TAILSCALE_RUNNER for a fake.
+TAILSCALE_COMMAND = "tailscale"
+TAILSCALE_SEARCH_PATH: str | None = None
+TAILSCALE_INSTALLED = Path("C:/Program Files/Tailscale/tailscale.exe")
+TAILSCALE_TIMEOUT_S = 10.0
+TAILSCALE_DOWNLOAD = "https://tailscale.com/download"
+# The page works only on HTTPS port 443: the phone server accepts https://<phone.host> as origin.
+PHONE_HTTPS_PORT = 443
+PHONE_WITHOUT_MODEL_TEXT = (
+    "avatar.model belum diisi, jadi halaman HP hanya menampilkan chat tanpa avatar. Isi "
+    "avatar.model (dan avatar.live2d_core untuk Live2D) di config.yaml, juga kalau "
+    "avatar.enabled: false"
+)
 REPEAT_TEXT: dict[Repeat, str] = {
     "none": "sekali",
     "daily": "tiap hari",
@@ -483,6 +510,33 @@ def build_parser() -> argparse.ArgumentParser:
     command("list", _routine_list, "Tampilkan setiap rutinitas dan langkahnya.", routine_actions)
     run_now = command("run", _routine_run, "Jalankan satu rutinitas sekarang.", routine_actions)
     run_now.add_argument("routine_name", metavar="nama", help="nama rutinitas, misalnya tidur")
+    phone_command = commands.add_parser(
+        "phone",
+        parents=[shared],
+        help="Cyrene di HP lewat Tailscale: siapkan, pasangkan HP, lihat dan lupakan HP.",
+        description=PHONE_DESCRIPTION,
+    )
+    phone_actions = phone_command.add_subparsers(dest="action", required=True, metavar="<aksi>")
+    command(
+        "setup",
+        _phone_setup,
+        "Cari Tailscale, lalu tampilkan perintah 'tailscale serve', alamat HP, dan phone.host.",
+        phone_actions,
+    )
+    command(
+        "pair",
+        _phone_pair,
+        "Buat kode 6 angka untuk memasangkan satu HP "
+        f"(berlaku {CODE_LIFETIME // timedelta(minutes=1)} menit).",
+        phone_actions,
+    )
+    command("devices", _phone_devices, "Tampilkan HP yang sudah dipasangkan.", phone_actions)
+    forget_phone = command(
+        "forget", _phone_forget, "Lupakan satu HP; HP itu harus dipasangkan lagi.", phone_actions
+    )
+    forget_phone.add_argument(
+        "device_id", metavar="id", help="id dari 'waifu phone devices', misalnya d1"
+    )
     return parser
 
 
@@ -732,6 +786,7 @@ def _listen(args: argparse.Namespace) -> int:
                         ),
                         _briefing_timer(config, assistant, notifier),
                         _budget_told(usage, _budget_teller(config, assistant, notifier)),
+                        _phone_server(config, assistant),
                     ):
                         assistant.run(mic, segmenter)
                 except SttError as exc:
@@ -1957,6 +2012,361 @@ def _rupiah(amount: float) -> str:
     return f"Rp{round(amount):,}".replace(",", ".")
 
 
+# --- Cyrene on the phone ---------------------------------------------------------------------
+
+
+@contextmanager
+def _phone_server(config: AppConfig, assistant: Assistant) -> Iterator[None]:
+    """Serve her to the paired phone for the block, when `phone.enabled`.
+
+    The server listens on 127.0.0.1 only; `tailscale serve` shares it with the owner's tailnet.
+    One that cannot start (its port is taken) only costs the phone, never her voice.
+    """
+    phone = config.phone
+    if not phone.enabled:
+        yield
+        return
+    name = config.assistant.name
+    try:
+        server = PhoneServer(
+            phone,
+            config.avatar,
+            PhoneAuth(phone.state_path),
+            PhoneAnswers(assistant),
+            owner_call=config.assistant.owner_call,
+            assistant_name=name,
+        )
+    except PhoneError as exc:
+        logger.warning("Phone server unavailable, going on without it: %s", exc)
+        reason = str(exc).rstrip(".")
+        print(f"{WARN} {name} di HP tidak tersedia: {reason}. {name} tetap berjalan tanpa HP.")
+        yield
+        return
+    with server:
+        print(_phone_served_text(name, phone, server.url))
+        yield
+
+
+def _phone_served_text(name: str, phone: PhoneConfig, url: str) -> str:
+    if phone.host is None:
+        return (
+            f"{WARN} {name} di HP berjalan di {url}, tapi phone.host belum diisi, jadi HP belum "
+            "bisa membukanya lewat Tailscale. Jalankan 'waifu phone setup'."
+        )
+    return f"{name} di HP: https://{phone.host}/ (pasangkan HP dengan 'waifu phone pair')"
+
+
+def _phone_setup(args: argparse.Namespace) -> int:
+    """Find Tailscale and this PC's tailnet name, then print what the owner does once: the
+    `tailscale serve` command, the phone.host line, and the page's URL. Never changes Tailscale."""
+    config = load_config(args.config)
+    tailscale = _find_tailscale()
+    if tailscale is None:
+        print(f"{FAIL} {_tailscale_missing()}")
+        return 1
+    print(f"{OK} Tailscale: {tailscale.exe}")
+    try:
+        host = _tailscale_name(_tailscale_json(tailscale, "status", "--json"))
+    except _TailscaleError as exc:
+        print(f"{FAIL} {exc}")
+        return 1
+    print(f"{OK} Nama PC ini di Tailscale: {host}")
+    print()
+    print(
+        f"1. Jalankan sekali di Command Prompt. Tailscale lalu membagikan {config.assistant.name} "
+        "lewat HTTPS hanya ke perangkat di jaringan Tailscale-mu, juga setelah PC dinyalakan "
+        "ulang:"
+    )
+    print(f"   {_serve_command(tailscale, config.phone.port)}")
+    print("2. Isi bagian phone di config.yaml:")
+    print("   phone:")
+    print("     enabled: true")
+    print(f"     host: {host}")
+    print(
+        "3. Jalankan ulang 'waifu run', lalu 'waifu phone pair', dan buka alamat ini di Chrome HP:"
+    )
+    print(f"   https://{host}/")
+    print()
+    print(
+        "Perintah ini hanya membaca status Tailscale; 'tailscale serve' kamu jalankan sendiri. "
+        f"Untuk berhenti membagikan: {tailscale.typed} serve --https={PHONE_HTTPS_PORT} off"
+    )
+    return 0
+
+
+def _phone_pair(args: argparse.Namespace) -> int:
+    """Make a pairing code and print it with its expiry; it is never logged or saved in clear."""
+    config = load_config(args.config)
+    phone = config.phone
+    name = config.assistant.name
+    # Before the code is made, so the time shown is never later than the code's own expiry.
+    expires = datetime.now() + CODE_LIFETIME
+    code = PhoneAuth(phone.state_path).new_code()
+    print(f"Kode pasangan HP: {code}")
+    print(
+        f"Berlaku sampai jam {expires:%H.%M} untuk satu HP; kode baru menggantikan yang lama, dan "
+        f"{MAX_TRIES} kali salah membuangnya."
+    )
+    if phone.host is None:
+        print(
+            f"{WARN} phone.host belum diisi: jalankan 'waifu phone setup' dulu supaya HP bisa "
+            f"membuka {name}."
+        )
+    else:
+        print(
+            f"Buka https://{phone.host}/ di Chrome HP selama 'waifu run' berjalan, lalu "
+            "masukkan kode ini."
+        )
+    if not phone.enabled:
+        print(
+            f"{WARN} phone.enabled masih false: isi phone.enabled: true di config.yaml, lalu "
+            "jalankan ulang 'waifu run'."
+        )
+    return 0
+
+
+def _phone_devices(args: argparse.Namespace) -> int:
+    devices = PhoneAuth(load_config(args.config).phone.state_path).devices()
+    if not devices:
+        print("Belum ada HP yang dipasangkan. Pasangkan dengan 'waifu phone pair'.")
+        return 0
+    rows = [
+        (
+            device.id,
+            device.name,
+            f"{device.created:%d-%m-%Y %H:%M}",
+            f"{device.last_used:%d-%m-%Y %H:%M}",
+        )
+        for device in devices
+    ]
+    print(_format_table(("ID", "NAMA", "DIPASANGKAN", "TERAKHIR DIPAKAI"), rows))
+    return 0
+
+
+def _phone_forget(args: argparse.Namespace) -> int:
+    config = load_config(args.config)
+    if not PhoneAuth(config.phone.state_path).forget(args.device_id):
+        print(
+            f"{FAIL} Tidak ada HP dengan id {args.device_id}. Lihat daftarnya dengan "
+            "'waifu phone devices'."
+        )
+        return 1
+    print(
+        f"{OK} HP {args.device_id} dilupakan: HP itu tidak bisa membuka {config.assistant.name} "
+        "lagi sampai dipasangkan ulang."
+    )
+    return 0
+
+
+class _TailscaleError(Exception):
+    """The Tailscale CLI could not tell what Cyrene needs; the message is Indonesian."""
+
+
+@dataclass(frozen=True)
+class _Tailscale:
+    exe: Path  # the CLI that was found
+    typed: str  # how the owner types it in Command Prompt
+
+
+def _find_tailscale() -> _Tailscale | None:
+    """The Tailscale CLI on the PATH, else where its Windows installer puts it; None without it."""
+    on_path = shutil.which(TAILSCALE_COMMAND, path=TAILSCALE_SEARCH_PATH)
+    if on_path is not None:
+        return _Tailscale(Path(on_path), TAILSCALE_COMMAND)
+    if TAILSCALE_INSTALLED.is_file():
+        return _Tailscale(TAILSCALE_INSTALLED, subprocess.list2cmdline([str(TAILSCALE_INSTALLED)]))
+    return None
+
+
+def _tailscale_missing() -> str:
+    return (
+        f"Tailscale belum terpasang di PC ini (tidak ada di PATH atau di {TAILSCALE_INSTALLED}). "
+        f"Pasang dari {TAILSCALE_DOWNLOAD} dan login, lalu jalankan 'waifu phone setup' (lihat "
+        "README, bagian Cyrene di HP)"
+    )
+
+
+def _run_tailscale(command: Sequence[str]) -> subprocess.CompletedProcess[str]:
+    """Runs one Tailscale CLI command with its output captured; only commands that read."""
+    return subprocess.run(
+        list(command),
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=TAILSCALE_TIMEOUT_S,
+        check=False,
+    )
+
+
+TAILSCALE_RUNNER: Callable[[Sequence[str]], subprocess.CompletedProcess[str]] = _run_tailscale
+
+
+def _tailscale_json(tailscale: _Tailscale, *arguments: str) -> object:
+    """What `tailscale <arguments>` prints as JSON; _TailscaleError when that cannot be had."""
+    shown = " ".join([TAILSCALE_COMMAND, *arguments])
+    try:
+        finished = TAILSCALE_RUNNER([str(tailscale.exe), *arguments])
+    except subprocess.TimeoutExpired:
+        raise _TailscaleError(
+            f"'{shown}' tidak menjawab dalam {TAILSCALE_TIMEOUT_S:g} detik"
+        ) from None
+    except OSError as exc:
+        raise _TailscaleError(f"Tailscale CLI tidak bisa dijalankan ({exc})") from exc
+    if finished.returncode != 0:
+        complaints = [line.strip() for line in (finished.stderr or "").splitlines() if line.strip()]
+        detail = complaints[-1] if complaints else f"kode keluar {finished.returncode}"
+        raise _TailscaleError(
+            f"'{shown}' gagal: {detail}. Pastikan aplikasi Tailscale di PC ini berjalan"
+        )
+    try:
+        return json.loads(finished.stdout)
+    except ValueError:
+        raise _TailscaleError(f"Jawaban '{shown}' bukan JSON yang bisa dibaca") from None
+
+
+def _tailscale_name(status: object) -> str:
+    """This PC's *.ts.net name in `tailscale status --json`, without its final dot.
+
+    _TailscaleError while Tailscale is not connected, or without a MagicDNS name.
+    """
+    state = status.get("BackendState") if isinstance(status, dict) else None
+    if state != "Running":
+        raise _TailscaleError(
+            f"Tailscale belum tersambung (status: {state or 'tidak diketahui'}). Buka aplikasi "
+            "Tailscale di PC ini dan login dengan akun yang sama seperti di HP"
+        )
+    me = status.get("Self")
+    dns_name = me.get("DNSName") if isinstance(me, dict) else None
+    host = dns_name.rstrip(".").lower() if isinstance(dns_name, str) else ""
+    if not TAILSCALE_HOST_PATTERN.match(host):
+        raise _TailscaleError(
+            "Nama PC ini di Tailscale (*.ts.net) tidak terbaca. Nyalakan MagicDNS di admin "
+            "console Tailscale (halaman DNS), lalu ulangi"
+        )
+    return host
+
+
+def _serve_command(tailscale: _Tailscale, port: int) -> str:
+    """The command the owner runs once so that Tailscale shares the phone server over HTTPS."""
+    return f"{tailscale.typed} serve --bg --https={PHONE_HTTPS_PORT} http://{LOOPBACK}:{port}"
+
+
+def _served_host(serve: object, port: int) -> str | None:
+    """The *.ts.net name whose HTTPS port 443 passes to this PC's `port` in
+    `tailscale serve status --json`, or None.
+
+    A serve started without --bg (under "Foreground") ends with its command, so it does not count.
+    """
+    sites = serve.get("Web") if isinstance(serve, dict) else None
+    if not isinstance(sites, dict):
+        return None
+    for host_port, site in sites.items():
+        host, _, https_port = str(host_port).rpartition(":")
+        handlers = site.get("Handlers") if isinstance(site, dict) else None
+        root = handlers.get("/") if isinstance(handlers, dict) else None
+        target = root.get("Proxy") if isinstance(root, dict) else None
+        if https_port == str(PHONE_HTTPS_PORT) and _is_phone_server(target, port):
+            return host
+    return None
+
+
+def _funnel_on(serve: object, host: str) -> bool:
+    """Whether `tailscale serve status --json` has Funnel on for `host`'s HTTPS port 443.
+
+    Funnel opens everything that host and port serve to the whole internet, every path
+    included."""
+    funnel = serve.get("AllowFunnel") if isinstance(serve, dict) else None
+    return isinstance(funnel, dict) and funnel.get(f"{host}:{PHONE_HTTPS_PORT}") is True
+
+
+def _is_phone_server(target: object, port: int) -> bool:
+    """Whether a serve proxy target is http://127.0.0.1:<port> or http://localhost:<port>."""
+    if not isinstance(target, str):
+        return False
+    url = urllib.parse.urlsplit(target)
+    try:
+        target_port = url.port
+    except ValueError:  # a port that is not a number from 0 to 65535
+        return False
+    return url.scheme == "http" and url.hostname in (LOOPBACK, "localhost") and target_port == port
+
+
+def _phone_checks(config: AppConfig) -> Iterator[Check]:
+    """The phone server, Tailscale (its CLI, its login, and its serve of the server's port, never
+    through Funnel), phone.host, the avatar's model, and the paired phones. Asks Tailscale only
+    about its state, never changes it."""
+    phone = config.phone
+    label = f"{config.assistant.name} di HP"
+    if not phone.enabled:
+        yield WARN, f"{label} mati (phone.enabled: false)"
+        return
+    yield OK, f"{label}: server di {LOOPBACK}:{phone.port} selama 'waifu run'"
+    tailscale = _find_tailscale()
+    tailnet_host = None
+    if tailscale is None:
+        yield FAIL, _tailscale_missing()
+    else:
+        yield OK, f"Tailscale: {tailscale.exe}"
+        try:
+            tailnet_host = _tailscale_name(_tailscale_json(tailscale, "status", "--json"))
+        except _TailscaleError as exc:
+            yield FAIL, str(exc)
+        else:
+            yield OK, f"Tailscale tersambung; nama PC ini {tailnet_host}"
+        yield _serve_check(tailscale, phone.port)
+    yield _phone_host_check(phone.host, tailnet_host)
+    if config.avatar.model is None:
+        yield WARN, PHONE_WITHOUT_MODEL_TEXT
+    yield _paired_phones_check(phone.state_path)
+
+
+def _serve_check(tailscale: _Tailscale, port: int) -> Check:
+    try:
+        serve = _tailscale_json(tailscale, "serve", "status", "--json")
+    except _TailscaleError as exc:
+        return FAIL, str(exc)
+    host = _served_host(serve, port)
+    if host is None:
+        return FAIL, (
+            f"tailscale serve belum membagikan {LOOPBACK}:{port} lewat HTTPS port "
+            f"{PHONE_HTTPS_PORT}. Jalankan sekali di Command Prompt: "
+            f"{_serve_command(tailscale, port)}"
+        )
+    if _funnel_on(serve, host):
+        return FAIL, (
+            f"Tailscale Funnel menyala untuk {host}: server HP terbuka ke seluruh internet, "
+            "bukan hanya ke jaringan Tailscale-mu. Matikan sekali di Command Prompt: "
+            f"{tailscale.typed} funnel --https={PHONE_HTTPS_PORT} off, lalu bagikan lagi dengan: "
+            f"{_serve_command(tailscale, port)}"
+        )
+    return OK, f"tailscale serve membagikan https://{host}/ ke {LOOPBACK}:{port}"
+
+
+def _phone_host_check(host: str | None, tailnet_host: str | None) -> Check:
+    """phone.host, the only outside name the phone server answers, against this PC's name."""
+    if host is None:
+        return FAIL, (
+            "phone.host belum diisi; jalankan 'waifu phone setup' lalu isi baris host yang "
+            "ditampilkannya"
+        )
+    if tailnet_host is not None and host != tailnet_host:
+        return FAIL, (
+            f"phone.host {host} bukan nama PC ini di Tailscale; ganti dengan host: {tailnet_host}"
+        )
+    return OK, f"phone.host: {host}"
+
+
+def _paired_phones_check(path: Path) -> Check:
+    try:
+        count = len(PhoneAuth(path).devices())  # moves a broken file aside, as the server would
+    except OSError as exc:
+        return FAIL, f"File HP terpasang {path} tidak bisa dibaca: {exc}"
+    if count == 0:
+        return WARN, "Belum ada HP yang dipasangkan; jalankan 'waifu phone pair'"
+    return OK, f"HP terpasang: {count} (lihat 'waifu phone devices')"
+
+
 # --- check -----------------------------------------------------------------------------------
 
 
@@ -1990,6 +2400,7 @@ def _checks(config_path: Path) -> Iterator[Check]:
     yield from _avatar_checks(config)
     yield from _gacha_checks(config)
     yield _notify_check(config)
+    yield from _phone_checks(config)
 
 
 def _device_checks(config: AppConfig, config_path: Path) -> Iterator[Check]:

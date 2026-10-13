@@ -39,6 +39,7 @@ Cyrene : "Komputer mau kumatikan sekarang, Master? Jawab iya kalau jadi." (minta
 - [Melihat layar](#melihat-layar)
 - [Sapaan pagi dan ringkasan harian](#sapaan-pagi-dan-ringkasan-harian)
 - [Biaya API Claude](#biaya-api-claude)
+- [Cyrene di HP](#cyrene-di-hp)
 - [Pemecahan masalah](#pemecahan-masalah)
 - [Checklist uji perangkat keras](#checklist-uji-perangkat-keras)
 - [Privasi](#privasi)
@@ -127,7 +128,12 @@ Jadwal menambah tool `schedule`, `list_schedules`, `cancel_schedule`, dan `run_r
 `waifu run` yang mengecek file itu setiap 15 detik: pengingat diucapkan dan dikirim ke HP,
 perintah perangkat dan rutinitas dijalankan lewat `DeviceRegistry` yang sama.
 
-Kode ada di `src/waifu/`: `devices/`, `brain/`, `voice/`, `avatar/`, `gacha/`, lalu
+Cyrene di HP (opsional) menambah server kedua di `127.0.0.1` selama `waifu run`, yang
+dibagikan ke HP lewat `tailscale serve`: teks atau rekaman dari HP masuk ke otak yang sama
+(satu giliran pada satu waktu, bergantian dengan mic PC), dan jawabannya disuarakan untuk HP,
+tidak di speaker PC.
+
+Kode ada di `src/waifu/`: `devices/`, `brain/`, `voice/`, `avatar/`, `gacha/`, `phone/`, lalu
 `memory.py`, `schedule.py`, `routines.py`, `scheduler.py`, `notify.py`, `gate.py`, `app.py`,
 dan `cli.py` yang menyatukan semuanya. Detail kontrak tiap modul ada di `SPEC.md`.
 
@@ -603,7 +609,8 @@ waifu speaker-test    # skor kecocokan langsung, Ctrl+C untuk berhenti
 | `waifu routine list` / `run <nama>` | Lihat rutinitas dari `config.yaml`, atau jalankan satu sekarang (`--dry-run`: perangkat simulasi) |
 | `waifu briefing` | Tampilkan ringkasan hari ini (tanggal, cuaca, jadwal) tanpa otak, untuk mengecek cuaca (lihat [Sapaan pagi dan ringkasan harian](#sapaan-pagi-dan-ringkasan-harian)) |
 | `waifu usage` / `waifu usage --month 2026-09` | Perkiraan biaya API Claude per hari bulan ini atau bulan lain (lihat [Biaya API Claude](#biaya-api-claude)) |
-| `waifu check` | Periksa config, kode IR, aplikasi PC, rutinitas, voiceprint, otak, ingatan, jadwal, sapaan pagi, biaya API, paket suara, CUDA, mic, suara anime, dan avatar |
+| `waifu phone setup` / `pair` / `devices` / `forget <id>` | Siapkan Cyrene di HP lewat Tailscale, pasangkan HP dengan kode, lihat dan lupakan HP (lihat [Cyrene di HP](#cyrene-di-hp)) |
+| `waifu check` | Periksa config, kode IR, aplikasi PC, rutinitas, voiceprint, otak, ingatan, jadwal, sapaan pagi, biaya API, paket suara, CUDA, mic, suara anime, avatar, dan Cyrene di HP |
 
 Opsi untuk semua perintah: `--config <file>` (default `config.yaml`), `--dry-run`
 (perangkat simulasi), `-v` (log lebih rinci), `--log-file <file>` (log juga ditulis
@@ -2227,6 +2234,243 @@ Untuk berhenti mencatat: `usage.enabled: false`. Dia tidak lagi mencatat atau me
 anggaran dan tidak lagi bisa menjawab pertanyaan biaya; catatan lamanya tetap ada dan masih
 bisa dilihat dengan `waifu usage`.
 
+## Cyrene di HP
+
+Selama `waifu run` berjalan di PC, Cyrene juga bisa dibuka dari HP Android Master, di rumah
+atau di luar: avatarnya (model yang sama dengan maskot, dibingkai setengah badan), chat teks,
+dan tombol mikrofon yang ditahan selama bicara. Dia menjawab dengan teks dan dengan suara
+animenya dari speaker HP; mulut avatar ikut bergerak dan wajahnya menunjukkan emosi jawaban.
+Ini Cyrene yang sama: ingatan, perangkat rumah, jadwal, game, sapaan pagi, dan aturan
+konfirmasinya sama, jadi "matikan lampu kamar" dari HP benar-benar mematikan lampu, dan
+"matikan komputer" tetap dijawab dengan pertanyaan dulu. Jawaban untuk HP tidak diucapkan di
+speaker PC.
+
+```text
+ HP (Chrome) ──HTTPS──► Tailscale: sertifikat asli *.ts.net, hanya perangkat di akunmu
+                          │ tailscale serve (sekali, tetap berlaku setelah restart)
+                          ▼
+                 server HP Cyrene di 127.0.0.1:9883: hanya HP yang sudah dipasangkan
+                          │
+                          ▼
+                 Cyrene yang sama dengan di PC (otak, ingatan, perangkat)
+```
+
+- **Tidak ada port yang dibuka** ke internet atau ke Wi-Fi rumah. Server HP hanya
+  mendengarkan di `127.0.0.1`; Tailscale yang meneruskan dari HP, terenkripsi, dan hanya
+  perangkat yang login ke akun Tailscale-mu yang bisa mencapainya. Jangan pakai
+  `tailscale funnel` untuk alamat PC ini: Funnel membukanya ke seluruh internet, dan server HP
+  menolak setiap permintaan lewat Funnel. Di luar rumah cukup nyalakan aplikasi Tailscale di HP.
+- **Hanya HP yang dipasangkan.** HP baru harus memasukkan kode 6 angka dari PC sekali.
+  Tanpa itu halaman hanya menampilkan formulir pasangan, tanpa avatar atau jawaban.
+
+### Kebutuhan
+
+- [Tailscale](https://tailscale.com/download) (gratis untuk pemakaian pribadi) di PC Windows
+  dan di HP Android, login dengan akun yang sama.
+- Chrome di Android.
+- Model avatar di bagian `avatar` di `config.yaml` (`avatar.engine`, `avatar.model`, dan untuk
+  Live2D `avatar.live2d_core`; lihat [Avatar 3D](#avatar-3d-つくよみちゃん) atau
+  [Avatar Live2D](#avatar-live2d--interaksi)). HP memakainya juga kalau `avatar.enabled: false`
+  (maskot di PC mati, tapi halaman HP tetap butuh modelnya); tanpa `avatar.model` halaman HP
+  hanya menampilkan chat.
+
+### 1. Pasang Tailscale di PC dan HP (sekali)
+
+1. **PC:** unduh Tailscale untuk Windows dari <https://tailscale.com/download>, pasang, lalu
+   login dari ikon Tailscale di system tray.
+2. **HP:** pasang aplikasi Tailscale dari Play Store, login dengan akun yang sama, dan
+   nyalakan sambungannya (Android menanyakan izin VPN; izinkan).
+3. **Admin console Tailscale**, halaman **DNS** (<https://login.tailscale.com/admin/dns>):
+   nyalakan **MagicDNS** kalau belum, lalu di bagian **HTTPS Certificates** pilih
+   **Enable HTTPS**. Tailscale memperingatkan bahwa nama mesin dan nama tailnet-mu akan
+   tercatat di buku besar publik (Certificate Transparency); itu syarat sertifikat HTTPS
+   asli. Jadi jangan beri PC nama yang berisi data pribadi.
+
+### 2. `waifu phone setup` dan `tailscale serve` (sekali)
+
+```powershell
+.venv\Scripts\waifu phone setup
+```
+
+Perintah ini mencari Tailscale (di PATH, atau di `C:\Program Files\Tailscale\tailscale.exe`),
+membaca nama PC ini di Tailscale dari `tailscale status --json`, lalu menampilkan tiga hal:
+
+```text
+✓ Tailscale: C:\Program Files\Tailscale\tailscale.exe
+✓ Nama PC ini di Tailscale: pc-lynx.tail1234.ts.net
+
+1. Jalankan sekali di Command Prompt. ...
+   tailscale serve --bg --https=443 http://127.0.0.1:9883
+2. Isi bagian phone di config.yaml:
+   phone:
+     enabled: true
+     host: pc-lynx.tail1234.ts.net
+3. Jalankan ulang 'waifu run', lalu 'waifu phone pair', dan buka alamat ini di Chrome HP:
+   https://pc-lynx.tail1234.ts.net/
+```
+
+`waifu phone setup` hanya membaca status Tailscale; dia tidak pernah mengubah pengaturannya.
+Yang membagikan Cyrene adalah perintah `tailscale serve` itu, yang kamu jalankan sendiri
+**sekali** di Command Prompt (kalau Tailscale tidak ada di PATH, perintah yang ditampilkan
+memakai path lengkapnya). Dengan `--bg` pengaturan itu tetap berlaku setelah PC atau
+Tailscale dinyalakan ulang. Untuk berhenti membagikan: `tailscale serve --https=443 off`.
+Port `9883` adalah `phone.port`; kalau kamu menggantinya, jalankan lagi `waifu phone setup`
+untuk perintah dengan port yang baru (halaman HP hanya jalan di HTTPS port 443).
+
+### 3. Nyalakan di config.yaml
+
+Tulis bagian yang ditampilkan `waifu phone setup` (contoh lengkapnya, dengan komentar, ada di
+`config.example.yaml`):
+
+```yaml
+phone:
+  enabled: true
+  host: pc-lynx.tail1234.ts.net   # nama PC ini di Tailscale, persis seperti dari waifu phone setup
+```
+
+`host` wajib: server HP hanya melayani nama itu (serta `127.0.0.1` dan `localhost`), jadi
+tanpa `host` HP ditolak dengan 403. Jalankan ulang `waifu run`; saat siap dia menampilkan
+`Cyrene di HP: https://pc-lynx.tail1234.ts.net/`. Server HP hanya hidup selama `waifu run`
+(tidak di `waifu chat`).
+
+Cek semuanya dengan `waifu check`:
+
+```text
+✓ Cyrene di HP: server di 127.0.0.1:9883 selama 'waifu run'
+✓ Tailscale: C:\Program Files\Tailscale\tailscale.exe
+✓ Tailscale tersambung; nama PC ini pc-lynx.tail1234.ts.net
+✓ tailscale serve membagikan https://pc-lynx.tail1234.ts.net/ ke 127.0.0.1:9883
+✓ phone.host: pc-lynx.tail1234.ts.net
+✓ HP terpasang: 1 (lihat 'waifu phone devices')
+```
+
+Baris `✗` menyebut apa yang kurang: Tailscale belum terpasang atau belum login, `tailscale
+serve` belum dijalankan (beserta perintahnya), Tailscale Funnel menyala untuk alamat PC ini
+(beserta perintah untuk mematikannya), atau `phone.host` kosong atau bukan nama PC ini. Baris
+`!` tentang `avatar.model` berarti halaman HP hanya menampilkan chat, tanpa avatar.
+
+### 4. Pasangkan HP dan pasang di layar utama
+
+1. Selama `waifu run` berjalan, jalankan di PC:
+
+   ```powershell
+   .venv\Scripts\waifu phone pair
+   ```
+
+   Dia menampilkan kode 6 angka, misalnya `Kode pasangan HP: 482915`, dan sampai jam berapa
+   kode itu berlaku (10 menit). Satu kode untuk satu HP; kode baru menggantikan yang lama, dan
+   5 kali salah membuangnya (buat kode baru).
+2. Di HP, buka alamat `https://<nama-pc>.<tailnet>.ts.net/` dari `waifu phone setup` di
+   Chrome, masukkan kodenya, lalu ketuk **Pasangkan**. HP itu diingat lewat cookie selama
+   setahun; kodenya sendiri tidak pernah ditulis ke log atau disimpan apa adanya.
+3. Supaya terbuka seperti aplikasi: menu Chrome (⋮) → **Tambahkan ke layar utama**
+   (atau **Instal aplikasi**). Ikon Cyrene muncul di layar utama dan membuka halaman tanpa
+   bilah alamat.
+
+Pembukaan pertama mengunduh model avatar dari PC: model Live2D Cyrene dengan tekstur 4096 px
+sekitar 40 MB, ditambah Cubism Core dan pustaka renderernya. Chrome menyimpannya, jadi
+pembukaan berikutnya hanya menanyakan ke PC apakah filenya berubah (beberapa kilobyte). Kalau
+kuota data terbatas, buka pertama kali lewat Wi-Fi; setelah model di PC diganti, HP mengunduhnya
+sekali lagi.
+
+### Memakai di HP
+
+- **Chat:** ketik di kotak pesan lalu kirim. Jawabannya muncul sebagai gelembung dan
+  diucapkan dari speaker HP.
+- **Bicara:** tahan tombol mikrofon selama bicara, lepaskan untuk mengirim. Tidak perlu
+  memanggil namanya dan tidak ada verifikasi suara (HP-nya sudah dipasangkan, dan voiceprint
+  dari mic PC tidak cocok untuk mic HP). Yang dia dengar tampil dulu, lalu jawabannya. Paling
+  lama 60 detik per rekaman; pesan teks paling panjang 2000 karakter.
+- **Suara baru keluar setelah sentuhan pertama.** Chrome tidak mengizinkan halaman
+  memutar suara sebelum Master menyentuhnya, jadi ketuk layar sekali setelah halaman dibuka.
+- Satu pertanyaan sekaligus: selagi dia masih menjawab, pertanyaan berikutnya dari HP yang sama
+  ditolak dengan "Sebentar ya, Master, aku masih menjawab yang tadi." Kalau di PC Master
+  sedang bicara dengannya, jawaban HP menunggu sampai giliran itu selesai dipikirkan.
+- Konfirmasi tetap berlaku: "matikan komputer" dari HP ditanyakan dulu, dan "iya" berikutnya
+  (dari HP atau dari mic PC) yang menjalankannya. Lihat layar ("lihat layarku") juga bisa,
+  yang dilihat adalah layar PC.
+
+### Mengatur HP yang dipasangkan
+
+```powershell
+.venv\Scripts\waifu phone devices        # daftar HP: id, nama, kapan dipasangkan dan terakhir dipakai
+.venv\Scripts\waifu phone forget d1      # lupakan satu HP; berlaku seketika, juga selagi waifu run berjalan
+```
+
+Waktu terakhir dipakai diperbarui paling sering sejam sekali. HP yang hilang, dijual, atau
+dipinjamkan: lupakan dengan `waifu phone forget <id>`, lalu kalau perlu keluarkan juga
+perangkat itu dari akun Tailscale di admin console (halaman Machines). HP yang dilupakan
+melihat formulir pasangan lagi dan harus memakai kode baru. Daftar HP ada di
+`data\phone.json`: hanya hash token dan kode, nama, dan waktunya; file yang rusak dipindah ke
+`phone.json.corrupt-<tanggal>-<jam>` dan semua HP harus dipasangkan ulang. File kosong
+`phone.json.lock` di sebelahnya membuat `waifu phone pair`/`forget` dan `waifu run` bergantian
+mengubah daftar itu, jadi HP yang dilupakan tidak pernah kembali.
+
+### Privasi Cyrene di HP
+
+- File model avatar dikirim ke HP dan digambar di HP: untuk Live2D seluruh folder modelnya
+  (model3.json, moc3, physics, dan teksturnya) beserta Cubism Core milikmu, untuk VRM file
+  `.vrm`-nya. Semuanya hanya dikirim ke HP yang sudah dipasangkan, lewat sambungan Tailscale
+  yang terenkripsi, dan tersimpan di cache Chrome HP itu (hapus dengan menghapus data situs di
+  Chrome). Periksa apakah lisensi model dan Core mengizinkan itu.
+- Model suara anime (RVC) tetap di PC; HP hanya menerima teks jawaban dan klip suara jawaban
+  yang sudah jadi.
+- Rekaman suara dari HP dikirim ke PC dan diubah jadi teks di PC (Whisper, lokal); rekaman itu
+  tidak disimpan.
+- Teks dari HP diperlakukan seperti kalimat lewat mic: dengan otak Claude dikirim ke API
+  Anthropic seperti biasa, dan tercatat di log (`Phone message: ...`, `Heard on the phone ...`).
+- Tailscale melihat bahwa HP dan PC tersambung, tapi isi sambungannya terenkripsi ujung ke
+  ujung. Nama PC dan nama tailnet tercatat di log Certificate Transparency publik (syarat
+  sertifikat HTTPS).
+- Untuk mematikan: `phone.enabled: false` dan jalankan ulang `waifu run`; untuk berhenti
+  membagikan sama sekali: `tailscale serve --https=443 off`.
+
+### Pemecahan masalah Cyrene di HP
+
+**Halaman tidak terbuka di HP, atau "Tidak bisa terhubung ke PC".** Pastikan Tailscale di HP
+menyala (ikon kunci VPN di bilah status), `waifu run` berjalan di PC, dan `waifu check`
+menampilkan `✓` untuk Tailscale dan `tailscale serve`. Buka alamat persis
+`https://<nama-pc>.<tailnet>.ts.net/` (dengan `https`). Aplikasi yang sudah dipasang di layar
+utama tetap terbuka saat `waifu run` mati (Tailscale lalu menjawab untuk PC dengan 502), dan
+menampilkan pesan itu sampai Cyrene berjalan lagi.
+
+**Formulir pasangan terus muncul, atau "HP ini belum dipasangkan" (401).** HP belum
+dipasangkan, sudah dilupakan (`waifu phone forget`), atau cookie Chrome-nya dihapus. Buat kode
+baru dengan `waifu phone pair` dan masukkan lagi. "Kodenya salah atau sudah kedaluwarsa"
+berarti kode salah ketik atau lewat 10 menit; "Terlalu banyak percobaan" berarti kode sudah
+dibuang setelah 5 kali salah.
+
+**`{"error":"Server HP Cyrene hanya melayani alamat Tailscale PC ini, 127.0.0.1, atau
+localhost."}` atau "PC menolak permintaan dari alamat ini" (403).** `phone.host` kosong atau
+tidak sama dengan alamat yang dibuka di HP. Halamannya lalu tidak termuat sama sekali, jadi
+Chrome hanya menampilkan teks JSON itu (pesan kedua muncul di halaman yang sudah terbuka).
+Isi `phone.host` persis seperti dari `waifu phone setup`, lalu jalankan ulang `waifu run`.
+`waifu check` menunjukkan kalau `phone.host` bukan nama PC ini.
+
+**`{"error":"Server HP Cyrene hanya melayani jaringan Tailscale-mu, bukan internet lewat
+Tailscale Funnel. ..."}` (403).** Tailscale Funnel menyala untuk alamat PC ini, jadi permintaan
+datang dari internet. Matikan dengan `tailscale funnel --https=443 off`, lalu jalankan lagi
+perintah `tailscale serve` dari `waifu phone setup`; `waifu check` menampilkan perintahnya.
+
+**Mikrofon tidak bisa dipakai.** Saat pertama menahan tombol mikrofon, Chrome meminta izin;
+pilih izinkan. Kalau terlanjur ditolak: ketuk ikon di kiri alamat (atau Setelan situs di
+menu Chrome) → **Mikrofon** → **Izinkan**, lalu muat ulang halaman. Cek juga Setelan Android →
+Aplikasi → Chrome → Izin → Mikrofon.
+
+**Jawaban hanya teks, tanpa suara.** Ketuk layar sekali setelah halaman dibuka (aturan
+autoplay Chrome), dan pastikan volume media HP tidak 0. Kalau suaranya gagal dibuat di PC
+(misalnya edge-tts tanpa internet), jawaban tetap tampil sebagai teks dan log PC menyebut
+`Could not synthesise the phone reply`.
+
+**`tailscale serve` gagal atau ditolak.** Pastikan HTTPS Certificates sudah dinyalakan di
+admin console (langkah 1). Kalau ditolak karena hak akses, jalankan Command Prompt sebagai
+administrator lalu ulangi perintahnya.
+
+**`Cyrene di HP tidak tersedia: Port 127.0.0.1:9883 sudah dipakai`.** Ada program lain (atau
+Cyrene lain) di port itu. Tutup program itu, atau ganti `phone.port`, jalankan lagi
+`waifu phone setup`, dan jalankan perintah `tailscale serve` yang baru (matikan yang lama dengan
+`tailscale serve --https=443 off`).
+
 ## Pemecahan masalah
 
 Log `waifu run` tampil di terminal dalam bahasa Inggris. Baris seperti
@@ -2516,10 +2760,31 @@ halaman tim di game atau sebuah error)
       Cyrene mati hapus bulan ini dari bagian `notices` di `data\usage.json` supaya anggaran
       yang sebenarnya masih memberi tahu bulan ini.
 
+**Cyrene di HP** (lihat [Cyrene di HP](#cyrene-di-hp))
+
+- [ ] `waifu phone setup` menampilkan nama PC di Tailscale; setelah perintah `tailscale serve`
+      dan `phone` di `config.yaml`, `waifu check` menampilkan `✓` untuk semua baris HP kecuali
+      HP terpasang.
+- [ ] Dengan Wi-Fi HP dimatikan (data seluler, Tailscale menyala), alamat `https://...ts.net/`
+      menampilkan formulir pasangan; kode dari `waifu phone pair` memasangkannya, dan
+      `waifu phone devices` menampilkannya.
+- [ ] Di HP: "nyalakan lampu kamar" diketik → lampu menyala, jawabannya tampil dan terdengar
+      di HP dengan mulut avatar bergerak, dan speaker PC diam.
+- [ ] Tahan tombol mikrofon dan ucapkan "matikan lampu kamar" → yang terdengar tampil, lampu
+      mati. "matikan komputer" dari HP ditanyakan dulu; jawab "tidak".
+- [ ] Pasang di layar utama (Chrome → Tambahkan ke layar utama): ikon Cyrene membuka halaman
+      tanpa bilah alamat.
+- [ ] Alamat yang sama dari perangkat yang tidak login Tailscale tidak terbuka; dari browser
+      lain di tailnet yang belum dipasangkan hanya muncul formulir pasangan.
+- [ ] `waifu phone forget d1` → halaman di HP kembali ke formulir pasangan di permintaan
+      berikutnya.
+
 ## Privasi
 
 - **Suara tidak pernah keluar dari PC.** Rekaman mic, verifikasi suara, dan
-  speech-to-text diproses lokal.
+  speech-to-text diproses lokal. Dengan Cyrene di HP, rekaman dari HP yang sudah dipasangkan
+  dikirim ke PC lewat Tailscale (terenkripsi), diproses di PC, dan tidak disimpan; jawabannya
+  kembali ke HP itu saja. Lihat [Privasi Cyrene di HP](#privasi-cyrene-di-hp).
 - **Yang dikirim ke internet hanya teks**, kecuali tangkapan layar yang Master minta:
   - dengan `brain.backend: claude`, kalimat yang ditujukan ke Cyrene (sudah dalam
     bentuk teks), persona, daftar perangkat, hasil perintah perangkat, dan catatan
