@@ -4,11 +4,24 @@ import socket
 import pytest
 
 from waifu.config import AppConfig, DeviceConfig
+from waifu.devices.apps import AppLauncher
 from waifu.devices.base import Device, DeviceError, DeviceResult
 from waifu.devices.ir_codes import IrCodeStore
 from waifu.devices.ir_device import IrDevice
+from waifu.devices.media import MediaKeys
 from waifu.devices.mock import MockDevice
 from waifu.devices.registry import DeviceRegistry, build_registry
+
+MEDIA_COMMANDS = [
+    "play_pause",
+    "next",
+    "previous",
+    "stop",
+    "mute",
+    "volume_up",
+    "volume_down",
+    "volume",
+]
 
 
 class FixedResultDevice(Device):
@@ -128,6 +141,55 @@ def test_unknown_combined_command_is_a_failure():
     assert ac.calls == []
 
 
+def range_house() -> DeviceRegistry:
+    # Mocks of the kinds whose ranges the kind fixes, as in a dry run: the kind is the rule.
+    return DeviceRegistry(
+        [
+            MockDevice("musik", "Musik PC", commands=MEDIA_COMMANDS, kind="media"),
+            MockDevice("lampu", "Lampu", commands=["on", "off", "brightness"], kind="light"),
+        ]
+    )
+
+
+@pytest.mark.parametrize(
+    ("device_id", "command", "value", "message"),
+    [
+        ("musik", "volume_up", 150, "Nilai 'volume_up' untuk Musik PC harus angka 1 sampai 100."),
+        ("musik", "volume_down", 0, "Nilai 'volume_down' untuk Musik PC harus angka 1 sampai 100."),
+        ("musik", "volume", None, "Nilai 'volume' untuk Musik PC harus angka 0 sampai 100."),
+        ("musik", "volume", 101, "Nilai 'volume' untuk Musik PC harus angka 0 sampai 100."),
+        ("lampu", "brightness", None, "Nilai 'brightness' untuk Lampu harus angka 1 sampai 100."),
+        ("lampu", "brightness", 0, "Nilai 'brightness' untuk Lampu harus angka 1 sampai 100."),
+    ],
+)
+def test_a_value_outside_its_kind_range_is_a_failure_without_running(
+    device_id, command, value, message
+):
+    registry = range_house()
+
+    result = registry.execute(device_id, command, value)
+
+    assert (result.ok, result.message) == (False, message)
+    assert registry.get(device_id).calls == []
+
+
+@pytest.mark.parametrize(
+    ("device_id", "command", "value"),
+    [
+        ("musik", "volume_up", None),
+        ("musik", "volume_down", 100),
+        ("musik", "volume", 0),
+        ("musik", "next", 7),
+        ("lampu", "brightness", 100),
+    ],
+)
+def test_a_value_inside_its_kind_range_or_left_out_where_optional_runs(device_id, command, value):
+    registry = range_house()
+
+    assert registry.execute(device_id, command, value).ok
+    assert registry.get(device_id).calls == [(command, value)]
+
+
 def test_device_error_becomes_a_failure_carrying_its_message(tmp_path):
     error = DeviceError("Blaster IR tidak menjawab.")
     registry = DeviceRegistry([ir_device_failing_with(tmp_path, error)])
@@ -209,3 +271,63 @@ def test_build_registry_marks_the_plug_that_powers_the_pc(tmp_path, dry_run):
 
     assert registry.powers_pc("colokan_pc") is True
     assert registry.powers_pc("ac") is False
+
+
+def pc_media_and_apps(tmp_path) -> AppConfig:
+    """A media device and an app launcher whose shortcut is not on disk (tmp_path stays empty)."""
+    return AppConfig(
+        ir_codes_path=tmp_path / "ir_codes.json",
+        devices=[
+            DeviceConfig(id="musik", name="Musik PC", aliases=["lagu"], type="media"),
+            DeviceConfig(
+                id="aplikasi",
+                name="Aplikasi PC",
+                type="apps",
+                apps={
+                    "spotify": str(tmp_path / "Spotify.lnk"),
+                    "zzz": "steam://rungameid/2507950",
+                },
+            ),
+        ],
+    )
+
+
+def test_build_registry_builds_media_keys_and_an_app_launcher_with_the_configured_apps(tmp_path):
+    registry = build_registry(pc_media_and_apps(tmp_path))
+
+    musik, aplikasi = registry.get("musik"), registry.get("aplikasi")
+    assert isinstance(musik, MediaKeys)
+    assert isinstance(aplikasi, AppLauncher)
+    assert (musik.kind, musik.commands(), musik.aliases) == ("media", MEDIA_COMMANDS, ["lagu"])
+    assert (aplikasi.kind, aplikasi.commands()) == ("apps", ["open_spotify", "open_zzz"])
+
+
+def test_a_real_app_whose_shortcut_is_missing_fails_without_starting_anything(tmp_path):
+    # tests/conftest.py refuses os.startfile: reaching it would read as an unexpected error.
+    registry = build_registry(pc_media_and_apps(tmp_path))
+
+    result = registry.execute("aplikasi", "open_spotify")
+
+    assert not result.ok
+    assert "spotify" in result.message and "tidak ditemukan" in result.message
+
+
+def test_dry_run_mocks_of_media_and_apps_keep_their_kind_and_commands(tmp_path):
+    registry = build_registry(pc_media_and_apps(tmp_path), dry_run=True)
+
+    assert all(isinstance(device, MockDevice) for device in registry.all())
+    assert {device.id: (device.kind, device.commands()) for device in registry.all()} == {
+        "musik": ("media", MEDIA_COMMANDS),
+        "aplikasi": ("apps", ["open_spotify", "open_zzz"]),
+    }
+
+
+def test_dry_run_media_keys_and_apps_only_record_what_they_are_told(tmp_path):
+    # tests/conftest.py also refuses real key presses and os.startfile.
+    registry = build_registry(pc_media_and_apps(tmp_path), dry_run=True)
+
+    assert registry.execute("musik", "volume", 30).ok
+    assert registry.execute("aplikasi", "open_spotify").ok
+
+    assert registry.get("musik").calls == [("volume", 30)]
+    assert registry.get("aplikasi").calls == [("open_spotify", None)]

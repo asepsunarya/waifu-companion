@@ -4587,3 +4587,129 @@ def test_check_fails_a_routine_whose_ir_codes_cannot_be_read(home, nothing_insta
 
     [line] = routine_lines(capsys.readouterr().out)
     assert line.startswith("✗ Rutinitas tidur: kode IR tidak bisa dibaca (")
+
+
+# --- PC media and apps -----------------------------------------------------------------------
+
+
+def write_out_example_device(home: Path, device_id: str) -> None:
+    """The example config with its commented device `device_id` (`musik` or `aplikasi`)
+    written out, from its `# - id:` line to the next blank line."""
+    config = home / "config.yaml"
+    text = config.read_text(encoding="utf-8")
+    commented = text[text.index(f"  # - id: {device_id}\n") :].split("\n\n", 1)[0]
+    written_out = "\n".join(line.replace("# ", "", 1) for line in commented.splitlines())
+    config.write_text(text.replace(commented, written_out), encoding="utf-8")
+
+
+def app_lines(out: str) -> list[str]:
+    return [line for line in out.splitlines() if line[2:].startswith("Aplikasi ")]
+
+
+def test_check_marks_each_app_found_missing_or_a_launcher_url_it_cannot_check(
+    home, nothing_installed, capsys
+):
+    spotify = home / "Pintasan" / "Spotify.lnk"
+    spotify.parent.mkdir()
+    spotify.write_bytes(b"")
+    genshin = home / "HoYoPlay" / "launcher.exe"
+    write_config(
+        home,
+        "devices:\n"
+        "  - id: aplikasi\n"
+        "    name: Aplikasi PC\n"
+        "    type: apps\n"
+        "    apps:\n"
+        f"      spotify: '{spotify}'\n"
+        f"      genshin: '{genshin}'\n"
+        "      zzz: 'steam://rungameid/2507950'\n"
+        "      hsr: 'Steam://rungameid/1234'\n",
+    )
+
+    cli.main(["check"])
+
+    assert app_lines(capsys.readouterr().out) == [
+        f"✓ Aplikasi spotify: {spotify}",
+        f"✗ Aplikasi genshin: file tidak ditemukan ({genshin})",
+        "✓ Aplikasi zzz: steam://rungameid/2507950 (URL, tidak dicek)",
+        # Config and the launcher read the scheme in any case, so the check does too.
+        "✓ Aplikasi hsr: Steam://rungameid/1234 (URL, tidak dicek)",
+    ]
+
+
+def test_check_fails_a_url_shortcut_that_opens_anything_but_a_launcher_url(
+    home, nothing_installed, capsys
+):
+    # A .url shortcut opens whatever its URL= line says, a web page or a script too; check only
+    # reads it (nothing is opened).
+    shortcuts = {
+        "hades": "[InternetShortcut]\r\nIDList=\r\nURL=steam://rungameid/1145360\r\n",
+        "fortnite": "[{000214A0-0000-0000-C000-000000000046}]\nProp3=19,0\n"
+        "[InternetShortcut]\nURL=COM.EPICGAMES.LAUNCHER://apps/fn?action=launch\n",
+        "web": "[InternetShortcut]\nURL=https://example.com/\n",
+        "skrip": "[InternetShortcut]\nURL=file:///C:/x/run.bat\n",
+        "kosong": "[InternetShortcut]\nIconIndex=0\n",
+        "rusak": "bukan shortcut",
+    }
+    paths = {}
+    for slug, text in shortcuts.items():
+        paths[slug] = home / f"{slug}.url"
+        paths[slug].write_bytes(text.encode())
+    write_config(
+        home,
+        "devices:\n  - id: aplikasi\n    name: Aplikasi PC\n    type: apps\n    apps:\n"
+        + "".join(f"      {slug}: '{path}'\n" for slug, path in paths.items()),
+    )
+
+    cli.main(["check"])
+
+    launcher = "bukan URL steam:// atau com.epicgames.launcher://"
+    assert app_lines(capsys.readouterr().out) == [
+        f"✓ Aplikasi hades: {paths['hades']}",
+        f"✓ Aplikasi fortnite: {paths['fortnite']}",
+        f"✗ Aplikasi web: shortcut ini membuka https://example.com/, {launcher} ({paths['web']})",
+        f"✗ Aplikasi skrip: shortcut ini membuka file:///C:/x/run.bat, {launcher} "
+        f"({paths['skrip']})",
+        f"✗ Aplikasi kosong: alamat di shortcut ini tidak bisa dibaca ({paths['kosong']})",
+        f"✗ Aplikasi rusak: alamat di shortcut ini tidak bisa dibaca ({paths['rusak']})",
+    ]
+
+
+def test_check_finds_an_app_written_with_forward_slashes(home, nothing_installed, capsys):
+    spotify = home / "Spotify.lnk"
+    spotify.write_bytes(b"")
+    target = spotify.as_posix()
+    write_config(
+        home,
+        "devices:\n"
+        "  - {id: aplikasi, name: Aplikasi PC, type: apps, apps: {spotify: '" + target + "'}}\n",
+    )
+
+    cli.main(["check"])
+
+    assert app_lines(capsys.readouterr().out) == [f"✓ Aplikasi spotify: {target}"]
+
+
+def test_the_example_media_and_apps_devices_are_valid_once_written_out(home, capsys):
+    write_out_example_device(home, "musik")
+    write_out_example_device(home, "aplikasi")
+
+    assert cli.main(["devices", "--dry-run"]) == 0
+
+    rows = {line.split()[0]: line.split()[1] for line in capsys.readouterr().out.splitlines()}
+    assert (rows["musik"], rows["aplikasi"]) == ("media", "apps")
+
+
+def test_check_marks_the_example_shortcuts_missing_until_they_point_at_this_pc(
+    home, nothing_installed, capsys
+):
+    write_out_example_device(home, "aplikasi")
+
+    assert cli.main(["check"]) == 1
+
+    lines = app_lines(capsys.readouterr().out)
+    shortcuts = [line for line in lines if "Start Menu" in line]
+    assert shortcuts and all(
+        line.startswith("✗ ") and "file tidak ditemukan" in line for line in shortcuts
+    )
+    assert any(line.startswith("✓ ") and "steam://rungameid/" in line for line in lines)

@@ -8,6 +8,7 @@ fake. Output for the owner is Indonesian; logs go to stderr in English.
 from __future__ import annotations
 
 import argparse
+import configparser
 import http.client
 import io
 import json
@@ -51,6 +52,7 @@ from waifu.brain.persona import WEEKDAYS_ID
 from waifu.brain.schedule_tools import ScheduleTools
 from waifu.brain.tools import ToolProvider
 from waifu.config import (
+    APP_URL_SCHEMES,
     AppConfig,
     AvatarConfig,
     ConfigError,
@@ -1683,6 +1685,42 @@ def _device_checks(config: AppConfig, config_path: Path) -> Iterator[Check]:
     for device in devices:
         if isinstance(device, IrDevice):
             yield _ir_check(device, config_path)
+    for device_config in config.devices:
+        for slug, target in (device_config.apps or {}).items():
+            yield _app_check(slug, target)
+
+
+def _app_check(slug: str, target: str) -> Check:
+    """Whether an app's program or shortcut is on disk, as `open_<slug>` will look for it, and
+    whether a `.url` shortcut opens a launcher URL: Windows opens whatever it names.
+
+    A launcher URL can only be tried by opening it, and `check` never opens anything.
+    """
+    if target.lower().startswith(APP_URL_SCHEMES):
+        return OK, f"Aplikasi {slug}: {target} (URL, tidak dicek)"
+    path = Path(target)
+    if not path.exists():
+        return FAIL, f"Aplikasi {slug}: file tidak ditemukan ({target})"
+    if path.suffix.lower() == ".url":
+        url = _internet_shortcut_url(path)
+        if url is None:
+            return FAIL, f"Aplikasi {slug}: alamat di shortcut ini tidak bisa dibaca ({target})"
+        if not url.lower().startswith(APP_URL_SCHEMES):
+            return FAIL, (
+                f"Aplikasi {slug}: shortcut ini membuka {url}, bukan URL steam:// atau "
+                f"com.epicgames.launcher:// ({target})"
+            )
+    return OK, f"Aplikasi {slug}: {target}"
+
+
+def _internet_shortcut_url(path: Path) -> str | None:
+    """The `URL=` of a `.url` shortcut (an INI file), or None when it has none or is unreadable."""
+    shortcut = configparser.ConfigParser(interpolation=None, strict=False)
+    try:
+        shortcut.read_string(path.read_text(encoding="utf-8-sig", errors="replace"))
+    except (OSError, configparser.Error):
+        return None
+    return shortcut.get("InternetShortcut", "URL", fallback=None) or None
 
 
 def _ir_check(device: IrDevice, config_path: Path) -> Check:

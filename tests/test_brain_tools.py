@@ -18,6 +18,7 @@ from waifu.brain.tools import (
 from waifu.devices.base import Device, DeviceResult
 from waifu.devices.ir_codes import IrCodeStore
 from waifu.devices.ir_device import IrDevice
+from waifu.devices.media import MediaKeys
 from waifu.devices.mock import MockDevice
 from waifu.devices.registry import DeviceRegistry
 
@@ -119,6 +120,19 @@ def test_brightness_on_a_non_light_is_a_plain_command():
     assert describe_commands(["brightness"], kind="ir") == "brightness"
 
 
+def test_media_volume_commands_show_their_ranges():
+    commands = MediaKeys("musik", "Musik PC", []).commands()
+
+    assert describe_commands(commands, kind="media") == (
+        "play_pause, next, previous, stop, mute, volume_up (value 1-100), "
+        "volume_down (value 1-100), volume (value 0-100)"
+    )
+
+
+def test_volume_commands_of_an_ir_remote_stay_plain():
+    assert describe_commands(["volume_up", "volume_down"], kind="ir") == "volume_up, volume_down"
+
+
 def test_no_commands_reads_as_none_yet():
     assert describe_commands([]) == "(belum ada)"
 
@@ -138,6 +152,18 @@ def test_device_line_without_aliases_or_commands():
     registry = DeviceRegistry([MockDevice("tv", "TV", commands=[])])
 
     assert device_lines(registry) == ["- tv: TV — perintah: (belum ada)"]
+
+
+def test_the_media_device_line_says_play_pause_and_mute_toggle():
+    # So "pause musiknya jam 11 malam" never becomes a key that restarts paused music at night.
+    registry = DeviceRegistry([MediaKeys("musik", "Musik PC", ["musik"])])
+
+    assert device_lines(registry) == [
+        "- musik: Musik PC (alias: musik) — perintah: play_pause, next, previous, stop, mute, "
+        "volume_up (value 1-100), volume_down (value 1-100), volume (value 0-100) — play_pause "
+        "dan mute bolak-balik (toggle): di jadwal, pakai stop untuk menghentikan musik dan "
+        "volume untuk mengecilkan suara"
+    ]
 
 
 def test_device_lines_carry_no_live_state():
@@ -184,6 +210,8 @@ def test_control_device_description_lists_devices_and_explains_value():
     for line in device_lines(registry):
         assert line in control.description
     assert "temp_24" in control.description
+    # "kecilkan volume 20 persen" is volume_down 20, the same unit as `volume` and brightness.
+    assert "brightness and volume values are percentages" in control.description
 
 
 def test_list_devices_takes_no_arguments():

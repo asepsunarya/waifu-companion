@@ -18,7 +18,7 @@ from typing import Any, Protocol
 
 from waifu.brain.base import ToolSpec
 from waifu.devices.base import Device
-from waifu.devices.registry import DeviceRegistry
+from waifu.devices.registry import KIND_VALUE_RANGES, DeviceRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -28,8 +28,6 @@ TOOL_NAMES = (CONTROL_DEVICE, LIST_DEVICES)
 
 # A trailing number without leading zeros, so command `temp` + value 24 selects `temp_24`.
 _NUMBERED_COMMAND = re.compile(r"^(?P<base>.+)_(?P<value>0|[1-9][0-9]*)$")
-# Value ranges fixed by the device kind rather than spelled out in command names.
-_KIND_VALUE_RANGES = {("light", "brightness"): (1, 100)}
 _NO_COMMANDS = "(belum ada)"
 _CONTROL_KEYS = frozenset({"device", "command", "value"})
 
@@ -63,9 +61,9 @@ def describe_commands(commands: list[str], kind: str | None = None) -> str:
     for (name, is_family), values in entries.items():
         if is_family:
             parts.append(f"{name} (value {_format_values(values)})")
-        elif (kind, name) in _KIND_VALUE_RANGES:
-            low, high = _KIND_VALUE_RANGES[(kind, name)]
-            parts.append(f"{name} (value {low}-{high})")
+        elif (kind, name) in KIND_VALUE_RANGES:
+            allowed = KIND_VALUE_RANGES[(kind, name)]
+            parts.append(f"{name} (value {allowed.low}-{allowed.high})")
         else:
             parts.append(name)
     return ", ".join(parts)
@@ -151,13 +149,19 @@ def _feeds_pc(registry: DeviceRegistry, device: Device) -> bool:
 def _device_line(device: Device, feeds_pc: bool = False) -> str:
     aliases = f" (alias: {', '.join(device.aliases)})" if device.aliases else ""
     commands = describe_commands(device.commands(), device.kind)
-    # So the persona's "confirm before turning the PC off" covers cutting its power too.
-    note = (
-        " — mengalirkan listrik ke PC: mematikan atau membaliknya (toggle) sama dengan "
-        "mematikan PC, jadi minta konfirmasi dulu"
-        if feeds_pc
-        else ""
-    )
+    note = ""
+    if feeds_pc:
+        # So the persona's "confirm before turning the PC off" covers cutting its power too.
+        note = (
+            " — mengalirkan listrik ke PC: mematikan atau membaliknya (toggle) sama dengan "
+            "mematikan PC, jadi minta konfirmasi dulu"
+        )
+    elif device.kind == "media":
+        # A scheduled toggle runs silently while Master may sleep: it can restart paused music.
+        note = (
+            " — play_pause dan mute bolak-balik (toggle): di jadwal, pakai stop untuk "
+            "menghentikan musik dan volume untuk mengecilkan suara"
+        )
     return f"- {device.id}: {device.name}{aliases} — perintah: {commands}{note}"
 
 
@@ -173,6 +177,7 @@ def _control_device_spec(registry: DeviceRegistry) -> ToolSpec:
         "make one call for each. Pick `command` from that device's list below. "
         "Use `value` for brightness/temperature and other numbers: a command listed as "
         "'temp (value 16-30)' is called with command 'temp' and value 24, which means temp_24. "
+        "All brightness and volume values are percentages, as Master says them. "
         "Leave `value` out for commands without a number.\n"
         f"Devices:\n{devices}"
     )

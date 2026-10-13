@@ -10,21 +10,53 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterable
-from typing import Any
+from typing import Any, NamedTuple
 
 from waifu.config import AppConfig, DeviceConfig, IrConnection
+from waifu.devices.apps import AppLauncher
 from waifu.devices.base import Device, DeviceError, DeviceResult
 from waifu.devices.broadlink_ir import BroadlinkBlaster
 from waifu.devices.ir_codes import IrCodeStore
 from waifu.devices.ir_device import Blaster, IrDevice, resolve_command
+from waifu.devices.media import MAX_VOLUME, MIN_VOLUME_CHANGE, MediaKeys
 from waifu.devices.mock import MockDevice
 from waifu.devices.pc import PcDevice
-from waifu.devices.tuya import TuyaIrBlaster, TuyaLight, TuyaPlug
+from waifu.devices.tuya import MAX_BRIGHTNESS, MIN_BRIGHTNESS, TuyaIrBlaster, TuyaLight, TuyaPlug
 
 logger = logging.getLogger(__name__)
 
 # ("broadlink", host) or ("tuya", device id): one physical IR blaster.
 BlasterKey = tuple[str, str]
+
+
+class ValueRange(NamedTuple):
+    low: int
+    high: int
+    required: bool
+
+
+# Value ranges fixed by the device kind rather than spelled out in command names (`temp_16`..
+# `temp_30`), so they hold for the dry-run mocks too, which keep the kind.
+KIND_VALUE_RANGES = {
+    ("light", "brightness"): ValueRange(MIN_BRIGHTNESS, MAX_BRIGHTNESS, required=True),
+    ("media", "volume"): ValueRange(0, MAX_VOLUME, required=True),
+    ("media", "volume_up"): ValueRange(MIN_VOLUME_CHANGE, MAX_VOLUME, required=False),
+    ("media", "volume_down"): ValueRange(MIN_VOLUME_CHANGE, MAX_VOLUME, required=False),
+}
+
+
+def value_problem(device: Device, command: str, value: int | None) -> str | None:
+    """Why `value` does not fit `command` (already resolved) on `device`, or None when it does.
+
+    Shared by `DeviceRegistry.execute`, the schedule tools, and the routine check, so a value
+    the device would refuse is refused when it is asked for, not when a schedule fires.
+    """
+    allowed = KIND_VALUE_RANGES.get((device.kind, command))
+    if allowed is None or (value is None and not allowed.required):
+        return None
+    if value is not None and allowed.low <= value <= allowed.high:
+        return None
+    return f"Nilai '{command}' untuk {device.name} harus angka {allowed.low} sampai {allowed.high}."
 
 
 class DeviceRegistry:
@@ -59,12 +91,16 @@ class DeviceRegistry:
             )
         try:
             available = device.commands()
-            if resolve_command(command, value, available) is None:
+            resolved = resolve_command(command, value, available)
+            if resolved is None:
                 with_value = f" dengan nilai {value}" if value is not None else ""
                 return _failure(
                     f"{device.name} tidak punya perintah '{command}'{with_value}. "
                     f"Perintah yang tersedia: {_join_or_none(available)}."
                 )
+            problem = value_problem(device, resolved, value)
+            if problem is not None:
+                return _failure(problem)
             return device.execute(command, value)
         except DeviceError as exc:
             logger.warning("Device '%s' failed '%s': %s", device_id, command, exc)
@@ -106,7 +142,7 @@ def build_registry(config: AppConfig, *, dry_run: bool = False) -> DeviceRegistr
 def _build_device(
     device: DeviceConfig, store: IrCodeStore, blasters: dict[BlasterKey, Blaster]
 ) -> Device:
-    # DeviceConfig validation guarantees the connection block each type needs.
+    # DeviceConfig validation guarantees the connection block (or app list) each type needs.
     if device.type == "tuya_light":
         return TuyaLight(device.id, device.name, device.aliases, device.tuya)
     if device.type == "tuya_plug":
@@ -116,6 +152,10 @@ def _build_device(
         return IrDevice(device.id, device.name, device.aliases, blaster, store, device.commands)
     if device.type == "pc":
         return PcDevice(device.id, device.name, device.aliases, device.pc)
+    if device.type == "media":
+        return MediaKeys(device.id, device.name, device.aliases)
+    if device.type == "apps":
+        return AppLauncher(device.id, device.name, device.aliases, device.apps)
     return MockDevice(device.id, device.name, device.aliases, device.commands or None)
 
 

@@ -16,7 +16,7 @@ import logging
 from waifu.config import RoutineConfig, RoutineStep
 from waifu.devices.base import DeviceResult
 from waifu.devices.ir_device import resolve_command
-from waifu.devices.registry import DeviceRegistry
+from waifu.devices.registry import DeviceRegistry, value_problem
 
 logger = logging.getLogger(__name__)
 
@@ -61,10 +61,11 @@ def _step_problem(registry: DeviceRegistry, step: RoutineStep) -> str | None:
     refusal = pc_power_refusal(registry, step.device, "rutinitas")
     if refusal is not None:
         return refusal
-    if resolve_command(step.command, step.value, device.commands()) is None:
+    resolved = resolve_command(step.command, step.value, device.commands())
+    if resolved is None:
         with_value = f" dengan nilai {step.value}" if step.value is not None else ""
         return f"{device.name} tidak punya perintah '{step.command}'{with_value}."
-    return None
+    return value_problem(device, resolved, step.value)
 
 
 def _describe_step(step: RoutineStep) -> str:

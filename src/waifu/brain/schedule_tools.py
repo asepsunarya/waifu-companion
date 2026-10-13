@@ -5,7 +5,9 @@
 the owner's routines from config.yaml right away. A device command is checked when it is
 scheduled, by the rule `registry.execute` uses, so an entry that could never run is
 refused while Master is still listening. The PC is never scheduled: turning it off,
-restarting it, or putting it to sleep stays a voice command with a confirmation.
+restarting it, or putting it to sleep stays a voice command with a confirmation. Nor are the
+media keys that toggle (play_pause, mute): run silently at night, they could restart music
+Master had paused, or unmute the PC.
 
 The specs carry no entries and no live state, so they stay byte-identical for the brain's
 lifetime and keep the prompt cache warm.
@@ -22,7 +24,7 @@ from waifu.brain.base import ToolSpec
 from waifu.config import RoutineConfig, RoutineStep
 from waifu.devices.base import Device, DeviceResult
 from waifu.devices.ir_device import resolve_command
-from waifu.devices.registry import DeviceRegistry
+from waifu.devices.registry import DeviceRegistry, value_problem
 from waifu.routines import describe_routine, run_routine
 from waifu.schedule import (
     MAX_REMINDER_CHARS,
@@ -56,6 +58,7 @@ _ACTION_KINDS = {
     "routine": "routine",
 }
 _NO_ACTION = "isi tepat satu aksi: reminder; atau device dan command (value boleh); atau routine."
+_MEDIA_TOGGLES = frozenset({"play_pause", "mute"})
 _FAILED = "Jadwal atau rutinitas tidak bisa diproses saat ini."
 
 
@@ -128,7 +131,9 @@ class ScheduleTools:
                 f"{MAX_REMINDER_CHARS} characters ('Master, sudah jam tiga, waktunya minum "
                 "obat!'); or `device` and `command` (and `value`), picked as for "
                 "control_device, which run silently at that time because Master may be "
-                f"asleep (only a failure is announced); or `routine`, {routines}. The PC is "
+                f"asleep (only a failure is announced); or `routine`, {routines}. For music, "
+                "schedule `stop` or `volume`, never `play_pause` or `mute`: both toggle, so they "
+                "could start the music or unmute the PC while Master sleeps. The PC is "
                 "never scheduled: it is turned off, restarted, or put to sleep only by voice. "
                 "Never schedule turning off or toggling a plug that powers the PC (such as a "
                 "'Colokan PC'): it cuts the power while Windows runs, like pulling the cable. "
@@ -220,12 +225,23 @@ class ScheduleTools:
             )
             raise ScheduleError(_refused(device))
         available = device.commands()
-        if resolve_command(command, value, available) is None:
+        resolved = resolve_command(command, value, available)
+        if resolved is None:
             with_value = f" dengan nilai {value}" if value is not None else ""
             raise ScheduleError(
                 f"{device.name} tidak punya perintah '{command}'{with_value}. "
                 f"Perintah yang tersedia: {_join_or_none(available)}."
             )
+        if device.kind == "media" and resolved in _MEDIA_TOGGLES:
+            raise ScheduleError(
+                f"{resolved} pada {device.name} tidak bisa dijadwalkan: tombolnya bolak-balik, "
+                "jadi bisa malah memutar musik atau menyalakan suara saat Master tidur. Untuk "
+                "menghentikan musik jadwalkan stop; untuk mengecilkan suara jadwalkan volume "
+                "dengan angka kecil, misalnya 10."
+            )
+        problem = value_problem(device, resolved, value)
+        if problem is not None:
+            raise ScheduleError(problem)
         return DeviceAction(device_id, command, value)
 
     def _schedulable_ids(self) -> list[str]:

@@ -258,3 +258,35 @@ devices:
     tuya:
       device_id: "isi_dari_tinytuya_wizard"
       local_key: "isi_dari_tinytuya_wizard"
+
+  # Musik dan volume PC (README, bagian "Musik, volume, dan aplikasi PC"): tombol media dan
+  # volume Windows, jadi berlaku untuk pemutar apa pun yang sedang terbuka (Spotify, YouTube
+  # di browser, game), kecuali saat game yang berjalan sebagai administrator sedang aktif.
+  # Perintah: play_pause, next, previous, stop, mute, volume_up dan volume_down (persen 1-100;
+  # tanpa angka sekitar 10%), volume (0-100). Di rutinitas pakai stop, bukan play_pause:
+  # play_pause malah memutar musik kalau tadi sedang berhenti (jadwal menolaknya). Kecilkan
+  # suara dengan volume angka kecil: volume 0 juga membuat suara Cyrene tidak terdengar.
+  # Misalnya langkah rutinitas tidur:
+  # {device: musik, command: stop} lalu {device: musik, command: volume, value: 20}.
+  # - id: musik
+  #   name: Musik PC
+  #   aliases: [musik, lagu, media, volume, suara]
+  #   type: media
+
+  # Aplikasi dan game di PC ini: Cyrene hanya membuka yang ada di daftar ini ("Cyrene, buka
+  # Spotify" menjalankan open_spotify) dan tidak pernah menutup apa pun. Nama: huruf kecil,
+  # angka, atau garis bawah; 1-30 aplikasi. Isinya path lengkap ke program (.exe), shortcut
+  # (.lnk), atau shortcut internet (.url), atau URL launcher steam:// atau
+  # com.epicgames.launcher://. Shortcut membuka apa pun yang ditunjuknya, jadi daftarkan hanya
+  # shortcut yang kamu percayai. Ganti <nama> dengan nama user Windows-mu; nama folder dan file
+  # shortcut di PC-mu bisa berbeda (cara mencarinya, juga App ID game Steam, ada di README).
+  # `waifu check` menandai dengan ✗ file yang tidak ditemukan, dan shortcut .url yang tidak
+  # membuka steam:// atau com.epicgames.launcher://.
+  # - id: aplikasi
+  #   name: Aplikasi PC
+  #   aliases: [aplikasi, game]
+  #   type: apps
+  #   apps:
+  #     spotify: "C:/Users/<nama>/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/Spotify.lnk"
+  #     genshin: "C:/Users/<nama>/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/Genshin Impact.lnk"
+  #     cyberpunk: "steam://rungameid/1091500"   # 1091500 = App ID Cyberpunk 2077 di Steam

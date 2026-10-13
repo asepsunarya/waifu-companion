@@ -11,6 +11,7 @@ from waifu.brain.memory_tools import MemoryTools
 from waifu.brain.schedule_tools import ScheduleTools
 from waifu.brain.tools import build_tool_specs, run_tool, to_anthropic, to_ollama
 from waifu.config import RoutineConfig, RoutineStep
+from waifu.devices.media import MediaKeys
 from waifu.devices.mock import MockDevice
 from waifu.devices.registry import DeviceRegistry
 from waifu.gacha.tools import GachaTools
@@ -27,6 +28,7 @@ NOW = datetime(2026, 10, 13, 14, 30)  # a Tuesday
 MEDICINE = "Master, sudah jam tiga, waktunya minum obat!"
 AC_COMMANDS = ["on", "off", *(f"temp_{degrees}" for degrees in range(16, 31))]
 PC_COMMANDS = ["wake", "shutdown", "restart", "cancel_shutdown", "sleep"]
+MEDIA_COMMANDS = MediaKeys("musik", "Musik PC", []).commands()
 GENERIC_FAILURE = {"ok": False, "message": "Jadwal atau rutinitas tidak bisa diproses saat ini."}
 UNSUPPORTED_STRICT_KEYWORDS = {
     "minimum",
@@ -241,6 +243,16 @@ def test_schedule_says_never_to_cut_the_power_of_the_pc_through_its_plug(tmp_pat
         "Never schedule turning off or toggling a plug that powers the PC (such as a "
         "'Colokan PC'): it cuts the power while Windows runs, like pulling the cable. Never "
         "offer it in place of a refused PC command."
+    ) in description
+
+
+def test_schedule_says_to_use_stop_or_volume_instead_of_the_media_toggles(tmp_path):
+    tools, _, _ = make_tools(tmp_path)
+    description = spec(tools, "schedule").description
+
+    assert (
+        "For music, schedule `stop` or `volume`, never `play_pause` or `mute`: both toggle, so "
+        "they could start the music or unmute the PC while Master sleeps."
     ) in description
 
 
@@ -478,6 +490,103 @@ def test_schedule_refuses_what_could_never_run(tmp_path, arguments, message):
     assert (data, is_error) == ({"ok": False, "message": message}, True)
     assert not store.path.exists()
     assert no_device_ran(devices)
+
+
+def make_media_tools(tmp_path) -> tuple[ScheduleTools, ScheduleStore, dict[str, MockDevice]]:
+    # Mocks of the kinds whose value ranges the kind fixes, as in a dry run.
+    devices = {
+        "musik": MockDevice("musik", "Musik PC", commands=MEDIA_COMMANDS, kind="media"),
+        "lampu": MockDevice("lampu", "Lampu", commands=["on", "off", "brightness"], kind="light"),
+    }
+    store = make_store(tmp_path)
+    registry = DeviceRegistry(list(devices.values()))
+    return ScheduleTools(store, registry=registry, routines={}), store, devices
+
+
+@pytest.mark.parametrize(
+    ("arguments", "message"),
+    [
+        (
+            {"device": "musik", "command": "volume_up", "value": 150},
+            "Nilai 'volume_up' untuk Musik PC harus angka 1 sampai 100.",
+        ),
+        (
+            {"device": "musik", "command": "volume"},
+            "Nilai 'volume' untuk Musik PC harus angka 0 sampai 100.",
+        ),
+        (
+            {"device": "musik", "command": "volume", "value": 150},
+            "Nilai 'volume' untuk Musik PC harus angka 0 sampai 100.",
+        ),
+        (
+            {"device": "lampu", "command": "brightness", "value": 0},
+            "Nilai 'brightness' untuk Lampu harus angka 1 sampai 100.",
+        ),
+        (
+            {"device": "lampu", "command": "brightness"},
+            "Nilai 'brightness' untuk Lampu harus angka 1 sampai 100.",
+        ),
+    ],
+    ids=["volume step too big", "no level", "level too high", "brightness 0", "no brightness"],
+)
+def test_schedule_refuses_a_value_the_device_would_refuse_when_it_fires(
+    tmp_path, arguments, message
+):
+    # Otherwise the failure would be said aloud and pushed at the scheduled time, maybe at night.
+    tools, store, devices = make_media_tools(tmp_path)
+
+    data, is_error = run(tools, "schedule", {"at": "2026-10-13 23:00", **arguments})
+
+    assert (data, is_error) == ({"ok": False, "message": message}, True)
+    assert not store.path.exists()
+    assert no_device_ran(devices)
+
+
+@pytest.mark.parametrize("command", ["play_pause", "mute"])
+def test_schedule_refuses_the_media_toggles_and_points_to_stop_or_volume(tmp_path, command):
+    # Both keys toggle and a device schedule runs silently: "pause" at 23:00 would start music
+    # Master had already paused, and "mute" would unmute a PC already muted, while they sleep.
+    pressed: list[list[int]] = []
+    registry = DeviceRegistry([MediaKeys("musik", "Musik PC", ["musik"], press=pressed.append)])
+    store = make_store(tmp_path)
+    tools = ScheduleTools(store, registry=registry, routines={})
+
+    data, is_error = run(
+        tools, "schedule", {"at": "2026-10-13 23:00", "device": "musik", "command": command}
+    )
+
+    assert (data, is_error) == (
+        {
+            "ok": False,
+            "message": f"{command} pada Musik PC tidak bisa dijadwalkan: tombolnya bolak-balik, "
+            "jadi bisa malah memutar musik atau menyalakan suara saat Master tidur. Untuk "
+            "menghentikan musik jadwalkan stop; untuk mengecilkan suara jadwalkan volume dengan "
+            "angka kecil, misalnya 10.",
+        },
+        True,
+    )
+    assert not store.path.exists()
+    assert pressed == []
+
+
+@pytest.mark.parametrize(
+    ("command", "value"), [("stop", None), ("volume", 10), ("volume_down", 20), ("next", None)]
+)
+def test_schedule_accepts_the_other_media_commands_without_pressing_them(tmp_path, command, value):
+    pressed: list[list[int]] = []
+    registry = DeviceRegistry([MediaKeys("musik", "Musik PC", ["musik"], press=pressed.append)])
+    store = make_store(tmp_path)
+    tools = ScheduleTools(store, registry=registry, routines={})
+
+    data, is_error = run(
+        tools,
+        "schedule",
+        {"at": "2026-10-13 23:00", "device": "musik", "command": command, "value": value},
+    )
+
+    assert (data["ok"], is_error) == (True, False)
+    assert [entry.action for entry in store.entries()] == [DeviceAction("musik", command, value)]
+    assert pressed == []
 
 
 def test_a_routine_cannot_be_scheduled_before_the_owner_writes_one(tmp_path):

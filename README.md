@@ -4,8 +4,8 @@ Cyrene adalah AI companion bergaya karakter anime yang berjalan di PC Windows ka
 Dia mendengarkan lewat satu mic USB, **hanya menanggapi suara pemiliknya** (Master),
 ngobrol dalam bahasa Indonesia dengan selipan ungkapan Jepang, dan mengendalikan
 rumah: lampu dan colokan Wi-Fi Tuya; AC, proyektor, dan TV lewat IR blaster; serta
-PC itu sendiri. Nama dan kepribadiannya bisa diganti di `config.yaml` dan
-`config/persona.md`.
+PC itu sendiri (daya, musik, volume, dan aplikasi). Nama dan kepribadiannya bisa diganti
+di `config.yaml` dan `config/persona.md`.
 
 Rekaman mic, deteksi bicara, verifikasi suara, dan speech-to-text diproses lokal di
 PC (Whisper dan verifikasi suara memakai GPU). Otaknya bisa model lokal lewat
@@ -35,6 +35,7 @@ Cyrene : "Yakin mau dimatikan sekarang, Master?" (minta konfirmasi dulu)
 - [Teman main gacha (HoYoverse)](#teman-main-gacha-hoyoverse)
 - [Ingatan Cyrene](#ingatan-cyrene)
 - [Jadwal, pengingat, dan rutinitas](#jadwal-pengingat-dan-rutinitas)
+- [Musik, volume, dan aplikasi PC](#musik-volume-dan-aplikasi-pc)
 - [Pemecahan masalah](#pemecahan-masalah)
 - [Checklist uji perangkat keras](#checklist-uji-perangkat-keras)
 - [Privasi](#privasi)
@@ -92,7 +93,9 @@ barang yang lebih murah kalau ingin tetap di bawah Rp1 juta.
    │      DeviceRegistry ──────────┘
    │        ├─ Tuya: lampu, colokan (LAN lokal)
    │        ├─ IR: Broadlink / Tuya ──► AC, proyektor, TV
-   │        └─ PC: shutdown, restart, sleep, Wake-on-LAN
+   │        ├─ PC: shutdown, restart, sleep, Wake-on-LAN
+   │        ├─ Media: tombol musik dan volume Windows
+   │        └─ Aplikasi: membuka program dan game dari daftar di config.yaml
    │
    │  jawaban teks
    ▼
@@ -271,8 +274,9 @@ Setiap perangkat di `devices` punya:
 - `id`: huruf kecil, angka, atau garis bawah (`lampu_kamar`). Dipakai di CLI dan
   oleh Cyrene saat memanggil tool.
 - `name` dan `aliases`: cara kamu menyebutnya ("lampu", "lampu utama").
-- `type`: `tuya_light`, `tuya_plug`, `ir`, `pc`, atau `mock`, lalu blok koneksinya
-  (`tuya`, `ir`, atau `pc`).
+- `type`: `tuya_light`, `tuya_plug`, `ir`, `pc`, `media`, `apps`, atau `mock`, lalu blok
+  koneksinya (`tuya`, `ir`, atau `pc`). `media` tidak butuh blok apa pun dan `apps` berisi
+  daftar aplikasinya; lihat [Musik, volume, dan aplikasi PC](#musik-volume-dan-aplikasi-pc).
 
 Setelah mengubah perangkat, cek dengan `waifu devices` dan `waifu check`.
 
@@ -541,7 +545,7 @@ waifu speaker-test    # skor kecocokan langsung, Ctrl+C untuk berhenti
 | `waifu memory list` / `add` / `forget` / `clear` | Lihat, tambah, dan hapus catatan ingatannya (lihat [Ingatan Cyrene](#ingatan-cyrene)) |
 | `waifu schedule list` / `cancel <id>` / `clear` | Lihat dan batalkan pengingat dan perintah terjadwal (lihat [Jadwal, pengingat, dan rutinitas](#jadwal-pengingat-dan-rutinitas)) |
 | `waifu routine list` / `run <nama>` | Lihat rutinitas dari `config.yaml`, atau jalankan satu sekarang (`--dry-run`: perangkat simulasi) |
-| `waifu check` | Periksa config, kode IR, rutinitas, voiceprint, otak, ingatan, jadwal, paket suara, CUDA, mic, suara anime, dan avatar |
+| `waifu check` | Periksa config, kode IR, aplikasi PC, rutinitas, voiceprint, otak, ingatan, jadwal, paket suara, CUDA, mic, suara anime, dan avatar |
 
 Opsi untuk semua perintah: `--config <file>` (default `config.yaml`), `--dry-run`
 (perangkat simulasi), `-v` (log lebih rinci), `--log-file <file>` (log juga ditulis
@@ -555,6 +559,8 @@ Contoh kalimat saat `waifu run`:
 - "Cyrene, nyalakan lampu kamar." / "Cyrene, redupkan lampu jadi tiga puluh persen."
 - "Cyrene, AC dua puluh empat derajat dan matikan proyektor."
 - "Matikan TV, Cyrene." (nama boleh di mana saja dalam kalimat)
+- "Cyrene, pause musiknya." / "Cyrene, buka Spotify." (lihat
+  [Musik, volume, dan aplikasi PC](#musik-volume-dan-aplikasi-pc))
 - "Cyrene?" saja: dia menjawab "はい、Master?" dan menunggu perintah berikutnya.
 - Setelah dia menjawab, selama 8 detik (`assistant.followup_seconds`) kamu bisa
   lanjut tanpa memanggil namanya: "terus nyalakan TV juga".
@@ -1608,6 +1614,224 @@ berjalan melihat perubahannya dalam 15 detik. `waifu check` menampilkan
   jadwal, tapi filenya tidak dihapus; hapus isinya dengan `waifu schedule clear --yes` kalau
   mau.
 
+## Musik, volume, dan aplikasi PC
+
+Cyrene bisa menekan tombol media dan volume Windows, dan membuka aplikasi atau game yang
+Master daftarkan di `config.yaml`. Keduanya perangkat biasa (`type: media` dan
+`type: apps`), jadi juga bisa dipakai di jadwal dan rutinitas, dicoba dengan
+`waifu device`, dan disimulasikan dengan `--dry-run`.
+
+```text
+Master : "Cyrene, pause musiknya."
+Cyrene : "Tombol jedanya sudah kutekan, Master."
+Master : "Cyrene, volume 30."
+Master : "Cyrene, buka Genshin."
+Cyrene : "Genshin sudah dibuka. Selamat main, Master!"
+```
+
+### Contoh kalimat
+
+- **Musik:** "Cyrene, pause musiknya.", "lanjutkan lagunya", "lagu berikutnya",
+  "lagu sebelumnya", "stop musiknya".
+- **Volume:** "Cyrene, kecilkan volume" (turun sekitar 10%), "kecilkan volume 20 persen",
+  "besarkan volume sedikit", "volume 30" (diatur ke sekitar 30%), "mute" (sekali lagi untuk
+  menyalakan suara).
+- **Aplikasi:** "Cyrene, buka Spotify.", "Cyrene, buka Genshin." Hanya aplikasi di daftar
+  `apps`.
+- **Terjadwal:** "Cyrene, jam 7 pagi buka Spotify.", "Cyrene, matikan musik jam 11 malam."
+
+Tombol media berlaku untuk pemutar apa pun yang sedang terbuka: Spotify, YouTube di
+browser, pemutar video, atau game, sama seperti tombol media di keyboard. Windows yang
+memilih pemutarnya (biasanya yang terakhir memutar suara).
+
+**Saat jendela yang aktif adalah game yang berjalan sebagai administrator** (game dan
+launcher HoYoverse, dan game lain dengan anti-cheat), tombol dari Cyrene tidak sampai:
+Windows menahannya diam-diam, tanpa pesan error. Cyrene hanya tahu tombolnya sudah ditekan,
+bukan apakah musik atau volumenya benar-benar berubah, jadi jawabannya pun begitu. Pindah
+dulu ke jendela lain (Alt+Tab), atau pakai tombol media di keyboard selama main game itu.
+
+### Menambahkan di config.yaml
+
+Contoh yang sama ada di akhir `config.example.yaml` (hapus tanda `#` di depannya):
+
+```yaml
+devices:
+  # ... perangkat lain ...
+  - id: musik
+    name: Musik PC
+    aliases: [musik, lagu, media, volume, suara]
+    type: media
+
+  - id: aplikasi
+    name: Aplikasi PC
+    aliases: [aplikasi, game]
+    type: apps
+    apps:
+      spotify: "C:/Users/<nama>/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/Spotify.lnk"
+      genshin: "C:/Users/<nama>/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/Genshin Impact.lnk"
+      cyberpunk: "steam://rungameid/1091500"
+```
+
+Alias `volume` dan `suara` membuat "kecilkan volume" berarti volume PC. Kalau proyektor atau
+TV juga punya tombol volume yang sudah dipelajari, Cyrene bisa bertanya perangkat mana yang
+dimaksud; sebut saja perangkatnya ("kecilkan volume proyektor").
+
+Perintah perangkat `media`:
+
+| Perintah | Yang terjadi |
+|---|---|
+| `play_pause` | jeda, atau putar lagi kalau sedang berhenti (satu tombol bolak-balik) |
+| `next` / `previous` | lagu berikutnya / sebelumnya |
+| `stop` | hentikan pemutaran |
+| `mute` | bisukan, atau nyalakan suara lagi (satu tombol bolak-balik) |
+| `volume_up` / `volume_down` + angka 1–100 | naik / turun sekitar sekian persen (dibulatkan ke bawah ke angka genap, paling sedikit 2%); tanpa angka sekitar 10% |
+| `volume` + angka 0–100 | atur ke sekitar angka itu (dibulatkan ke bawah ke angka genap) |
+
+Semua angka volume adalah persen, seperti yang diucapkan: "kecilkan volume 20 persen" menjadi
+`volume_down` 20. Windows tidak punya tombol untuk level volume tertentu, jadi `volume 30`
+menekan tombol volume turun 50 kali (sampai 0%) lalu naik 15 kali; tiap tekanan sekitar 2%.
+Indikator volume Windows ikut muncul di layar, seperti saat tombol volume keyboard ditekan.
+
+Tombol volume mengubah volume Windows yang juga dipakai suara Cyrene (kecuali
+`audio.output_device` menunjuk speaker lain). Setelah `volume 0` atau `mute`, jawaban dan
+pengingat lisannya tidak terdengar sampai volumenya dinaikkan lagi; hanya notifikasi ntfy di
+HP yang tetap sampai, kalau diaktifkan.
+
+Perangkat `apps` punya perintah `open_<nama>` untuk setiap aplikasi, urut seperti di
+`config.yaml` (`open_spotify`, `open_genshin`, `open_cyberpunk`). Aturannya:
+
+- Nama aplikasi: huruf kecil, angka, atau garis bawah; 1–30 aplikasi per perangkat.
+- Isinya path lengkap dengan huruf drive (`C:/...`) ke program `.exe`, shortcut `.lnk`, atau
+  shortcut internet `.url`; atau URL launcher `steam://...` atau
+  `com.epicgames.launcher://...`.
+- Skrip (`.bat`, `.cmd`, `.ps1`, `.vbs`), path tanpa huruf drive, dan alamat lain seperti
+  `https://...` membuat `config.yaml` ditolak saat start.
+- Shortcut (`.lnk`, `.url`) membuka apa pun yang ditunjuknya, termasuk skrip atau situs web.
+  Daftarkan hanya shortcut yang kamu buat sendiri atau percayai (dari menu Start, Steam, atau
+  Epic). `waifu check` membaca alamat di shortcut `.url` dan menandainya ✗ kalau bukan
+  `steam://` atau `com.epicgames.launcher://`; tujuan shortcut `.lnk` tidak dicek.
+- Program `.exe` dijalankan di foldernya sendiri, seperti saat dibuka dari Explorer.
+  Shortcut memakai folder "Start in" miliknya sendiri.
+- Tulis path dengan `/` seperti contoh. Path dengan `\` harus di antara tanda kutip tunggal
+  (`'C:\Users\...'`), karena di dalam tanda kutip ganda YAML membaca `\` sebagai kode khusus.
+- Ada atau tidaknya file dicek oleh `waifu check` dan saat aplikasinya dibuka, bukan saat
+  start: game yang dipindah tidak membuat Cyrene gagal jalan.
+
+Setelah mengubah `config.yaml`, jalankan ulang `waifu run`, lalu cek:
+
+```powershell
+waifu check                                   # ✓ / ✗ untuk setiap aplikasi
+waifu device musik volume 30 --dry-run        # simulasi, tidak ada tombol yang ditekan
+waifu device aplikasi open_spotify --dry-run  # simulasi, tidak ada yang dibuka
+waifu device aplikasi open_spotify            # benar-benar membuka Spotify
+```
+
+### Mencari shortcut aplikasi dan game
+
+Shortcut dari menu Start paling mudah, dan biasanya tetap benar setelah aplikasinya update:
+
+1. Buka menu Start dan cari aplikasinya (misalnya "Spotify").
+2. Klik kanan > **Open file location**. Explorer membuka folder shortcut-nya, biasanya
+   `C:\Users\<nama>\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\` (shortcut untuk
+   user kamu saja) atau `C:\ProgramData\Microsoft\Windows\Start Menu\Programs\` (untuk semua
+   user). Nama folder dan file-nya bisa berbeda dari contoh di atas.
+3. Klik kanan shortcut-nya > **Copy as path**, lalu tempel di `apps`. Hasil salinannya
+   memakai `\` dan tanda kutip ganda: ganti `\` dengan `/`, atau ganti tanda kutipnya dengan
+   kutip tunggal.
+
+- Program `.exe`-nya juga boleh dipakai: klik kanan shortcut tadi > **Open file location**
+  sekali lagi membuka folder programnya.
+- Shortcut launcher (HoYoPlay, Steam, Epic) membuka launcher-nya. Untuk langsung ke game,
+  pakai shortcut game itu sendiri kalau ada, atau URL launcher di bawah.
+- Aplikasi dari Microsoft Store tidak punya **Open file location**. Seret aplikasinya dari
+  daftar **All apps** di menu Start ke desktop untuk membuat shortcut, pindahkan shortcut itu
+  ke folder tetap (misalnya `C:\Users\<nama>\Pintasan\`), lalu pakai path-nya.
+
+**Game Steam** dibuka dengan `steam://rungameid/<App ID>`:
+
+- App ID adalah angka di alamat halaman toko game itu:
+  `https://store.steampowered.com/app/1091500/Cyberpunk_2077/` berarti
+  `steam://rungameid/1091500`.
+- Atau di Steam: Library, klik kanan game > **Properties** > **Updates**; App ID tertulis di
+  sana.
+- Atau klik kanan game > **Manage** > **Add desktop shortcut**: Steam membuat file `.url` di
+  desktop. Path file itu bisa langsung dipakai, atau lihat alamatnya lewat klik kanan >
+  **Properties** (kolom URL).
+
+**Game Epic** dibuka lewat shortcut desktop dari Epic Games Launcher, yang juga file `.url`:
+pakai path-nya, atau salin alamat `com.epicgames.launcher://...` dari Properties-nya.
+
+### Di rutinitas dan jadwal
+
+```yaml
+routines:
+  tidur:
+    description: Mode tidur
+    steps:
+      - {device: musik, command: stop}
+      - {device: musik, command: volume, value: 20}
+      - {device: lampu_kamar, command: off}
+      - {device: ac, command: temp, value: 26}
+```
+
+- Di rutinitas pakai **`stop`, bukan `play_pause`**. `play_pause` adalah satu tombol
+  bolak-balik: kalau musiknya sudah berhenti, rutinitas malah memutarnya lagi. `stop` aman
+  dijalankan berkali-kali. Begitu juga `mute`: untuk mengecilkan suara, pakai `volume` dengan
+  angka kecil seperti `value: 20` di contoh. `volume 0` juga membuat suara Cyrene dan
+  pengingat lisannya besok pagi tidak terdengar (lihat di atas), kecuali ada jadwal atau
+  rutinitas pagi yang menaikkan volumenya lagi (misalnya `volume` 30 jam 6 pagi).
+- Jadwal lewat suara bekerja seperti perangkat lain: "Cyrene, jam 7 pagi buka Spotify",
+  "Cyrene, matikan musik jam 11 malam". Seperti semua jadwal, hanya jalan selama `waifu run`
+  menyala.
+- Jadwal tidak pernah memakai `play_pause` atau `mute`: jadwal perangkat berjalan diam-diam,
+  jadi tombol bolak-balik bisa memutar lagi musik yang sudah dijeda saat Master tidur. Cyrene
+  menolaknya dan menjadwalkan `stop` atau `volume` sebagai gantinya. Angka di luar batasnya
+  (misalnya `volume` 150) juga langsung ditolak saat dijadwalkan, bukan gagal nanti di
+  tengah malam.
+- Aplikasi yang dibuka lewat jadwal muncul di layar walau Master sedang tidak di depan PC.
+
+### Yang tidak pernah dilakukan
+
+- **Tidak ada yang pernah ditutup.** Cyrene tidak punya perintah untuk menutup aplikasi,
+  mematikan proses, atau keluar dari game.
+- **Hanya aplikasi di daftar `apps` yang bisa dibuka.** Perintah suara hanya memilih salah
+  satu nama di daftar itu dan membuka isinya: program `.exe` atau URL launcher persis seperti
+  tertulis, atau shortcut `.lnk`/`.url` beserta apa pun yang ditunjuknya. Jadi daftarkan
+  hanya shortcut yang kamu buat sendiri atau percayai.
+- Dia tidak mengetik atau mengklik di dalam aplikasi, tidak memilih lagu atau playlist,
+  tidak mengatur volume per aplikasi, tidak membaca volume yang sedang dipakai, dan tidak
+  memainkan game (macro melanggar ketentuan HoYoverse).
+
+### Pemecahan masalah musik dan aplikasi
+
+- **Game minta izin administrator.** Beberapa game dan launcher (biasanya karena
+  anti-cheat-nya) memunculkan jendela izin Windows "Do you want to allow this app to make
+  changes to your device?". Klik **Yes**; Cyrene tidak bisa (dan tidak boleh) menjawabnya.
+  Kalau dijawab **No**, gamenya tidak terbuka dan dia bilang izin administratornya ditolak.
+  Selama jendela izin itu terbuka, Cyrene menunggu jawabannya: lewat suara, jawabannya baru
+  keluar setelah jendela itu dijawab; lewat jadwal, jadwal berikutnya (juga pengingat dan
+  notifikasinya ke HP) tertunda sampai jendela itu dijawab. Jadi jangan menjadwalkan game
+  seperti ini saat tidak ada yang di depan PC.
+- **`✗ Aplikasi <nama>: shortcut ini membuka ...` di `waifu check`.** Shortcut `.url` itu
+  membuka alamat lain (situs web atau file), bukan game Steam atau Epic. Hapus dari `apps`,
+  atau ganti dengan shortcut game yang benar.
+- **`✗ Aplikasi <nama>: file tidak ditemukan (...)` di `waifu check`.** Aplikasinya
+  dipindah, di-uninstall, atau path-nya salah ketik. Cari lagi shortcut-nya (lihat di atas),
+  perbarui `config.yaml`, lalu jalankan ulang `waifu run`. Kalau diminta lewat suara, dia
+  bilang file-nya tidak ditemukan dan tidak membuka apa pun.
+- **URL launcher** ditandai `✓ ... (URL, tidak dicek)`: satu-satunya cara mengeceknya adalah
+  membukanya, dan `waifu check` tidak pernah membuka apa pun. Kalau Steam belum terpasang
+  atau App ID-nya salah, dia bilang Windows gagal membukanya, atau Steam menampilkan
+  pesannya sendiri.
+- **Tombol media tidak berpengaruh.** Pastikan pemutarnya mendukung tombol media (Spotify,
+  browser, dan kebanyakan pemutar mendukung). Kalau dua pemutar terbuka, Windows memilih
+  salah satunya; jeda yang tidak dipakai. Saat jendela yang aktif adalah program yang
+  berjalan sebagai administrator (misalnya game dengan anti-cheat), Windows menahan tombol
+  dari Cyrene tanpa pesan error, dan dia tetap bilang tombolnya sudah ditekan: klik desktop
+  atau jendela lain, lalu coba lagi.
+- **"Windows menolak tombol medianya".** Windows sedang memblokir input, misalnya layar
+  terkunci atau jendela izin administrator sedang terbuka.
+
 ## Pemecahan masalah
 
 Log `waifu run` tampil di terminal dalam bahasa Inggris. Baris seperti
@@ -1679,7 +1903,9 @@ tersambung Wi-Fi, atau IP-nya berubah.
 perangkatnya. Uji satu kode dengan `waifu device ac on`.
 
 **Tidak ada suara.** edge-tts butuh internet. Uji dengan
-`waifu say "Halo Master"`; pilih speaker lewat `audio.output_device`.
+`waifu say "Halo Master"`; pilih speaker lewat `audio.output_device`. Cek juga volume Windows
+tidak 0 atau dibisukan, misalnya oleh rutinitas dengan `volume 0` atau `mute` (lihat
+[Musik, volume, dan aplikasi PC](#musik-volume-dan-aplikasi-pc)).
 
 ## Checklist uji perangkat keras
 
@@ -1825,6 +2051,21 @@ untuk `ac` harus sudah dipelajari.)
       `waifu run`.
 - [ ] `waifu chat --dry-run`: jadwal yang dibuat di sana tidak muncul di
       `waifu schedule list`.
+
+**Musik dan aplikasi PC** (tambahkan dulu `musik` dan `aplikasi` di `config.yaml`; lihat
+[Musik, volume, dan aplikasi PC](#musik-volume-dan-aplikasi-pc))
+
+- [ ] `waifu check` menampilkan `✓ Aplikasi ...` untuk setiap aplikasi.
+- [ ] Putar lagu di Spotify atau YouTube: "Cyrene, pause musiknya" menjeda, "lanjutkan"
+      memutar lagi, "lagu berikutnya" pindah lagu.
+- [ ] "Cyrene, volume 30": indikator volume Windows berhenti di sekitar 30. "Cyrene,
+      kecilkan volume" menurunkannya sekitar 10, "kecilkan volume 20 persen" sekitar 20.
+- [ ] "Cyrene, buka Spotify": Spotify terbuka. "Cyrene, tutup Spotify": tidak ada yang
+      ditutup, dan dia bilang tidak bisa.
+- [ ] Rutinitas dengan `{device: musik, command: stop}`: musik berhenti, dan menjalankannya
+      lagi saat musik sudah berhenti tidak memutarnya.
+- [ ] "Cyrene, pause musiknya jam 11 malam": dia tidak menjadwalkan `play_pause`, tapi
+      `stop` (cek dengan `waifu schedule list`, lalu batalkan).
 
 ## Privasi
 

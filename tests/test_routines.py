@@ -141,6 +141,21 @@ def test_routine_problems_names_every_bad_step_in_order():
     assert all(device.calls == [] for device in devices.values())
 
 
+def test_routine_problems_names_a_value_outside_its_kind_range():
+    musik = MockDevice(
+        "musik", "Musik PC", commands=["stop", "volume_up", "volume_down", "volume"], kind="media"
+    )
+    registry = DeviceRegistry([musik])
+    tidur = routine(("musik", "stop"), ("musik", "volume_down", 300), ("musik", "volume"))
+
+    assert routine_problems(registry, tidur) == [
+        "Langkah 2 (musik volume_down 300): Nilai 'volume_down' untuk Musik PC harus angka 1 "
+        "sampai 100.",
+        "Langkah 3 (musik volume): Nilai 'volume' untuk Musik PC harus angka 0 sampai 100.",
+    ]
+    assert musik.calls == []
+
+
 def test_the_plug_that_powers_the_pc_is_refused_and_never_switched():
     plug = MockDevice("colokan_pc", "Colokan PC", commands=["on", "off"], kind="plug")
     lamp = MockDevice("lampu_kamar", "Lampu kamar", kind="light")

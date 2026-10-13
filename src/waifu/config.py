@@ -29,8 +29,9 @@ GameId = Literal["hsr", "genshin", "zzz"]
 HOYOLAB_LOGIN_COOKIES = (("ltuid_v2", "ltoken_v2"), ("ltuid", "ltoken"))
 # Anyone who knows a topic on the public ntfy server can read it, so it must be hard to guess.
 NTFY_TOPIC_PATTERN = re.compile(r"^[A-Za-z0-9_-]{16,64}$")
-# What an `apps` device may start: launcher URLs, or a program or shortcut on a local drive
-# (never a script: .bat, .cmd, .ps1, .vbs).
+# What an `apps` device may start: launcher URLs, or a program or shortcut on a local drive.
+# The target itself is never a script (.bat, .cmd, .ps1, .vbs); what a listed shortcut points
+# to is the owner's choice.
 APP_URL_SCHEMES = ("steam://", "com.epicgames.launcher://")
 APP_FILE_SUFFIXES = (".exe", ".lnk", ".url")
 MAX_APPS = 30
