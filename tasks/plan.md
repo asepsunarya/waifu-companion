@@ -240,13 +240,13 @@ Decision: one tool (`daily_briefing`: date, Open-Meteo weather, today's schedule
 request and by a once-a-day greeting. The greeting is a queued brain request handled between
 utterances, like announcements, so it never races a reply; the model words it with her
 persona and memory, and calls the game tool itself.
-- [ ] Task 66a: `briefing` config
-- [ ] Task 66: `weather.py`: `WeatherClient` (Open-Meteo, geocoding, WMO conditions)
-- [ ] Task 67: `briefing.py`: `BriefingTools`, `BriefingTimer`
-- [ ] Task 68: `Assistant.ask_aloud`, wiring, `waifu briefing`, check, README
+- [x] Task 66a: `briefing` config
+- [x] Task 66: `weather.py`: `WeatherClient` (Open-Meteo, geocoding, WMO conditions)
+- [x] Task 67: `briefing.py`: `BriefingTools`, `BriefingTimer`
+- [x] Task 68: `Assistant.ask_aloud`, wiring, `waifu briefing`, check, README
 
 ### Checkpoint: Morning briefing
-- [ ] Python suite and ruff clean; no test reached the internet, slept for real, or touched `data/`
+- [x] Python suite and ruff clean; no test reached the internet, slept for real, or touched `data/` (2026-10-14: 2985 pytest on the committed tree plus tasks 66-68)
 - [ ] On the owner's PC: with `briefing.city` set, the morning greeting comes once, names the weather and the day's schedule, and "cuaca hari ini?" works any time
 
 ## Risks and Mitigations

@@ -647,34 +647,36 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 64 · **Files:** `src/waifu/avatar/interactions.py`, `tests/test_avatar_interactions.py`, `src/waifu/avatar/web/live2d.js`, `src/waifu/avatar/web/avatar.js`, `src/waifu/avatar/web/logic.js`, `tests/js/logic.test.mjs`, `src/waifu/cli.py`, `tests/test_cli.py`, `README.md` · **Scope:** M
 
-## Task 66a: Briefing config
+## Task 66a: Briefing config ✅
 
 **Acceptance criteria:**
-- [ ] `AppConfig.briefing` per SPEC (`time` before `until`; latitude and longitude both or neither, within range)
+- [x] `AppConfig.briefing` per SPEC (`time` before `until`; latitude and longitude both or neither, within range)
 
 **Dependencies:** none · **Files:** `src/waifu/config.py`, `tests/test_config.py` · **Scope:** XS
 
-## Task 66: Weather client
+## Task 66: Weather client ✅
 
 **Acceptance criteria:**
-- [ ] `WeatherClient.today()` builds the SPEC's requests, parses current/daily/hourly data into `Weather`, geocodes a city once, and maps WMO codes to Indonesian
-- [ ] Every network or format problem, and a missing location, is a speakable `WeatherError`; tests use a fake fetch only
+- [x] `WeatherClient.today()` builds the SPEC's requests, parses current/daily/hourly data into `Weather`, geocodes a city once, and maps WMO codes to Indonesian
+- [x] Every network or format problem, and a missing location, is a speakable `WeatherError`; tests use a fake fetch only
+- [x] One `today()` has 8 s for the city lookup and the forecast together (each request's timeout is the time left; none starts with under 1 s left); with coordinates the city still names the place
 
 **Dependencies:** 66a · **Files:** `src/waifu/weather.py`, `tests/test_weather.py` · **Scope:** S
 
-## Task 67: Briefing tool and timer
+## Task 67: Briefing tool and timer ✅
 
 **Acceptance criteria:**
-- [ ] `daily_briefing` returns the SPEC's JSON, filling problem fields instead of failing
-- [ ] `BriefingTimer` fires once per day inside the window, never again after a restart (state written first), and moves a corrupt state aside
+- [x] `daily_briefing` returns the SPEC's JSON, filling problem fields instead of failing
+- [x] `BriefingTimer` fires once per day inside the window, never again after a restart (state written first), and moves a corrupt state aside
 
 **Dependencies:** 66a · **Files:** `src/waifu/briefing.py`, `tests/test_briefing.py` · **Scope:** M
 
-## Task 68: Wiring, `waifu briefing`, check, README
+## Task 68: Wiring, `waifu briefing`, check, README ✅
 
 **Acceptance criteria:**
-- [ ] `Assistant.ask_aloud` handled between utterances like announcements, spoken as a reply, `on_reply` called with the text
-- [ ] `run` wires the tools and the timer (push when `briefing.push` and a notifier); `chat` the tools only; `waifu briefing` and `check` per SPEC
-- [ ] README (Indonesian) and `config.example.yaml`; no test touches the internet or `data/`
+- [x] `Assistant.ask_aloud` handled between utterances like announcements, spoken as a reply, `on_reply` called with the text on a thread of its own
+- [x] A request never follows announcements on the same frame and waits while a follow-up window is open; with `required_tool`, a turn without a successful call of it (the brain's apology) is neither said nor passed on
+- [x] `run` wires the tools and the timer (push when `briefing.push` and a notifier; `required_tool="daily_briefing"`); `chat` the tools only; `waifu briefing` (exit 1 when the weather or the schedule fails) and `check` per SPEC
+- [x] README (Indonesian) and `config.example.yaml`; no test touches the internet or `data/`
 
 **Dependencies:** 66, 67 · **Files:** `src/waifu/app.py`, `tests/test_app.py`, `src/waifu/cli.py`, `tests/test_cli.py`, `README.md`, `config.example.yaml` · **Scope:** M
