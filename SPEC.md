@@ -530,6 +530,33 @@ User story: the owner changed her persona to call them "Sayang"; every sentence 
 - `is_yes` and the screen tool's look-word gate skip the owner_call words like her names ("iya sayang" is a yes).
 - Tests pin the default ("Master") everywhere and one non-default word through each path.
 
+### API cost monitor (v1.13)
+
+User stories:
+
+1. "Cyrene, biaya API bulan ini berapa?" / "hari ini sudah habis berapa?" → tokens and the estimated cost in US dollars (and rupiah when `usage.idr_per_usd` is set), from her own records.
+2. `waifu usage` prints the month day by day; `waifu usage --month 2026-10` any month.
+3. With `usage.monthly_budget_usd` set, she tells the owner once when the month passes 80 % and once when it passes 100 % (spoken and pushed, addressing the owner by `owner_call`), never stopping on her own.
+
+Non-goals: the Anthropic console's billing (her records are estimates from the `usage` fields of her own requests; other apps on the same key are not seen), the Admin API, cutting her off at the budget, Ollama (free, nothing recorded).
+
+Prices (USD per million tokens, from the claude-api reference, overridable in config): `claude-opus-5-5`: input 4.00, output 20.00, cache write (5-minute TTL, the automatic cache she uses) 5.00, cache read 0.20. A response from a model not in the table (a server-side fallback) is priced with `usage.default_model`'s prices and counted as estimated.
+
+Config `usage` (committed with its tests before the parallel tasks): `enabled` (default true), `path` (default `data/usage.json`), `monthly_budget_usd` (default none, > 0), `idr_per_usd` (default none, > 0), `prices` (mapping model id → `{input, output, cache_write, cache_read}` USD per MTok, merged over the built-in table), `default_model` (default `claude-opus-5-5`).
+
+`usage.py`:
+- `TokenUsage` (frozen dataclass): `input`, `output`, `cache_write`, `cache_read` (ints) from a response's `usage` (`input_tokens`, `output_tokens`, `cache_creation_input_tokens`, `cache_read_input_tokens`; missing or None counts 0).
+- `cost_usd(model, tokens, prices, default_model) -> tuple[float, bool]` (the cost and whether it was estimated with another model's prices).
+- `UsageLedger(path, *, prices, default_model, now=datetime.now)`: `record(model, tokens)` adds to that local day's per-model totals (tokens, requests, cost); `day(date)`, `month(year, month)` → `UsageSummary(requests, tokens: TokenUsage, cost_usd, estimated: bool, by_day: list[...])`. File rules as the other stores (re-read, lock, atomic replace, corrupt file moved aside, never created by reading). `budget_notices(budget_usd) -> list[str]` returns the 80 % / 100 % notices not yet given this month (and marks them given in the same file).
+
+Brains: `ClaudeBrain(..., on_usage: Callable[[str, TokenUsage], None] | None = None)` calls `on_usage(response.model, tokens)` after every `messages.create` (every tool round too, and a refused response); an exception in it is logged and ignored. The request is unchanged.
+
+`brain/usage_tools.py` — `UsageTools(ledger, *, idr_per_usd=None, now=...)` with the strict tool `api_usage {period: "today" | "month"}` → `{"period", "requests", "input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens", "cost_usd", "cost_idr" | null, "estimated"}`; the description says these are her own estimates.
+
+CLI: `run`/`chat` with the Claude backend and `usage.enabled`: one ledger, `on_usage=ledger.record` into `build_brain`, `UsageTools` in the providers; in `run`, after each recorded response, budget notices (if any) are announced (`assistant.announce`, emotion surprised) and pushed. `waifu usage [--month YYYY-MM]`: a table per day (requests, tokens, USD, and IDR when set) and the total, with "(perkiraan)" when estimated. `check`: `✓ Biaya API: <month total> bulan ini` or `! Biaya API dicatat hanya dengan Claude`. README (Indonesian) section; `config.example.yaml`.
+
+Safety: tests never touch `data/`, never call Claude (fake clients), never reach the network.
+
 ## Code Style
 
 See `CLAUDE.md` → Code Conventions and Patterns. Dataclasses for value
