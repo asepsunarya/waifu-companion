@@ -540,6 +540,8 @@ class PhoneConfig(_Strict):
     # The PC's Tailscale name (`tailscale status`), the only outside Host the server answers.
     host: str | None = None
     state_path: Path = Path("data/phone.json")
+    # The phone page's camera; offered only with vision on and the Claude backend.
+    camera: bool = True
 
     @field_validator("host")
     @classmethod

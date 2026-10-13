@@ -621,6 +621,12 @@ def test_the_phone_host_is_a_tailscale_name_kept_in_lowercase(tmp_path):
     assert load_config(write_yaml(tmp_path, text)).phone.host == "lynx-pc.tail1234.ts.net"
 
 
+def test_the_phone_camera_is_on_by_default_and_can_be_turned_off(tmp_path):
+    assert AppConfig().phone.camera is True
+    text = "phone:\n  enabled: true\n  camera: false\n"
+    assert load_config(write_yaml(tmp_path, text)).phone.camera is False
+
+
 @pytest.mark.parametrize(
     "lines",
     [
@@ -630,7 +636,8 @@ def test_the_phone_host_is_a_tailscale_name_kept_in_lowercase(tmp_path):
         "  host: lynx-pc.tail1234.ts.net:443\n",
         "  host: https://lynx-pc.tail1234.ts.net\n",
         "  host: ts.net\n",
-        "  camera: true\n",
+        "  camera: maybe\n",
+        "  webcam: true\n",
     ],
 )
 def test_bad_phone_settings_are_refused(tmp_path, lines):
