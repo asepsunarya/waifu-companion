@@ -1,6 +1,7 @@
 """The suite-wide guard in conftest.py must stop real power commands before they run."""
 
 import asyncio
+import contextlib
 import ctypes
 import os
 import subprocess
@@ -128,16 +129,18 @@ def test_game_caches_elsewhere_can_still_be_read(tmp_path):
     assert find_cached_gacha_url(GAMES["hsr"], tmp_path) is None
 
 
-def test_opening_a_program_or_url_with_startfile_is_refused(tmp_path):
+def test_opening_a_program_or_url_with_startfile_is_refused(tmp_path, refused_system_calls):
     if not hasattr(os, "startfile"):
         pytest.skip("os.startfile only exists on Windows")
     # A missing file, so even a broken guard would only raise FileNotFoundError.
     with pytest.raises(AssertionError, match="startfile"):
         os.startfile(str(tmp_path / "missing.exe"))
+    assert refused_system_calls == ["os.startfile"]  # also failed at teardown
+    refused_system_calls.clear()  # this one was on purpose
 
 
 @pytest.mark.parametrize("function", ["SendInput", "keybd_event"])
-def test_pressing_real_keys_through_user32_is_refused(function):
+def test_pressing_real_keys_through_user32_is_refused(function, refused_system_calls):
     if not hasattr(ctypes, "WinDLL"):
         pytest.skip("user32 only exists on Windows")
     # Refused as soon as the function is looked up, so no key is ever pressed.
@@ -145,13 +148,15 @@ def test_pressing_real_keys_through_user32_is_refused(function):
         getattr(ctypes.WinDLL("user32"), function)
     with pytest.raises(AssertionError, match=function):
         getattr(ctypes.windll.user32, function)
+    assert refused_system_calls == [f"user32.{function}"] * 2
+    refused_system_calls.clear()  # these were on purpose
 
 
 @pytest.mark.parametrize(
     ("library", "function"),
     [("gdi32", "BitBlt"), ("gdi32", "StretchBlt"), ("user32", "PrintWindow")],
 )
-def test_capturing_the_real_screen_is_refused(library, function):
+def test_capturing_the_real_screen_is_refused(library, function, refused_system_calls):
     if not hasattr(ctypes, "WinDLL"):
         pytest.skip("gdi32 and user32 only exist on Windows")
     # Refused as soon as the function is looked up, so nothing is ever captured.
@@ -159,6 +164,17 @@ def test_capturing_the_real_screen_is_refused(library, function):
         getattr(ctypes.WinDLL(library), function)
     with pytest.raises(AssertionError, match=function):
         getattr(getattr(ctypes.windll, library), function)
+    assert refused_system_calls == [f"{library}.{function}"] * 2
+    refused_system_calls.clear()  # these were on purpose
+
+
+def test_a_refusal_the_code_swallows_is_still_recorded(refused_system_calls):
+    if not hasattr(ctypes, "WinDLL"):
+        pytest.skip("gdi32 only exists on Windows")
+    with contextlib.suppress(Exception):  # like a catch-all in the code under test
+        _ = ctypes.WinDLL("gdi32").StretchBlt
+    assert refused_system_calls == ["gdi32.StretchBlt"]  # so teardown fails the test
+    refused_system_calls.clear()  # this one was on purpose
 
 
 def test_other_gdi32_functions_still_load():

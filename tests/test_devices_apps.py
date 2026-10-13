@@ -210,7 +210,7 @@ def test_a_value_is_ignored_because_an_app_has_no_setting():
 
 
 @pytest.mark.skipif(not hasattr(os, "startfile"), reason="os.startfile only exists on Windows")
-def test_the_default_starter_looks_up_os_startfile_when_opening(tmp_path):
+def test_the_default_starter_looks_up_os_startfile_when_opening(tmp_path, refused_system_calls):
     # tests/conftest.py replaces os.startfile after this module is imported: only a starter that
     # looks it up when opening reaches the guard. The target does not exist, so a starter bound
     # to the real function at import would fail on the missing file instead of opening anything.
@@ -224,3 +224,5 @@ def test_the_default_starter_looks_up_os_startfile_when_opening(tmp_path):
 
     with pytest.raises(AssertionError, match="startfile"):
         launcher.execute("open_game")
+    assert refused_system_calls == ["os.startfile"]
+    refused_system_calls.clear()  # this one was on purpose

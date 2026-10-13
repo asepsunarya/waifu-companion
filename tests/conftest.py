@@ -104,6 +104,12 @@ class _GuardedPopen(_REAL_POPEN):  # type: ignore[misc, valid-type]
         super().__init__(args, *pargs, **kwargs)
 
 
+# Refused key presses, screen captures, and startfile calls of the running test: code under
+# test may catch the refusal (a device or tool turns errors into results), so the fixture below
+# fails the test afterwards too.
+_refused_system_calls: list[str] = []
+
+
 class _GuardedDll:
     """A system library without its refused functions: looking one up already fails."""
 
@@ -117,6 +123,7 @@ class _GuardedDll:
     def __getitem__(self, name: str):
         purpose = _REFUSED_FUNCTIONS[self._library].get(name.lower())
         if purpose:
+            _refused_system_calls.append(f"{self._library}.{name}")
             raise AssertionError(f"a test tried to {purpose} with {self._library}.{name}")
         return getattr(self._dll, name)
 
@@ -130,6 +137,7 @@ def _guarded_windll(name, *args, **kwargs):
 
 
 def _refuse_startfile(*args, **kwargs):
+    _refused_system_calls.append("os.startfile")
     raise AssertionError(f"a test tried to open a real program or URL with os.startfile: {args!r}")
 
 
@@ -180,6 +188,17 @@ def _refuse_real_power_actions(monkeypatch):
         monkeypatch.setattr(ctypes, "windll", ctypes.LibraryLoader(_guarded_windll))
     if hasattr(os, "startfile"):
         monkeypatch.setattr(os, "startfile", _refuse_startfile)
+
+
+@pytest.fixture(autouse=True)
+def refused_system_calls():
+    """Fails the test afterwards if it reached a refused key press, screen capture, or startfile,
+    even when the code under test caught the refusal."""
+    _refused_system_calls.clear()
+    yield _refused_system_calls
+    assert not _refused_system_calls, (
+        f"a test reached refused system calls: {_refused_system_calls}"
+    )
 
 
 @pytest.fixture(autouse=True)
