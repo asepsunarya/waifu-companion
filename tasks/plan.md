@@ -204,11 +204,11 @@ key or open a real program.
 Decision: the persona's "ask before turning the PC off" becomes a gate in the tool path. The
 first call is refused and remembered; the same call runs only in the owner's very next turn
 when their own words are a yes. The model can never confirm for them.
-- [ ] Task 60: `brain/confirm.py`: `is_yes`, `needs_confirmation`, `ConfirmationGate`
-- [ ] Task 61: `run_tool`, both brains, `build_brain`, persona, README
+- [x] Task 60: `brain/confirm.py`: `is_yes`, `needs_confirmation`, `ConfirmationGate`
+- [x] Task 61: `run_tool`, both brains, `build_brain`, persona, README
 
 ### Checkpoint: Confirmation in code
-- [ ] Python suite and ruff clean; no test reached a real power action
+- [x] Python suite and ruff clean; no test reached a real power action (2026-10-13: 2635 pytest)
 - [ ] On the owner's PC: "matikan komputer" → she asks; "tidak" → nothing happens; "iya" → the 30-second shutdown starts and "batalkan" cancels it
 
 ## Risks and Mitigations

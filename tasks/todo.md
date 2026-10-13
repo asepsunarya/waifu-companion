@@ -584,20 +584,21 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 57, 58 · **Files:** `src/waifu/devices/registry.py`, `src/waifu/brain/tools.py`, `src/waifu/brain/schedule_tools.py`, `src/waifu/routines.py`, `src/waifu/cli.py`, tests, `README.md`, `config.example.yaml` · **Scope:** M
 
-## Task 60: Confirmation gate
+## Task 60: Confirmation gate ✅
 
 **Acceptance criteria:**
-- [ ] `is_yes` per SPEC (affirmative words without a negative one; punctuation, case, wake word, Japanese)
-- [ ] `needs_confirmation` covers exactly the SPEC's commands on the PC and on a marked plug, after `resolve_command`
-- [ ] `ConfirmationGate` runs a gated command only in the next turn, within the window, on a yes, once; same-turn, later-turn, other-command, and stale yeses never count; thread-safe
+- [x] `is_yes` per SPEC: only a plain yes (starts with an affirmative word, then only affirmative and order words, "Master", and her names; never a question); punctuation, case, names, Japanese; thanks, other requests, reasons to wait, and doubt with a "ya" in them are not yes
+- [x] `needs_confirmation` covers exactly the SPEC's commands on the PC and on a marked plug, after `resolve_command`
+- [x] `ConfirmationGate` runs a gated command only in the next turn, on a yes said within the window, once; same-turn, later-turn, other-command, and stale yeses never count; the first refusal of a turn is its request and the others wait (two gated calls never deadlock or confirm together); `with_question` names the action, `discard_turn` drops a rolled-back turn's request, `awaiting_answer`; thread-safe
 
 **Dependencies:** none · **Files:** `src/waifu/brain/confirm.py`, `tests/test_brain_confirm.py` · **Scope:** S
 
-## Task 61: Gate the tool path
+## Task 61: Gate the tool path ✅
 
 **Acceptance criteria:**
-- [ ] `run_tool(..., confirmations=...)` refuses a gated `control_device` with `needs_confirmation` and `is_error`, and never calls the device
-- [ ] Both brains call `begin_turn` on every `respond` and pass the gate; `build_brain` always provides one; existing brain tests stay green
-- [ ] Persona and README (Indonesian) describe the confirmation; `waifu device` stays ungated
+- [x] `run_tool(..., confirmations=...)` refuses a gated `control_device` with `needs_confirmation` and `is_error`, and never calls the device
+- [x] Both brains call `begin_turn` on every `respond` and pass the gate; `build_brain` always provides one, with her name and wake words; existing brain tests stay green
+- [x] Both brains end a kept turn's reply with the gate's question (canned and empty replies too; Claude's history untouched), drop the request of a rolled-back turn, never speak a held call's message, and hold a session reset while a question waits for its answer
+- [x] Persona and README (Indonesian) describe the confirmation (the code asks; the model calls without asking); `waifu device` stays ungated
 
 **Dependencies:** 60 · **Files:** `src/waifu/brain/tools.py`, `src/waifu/brain/claude.py`, `src/waifu/brain/ollama_brain.py`, `src/waifu/brain/factory.py`, their tests, `config/persona.md`, `README.md` · **Scope:** M
