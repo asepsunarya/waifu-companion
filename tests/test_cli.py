@@ -210,8 +210,12 @@ class FakePlayer:
     def __init__(self, device=None) -> None:
         self.device = device
 
-    def play(self, audio: np.ndarray, sample_rate: int) -> None:
+    def play(self, audio: np.ndarray, sample_rate: int) -> bool:
         FakePlayer.played.append((len(audio), sample_rate))
+        return True  # played to the end
+
+    def stop(self) -> bool:
+        return False  # nothing is ever still playing
 
 
 @pytest.fixture
@@ -549,8 +553,12 @@ def event_player(events, monkeypatch) -> None:
         def __init__(self, device=None) -> None:
             pass
 
-        def play(self, audio: np.ndarray, sample_rate: int) -> None:
+        def play(self, audio: np.ndarray, sample_rate: int) -> bool:
             events.append("play")
+            return True
+
+        def stop(self) -> bool:
+            return False
 
     monkeypatch.setattr(cli, "Player", EventPlayer)
 
@@ -1450,7 +1458,9 @@ def test_mics_prints_the_audio_device_list(monkeypatch, capsys):
 
 class RecordingAssistant:
     """Records what `waifu run` asks of her. `busy_answers` are what `busy` says, one per
-    check (then False); `reacted` counts each reaction (`speak_reaction` or `listen_now`)."""
+    check (then False), and `cut_answers` what `interrupt` says, one per call (then False:
+    nothing was playing); `cuts` counts those calls; `reacted` counts each reaction
+    (`speak_reaction` or `listen_now`)."""
 
     instances: list["RecordingAssistant"] = []
 
@@ -1459,6 +1469,8 @@ class RecordingAssistant:
         self.ran_with: tuple | None = None
         self.announced: list[tuple[str, str]] = []
         self.busy_answers: list[bool] = []
+        self.cut_answers: list[bool] = []
+        self.cuts = 0
         self.reactions: list[tuple[str, ...]] = []
         self.reacted = threading.Semaphore(0)
         RecordingAssistant.instances.append(self)
@@ -1469,6 +1481,10 @@ class RecordingAssistant:
     @property
     def busy(self) -> bool:
         return self.busy_answers.pop(0) if self.busy_answers else False
+
+    def interrupt(self) -> bool:
+        self.cuts += 1
+        return self.cut_answers.pop(0) if self.cut_answers else False
 
     def speak_reaction(self, text: str, emotion: str) -> None:
         self.reactions.append(("speak", text, emotion))
@@ -2075,6 +2091,76 @@ def test_run_keeps_quiet_about_a_touch_while_she_is_busy(run_fakes, avatar, home
     assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
 
     assert RecordingAssistant.instances[0].reactions == [("speak", "Kaget aku", "surprised")]
+
+
+def test_run_cuts_her_off_on_a_double_click_while_she_speaks_and_only_listens(
+    run_fakes, avatar, home, monkeypatch
+):
+    enable_avatar(home, extra=TOUCH_LINES)
+
+    def run(self: RecordingAssistant, mic, segmenter) -> None:
+        self.cut_answers = [True]  # reading out a long reply when Master double-clicks
+        touch(avatar, "double_click")
+        self.await_reactions(1)
+
+    monkeypatch.setattr(RecordingAssistant, "run", run)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    assistant = RecordingAssistant.instances[0]
+    assert assistant.cuts == 1
+    assert assistant.reactions == [("listen",)]
+
+
+class CutOffPlayer:
+    """A Player whose clip, a long announcement, plays until `stop()` cuts it (or WAIT_S)."""
+
+    def __init__(self) -> None:
+        self.playing = threading.Event()
+        self.stopped = threading.Event()
+
+    def play(self, audio: np.ndarray, sample_rate: int) -> bool:
+        self.playing.set()
+        cut = self.stopped.wait(WAIT_S)
+        self.playing.clear()
+        return not cut
+
+    def stop(self) -> bool:
+        if not self.playing.is_set():
+            return False
+        self.stopped.set()
+        return True
+
+
+def test_run_double_click_from_the_page_stops_her_voice_and_she_listens_without_a_line(
+    announcing, avatar, home, monkeypatch
+):
+    enable_avatar(home, extra=TOUCH_LINES)
+    player = CutOffPlayer()
+    monkeypatch.setattr(cli, "Player", lambda device=None: player)
+
+    class ListeningMic(EventMic):
+        def frames(self):
+            assert avatar.buses[0].wait_for(("state", "listening", 8.0))
+            yield from super().frames()
+
+    monkeypatch.setattr(cli, "MicStream", lambda *args, **kwargs: ListeningMic(announcing.events))
+
+    def double_click_while_she_talks() -> None:  # on the avatar server's request thread
+        if player.playing.wait(WAIT_S):
+            touch(avatar, "double_click")
+
+    page = threading.Thread(target=double_click_while_she_talks)
+    page.start()
+    try:
+        assert cli.main(["run", "--dry-run", "--announce"]) == 0
+    finally:
+        page.join(WAIT_S)
+
+    assert player.stopped.is_set()
+    # The cut announcement leaves her idle; the double-click then opens the follow-up window.
+    assert avatar.buses[0].calls[-2:] == [("state", "idle", None), ("state", "listening", 8.0)]
+    assert "say Iya Master" not in announcing.events
 
 
 def test_run_ignores_touches_before_she_can_answer_and_after_she_stops(run_fakes, avatar, home):

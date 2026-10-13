@@ -12,6 +12,11 @@ replies. A double-click always opens the follow-up window when she is free
 (`listen`, `Assistant.listen_now`); the handler then says a `listen` line through
 `speak` like any reaction, so line choice, repeat avoidance, and the cooldown
 live here and the window opens even when that line is skipped.
+
+A double-click while she speaks cuts her off: `handle` calls `interrupt`
+(`Assistant.interrupt`) at once on the server's thread. When that stopped her
+speech, the worker only opens listening and says no line; it does so although she
+is still busy winding the cut speech down, since `listen` waits for that.
 """
 
 from __future__ import annotations
@@ -39,6 +44,13 @@ REACTIONS: dict[str, tuple[str, str]] = {
     "double_click": ("listen", "happy"),
     "welcome_back": ("welcome_back", "happy"),
 }
+# Queued instead of a double-click that cut her off: she only listens.
+LISTEN_AFTER_CUT = "listen_after_cut"
+
+
+def _nothing_to_interrupt() -> bool:
+    """The default `interrupt`: without her voice there is no speech to cut."""
+    return False
 
 
 class InteractionHandler:
@@ -49,6 +61,7 @@ class InteractionHandler:
         speak: Callable[[str, str], None],
         listen: Callable[[], None],
         is_busy: Callable[[], bool],
+        interrupt: Callable[[], bool] = _nothing_to_interrupt,
         clock: Callable[[], float] = time.monotonic,
         rng: random.Random | None = None,
     ) -> None:
@@ -56,10 +69,13 @@ class InteractionHandler:
         self._speak = speak
         self._listen = listen
         self._is_busy = is_busy
+        self._interrupt = interrupt
         self._clock = clock
         self._rng = rng or random.Random()
         self._queue: queue.Queue[str | None] = queue.Queue(maxsize=QUEUE_SIZE)
-        self._lock = threading.Lock()  # guards _accepting, _worker, _stopping
+        # Guards _accepting, _worker, _stopping; a double-click cuts her off under it, so a
+        # stopped handler never does.
+        self._lock = threading.Lock()
         self._accepting = True
         self._worker: threading.Thread | None = None
         self._stopping = threading.Event()
@@ -69,7 +85,11 @@ class InteractionHandler:
         self._previous_line: dict[str, str] = {}
 
     def handle(self, kind: str) -> None:
-        """Queue one interaction from the page; never blocks. A no-op after `stop()`."""
+        """Queue one interaction from the page; never blocks. A no-op after `stop()`.
+
+        A double-click first cuts off whatever she is saying, right here (`interrupt` never
+        waits for her voice); when it did, only her listening is queued.
+        """
         if kind not in REACTIONS:
             logger.warning("Ignoring an unknown avatar interaction %r", kind)
             return
@@ -79,6 +99,9 @@ class InteractionHandler:
         with self._lock:
             if not self._accepting:
                 return
+            if kind == "double_click" and self._interrupt():
+                logger.info("A double-click cut her off; she listens next")
+                kind = LISTEN_AFTER_CUT
             try:
                 self._queue.put_nowait(kind)
             except queue.Full:
@@ -166,6 +189,11 @@ class InteractionHandler:
                 logger.exception("Reacting to the avatar interaction %s failed", kind)
 
     def _respond(self, kind: str) -> None:
+        if kind == LISTEN_AFTER_CUT:
+            # She is still busy ending the cut speech: `listen` waits for it, so neither
+            # the busy check nor the cooldown applies, and no line follows.
+            self._listen()
+            return
         if self._is_busy():
             logger.debug("Ignoring %s: she is busy", kind)
             return

@@ -12,7 +12,9 @@
 //   speak(event)                 a speak event: the mouth follows its visemes from when it arrived (minus its
 //                                `elapsed`), and its emotion shows until the speech ends plus a short tail
 //   setState(state, followupS)   idle | listening | thinking | speaking; listening ends after followupS seconds
-//                                (logic.listeningEndS)
+//                                (logic.listeningEndS); any state but speaking ends the speak track at once
+//                                (logic.speechAfterState), so her mouth closes when she is cut off, and the
+//                                track's own emotion a short tail later (logic.emotionEndAfterState)
 //   lookAt(point)                look toward the cursor {x, y}; null: straight ahead
 //   setIdlePhase(phase)          "active" | "bored" (logic.idlePhase); bored yawns every 45-90 s
 //   hitTest(x, y)                "head" | "body" | null
@@ -31,6 +33,7 @@ import {
   adaptCubismCore,
   approach,
   cursorLook,
+  emotionEndAfterState,
   listeningEndS,
   live2dEmotionParams,
   live2dHeadBox,
@@ -39,6 +42,7 @@ import {
   live2dRegionAt,
   mapToRange,
   sampleVisemes,
+  speechAfterState,
   speechStartS,
 } from "./logic.js";
 
@@ -514,17 +518,28 @@ export async function createRenderer(config) {
     speak(event) {
       const time = nowS();
       const startS = speechStartS(event.elapsed, time);
+      const duration = event.duration ?? 0;
+      setEmotion(event.emotion, startS + duration - time + SPEAK_EMOTION_TAIL_S);
       avatar.speech = {
         visemes: Array.isArray(event.visemes) ? event.visemes : [],
         fps: event.fps,
-        duration: event.duration ?? 0,
+        duration,
         startS,
+        emotionUntilS: avatar.emotionUntilS, // tells its emotion from one set later
       };
-      setEmotion(event.emotion, startS + avatar.speech.duration - time + SPEAK_EMOTION_TAIL_S);
     },
     setState(state, followupS) {
+      const time = nowS();
       avatar.state = state;
-      avatar.listeningUntilS = state === "listening" ? listeningEndS(followupS, nowS()) : Infinity;
+      avatar.listeningUntilS = state === "listening" ? listeningEndS(followupS, time) : Infinity;
+      avatar.emotionUntilS = emotionEndAfterState(
+        avatar.emotionUntilS,
+        avatar.speech,
+        state,
+        time,
+        SPEAK_EMOTION_TAIL_S,
+      );
+      avatar.speech = speechAfterState(avatar.speech, state);
     },
     lookAt(point) {
       const valid = point != null && Number.isFinite(point.x) && Number.isFinite(point.y);

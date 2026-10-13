@@ -13,6 +13,7 @@ import {
   breathOffset,
   classifyPointer,
   cursorLook,
+  emotionEndAfterState,
   emotionTargets,
   framingFor,
   idlePhase,
@@ -26,6 +27,7 @@ import {
   mapToRange,
   nextBlinkDelay,
   sampleVisemes,
+  speechAfterState,
   speechStartS,
 } from "../../src/waifu/avatar/web/logic.js";
 
@@ -303,6 +305,52 @@ describe("speechStartS", () => {
     assert.equal(speechStartS("1", 50), 50);
     assert.equal(speechStartS(Number.NaN, 50), 50);
     assert.equal(speechStartS(Infinity, 50), 50);
+  });
+});
+
+describe("speechAfterState", () => {
+  const speech = { visemes: [[0.5, 0, 0, 0, 0]], fps: 60, duration: 9, startS: 10 };
+
+  it("keeps the speak track while she is speaking", () => {
+    assert.equal(speechAfterState(speech, "speaking"), speech);
+  });
+
+  it("ends the track at once on any other state, so a cut-off mouth closes", () => {
+    for (const state of ["idle", "listening", "thinking", "unknown", undefined]) {
+      assert.equal(speechAfterState(speech, state), null, String(state));
+    }
+  });
+
+  it("leaves no track as none", () => {
+    assert.equal(speechAfterState(null, "speaking"), null);
+    assert.equal(speechAfterState(null, "listening"), null);
+  });
+});
+
+describe("emotionEndAfterState", () => {
+  const TAIL_S = 1.5;
+  // A 40 s [sedih] reply that started at 10 s: its sad face was planned to end at 51.5 s.
+  const speech = { visemes: [], fps: 60, duration: 40, startS: 10, emotionUntilS: 51.5 };
+
+  it("ends a cut-off speech's own emotion a short tail after the cut", () => {
+    for (const state of ["idle", "listening", "thinking"]) {
+      assert.equal(emotionEndAfterState(51.5, speech, state, 15, TAIL_S), 16.5, state);
+    }
+  });
+
+  it("keeps the speech's emotion while she is speaking", () => {
+    assert.equal(emotionEndAfterState(51.5, speech, "speaking", 15, TAIL_S), 51.5);
+  });
+
+  it("leaves the tail of a speech that played out alone", () => {
+    assert.equal(emotionEndAfterState(51.5, null, "listening", 50.2, TAIL_S), 51.5);
+    assert.equal(emotionEndAfterState(51.5, speech, "listening", 50.2, TAIL_S), 51.5);
+  });
+
+  it("never shortens an emotion set after the speech started", () => {
+    // A click's 3 s feedback face at 14 s, or an emotion event held until further notice.
+    assert.equal(emotionEndAfterState(17, speech, "listening", 15, TAIL_S), 17);
+    assert.equal(emotionEndAfterState(Infinity, speech, "listening", 15, TAIL_S), Infinity);
   });
 });
 

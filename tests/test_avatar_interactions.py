@@ -28,6 +28,8 @@ class Assistant:
     def __init__(self, clock: FakeClock) -> None:
         self.clock = clock
         self.busy = False
+        self.speaking = False  # a clip is playing, which `interrupt` cuts
+        self.cuts: list[threading.Thread] = []  # the thread of every `interrupt` call
         self.events: list[str] = []
         self.spoken: list[tuple[str, str]] = []
         self.speak_error: Exception | None = None
@@ -53,6 +55,11 @@ class Assistant:
     def is_busy(self) -> bool:
         return self.busy
 
+    def interrupt(self) -> bool:
+        self.cuts.append(threading.current_thread())
+        was_speaking, self.speaking = self.speaking, False
+        return was_speaking
+
 
 def make_handler(
     *, rng: random.Random | None = None, **config: object
@@ -64,6 +71,7 @@ def make_handler(
         speak=assistant.speak,
         listen=assistant.listen,
         is_busy=assistant.is_busy,
+        interrupt=assistant.interrupt,
         clock=clock,
         rng=rng or random.Random(7),
     )
@@ -315,6 +323,105 @@ def test_a_welcome_back_skipped_while_busy_does_not_count_against_the_limit():
     react(handler, "welcome_back")  # the spoken welcome does count
 
     assert spoken_at == [1060.0]
+
+
+# Cutting her off with a double-click
+
+
+def test_a_double_click_while_she_speaks_cuts_her_off_at_once_and_then_only_listens():
+    handler, assistant, _ = make_handler()
+    assistant.busy = assistant.speaking = True  # the cut speech is still winding down
+
+    handler.handle("double_click")
+    cut_before_the_worker = list(assistant.cuts)
+    handler.drain()
+
+    assert cut_before_the_worker == [threading.current_thread()]
+    assert len(assistant.cuts) == 1
+    assert assistant.events == ["listen"]
+
+
+def test_a_double_click_while_she_is_silent_listens_and_says_a_listen_line_as_before():
+    handler, assistant, _ = make_handler()
+
+    react(handler, "double_click")
+
+    assert len(assistant.cuts) == 1  # tried, but nothing was playing
+    assert assistant.events == ["listen", "speak happy"]
+    assert assistant.spoken[0][0] in LINES["listen"]
+
+
+def test_a_double_click_while_she_is_busy_thinking_cuts_nothing_and_is_ignored_as_before():
+    handler, assistant, _ = make_handler()
+    assistant.busy = True  # thinking up a reply: busy, but no clip is playing
+
+    react(handler, "double_click")
+
+    assert len(assistant.cuts) == 1
+    assert assistant.events == []
+
+
+def test_listening_after_a_cut_starts_no_cooldown():
+    handler, assistant, _ = make_handler(reaction_cooldown_s=3)
+    assistant.busy = assistant.speaking = True
+    react(handler, "double_click")
+
+    assistant.busy = False
+    react(handler, "head_pat")
+
+    assert assistant.events == ["listen", "speak happy"]
+
+
+@pytest.mark.parametrize(
+    "config",
+    [{"enabled": False}, {"double_click_listen": False}],
+    ids=["all-off", "double-click-off"],
+)
+def test_a_double_click_that_is_switched_off_never_cuts_her_off(config):
+    handler, assistant, _ = make_handler(**config)
+    assistant.busy = assistant.speaking = True
+
+    react(handler, "double_click")
+
+    assert assistant.cuts == []
+    assert assistant.speaking
+    assert assistant.events == []
+
+
+def test_only_a_double_click_cuts_her_off():
+    handler, assistant, _ = make_handler()
+    assistant.busy = assistant.speaking = True
+
+    react(handler, "head_pat", "body_touch", "welcome_back")
+
+    assert assistant.cuts == []
+    assert assistant.events == []
+
+
+def test_a_stopped_handler_never_cuts_her_off():
+    handler, assistant, _ = make_handler()
+    assistant.busy = assistant.speaking = True
+    handler.stop()
+
+    react(handler, "double_click")
+
+    assert assistant.cuts == []
+    assert assistant.events == []
+
+
+def test_without_an_interrupt_a_double_click_while_she_is_busy_is_ignored():
+    assistant = Assistant(FakeClock())
+    assistant.busy = True
+    handler = InteractionHandler(
+        AvatarInteractionsConfig(),
+        speak=assistant.speak,
+        listen=assistant.listen,
+        is_busy=assistant.is_busy,
+    )
+
+    react(handler, "double_click")
+
+    assert assistant.events == []
 
 
 # Which line she says

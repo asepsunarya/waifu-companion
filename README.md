@@ -972,6 +972,13 @@ mulut.
   atau desktop di bawahnya. Elus kepalanya, colek badannya, atau klik dua kali supaya
   dia langsung mendengarkan: semua kontrol mouse ada di
   [Avatar Live2D & interaksi](#kontrol-mouse-kedua-engine) dan berlaku juga untuk VRM.
+- **Potong omongannya:** klik dua kali padanya selagi dia bicara (jawaban panjang,
+  pengumuman, atau pengingat). Suaranya langsung berhenti, mulutnya menutup, dan dia
+  langsung mendengarkan tanpa berkata apa-apa, jadi kamu bisa bicara tanpa memanggil
+  namanya (hanya di `waifu run`). Pengingat yang masuk saat itu menunggu sampai
+  omonganmu terdengar atau jendela lanjutan habis, jadi kalimat pertamamu tidak hilang.
+  Dengan suara dia **tidak** bisa dipotong: selama dia bicara mic dijeda supaya dia tidak
+  mendengar suaranya sendiri.
 - **Sembunyikan:** arahkan mouse ke pojok kanan atas maskot, lalu klik **×**. Hanya
   maskotnya yang tertutup; Cyrene tetap mendengar dan menjawab dengan suara. Maskot
   muncul lagi pada `waifu run` berikutnya.
@@ -1120,7 +1127,7 @@ VRM: `engine: vrm`, `model` ke file `.vrm`, dan `credit` ke kredit つくよみ�
 | Tekan **badannya** lalu tarik | Maskot bergeser (dari kepala: tarik sampai keluar kepala) |
 | Klik **kepalanya**, atau usap bolak-balik sambil menekan | Dielus: wajah senang, lalu satu kalimat elusan (saat diusap paling sering tiap 1,5 detik) |
 | Klik **badannya** | Dicolek: wajah kaget, lalu satu kalimat |
-| **Klik dua kali** padanya (dua klik dalam setengah detik) | Dia langsung mendengarkan: jendela lanjutan terbuka dan dia menjawab dengan kalimat `listen` (misalnya "はい, Master?"), jadi kamu bisa bicara tanpa memanggil namanya (hanya di `waifu run`). Selagi dia sibuk (menjawab, bicara, atau mendengar Master), klik dua kali diabaikan: ulangi setelah dia selesai, atau panggil namanya |
+| **Klik dua kali** padanya (dua klik dalam setengah detik) | Dia langsung mendengarkan: jendela lanjutan terbuka dan dia menjawab dengan kalimat `listen` (misalnya "はい, Master?"), jadi kamu bisa bicara tanpa memanggil namanya (hanya di `waifu run`). Selagi dia **bicara**, klik dua kali memotongnya: suaranya langsung berhenti dan dia langsung mendengarkan, tanpa kalimat `listen`. Selagi dia masih memikirkan jawaban atau mendengar Master, klik dua kali diabaikan: ulangi setelah dia selesai, atau panggil namanya |
 | Klik di **area transparan** | Tembus ke jendela atau desktop di bawahnya; hanya tubuhnya dan tombol di pojok kanan atas yang menangkap klik |
 | Gerakkan mouse | Mata, kepala, dan badannya mengikuti kursor di mana pun di layar |
 | Arahkan ke pojok kanan atas, klik **×** | Maskot disembunyikan; Cyrene tetap berjalan, maskot muncul lagi di `waifu run` berikutnya |
@@ -1149,7 +1156,7 @@ Semua kunci ada di bawah `avatar.interactions` (contoh lengkap di `config.exampl
 | `cursor_follow` | `true` | Menatap kursor mouse |
 | `head_pat` | `true` | Reaksi elusan di kepala |
 | `body_touch` | `true` | Reaksi colekan di badan |
-| `double_click_listen` | `true` | Klik dua kali membuatnya mendengarkan |
+| `double_click_listen` | `true` | Klik dua kali membuatnya mendengarkan, dan memotongnya kalau dia sedang bicara |
 | `idle` | `true` | Tampak bosan setelah 3 menit tanpa aktivitas |
 | `welcome_back_after_min` | `10` | Sapaan saat Master kembali setelah N menit mouse diam (hanya maskot); `0` = tidak pernah |
 | `reaction_cooldown_s` | `3` | Jeda minimal (detik) antar-reaksi bersuara |
@@ -2133,7 +2140,11 @@ mendengarkan"; jawaban pertama bisa lebih lama karena model Ollama baru dimuat)
       Tombol × di pojok kanan atas tetap bisa diklik.
 - [ ] Di `waifu run`: elusan dijawab dengan suara dan gerak mulut; klik dua kali lalu
       langsung bicara tanpa memanggil namanya ("nyalakan lampu kamar") dijalankan.
-- [ ] Ulangi tiga langkah terakhir dengan `engine: vrm`: kontrolnya sama.
+- [ ] Di `waifu run`, minta jawaban panjang ("Cyrene, ceritakan sejarah candi Borobudur"),
+      lalu klik dua kali padanya saat dia bicara: suaranya langsung berhenti, mulutnya
+      menutup, dia mendengarkan tanpa kalimat `listen`, dan "nyalakan lampu kamar" tanpa
+      memanggil namanya dijalankan. Log menampilkan `Speech was cut off before its end`.
+- [ ] Ulangi empat langkah terakhir dengan `engine: vrm`: kontrolnya sama.
 
 **Teman main gacha** (setelah langkah 1–4 di bagian itu)
 

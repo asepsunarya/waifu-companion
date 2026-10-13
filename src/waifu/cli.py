@@ -661,6 +661,7 @@ def _listen(args: argparse.Namespace) -> int:
                 speak=assistant.speak_reaction,
                 listen=assistant.listen_now,
                 is_busy=lambda: assistant.busy,
+                interrupt=assistant.interrupt,
             )
             with _open_mic(config) as mic, touches.answered_by(reactions):
                 mode = " (perangkat simulasi)" if args.dry_run else ""

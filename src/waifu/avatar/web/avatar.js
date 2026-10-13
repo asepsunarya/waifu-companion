@@ -9,12 +9,14 @@ import {
   blinkWeight,
   breathOffset,
   cursorLook,
+  emotionEndAfterState,
   emotionTargets,
   framingFor,
   idleSway,
   listeningEndS,
   nextBlinkDelay,
   sampleVisemes,
+  speechAfterState,
   speechStartS,
 } from "./logic.js";
 
@@ -436,17 +438,27 @@ const vrmRenderer = {
     // A viewer that connects mid-reply gets the track replayed with how much has already played.
     const timeS = nowS();
     const startS = speechStartS(event.elapsed, timeS);
+    showEmotion(event.emotion, startS + (event.duration ?? 0) - timeS + SPEAK_EMOTION_TAIL_S);
     avatar.speech = {
       visemes: Array.isArray(event.visemes) ? event.visemes : [],
       fps: event.fps,
       duration: event.duration,
       startS,
+      emotionUntilS: avatar.emotionUntilS, // tells its emotion from one set later
     };
-    showEmotion(event.emotion, startS + (event.duration ?? 0) - timeS + SPEAK_EMOTION_TAIL_S);
   },
   setState(state, followupS) {
+    const timeS = nowS();
     avatar.state = state;
-    avatar.listeningUntilS = state === "listening" ? listeningEndS(followupS, nowS()) : Infinity;
+    avatar.listeningUntilS = state === "listening" ? listeningEndS(followupS, timeS) : Infinity;
+    avatar.emotionUntilS = emotionEndAfterState(
+      avatar.emotionUntilS,
+      avatar.speech,
+      state,
+      timeS,
+      SPEAK_EMOTION_TAIL_S,
+    );
+    avatar.speech = speechAfterState(avatar.speech, state);
   },
   lookAt(point) {
     const valid = point != null && Number.isFinite(point.x) && Number.isFinite(point.y);

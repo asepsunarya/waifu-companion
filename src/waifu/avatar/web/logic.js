@@ -168,6 +168,25 @@ export function speechStartS(elapsedS, nowS) {
   return Number.isFinite(elapsedS) && elapsedS > 0 ? nowS - elapsedS : nowS;
 }
 
+/**
+ * The speak track left playing once a new avatar `state` arrives: only "speaking" keeps it. Any other state ends
+ * it at once (null), so her mouth closes when she is cut off; a reply that played out has already ended by then.
+ */
+export function speechAfterState(speech, state) {
+  return state === "speaking" ? speech : null;
+}
+
+/**
+ * When her emotion ends once a new avatar `state` arrives at `nowS`. A speak track's emotion shows until the
+ * speech's planned end plus `tailS` (`speech.emotionUntilS`); a state that ends the track early (speechAfterState)
+ * ends that emotion `tailS` from now instead, so a cut-off reply's face does not outlast it. An emotion set after
+ * the speech started (an emotion event, a click's feedback) has another end and keeps it.
+ */
+export function emotionEndAfterState(emotionUntilS, speech, state, nowS, tailS) {
+  const speechEmotion = speech != null && emotionUntilS === speech.emotionUntilS;
+  return speechEmotion && state !== "speaking" ? Math.min(emotionUntilS, nowS + tailS) : emotionUntilS;
+}
+
 /** The avatar window's title: never just her name, which is the title of Cyrene's console. */
 export function avatarTitle(name) {
   return `Avatar ${name}`;
