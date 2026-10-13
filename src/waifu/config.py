@@ -9,7 +9,7 @@ from __future__ import annotations
 import ipaddress
 import re
 from datetime import time
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Annotated, Literal
 
 import yaml
@@ -29,6 +29,11 @@ GameId = Literal["hsr", "genshin", "zzz"]
 HOYOLAB_LOGIN_COOKIES = (("ltuid_v2", "ltoken_v2"), ("ltuid", "ltoken"))
 # Anyone who knows a topic on the public ntfy server can read it, so it must be hard to guess.
 NTFY_TOPIC_PATTERN = re.compile(r"^[A-Za-z0-9_-]{16,64}$")
+# What an `apps` device may start: launcher URLs, or a program or shortcut on a local drive
+# (never a script: .bat, .cmd, .ps1, .vbs).
+APP_URL_SCHEMES = ("steam://", "com.epicgames.launcher://")
+APP_FILE_SUFFIXES = (".exe", ".lnk", ".url")
+MAX_APPS = 30
 
 
 def cookie_names(cookie: str) -> set[str]:
@@ -240,7 +245,7 @@ class DeviceConfig(_Strict):
     id: str
     name: str
     aliases: list[str] = Field(default_factory=list)
-    type: Literal["tuya_light", "tuya_plug", "ir", "pc", "mock"]
+    type: Literal["tuya_light", "tuya_plug", "ir", "pc", "media", "apps", "mock"]
     tuya: TuyaConnection | None = None
     ir: IrConnection | None = None
     pc: PcConnection | None = None
@@ -248,6 +253,8 @@ class DeviceConfig(_Strict):
     # A plug that feeds the PC: switching it off cuts the PC's power like pulling the cable, so
     # it is guarded like the PC itself (never scheduled, never a routine step).
     powers_pc: bool = False
+    # type: apps only: app slug -> what to start (see APP_URL_SCHEMES, APP_FILE_SUFFIXES).
+    apps: dict[str, str] | None = None
 
     @field_validator("id")
     @classmethod
@@ -279,6 +286,31 @@ class DeviceConfig(_Strict):
         needed = {"tuya_light": "tuya", "tuya_plug": "tuya", "ir": "ir", "pc": "pc"}.get(self.type)
         if needed and getattr(self, needed) is None:
             raise ValueError(f"device '{self.id}' of type '{self.type}' needs a '{needed}' block")
+        return self
+
+    @field_validator("apps")
+    @classmethod
+    def _apps_are_slugs_with_safe_targets(
+        cls, value: dict[str, str] | None
+    ) -> dict[str, str] | None:
+        for name, target in (value or {}).items():
+            if not DEVICE_ID_PATTERN.match(name):
+                raise ValueError(
+                    f"app name '{name}' must be lowercase letters, digits, or underscores"
+                )
+            if not _is_app_target(target):
+                raise ValueError(
+                    f"app '{name}': the target must be a steam:// or com.epicgames.launcher:// "
+                    "URL, or a full path on a drive ending in .exe, .lnk, or .url"
+                )
+        return value
+
+    @model_validator(mode="after")
+    def _apps_only_for_an_apps_device(self) -> DeviceConfig:
+        if self.type == "apps" and not (self.apps and len(self.apps) <= MAX_APPS):
+            raise ValueError(f"device '{self.id}' of type 'apps' needs 1-{MAX_APPS} apps")
+        if self.type != "apps" and self.apps is not None:
+            raise ValueError(f"device '{self.id}': apps are only for type 'apps'")
         return self
 
     @model_validator(mode="after")
@@ -430,6 +462,14 @@ class GachaConfig(_Strict):
         if len(set(value)) != len(value):
             raise ValueError("each game may be listed once")
         return value
+
+
+def _is_app_target(target: str) -> bool:
+    if target.lower().startswith(APP_URL_SCHEMES):
+        return True
+    path = PureWindowsPath(target)
+    # A drive letter, not a network share (//server/share) or a relative path.
+    return len(path.drive) == 2 and path.is_absolute() and path.suffix.lower() in APP_FILE_SUFFIXES
 
 
 class MemoryConfig(_Strict):

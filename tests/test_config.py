@@ -422,3 +422,71 @@ def test_a_routine_may_not_use_the_plug_that_powers_the_pc(tmp_path):
 def test_the_example_config_marks_its_pc_plug():
     devices = load_config(ROOT / "config.example.yaml").devices
     assert next(device for device in devices if device.id == "colokan_pc").powers_pc is True
+
+
+def apps_device(apps: str) -> str:
+    return f"devices:\n  - id: aplikasi\n    name: Aplikasi PC\n    type: apps\n    apps:\n{apps}"
+
+
+def test_a_media_device_needs_no_connection_block(tmp_path):
+    text = "devices:\n  - id: musik\n    name: Musik PC\n    type: media\n"
+    [device] = load_config(write_yaml(tmp_path, text)).devices
+    assert (device.type, device.apps) == ("media", None)
+
+
+def test_an_apps_device_maps_slugs_to_programs_shortcuts_and_launcher_urls(tmp_path):
+    apps = (
+        "      genshin: 'C:/Program Files/HoYoPlay/launcher.exe'\n"
+        "      spotify: 'C:\\Users\\Lynx\\Desktop\\Spotify.LNK'\n"
+        "      zzz: 'steam://rungameid/2507950'\n"
+        "      epic: 'com.epicgames.launcher://apps/fn?action=launch'\n"
+        "      web: 'D:/Pintasan/YouTube.url'\n"
+    )
+    [device] = load_config(write_yaml(tmp_path, apps_device(apps))).devices
+    assert list(device.apps) == ["genshin", "spotify", "zzz", "epic", "web"]
+    assert device.apps["zzz"] == "steam://rungameid/2507950"
+
+
+@pytest.mark.parametrize(
+    "target",
+    [
+        "C:/Scripts/run.bat",
+        "C:/Scripts/run.cmd",
+        "C:/Scripts/run.ps1",
+        "C:/Scripts/run.vbs",
+        "launcher.exe",
+        "Games/launcher.exe",
+        "//server/share/launcher.exe",
+        "https://example.com/app.exe",
+        "file:///C:/Windows/notepad.exe",
+        "ms-settings:display",
+    ],
+)
+def test_an_app_target_must_be_a_program_shortcut_or_launcher_url(tmp_path, target):
+    with pytest.raises(ConfigError, match="genshin"):
+        load_config(write_yaml(tmp_path, apps_device(f"      genshin: '{target}'\n")))
+
+
+def test_app_names_are_slugs(tmp_path):
+    with pytest.raises(ConfigError, match="Genshin Impact"):
+        load_config(write_yaml(tmp_path, apps_device("      Genshin Impact: 'C:/g/g.exe'\n")))
+
+
+def test_an_apps_device_needs_one_to_thirty_apps(tmp_path):
+    with pytest.raises(ConfigError, match="apps"):
+        load_config(write_yaml(tmp_path, apps_device("      {}\n")))
+    no_apps = "devices:\n  - id: aplikasi\n    name: Aplikasi PC\n    type: apps\n"
+    with pytest.raises(ConfigError, match="apps"):
+        load_config(write_yaml(tmp_path, no_apps))
+    many = "".join(f"      app_{n}: 'C:/a/{n}.exe'\n" for n in range(31))
+    with pytest.raises(ConfigError, match="apps"):
+        load_config(write_yaml(tmp_path, apps_device(many)))
+
+
+def test_only_an_apps_device_lists_apps(tmp_path):
+    text = (
+        "devices:\n  - id: musik\n    name: Musik\n    type: media\n"
+        "    apps:\n      genshin: 'C:/g/g.exe'\n"
+    )
+    with pytest.raises(ConfigError, match="apps"):
+        load_config(write_yaml(tmp_path, text))
