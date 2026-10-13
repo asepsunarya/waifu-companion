@@ -508,3 +508,39 @@ def test_vision_settings_are_read(tmp_path):
         write_yaml(tmp_path, "vision:\n  enabled: false\n  max_side: 1568\n")
     ).vision
     assert (vision.enabled, vision.max_side) == (False, 1568)
+
+
+def test_the_briefing_is_on_from_seven_to_noon_without_a_place():
+    briefing = AppConfig().briefing
+    assert briefing.enabled is True
+    assert (briefing.time, briefing.until) == (time(7, 0), time(12, 0))
+    assert (briefing.city, briefing.latitude, briefing.longitude) == (None, None, None)
+    assert briefing.push is True
+    assert briefing.state_path == Path("data/briefing.json")
+
+
+def test_briefing_clock_times_and_place_are_read_including_bare_yaml_times(tmp_path):
+    text = "briefing:\n  time: 06:30\n  until: '11:00'\n  city: Bandung\n"
+    briefing = load_config(write_yaml(tmp_path, text)).briefing
+    assert (briefing.time, briefing.until, briefing.city) == (time(6, 30), time(11, 0), "Bandung")
+    text = "briefing:\n  latitude: -6.9\n  longitude: 107.6\n"
+    briefing = load_config(write_yaml(tmp_path, text)).briefing
+    assert (briefing.latitude, briefing.longitude) == (-6.9, 107.6)
+
+
+@pytest.mark.parametrize(
+    "lines",
+    [
+        "  time: '12:00'\n  until: '07:00'\n",
+        "  time: '08:00'\n  until: '08:00'\n",
+        "  latitude: -6.9\n",
+        "  longitude: 107.6\n",
+        "  latitude: -91\n  longitude: 107.6\n",
+        "  latitude: -6.9\n  longitude: 181\n",
+        "  city: ''\n",
+        "  weather: true\n",
+    ],
+)
+def test_bad_briefing_settings_are_refused(tmp_path, lines):
+    with pytest.raises(ConfigError, match="briefing"):
+        load_config(write_yaml(tmp_path, "briefing:\n" + lines))

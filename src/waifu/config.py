@@ -420,10 +420,7 @@ class GachaRemindersConfig(_Strict):
     @field_validator("daily_time", mode="before")
     @classmethod
     def _yaml_sexagesimal_is_hh_mm(cls, value: object) -> object:
-        # YAML 1.1 reads a bare 20:00 as the base-60 number 1200 (minutes past midnight).
-        if isinstance(value, int) and not isinstance(value, bool) and 0 <= value < 24 * 60:
-            return time(value // 60, value % 60)
-        return value
+        return _clock_from_yaml(value)
 
 
 class GachaConfig(_Strict):
@@ -471,6 +468,44 @@ def _is_app_target(target: str) -> bool:
     path = PureWindowsPath(target)
     # A drive letter, not a network share (//server/share) or a relative path.
     return len(path.drive) == 2 and path.is_absolute() and path.suffix.lower() in APP_FILE_SUFFIXES
+
+
+def _clock_from_yaml(value: object) -> object:
+    """A clock time YAML 1.1 read as a number: a bare 20:00 is base 60, 1200 minutes."""
+    if isinstance(value, int) and not isinstance(value, bool) and 0 <= value < 24 * 60:
+        return time(value // 60, value % 60)
+    return value
+
+
+# `datetime.time` under a name a field called `time` cannot shadow.
+_Clock = time
+
+
+class BriefingConfig(_Strict):
+    """The once-a-day greeting with the weather and the day's schedule."""
+
+    enabled: bool = True
+    time: _Clock = _Clock(7, 0)
+    until: _Clock = _Clock(12, 0)
+    # Where the weather is for: a city name (geocoded by Open-Meteo), or exact coordinates.
+    city: str | None = Field(default=None, min_length=1)
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
+    push: bool = True
+    state_path: Path = Path("data/briefing.json")
+
+    @field_validator("time", "until", mode="before")
+    @classmethod
+    def _yaml_sexagesimal_is_hh_mm(cls, value: object) -> object:
+        return _clock_from_yaml(value)
+
+    @model_validator(mode="after")
+    def _a_window_and_whole_coordinates(self) -> BriefingConfig:
+        if self.time >= self.until:
+            raise ValueError("briefing.time must be before briefing.until")
+        if (self.latitude is None) != (self.longitude is None):
+            raise ValueError("briefing.latitude and briefing.longitude go together")
+        return self
 
 
 class VisionConfig(_Strict):
@@ -564,6 +599,7 @@ class AppConfig(_Strict):
     notify: NotifyConfig = Field(default_factory=NotifyConfig)
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
     vision: VisionConfig = Field(default_factory=VisionConfig)
+    briefing: BriefingConfig = Field(default_factory=BriefingConfig)
     schedule: ScheduleConfig = Field(default_factory=ScheduleConfig)
     routines: dict[str, RoutineConfig] = Field(default_factory=dict)
     devices: list[DeviceConfig] = Field(default_factory=list)
