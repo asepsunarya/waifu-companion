@@ -14,6 +14,7 @@ from waifu.brain.persona import build_system_prompt
 from waifu.config import AppConfig, AssistantConfig, BrainConfig, ConfigError, OllamaConfig
 from waifu.devices.mock import MockDevice
 from waifu.devices.registry import DeviceRegistry
+from waifu.usage import TokenUsage
 
 NOW = datetime(2026, 10, 12, 7, 30)
 PERSONA = "Kamu adalah {name}, penjaga rumah yang ceria."
@@ -59,12 +60,14 @@ class FakeClaudeBrain(Brain):
         providers=(),
         confirmations=None,
         owner_call="Master",
+        on_usage=None,
     ):
         self.config, self.registry, self.system_prompt = config, registry, system_prompt
         self.session_idle_minutes, self.max_session_turns = session_idle_minutes, max_session_turns
         self.providers = providers
         self.confirmations = confirmations
         self.owner_call = owner_call
+        self.on_usage = on_usage
 
     def respond(self, user_text: str, *, now: datetime | None = None) -> BrainReply:
         return BrainReply(text="")
@@ -189,6 +192,41 @@ def test_the_game_tools_reach_the_ollama_brain(ollama_clients):
 
     tools = [tool["function"]["name"] for tool in ollama_clients[0].requests[0]["tools"]]
     assert tools == ["control_device", "list_devices", "game_status"]
+
+
+# What each Claude response used (the API cost monitor)
+
+
+class UsageRecorder:
+    """Stands in for UsageLedger.record."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, TokenUsage]] = []
+
+    def __call__(self, model: str, tokens: TokenUsage) -> None:
+        self.calls.append((model, tokens))
+
+
+def test_the_usage_hook_reaches_the_claude_brain(monkeypatch):
+    monkeypatch.setattr("waifu.brain.claude.ClaudeBrain", FakeClaudeBrain)
+    recorder = UsageRecorder()
+
+    observed = build_brain(claude_config(), house(), persona_text=PERSONA, on_usage=recorder)
+    unobserved = build_brain(claude_config(), house(), persona_text=PERSONA)
+
+    assert observed.on_usage is recorder
+    assert unobserved.on_usage is None
+
+
+def test_the_ollama_brain_ignores_the_usage_hook_because_ollama_is_free(ollama_clients):
+    recorder = UsageRecorder()
+
+    brain = build_brain(AppConfig(), house(), persona_text=PERSONA, on_usage=recorder)
+    reply = brain.respond("halo", now=NOW)
+
+    assert isinstance(brain, OllamaBrain)
+    assert reply.text == "Halo!"
+    assert recorder.calls == []
 
 
 # Memory section

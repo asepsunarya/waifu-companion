@@ -24,6 +24,11 @@ screenshot Master asked for) that go back in that call's tool_result, after its
 JSON. The history keeps that tool_result exactly as it was sent. Every request
 resends the session's images, so a session holding 16 MB of them ends before the
 next turn, like an idle one.
+
+`on_usage` (the API cost monitor's ledger) hears the model and the tokens of every
+response, a refused or cut-off one too, since each is billed; after a server-side
+fallback, once for each model attempt, the declined one too. It only observes: the
+requests stay exactly as they are, and a failure to record is logged, never the turn's.
 """
 
 from __future__ import annotations
@@ -61,12 +66,16 @@ from waifu.brain.tools import (
 )
 from waifu.config import AssistantConfig, BrainConfig, ClaudeConfig
 from waifu.devices.registry import DeviceRegistry
+from waifu.usage import TokenUsage
 
 logger = logging.getLogger(__name__)
 
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
 # A declining model's reasoning and tool calls before the hand-over are not echoed back.
 _DROPPED_BEFORE_FALLBACK = frozenset({"thinking", "redacted_thinking", "tool_use"})
+# The `usage.iterations` entries of the model attempts behind one response (her requests use
+# neither compaction nor the advisor tool, the other kinds).
+_ATTEMPT_ITERATIONS = frozenset({"message", "fallback_message"})
 _SESSION_DEFAULTS = AssistantConfig()
 # The voice loop is deaf while a request is open, so bound it far below the SDK's
 # 10-minute default; a timeout becomes the "cannot connect" apology.
@@ -116,12 +125,14 @@ class ClaudeBrain(Brain):
         providers: Sequence[ToolProvider] = (),
         confirmations: ConfirmationGate | None = None,
         owner_call: str = "Master",
+        on_usage: Callable[[str, TokenUsage], None] | None = None,
     ) -> None:
         self._max_tool_rounds = config.max_tool_rounds
         self._registry = registry
         self._providers = tuple(providers)
         self._confirmations = confirmations
         self._owner_call = owner_call
+        self._on_usage = on_usage
         self._client = client
         self._session = SessionClock(session_idle_minutes, max_session_turns, clock)
         self._request = _frozen_request(config.claude, registry, self._providers)
@@ -206,6 +217,7 @@ class ClaudeBrain(Brain):
             response = client.beta.messages.create(
                 **self._request, system=self._session_system, messages=self._history
             )
+            self._report_usage(response)
             _log_cache_use(response)
             if response.stop_reason == "refusal":
                 _log_refusal(response)
@@ -230,6 +242,16 @@ class ClaudeBrain(Brain):
             if calls:
                 results = [self._run_tool(call, tool_calls) for call in calls]
                 self._history.append({"role": "user", "content": results})
+
+    def _report_usage(self, response: BetaMessage) -> None:
+        """Hand `on_usage` the model and the tokens of every attempt the response billed."""
+        if self._on_usage is None:
+            return
+        try:
+            for model, tokens in _billed_attempts(response, self._request["model"]):
+                self._on_usage(model, tokens)
+        except Exception:
+            logger.exception("Could not record the usage of a Claude response; the turn goes on")
 
     def _run_tool(
         self, call: BetaToolUseBlock, tool_calls: list[ToolCallRecord]
@@ -389,6 +411,24 @@ def _final_text(
         return ""
     canned = _TOOLS_FAILED if any(call.is_error for call in ran) else _DONE
     return canned.format(owner=owner_call)
+
+
+def _billed_attempts(response: BetaMessage, requested_model: str) -> list[tuple[str, TokenUsage]]:
+    """The model and the tokens of each attempt behind `response`.
+
+    After a server-side fallback the top-level `usage` covers only the attempt that produced
+    the message, while `usage.iterations` lists every attempt, a declined one too (billed like
+    any other): `message` entries, and `fallback_message` for the fallback that answered. A
+    `message` entry may leave out its model: it ran on the requested one. Without such
+    entries, the top-level `usage` is the whole bill, from the model that answered.
+    """
+    usage = response.usage
+    attempts = [
+        (entry.model or requested_model, TokenUsage.from_usage(entry))
+        for entry in getattr(usage, "iterations", None) or ()
+        if entry.type in _ATTEMPT_ITERATIONS
+    ]
+    return attempts or [(response.model, TokenUsage.from_usage(usage))]
 
 
 def _log_cache_use(response: BetaMessage) -> None:

@@ -12,6 +12,7 @@ from waifu.brain.persona import build_system_prompt, load_persona
 from waifu.brain.tools import ToolProvider
 from waifu.config import AppConfig
 from waifu.devices.registry import DeviceRegistry
+from waifu.usage import TokenUsage
 
 logger = logging.getLogger(__name__)
 
@@ -25,12 +26,14 @@ def build_brain(
     persona_text: str | None = None,
     providers: Sequence[ToolProvider] = (),
     memory_section: Callable[[], str] | None = None,
+    on_usage: Callable[[str, TokenUsage], None] | None = None,
 ) -> Brain:
     """The configured backend; the persona comes from `assistant.persona_file` unless given.
 
     With `memory_section`, the brain reads the system prompt at each session start,
     and the section follows the unchanged base prompt. Every brain gets its own
-    confirmation gate.
+    confirmation gate. `on_usage` hears what each Claude response used; Ollama is
+    free, so its brain never calls it.
     """
     persona = load_persona(config.assistant.persona_file) if persona_text is None else persona_text
     base_prompt = build_system_prompt(
@@ -56,7 +59,7 @@ def build_brain(
         # Imported here so the Ollama path never loads the Anthropic SDK.
         from waifu.brain.claude import ClaudeBrain
 
-        return ClaudeBrain(config.brain, registry, system_prompt, **options)
+        return ClaudeBrain(config.brain, registry, system_prompt, **options, on_usage=on_usage)
     return OllamaBrain(config.brain, registry, system_prompt, **options)
 
 

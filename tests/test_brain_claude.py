@@ -11,6 +11,7 @@ import anthropic
 import httpx2
 import numpy as np
 import pytest
+from anthropic.types.beta import BetaUsage
 
 from waifu.brain import claude as claude_module
 from waifu.brain.base import ToolCallRecord, ToolSpec
@@ -25,6 +26,7 @@ from waifu.devices.mock import MockDevice
 from waifu.devices.registry import DeviceRegistry
 from waifu.memory import MemoryStore, memory_prompt_section
 from waifu.screen import ScreenImage, encode_png
+from waifu.usage import TokenUsage
 
 NOW = datetime(2026, 10, 12, 7, 30)
 SYSTEM_PROMPT = "Kamu Cyrene."
@@ -1622,4 +1624,292 @@ def test_real_sdk_sends_the_screenshot_inside_the_tool_result_on_the_wire():
             "content": [{"type": "text", "text": LOOKED}, SCREENSHOT_BLOCK],
             "is_error": False,
         }
+    ]
+
+
+# What each response used (the API cost monitor)
+
+OPUS = "claude-opus-5-5"
+
+
+class UsageRecorder:
+    """Stands in for UsageLedger.record: keeps what each response used."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, TokenUsage]] = []
+
+    def __call__(self, model: str, tokens: TokenUsage) -> None:
+        self.calls.append((model, tokens))
+
+
+def billed(
+    content: list,
+    stop_reason: str,
+    input_tokens: int,
+    *,
+    model: str = OPUS,
+    cache_write: int | None = None,
+    cache_read: int | None = None,
+) -> SimpleNamespace:
+    """A response with the model that answered and the SDK's usage (10 output tokens)."""
+    usage = BetaUsage(
+        input_tokens=input_tokens,
+        output_tokens=10,
+        cache_creation_input_tokens=cache_write,
+        cache_read_input_tokens=cache_read,
+    )
+    return message(content, stop_reason, model=model, usage=usage)
+
+
+def test_every_response_reports_its_model_and_tokens_tool_rounds_too():
+    recorder = UsageRecorder()
+    client = FakeAnthropic(
+        billed([tool_use("call_1", "control_device", LAMP_ON)], "tool_use", 1200, cache_write=5000),
+        billed([text("Sudah, Master.")], "end_turn", 40, cache_read=6200),
+    )
+
+    reply = make_brain(client, on_usage=recorder).respond("nyalakan lampu", now=NOW)
+
+    assert reply.text == "Sudah, Master."
+    assert recorder.calls == [
+        (OPUS, TokenUsage(input=1200, output=10, cache_write=5000, cache_read=0)),
+        (OPUS, TokenUsage(input=40, output=10, cache_write=0, cache_read=6200)),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("responses", "max_tool_rounds"),
+    [
+        ([billed([text("Aku")], "refusal", 1)], 5),
+        ([billed([tool_use("call_1", "control_device", LAMP_ON)], "max_tokens", 1)], 5),
+        (
+            [
+                billed([tool_use("call_1", "control_device", LAMP_ON)], "tool_use", 1),
+                billed([tool_use("call_2", "control_device", LAMP_ON)], "tool_use", 2),
+            ],
+            1,
+        ),
+        ([billed([text("Sebentar")], "pause_turn", 1), billed([text("Oke.")], "end_turn", 2)], 5),
+    ],
+    ids=["refused", "cut_off", "round_limit", "paused"],
+)
+def test_a_response_that_ends_the_turn_early_is_reported_too(responses, max_tool_rounds):
+    recorder = UsageRecorder()
+    brain = make_brain(
+        FakeAnthropic(*responses), max_tool_rounds=max_tool_rounds, on_usage=recorder
+    )
+
+    brain.respond("halo", now=NOW)
+
+    assert recorder.calls == [
+        (OPUS, TokenUsage(input=sent + 1, output=10)) for sent in range(len(responses))
+    ]
+
+
+def test_a_turn_rolled_back_after_a_tool_round_still_reports_the_round_that_was_answered():
+    recorder = UsageRecorder()
+    client = FakeAnthropic(
+        billed([tool_use("call_1", "control_device", LAMP_ON)], "tool_use", 1200),
+        connection_error(),
+    )
+
+    make_brain(client, on_usage=recorder).respond("nyalakan lampu", now=NOW)
+
+    assert recorder.calls == [(OPUS, TokenUsage(input=1200, output=10))]
+
+
+def test_reporting_usage_leaves_every_request_unchanged():
+    # Preserved thinking and the prompt cache need byte-identical requests.
+    def responses() -> list[SimpleNamespace]:
+        return [
+            billed(
+                [thinking("sig-1"), tool_use("call_1", "control_device", LAMP_ON)], "tool_use", 1
+            ),
+            billed([text("Sudah.")], "end_turn", 2, cache_write=300),
+            billed([text("Sama-sama!")], "end_turn", 3, cache_read=300),
+        ]
+
+    unobserved = FakeAnthropic(*responses())
+    observed = FakeAnthropic(*responses())
+    for client, options in ((unobserved, {}), (observed, {"on_usage": UsageRecorder()})):
+        brain = make_brain(client, **options)
+        brain.respond("nyalakan lampu", now=NOW)
+        brain.respond("makasih", now=NOW)
+
+    assert observed.requests == unobserved.requests
+
+
+def test_a_usage_record_that_fails_is_logged_and_the_turns_go_on(caplog):
+    registry = house()
+    client = FakeAnthropic(
+        billed([tool_use("call_1", "control_device", LAMP_ON)], "tool_use", 1),
+        billed([text("Sudah, Master.")], "end_turn", 2),
+        billed([text("Sama-sama!")], "end_turn", 3),
+    )
+
+    def locked_ledger(model: str, tokens: TokenUsage) -> None:
+        raise OSError("usage.json is locked")
+
+    brain = make_brain(client, registry, on_usage=locked_ledger)
+    with caplog.at_level(logging.ERROR, logger=claude_module.__name__):
+        first = brain.respond("nyalakan lampu", now=NOW)
+        second = brain.respond("makasih", now=NOW)
+
+    assert (first.text, second.text) == ("Sudah, Master.", "Sama-sama!")
+    assert registry.get("lampu_kamar").calls == [("on", None)]
+    # Nothing was rolled back: the second turn went on with the whole first one.
+    assert len(client.requests[2]["messages"]) == 5
+    failures = [record for record in caplog.records if record.name == claude_module.__name__]
+    assert len(failures) == 3
+    assert all(isinstance(record.exc_info[1], OSError) for record in failures)
+
+
+def test_real_sdk_responses_report_the_model_that_answered_and_all_four_token_counts():
+    recorder = UsageRecorder()
+    replies = [
+        {
+            "id": "msg_1",
+            "type": "message",
+            "role": "assistant",
+            "model": OPUS,
+            "content": [
+                {"type": "tool_use", "id": "toolu_1", "name": "control_device", "input": LAMP_ON}
+            ],
+            "stop_reason": "tool_use",
+            "usage": {
+                "input_tokens": 1200,
+                "output_tokens": 80,
+                "cache_creation_input_tokens": 5000,
+                "cache_read_input_tokens": 300,
+            },
+        },
+        {
+            "id": "msg_2",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-opus-5",  # a server-side fallback answered
+            "content": [{"type": "text", "text": "Sudah, Master!"}],
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 40, "output_tokens": 12},
+        },
+    ]
+    sent: list[dict] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        sent.append(json.loads(request.content))
+        return httpx2.Response(200, json=replies[len(sent) - 1])
+
+    client = anthropic.Anthropic(
+        api_key="test-key",
+        max_retries=0,
+        http_client=httpx2.Client(transport=httpx2.MockTransport(handler)),
+    )
+
+    reply = make_brain(client, on_usage=recorder).respond("nyalakan lampu", now=NOW)
+
+    assert reply.text == "Sudah, Master!"
+    assert recorder.calls == [
+        (OPUS, TokenUsage(input=1200, output=80, cache_write=5000, cache_read=300)),
+        ("claude-opus-5", TokenUsage(input=40, output=12, cache_write=0, cache_read=0)),
+    ]
+
+
+def sdk_client(*replies: dict) -> anthropic.Anthropic:
+    """The real SDK, answering each request with the next of `replies` (no network)."""
+    waiting = list(replies)
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(200, json=waiting.pop(0))
+
+    return anthropic.Anthropic(
+        api_key="test-key",
+        max_retries=0,
+        http_client=httpx2.Client(transport=httpx2.MockTransport(handler)),
+    )
+
+
+def attempt(kind: str, model: str | None, output_tokens: int, cache_read: int) -> dict:
+    """One entry of `usage.iterations`: one model's attempt at the request (300 input tokens)."""
+    return {
+        "type": kind,
+        "model": model,
+        "input_tokens": 300,
+        "output_tokens": output_tokens,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": cache_read,
+    }
+
+
+def test_a_fallback_served_response_reports_the_declined_attempt_too():
+    # Opus 5.5 read the cached prefix and wrote 900 tokens before declining mid-stream (billed
+    # at normal rates); claude-opus-5 then answered. The top-level usage covers only the
+    # attempt that produced the message, usage.iterations every attempt.
+    recorder = UsageRecorder()
+    client = sdk_client(
+        {
+            "id": "msg_1",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-opus-5",
+            "content": [
+                {
+                    "type": "fallback",
+                    "from": {"model": OPUS},
+                    "to": {"model": "claude-opus-5"},
+                    "trigger": {"type": "refusal", "category": "cyber"},
+                },
+                {"type": "text", "text": "Sudah, Master!"},
+            ],
+            "stop_reason": "end_turn",
+            "usage": {
+                "input_tokens": 300,
+                "output_tokens": 120,
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 20_000,
+                "iterations": [
+                    attempt("message", OPUS, 900, 20_000),
+                    attempt("fallback_message", "claude-opus-5", 120, 20_000),
+                ],
+            },
+        }
+    )
+
+    reply = make_brain(client, on_usage=recorder).respond("nyalakan lampu", now=NOW)
+
+    assert reply.text == "Sudah, Master!"
+    assert recorder.calls == [
+        (OPUS, TokenUsage(input=300, output=900, cache_read=20_000)),
+        ("claude-opus-5", TokenUsage(input=300, output=120, cache_read=20_000)),
+    ]
+
+
+def test_when_the_whole_chain_refuses_every_attempt_is_reported():
+    # The top-level usage is the last declined attempt; the first one, which names no model,
+    # ran on the requested model.
+    recorder = UsageRecorder()
+    client = sdk_client(
+        {
+            "id": "msg_1",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-opus-5",
+            "content": [],
+            "stop_reason": "refusal",
+            "usage": {
+                "input_tokens": 300,
+                "output_tokens": 0,
+                "iterations": [
+                    attempt("message", None, 900, 20_000),
+                    attempt("message", "claude-opus-5", 0, 0),
+                ],
+            },
+        }
+    )
+
+    reply = make_brain(client, on_usage=recorder).respond("nyalakan lampu", now=NOW)
+
+    assert reply.text == "Maaf Master, aku tidak bisa membantu yang itu."
+    assert recorder.calls == [
+        (OPUS, TokenUsage(input=300, output=900, cache_read=20_000)),
+        ("claude-opus-5", TokenUsage(input=300)),
     ]
