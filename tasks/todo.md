@@ -602,3 +602,28 @@ named `tests/test_<package>_<module>.py`.
 - [x] Persona and README (Indonesian) describe the confirmation (the code asks; the model calls without asking); `waifu device` stays ungated
 
 **Dependencies:** 60 · **Files:** `src/waifu/brain/tools.py`, `src/waifu/brain/claude.py`, `src/waifu/brain/ollama_brain.py`, `src/waifu/brain/factory.py`, their tests, `config/persona.md`, `README.md` · **Scope:** M
+
+## Task 62a: Vision config, screen-capture guards
+
+**Acceptance criteria:**
+- [ ] `AppConfig.vision` (`enabled` true, `max_side` 1280, 512-1568)
+- [ ] `tests/conftest.py` refuses `BitBlt`/`StretchBlt` (gdi32) and `PrintWindow` (user32) through `ctypes.WinDLL` and `ctypes.windll`; `tests/test_safety_guard.py` proves it
+
+**Dependencies:** none · **Files:** `src/waifu/config.py`, `tests/test_config.py`, `tests/conftest.py`, `tests/test_safety_guard.py` · **Scope:** S
+
+## Task 62: Screen capture and PNG
+
+**Acceptance criteria:**
+- [ ] `encode_png` writes a valid RGB PNG (decoded back in tests: signature, chunk CRCs, IHDR, pixels)
+- [ ] `capture_screen` per SPEC: aspect kept, never upscaled, handles released on every path, errors as `OSError`; tested only with fakes (never a real capture)
+
+**Dependencies:** 62a · **Files:** `src/waifu/screen.py`, `tests/test_screen.py` · **Scope:** M
+
+## Task 63: Screen tool and image results
+
+**Acceptance criteria:**
+- [ ] `ScreenTools` with the keyword gate, one capture per turn, errors as results, `take_images`
+- [ ] Both brains call providers' `begin_turn`; `ClaudeBrain` sends image blocks in the `tool_result` and keeps them in history; Ollama unaffected
+- [ ] `run`/`chat` wiring (Claude only), `check` line, README section
+
+**Dependencies:** 62 · **Files:** `src/waifu/brain/screen_tools.py`, `src/waifu/brain/base.py`, `src/waifu/brain/claude.py`, `src/waifu/brain/ollama_brain.py`, `src/waifu/cli.py`, tests, `README.md`, `config.example.yaml` · **Scope:** M

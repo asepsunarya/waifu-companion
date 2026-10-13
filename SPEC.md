@@ -431,6 +431,36 @@ Integration:
 
 Safety: tests use mock devices and fake clocks; no test reaches a real power action (the conftest guards stay).
 
+### looking at the screen (v1.10)
+
+User story: "Cyrene, lihat layarku, menurutmu tim ini gimana?" / "liat deh build-ku" / "ini error apa ya, coba lihat" → she takes one screenshot of the main monitor, sees it, and answers about what is on it. She only ever looks when the owner's words in that same turn ask her to; she never looks by herself.
+
+Non-goals: watching continuously or recording, reading other monitors, clicking or typing, looking with the Ollama backend (qwen3:8b has no vision; the tool is simply not offered), any game automation.
+
+Privacy: the screenshot goes to the Claude API as part of the conversation (and stays in that session's history until the session ends, like everything else said); it is never written to disk or logged. The README says so, and that she can only look when asked.
+
+Config `vision` (committed with its tests before the parallel tasks): `enabled` (default true), `max_side` (default 1280 pixels for the longer side, 512-1568: Claude reads up to about 1568, and smaller keeps the PNG within the API's 5 MB image limit).
+
+`screen.py` (no new dependency):
+- `capture_screen(max_side) -> ScreenImage` (`ScreenImage(png: bytes, width: int, height: int)`): the primary monitor through GDI with ctypes — `user32.GetDC(None)`, `GetSystemMetrics(SM_CXSCREEN/SM_CYSCREEN)`, `gdi32.CreateCompatibleDC`, `CreateDIBSection` (32-bit top-down BGRA), `SetStretchBltMode(HALFTONE)` + `SetBrushOrgEx`, `StretchBlt(..., SRCCOPY | CAPTUREBLT)` straight into the scaled size (aspect kept, the longer side `max_side`, never upscaled), the pixels copied out with numpy, every handle released in `finally`. All libraries are loaded through `ctypes.WinDLL` with full `argtypes`/`restype`; a failing call raises `OSError` with `ctypes.get_last_error()`.
+- `encode_png(rgb: numpy.ndarray) -> bytes`: a plain RGB PNG (IHDR, one IDAT with filter 0 rows compressed by `zlib` level 6, IEND, CRCs by `zlib.crc32`), checked against the PNG spec in tests by decoding it back with `zlib`.
+- A fullscreen-exclusive game may capture as black; the README says to use borderless/windowed mode.
+
+`brain/screen_tools.py` — `ScreenTools(*, capture=capture_screen, max_side=1280)`, a `ToolProvider` with one strict tool `look_at_screen {}`:
+- Description (English): take one screenshot of Master's main monitor to see what Master is showing; call it only when Master's current message asks to look at the screen; describe and answer about what is visible; never read out private details (messages, emails, account numbers) unless Master asks about them.
+- `begin_turn(user_text)`: remembers whether the owner's words this turn ask to look: a word from `lihat`, `liat`, `lihatin`, `liatin`, `tengok`, `tengokin`, `layar`, `layarku`, `screen`, `screenshot`, `monitor`, `見て` (tokenized like `brain.confirm`, her names skipped).
+- `run("look_at_screen", {})`: when this turn did not ask, an error result telling the model Master did not ask to look in this message; otherwise it captures (a capture `OSError` becomes an Indonesian error result) and returns `{"ok": true, "width": w, "height": h}`, keeping the image for `take_images()`. At most one screenshot per turn (a second call in the same turn is an error result).
+- `take_images() -> list[ToolImage]`: hands over (and forgets) the image of the last successful run. `ToolImage(media_type="image/png", data=bytes)` lives in `brain/base.py`.
+
+Brains:
+- Optional provider hooks, used only when a provider has them (duck-typed; the `ToolProvider` protocol itself is unchanged): both brains call `provider.begin_turn(user_text)` at the start of every `respond`, next to the confirmation gate.
+- `ClaudeBrain`: after running a tool call, it asks every provider with `take_images` for images and, when there are any, sends that call's `tool_result` content as a list: the text block with the JSON, then one `{"type": "image", "source": {"type": "base64", "media_type": ..., "data": ...}}` block per image. The history keeps exactly what was sent (append-only).
+- `OllamaBrain` never gets `ScreenTools` (the factory does not add it), so it needs no image support.
+
+CLI: `run` and `chat` add `ScreenTools(max_side=config.vision.max_side)` to the providers when `vision.enabled` and `brain.backend` is `claude`; `check` reports `✓ Melihat layar: aktif (Claude)`, `! Melihat layar: tidak tersedia dengan Ollama`, or `! Melihat layar mati`. README (Indonesian) section "Melihat layar" with examples, privacy, the borderless-mode tip, and how to turn it off.
+
+Safety: tests never capture the real screen: `tests/conftest.py` is strengthened (never weakened) to refuse `BitBlt`, `StretchBlt` (gdi32) and `PrintWindow` (user32) through `ctypes.WinDLL` and `ctypes.windll`; `capture_screen` is injected as a fake in every test; `tests/test_safety_guard.py` covers the new guards.
+
 ## Code Style
 
 See `CLAUDE.md` → Code Conventions and Patterns. Dataclasses for value
