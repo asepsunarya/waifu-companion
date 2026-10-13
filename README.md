@@ -38,6 +38,7 @@ Cyrene : "Komputer mau kumatikan sekarang, Master? Jawab iya kalau jadi." (minta
 - [Musik, volume, dan aplikasi PC](#musik-volume-dan-aplikasi-pc)
 - [Melihat layar](#melihat-layar)
 - [Sapaan pagi dan ringkasan harian](#sapaan-pagi-dan-ringkasan-harian)
+- [Biaya API Claude](#biaya-api-claude)
 - [Pemecahan masalah](#pemecahan-masalah)
 - [Checklist uji perangkat keras](#checklist-uji-perangkat-keras)
 - [Privasi](#privasi)
@@ -277,7 +278,9 @@ Pilih dengan `brain.backend` di `config.yaml`.
 3. `waifu check` menampilkan status kunci API.
 
 Hanya dengan Claude, Cyrene bisa melihat layar saat Master memintanya (lihat
-[Melihat layar](#melihat-layar)).
+[Melihat layar](#melihat-layar)). Dia juga mencatat perkiraan biaya setiap jawabannya dan
+bisa memberi tahu saat anggaran bulanan hampir habis (lihat
+[Biaya API Claude](#biaya-api-claude)).
 
 ## Menyambungkan perangkat
 
@@ -599,7 +602,8 @@ waifu speaker-test    # skor kecocokan langsung, Ctrl+C untuk berhenti
 | `waifu schedule list` / `cancel <id>` / `clear` | Lihat dan batalkan pengingat dan perintah terjadwal (lihat [Jadwal, pengingat, dan rutinitas](#jadwal-pengingat-dan-rutinitas)) |
 | `waifu routine list` / `run <nama>` | Lihat rutinitas dari `config.yaml`, atau jalankan satu sekarang (`--dry-run`: perangkat simulasi) |
 | `waifu briefing` | Tampilkan ringkasan hari ini (tanggal, cuaca, jadwal) tanpa otak, untuk mengecek cuaca (lihat [Sapaan pagi dan ringkasan harian](#sapaan-pagi-dan-ringkasan-harian)) |
-| `waifu check` | Periksa config, kode IR, aplikasi PC, rutinitas, voiceprint, otak, ingatan, jadwal, sapaan pagi, paket suara, CUDA, mic, suara anime, dan avatar |
+| `waifu usage` / `waifu usage --month 2026-09` | Perkiraan biaya API Claude per hari bulan ini atau bulan lain (lihat [Biaya API Claude](#biaya-api-claude)) |
+| `waifu check` | Periksa config, kode IR, aplikasi PC, rutinitas, voiceprint, otak, ingatan, jadwal, sapaan pagi, biaya API, paket suara, CUDA, mic, suara anime, dan avatar |
 
 Opsi untuk semua perintah: `--config <file>` (default `config.yaml`), `--dry-run`
 (perangkat simulasi), `-v` (log lebih rinci), `--log-file <file>` (log juga ditulis
@@ -2109,6 +2113,120 @@ briefing:
 
 Untuk tetap disapa tapi tanpa notifikasi HP, cukup `push: false`.
 
+## Biaya API Claude
+
+Dengan otak Claude (`brain.backend: claude`), Cyrene mencatat pemakaian setiap jawaban dari
+API dan menghitung perkiraan biayanya, jadi Master bisa bertanya kapan saja berapa yang sudah
+terpakai. Kalau anggaran bulanan diisi, dia memberi tahu sendiri saat biayanya mendekati dan
+melewati anggaran itu. Fitur ini sudah menyala dari awal (`usage.enabled: true`), di
+`waifu run` dan `waifu chat` (juga dengan `--dry-run`, yang tetap memakai API sungguhan).
+Dengan Ollama tidak ada yang dicatat: otaknya lokal dan gratis.
+
+```text
+Master : "Cyrene, biaya API bulan ini berapa?"
+Cyrene : "Sekitar 89 sen dolar bulan ini, Master, dari 59 permintaan. Itu perkiraanku sendiri ya."
+Master : "Cyrene, hari ini sudah habis berapa?"
+Master : "Cyrene, kalau dirupiahkan berapa?"           (perlu usage.idr_per_usd)
+```
+
+### Yang dicatat dan yang tidak
+
+- **Dicatat:** setiap jawaban Claude untuk Cyrene di PC ini, termasuk setiap putaran tool
+  (satu kalimat Master bisa jadi beberapa permintaan) dan jawaban yang ditolak. Kalau model
+  utama menolak di tengah jalan lalu model pengganti menjawab (`fallbacks: true`), keduanya
+  ditagih, jadi keduanya dicatat sebagai permintaan sendiri-sendiri. Dari setiap jawaban
+  dicatat jumlah token yang dilaporkan API: input, output, tulis cache, dan baca cache.
+  Totalnya disimpan per hari (jam PC) dan per model di `data\usage.json`.
+- **Harganya perkiraan.** Biaya dihitung dari harga resmi per sejuta token yang dibawa
+  Cyrene, untuk `claude-opus-5-5`: input 4 dolar, output 20 dolar, tulis cache 5 dolar (cache
+  5 menit yang otomatis dipakainya, 1,25 kali harga input), dan baca cache 0,20 dolar. Harga
+  bisa berubah;
+  kalau berubah, tulis harga barunya di `usage.prices` (lihat
+  [Anggaran, kurs, dan harga](#anggaran-kurs-dan-harga)). Jawaban dari model yang tidak
+  ada di tabel harga (misalnya model pengganti dari `fallbacks: true` saat model utama
+  menolak) dihitung dengan harga `usage.default_model` dan ditandai `(perkiraan)`.
+- **Tidak terlihat olehnya:** aplikasi atau orang lain yang memakai API key yang sama,
+  program lain di PC ini, dan tagihan di Anthropic Console itu sendiri (pajak, kredit,
+  pembulatan). Permintaan yang gagal sebelum ada jawaban (internet putus) juga tidak
+  tercatat. Untuk angka tagihan yang pasti, lihat halaman Usage dan Billing di Console.
+- Dia tidak pernah berhenti sendiri karena biaya: anggaran hanya membuatnya memberi tahu.
+
+### Melihat biaya: `waifu usage`
+
+`waifu usage` menampilkan bulan ini hari demi hari, `waifu usage --month 2026-09` bulan lain:
+
+```text
+Biaya API Claude Oktober 2026, dari catatan Cyrene sendiri:
+TANGGAL     PERMINTAAN  INPUT  OUTPUT  CACHE TULIS  CACHE BACA  USD    IDR
+12-10-2026  18          7560   5580    16200        252000      $0.27  Rp4.454
+13-10-2026  31          11780  8990    21700        511500      $0.44  Rp7.135
+14-10-2026  10          5000   3550    10800        150000      $0.17  Rp2.852   (perkiraan)
+Total       59          24340  18120   48700        913500      $0.89  Rp14.441  (perkiraan)
+(perkiraan): sebagian respons datang dari model yang tidak ada di tabel harga, jadi dihitung dengan harga claude-opus-5-5.
+```
+
+Angka di kolom token adalah jumlah token. Kolom IDR hanya muncul kalau `usage.idr_per_usd`
+diisi. Bulan tanpa catatan menampilkan `Belum ada catatan biaya.` Perintah ini hanya membaca
+catatannya, tanpa menghubungi API, jadi jalan dengan otak apa pun dan walau
+`usage.enabled: false`, juga selagi `waifu run` berjalan.
+
+`waifu check` menampilkan `✓ Biaya API: $0.89 bulan ini (59 permintaan)`, atau
+`! Biaya API dicatat hanya dengan backend Claude` (dengan Ollama), atau
+`! Pencatatan biaya mati`.
+
+### Anggaran, kurs, dan harga
+
+```yaml
+usage:
+  monthly_budget_usd: 20   # anggaran per bulan kalender, dalam dolar
+  idr_per_usd: 16300       # kurs rupiah per dolar, untuk ikut menyebut biayanya dalam rupiah
+  prices:                  # dolar per sejuta token; menimpa atau menambah harga bawaan
+    claude-opus-5-5: {input: 4.00, output: 20.00, cache_write: 5.00, cache_read: 0.20}
+```
+
+- **Anggaran:** dengan `monthly_budget_usd`, sekali saat biaya bulan itu melewati 80% dan
+  sekali saat melewati 100%, dia memberi tahu sendiri dengan wajah kaget, misalnya "Master,
+  biaya API bulan ini sekitar 16,05 dolar, sudah mencapai 80 persen dari anggaran 20 dolar."
+  Kalimatnya menunggu obrolan berhenti sejenak: tidak pernah memotong Master atau jawabannya
+  sendiri, dan baru diucapkan setelah jendela lanjutan sesudah jawaban itu lewat, jadi Master
+  tetap bisa membalas jawabannya (misalnya "iya") tanpa memanggil namanya. Kalimat yang sama
+  dikirim juga ke HP kalau notifikasi menyala (lihat
+  [Notifikasi ke HP](#3-notifikasi-ke-hp-ntfy)). Di `waifu chat` kalimatnya dicetak, kecuali
+  selagi `waifu run` berjalan: pemberitahuannya diserahkan ke sana, supaya tetap diucapkan dan
+  dikirim ke HP.
+  Bulan berikutnya hitungannya mulai lagi dari nol. Pemberitahuan yang sudah diberikan
+  dicatat di file yang sama, jadi restart tidak mengulanginya; kalau anggaran dinaikkan di
+  tengah bulan, pemberitahuan yang sudah lewat tidak diulang.
+- **Kurs rupiah:** `idr_per_usd` tidak diambil dari internet. Isi dengan kurs yang kamu
+  pakai dan perbarui sendiri sesekali; tanpa kurs, dia menyebut biayanya dalam dolar saja.
+- **Harga:** `prices` ditimpakan ke harga bawaan per model. Tulis keempat angkanya (input,
+  output, cache_write, cache_read). Kalau `brain.claude.model` diganti ke model lain,
+  tambahkan harga model itu di sini supaya tidak dihitung sebagai perkiraan dengan harga
+  `default_model`. `default_model` sendiri harus punya harga (bawaan atau di `prices`):
+  kalau tidak, `waifu run`, `waifu chat`, dan `waifu usage` berhenti dengan
+  `Konfigurasi bermasalah: usage.default_model ... has no prices` dan `waifu check`
+  menandainya `✗`, daripada diam-diam menghitung biayanya 0 dolar. Harga baru hanya berlaku
+  untuk jawaban sesudahnya; yang sudah tercatat tidak dihitung ulang.
+
+Jalankan ulang `waifu run` setelah mengubahnya. Contoh lengkapnya ada di
+`config.example.yaml`.
+
+### File data\usage.json
+
+Berisi total token, jumlah permintaan, dan biaya per hari per model, serta pemberitahuan
+anggaran yang sudah diberikan per bulan; tidak ada isi obrolan. Seperti file Cyrene lainnya,
+file ini hanya ada di PC ini, tidak di-commit, ditulis secara atomik, dan file yang rusak
+tidak pernah ditimpa: namanya diganti menjadi `usage.json.corrupt-<tanggal>-<jam>`, dia
+mulai mencatat dari kosong, dan `waifu check` menunjukkannya dengan `!` selama file itu masih
+ada. Untuk memulihkan, matikan Cyrene, perbaiki file `.corrupt-...` itu, hapus
+`usage.json` yang baru, lalu ganti nama file yang sudah diperbaiki kembali menjadi
+`usage.json` (catatan sejak file itu dipindah ikut hilang). Untuk mulai dari nol, hapus
+filenya saat Cyrene mati.
+
+Untuk berhenti mencatat: `usage.enabled: false`. Dia tidak lagi mencatat atau memberi tahu
+anggaran dan tidak lagi bisa menjawab pertanyaan biaya; catatan lamanya tetap ada dan masih
+bisa dilihat dengan `waifu usage`.
+
 ## Pemecahan masalah
 
 Log `waifu run` tampil di terminal dalam bahasa Inggris. Baris seperti
@@ -2381,6 +2499,23 @@ halaman tim di game atau sebuah error)
 - [ ] Kapan saja: "Cyrene, cuaca hari ini gimana?" dan "Cyrene, hari ini ada jadwal apa?"
       dijawab dengan data yang sama.
 
+**Biaya API** (otak Claude; lihat [Biaya API Claude](#biaya-api-claude))
+
+- [ ] Setelah beberapa kalimat di `waifu run`, "Cyrene, biaya API hari ini berapa?" dijawab
+      dengan perkiraan yang dibulatkan, dan `waifu usage` menampilkan hari ini dengan jumlah
+      permintaan yang masuk akal (satu kalimat bisa beberapa permintaan kalau ada tool).
+- [ ] `waifu check` menampilkan `✓ Biaya API: $<biaya> bulan ini (<n> permintaan)`, sama dengan
+      baris Total di `waifu usage`.
+- [ ] Kalau hanya Cyrene yang memakai API key itu, biaya hari ini di Console (Usage) kira-kira
+      sama dengan `waifu usage` keesokan harinya (Console bisa terlambat beberapa jam).
+- [ ] Isi `usage.monthly_budget_usd` sedikit di bawah biaya bulan ini (misalnya `0.01`) dan
+      jalankan ulang `waifu run`: setelah jawaban berikutnya, begitu jendela lanjutannya
+      lewat, dia mengucapkan pemberitahuan 80% lalu batas anggaran dengan wajah kaget, dan HP
+      menerimanya kalau notifikasi menyala.
+      Restart dan ngobrol lagi: tidak diulang. Setelah itu kembalikan anggarannya, dan saat
+      Cyrene mati hapus bulan ini dari bagian `notices` di `data\usage.json` supaya anggaran
+      yang sebenarnya masih memberi tahu bulan ini.
+
 ## Privasi
 
 - **Suara tidak pernah keluar dari PC.** Rekaman mic, verifikasi suara, dan
@@ -2410,6 +2545,9 @@ halaman tim di game atau sebuah error)
 - **Jadwal** (pengingat, perintah perangkat terjadwal) ada di `data\schedule.json`, hanya di
   PC ini. Teks pengingat juga dikirim ke `ntfy.sh` kalau notifikasi HP menyala. Lihat
   [File data\schedule.json](#file-dataschedulejson).
+- **Catatan biaya API** (jumlah token dan biaya per hari, tanpa isi obrolan) ada di
+  `data\usage.json`, hanya di PC ini. Pemberitahuan anggaran juga dikirim ke `ntfy.sh` kalau
+  notifikasi HP menyala. Lihat [File data\usage.json](#file-datausagejson).
 - **Voiceprint adalah data biometrik.** `data/voiceprint.npy` (dan seluruh `data/`)
   ada di `.gitignore` dan tidak boleh di-commit atau dibagikan. Begitu juga
   `config.yaml` (local key Tuya) dan `models/`.

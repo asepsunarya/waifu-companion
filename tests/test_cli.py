@@ -41,6 +41,7 @@ from waifu.brain.memory_tools import MemoryTools
 from waifu.brain.persona import WEEKDAYS_ID
 from waifu.brain.schedule_tools import ScheduleTools
 from waifu.brain.screen_tools import ScreenTools
+from waifu.brain.usage_tools import UsageTools
 from waifu.briefing import BRIEFING_PROMPT, DAILY_BRIEFING, BriefingTimer, BriefingTools
 from waifu.config import AvatarConfig, RvcConfig
 from waifu.devices.base import DeviceError
@@ -61,9 +62,10 @@ from waifu.gacha.hoyolab import (
 from waifu.gacha.tools import GachaTools
 from waifu.memory import MemoryStore, memory_prompt_section
 from waifu.schedule import DeviceAction, Reminder, RoutineAction, ScheduleStore
-from waifu.scheduler import Scheduler
+from waifu.scheduler import MONTHS_ID, Scheduler
 from waifu.screen import ScreenImage
 from waifu.single_instance import InstanceLock
+from waifu.usage import TokenUsage, UsageLedger
 from waifu.voice.base import SpeakerEmbedder, SpeechToText, Transcript
 from waifu.voice.rvc import RvcError
 from waifu.voice.speaker import SpeakerVerifier
@@ -130,6 +132,15 @@ def no_real_memory_or_schedule(tmp_path, monkeypatch):
     file, so the refusal comes first)."""
     for name in ("MemoryStore", "ScheduleStore"):
         monkeypatch.setattr(cli, name, only_under(tmp_path, getattr(cli, name)))
+
+
+@pytest.fixture(autouse=True)
+def no_real_usage_ledger(tmp_path, monkeypatch):
+    """Every API cost ledger a command builds lives under tmp_path: a test that leaves the
+    working directory at the repository fails instead of reading or writing the owner's
+    records in data/usage.json (building a ledger touches no file, so the refusal comes
+    first)."""
+    monkeypatch.setattr(cli, "UsageLedger", only_under(tmp_path, cli.UsageLedger))
 
 
 @pytest.fixture(autouse=True)
@@ -232,10 +243,13 @@ class HouseBrain(Brain):
 
     reply = REPLY
 
-    def __init__(self, registry: DeviceRegistry, providers=(), memory_section=None) -> None:
+    def __init__(
+        self, registry: DeviceRegistry, providers=(), memory_section=None, on_usage=None
+    ) -> None:
         self.registry = registry
         self.providers = list(providers)
         self.memory_section = memory_section
+        self.on_usage = on_usage
         self.heard: list[str] = []
 
     def respond(self, user_text: str, *, now: datetime | None = None) -> BrainReply:
@@ -654,6 +668,8 @@ def event_player(events, monkeypatch) -> None:
         (["routine", "list"], "routine"),
         (["routine", "run", "tidur", "--dry-run"], "routine"),
         (["briefing"], "briefing"),
+        (["usage"], "usage"),
+        (["usage", "--month", "2026-10"], "usage"),
     ],
 )
 def test_every_subcommand_in_the_spec_parses(argv, command):
@@ -978,8 +994,8 @@ def test_verbose_logging_never_reveals_a_tuya_local_key(home, monkeypatch, caplo
 def brains(monkeypatch) -> list[HouseBrain]:
     built: list[HouseBrain] = []
 
-    def build(config, registry, *, providers=(), memory_section=None):
-        built.append(HouseBrain(registry, providers, memory_section))
+    def build(config, registry, *, providers=(), memory_section=None, on_usage=None):
+        built.append(HouseBrain(registry, providers, memory_section, on_usage))
         return built[-1]
 
     monkeypatch.setattr(cli, "build_brain", build)
@@ -1533,7 +1549,8 @@ class RecordingAssistant:
     check (then False), and `cut_answers` what `interrupt` says, one per call (then False:
     nothing was playing); `cuts` counts those calls; `reacted` counts each reaction
     (`speak_reaction` or `listen_now`); `asked` holds each `ask_aloud` with its `on_reply` and
-    `required_tool`."""
+    `required_tool`; `waiting_for_followup` the texts of announcements that wait while the
+    follow-up window is open."""
 
     instances: list["RecordingAssistant"] = []
 
@@ -1541,6 +1558,7 @@ class RecordingAssistant:
         self.collaborators = collaborators
         self.ran_with: tuple | None = None
         self.announced: list[tuple[str, str]] = []
+        self.waiting_for_followup: list[str] = []
         self.asked: list[tuple[str, Callable[[str], None] | None, str | None]] = []
         self.busy_answers: list[bool] = []
         self.cut_answers: list[bool] = []
@@ -1572,8 +1590,10 @@ class RecordingAssistant:
         for _ in range(count):
             assert self.reacted.acquire(timeout=WAIT_S), f"only {self.reactions} after {WAIT_S} s"
 
-    def announce(self, text: str, emotion: str = "neutral") -> None:
+    def announce(self, text: str, emotion: str = "neutral", *, wait_for_followup=False) -> None:
         self.announced.append((text, emotion))
+        if wait_for_followup:
+            self.waiting_for_followup.append(text)
 
     def ask_aloud(self, prompt: str, *, on_reply=None, required_tool=None) -> None:
         self.asked.append((prompt, on_reply, required_tool))
@@ -5089,6 +5109,7 @@ def test_with_claude_she_may_look_at_the_screen_at_the_configured_size(
         ScheduleTools,
         BriefingTools,
         ScreenTools,
+        UsageTools,
     ]
     screen = screen_tools(brains[0])
     screen.begin_turn("Cyrene, lihat layarku")
@@ -5212,6 +5233,7 @@ def test_without_claude_or_with_vision_off_the_brain_gets_no_screen_tool(
         MemoryTools,
         ScheduleTools,
         BriefingTools,
+        *([UsageTools] if claude else []),  # what her requests cost, with Claude only
     ]
     assert capture.sizes == []
 
@@ -5603,3 +5625,466 @@ def test_check_reports_when_she_greets_and_where_the_weather_is_for_without_aski
     cli.main(["check"])
 
     assert briefing_line(capsys.readouterr().out) == expected
+
+
+# --- API cost monitor --------------------------------------------------------------------------
+
+OPUS = "claude-opus-5-5"
+BUDGET_PUSH = "budget-push"
+# The notices of a 1-dollar budget; claude-opus-5-5 costs 20 dollars per million output tokens.
+EIGHTY_PERCENT = (
+    "{owner}, biaya API bulan ini sekitar 0,80 dolar, "
+    "sudah mencapai 80 persen dari anggaran 1 dolar."
+)
+FULL_BUDGET = (
+    "{owner}, biaya API bulan ini sekitar {spent} dolar, sudah mencapai batas anggaran 1 dolar."
+)
+
+
+def usage_file(home: Path) -> Path:
+    """Where the example config keeps her API cost records, inside the test's working directory."""
+    return home / "data" / "usage.json"
+
+
+def record_usage(path: Path, at: datetime, model: str, tokens: TokenUsage) -> None:
+    UsageLedger(path, prices={}, default_model=OPUS, now=lambda: at).record(model, tokens)
+
+
+def api_usage(brain: HouseBrain, period: str) -> dict:
+    [tools] = [provider for provider in brain.providers if isinstance(provider, UsageTools)]
+    result, is_error = tools.run("api_usage", {"period": period})
+    assert is_error is False
+    return json.loads(result)
+
+
+def spend_while_listening(brains: list[HouseBrain], monkeypatch, *responses: TokenUsage) -> None:
+    """While `waifu run` listens, her brain gets one Claude response of each of `responses`."""
+
+    def run(self: RecordingAssistant, mic, segmenter) -> None:
+        for tokens in responses:
+            brains[0].on_usage(OPUS, tokens)
+
+    monkeypatch.setattr(RecordingAssistant, "run", run)
+
+
+def await_budget_pushes() -> None:
+    for thread in threading.enumerate():
+        if thread.name == BUDGET_PUSH:
+            thread.join(WAIT_S)
+
+
+def test_usage_ledger_outside_tmp_path_is_refused_so_no_test_touches_the_owner_s_records():
+    with pytest.raises(AssertionError, match="UsageLedger outside tmp_path"):
+        cli.UsageLedger(ROOT / "data" / "usage.json", prices={}, default_model=OPUS)
+
+
+@pytest.mark.parametrize("argv", [["run", "--no-speaker-check"], ["chat"]])
+def test_with_claude_she_records_each_response_where_the_config_says_and_can_tell_the_cost(
+    argv, home, run_fakes, brains, monkeypatch
+):
+    use_claude(home)
+    append_config(
+        home,
+        "usage:\n  path: biaya/api.json\n  idr_per_usd: 16000\n  prices:\n"
+        "    claude-sonnet-5-5: {input: 2, output: 10, cache_write: 2.5, cache_read: 0.2}\n",
+    )
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main([*argv, "--dry-run"]) == 0
+
+    brain = brains[0]
+    assert type(brain.providers[-1]) is UsageTools
+    # The built-in prices for Opus 5.5 ($0.026 here), the configured ones for Sonnet ($0.01).
+    brain.on_usage(OPUS, TokenUsage(input=1000, output=500, cache_write=2000, cache_read=10_000))
+    brain.on_usage("claude-sonnet-5-5", TokenUsage(output=1000))
+    assert api_usage(brain, "month") == {
+        "period": "month",
+        "requests": 2,
+        "input_tokens": 1000,
+        "output_tokens": 1500,
+        "cache_read_tokens": 10_000,
+        "cache_write_tokens": 2000,
+        "cost_usd": 0.036,
+        "cost_idr": 576,
+        "estimated": False,
+    }
+    assert (home / "biaya" / "api.json").exists()
+    assert not usage_file(home).exists()
+
+
+@pytest.mark.parametrize("argv", [["run", "--no-speaker-check"], ["chat"]])
+def test_a_model_missing_from_the_prices_is_priced_like_the_configured_default_model(
+    argv, home, run_fakes, brains, monkeypatch
+):
+    use_claude(home)
+    append_config(
+        home,
+        "usage:\n  default_model: claude-sonnet-5-5\n  prices:\n"
+        "    claude-sonnet-5-5: {input: 2, output: 10, cache_write: 2.5, cache_read: 0.2}\n",
+    )
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main([*argv, "--dry-run"]) == 0
+
+    brains[0].on_usage("claude-opus-5", TokenUsage(output=1000))  # a server-side fallback
+    month = api_usage(brains[0], "month")
+    # Sonnet's 10 dollars per million output tokens; Opus 5.5's 20 would make it 0.02.
+    assert (month["cost_usd"], month["estimated"]) == (0.01, True)
+
+
+def write_out_example_usage(home: Path) -> None:
+    """The example config with its commented `usage` block written out."""
+    config = home / "config.yaml"
+    text = config.read_text(encoding="utf-8")
+    commented = text[text.index("# usage:\n") :].split("\n\n", 1)[0]
+    written_out = "\n".join(line.removeprefix("# ") for line in commented.splitlines())
+    config.write_text(text.replace(commented, written_out), encoding="utf-8")
+
+
+def test_the_example_usage_block_is_valid_once_written_out(home, brains, monkeypatch):
+    use_claude(home)
+    write_out_example_usage(home)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main(["chat", "--dry-run"]) == 0
+
+    brains[0].on_usage(OPUS, TokenUsage(output=50_000))  # 1 dollar
+    month = api_usage(brains[0], "month")
+    assert (month["cost_usd"], month["cost_idr"]) == (1.0, 16_300)
+    assert usage_file(home).exists()
+
+
+@pytest.mark.parametrize("claude", [False, True], ids=["ollama", "claude_with_usage_off"])
+@pytest.mark.parametrize("argv", [["run", "--no-speaker-check"], ["chat"]])
+def test_with_ollama_or_the_monitor_off_nothing_is_recorded_or_offered(
+    claude, argv, home, run_fakes, brains, monkeypatch
+):
+    if claude:
+        use_claude(home)
+        append_config(home, "usage:\n  enabled: false\n")
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main([*argv, "--dry-run"]) == 0
+
+    assert brains[0].on_usage is None
+    assert not any(isinstance(tools, UsageTools) for tools in brains[0].providers)
+    assert not usage_file(home).exists()
+
+
+def test_run_says_and_pushes_each_budget_notice_once_while_she_listens(
+    home, run_fakes, brains, monkeypatch
+):
+    use_claude(home)
+    enable_notify(home)
+    append_config(home, "usage:\n  monthly_budget_usd: 1\n")
+    notifier = FakeNotifier()
+    use_notifier(monkeypatch, notifier)
+    # 80 cents, 2 more, then 20 more: past 80 % of the budget, still under it, then past it.
+    spend_while_listening(
+        brains,
+        monkeypatch,
+        TokenUsage(output=40_000),
+        TokenUsage(output=1_000),
+        TokenUsage(output=10_000),
+    )
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    await_budget_pushes()
+    eighty = EIGHTY_PERCENT.format(owner="Master")
+    full = FULL_BUDGET.format(owner="Master", spent="1,02")
+    assistant = RecordingAssistant.instances[0]
+    assert assistant.announced == [(eighty, "surprised"), (full, "surprised")]
+    # Each is queued during the reply that crossed the line: it must leave Master the window
+    # in which he answers that reply.
+    assert assistant.waiting_for_followup == [eighty, full]
+    assert notifier.sent == [
+        ("Cyrene", eighty, ("money_with_wings",)),
+        ("Cyrene", full, ("money_with_wings",)),
+    ]
+
+
+def test_run_pushes_a_budget_notice_without_holding_up_her_reply(
+    home, run_fakes, brains, monkeypatch
+):
+    use_claude(home)
+    enable_notify(home)
+    append_config(home, "usage:\n  monthly_budget_usd: 1\n")
+    released = threading.Event()
+
+    class SlowNotifier(FakeNotifier):
+        def send(self, title: str, message: str, *, tags=()) -> bool:
+            assert released.wait(WAIT_S)
+            return super().send(title, message, tags=tags)
+
+    notifier = SlowNotifier()
+    use_notifier(monkeypatch, notifier)
+    pushed_while_she_answered: list[list] = []
+
+    def run(self: RecordingAssistant, mic, segmenter) -> None:
+        brains[0].on_usage(OPUS, TokenUsage(output=40_000))  # back while the push still waits
+        pushed_while_she_answered.append(list(notifier.sent))
+        released.set()
+
+    monkeypatch.setattr(RecordingAssistant, "run", run)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    await_budget_pushes()
+    assert pushed_while_she_answered == [[]]
+    assert [message for _, message, _ in notifier.sent] == [EIGHTY_PERCENT.format(owner="Master")]
+
+
+def test_run_with_notifications_off_only_says_the_budget_notice(
+    home, run_fakes, brains, monkeypatch
+):
+    use_claude(home)
+    append_config(home, "usage:\n  monthly_budget_usd: 1\n")
+    notifier = FakeNotifier()
+    use_notifier(monkeypatch, notifier)
+    spend_while_listening(brains, monkeypatch, TokenUsage(output=40_000))
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    await_budget_pushes()
+    assert RecordingAssistant.instances[0].announced == [
+        (EIGHTY_PERCENT.format(owner="Master"), "surprised")
+    ]
+    assert notifier.sent == []
+
+
+def test_run_without_a_budget_never_tells_the_cost_by_herself(home, run_fakes, brains, monkeypatch):
+    use_claude(home)
+    enable_notify(home)
+    notifier = FakeNotifier()
+    use_notifier(monkeypatch, notifier)
+    spend_while_listening(brains, monkeypatch, TokenUsage(output=500_000))  # 10 dollars
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    await_budget_pushes()
+    assert RecordingAssistant.instances[0].announced == []
+    assert notifier.sent == []
+    assert (
+        UsageLedger(usage_file(home), prices={}, default_model=OPUS)
+        .month(date.today().year, date.today().month)
+        .requests
+        == 1
+    )
+
+
+def test_a_budget_notice_is_never_used_up_while_no_one_can_say_it(home, run_fakes, brains):
+    use_claude(home)
+    append_config(home, "usage:\n  monthly_budget_usd: 1\n")
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+    brains[0].on_usage(OPUS, TokenUsage(output=40_000))  # after she stopped listening
+
+    assert RecordingAssistant.instances[0].announced == []
+    ledger = UsageLedger(usage_file(home), prices={}, default_model=OPUS)
+    assert ledger.budget_notices(1) == [EIGHTY_PERCENT.format(owner="Master")]  # still due
+
+
+def test_chat_prints_each_budget_notice_once_with_what_she_calls_the_owner(
+    home, brains, monkeypatch, capsys
+):
+    use_claude(home)
+    call_the_owner(home, "sayang")
+    append_config(home, "usage:\n  monthly_budget_usd: 1\n")
+    respond = HouseBrain.respond
+
+    def respond_for_80_cents(self: HouseBrain, user_text: str, *, now=None) -> BrainReply:
+        self.on_usage(OPUS, TokenUsage(output=40_000))
+        return respond(self, user_text, now=now)
+
+    monkeypatch.setattr(HouseBrain, "respond", respond_for_80_cents)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("halo\nhalo lagi\nsekali lagi\nkeluar\n"))
+
+    assert cli.main(["chat", "--dry-run"]) == 0
+
+    lines = capsys.readouterr().out.splitlines()
+    said = [line.split("Cyrene: ", 1)[1] for line in lines if "Cyrene: " in line]
+    assert said == [
+        EIGHTY_PERCENT.format(owner="Sayang"),
+        REPLY,
+        FULL_BUDGET.format(owner="Sayang", spent="1,60"),
+        REPLY,
+        REPLY,
+    ]
+
+
+def test_chat_leaves_budget_notices_to_a_running_waifu_run(home, brains, monkeypatch, capsys):
+    # Chat would mark the notice told and only print it: the running Cyrene would then never
+    # say it or push it to the phone that month. Dry runs use the real API and records too.
+    use_claude(home)
+    append_config(home, "usage:\n  monthly_budget_usd: 1\n")
+    respond = HouseBrain.respond
+
+    def respond_for_80_cents(self: HouseBrain, user_text: str, *, now=None) -> BrainReply:
+        self.on_usage(OPUS, TokenUsage(output=40_000))
+        return respond(self, user_text, now=now)
+
+    monkeypatch.setattr(HouseBrain, "respond", respond_for_80_cents)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("halo\nkeluar\n"))
+
+    with InstanceLock(home / "data" / "run.lock"):
+        assert cli.main(["chat", "--dry-run"]) == 0
+
+    lines = capsys.readouterr().out.splitlines()
+    assert [line.split("Cyrene: ", 1)[1] for line in lines if "Cyrene: " in line] == [REPLY]
+    ledger = UsageLedger(usage_file(home), prices={}, default_model=OPUS)
+    assert ledger.budget_notices(1) == [EIGHTY_PERCENT.format(owner="Master")]  # still due
+
+
+def test_usage_without_records_says_so_and_creates_no_file(home, capsys):
+    assert cli.main(["usage"]) == 0
+
+    assert capsys.readouterr().out == "Belum ada catatan biaya.\n"
+    assert not usage_file(home).exists()
+
+
+def test_usage_prints_this_month_day_by_day_and_the_total_with_ollama_too(home, capsys):
+    now = datetime.now()
+    tokens = TokenUsage(input=1000, output=500, cache_write=2000, cache_read=10_000)
+    record_usage(usage_file(home), now, OPUS, tokens)  # $0.026
+    record_usage(usage_file(home), now, OPUS, TokenUsage(output=1000))  # $0.02
+
+    assert cli.main(["usage"]) == 0  # the example config uses Ollama
+
+    assert capsys.readouterr().out.splitlines() == [
+        f"Biaya API Claude {MONTHS_ID[now.month - 1]} {now.year}, dari catatan Cyrene sendiri:",
+        "TANGGAL     PERMINTAAN  INPUT  OUTPUT  CACHE TULIS  CACHE BACA  USD",
+        f"{now:%d-%m-%Y}  2           1000   1500    2000         10000       $0.05",
+        "Total       2           1000   1500    2000         10000       $0.05",
+    ]
+
+
+def test_usage_month_shows_that_month_in_rupiah_too_and_marks_estimates_with_the_monitor_off(
+    home, capsys
+):
+    append_config(home, "usage:\n  enabled: false\n  path: biaya/api.json\n  idr_per_usd: 16000\n")
+    path = home / "biaya" / "api.json"
+    # A month that is never the current one, between records that must not show.
+    record_usage(path, datetime(2025, 2, 28, 23, 59), OPUS, TokenUsage(output=50_000))
+    record_usage(path, datetime.now(), OPUS, TokenUsage(output=70_000))
+    tokens = TokenUsage(input=2000, output=1000, cache_read=50_000)
+    record_usage(path, datetime(2025, 3, 1, 8, 0), OPUS, tokens)  # $0.038
+    # A server-side fallback, missing from the price table: estimated with Opus 5.5's prices.
+    record_usage(path, datetime(2025, 3, 13, 21, 0), "claude-opus-5", TokenUsage(output=10_000))
+
+    assert cli.main(["usage", "--month", "2025-03"]) == 0
+
+    assert capsys.readouterr().out.splitlines() == [
+        "Biaya API Claude Maret 2025, dari catatan Cyrene sendiri:",
+        "TANGGAL     PERMINTAAN  INPUT  OUTPUT  CACHE TULIS  CACHE BACA  USD    IDR",
+        "01-03-2025  1           2000   1000    0            50000       $0.04  Rp608",
+        "13-03-2025  1           0      10000   0            0           $0.20  Rp3.200"
+        "  (perkiraan)",
+        "Total       2           2000   11000   0            50000       $0.24  Rp3.808"
+        "  (perkiraan)",
+        "(perkiraan): sebagian respons datang dari model yang tidak ada di tabel harga, jadi "
+        "dihitung dengan harga claude-opus-5-5.",
+    ]
+
+
+@pytest.mark.parametrize("month", ["2026-13", "2026-00", "10-2026", "2026-1", "Oktober"])
+def test_usage_month_must_be_written_year_dash_month(month, capsys):
+    with pytest.raises(SystemExit):
+        cli.build_parser().parse_args(["usage", "--month", month])
+
+    assert "tulis bulannya YYYY-MM, misalnya 2026-10" in capsys.readouterr().err
+
+
+def usage_line(out: str) -> str:
+    [line] = [line for line in out.splitlines() if "biaya" in line.lower()]
+    return line
+
+
+def test_check_shows_this_month_s_cost_and_requests_with_claude(home, nothing_installed, capsys):
+    use_claude(home)
+    now = datetime.now()
+    record_usage(usage_file(home), now, OPUS, TokenUsage(output=40_000))
+    record_usage(usage_file(home), now, OPUS, TokenUsage(output=1000))
+    last_month = now.replace(day=1) - timedelta(days=1)
+    record_usage(usage_file(home), last_month, OPUS, TokenUsage(output=90_000))
+
+    cli.main(["check"])
+
+    assert usage_line(capsys.readouterr().out) == "✓ Biaya API: $0.82 bulan ini (2 permintaan)"
+
+
+@pytest.mark.parametrize(
+    ("claude", "enabled", "expected"),
+    [
+        (False, True, "! Biaya API dicatat hanya dengan backend Claude"),
+        (True, False, "! Pencatatan biaya mati"),
+        (False, False, "! Pencatatan biaya mati"),
+    ],
+    ids=["ollama", "claude_with_usage_off", "ollama_with_usage_off"],
+)
+def test_check_says_when_her_api_cost_is_not_recorded(
+    claude, enabled, expected, home, nothing_installed, capsys
+):
+    if claude:
+        use_claude(home)
+    if not enabled:
+        append_config(home, "usage:\n  enabled: false\n")
+
+    cli.main(["check"])
+
+    assert usage_line(capsys.readouterr().out) == expected
+    assert not usage_file(home).exists()
+
+
+def test_check_shows_where_a_broken_usage_file_was_moved(home, nothing_installed, capsys):
+    use_claude(home)
+    usage_file(home).parent.mkdir()
+    usage_file(home).write_text("{catatan yang rusak", encoding="utf-8")
+
+    cli.main(["check"])
+
+    [moved] = usage_file(home).parent.glob("usage.json.corrupt-*")
+    line = usage_line(capsys.readouterr().out)
+    assert line.startswith("! Biaya API: $0.00 bulan ini (0 permintaan)")
+    assert str(Path("data") / moved.name) in line
+    assert moved.read_text(encoding="utf-8") == "{catatan yang rusak"
+
+
+UNPRICED_DEFAULT = "usage:\n  default_model: claude-sonnet-5-5\n"
+
+
+def test_check_fails_a_default_model_without_prices(home, nothing_installed, capsys):
+    # Every response of a model missing from the table would cost 0 dollars under a green ✓.
+    use_claude(home)
+    append_config(home, UNPRICED_DEFAULT)
+
+    cli.main(["check"])
+
+    line = usage_line(capsys.readouterr().out)
+    assert line.startswith("✗ Biaya API: usage.default_model claude-sonnet-5-5 has no prices")
+    assert "usage.prices" in line
+
+
+@pytest.mark.parametrize("argv", [["run", "--no-speaker-check", "--dry-run"], ["chat"], ["usage"]])
+def test_a_default_model_without_prices_is_a_configuration_problem(
+    argv, home, run_fakes, brains, monkeypatch, capsys
+):
+    use_claude(home)
+    append_config(home, UNPRICED_DEFAULT)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main(argv) == 2
+
+    err = capsys.readouterr().err
+    assert "Konfigurasi bermasalah: usage.default_model claude-sonnet-5-5 has no prices" in err
+    assert brains == []
+
+
+def test_check_fails_a_usage_file_it_cannot_read(home, nothing_installed, capsys):
+    use_claude(home)
+    usage_file(home).mkdir(parents=True)  # a folder where the file should be
+
+    cli.main(["check"])
+
+    line = usage_line(capsys.readouterr().out)
+    assert line.startswith(f"✗ File biaya API {Path('data/usage.json')} tidak bisa dibaca")

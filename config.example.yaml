@@ -243,6 +243,24 @@ schedule:
 #   push: true        # kirim sapaannya juga ke HP (kalau notify menyala)
 #   state_path: data/briefing.json   # hari sapaan terakhir, supaya restart tidak menyapa lagi
 
+# Biaya API Claude (README, bagian "Biaya API Claude"): dengan otak Claude, Cyrene mencatat token
+# setiap jawabannya dan menghitung biayanya dari harga per model. Tanyakan "Cyrene, biaya API
+# bulan ini berapa?" atau lihat `waifu usage`. Ini perkiraan dari catatannya sendiri, bukan
+# tagihan di Anthropic Console: aplikasi lain yang memakai API key yang sama tidak terhitung.
+# Dengan Ollama tidak ada yang dicatat (gratis).
+# Sudah menyala tanpa ditulis; untuk anggaran bulanan, kurs rupiah, atau harga sendiri, tulis
+# bagian ini tanpa tanda # di depannya (atau enabled: false untuk berhenti mencatat).
+# usage:
+#   enabled: true
+#   path: data/usage.json      # hanya di PC ini, tidak di-commit
+#   monthly_budget_usd: 20     # dia memberi tahu sekali di 80% dan sekali di 100% tiap bulan, tanpa berhenti
+#   idr_per_usd: 16300         # kurs rupiah per dolar, untuk ikut menyebut biayanya dalam rupiah; perbarui sendiri
+#   # Harga dalam dolar per sejuta token, menimpa atau menambah harga bawaan. Tulis di sini
+#   # kalau harga resmi berubah, atau harga model lain kalau brain.claude.model kamu ganti.
+#   prices:
+#     claude-opus-5-5: {input: 4.00, output: 20.00, cache_write: 5.00, cache_read: 0.20}
+#   default_model: claude-opus-5-5   # harga model ini dipakai untuk model yang tidak ada di prices (perkiraan); harus punya harga
+
 ir_codes_path: data/ir_codes.json
 
 devices:

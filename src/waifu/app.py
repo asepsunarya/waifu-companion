@@ -68,6 +68,16 @@ def _called_successfully(reply: BrainReply, tool: str) -> bool:
     return any(call.name == tool and not call.is_error for call in reply.tool_calls)
 
 
+def _take_all(announcements: queue.SimpleQueue[tuple[str, str]]) -> list[tuple[str, str]]:
+    """Every (text, emotion) queued so far, oldest first."""
+    taken: list[tuple[str, str]] = []
+    while True:
+        try:
+            taken.append(announcements.get_nowait())
+        except queue.Empty:
+            return taken
+
+
 def _pass_on(on_reply: ReplyHandler, text: str) -> None:
     """Hand what she said by herself to `on_reply`; a failure is logged, never raised."""
     try:
@@ -168,6 +178,8 @@ class Assistant:
         self._speaker_error_logged = False
         self._avatar_failing = False
         self._announcements: queue.SimpleQueue[tuple[str, str]] = queue.SimpleQueue()
+        # Announcements that also wait while the follow-up window is open (`announce`).
+        self._patient_announcements: queue.SimpleQueue[tuple[str, str]] = queue.SimpleQueue()
         self._requests: queue.SimpleQueue[_Request] = queue.SimpleQueue()
         # After a cut, on `clock`: announcements and requests wait until then
         # (see `_hold_announcements`).
@@ -243,13 +255,21 @@ class Assistant:
         """Ask the brain directly: no wake word, no voice (text chat); the reply has no tag."""
         return self._think(text)[1]
 
-    def announce(self, text: str, emotion: str = NEUTRAL) -> None:
+    def announce(
+        self, text: str, emotion: str = NEUTRAL, *, wait_for_followup: bool = False
+    ) -> None:
         """Queue something to say by herself; safe from any thread (the gacha watcher's).
 
         `run` says it between utterances, never during a reply, while Master speaks, or
-        while she listens for Master after being cut off.
+        while she listens for Master after being cut off. With `wait_for_followup` it also
+        waits while the follow-up window is open, like an `ask_aloud` request: news that is
+        not due at a set time (the budget notice, queued while she thinks up the reply that
+        crossed the budget) never uses up the window in which Master answers her.
         """
-        self._announcements.put((text, emotion))
+        if wait_for_followup:
+            self._patient_announcements.put((text, emotion))
+        else:
+            self._announcements.put((text, emotion))
 
     def ask_aloud(
         self,
@@ -379,29 +399,25 @@ class Assistant:
         """Say the queued announcements, or else answer a request once Master has had his say.
 
         A request never follows announcements in the same pass: the next frame checks again
-        that Master has not started talking and did not cut them short to talk. Nor does it
-        come while the follow-up window is open, so a conversation is never taken over.
+        that Master has not started talking and did not cut them short to talk. Nor does it,
+        or an announcement that waits for the window, come while the follow-up window is
+        open, so a conversation is never taken over.
         """
-        if not self._say_announcements() and not self._followup_open():
+        followup_open = self._followup_open()
+        if not self._say_announcements(followup_open) and not followup_open:
             self._answer_next_request()
 
-    def _say_announcements(self) -> bool:
-        """Say every queued announcement in one go, with the first one's emotion; True when
-        there was any."""
-        texts: list[str] = []
-        emotion = NEUTRAL
-        while True:
-            try:
-                text, mood = self._announcements.get_nowait()
-            except queue.Empty:
-                break
-            if not texts:
-                emotion = mood
-            texts.append(text)
-        if not texts:
+    def _say_announcements(self, followup_open: bool) -> bool:
+        """Say every queued announcement in one go, with the first one's emotion, except those
+        that wait while the follow-up window is open; True when there was any."""
+        queued = _take_all(self._announcements)
+        if not followup_open:
+            queued += _take_all(self._patient_announcements)
+        if not queued:
             return False
-        logger.info("Announcing: %s", " ".join(texts))
-        self.speak(" ".join(texts), emotion, followup=False)
+        text = " ".join(queued_text for queued_text, _ in queued)
+        logger.info("Announcing: %s", text)
+        self.speak(text, queued[0][1], followup=False)
         return True
 
     def _answer_next_request(self) -> None:

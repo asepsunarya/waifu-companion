@@ -1047,6 +1047,86 @@ def test_an_announcement_held_after_a_cut_is_said_once_the_follow_up_window_clos
     assert rig.speech.texts == [REPLY, ANNOUNCEMENT]
 
 
+QUESTION = "Komputer mau kumatikan sekarang, Master? Jawab iya kalau jadi."
+BUDGET_NOTICE = (
+    "Master, biaya API bulan ini sekitar 0,80 dolar, sudah mencapai 80 persen dari anggaran "
+    "1 dolar."
+)
+
+
+class AnnouncingBrain(FakeBrain):
+    """Runs `announce` while it thinks up its first reply (a reply whose cost crossed the
+    budget queues the budget notice)."""
+
+    def __init__(self, reply: str = REPLY) -> None:
+        super().__init__(reply)
+        self.announce: Callable[[], None] = lambda: None
+
+    def respond(self, user_text: str, *, now: datetime | None = None) -> BrainReply:
+        if not self.turns:
+            self.announce()
+        return super().respond(user_text, now=now)
+
+
+def take_time_to_say(rig: Rig, seconds: dict[str, float]) -> None:
+    """Each clip plays for its text's `seconds` on the rig's clock."""
+
+    def play() -> None:
+        rig.clock.now += seconds[rig.speech.texts[-1]]
+
+    rig.player.on_play = play
+
+
+def test_an_announcement_that_waits_for_the_follow_up_window_leaves_it_to_master():
+    # Said right after the reply that queued it, a notice of about 8 s would use up the window
+    # in which Master answers her question without the wake word.
+    rig = Rig("Cyrene, matikan komputer", "iya", reply=QUESTION, brain=AnnouncingBrain)
+    rig.brain.announce = lambda: rig.assistant.announce(
+        BUDGET_NOTICE, "surprised", wait_for_followup=True
+    )
+    take_time_to_say(rig, {QUESTION: 3, BUDGET_NOTICE: 8})
+
+    rig.assistant.run(
+        FakeMic(rig.events, [SILENT_FRAME] * 2), FakeSegmenter(rig.events, [rig.utterance(), None])
+    )
+    rig.clock.now += 1  # Master answers a second after she stopped talking
+    answer = rig.assistant.handle_utterance(rig.utterance())
+    waited = list(rig.speech.texts)
+    rig.clock.now += 8  # followup_seconds: the window after her second reply has closed
+    rig.assistant.run(FakeMic(rig.events, [SILENT_FRAME]), FakeSegmenter(rig.events, [None]))
+
+    assert answer == QUESTION
+    assert [text for text, _ in rig.brain.turns] == ["matikan komputer", "iya"]
+    assert waited == [QUESTION, QUESTION]
+    assert rig.speech.texts == [QUESTION, QUESTION, BUDGET_NOTICE]
+
+
+def test_an_announcement_that_waits_for_the_follow_up_window_is_said_at_once_without_one():
+    rig = Rig(with_avatar=True)
+    rig.assistant.announce(BUDGET_NOTICE, "surprised", wait_for_followup=True)
+
+    rig.assistant.run(FakeMic(rig.events, [SILENT_FRAME]), FakeSegmenter(rig.events, [None]))
+
+    assert rig.speech.texts == [BUDGET_NOTICE]
+    assert "avatar.speak surprised" in rig.events
+    assert rig.gate.check("matikan lampu").accepted is False  # no follow-up window
+
+
+def test_other_announcements_are_still_said_while_the_follow_up_window_is_open():
+    rig = Rig("Cyrene, nyalakan lampu kamar")
+    rig.assistant.handle_utterance(rig.utterance())
+    rig.assistant.announce(BUDGET_NOTICE, "surprised", wait_for_followup=True)
+    rig.assistant.announce(ANNOUNCEMENT)
+
+    rig.assistant.run(FakeMic(rig.events, [SILENT_FRAME]), FakeSegmenter(rig.events, [None]))
+    inside_the_window = list(rig.speech.texts)
+    rig.clock.now += 8  # followup_seconds
+    rig.assistant.run(FakeMic(rig.events, [SILENT_FRAME]), FakeSegmenter(rig.events, [None]))
+
+    assert inside_the_window == [REPLY, ANNOUNCEMENT]
+    assert rig.speech.texts == [REPLY, ANNOUNCEMENT, BUDGET_NOTICE]
+
+
 def test_interrupt_while_she_is_silent_stops_nothing():
     rig = Rig("Cyrene, nyalakan lampu kamar")
 

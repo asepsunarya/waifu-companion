@@ -19,6 +19,7 @@ import re
 import socket
 import sys
 import tempfile
+import threading
 import urllib.request
 from collections import deque
 from collections.abc import Callable, Iterator, Sequence
@@ -52,6 +53,7 @@ from waifu.brain.persona import WEEKDAYS_ID
 from waifu.brain.schedule_tools import ScheduleTools
 from waifu.brain.screen_tools import ScreenTools
 from waifu.brain.tools import ToolProvider
+from waifu.brain.usage_tools import UsageTools
 from waifu.briefing import DAILY_BRIEFING, BriefingTimer, BriefingTools
 from waifu.config import (
     APP_URL_SCHEMES,
@@ -92,9 +94,10 @@ from waifu.schedule import (
     ScheduleError,
     ScheduleStore,
 )
-from waifu.scheduler import Scheduler
+from waifu.scheduler import MONTHS_ID, Scheduler
 from waifu.screen import capture_screen
 from waifu.single_instance import InstanceLock
+from waifu.usage import DayUsage, TokenUsage, UsageLedger, UsageSummary
 from waifu.voice.audio import MicStream, Player, list_devices
 from waifu.voice.rvc import (
     SERVER_SCRIPT,
@@ -227,12 +230,14 @@ NO_ROUTINES = (
     "(lihat README, bagian Jadwal, pengingat, dan rutinitas)."
 )
 BRIEFING_TAG = "sunrise"  # ntfy shows it as a sunrise emoji
+BUDGET_TAG = "money_with_wings"  # ntfy shows it as an emoji of money flying away
 REPEAT_TEXT: dict[Repeat, str] = {
     "none": "sekali",
     "daily": "tiap hari",
     "weekdays": "tiap hari kerja",
     "weekends": "tiap akhir pekan",
 }
+_YEAR_MONTH = re.compile(r"([0-9]{4})-(0[1-9]|1[0-2])")
 _REGISTERED_DELAY = re.compile(r" --startup-delay (\d+) ")
 # build_command always quotes the folder, and a path in it never contains a quote.
 _REGISTERED_PROJECT = re.compile(r' /d "([^"]+)" ')
@@ -351,6 +356,17 @@ def build_parser() -> argparse.ArgumentParser:
     command("mics", _mics, "Daftar perangkat audio.")
     command(
         "briefing", _briefing, "Tampilkan ringkasan hari ini (tanggal, cuaca, jadwal) tanpa otak."
+    )
+    usage = command(
+        "usage",
+        _usage,
+        "Tampilkan perkiraan biaya API Claude per hari dalam sebulan, dari catatan Cyrene.",
+    )
+    usage.add_argument(
+        "--month",
+        type=_year_month,
+        metavar="YYYY-MM",
+        help="bulan yang ditampilkan, misalnya 2026-09 (default bulan ini)",
     )
     command("check", _check, "Periksa konfigurasi, perangkat, dan dependensi.")
     command("notify-test", _notify_test, "Kirim notifikasi tes ke HP lewat ntfy.")
@@ -509,6 +525,16 @@ def _non_negative_seconds(text: str) -> float:
     return seconds
 
 
+def _year_month(text: str) -> tuple[int, int]:
+    """`2026-10` as (2026, 10)."""
+    match = _YEAR_MONTH.fullmatch(text)
+    if match is None:
+        raise argparse.ArgumentTypeError(
+            f"tulis bulannya YYYY-MM, misalnya 2026-10, bukan {text!r}"
+        )
+    return int(match[1]), int(match[2])
+
+
 def _config_problem(exc: ConfigError) -> str:
     """The ConfigError text without the values pydantic quotes, which can be a local_key."""
     cause = exc.__cause__
@@ -631,8 +657,9 @@ def _listen(args: argparse.Namespace) -> int:
         return 2
     registry = build_registry(config, dry_run=args.dry_run)
     gacha = build_gacha(config) if config.gacha.enabled else None
+    usage = _usage_recorder(config)
     with _session_schedule(config, dry_run=args.dry_run) as schedule:
-        brain = _companion_brain(config, registry, gacha, schedule)
+        brain = _companion_brain(config, registry, gacha, schedule, usage)
         stt = WhisperStt(config.stt, name)
         gate = WakeGate(config.assistant.wake_words, config.assistant.followup_seconds)
         segmenter = EnergySegmenter(config.audio.sample_rate, config.audio.vad)
@@ -704,6 +731,7 @@ def _listen(args: argparse.Namespace) -> int:
                             notifier=notifier,
                         ),
                         _briefing_timer(config, assistant, notifier),
+                        _budget_told(usage, _budget_teller(config, assistant, notifier)),
                     ):
                         assistant.run(mic, segmenter)
                 except SttError as exc:
@@ -717,12 +745,16 @@ def _chat(args: argparse.Namespace) -> int:
     config = load_config(args.config)
     registry = build_registry(config, dry_run=args.dry_run)
     gacha = build_gacha(config) if config.gacha.enabled else None
+    usage = _usage_recorder(config)
     name = config.assistant.name
     with _session_schedule(config, dry_run=args.dry_run) as schedule:
-        brain = _companion_brain(config, registry, gacha, schedule)
-        # One scheduler fires the real schedule: a running `waifu run`, which speaks and
-        # pushes, rather than a second one here that would take its entries and only print.
-        left_to_run = schedule is not None and not args.dry_run and _instance_running(RUN_LOCK)
+        brain = _companion_brain(config, registry, gacha, schedule, usage)
+        # One scheduler fires the real schedule, and one teller gives the budget notices: a
+        # running `waifu run`, which speaks and pushes, rather than this chat, which would take
+        # the entries and the notices and only print them. A dry run has a schedule of its own,
+        # but its responses go to the real records.
+        run_is_running = _instance_running(RUN_LOCK)
+        left_to_run = schedule is not None and not args.dry_run and run_is_running
         with (
             _avatar_bus(config, wanted=args.speak) as avatar,
             _voice_converter(config, wanted=args.speak) as converter,
@@ -735,13 +767,20 @@ def _chat(args: argparse.Namespace) -> int:
                 print(SCHEDULE_IN_RUN)
             elif args.dry_run and schedule is not None:
                 print(DRY_RUN_SCHEDULE.format(path=config.schedule.path))
-            # What comes due while Master types is printed like a reply, never pushed.
-            with _scheduler(
-                config,
-                None if left_to_run else schedule,
-                registry,
-                announce=lambda text, emotion: print(f"{name}: {text}", flush=True),
-                notifier=None,
+            # What comes due while Master types, and a budget notice, are printed like a reply,
+            # never pushed.
+            with (
+                _scheduler(
+                    config,
+                    None if left_to_run else schedule,
+                    registry,
+                    announce=lambda text, emotion: print(f"{name}: {text}", flush=True),
+                    notifier=None,
+                ),
+                _budget_told(
+                    None if run_is_running else usage,
+                    lambda notice: print(f"{name}: {notice}", flush=True),
+                ),
             ):
                 while True:
                     try:
@@ -770,12 +809,14 @@ def _companion_brain(
     registry: DeviceRegistry,
     gacha: GachaParts | None,
     schedule: ScheduleStore | None,
+    usage: _UsageRecorder | None,
 ) -> Brain:
     """The brain with the game tools when they are on, her long-term memory when it is on,
-    then her schedule when it is on, the day's briefing when it is on, and with Claude her
-    eyes on the screen when vision is on.
+    then her schedule when it is on, the day's briefing when it is on, with Claude her eyes on
+    the screen when vision is on, and with `usage` what her requests cost.
 
     With memory, every new session lists the notes as they are in the file at that moment.
+    With `usage`, every Claude response is recorded in its ledger.
     """
     owner_call = config.assistant.owner_call
     notes = _memory_store(config) if config.memory.enabled else None
@@ -801,13 +842,17 @@ def _companion_brain(
                 names=[config.assistant.name, *config.assistant.wake_words, owner_call],
             )
         )
+    if usage is not None:
+        providers.append(UsageTools(usage.ledger, idr_per_usd=config.usage.idr_per_usd))
+    on_usage = None if usage is None else usage.record
     if notes is None:
-        return build_brain(config, registry, providers=providers)
+        return build_brain(config, registry, providers=providers, on_usage=on_usage)
     return build_brain(
         config,
         registry,
         providers=providers,
         memory_section=lambda: memory_prompt_section(notes.facts()),
+        on_usage=on_usage,
     )
 
 
@@ -1777,6 +1822,141 @@ def _weather_text(weather: dict[str, object]) -> str:
     )
 
 
+# --- API cost monitor ------------------------------------------------------------------------
+
+
+class _UsageRecorder:
+    """Records what each Claude response used in the API cost ledger and, with a monthly
+    budget, has Master told once at 80 % and once at 100 % of it.
+
+    The brain gets `record` when it is built, before she can say anything, so `telling`
+    connects how she tells Master for a block. Notices are only taken from the ledger, which
+    marks them told, while one is connected: none is used up unsaid, and the next response
+    gives it instead.
+    """
+
+    def __init__(self, ledger: UsageLedger, *, budget_usd: float | None, owner_call: str) -> None:
+        self.ledger = ledger
+        self._budget_usd = budget_usd
+        self._owner_call = owner_call
+        self._tell: Callable[[str], None] | None = None
+
+    def record(self, model: str, tokens: TokenUsage) -> None:
+        self.ledger.record(model, tokens)
+        tell = self._tell
+        if tell is None or self._budget_usd is None:
+            return
+        for notice in self.ledger.budget_notices(self._budget_usd, owner_call=self._owner_call):
+            tell(notice)
+
+    @contextmanager
+    def telling(self, tell: Callable[[str], None]) -> Iterator[None]:
+        """Hand each budget notice to `tell` until the block ends."""
+        self._tell = tell
+        try:
+            yield
+        finally:
+            self._tell = None
+
+
+def _usage_ledger(config: AppConfig) -> UsageLedger:
+    """Her API cost records, in the file `usage.path` names, whatever the backend and whether
+    the monitor is on or not; the configured prices go over the built-in ones."""
+    usage = config.usage
+    return UsageLedger(usage.path, prices=usage.prices, default_model=usage.default_model)
+
+
+def _usage_recorder(config: AppConfig) -> _UsageRecorder | None:
+    """The cost monitor of one `run` or `chat`: only with Claude (Ollama is free) and while
+    `usage.enabled`."""
+    if config.brain.backend != "claude" or not config.usage.enabled:
+        return None
+    return _UsageRecorder(
+        _usage_ledger(config),
+        budget_usd=config.usage.monthly_budget_usd,
+        owner_call=config.assistant.owner_call,
+    )
+
+
+def _budget_told(
+    usage: _UsageRecorder | None, tell: Callable[[str], None]
+) -> AbstractContextManager[object]:
+    """Budget notices go to `tell` while the block runs; there are none without the monitor."""
+    if usage is None:
+        return nullcontext()
+    return usage.telling(tell)
+
+
+def _budget_teller(
+    config: AppConfig, assistant: Assistant, notifier: Notifier | None
+) -> Callable[[str], None]:
+    """Has her say a budget notice by herself and push it to the phone when notifications are
+    on (the notifier logs a failed push).
+
+    A notice comes while she thinks up the reply that crossed the line, so she says it once
+    Master has had the chance to answer that reply (the follow-up window has closed).
+    """
+
+    def tell(notice: str) -> None:
+        assistant.announce(notice, "surprised", wait_for_followup=True)
+        if notifier is not None:
+            # She is in the middle of a reply, which a push taking its whole timeout would hold up.
+            threading.Thread(
+                target=notifier.send,
+                args=(config.assistant.name, notice),
+                kwargs={"tags": [BUDGET_TAG]},
+                name="budget-push",
+                daemon=True,
+            ).start()
+
+    return tell
+
+
+def _usage(args: argparse.Namespace) -> int:
+    """Print what her Claude requests cost in one month, day by day, from the ledger alone:
+    it works with any backend and with the monitor off."""
+    config = load_config(args.config)
+    now = datetime.now()
+    year, month = args.month or (now.year, now.month)
+    summary = _usage_ledger(config).month(year, month)
+    if not summary.by_day:
+        print("Belum ada catatan biaya.")
+        return 0
+    rate = config.usage.idr_per_usd
+    header = ("TANGGAL", "PERMINTAAN", "INPUT", "OUTPUT", "CACHE TULIS", "CACHE BACA", "USD")
+    if rate is not None:
+        header += ("IDR",)
+    rows = [_usage_row(f"{day.day:%d-%m-%Y}", day, rate) for day in summary.by_day]
+    rows.append(_usage_row("Total", summary, rate))
+    name = config.assistant.name
+    print(f"Biaya API Claude {MONTHS_ID[month - 1]} {year}, dari catatan {name} sendiri:")
+    print(_format_table((*header, ""), rows))
+    if summary.estimated:
+        print(
+            "(perkiraan): sebagian respons datang dari model yang tidak ada di tabel harga, jadi "
+            f"dihitung dengan harga {config.usage.default_model}."
+        )
+    return 0
+
+
+def _usage_row(
+    label: str, used: DayUsage | UsageSummary, idr_per_usd: float | None
+) -> tuple[str, ...]:
+    """One line of `waifu usage`: requests, tokens, the cost, and whether it is an estimate."""
+    tokens = used.tokens
+    counts = (used.requests, tokens.input, tokens.output, tokens.cache_write, tokens.cache_read)
+    cells = [label, *map(str, counts), f"${used.cost_usd:.2f}"]
+    if idr_per_usd is not None:
+        cells.append(_rupiah(used.cost_usd * idr_per_usd))
+    cells.append("(perkiraan)" if used.estimated else "")
+    return tuple(cells)
+
+
+def _rupiah(amount: float) -> str:
+    """`Rp3.808`: whole rupiah, thousands separated by dots as written in Indonesia."""
+    return f"Rp{round(amount):,}".replace(",", ".")
+
+
 # --- check -----------------------------------------------------------------------------------
 
 
@@ -1803,6 +1983,7 @@ def _checks(config_path: Path) -> Iterator[Check]:
     yield _memory_check(config)
     yield _schedule_check(config)
     yield _briefing_check(config.briefing)
+    yield _usage_check(config)
     yield from _voice_package_checks(config)
     yield _microphone_check(config)
     yield from _anime_voice_checks(config)
@@ -2013,9 +2194,34 @@ def _briefing_check(briefing: BriefingConfig) -> Check:
     return OK, f"Sapaan pagi: jam {hours}, cuaca untuk {place}"
 
 
+def _usage_check(config: AppConfig) -> Check:
+    """What her Claude requests cost this month by her own records, and where a broken usage
+    file was moved, if one was; the API is never asked."""
+    if not config.usage.enabled:
+        return WARN, "Pencatatan biaya mati"
+    if config.brain.backend != "claude":
+        return WARN, "Biaya API dicatat hanya dengan backend Claude"
+    path = config.usage.path
+    now = datetime.now()
+    try:
+        month = _usage_ledger(config).month(now.year, now.month)  # moves a broken file aside
+    except ConfigError as exc:  # a default model without prices: `run` would refuse to start
+        return FAIL, f"Biaya API: {exc}"
+    except OSError as exc:
+        return FAIL, f"File biaya API {path} tidak bisa dibaca: {exc}"
+    status = f"Biaya API: ${month.cost_usd:.2f} bulan ini ({month.requests} permintaan)"
+    moved = _set_aside_files(path)
+    if moved:
+        return WARN, (
+            f"{status}; file biaya yang rusak dipindah ke {', '.join(map(str, moved))} "
+            "(lihat README, bagian Biaya API Claude)"
+        )
+    return OK, status
+
+
 def _set_aside_files(path: Path) -> list[Path]:
-    """The copies a broken memory or schedule file was renamed to (`<name>.corrupt-<time>`),
-    oldest first.
+    """The copies a broken memory, schedule, or usage file was renamed to
+    (`<name>.corrupt-<time>`), oldest first.
 
     They stay until the owner repairs or deletes them, so `check` points at them every time.
     """
