@@ -631,18 +631,18 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 62 · **Files:** `src/waifu/brain/screen_tools.py`, `src/waifu/brain/base.py`, `src/waifu/brain/claude.py`, `src/waifu/brain/ollama_brain.py`, `src/waifu/cli.py`, tests, `README.md`, `config.example.yaml` · **Scope:** M
 
-## Task 64: Stoppable speech
+## Task 64: Stoppable speech ✅
 
 **Acceptance criteria:**
-- [ ] `Player.play` returns whether it finished; `Player.stop` stops a playing clip from another thread, never blocks, and reports whether anything played
-- [ ] `Assistant.interrupt` and `speaking` per SPEC; an interrupted `speak` still resumes the mic, resets the segmenter, and opens the follow-up window after a reply
+- [x] `Player.play` returns whether it finished; `Player.stop` stops a playing clip from another thread, never blocks, and reports whether anything played; only the playing thread calls PortAudio (`stop` only asks, `play` stops and closes the stream itself)
+- [x] `Assistant.interrupt` and `speaking` per SPEC; an interrupted `speak` still resumes the mic, resets the segmenter, and opens the follow-up window after a reply; announcements queued meanwhile wait until Master is heard or the window has passed
 
 **Dependencies:** none · **Files:** `src/waifu/voice/audio.py`, `tests/test_voice_audio.py`, `src/waifu/app.py`, `tests/test_app.py` · **Scope:** S
 
-## Task 65: Double-click cuts her off
+## Task 65: Double-click cuts her off ✅
 
 **Acceptance criteria:**
-- [ ] `InteractionHandler(interrupt=...)`: a double-click while she speaks interrupts at once and then only opens listening; otherwise unchanged
-- [ ] Both renderers end the speak track on a non-speaking state; `run` wires `assistant.interrupt`; README section
+- [x] `InteractionHandler(interrupt=...)`: a double-click while she speaks interrupts at once and then only opens listening; otherwise unchanged
+- [x] Both renderers end the speak track on a non-speaking state, and its emotion after the short tail (`logic.emotionEndAfterState`); `run` wires `assistant.interrupt`; README section
 
-**Dependencies:** 64 · **Files:** `src/waifu/avatar/interactions.py`, `tests/test_avatar_interactions.py`, `src/waifu/avatar/web/live2d.js`, `src/waifu/avatar/web/avatar.js`, `src/waifu/cli.py`, `tests/test_cli.py`, `README.md` · **Scope:** M
+**Dependencies:** 64 · **Files:** `src/waifu/avatar/interactions.py`, `tests/test_avatar_interactions.py`, `src/waifu/avatar/web/live2d.js`, `src/waifu/avatar/web/avatar.js`, `src/waifu/avatar/web/logic.js`, `tests/js/logic.test.mjs`, `src/waifu/cli.py`, `tests/test_cli.py`, `README.md` · **Scope:** M

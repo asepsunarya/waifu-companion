@@ -228,11 +228,11 @@ owner's real screen.
 Decision: a double-click on the avatar while she speaks stops the playing clip at once and
 opens listening; the microphone stays paused during her speech (no voice barge-in without
 echo cancellation).
-- [ ] Task 64: `Player.play`/`stop`, `Assistant.interrupt` and `speaking`
-- [ ] Task 65: handler interrupt on double-click, renderers close the mouth, CLI wiring, README
+- [x] Task 64: `Player.play`/`stop`, `Assistant.interrupt` and `speaking`
+- [x] Task 65: handler interrupt on double-click, renderers close the mouth, CLI wiring, README
 
 ### Checkpoint: Cutting her off
-- [ ] Python and JS suites, ruff clean; no test played or recorded real audio
+- [x] Python and JS suites, ruff clean; no test played or recorded real audio (2026-10-13: 2786 pytest, 223 JS)
 - [ ] On the owner's PC: a double-click during a long answer stops her at once and she listens
 
 ## Risks and Mitigations
