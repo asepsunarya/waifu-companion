@@ -272,15 +272,15 @@ only through `tailscale serve` (real HTTPS for the phone microphone, reachable o
 owner's tailnet), plus one-time pairing. The phone page reuses the avatar renderers; the
 Assistant answers phone turns under the same turn lock and returns her voice and mouth track to
 the phone instead of speaking on the PC.
-- [ ] Task 73a: `phone` config
-- [ ] Task 73: `phone/auth.py`: pairing codes and devices
-- [ ] Task 74: `phone/server.py`: routes, auth, file serving, `PhoneBackend`
-- [ ] Task 75: the phone page (PWA, chat, hold-to-talk, playback) and its pure JS helpers
-- [ ] Task 76: `Assistant.reply_for_phone`, `run` wiring, `waifu phone`, check, README
+- [x] Task 73a: `phone` config
+- [x] Task 73: `phone/auth.py`: pairing codes and devices
+- [x] Task 74: `phone/server.py`: routes, auth, file serving, `PhoneBackend`
+- [x] Task 75: the phone page (PWA, chat, hold-to-talk, playback) and its pure JS helpers
+- [x] Task 76: `Assistant.reply_for_phone`, `run` wiring, `waifu phone`, check, README
 
 ### Checkpoint: Cyrene on the phone
-- [ ] Python and JS suites, ruff clean; no test reached the network, Tailscale, a real brain, or `data/`
-- [ ] In a browser at phone size against a fake backend: pairing, chat, a talk round trip, audio and mouth
+- [x] Python and JS suites, ruff clean; no test reached the network, Tailscale, a real brain, or `data/` (2026-10-14: 3731 pytest and 313 node tests on the committed tree plus tasks 73-76)
+- [x] In a browser at phone size against a fake backend: pairing, chat, a talk round trip, audio and mouth (task 75's check; service-worker registration and the locked-sound fallback could not be exercised there, and the later offline, no-model and scrolling fixes are covered by node tests only)
 - [ ] On the owner's Android: install via Tailscale URL, pair, chat and talk, "matikan lampu" works
 
 ## Risks and Mitigations

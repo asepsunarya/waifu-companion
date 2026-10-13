@@ -732,39 +732,39 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 71 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py`, `src/waifu/app.py`, `tests/test_app.py`, `README.md`, `config.example.yaml` · **Scope:** M
 
-## Task 73a: Phone config
+## Task 73a: Phone config ✅
 
 **Acceptance criteria:**
-- [ ] `AppConfig.phone` (`enabled` false, `port` 9883, `host` none or a `*.ts.net` name, `state_path` `data/phone.json`)
+- [x] `AppConfig.phone` (`enabled` false, `port` 9883, `host` none or a `*.ts.net` name, `state_path` `data/phone.json`)
 
 **Dependencies:** none · **Files:** `src/waifu/config.py`, `tests/test_config.py` · **Scope:** XS
 
-## Task 73: Pairing and devices
+## Task 73: Pairing and devices ✅
 
 **Acceptance criteria:**
-- [ ] Pairing codes (6 digits, 10 minutes, hashed, 5 tries then burned) and devices (32-byte token, SHA-256 stored, name, times; list, revoke) per SPEC, shared through `phone.state_path` with the store file rules
+- [x] Pairing codes (6 digits, 10 minutes, hashed, 5 tries then burned) and devices (32-byte token, SHA-256 stored, name, times; list, revoke) per SPEC, shared through `phone.state_path` with the store file rules
 
 **Dependencies:** 73a · **Files:** `src/waifu/phone/auth.py`, `tests/test_phone_auth.py` · **Scope:** M
 
-## Task 74: Phone server
+## Task 74: Phone server ✅
 
 **Acceptance criteria:**
-- [ ] Routes, Host and Origin checks, the device cookie on every route but the page shell and pairing, size and concurrency limits, `PhoneBackend` per SPEC; avatar files and the model served with the same protections as the avatar server
+- [x] Routes, Host and Origin checks, the device cookie on every route but the page shell and pairing, size and concurrency limits, `PhoneBackend` per SPEC; avatar files and the model served with the same protections as the avatar server
 
 **Dependencies:** 73 · **Files:** `src/waifu/phone/server.py`, `tests/test_phone_server.py` (shared helpers in `avatar/server.py` only if extracted without changing its behaviour) · **Scope:** L
 
-## Task 75: Phone page
+## Task 75: Phone page ✅
 
 **Acceptance criteria:**
-- [ ] Full-screen avatar, chat strip, text box, hold-to-talk (16 kHz mono WAV), playback with the mouth track, pairing screen, PWA files
-- [ ] Pure helpers covered by `node --test`; checked in a browser at phone size against a fake server
+- [x] Full-screen avatar, chat strip, text box, hold-to-talk (16 kHz mono WAV), playback with the mouth track, pairing screen, PWA files
+- [x] Pure helpers covered by `node --test`; checked in a browser at phone size against a fake server
 
 **Dependencies:** 73a · **Files:** `src/waifu/avatar/web/phone/*`, `tests/js/phone*.test.mjs` · **Scope:** L
 
-## Task 76: Assistant, wiring, `waifu phone`, README
+## Task 76: Assistant, wiring, `waifu phone`, README ✅
 
 **Acceptance criteria:**
-- [ ] `Assistant.reply_for_phone` under the turn lock, not spoken on the PC, with WAV and visemes; STT for phone audio without speaker verification or wake word
-- [ ] `run` starts the server when enabled; `waifu phone setup|pair|devices|forget`; `check`; README (Tailscale on PC and Android, HTTPS certificates, `tailscale serve`, pairing, installing the page)
+- [x] `Assistant.reply_for_phone` under the turn lock, not spoken on the PC, with WAV and visemes; STT for phone audio without speaker verification or wake word
+- [x] `run` starts the server when enabled; `waifu phone setup|pair|devices|forget`; `check`; README (Tailscale on PC and Android, HTTPS certificates, `tailscale serve`, pairing, installing the page)
 
 **Dependencies:** 74, 75 · **Files:** `src/waifu/app.py`, `src/waifu/cli.py`, tests, `README.md`, `config.example.yaml` · **Scope:** L
