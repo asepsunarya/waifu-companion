@@ -266,6 +266,23 @@ optional monthly budget warns at 80 % and 100 % without ever stopping her.
 - [x] Python suite and ruff clean; no test called Claude or touched `data/` (2026-10-14: 3235 pytest on the committed tree plus tasks 70-72)
 - [ ] On the owner's PC: after a few replies, "biaya hari ini berapa?" and `waifu usage` show plausible tokens and dollars
 
+### Phase 19: Cyrene on the phone (v1.14, see SPEC → Cyrene on the phone)
+Decision: a second, authenticated web server inside `waifu run`, bound to 127.0.0.1 and exposed
+only through `tailscale serve` (real HTTPS for the phone microphone, reachable only from the
+owner's tailnet), plus one-time pairing. The phone page reuses the avatar renderers; the
+Assistant answers phone turns under the same turn lock and returns her voice and mouth track to
+the phone instead of speaking on the PC.
+- [ ] Task 73a: `phone` config
+- [ ] Task 73: `phone/auth.py`: pairing codes and devices
+- [ ] Task 74: `phone/server.py`: routes, auth, file serving, `PhoneBackend`
+- [ ] Task 75: the phone page (PWA, chat, hold-to-talk, playback) and its pure JS helpers
+- [ ] Task 76: `Assistant.reply_for_phone`, `run` wiring, `waifu phone`, check, README
+
+### Checkpoint: Cyrene on the phone
+- [ ] Python and JS suites, ruff clean; no test reached the network, Tailscale, a real brain, or `data/`
+- [ ] In a browser at phone size against a fake backend: pairing, chat, a talk round trip, audio and mouth
+- [ ] On the owner's Android: install via Tailscale URL, pair, chat and talk, "matikan lampu" works
+
 ## Risks and Mitigations
 
 | Risk | Impact | Mitigation |

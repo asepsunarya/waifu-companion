@@ -559,6 +559,39 @@ CLI: `run`/`chat` with the Claude backend and `usage.enabled`: one ledger, `on_u
 
 Safety: tests never touch `data/`, never call Claude (fake clients), never reach the network.
 
+### Cyrene on the phone (v1.14)
+
+User stories (the owner uses an Android phone):
+
+1. On the phone, the owner opens `https://<pc-name>.<tailnet>.ts.net/` (at home or anywhere) and sees Cyrene's avatar (the same Live2D model, upper framing) with a chat strip. They can install it to the home screen like an app.
+2. They type, or hold the talk button and speak; she answers in text and, with her anime voice, out of the phone's speaker, the avatar moving its mouth and showing her emotion. It is the same Cyrene: the same memory, devices, schedules, games, briefing and confirmation rules; "matikan lampu kamar" from the phone works.
+3. Nobody else can use it: the page is reachable only from the owner's Tailscale network, and only from a phone paired once with a code shown on the PC.
+
+Non-goals (v1.14): push notifications from the page (ntfy already pushes), the phone camera (v1.15), the phone speaking on the PC's speakers or the PC speaking phone replies, more than one owner, access without Tailscale, iOS-specific work.
+
+Network and security:
+- The phone server listens on `127.0.0.1:<phone.port>` only (default 9883). Tailscale exposes it: the owner runs once `tailscale serve --bg --https=443 http://127.0.0.1:9883` (Tailscale terminates HTTPS with a real certificate for the machine's `*.ts.net` name and lets only the owner's tailnet devices in). `waifu phone setup` checks that the Tailscale CLI exists, reads the machine's DNS name from `tailscale status --json` (`Self.DNSName`), and prints the exact command and URL; it never changes Tailscale settings itself.
+- Host check: every request's `Host` must be `phone.host` (the `*.ts.net` name; filled by `waifu phone setup` or written by the owner), `127.0.0.1:<port>`, or `localhost:<port>`; anything else is 403. State-changing requests (POST) also need an `Origin` that matches the same set with https for the ts.net name (403 otherwise).
+- Pairing: `waifu phone pair` creates a 6-digit code valid 10 minutes (stored hashed in `data/phone.json`, so the running `waifu run` sees it) and prints it. The page's pairing form submits it; a right code (constant-time compare, at most 5 tries per 10 minutes, then the code is burned) creates a device: a random 32-byte token returned once in a cookie `cyrene_device` (HttpOnly, Secure, SameSite=Strict, Path=/, Max-Age one year), stored only as a SHA-256 hash with a name ("Android"), created and last-used times. Every other route needs a valid device cookie (401 otherwise; the page then shows the pairing form). `waifu phone devices` lists devices, `waifu phone forget <id>` revokes one.
+- Requests are size-limited (chat text 2000 characters, audio 2 MB / 60 s) and rate-limited (at most one chat or talk at a time per device; 429 while one is running).
+
+Phone server (`phone/server.py`, stdlib `ThreadingHTTPServer` like the avatar server, its own class, `start`/`stop`/context manager, port 0 in tests):
+- `GET /` the page; `GET /manifest.webmanifest`, `/sw.js`, `/icon-192.png`, `/icon-512.png` (PWA); `GET /config.json` (engine, model URL, core URL, credit, owner_call, name; no secrets); the avatar's web files, vendored libraries, Live2D model files, and the Cubism Core, served from the same sources as the avatar server (shared helpers, the same traversal protection), all behind the device cookie.
+- `POST /pair {code}` → 204 with the cookie, or 403/429.
+- `POST /chat {text}` → `{"text", "emotion", "audio": <base64 WAV or null>, "fps", "visemes", "duration"}`.
+- `POST /talk` (body `audio/wav`, mono 16-bit PCM at 16 kHz encoded by the page) → `{"heard": <transcript>, ...the /chat fields}`; an empty transcript answers `{"heard": "", "text": null}`.
+- Backend protocol `PhoneBackend`: `chat(text) -> PhoneReply`, `transcribe(wav_bytes) -> str`; the server never touches the brain, STT, or TTS directly.
+
+Assistant integration (`app.py`): `Assistant.reply_for_phone(text) -> PhoneReply`: the brain turn runs under the same lock as the voice loop's turns (one turn at a time, history append-only); the reply is NOT spoken on the PC; her TTS (edge-tts + RVC) synthesizes it, `avatar/lipsync.viseme_track` makes the mouth track, and the audio is returned as 16-bit WAV (resampled to 24 kHz). Speaker verification and the wake word are skipped for phone audio (the device is paired; the PC voiceprint does not fit a phone microphone). Phone turns count as turns for the confirmation gate and the screen gate like any other.
+
+Page (`avatar/web/phone/`): reuses `live2d.js` (or `avatar.js` for VRM) for the avatar, full screen, upper framing; a chat strip (last few bubbles), a text box, and a hold-to-talk button (Web Audio capture → 16 kHz mono WAV in JS; released → POST /talk); plays the reply with Web Audio after the first touch (Android autoplay rule) and drives the mouth with the returned visemes via the renderer's existing `speak(event)`; shows thinking/listening states; a pairing screen when the cookie is missing. Pure helpers (downsampling, WAV encoding, response handling) live in a module with `node --test` coverage.
+
+Config `phone` (committed with its tests before the parallel tasks): `enabled` (default false), `port` (default 9883), `host` (the ts.net name, default none), `state_path` (default `data/phone.json`).
+
+CLI: `run` starts the phone server when `phone.enabled` (with the Assistant as the backend); `waifu phone setup | pair | devices | forget <id>`; `check` reports the server, Tailscale (CLI found, logged in, serve configured for the port), `phone.host`, and the paired devices. README (Indonesian): installing Tailscale on PC and Android, enabling HTTPS certificates in the Tailscale admin console, `waifu phone setup`, `tailscale serve`, pairing, installing the page to the home screen, privacy (the model and voice stay on the owner's devices; replies go through Claude as usual).
+
+Safety: tests use 127.0.0.1 and port 0, fake backends (no brain, STT, TTS, or network), tmp state paths, and never run the Tailscale CLI (an injected runner).
+
 ## Code Style
 
 See `CLAUDE.md` → Code Conventions and Patterns. Dataclasses for value
