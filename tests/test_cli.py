@@ -7,6 +7,7 @@ import runpy
 import shutil
 import socket
 import sys
+import tempfile
 import threading
 import types
 import urllib.error
@@ -32,6 +33,7 @@ from waifu.avatar.server import AvatarError
 from waifu.avatar.window import AvatarWindow
 from waifu.brain.base import Brain, BrainReply, ToolCallRecord
 from waifu.brain.memory_tools import MemoryTools
+from waifu.brain.schedule_tools import ScheduleTools
 from waifu.config import AvatarConfig, RvcConfig
 from waifu.devices.base import DeviceError
 from waifu.devices.ir_codes import IrCodeStore
@@ -50,6 +52,8 @@ from waifu.gacha.hoyolab import (
 )
 from waifu.gacha.tools import GachaTools
 from waifu.memory import MemoryStore, memory_prompt_section
+from waifu.schedule import DeviceAction, Reminder, RoutineAction, ScheduleStore
+from waifu.scheduler import Scheduler
 from waifu.single_instance import InstanceLock
 from waifu.voice.base import SpeakerEmbedder, SpeechToText, Transcript
 from waifu.voice.rvc import RvcError
@@ -109,18 +113,31 @@ def no_real_game_caches(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def no_real_memory(tmp_path, monkeypatch):
-    """Every memory store a command builds lives under tmp_path: a test that leaves the working
-    directory at the repository fails instead of reading or writing the owner's notes in
-    data/memory.json (building a store touches no file, so the refusal comes first)."""
-    real_store = cli.MemoryStore
+def no_real_memory_or_schedule(tmp_path, monkeypatch):
+    """Every memory and schedule store a command builds lives under tmp_path: a test that leaves
+    the working directory at the repository fails instead of reading or writing the owner's
+    notes in data/memory.json or schedule in data/schedule.json (building a store touches no
+    file, so the refusal comes first)."""
+    for name in ("MemoryStore", "ScheduleStore"):
+        monkeypatch.setattr(cli, name, only_under(tmp_path, getattr(cli, name)))
 
+
+@pytest.fixture(autouse=True)
+def temporary_folders_under_tmp_path(tmp_path, monkeypatch):
+    """The throwaway schedule of a dry run lives in a temporary folder: keep those folders in
+    tmp_path, where the store guard above allows them."""
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+
+
+def only_under(tmp_path: Path, store_class: type) -> Callable[..., object]:
     def store_under_tmp_path(path, **limits):
         if not Path(path).resolve().is_relative_to(tmp_path.resolve()):
-            raise AssertionError(f"a test reached a memory file outside tmp_path: {path}")
-        return real_store(path, **limits)
+            raise AssertionError(
+                f"a test reached the file of a {store_class.__name__} outside tmp_path: {path}"
+            )
+        return store_class(path, **limits)
 
-    monkeypatch.setattr(cli, "MemoryStore", store_under_tmp_path)
+    return store_under_tmp_path
 
 
 @pytest.fixture(autouse=True)
@@ -558,6 +575,11 @@ def event_player(events, monkeypatch) -> None:
         (["memory", "add", "Master", "suka", "kopi."], "memory"),
         (["memory", "forget", "m3"], "memory"),
         (["memory", "clear", "--yes"], "memory"),
+        (["schedule", "list"], "schedule"),
+        (["schedule", "cancel", "j3"], "schedule"),
+        (["schedule", "clear", "--yes"], "schedule"),
+        (["routine", "list"], "routine"),
+        (["routine", "run", "tidur", "--dry-run"], "routine"),
     ],
 )
 def test_every_subcommand_in_the_spec_parses(argv, command):
@@ -3661,8 +3683,12 @@ def test_run_with_the_games_on_gives_the_brain_the_game_tools_and_watches_while_
 
     assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
 
-    [tools, memory_tools] = brains[0].providers
-    assert (type(tools), type(memory_tools)) == (GachaTools, MemoryTools)
+    [tools, memory_tools, schedule] = brains[0].providers
+    assert (type(tools), type(memory_tools), type(schedule)) == (
+        GachaTools,
+        MemoryTools,
+        ScheduleTools,
+    )
     assert [spec.name for spec in tools.specs()] == ["game_status", "gacha_history"]
     [watcher] = watchers
     assistant = RecordingAssistant.instances[0]
@@ -3681,7 +3707,11 @@ def test_run_without_a_cookie_has_the_game_tools_but_no_watcher(
 
     assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
 
-    assert [type(tools) for tools in brains[0].providers] == [GachaTools, MemoryTools]
+    assert [type(tools) for tools in brains[0].providers] == [
+        GachaTools,
+        MemoryTools,
+        ScheduleTools,
+    ]
     assert watchers == []
 
 
@@ -3689,7 +3719,7 @@ def test_run_with_the_games_off_builds_none_of_it(home, run_fakes, brains, games
     assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
 
     assert (games.built, watchers) == ([], [])
-    assert [type(tools) for tools in brains[0].providers] == [MemoryTools]
+    assert [type(tools) for tools in brains[0].providers] == [MemoryTools, ScheduleTools]
 
 
 def test_chat_with_the_games_on_gives_the_brain_the_game_tools(home, brains, games, monkeypatch):
@@ -3698,7 +3728,11 @@ def test_chat_with_the_games_on_gives_the_brain_the_game_tools(home, brains, gam
 
     assert cli.main(["chat", "--dry-run"]) == 0
 
-    assert [type(tools) for tools in brains[0].providers] == [GachaTools, MemoryTools]
+    assert [type(tools) for tools in brains[0].providers] == [
+        GachaTools,
+        MemoryTools,
+        ScheduleTools,
+    ]
 
 
 def test_check_reports_the_games_off(home, nothing_installed, capsys):
@@ -3802,7 +3836,7 @@ def disable_memory(home: Path) -> None:
 
 
 def test_memory_outside_tmp_path_is_refused_so_no_test_touches_the_owner_s_notes():
-    with pytest.raises(AssertionError, match="outside tmp_path"):
+    with pytest.raises(AssertionError, match="MemoryStore outside tmp_path"):
         cli.MemoryStore(ROOT / "data" / "memory.json")
 
 
@@ -3814,7 +3848,7 @@ def test_run_gives_the_brain_her_memory_tools_and_the_notes_at_each_session_star
     assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
 
     brain = brains[0]
-    [tools] = brain.providers
+    [tools, _] = brain.providers  # then the schedule tools
     assert isinstance(tools, MemoryTools)
     assert brain.memory_section() == memory_prompt_section([])
     assert tools.run("remember", {"text": "Master alergi udang."})[1] is False
@@ -3831,7 +3865,7 @@ def test_chat_gives_the_brain_the_notes_saved_in_data_memory_json(home, brains, 
 
     assert cli.main(["chat", "--dry-run"]) == 0
 
-    assert [type(tools) for tools in brains[0].providers] == [MemoryTools]
+    assert [type(tools) for tools in brains[0].providers] == [MemoryTools, ScheduleTools]
     assert "Master suka kopi." in brains[0].memory_section()
 
 
@@ -3844,7 +3878,8 @@ def test_with_the_memory_off_the_brain_gets_neither_the_tools_nor_the_notes(
 
     assert cli.main([*argv, "--dry-run"]) == 0
 
-    assert (brains[0].providers, brains[0].memory_section) == ([], None)
+    assert [type(tools) for tools in brains[0].providers] == [ScheduleTools]
+    assert brains[0].memory_section is None
     assert not memory_file(home).exists()
 
 
@@ -4024,3 +4059,529 @@ def test_check_fails_a_memory_file_it_cannot_read(home, nothing_installed, capsy
 
     line = memory_line(capsys.readouterr().out)
     assert line.startswith(f"✗ File ingatan {Path('data/memory.json')} tidak bisa dibaca")
+
+
+# --- schedules, reminders, and routines ------------------------------------------------------
+
+
+def test_schedule_outside_tmp_path_is_refused_so_no_test_touches_the_owner_s_schedule():
+    with pytest.raises(AssertionError, match="ScheduleStore outside tmp_path"):
+        cli.ScheduleStore(ROOT / "data" / "schedule.json")
+
+
+def schedule_file(home: Path) -> Path:
+    """Where the example config keeps her schedule, inside the test's working directory."""
+    return home / "data" / "schedule.json"
+
+
+def disable_schedule(home: Path) -> None:
+    config = home / "config.yaml"
+    text = config.read_text(encoding="utf-8")
+    disabled = text.replace("schedule:\n  enabled: true\n", "schedule:\n  enabled: false\n")
+    assert disabled != text
+    config.write_text(disabled, encoding="utf-8")
+
+
+def enable_example_routines(home: Path) -> None:
+    """The example config with its commented `routines` example written out (the `tidur`
+    routine: lampu_kamar off, ac temp 26)."""
+    config = home / "config.yaml"
+    text = config.read_text(encoding="utf-8")
+    commented = text[text.index("# routines:\n") :].split("\n\n", 1)[0]
+    written_out = "\n".join(line.removeprefix("# ") for line in commented.splitlines())
+    config.write_text(text.replace(commented, written_out), encoding="utf-8")
+
+
+def tomorrow_at(hour: int) -> datetime:
+    """A local time the schedule accepts whenever the test runs."""
+    return (datetime.now() + timedelta(days=1)).replace(
+        hour=hour, minute=0, second=0, microsecond=0
+    )
+
+
+def schedule_tools(brain: HouseBrain) -> ScheduleTools:
+    [tools] = [provider for provider in brain.providers if isinstance(provider, ScheduleTools)]
+    return tools
+
+
+def schedule_at(tools: ScheduleTools, at: datetime, **action) -> tuple[str, bool]:
+    return tools.run("schedule", {"at": f"{at:%Y-%m-%d %H:%M}", **action})
+
+
+def listening() -> bool:
+    return any(assistant.ran_with is not None for assistant in RecordingAssistant.instances)
+
+
+class FakeScheduler:
+    """Stands in for Scheduler without a thread, remembering whether `waifu run` listened when
+    it started and stopped. `tick_at(moment)` runs one tick of a real Scheduler built with the
+    same arguments, to see what would fire at that moment."""
+
+    def __init__(self, store, **arguments) -> None:
+        self.store = store
+        self.arguments = arguments
+        self.states: list[str] = []
+        self.listening: list[bool] = []
+
+    def __enter__(self) -> "FakeScheduler":
+        self.states.append("started")
+        self.listening.append(listening())
+        return self
+
+    def __exit__(self, *exc_info) -> None:
+        self.states.append("stopped")
+        self.listening.append(listening())
+
+    def tick_at(self, moment: datetime) -> None:
+        Scheduler(self.store, **self.arguments, now=lambda: moment).tick_once()
+
+
+@pytest.fixture
+def schedulers(monkeypatch) -> list[FakeScheduler]:
+    built: list[FakeScheduler] = []
+    RecordingAssistant.instances = []
+
+    def build(store, **arguments) -> FakeScheduler:
+        built.append(FakeScheduler(store, **arguments))
+        return built[-1]
+
+    monkeypatch.setattr(cli, "Scheduler", build)
+    return built
+
+
+def scheduler_threads() -> list[threading.Thread]:
+    return [thread for thread in threading.enumerate() if thread.name == "scheduler"]
+
+
+MEDICINE = "Master, sudah jam tiga, waktunya minum obat!"
+
+
+def test_run_gives_the_brain_the_schedule_tools_and_fires_her_schedule_while_she_listens(
+    home, run_fakes, brains, schedulers, monkeypatch
+):
+    enable_example_routines(home)
+    enable_notify(home)
+    notifier = FakeNotifier()
+    use_notifier(monkeypatch, notifier)
+    at = tomorrow_at(15)
+    refused: list[bool] = []
+    left: list[int] = []
+
+    def listen(self, mic, segmenter) -> None:
+        # A dry run's schedule lasts as long as the session, so everything happens in it.
+        self.ran_with = (mic, segmenter)
+        for action in (
+            {"reminder": MEDICINE},
+            {"device": "ac", "command": "temp", "value": 24},
+            {"routine": "tidur"},
+        ):
+            refused.append(schedule_at(schedule_tools(brains[0]), at, **action)[1])
+        schedulers[0].tick_at(at)
+        left.append(len(schedulers[0].store.entries()))
+
+    monkeypatch.setattr(RecordingAssistant, "run", listen)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    brain = brains[0]
+    assert [type(tools) for tools in brain.providers] == [MemoryTools, ScheduleTools]
+    [scheduler] = schedulers
+    assert scheduler.states == ["started", "stopped"]
+    assert scheduler.listening == [False, True]
+    assert refused == [False, False, False]
+    # The reminder is said and pushed; the device command and the routine run without a word.
+    assert RecordingAssistant.instances[0].announced == [(MEDICINE, "happy")]
+    assert notifier.sent == [("Cyrene", MEDICINE, ("alarm_clock",))]
+    assert brain.registry.get("ac").calls == [("temp_24", 24), ("temp_26", 26)]
+    assert brain.registry.get("lampu_kamar").calls == [("off", None)]
+    assert left == [0]
+
+
+def test_run_keeps_her_schedule_where_and_as_the_config_says(home, run_fakes, brains, schedulers):
+    write_config(
+        home, "schedule:\n  path: jadwal/jadwal.json\n  max_entries: 1\n  late_grace_minutes: 5\n"
+    )
+
+    # Not a dry run, which keeps a schedule of its own; this config has no devices to reach.
+    assert cli.main(["run", "--no-speaker-check"]) == 0
+
+    tools = schedule_tools(brains[0])
+    at = tomorrow_at(7)
+    assert schedule_at(tools, at, reminder="Master, bangun!")[1] is False
+    result, is_error = schedule_at(tools, at, reminder="Master, sarapan!")
+    assert is_error and "penuh" in result
+    store = ScheduleStore(home / "jadwal" / "jadwal.json")
+    assert [entry.action for entry in store.entries()] == [Reminder("Master, bangun!")]
+    schedulers[0].tick_at(at + timedelta(minutes=6))  # later than the 5 minutes of grace
+    assert RecordingAssistant.instances[0].announced == []
+    assert store.entries() == []
+
+
+def test_run_checks_her_schedule_in_a_thread_only_while_she_listens(run_fakes, monkeypatch):
+    threads_while_listening: list[int] = []
+
+    def listen(self, mic, segmenter) -> None:
+        threads_while_listening.append(len(scheduler_threads()))
+
+    monkeypatch.setattr(RecordingAssistant, "run", listen)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    assert threads_while_listening == [1]
+    assert scheduler_threads() == []
+
+
+def test_chat_prints_what_her_schedule_fires_and_pushes_nothing_to_the_phone(
+    home, brains, schedulers, monkeypatch, capsys
+):
+    enable_notify(home)
+    notifier = FakeNotifier()
+    use_notifier(monkeypatch, notifier)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main(["chat"]) == 0  # no `waifu run` is running
+
+    [scheduler] = schedulers
+    assert scheduler.states == ["started", "stopped"]
+    assert scheduler.store.path.resolve() == schedule_file(home).resolve()
+    at = tomorrow_at(15)
+    assert schedule_at(schedule_tools(brains[0]), at, reminder=MEDICINE)[1] is False
+    capsys.readouterr()
+    scheduler.tick_at(at)
+    assert capsys.readouterr().out == f"Cyrene: {MEDICINE}\n"
+    assert notifier.sent == []
+
+
+def test_chat_leaves_firing_her_schedule_to_a_running_waifu_run(
+    home, brains, schedulers, monkeypatch, capsys
+):
+    # Two schedulers on one file: whichever ticks first takes the entry, and in chat it would
+    # only be printed, never spoken or pushed.
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    with InstanceLock(home / "data" / "run.lock"):
+        assert cli.main(["chat"]) == 0
+
+    assert schedulers == []
+    assert cli.SCHEDULE_IN_RUN in capsys.readouterr().out
+    # She still makes, lists, and cancels entries, for the running Cyrene to fire.
+    assert schedule_at(schedule_tools(brains[0]), tomorrow_at(15), reminder=MEDICINE)[1] is False
+    assert [entry.action for entry in ScheduleStore(schedule_file(home)).entries()] == [
+        Reminder(MEDICINE)
+    ]
+
+
+@pytest.mark.parametrize("argv", [["run", "--no-speaker-check"], ["chat"]])
+def test_a_dry_run_keeps_a_schedule_of_its_own_and_never_touches_the_real_one(
+    argv, home, run_fakes, brains, schedulers, monkeypatch, capsys
+):
+    saved_schedule(schedule_file(home))  # Master's real schedule: j2 is "ac off" at 02:00
+    real = schedule_file(home).read_bytes()
+    refused: list[bool] = []
+
+    def try_a_schedule(*args, **kwargs) -> BrainReply:
+        # Master tries a schedule in the dry run while the real "ac off" comes due.
+        tools = schedule_tools(brains[0])
+        refused.append(
+            schedule_at(tools, tomorrow_at(15), device="ac", command="temp", value=24)[1]
+        )
+        schedulers[0].tick_at(datetime(2026, 10, 14, 2, 0, 5))
+        return BrainReply("Siap, Master.", [])
+
+    monkeypatch.setattr(RecordingAssistant, "run", try_a_schedule)
+    monkeypatch.setattr(HouseBrain, "respond", try_a_schedule)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("matikan AC jam 2\nkeluar\n"))
+
+    assert cli.main([*argv, "--dry-run"]) == 0
+
+    assert refused == [False]
+    assert schedule_file(home).read_bytes() == real  # neither used up nor added to
+    assert brains[0].registry.get("ac").calls == []
+    [scheduler] = schedulers
+    assert not scheduler.store.path.parent.exists()  # the throwaway schedule ended with it
+    assert cli.DRY_RUN_SCHEDULE.format(path=Path("data/schedule.json")) in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("argv", [["run", "--no-speaker-check"], ["chat"]])
+def test_with_the_schedule_off_she_gets_neither_the_tools_nor_a_scheduler(
+    argv, home, run_fakes, brains, schedulers, monkeypatch
+):
+    disable_schedule(home)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main([*argv, "--dry-run"]) == 0
+
+    assert [type(tools) for tools in brains[0].providers] == [MemoryTools]
+    assert schedulers == []
+    assert not schedule_file(home).exists()
+
+
+SAVED_ON = datetime(2026, 10, 13, 14, 30)  # a Tuesday
+
+
+def saved_schedule(path: Path) -> ScheduleStore:
+    """A schedule saved on SAVED_ON: reminders, device commands, and a routine, some repeating."""
+    store = ScheduleStore(path, now=lambda: SAVED_ON)
+    store.add(datetime(2026, 10, 13, 15, 0), "none", Reminder(MEDICINE))
+    store.add(datetime(2026, 10, 14, 2, 0), "none", DeviceAction("ac", "off"))
+    store.add(datetime(2026, 10, 13, 23, 0), "daily", RoutineAction("tidur"))
+    store.add(datetime(2026, 10, 17, 7, 0), "weekdays", Reminder("Master, bangun!"))  # Monday
+    store.add(datetime(2026, 10, 17, 22, 0), "weekends", DeviceAction("ac", "temp", 26))
+    return store
+
+
+def scheduled_ids(path: Path) -> list[str]:
+    return [entry.id for entry in ScheduleStore(path).entries()]
+
+
+def test_schedule_and_routine_need_an_action():
+    for command in ("schedule", "routine"):
+        with pytest.raises(SystemExit):
+            cli.build_parser().parse_args([command])
+
+
+def test_schedule_list_without_entries_says_so_and_creates_no_file(home, capsys):
+    assert cli.main(["schedule", "list"]) == 0
+
+    assert capsys.readouterr().out == "Belum ada jadwal.\n"
+    assert not schedule_file(home).exists()
+
+
+def test_schedule_list_prints_each_entry_soonest_first_also_with_the_schedule_off(home, capsys):
+    saved_schedule(schedule_file(home))
+    disable_schedule(home)
+
+    assert cli.main(["schedule", "list"]) == 0
+
+    assert capsys.readouterr().out.splitlines() == [
+        "ID  BERIKUTNYA               ULANG             ISI",
+        f'j1  Selasa 13-10-2026 15:00  sekali            pengingat "{MEDICINE}"',
+        "j3  Selasa 13-10-2026 23:00  tiap hari         rutinitas tidur",
+        "j2  Rabu 14-10-2026 02:00    sekali            perangkat ac off",
+        "j5  Sabtu 17-10-2026 22:00   tiap akhir pekan  perangkat ac temp 26",
+        'j4  Senin 19-10-2026 07:00   tiap hari kerja   pengingat "Master, bangun!"',
+    ]
+
+
+def test_schedule_cancel_deletes_one_entry_and_says_which(home, capsys):
+    saved_schedule(schedule_file(home))
+
+    assert cli.main(["schedule", "cancel", "j2"]) == 0
+
+    assert capsys.readouterr().out == (
+        "✓ Dibatalkan j2: perangkat ac off, Rabu 14-10-2026 02:00, sekali\n"
+    )
+    assert scheduled_ids(schedule_file(home)) == ["j1", "j3", "j5", "j4"]
+
+
+def test_schedule_cancel_of_an_unknown_id_fails_with_the_reason(home, capsys):
+    assert cli.main(["schedule", "cancel", "j9"]) == 1
+
+    assert capsys.readouterr().out == "✗ Tidak ada jadwal dengan id itu.\n"
+    assert not schedule_file(home).exists()
+
+
+def test_schedule_clear_without_yes_only_says_how_many_would_go_and_how_to_confirm(home, capsys):
+    saved_schedule(schedule_file(home))
+
+    assert cli.main(["schedule", "clear"]) == 0
+
+    out = capsys.readouterr().out
+    assert "5 jadwal" in out and "waifu schedule clear --yes" in out
+    assert len(scheduled_ids(schedule_file(home))) == 5
+
+
+def test_schedule_clear_yes_deletes_every_entry_in_the_file_the_config_names(home, capsys):
+    write_config(home, "schedule:\n  path: jadwal/jadwal.json\n")
+    saved_schedule(home / "jadwal" / "jadwal.json")
+
+    assert cli.main(["schedule", "clear", "--yes"]) == 0
+
+    assert capsys.readouterr().out == "✓ 5 jadwal dihapus.\n"
+    assert scheduled_ids(home / "jadwal" / "jadwal.json") == []
+
+
+@pytest.mark.parametrize("argv", [["schedule", "clear"], ["schedule", "clear", "--yes"]])
+def test_schedule_clear_without_entries_has_nothing_to_delete(argv, home, capsys):
+    assert cli.main(argv) == 0
+
+    assert capsys.readouterr().out == "Belum ada jadwal; tidak ada yang dihapus.\n"
+    assert not schedule_file(home).exists()
+
+
+@pytest.fixture
+def registries(monkeypatch) -> list[tuple[DeviceRegistry, bool]]:
+    """Every registry a command builds, with whether it was the dry-run one."""
+    built: list[tuple[DeviceRegistry, bool]] = []
+    real_build = cli.build_registry
+
+    def build(config, *, dry_run=False) -> DeviceRegistry:
+        built.append((real_build(config, dry_run=dry_run), dry_run))
+        return built[-1][0]
+
+    monkeypatch.setattr(cli, "build_registry", build)
+    return built
+
+
+def test_routine_list_describes_each_routine_of_the_config(home, capsys):
+    enable_example_routines(home)
+
+    assert cli.main(["routine", "list"]) == 0
+
+    assert capsys.readouterr().out == "tidur: Mode tidur (lampu_kamar off, ac temp 26)\n"
+
+
+def test_routine_list_without_routines_says_where_to_write_them(home, capsys):
+    assert cli.main(["routine", "list"]) == 0
+
+    out = capsys.readouterr().out
+    assert out.startswith("Belum ada rutinitas.") and "config.yaml" in out
+
+
+def test_routine_run_with_dry_run_runs_every_step_on_the_simulated_devices(
+    home, registries, capsys
+):
+    enable_example_routines(home)
+
+    assert cli.main(["routine", "run", "tidur", "--dry-run"]) == 0
+
+    [(registry, dry_run)] = registries
+    assert dry_run is True
+    assert registry.get("lampu_kamar").calls == [("off", None)]
+    assert registry.get("ac").calls == [("temp_26", 26)]
+    assert capsys.readouterr().out.splitlines() == [
+        "Menjalankan rutinitas tidur (perangkat simulasi)...",
+        "✓ Langkah 1 (lampu_kamar off): Lampu kamar: perintah 'off' berhasil (simulasi).",
+        "✓ Langkah 2 (ac temp 26): AC Samsung: perintah 'temp_26' berhasil (simulasi).",
+    ]
+
+
+def test_routine_run_goes_on_after_a_failed_step_and_exits_1(home, registries, capsys):
+    with (home / "config.yaml").open("a", encoding="utf-8") as config:
+        config.write(
+            "routines:\n"
+            "  film:\n"
+            "    steps:\n"
+            "      - {device: proyektor, command: terbang}\n"
+            "      - {device: lampu_kamar, command: off}\n"
+        )
+
+    assert cli.main(["routine", "run", "film", "--dry-run"]) == 1
+
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[1].startswith("✗ Langkah 1 (proyektor terbang): ")
+    assert "tidak punya perintah 'terbang'" in lines[1]
+    assert lines[2].startswith("✓ Langkah 2 (lampu_kamar off): ")
+    assert registries[0][0].get("lampu_kamar").calls == [("off", None)]
+
+
+def test_routine_run_without_dry_run_uses_the_devices_of_the_config(home, registries, capsys):
+    write_config(
+        home,
+        "devices:\n"
+        "  - {id: kipas, name: Kipas, type: mock}\n"
+        "routines:\n"
+        "  angin:\n"
+        "    steps:\n"
+        "      - {device: kipas, command: on}\n",
+    )
+
+    assert cli.main(["routine", "run", "angin"]) == 0
+
+    [(registry, dry_run)] = registries
+    assert dry_run is False
+    assert registry.get("kipas").calls == [("on", None)]
+    assert capsys.readouterr().out.splitlines()[0] == "Menjalankan rutinitas angin..."
+
+
+def test_routine_run_of_an_unknown_routine_names_the_ones_there_are(home, registries, capsys):
+    enable_example_routines(home)
+
+    assert cli.main(["routine", "run", "pesta", "--dry-run"]) == 1
+
+    assert capsys.readouterr().out == (
+        "✗ Tidak ada rutinitas bernama 'pesta' di config.yaml. Rutinitas yang ada: tidur.\n"
+    )
+    assert registries == []
+
+
+def schedule_line(out: str) -> str:
+    [line] = [line for line in out.splitlines() if "Jadwal" in line or "jadwal" in line]
+    return line
+
+
+def routine_lines(out: str) -> list[str]:
+    return [line for line in out.splitlines() if "Rutinitas" in line]
+
+
+def test_check_counts_her_schedule_and_names_the_schedule_file(home, nothing_installed, capsys):
+    saved_schedule(schedule_file(home))
+
+    cli.main(["check"])
+
+    line = schedule_line(capsys.readouterr().out)
+    assert line == f"✓ Jadwal: 5 entri ({Path('data/schedule.json')})"
+
+
+def test_check_reports_the_schedule_off(home, nothing_installed, capsys):
+    disable_schedule(home)
+
+    cli.main(["check"])
+
+    assert schedule_line(capsys.readouterr().out) == "! Jadwal mati (schedule.enabled: false)"
+
+
+def test_check_shows_where_a_broken_schedule_file_was_moved(home, nothing_installed, capsys):
+    schedule_file(home).parent.mkdir()
+    schedule_file(home).write_text("{jadwal yang rusak", encoding="utf-8")
+
+    cli.main(["check"])
+
+    [moved] = schedule_file(home).parent.glob("schedule.json.corrupt-*")
+    line = schedule_line(capsys.readouterr().out)
+    assert line.startswith(f"! Jadwal: 0 entri ({Path('data/schedule.json')})")
+    assert str(Path("data") / moved.name) in line
+    assert moved.read_text(encoding="utf-8") == "{jadwal yang rusak"
+    assert not schedule_file(home).exists()
+
+
+def test_check_fails_a_schedule_file_it_cannot_read(home, nothing_installed, capsys):
+    schedule_file(home).mkdir(parents=True)  # a folder where the file should be
+
+    cli.main(["check"])
+
+    line = schedule_line(capsys.readouterr().out)
+    assert line.startswith(f"✗ File jadwal {Path('data/schedule.json')} tidak bisa dibaca")
+
+
+def test_check_names_each_routine_step_the_real_devices_cannot_run(home, nothing_installed, capsys):
+    enable_example_routines(home)  # the AC has learned no IR code yet
+
+    cli.main(["check"])
+
+    assert routine_lines(capsys.readouterr().out) == [
+        "✗ Rutinitas tidur: Langkah 2 (ac temp 26): AC Samsung tidak punya perintah 'temp' "
+        "dengan nilai 26."
+    ]
+
+
+def test_check_marks_a_routine_whose_every_step_can_run(home, nothing_installed, capsys):
+    enable_example_routines(home)
+    IrCodeStore(home / "data" / "ir_codes.json").put("ac", "temp_26", "JgBQAAABKJIUEhQ3")
+
+    cli.main(["check"])
+
+    assert routine_lines(capsys.readouterr().out) == [
+        "✓ Rutinitas tidur: Mode tidur (lampu_kamar off, ac temp 26)"
+    ]
+
+
+def test_check_fails_a_routine_whose_ir_codes_cannot_be_read(home, nothing_installed, capsys):
+    enable_example_routines(home)
+    (home / "data").mkdir()
+    (home / "data" / "ir_codes.json").write_text("{kode yang rusak", encoding="utf-8")
+
+    cli.main(["check"])
+
+    [line] = routine_lines(capsys.readouterr().out)
+    assert line.startswith("✗ Rutinitas tidur: kode IR tidak bisa dibaca (")

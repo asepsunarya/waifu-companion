@@ -34,6 +34,7 @@ Cyrene : "Yakin mau dimatikan sekarang, Master?" (minta konfirmasi dulu)
 - [Avatar Live2D & interaksi](#avatar-live2d--interaksi)
 - [Teman main gacha (HoYoverse)](#teman-main-gacha-hoyoverse)
 - [Ingatan Cyrene](#ingatan-cyrene)
+- [Jadwal, pengingat, dan rutinitas](#jadwal-pengingat-dan-rutinitas)
 - [Pemecahan masalah](#pemecahan-masalah)
 - [Checklist uji perangkat keras](#checklist-uji-perangkat-keras)
 - [Privasi](#privasi)
@@ -115,9 +116,14 @@ mengingatkan lewat suara (di sela kalimatmu, tidak pernah memotong) dan notifika
 Ingatan jangka panjang menambah dua tool lagi (`remember` dan `forget`) yang mengubah
 `data\memory.json`; isi file itu ditambahkan ke akhir system prompt di awal setiap sesi.
 
+Jadwal menambah tool `schedule`, `list_schedules`, `cancel_schedule`, dan `run_routine`
+(kalau ada rutinitas di `config.yaml`) yang mengubah `data\schedule.json`, dan satu thread di
+`waifu run` yang mengecek file itu setiap 15 detik: pengingat diucapkan dan dikirim ke HP,
+perintah perangkat dan rutinitas dijalankan lewat `DeviceRegistry` yang sama.
+
 Kode ada di `src/waifu/`: `devices/`, `brain/`, `voice/`, `avatar/`, `gacha/`, lalu
-`memory.py`, `notify.py`, `gate.py`, `app.py`, dan `cli.py` yang menyatukan semuanya. Detail kontrak
-tiap modul ada di `SPEC.md`.
+`memory.py`, `schedule.py`, `routines.py`, `scheduler.py`, `notify.py`, `gate.py`, `app.py`,
+dan `cli.py` yang menyatukan semuanya. Detail kontrak tiap modul ada di `SPEC.md`.
 
 ## Instalasi
 
@@ -459,7 +465,9 @@ Pilih salah satu:
 > Jangan pernah mematikan colokan selagi Windows masih menyala; itu sama dengan
 > mencabut kabel. Contoh config berisi `colokan_pc` supaya terlihat di
 > `waifu devices`; kalau khawatir salah perintah suara, hapus blok itu dari
-> `config.yaml` dan kendalikan colokan hanya dari aplikasi.
+> `config.yaml` dan kendalikan colokan hanya dari aplikasi. Bagi Cyrene colokan ini
+> colokan biasa, bukan PC: jangan pernah menjadwalkannya mati atau menjadikannya langkah
+> rutinitas (lihat [Cara jadwal dijalankan](#cara-jadwal-dijalankan)).
 
 **B. Wake-on-LAN.**
 
@@ -513,12 +521,12 @@ waifu speaker-test    # skor kecocokan langsung, Ctrl+C untuk berhenti
 | Perintah | Kegunaan |
 |---|---|
 | `waifu run` | Mode suara: muat model, lalu dengarkan mic dan jawab dengan suara (Ctrl+C untuk berhenti) |
-| `waifu run --dry-run` | Mode suara dengan perangkat simulasi, tanpa menyentuh perangkat asli |
+| `waifu run --dry-run` | Mode suara dengan perangkat simulasi dan jadwal sementara, tanpa menyentuh perangkat atau jadwal asli |
 | `waifu run --no-speaker-check` | Layani semua suara, bukan hanya Master |
 | `waifu run --startup-delay 15 --announce` | Tunggu 15 detik dulu, lalu setelah model dimuat dia bilang "Cyrene siap, Master." (dipakai autostart) |
 | `waifu autostart enable` / `disable` / `status` | Jalan otomatis saat login Windows (lihat [Jalan otomatis saat login](#jalan-otomatis-saat-login)) |
 | `waifu chat` | Ngobrol lewat teks; ketik `keluar` untuk berhenti |
-| `waifu chat --dry-run -v` | Uji persona dan tool call ke perangkat simulasi (`-v` menampilkan setiap tool call) |
+| `waifu chat --dry-run -v` | Uji persona dan tool call ke perangkat simulasi, dengan jadwal sementara (`-v` menampilkan setiap tool call) |
 | `waifu chat --speak` | Ngobrol lewat teks, jawabannya juga diucapkan |
 | `waifu say "Halo Master, おかえりなさい!"` | Uji suara: bagian Indonesia lalu Jepang |
 | `waifu say --raw "Halo Master"` | Sama, tapi tanpa suara anime (RVC), untuk membandingkan |
@@ -529,7 +537,9 @@ waifu speaker-test    # skor kecocokan langsung, Ctrl+C untuk berhenti
 | `waifu mics` | Daftar perangkat audio dan nomornya |
 | `waifu avatar` / `waifu avatar --demo` | Tampilkan avatar saja, tanpa mendengarkan; `--demo` mengganti ekspresi setiap 3 detik, dan reaksi elusan atau colekan dicetak di terminal (lihat [Avatar 3D](#avatar-3d-つくよみちゃん) dan [Avatar Live2D & interaksi](#avatar-live2d--interaksi)) |
 | `waifu memory list` / `add` / `forget` / `clear` | Lihat, tambah, dan hapus catatan ingatannya (lihat [Ingatan Cyrene](#ingatan-cyrene)) |
-| `waifu check` | Periksa config, kode IR, voiceprint, otak, ingatan, paket suara, CUDA, mic, suara anime, dan avatar |
+| `waifu schedule list` / `cancel <id>` / `clear` | Lihat dan batalkan pengingat dan perintah terjadwal (lihat [Jadwal, pengingat, dan rutinitas](#jadwal-pengingat-dan-rutinitas)) |
+| `waifu routine list` / `run <nama>` | Lihat rutinitas dari `config.yaml`, atau jalankan satu sekarang (`--dry-run`: perangkat simulasi) |
+| `waifu check` | Periksa config, kode IR, rutinitas, voiceprint, otak, ingatan, jadwal, paket suara, CUDA, mic, suara anime, dan avatar |
 
 Opsi untuk semua perintah: `--config <file>` (default `config.yaml`), `--dry-run`
 (perangkat simulasi), `-v` (log lebih rinci), `--log-file <file>` (log juga ditulis
@@ -1317,7 +1327,8 @@ Isi obrolan dilupakan setiap kali sesi berakhir (10 menit tanpa percakapan atau 
 giliran), tapi hal penting tentang Master tetap diingat: Cyrene menyimpannya sebagai
 catatan pendek di `data\memory.json`, dan di awal setiap sesi semua catatan itu dibaca
 lagi oleh otaknya. Ingatan sudah menyala dari awal (`memory.enabled: true`), di
-`waifu run` dan `waifu chat` (juga dengan `--dry-run`, yang hanya memalsukan perangkat).
+`waifu run` dan `waifu chat` (juga dengan `--dry-run`, yang memalsukan perangkat tapi
+memakai ingatan yang asli).
 
 ```text
 Master : "Cyrene, ingat ya, aku alergi udang."
@@ -1430,6 +1441,169 @@ Isinya JSON UTF-8 yang bisa dibuka dengan Notepad:
 - Untuk mematikan ingatan: `memory.enabled: false`. Dia tidak lagi membaca atau
   menyimpan catatan, tapi filenya tidak dihapus; hapus isinya dengan
   `waifu memory clear --yes` kalau mau.
+
+## Jadwal, pengingat, dan rutinitas
+
+Cyrene bisa mengingatkan Master pada jam tertentu, menjalankan perintah perangkat pada
+jamnya, dan menjalankan **rutinitas**: beberapa perintah perangkat sekaligus yang Master
+tulis sendiri di `config.yaml`. Jadwal sudah menyala dari awal (`schedule.enabled: true`)
+di `waifu run` dan `waifu chat`.
+
+```text
+Master : "Cyrene, ingatkan aku jam 3 sore minum obat."
+Cyrene : "Siap, jam tiga sore nanti aku ingatkan, Master."
+(15.00)  Cyrene : "Master, sudah jam tiga, waktunya minum obat!"
+Master : "Cyrene, matikan AC jam 2 pagi."
+Cyrene : "Oke, AC kumatikan jam dua pagi. Selamat tidur, Master."
+Master : "Cyrene, mode tidur."
+Cyrene : "Lampu kamar sudah mati dan AC di dua puluh enam derajat. おやすみなさい, Master."
+```
+
+### Contoh kalimat
+
+- **Pengingat pada jam tertentu:** "Cyrene, ingatkan aku jam 3 sore minum obat."
+- **Pengingat N menit lagi:** "Cyrene, 10 menit lagi ingatkan aku angkat jemuran." Dia tahu
+  jam sekarang dari setiap kalimatmu, lalu menghitung jamnya sendiri.
+- **Berulang:** "Cyrene, setiap hari jam 7 pagi bangunkan aku.", "... tiap hari kerja"
+  (Senin–Jumat), atau "... tiap akhir pekan" (Sabtu–Minggu).
+- **Perangkat pada jamnya:** "Cyrene, matikan AC jam 2 pagi.", "Cyrene, nyalakan lampu kamar
+  setiap hari jam 6 sore."
+- **Rutinitas sekarang:** "Cyrene, mode tidur." **Rutinitas pada jamnya:** "Cyrene, jalankan
+  mode tidur jam 11 malam."
+- **Daftar jadwal:** "Cyrene, ada jadwal apa saja?" (dijawab dengan ringkasan singkat).
+- **Membatalkan:** "Cyrene, batalkan pengingat obat."
+
+Jam yang sudah lewat hari ini biasanya berarti besok: "jam 7 pagi" yang diucapkan malam hari
+dijadwalkan besok pagi. Dia selalu menyebut jam yang dia jadwalkan; kalau salah, minta
+batalkan lalu ulangi.
+
+### Cara jadwal dijalankan
+
+- **Pengingat** diucapkan sendiri di sela kalimatmu (tidak pernah memotong jawaban atau
+  omonganmu, sama seperti pengingat game) dan dikirim ke HP lewat ntfy kalau
+  `notify.enabled: true` (lihat [Notifikasi ke HP](#3-notifikasi-ke-hp-ntfy)).
+- **Perintah perangkat dan rutinitas** dijalankan diam-diam, karena Master mungkin sedang
+  tidur. Dia hanya bicara kalau gagal, misalnya "Master, jadwal ac off jam 02.00 gagal:
+  ...", dan mengirim notifikasi hanya kalau `notify.enabled: true`. Tanpa notifikasi HP,
+  kegagalan tengah malam hanya diucapkan sekali ke kamar yang sedang tidur; jadwal sekali
+  lalu hilang dari `waifu schedule list`, dan jejak lainnya hanya baris WARNING (bahasa
+  Inggris) di log (`logs\waifu.log` saat autostart). Untuk jadwal perangkat dan rutinitas,
+  sebaiknya nyalakan [notifikasi ke HP](#3-notifikasi-ke-hp-ntfy).
+- **Hanya selama `waifu run` menyala.** Tidak ada hub atau layanan lain yang menjalankan
+  jadwal: kalau PC mati, tidur, atau Cyrene ditutup, tidak ada yang jalan. Saat dia jalan
+  lagi, jadwal yang terlewat paling lama `schedule.late_grace_minutes` menit (bawaan 30)
+  masih dijalankan. Yang lebih telat dilewati: jadwal sekali dihapus, dan jadwal berulang
+  pindah ke jam berikutnya yang belum lewat dari batas itu. Jadi kalau PC mati sepanjang
+  akhir pekan, jadwal "tiap hari jam 7" tetap jalan Senin pagi saat PC dinyalakan 07.10.
+- Pengingat yang terlewat hanya dikirim ke HP sebagai `Terlewat (07.00): ...` (dengan
+  tanggalnya kalau bukan hari ini, misalnya `Terlewat (10-10-2026 07.00): ...`), tidak
+  diucapkan. **Tanpa notifikasi HP** (`notify.enabled: false`, bawaan) **pengingat yang
+  terlewat hilang tanpa pemberitahuan**; jejaknya hanya baris WARNING di log.
+- Jadwal dicek setiap 15 detik, jadi bisa jalan sampai sekitar 15 detik setelah menitnya.
+  Jam pada menit yang sedang berjalan masih diterima ("satu menit lagi" yang sampai sedikit
+  terlambat) dan langsung jalan pada pengecekan berikutnya. Jadwal yang jatuh tempo selagi
+  rutinitas lain masih berjalan (misalnya perangkatnya lama tidak menjawab) tetap dijalankan
+  sesudahnya: batas telat dihitung dari awal pengecekan itu, karena Cyrene sibuk, bukan mati.
+- **PC tidak pernah dijadwalkan.** Mematikan, me-restart, atau menidurkan PC tetap hanya
+  lewat perintah suara langsung dengan konfirmasi. Jadwal atau rutinitas yang menyebut PC
+  (`type: pc`) ditolak, juga saat akan dijalankan.
+- **Colokan yang menyalakan PC tidak terlindungi.** Bagi kode, colokan pintar yang
+  mengalirkan listrik ke PC (contohnya `colokan_pc`) hanyalah colokan biasa. Cyrene diminta
+  tidak pernah menjadwalkannya mati, tapi tidak ada yang mencegahnya di kode. Jangan pernah
+  menjadwalkan colokan itu atau menjadikannya langkah rutinitas: jadwal hanya jalan selagi
+  Windows menyala, jadi mematikannya sama dengan mencabut kabel PC.
+- `waifu chat` menjalankan jadwal hanya kalau tidak ada `waifu run` yang sedang berjalan:
+  pengingat dicetak sebagai `Cyrene: ...`, tanpa suara dan tanpa notifikasi HP. Kalau
+  `waifu run` sedang berjalan, yang menjalankan jadwal adalah Cyrene di `waifu run`, dan
+  chat hanya membuat, menampilkan, dan membatalkan jadwal. Jangan menyalakan `waifu run`
+  selagi chat yang dibuka lebih dulu masih terbuka: keduanya akan mengecek file yang sama,
+  dan jadwal yang diambil chat hanya dicetak di terminal.
+- **Dengan `--dry-run`** (`waifu run` maupun `waifu chat`) jadwal memakai file sementara
+  yang kosong dan dihapus saat ditutup. Jadwal yang dibuat di sana hanya percobaan pada
+  perangkat simulasi, dan `data\schedule.json` tidak disentuh: jadwal asli tidak dijalankan
+  pada perangkat simulasi.
+
+### Menulis rutinitas di config.yaml
+
+Hanya Master yang menulis rutinitas. Cyrene bisa menjalankannya (lewat suara, jadwal, atau
+`waifu routine run`) tapi tidak bisa mengubahnya.
+
+```yaml
+routines:
+  tidur:
+    description: Mode tidur
+    steps:
+      - {device: lampu_kamar, command: off}
+      - {device: ac, command: temp, value: 26}
+  film:
+    description: Nonton film
+    steps:
+      - {device: lampu_kamar, command: brightness, value: 20}
+      - {device: proyektor, command: power}
+```
+
+- Nama rutinitas: huruf kecil, angka, atau garis bawah. Setiap rutinitas punya 1–20 langkah.
+- `device` adalah id dari `devices`; `command` dan `value` sama seperti
+  `waifu device <id> <perintah> [angka]` (untuk IR, `temp` dengan `value: 26` mengirim kode
+  `temp_26` yang sudah dipelajari).
+- Langkah dijalankan berurutan. Langkah yang gagal tidak menghentikan langkah berikutnya, dan
+  dia bilang langkah mana yang gagal.
+- Perangkat yang tidak ada di `devices`, atau PC (`type: pc`), membuat `config.yaml` ditolak
+  saat start.
+- Jangan jadikan colokan yang mengalirkan listrik ke PC (misalnya `colokan_pc`) sebagai
+  langkah: kode tidak tahu colokan itu menyalakan PC, jadi `config.yaml` tidak menolaknya,
+  padahal mematikannya selagi Windows menyala sama dengan mencabut kabel.
+- Setelah mengubah `config.yaml`, jalankan ulang `waifu run`. Cek dengan `waifu check`
+  (`✓ Rutinitas tidur: ...`, atau `✗` dengan langkah yang tidak bisa jalan, misalnya kode IR
+  yang belum dipelajari), lalu coba dengan `waifu routine run tidur --dry-run`.
+
+### Mengatur jadwal dari terminal
+
+```powershell
+waifu schedule list                 # semua jadwal, yang paling dekat dulu
+waifu schedule cancel j3            # batalkan satu jadwal (id dari list)
+waifu schedule clear                # hanya menghitung yang akan dihapus
+waifu schedule clear --yes          # hapus semua jadwal
+waifu routine list                  # setiap rutinitas dan langkahnya
+waifu routine run tidur --dry-run   # coba di perangkat simulasi
+waifu routine run tidur             # jalankan sekarang di perangkat asli
+```
+
+`waifu schedule list` menampilkan jam berikutnya setiap jadwal:
+
+```text
+ID  BERIKUTNYA               ULANG             ISI
+j1  Selasa 13-10-2026 15:00  sekali            pengingat "Master, sudah jam tiga, waktunya minum obat!"
+j3  Selasa 13-10-2026 23:00  tiap hari         rutinitas tidur
+j2  Rabu 14-10-2026 02:00    sekali            perangkat ac off
+```
+
+Jadwal baru dibuat lewat suara atau `waifu chat` (tanpa `--dry-run`). Perintah
+`waifu schedule` tetap jalan walau `schedule.enabled: false`, dan Cyrene yang sedang
+berjalan melihat perubahannya dalam 15 detik. `waifu check` menampilkan
+`✓ Jadwal: <n> entri (data\schedule.json)`.
+
+### File data\schedule.json
+
+- Jadwal hanya ada di `data\schedule.json` di PC ini. Seluruh `data\` ada di `.gitignore`,
+  jadi tidak pernah di-commit. Isinya bisa pribadi (misalnya pengingat minum obat): jangan
+  dibagikan.
+- Batasnya `schedule.max_entries` jadwal (bawaan 50), paling jauh 366 hari ke depan, dan
+  teks pengingat paling panjang 200 karakter.
+- **Edit hanya saat Cyrene mati**, seperti `data\memory.json`: di antara dua program, yang
+  terakhir menulis yang menang. `waifu schedule` membaca file tepat sebelum mengubahnya, jadi
+  aman dipakai selagi dia berjalan.
+- **File yang rusak tidak pernah ditimpa.** Kalau isinya bukan jadwal yang benar, Cyrene
+  mengganti namanya menjadi `schedule.json.corrupt-<tanggal>-<jam>`, menulis error di log,
+  lalu mulai dengan jadwal kosong. Selama file itu masih ada, `waifu check` menunjukkannya
+  dengan `!`. Untuk memulihkan: matikan Cyrene, perbaiki file `.corrupt-...` itu, lalu ganti
+  namanya kembali menjadi `schedule.json`.
+- Dengan `brain.backend: claude`, teks pengingat ikut terkirim ke API Anthropic sebagai bagian
+  dari obrolan (seperti kalimat lainnya); dengan notifikasi HP, teks pengingat juga dikirim ke
+  `ntfy.sh`.
+- Untuk mematikan jadwal: `schedule.enabled: false`. Dia tidak lagi membuat atau menjalankan
+  jadwal, tapi filenya tidak dihapus; hapus isinya dengan `waifu schedule clear --yes` kalau
+  mau.
 
 ## Pemecahan masalah
 
@@ -1624,6 +1798,30 @@ mendengarkan"; jawaban pertama bisa lebih lama karena model Ollama baru dimuat)
       dibacakan. "Cyrene, lupakan soal udang": catatannya hilang dari `waifu memory list`.
 - [ ] "Cyrene, ingat PIN ATM-ku 1234": dia menolak, dan tidak ada catatan baru.
 
+**Jadwal dan rutinitas** (tulis dulu rutinitas `tidur` di `config.yaml`: contohnya ada di
+`config.example.yaml`, hapus tanda `#` di depannya, lalu jalankan ulang `waifu run`; lihat
+[Menulis rutinitas di config.yaml](#menulis-rutinitas-di-configyaml). Kode IR `temp_26`
+untuk `ac` harus sudah dipelajari.)
+
+- [ ] `waifu check` menampilkan `✓ Jadwal: 0 entri` dan `✓ Rutinitas tidur: ...`.
+- [ ] "Cyrene, dua menit lagi ingatkan aku minum air": dia menyebut jamnya, `waifu schedule
+      list` menampilkannya, dan dua menit kemudian dia mengucapkannya sendiri dan HP
+      menerima notifikasinya.
+- [ ] "Cyrene, matikan lampu kamar satu menit lagi": lampunya mati tanpa dia berkata apa-apa.
+- [ ] "Cyrene, mode tidur": lampu mati dan AC ke 26 derajat. `waifu routine run tidur` sama.
+- [ ] "Cyrene, matikan komputer jam 11 malam": dia menolak menjadwalkannya dan tidak
+      menawarkan mematikan `colokan_pc` sebagai gantinya.
+- [ ] "Cyrene, matikan semua perangkat jam 2 pagi": `waifu schedule list` tidak berisi
+      `colokan_pc` (lalu batalkan jadwal yang dibuat).
+- [ ] Jadwalkan pengingat, tutup Cyrene sampai jamnya lewat lebih dari
+      `late_grace_minutes`, lalu jalankan lagi: dia tidak mengucapkannya, dan HP menerima
+      `Terlewat (...)`.
+- [ ] Dengan `waifu run` berjalan, buka `waifu chat`: chat bilang jadwal dijalankan oleh
+      Cyrene yang sedang berjalan, dan pengingat yang dibuat di chat diucapkan oleh
+      `waifu run`.
+- [ ] `waifu chat --dry-run`: jadwal yang dibuat di sana tidak muncul di
+      `waifu schedule list`.
+
 ## Privasi
 
 - **Suara tidak pernah keluar dari PC.** Rekaman mic, verifikasi suara, dan
@@ -1646,6 +1844,9 @@ mendengarkan"; jawaban pertama bisa lebih lama karena model Ollama baru dimuat)
 - **Ingatan Cyrene** (hal yang dia ketahui tentang Master) ada di `data\memory.json`,
   hanya di PC ini; rahasia seperti kata sandi atau nomor kartu tidak pernah disimpan.
   Lihat [Privasi ingatan](#privasi-ingatan).
+- **Jadwal** (pengingat, perintah perangkat terjadwal) ada di `data\schedule.json`, hanya di
+  PC ini. Teks pengingat juga dikirim ke `ntfy.sh` kalau notifikasi HP menyala. Lihat
+  [File data\schedule.json](#file-dataschedulejson).
 - **Voiceprint adalah data biometrik.** `data/voiceprint.npy` (dan seluruh `data/`)
   ada di `.gitignore` dan tidak boleh di-commit atau dibagikan. Begitu juga
   `config.yaml` (local key Tuya) dan `models/`.

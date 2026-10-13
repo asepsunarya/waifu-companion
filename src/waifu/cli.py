@@ -17,6 +17,7 @@ import os
 import re
 import socket
 import sys
+import tempfile
 import urllib.request
 from collections import deque
 from collections.abc import Callable, Iterator, Sequence
@@ -46,6 +47,8 @@ from waifu.avatar.window import AvatarWindow
 from waifu.brain.base import Brain, ToolCallRecord
 from waifu.brain.factory import build_brain
 from waifu.brain.memory_tools import MemoryTools
+from waifu.brain.persona import WEEKDAYS_ID
+from waifu.brain.schedule_tools import ScheduleTools
 from waifu.brain.tools import ToolProvider
 from waifu.config import (
     AppConfig,
@@ -74,7 +77,17 @@ from waifu.gacha.tools import GachaTools
 from waifu.gacha.watcher import GachaWatcher
 from waifu.gate import WakeGate
 from waifu.memory import MemoryStore, memory_prompt_section
-from waifu.notify import build_notifier
+from waifu.notify import Notifier, build_notifier
+from waifu.routines import describe_routine, routine_problems, run_routine
+from waifu.schedule import (
+    Action,
+    DeviceAction,
+    Reminder,
+    Repeat,
+    ScheduleError,
+    ScheduleStore,
+)
+from waifu.scheduler import Scheduler
 from waifu.single_instance import InstanceLock
 from waifu.voice.audio import MicStream, Player, list_devices
 from waifu.voice.rvc import (
@@ -181,6 +194,35 @@ MEMORY_DESCRIPTION = (
     "Perintah ini jalan walau memory.enabled: false; Cyrene yang sedang berjalan melihat "
     "perubahannya mulai sesi obrolan berikutnya."
 )
+SCHEDULE_DESCRIPTION = (
+    "Jadwal Cyrene: pengingat, perintah perangkat, dan rutinitas yang dia jalankan pada "
+    "jamnya selama 'waifu run' menyala. Jadwal baru dibuat lewat suara atau 'waifu chat'. "
+    "Perintah ini jalan walau schedule.enabled: false; Cyrene yang sedang berjalan melihat "
+    "perubahannya dalam 15 detik."
+)
+SCHEDULE_IN_RUN = (
+    "Jadwal dijalankan oleh Cyrene yang sedang berjalan ('waifu run'); di sini jadwal hanya "
+    "dibuat, dilihat, dan dibatalkan."
+)
+DRY_RUN_SCHEDULE = (
+    "Mode simulasi: jadwal yang dibuat di sini hanya percobaan pada perangkat simulasi dan "
+    "hilang saat ditutup. Jadwal asli ({path}) tidak disentuh."
+)
+ROUTINE_DESCRIPTION = (
+    "Rutinitas Master: daftar perintah perangkat yang ditulis di bagian routines di "
+    "config.yaml dan dijalankan sekaligus. Ubah rutinitas dengan mengedit config.yaml; "
+    "dengan --dry-run langkahnya dijalankan pada perangkat simulasi."
+)
+NO_ROUTINES = (
+    "Belum ada rutinitas. Tulis di bagian routines di config.yaml "
+    "(lihat README, bagian Jadwal, pengingat, dan rutinitas)."
+)
+REPEAT_TEXT: dict[Repeat, str] = {
+    "none": "sekali",
+    "daily": "tiap hari",
+    "weekdays": "tiap hari kerja",
+    "weekends": "tiap akhir pekan",
+}
 _REGISTERED_DELAY = re.compile(r" --startup-delay (\d+) ")
 # build_command always quotes the folder, and a path in it never contains a quote.
 _REGISTERED_PROJECT = re.compile(r' /d "([^"]+)" ')
@@ -384,6 +426,34 @@ def build_parser() -> argparse.ArgumentParser:
     clear.add_argument(
         "--yes", action="store_true", help="benar-benar hapus (tanpa ini hanya dihitung)"
     )
+    schedule_command = commands.add_parser(
+        "schedule",
+        parents=[shared],
+        help="Jadwal Cyrene: lihat dan batalkan pengingat dan perintah terjadwal.",
+        description=SCHEDULE_DESCRIPTION,
+    )
+    schedule_actions = schedule_command.add_subparsers(
+        dest="action", required=True, metavar="<aksi>"
+    )
+    command(
+        "list", _schedule_list, "Tampilkan semua jadwal, yang paling dekat dulu.", schedule_actions
+    )
+    cancel = command("cancel", _schedule_cancel, "Batalkan satu jadwal.", schedule_actions)
+    cancel.add_argument("entry_id", metavar="id", help="id dari 'waifu schedule list', misalnya j3")
+    clear_schedule = command("clear", _schedule_clear, "Hapus semua jadwal.", schedule_actions)
+    clear_schedule.add_argument(
+        "--yes", action="store_true", help="benar-benar hapus (tanpa ini hanya dihitung)"
+    )
+    routine_command = commands.add_parser(
+        "routine",
+        parents=[shared],
+        help="Rutinitas Master dari config.yaml: lihat dan jalankan.",
+        description=ROUTINE_DESCRIPTION,
+    )
+    routine_actions = routine_command.add_subparsers(dest="action", required=True, metavar="<aksi>")
+    command("list", _routine_list, "Tampilkan setiap rutinitas dan langkahnya.", routine_actions)
+    run_now = command("run", _routine_run, "Jalankan satu rutinitas sekarang.", routine_actions)
+    run_now.add_argument("routine_name", metavar="nama", help="nama rutinitas, misalnya tidur")
     return parser
 
 
@@ -545,68 +615,81 @@ def _listen(args: argparse.Namespace) -> int:
         return 2
     registry = build_registry(config, dry_run=args.dry_run)
     gacha = build_gacha(config) if config.gacha.enabled else None
-    brain = _companion_brain(config, registry, gacha)
-    stt = WhisperStt(config.stt, name)
-    gate = WakeGate(config.assistant.wake_words, config.assistant.followup_seconds)
-    segmenter = EnergySegmenter(config.audio.sample_rate, config.audio.vad)
-    print(f"Memuat model suara {name}, tunggu sebentar...", flush=True)
-    try:
-        # The speaker model first: it reads the voiceprint, so a broken one fails fast.
-        if verifier is not None:
-            verifier.preload()
-        stt.preload()
-    except (SpeakerError, SttError) as exc:
-        logger.error("Could not load the voice models: %s", exc)
-        print(f"{FAIL} {exc}")
-        return 1
-    # The avatar and the anime voice load last: she can listen without them, but not without
-    # the models above. The avatar's window opens first, so it loads while RVC starts; the
-    # pats and pokes on it reach her once she can answer them.
-    touches = _InteractionRelay()
-    with (
-        _avatar_bus(config, on_interact=touches.handle) as avatar,
-        _voice_converter(config) as converter,
-    ):
-        assistant = Assistant(
-            config,
-            brain=brain,
-            stt=stt,
-            speech=build_speech_router(config.tts, converter=converter),
-            player=Player(config.audio.output_device),
-            gate=gate,
-            verifier=verifier,
-            speaker_check=speaker_check,
-            avatar=avatar,
-        )
-        reactions = InteractionHandler(
-            config.avatar.interactions,
-            speak=assistant.speak_reaction,
-            listen=assistant.listen_now,
-            is_busy=lambda: assistant.busy,
-        )
-        with _open_mic(config) as mic, touches.answered_by(reactions):
-            mode = " (perangkat simulasi)" if args.dry_run else ""
-            print(
-                f"{name} siap mendengarkan{mode}. "
-                f"Panggil dengan: {', '.join(config.assistant.wake_words)}. "
-                "Tekan Ctrl+C untuk berhenti."
+    with _session_schedule(config, dry_run=args.dry_run) as schedule:
+        brain = _companion_brain(config, registry, gacha, schedule)
+        stt = WhisperStt(config.stt, name)
+        gate = WakeGate(config.assistant.wake_words, config.assistant.followup_seconds)
+        segmenter = EnergySegmenter(config.audio.sample_rate, config.audio.vad)
+        print(f"Memuat model suara {name}, tunggu sebentar...", flush=True)
+        try:
+            # The speaker model first: it reads the voiceprint, so a broken one fails fast.
+            if verifier is not None:
+                verifier.preload()
+            stt.preload()
+        except (SpeakerError, SttError) as exc:
+            logger.error("Could not load the voice models: %s", exc)
+            print(f"{FAIL} {exc}")
+            return 1
+        # The avatar and the anime voice load last: she can listen without them, but not without
+        # the models above. The avatar's window opens first, so it loads while RVC starts; the
+        # pats and pokes on it reach her once she can answer them.
+        touches = _InteractionRelay()
+        with (
+            _avatar_bus(config, on_interact=touches.handle) as avatar,
+            _voice_converter(config) as converter,
+        ):
+            assistant = Assistant(
+                config,
+                brain=brain,
+                stt=stt,
+                speech=build_speech_router(config.tts, converter=converter),
+                player=Player(config.audio.output_device),
+                gate=gate,
+                verifier=verifier,
+                speaker_check=speaker_check,
+                avatar=avatar,
             )
-            if not speaker_check:
-                print("Verifikasi suara mati: semua suara akan dilayani.")
-            if args.announce:
-                assistant.set_mic(mic, segmenter)  # so she does not hear her own announcement
-                if avatar is not None:
-                    _await_avatar_viewer(avatar, _avatar_viewer_wait_s(config))
-                # Not a reply, so no follow-up window: after login only her name starts a
-                # conversation, as in a plain `run`.
-                assistant.speak(f"{name} siap, Master.", followup=False)
-            try:
-                with _gacha_watcher(config, gacha, assistant):
-                    assistant.run(mic, segmenter)
-            except SttError as exc:
-                logger.error("Whisper stopped working: %s", exc)
-                print(f"{FAIL} {exc}")
-                return 1
+            reactions = InteractionHandler(
+                config.avatar.interactions,
+                speak=assistant.speak_reaction,
+                listen=assistant.listen_now,
+                is_busy=lambda: assistant.busy,
+            )
+            with _open_mic(config) as mic, touches.answered_by(reactions):
+                mode = " (perangkat simulasi)" if args.dry_run else ""
+                print(
+                    f"{name} siap mendengarkan{mode}. "
+                    f"Panggil dengan: {', '.join(config.assistant.wake_words)}. "
+                    "Tekan Ctrl+C untuk berhenti."
+                )
+                if not speaker_check:
+                    print("Verifikasi suara mati: semua suara akan dilayani.")
+                if args.dry_run and schedule is not None:
+                    print(DRY_RUN_SCHEDULE.format(path=config.schedule.path))
+                if args.announce:
+                    # So she does not hear her own announcement.
+                    assistant.set_mic(mic, segmenter)
+                    if avatar is not None:
+                        _await_avatar_viewer(avatar, _avatar_viewer_wait_s(config))
+                    # Not a reply, so no follow-up window: after login only her name starts a
+                    # conversation, as in a plain `run`.
+                    assistant.speak(f"{name} siap, Master.", followup=False)
+                try:
+                    with (
+                        _gacha_watcher(config, gacha, assistant),
+                        _scheduler(
+                            config,
+                            schedule,
+                            registry,
+                            announce=assistant.announce,
+                            notifier=build_notifier(config.notify),
+                        ),
+                    ):
+                        assistant.run(mic, segmenter)
+                except SttError as exc:
+                    logger.error("Whisper stopped working: %s", exc)
+                    print(f"{FAIL} {exc}")
+                    return 1
     return 0
 
 
@@ -614,52 +697,76 @@ def _chat(args: argparse.Namespace) -> int:
     config = load_config(args.config)
     registry = build_registry(config, dry_run=args.dry_run)
     gacha = build_gacha(config) if config.gacha.enabled else None
-    brain = _companion_brain(config, registry, gacha)
-    with (
-        _avatar_bus(config, wanted=args.speak) as avatar,
-        _voice_converter(config, wanted=args.speak) as converter,
-    ):
-        speech = build_speech_router(config.tts, converter=converter) if args.speak else None
-        player = Player(config.audio.output_device) if args.speak else None
-        name = config.assistant.name
-        mode = " (perangkat simulasi)" if args.dry_run else ""
-        print(f"Ngobrol dengan {name}{mode}. Ketik 'keluar' untuk berhenti.")
-        while True:
-            try:
-                line = input("Kamu: ").strip()
-            except (EOFError, KeyboardInterrupt):
-                print()
-                break
-            if not line:
-                continue
-            if line.lower() in EXIT_WORDS:
-                break
-            emotion, reply = split_reply(brain.respond(line))
-            if args.verbose:
-                for call in reply.tool_calls:
-                    print(_describe_tool_call(call))
-            print(f"{name}: {reply.text}")
-            if speech is not None and player is not None:
-                _speak(speech, player, reply.text, avatar=avatar, emotion=emotion)
+    name = config.assistant.name
+    with _session_schedule(config, dry_run=args.dry_run) as schedule:
+        brain = _companion_brain(config, registry, gacha, schedule)
+        # One scheduler fires the real schedule: a running `waifu run`, which speaks and
+        # pushes, rather than a second one here that would take its entries and only print.
+        left_to_run = schedule is not None and not args.dry_run and _instance_running(RUN_LOCK)
+        with (
+            _avatar_bus(config, wanted=args.speak) as avatar,
+            _voice_converter(config, wanted=args.speak) as converter,
+        ):
+            speech = build_speech_router(config.tts, converter=converter) if args.speak else None
+            player = Player(config.audio.output_device) if args.speak else None
+            mode = " (perangkat simulasi)" if args.dry_run else ""
+            print(f"Ngobrol dengan {name}{mode}. Ketik 'keluar' untuk berhenti.")
+            if left_to_run:
+                print(SCHEDULE_IN_RUN)
+            elif args.dry_run and schedule is not None:
+                print(DRY_RUN_SCHEDULE.format(path=config.schedule.path))
+            # What comes due while Master types is printed like a reply, never pushed.
+            with _scheduler(
+                config,
+                None if left_to_run else schedule,
+                registry,
+                announce=lambda text, emotion: print(f"{name}: {text}", flush=True),
+                notifier=None,
+            ):
+                while True:
+                    try:
+                        line = input("Kamu: ").strip()
+                    except (EOFError, KeyboardInterrupt):
+                        print()
+                        break
+                    if not line:
+                        continue
+                    if line.lower() in EXIT_WORDS:
+                        break
+                    emotion, reply = split_reply(brain.respond(line))
+                    if args.verbose:
+                        for call in reply.tool_calls:
+                            print(_describe_tool_call(call))
+                    print(f"{name}: {reply.text}")
+                    if speech is not None and player is not None:
+                        _speak(speech, player, reply.text, avatar=avatar, emotion=emotion)
     return 0
 
 
 def _companion_brain(
-    config: AppConfig, registry: DeviceRegistry, gacha: GachaParts | None
+    config: AppConfig,
+    registry: DeviceRegistry,
+    gacha: GachaParts | None,
+    schedule: ScheduleStore | None,
 ) -> Brain:
-    """The brain with the game tools when they are on, then her long-term memory when it is on.
+    """The brain with the game tools when they are on, her long-term memory when it is on,
+    and then her schedule when it is on.
 
     With memory, every new session lists the notes as they are in the file at that moment.
     """
+    notes = _memory_store(config) if config.memory.enabled else None
     providers = _game_tools(config, gacha)
-    if not config.memory.enabled:
+    if notes is not None:
+        providers.append(MemoryTools(notes))
+    if schedule is not None:
+        providers.append(ScheduleTools(schedule, registry=registry, routines=config.routines))
+    if notes is None:
         return build_brain(config, registry, providers=providers)
-    store = _memory_store(config)
     return build_brain(
         config,
         registry,
-        providers=[*providers, MemoryTools(store)],
-        memory_section=lambda: memory_prompt_section(store.facts()),
+        providers=providers,
+        memory_section=lambda: memory_prompt_section(notes.facts()),
     )
 
 
@@ -1389,6 +1496,150 @@ def _memory_clear(args: argparse.Namespace) -> int:
     return 0
 
 
+# --- schedules, reminders, and routines ------------------------------------------------------
+
+
+def _schedule_store(config: AppConfig) -> ScheduleStore:
+    """Her schedule, in the file `schedule.path` names, whether the schedule is on or not."""
+    return ScheduleStore(config.schedule.path, max_entries=config.schedule.max_entries)
+
+
+@contextmanager
+def _session_schedule(config: AppConfig, *, dry_run: bool) -> Iterator[ScheduleStore | None]:
+    """The schedule of one `run` or `chat`, or None with the schedule off.
+
+    A dry run gets an empty schedule of its own in a temporary folder, deleted when it ends:
+    its simulated devices never use up the real entries, and what it schedules (checked
+    against the simulated devices) never runs on the real ones.
+    """
+    if not config.schedule.enabled:
+        yield None
+    elif not dry_run:
+        yield _schedule_store(config)
+    else:
+        with tempfile.TemporaryDirectory(
+            prefix="waifu-dry-run-", ignore_cleanup_errors=True
+        ) as folder:
+            yield ScheduleStore(
+                Path(folder) / config.schedule.path.name,
+                max_entries=config.schedule.max_entries,
+            )
+
+
+def _scheduler(
+    config: AppConfig,
+    store: ScheduleStore | None,
+    registry: DeviceRegistry,
+    *,
+    announce: Callable[[str, str], None],
+    notifier: Notifier | None,
+) -> AbstractContextManager[object]:
+    """What comes due fires while the block runs; nothing fires with the schedule off."""
+    if store is None:
+        return nullcontext()
+    return Scheduler(
+        store,
+        registry=registry,
+        routines=config.routines,
+        announce=announce,
+        notifier=notifier,
+        grace_minutes=config.schedule.late_grace_minutes,
+        title=config.assistant.name,
+    )
+
+
+def _schedule_list(args: argparse.Namespace) -> int:
+    entries = _schedule_store(load_config(args.config)).entries()
+    if not entries:
+        print("Belum ada jadwal.")
+        return 0
+    rows = [
+        (entry.id, _schedule_time(entry.at), REPEAT_TEXT[entry.repeat], _action_text(entry.action))
+        for entry in entries
+    ]
+    print(_format_table(("ID", "BERIKUTNYA", "ULANG", "ISI"), rows))
+    return 0
+
+
+def _schedule_cancel(args: argparse.Namespace) -> int:
+    try:
+        entry = _schedule_store(load_config(args.config)).cancel(args.entry_id)
+    except ScheduleError as exc:
+        print(f"{FAIL} {exc}")
+        return 1
+    print(
+        f"{OK} Dibatalkan {entry.id}: {_action_text(entry.action)}, "
+        f"{_schedule_time(entry.at)}, {REPEAT_TEXT[entry.repeat]}"
+    )
+    return 0
+
+
+def _schedule_clear(args: argparse.Namespace) -> int:
+    """Delete every entry with --yes; without it, only say how many would go."""
+    store = _schedule_store(load_config(args.config))
+    count = store.clear() if args.yes else len(store.entries())
+    if count == 0:
+        print("Belum ada jadwal; tidak ada yang dihapus.")
+    elif args.yes:
+        print(f"{OK} {count} jadwal dihapus.")
+    else:
+        print(
+            f"Ada {count} jadwal yang akan dihapus. Jalankan 'waifu schedule clear --yes' "
+            "untuk benar-benar menghapusnya."
+        )
+    return 0
+
+
+def _routine_list(args: argparse.Namespace) -> int:
+    routines = load_config(args.config).routines
+    if not routines:
+        print(NO_ROUTINES)
+        return 0
+    for name, routine in routines.items():
+        print(describe_routine(name, routine))
+    return 0
+
+
+def _routine_run(args: argparse.Namespace) -> int:
+    """Run one routine now on the devices (simulated with --dry-run), printing every step."""
+    config = load_config(args.config)
+    name = args.routine_name
+    routine = config.routines.get(name)
+    if routine is None:
+        known = ", ".join(config.routines) or "(belum ada)"
+        print(
+            f"{FAIL} Tidak ada rutinitas bernama '{name}' di {args.config}. "
+            f"Rutinitas yang ada: {known}."
+        )
+        return 1
+    mode = " (perangkat simulasi)" if args.dry_run else ""
+    print(f"Menjalankan rutinitas {name}{mode}...", flush=True)
+    results = run_routine(build_registry(config, dry_run=args.dry_run), routine)
+    for number, (step, result) in enumerate(zip(routine.steps, results, strict=True), start=1):
+        mark = OK if result.ok else FAIL
+        step_text = _command_text(step.device, step.command, step.value)
+        print(f"{mark} Langkah {number} ({step_text}): {result.message}")
+    return 0 if all(result.ok for result in results) else 1
+
+
+def _schedule_time(moment: datetime) -> str:
+    """`Selasa 13-10-2026 15:00`: a local time of the schedule as the owner reads it."""
+    return f"{WEEKDAYS_ID[moment.weekday()]} {moment:%d-%m-%Y %H:%M}"
+
+
+def _action_text(action: Action) -> str:
+    if isinstance(action, Reminder):
+        return f'pengingat "{action.text}"'
+    if isinstance(action, DeviceAction):
+        return f"perangkat {_command_text(action.device, action.command, action.value)}"
+    return f"rutinitas {action.name}"
+
+
+def _command_text(device: str, command: str, value: int | None) -> str:
+    """`ac temp 26`: a device command as the owner writes it."""
+    return f"{device} {command}" if value is None else f"{device} {command} {value}"
+
+
 # --- check -----------------------------------------------------------------------------------
 
 
@@ -1408,9 +1659,11 @@ def _checks(config_path: Path) -> Iterator[Check]:
         return
     yield OK, f"Konfigurasi valid ({config_path})"
     yield from _device_checks(config, config_path)
+    yield from _routine_checks(config)
     yield _voiceprint_check(config)
     yield _brain_check(config)
     yield _memory_check(config)
+    yield _schedule_check(config)
     yield from _voice_package_checks(config)
     yield _microphone_check(config)
     yield from _anime_voice_checks(config)
@@ -1451,6 +1704,26 @@ def _ir_check(device: IrDevice, config_path: Path) -> Check:
             f"{device.name}: belum ada kode IR. Jalankan: waifu learn-ir {device.id} <perintah>"
         )
     return OK, f"{device.name}: semua {len(learned)} kode IR sudah dipelajari"
+
+
+def _routine_checks(config: AppConfig) -> Iterator[Check]:
+    """Whether every step of each routine could run now, by the rule the registry uses.
+
+    Like the device checks, always against the real devices, and nothing is executed.
+    """
+    if not config.routines:
+        return
+    registry = build_registry(config)
+    for name, routine in config.routines.items():
+        try:
+            problems = routine_problems(registry, routine)
+        except IrCodeStoreError as exc:
+            yield FAIL, f"Rutinitas {name}: kode IR tidak bisa dibaca ({exc})"
+            continue
+        if problems:
+            yield FAIL, f"Rutinitas {name}: {' '.join(problems)}"
+        else:
+            yield OK, f"Rutinitas {describe_routine(name, routine)}"
 
 
 def _voiceprint_check(config: AppConfig) -> Check:
@@ -1511,7 +1784,7 @@ def _memory_check(config: AppConfig) -> Check:
     except OSError as exc:
         return FAIL, f"File ingatan {path} tidak bisa dibaca: {exc}"
     status = f"Ingatan: {count} catatan ({path})"
-    moved = _set_aside_memory_files(path)
+    moved = _set_aside_files(path)
     if moved:
         return WARN, (
             f"{status}; file ingatan yang rusak dipindah ke {', '.join(map(str, moved))} "
@@ -1520,8 +1793,29 @@ def _memory_check(config: AppConfig) -> Check:
     return OK, status
 
 
-def _set_aside_memory_files(path: Path) -> list[Path]:
-    """The copies a broken memory file was renamed to (`<name>.corrupt-<time>`), oldest first.
+def _schedule_check(config: AppConfig) -> Check:
+    """How many entries her schedule holds, and where a broken schedule file was moved, if one
+    was."""
+    if not config.schedule.enabled:
+        return WARN, "Jadwal mati (schedule.enabled: false)"
+    path = config.schedule.path
+    try:
+        count = len(_schedule_store(config).entries())  # moves a broken file aside, as `run` would
+    except OSError as exc:
+        return FAIL, f"File jadwal {path} tidak bisa dibaca: {exc}"
+    status = f"Jadwal: {count} entri ({path})"
+    moved = _set_aside_files(path)
+    if moved:
+        return WARN, (
+            f"{status}; file jadwal yang rusak dipindah ke {', '.join(map(str, moved))} "
+            "(cara memulihkannya ada di README, bagian Jadwal, pengingat, dan rutinitas)"
+        )
+    return OK, status
+
+
+def _set_aside_files(path: Path) -> list[Path]:
+    """The copies a broken memory or schedule file was renamed to (`<name>.corrupt-<time>`),
+    oldest first.
 
     They stay until the owner repairs or deletes them, so `check` points at them every time.
     """

@@ -181,6 +181,31 @@ memory:
   max_facts: 100           # jumlah catatan paling banyak (1-500)
   max_chars: 200           # panjang satu catatan paling banyak, dalam karakter (20-1000)
 
+# Jadwal (README, bagian "Jadwal, pengingat, dan rutinitas"): pengingat ("ingatkan aku jam 3
+# sore minum obat") dan perintah perangkat atau rutinitas pada jam tertentu, sekali atau
+# berulang. Semuanya hanya jalan selama `waifu run` menyala; PC sendiri tidak pernah dijadwalkan.
+# Lihat dan batalkan dengan `waifu schedule list|cancel|clear`. Dengan --dry-run jadwalnya
+# sementara (hilang saat ditutup) dan file di `path` tidak disentuh.
+schedule:
+  enabled: true
+  path: data/schedule.json # hanya di PC ini, tidak di-commit; boleh diedit saat Cyrene mati
+  max_entries: 50          # jumlah jadwal paling banyak (1-200)
+  late_grace_minutes: 30   # jadwal yang terlewat (PC atau Cyrene mati) masih jalan kalau telat paling lama N menit (0-720)
+
+# Rutinitas: daftar perintah perangkat yang dijalankan sekaligus, lewat suara ("Cyrene, mode
+# tidur"), terjadwal ("jalankan mode tidur jam 11 malam"), atau `waifu routine run tidur`.
+# Hanya kamu yang menulisnya di sini. Nama rutinitas: huruf kecil, angka, atau garis bawah;
+# 1-20 langkah. Perangkatnya harus ada di `devices` di bawah, dan PC (type: pc) tidak boleh
+# jadi langkah: mematikan, me-restart, atau menidurkan PC hanya lewat perintah suara langsung.
+# Colokan yang menyalakan PC (colokan_pc) juga jangan: config tidak bisa menolaknya.
+# `waifu check` memeriksa apakah setiap perintahnya ada (untuk IR: sudah dipelajari).
+# routines:
+#   tidur:
+#     description: Mode tidur
+#     steps:
+#       - {device: lampu_kamar, command: off}
+#       - {device: ac, command: temp, value: 26}
+
 ir_codes_path: data/ir_codes.json
 
 devices:
@@ -223,6 +248,9 @@ devices:
       mac: null            # isi untuk Wake-on-LAN dari perangkat lain
       shutdown_delay_s: 30
 
+  # Colokan yang mengalirkan listrik ke PC (README, "Colokan pintar + BIOS"). Bagi Cyrene ini
+  # colokan biasa, bukan PC: jangan pernah menjadwalkannya mati atau menjadikannya langkah
+  # rutinitas. Jadwal hanya jalan selagi Windows menyala, jadi mematikannya = mencabut kabel.
   - id: colokan_pc
     name: Colokan PC
     type: tuya_plug
