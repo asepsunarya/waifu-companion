@@ -173,15 +173,15 @@ file rules as the memory, and a daemon thread in `waifu run` that fires them lik
 watcher announces (spoken + phone push). Device actions run silently and speak only on failure,
 since the owner may be asleep. Routines are written by the owner in config.yaml, never by the
 model. The PC itself (shutdown, restart, sleep) is never scheduled.
-- [ ] Task 51a: `schedule` and `routines` config, routines validated against the devices
-- [ ] Task 51: `schedule.py`: entries, time rules, `ScheduleStore`, `due`
-- [ ] Task 52: `routines.py`: `run_routine`, `describe_routine`, `routine_problems`
-- [ ] Task 53: `scheduler.py`: the firing thread
-- [ ] Task 54: `brain/schedule_tools.py`: `schedule`, `list_schedules`, `cancel_schedule`, `run_routine`
-- [ ] Task 55: CLI wiring (`run`, `chat`, `waifu schedule`, `waifu routine`, `check`), README, example config
+- [x] Task 51a: `schedule` and `routines` config, routines validated against the devices
+- [x] Task 51: `schedule.py`: entries, time rules, `ScheduleStore`, `due`
+- [x] Task 52: `routines.py`: `run_routine`, `describe_routine`, `routine_problems`
+- [x] Task 53: `scheduler.py`: the firing thread
+- [x] Task 54: `brain/schedule_tools.py`: `schedule`, `list_schedules`, `cancel_schedule`, `run_routine`
+- [x] Task 55: CLI wiring (`run`, `chat`, `waifu schedule`, `waifu routine`, `check`), README, example config
 
 ### Checkpoint: Schedules, reminders, and routines
-- [ ] Python suite and ruff clean; no test touched `data/`, ran a real device, slept for real, or called an LLM
+- [x] Python suite and ruff clean; no test touched `data/`, ran a real device, slept for real, or called an LLM (2026-10-13: 2350 pytest)
 - [ ] On the owner's PC: a reminder in a few minutes is spoken and pushed; a repeating one moves to the next day; a routine runs by voice
 
 ## Risks and Mitigations
