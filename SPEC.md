@@ -407,6 +407,27 @@ CLI and docs: `waifu check` reports each app (✓ file found / ✗ file missing 
 
 Safety: tests never press real keys or start real programs. `tests/conftest.py` is strengthened (never weakened): `os.startfile` refused, and `SendInput` and `keybd_event` refused on any `user32` loaded through `ctypes.WinDLL` or `ctypes.windll`; `tests/test_safety_guard.py` covers both. The real senders are module-level defaults injected into the devices, so tests pass fakes.
 
+### confirmation in code (v1.9)
+
+User story: "Cyrene, matikan komputer." → she asks "Yakin, Master?"; it runs only when the owner's next words say yes ("iya", "boleh", "lanjut"). Until v1.9 that was only a persona rule: a model that skipped the question, or misheard, could turn the PC off at once, and the plug that feeds it cuts the power with no delay at all. Now the code enforces it with the owner's own words.
+
+What needs confirmation (`needs_confirmation(registry, device_id, command, value) -> bool`, on the command `resolve_command` picks): on a device of kind `pc`, `shutdown`, `restart`, and `sleep` (not `wake` or `cancel_shutdown`); on any other device `registry.powers_pc` names (a plug marked `powers_pc`), `off` and `toggle` (not `on`). Nothing else.
+
+`brain/confirm.py`:
+- `is_yes(text) -> bool`: the owner's words (lowercased, split on anything that is not a letter, digit, or Japanese kana/kanji) contain an affirmative word (`ya`, `iya`, `iyaa`, `yes`, `yup`, `yap`, `boleh`, `oke`, `ok`, `okay`, `lanjut`, `lanjutkan`, `betul`, `benar`, `silakan`, `setuju`, `gas`, `はい`) and no negative one (`tidak`, `nggak`, `ngga`, `gak`, `ga`, `enggak`, `engga`, `jangan`, `batal`, `batalkan`, `no`, `tunggu`, `bukan`, `belum`, `nanti`, `いいえ`). "Iya, matikan" is yes; "eh jangan, tunggu" and "ya jangan" are not.
+- `ConfirmationGate(*, clock=time.monotonic, window_s=60)`:
+  - `begin_turn(user_text)`: called by the brain at the start of every `respond`, with the owner's words as heard; counts turns and remembers whether this turn is a yes.
+  - `check(registry, device_id, command, value) -> str | None`: None when the call may run now; otherwise the Indonesian message for the model. A command that `needs_confirmation` runs only when the same device, resolved command, and value were refused in the turn right before this one, at most `window_s` seconds ago, and this turn is a yes; that request is then used up. Otherwise the request is recorded (replacing any earlier one) and the message says it was not run, to ask Master first in one short question that names the action, and to call the same command again only after Master answers yes. A yes in the same turn as the request, the model's own words, or a yes more than one turn later never count.
+- Thread-safe (a lock): turns come from the voice loop, but `respond` may run from other threads in tests.
+
+Integration:
+- `brain/tools.run_tool(..., *, confirmations: ConfirmationGate | None = None)`: `control_device` asks `confirmations.check(...)` after its arguments are valid and before `registry.execute`; a refusal is the result `{"ok": false, "needs_confirmation": true, "message": ...}` with `is_error` true (so an empty final reply never claims success). `list_devices` and other tools are unaffected.
+- `ClaudeBrain` and `OllamaBrain` take `confirmations: ConfirmationGate | None = None`, call `begin_turn(user_text)` at the start of every `respond` (before the session check's reset, so a reset never forgets the turn), and pass it to `run_tool`. `build_brain` always gives them one gate: confirmation is never off in `waifu run` or `waifu chat`.
+- Not gated: `waifu device` (the owner typed the command), schedules and routines (they refuse these devices already), and the PC's own 30-second delay and `cancel_shutdown` stay as they are.
+- Persona: the rule stays ("ask first, run only after Master says yes"); it now also says that the code refuses the command until Master answers yes, so the model asks instead of retrying.
+
+Safety: tests use mock devices and fake clocks; no test reaches a real power action (the conftest guards stay).
+
 ## Code Style
 
 See `CLAUDE.md` → Code Conventions and Patterns. Dataclasses for value

@@ -200,6 +200,17 @@ key or open a real program.
 - [x] Python suite and ruff clean; no test pressed a key or started a program (2026-10-13: 2482 pytest)
 - [ ] On the owner's PC: "pause musiknya", "volume 30", and "buka Spotify" work by voice; a routine with `media stop` runs
 
+### Phase 14: Confirmation in code (v1.9, see SPEC → confirmation in code)
+Decision: the persona's "ask before turning the PC off" becomes a gate in the tool path. The
+first call is refused and remembered; the same call runs only in the owner's very next turn
+when their own words are a yes. The model can never confirm for them.
+- [ ] Task 60: `brain/confirm.py`: `is_yes`, `needs_confirmation`, `ConfirmationGate`
+- [ ] Task 61: `run_tool`, both brains, `build_brain`, persona, README
+
+### Checkpoint: Confirmation in code
+- [ ] Python suite and ruff clean; no test reached a real power action
+- [ ] On the owner's PC: "matikan komputer" → she asks; "tidak" → nothing happens; "iya" → the 30-second shutdown starts and "batalkan" cancels it
+
 ## Risks and Mitigations
 
 | Risk | Impact | Mitigation |
