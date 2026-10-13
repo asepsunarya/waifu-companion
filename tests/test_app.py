@@ -1072,3 +1072,383 @@ def test_she_is_no_longer_speaking_after_playback_fails():
     rig.assistant.speak(ANNOUNCEMENT, followup=False)
 
     assert rig.assistant.speaking is False
+
+
+# Speaking up by herself with the brain's words (the morning greeting)
+
+
+GREETING_PROMPT = "Ini sapaan pagimu sendiri: sapa Master dan rangkum harinya."
+
+
+class PassedOn:
+    """An `on_reply` (a push to the phone) that keeps what she passed on, or fails with `error`."""
+
+    def __init__(self, error: Exception | None = None) -> None:
+        self.error = error
+        self.texts: list[str] = []
+        self._threads: list[threading.Thread] = []
+        self._called = threading.Event()
+
+    def __call__(self, text: str) -> None:
+        self.texts.append(text)
+        self._threads.append(threading.current_thread())
+        self._called.set()
+        if self.error is not None:
+            raise self.error
+
+    def wait(self) -> list[str]:
+        """What she passed on, once that call has ended on whatever thread made it."""
+        if self._called.wait(WAIT_S) and self._threads[0] is not threading.current_thread():
+            self._threads[0].join(WAIT_S)
+        return self.texts
+
+
+class SignallingMic(FakeMic):
+    """A FakeMic that sets `asked_again` when the voice loop asks for a frame after the first."""
+
+    def __init__(self, events: list[str], frames: list[np.ndarray]) -> None:
+        super().__init__(events, frames)
+        self.asked_again = threading.Event()
+
+    def frames(self) -> Iterator[np.ndarray]:
+        for index, frame in enumerate(self._frames):
+            if index:
+                self.asked_again.set()
+            yield frame
+        raise KeyboardInterrupt
+
+
+def test_a_request_is_answered_aloud_between_utterances_like_a_reply():
+    rig = Rig("matikan TV", with_avatar=True)
+    replies = PassedOn()
+    rig.assistant.ask_aloud(GREETING_PROMPT, on_reply=replies)
+
+    rig.assistant.run(FakeMic(rig.events, [SILENT_FRAME]), FakeSegmenter(rig.events, [None]))
+    events = list(rig.events)
+    rig.clock.now += 3
+    follow_up = rig.assistant.handle_utterance(rig.utterance())
+
+    assert rig.brain.turns[0] == (GREETING_PROMPT, NOW)
+    assert rig.speech.texts[0] == REPLY
+    assert replies.wait() == [REPLY]
+    assert events == [
+        "avatar.state thinking",
+        "mic.pause",
+        "synthesize",
+        "avatar.state speaking",
+        "avatar.speak neutral",
+        "play",
+        "mic.resume",
+        "segmenter.reset",
+        "avatar.state listening 8",
+    ]
+    assert follow_up == REPLY  # Master answers without the wake word
+
+
+def test_the_reply_to_a_request_is_spoken_and_passed_on_without_its_tag():
+    rig = Rig(reply="[senang] Selamat pagi, Master! Hari ini cerah.", with_avatar=True)
+    replies = PassedOn()
+    rig.assistant.ask_aloud(GREETING_PROMPT, on_reply=replies)
+
+    rig.assistant.run(FakeMic(rig.events, [SILENT_FRAME]), FakeSegmenter(rig.events, [None]))
+
+    assert rig.speech.texts == ["Selamat pagi, Master! Hari ini cerah."]
+    assert replies.wait() == ["Selamat pagi, Master! Hari ini cerah."]
+    assert "avatar.speak happy" in rig.events
+
+
+def test_she_is_back_at_the_microphone_while_what_she_said_is_still_being_passed_on():
+    # A push to the phone may take ntfy's whole timeout, while the follow-up window is open:
+    # the voice loop must not wait for it, or Master's answer is heard too late or lost.
+    rig = Rig()
+    mic = SignallingMic(rig.events, [SILENT_FRAME] * 2)
+    back_at_the_mic: list[bool] = []
+    replies = PassedOn()
+
+    def slow_push(text: str) -> None:
+        back_at_the_mic.append(mic.asked_again.wait(WAIT_S))
+        replies(text)
+
+    rig.assistant.ask_aloud(GREETING_PROMPT, on_reply=slow_push)
+
+    rig.assistant.run(mic, FakeSegmenter(rig.events, [None, None]))
+
+    assert replies.wait() == [REPLY]
+    assert back_at_the_mic == [True]
+
+
+def test_a_request_waits_while_master_is_still_speaking():
+    rig = Rig()
+    rig.assistant.ask_aloud(GREETING_PROMPT)
+
+    rig.assistant.run(
+        FakeMic(rig.events, [SILENT_FRAME]), FakeSegmenter(rig.events, [None], busy=[True])
+    )
+    waited = list(rig.brain.turns)
+    rig.assistant.run(FakeMic(rig.events, [SILENT_FRAME]), FakeSegmenter(rig.events, [None]))
+
+    assert waited == []
+    assert rig.brain.turns == [(GREETING_PROMPT, NOW)]
+    assert rig.speech.texts == [REPLY]
+
+
+def test_a_second_request_waits_until_master_has_had_the_chance_to_answer_the_first():
+    rig = Rig()
+    rig.assistant.ask_aloud(GREETING_PROMPT)
+    rig.assistant.ask_aloud("Ingatkan Master minum air.")
+
+    rig.assistant.run(
+        FakeMic(rig.events, [SILENT_FRAME] * 2), FakeSegmenter(rig.events, [None, None])
+    )
+    first = [text for text, _ in rig.brain.turns]
+    rig.clock.now += 8  # followup_seconds: Master did not answer
+    rig.assistant.run(FakeMic(rig.events, [SILENT_FRAME]), FakeSegmenter(rig.events, [None]))
+
+    assert first == [GREETING_PROMPT]
+    assert [text for text, _ in rig.brain.turns] == [GREETING_PROMPT, "Ingatkan Master minum air."]
+
+
+def test_a_request_waits_while_master_may_still_answer_her_reply():
+    # Master is talking with her ("Komputer mau kumatikan?"): a greeting queued meanwhile
+    # must not take over the follow-up window he answers in.
+    rig = Rig("Cyrene, nyalakan lampu kamar")
+    rig.assistant.ask_aloud(GREETING_PROMPT)
+
+    rig.assistant.run(
+        FakeMic(rig.events, [SILENT_FRAME] * 2), FakeSegmenter(rig.events, [rig.utterance(), None])
+    )
+    waited = [text for text, _ in rig.brain.turns]
+    rig.clock.now += 8  # followup_seconds: Master said nothing more
+    rig.assistant.run(FakeMic(rig.events, [SILENT_FRAME]), FakeSegmenter(rig.events, [None]))
+
+    assert waited == ["nyalakan lampu kamar"]
+    assert [text for text, _ in rig.brain.turns] == ["nyalakan lampu kamar", GREETING_PROMPT]
+
+
+def test_master_s_answer_inside_the_window_comes_before_a_waiting_request():
+    rig = Rig("Cyrene, matikan komputer", "iya")
+    rig.assistant.ask_aloud(GREETING_PROMPT)
+    segmenter = FakeSegmenter(rig.events, [rig.utterance(), None, rig.utterance(), None])
+
+    rig.assistant.run(FakeMic(rig.events, [SILENT_FRAME] * 4), segmenter)
+    answered = [text for text, _ in rig.brain.turns]
+    rig.clock.now += 8  # the window after her second reply has closed
+    rig.assistant.run(FakeMic(rig.events, [SILENT_FRAME]), FakeSegmenter(rig.events, [None]))
+
+    assert answered == ["matikan komputer", "iya"]
+    assert [text for text, _ in rig.brain.turns] == ["matikan komputer", "iya", GREETING_PROMPT]
+
+
+def test_a_request_waits_while_she_listens_after_a_double_click():
+    rig = Rig()
+    rig.assistant.ask_aloud(GREETING_PROMPT)
+
+    rig.assistant.listen_now()
+    rig.assistant.run(FakeMic(rig.events, [SILENT_FRAME]), FakeSegmenter(rig.events, [None]))
+    waited = list(rig.brain.turns)
+    rig.clock.now += 8
+    rig.assistant.run(FakeMic(rig.events, [SILENT_FRAME]), FakeSegmenter(rig.events, [None]))
+
+    assert waited == []
+    assert rig.brain.turns == [(GREETING_PROMPT, NOW)]
+
+
+def test_a_request_queued_during_a_cut_waits_until_the_follow_up_window_closes():
+    rig = Rig("Cyrene, nyalakan lampu kamar")
+    cuts: list[bool] = []
+
+    def ask_and_cut() -> None:
+        if not cuts:
+            rig.assistant.ask_aloud(GREETING_PROMPT)
+            cuts.append(rig.assistant.interrupt())
+
+    rig.player.on_play = ask_and_cut
+    rig.assistant.run(
+        FakeMic(rig.events, [SILENT_FRAME] * 2), FakeSegmenter(rig.events, [rig.utterance(), None])
+    )
+    held = [text for text, _ in rig.brain.turns]
+
+    rig.clock.now += 8  # followup_seconds: Master said nothing
+    rig.assistant.run(FakeMic(rig.events, [SILENT_FRAME]), FakeSegmenter(rig.events, [None]))
+
+    assert cuts == [True]
+    assert held == ["nyalakan lampu kamar"]
+    assert [text for text, _ in rig.brain.turns] == ["nyalakan lampu kamar", GREETING_PROMPT]
+
+
+def test_queued_announcements_are_said_before_a_queued_request():
+    rig = Rig()
+    rig.assistant.ask_aloud(GREETING_PROMPT)
+    rig.assistant.announce(ANNOUNCEMENT)
+
+    rig.assistant.run(FakeMic(rig.events, [SILENT_FRAME]), FakeSegmenter(rig.events, [None]))
+    announced = list(rig.speech.texts)
+    rig.assistant.run(FakeMic(rig.events, [SILENT_FRAME]), FakeSegmenter(rig.events, [None]))
+
+    assert announced == [ANNOUNCEMENT]  # the request waits for the next frame
+    assert rig.speech.texts == [ANNOUNCEMENT, REPLY]
+
+
+def cut_the_first_clip(rig: Rig) -> list[bool]:
+    """Cut the first clip while it plays (a double-click); returns what the cut said."""
+    cuts: list[bool] = []
+
+    def cut() -> None:
+        if not cuts:
+            cuts.append(rig.assistant.interrupt())
+
+    rig.player.on_play = cut
+    return cuts
+
+
+def test_a_request_queued_with_an_announcement_that_is_cut_waits_for_master():
+    # The reminder and the greeting were queued together; Master cut the reminder to talk,
+    # so the greeting must not pause the microphone again before he has.
+    rig = Rig()
+    cuts = cut_the_first_clip(rig)
+    rig.assistant.announce(ANNOUNCEMENT)
+    rig.assistant.ask_aloud(GREETING_PROMPT)
+
+    rig.assistant.run(FakeMic(rig.events, [SILENT_FRAME]), FakeSegmenter(rig.events, [None]))
+    held = (list(rig.brain.turns), list(rig.speech.texts))
+    rig.clock.now += 8  # followup_seconds: Master said nothing
+    rig.assistant.run(FakeMic(rig.events, [SILENT_FRAME]), FakeSegmenter(rig.events, [None]))
+
+    assert cuts == [True]
+    assert held == ([], [ANNOUNCEMENT])
+    assert rig.brain.turns == [(GREETING_PROMPT, NOW)]
+    assert rig.speech.texts == [ANNOUNCEMENT, REPLY]
+
+
+def test_she_is_busy_while_thinking_up_and_saying_the_answer_to_a_request():
+    rig = Rig(brain=WatchingBrain)
+    rig.brain.watch = lambda: rig.assistant.busy
+    while_playing: list[bool] = []
+    rig.player.on_play = lambda: while_playing.append(rig.assistant.busy)
+    rig.assistant.ask_aloud(GREETING_PROMPT)
+
+    rig.assistant.run(FakeMic(rig.events, [SILENT_FRAME]), FakeSegmenter(rig.events, [None]))
+
+    assert rig.brain.seen == [True]
+    assert while_playing == [True]
+    assert rig.assistant.busy is False
+
+
+def test_ask_aloud_can_be_called_from_another_thread():
+    rig = Rig()
+    thread = threading.Thread(target=rig.assistant.ask_aloud, args=(GREETING_PROMPT,))
+    thread.start()
+    thread.join()
+
+    rig.assistant.run(FakeMic(rig.events, [SILENT_FRAME]), FakeSegmenter(rig.events, [None]))
+
+    assert rig.speech.texts == [REPLY]
+
+
+def test_a_failing_on_reply_is_logged_and_she_keeps_listening(caplog):
+    rig = Rig()
+    push = PassedOn(error=RuntimeError("ntfy is down"))
+    rig.assistant.ask_aloud(GREETING_PROMPT, on_reply=push)
+    rig.assistant.announce(ANNOUNCEMENT)
+
+    with caplog.at_level(logging.ERROR, logger="waifu.app"):
+        rig.assistant.run(
+            FakeMic(rig.events, [SILENT_FRAME] * 2), FakeSegmenter(rig.events, [None, None])
+        )
+        push.wait()
+
+    assert "ntfy is down" in caplog.text
+    assert rig.speech.texts == [ANNOUNCEMENT, REPLY]
+    assert rig.assistant.busy is False
+
+
+BRIEFING_TOOL = "daily_briefing"
+NO_CONNECTION = "Maaf Master, aku tidak bisa terhubung ke server Claude."
+
+
+class GreetingBrain(FakeBrain):
+    """Greets after one successful daily_briefing call, as a working brain does."""
+
+    def respond(self, user_text: str, *, now: datetime | None = None) -> BrainReply:
+        self.turns.append((user_text, now))
+        call = ToolCallRecord(BRIEFING_TOOL, {}, '{"date": "Senin, 12-10-2026"}', False)
+        return BrainReply(self.reply, [call])
+
+
+class ApologyBrain(FakeBrain):
+    """Fails as the real brains do: a reply without any tool call, never an exception."""
+
+    def respond(self, user_text: str, *, now: datetime | None = None) -> BrainReply:
+        self.turns.append((user_text, now))
+        return BrainReply(self.reply)
+
+
+class FailedBriefingBrain(FakeBrain):
+    def respond(self, user_text: str, *, now: datetime | None = None) -> BrainReply:
+        self.turns.append((user_text, now))
+        call = ToolCallRecord(BRIEFING_TOOL, {"x": 1}, '{"ok": false}', True)
+        return BrainReply(self.reply, [call])
+
+
+def test_a_request_needing_a_tool_is_said_and_passed_on_when_its_turn_called_it():
+    rig = Rig(brain=GreetingBrain)
+    replies = PassedOn()
+    rig.assistant.ask_aloud(GREETING_PROMPT, on_reply=replies, required_tool=BRIEFING_TOOL)
+
+    rig.assistant.run(FakeMic(rig.events, [SILENT_FRAME]), FakeSegmenter(rig.events, [None]))
+
+    assert rig.speech.texts == [REPLY]
+    assert replies.wait() == [REPLY]
+
+
+@pytest.mark.parametrize(
+    ("brain", "reply"),
+    [
+        (ApologyBrain, NO_CONNECTION),
+        (ApologyBrain, "[senang]"),
+        (FakeBrain, REPLY),
+        (FailedBriefingBrain, REPLY),
+    ],
+    ids=["apology", "empty reply", "another tool", "the tool failed"],
+)
+def test_a_request_whose_turn_did_not_call_its_tool_is_neither_said_nor_passed_on(
+    brain, reply, caplog
+):
+    # Nobody asked: an apology for a failed greeting must not be said into the room, pushed to
+    # the phone, or open the follow-up window.
+    rig = Rig(brain=brain, reply=reply, with_avatar=True)
+    replies: list[str] = []
+    rig.assistant.ask_aloud(GREETING_PROMPT, on_reply=replies.append, required_tool=BRIEFING_TOOL)
+
+    with caplog.at_level(logging.WARNING, logger="waifu.app"):
+        rig.assistant.run(FakeMic(rig.events, [SILENT_FRAME]), FakeSegmenter(rig.events, [None]))
+    shown = list(rig.events)
+    rig.assistant.announce(ANNOUNCEMENT)
+    rig.assistant.run(FakeMic(rig.events, [SILENT_FRAME]), FakeSegmenter(rig.events, [None]))
+
+    assert [text for text, _ in rig.brain.turns] == [GREETING_PROMPT]
+    assert "no successful daily_briefing call" in caplog.text
+    assert shown == ["avatar.state thinking", "avatar.state idle"]
+    assert rig.speech.texts == [ANNOUNCEMENT]
+    assert replies == []
+    assert rig.gate.check("matikan lampu").accepted is False
+    assert rig.assistant.busy is False
+
+
+class BrokenBrain(FakeBrain):
+    def respond(self, user_text: str, *, now: datetime | None = None) -> BrainReply:
+        raise RuntimeError("brain crashed")
+
+
+def test_a_request_that_fails_is_logged_and_she_keeps_listening(caplog):
+    rig = Rig(brain=BrokenBrain)
+    rig.assistant.ask_aloud(GREETING_PROMPT, on_reply=lambda text: None)
+
+    with caplog.at_level(logging.ERROR, logger="waifu.app"):
+        rig.assistant.run(FakeMic(rig.events, [SILENT_FRAME]), FakeSegmenter(rig.events, [None]))
+    rig.assistant.announce(ANNOUNCEMENT)
+    rig.assistant.run(FakeMic(rig.events, [SILENT_FRAME]), FakeSegmenter(rig.events, [None]))
+
+    assert "brain crashed" in caplog.text
+    assert rig.speech.texts == [ANNOUNCEMENT]
+    assert rig.assistant.busy is False

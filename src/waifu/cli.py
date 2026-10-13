@@ -52,10 +52,12 @@ from waifu.brain.persona import WEEKDAYS_ID
 from waifu.brain.schedule_tools import ScheduleTools
 from waifu.brain.screen_tools import ScreenTools
 from waifu.brain.tools import ToolProvider
+from waifu.briefing import DAILY_BRIEFING, BriefingTimer, BriefingTools
 from waifu.config import (
     APP_URL_SCHEMES,
     AppConfig,
     AvatarConfig,
+    BriefingConfig,
     ConfigError,
     OllamaConfig,
     RvcConfig,
@@ -106,6 +108,7 @@ from waifu.voice.segmenter import EnergySegmenter, frame_db
 from waifu.voice.speaker import MIN_ENROLL_SAMPLES, EcapaEmbedder, SpeakerError, SpeakerVerifier
 from waifu.voice.stt import CUDA_HINT, SttError, WhisperStt, register_cuda_dll_dirs
 from waifu.voice.tts import SpeechRouter, TtsError, build_speech_router
+from waifu.weather import WeatherClient
 
 logger = logging.getLogger(__name__)
 
@@ -221,6 +224,7 @@ NO_ROUTINES = (
     "Belum ada rutinitas. Tulis di bagian routines di config.yaml "
     "(lihat README, bagian Jadwal, pengingat, dan rutinitas)."
 )
+BRIEFING_TAG = "sunrise"  # ntfy shows it as a sunrise emoji
 REPEAT_TEXT: dict[Repeat, str] = {
     "none": "sekali",
     "daily": "tiap hari",
@@ -343,6 +347,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="tanpa suara anime (RVC), untuk membandingkan dengan suara biasa",
     )
     command("mics", _mics, "Daftar perangkat audio.")
+    command(
+        "briefing", _briefing, "Tampilkan ringkasan hari ini (tanggal, cuaca, jadwal) tanpa otak."
+    )
     command("check", _check, "Periksa konfigurasi, perangkat, dan dependensi.")
     command("notify-test", _notify_test, "Kirim notifikasi tes ke HP lewat ntfy.")
     avatar = command(
@@ -682,6 +689,7 @@ def _listen(args: argparse.Namespace) -> int:
                     # Not a reply, so no follow-up window: after login only her name starts a
                     # conversation, as in a plain `run`.
                     assistant.speak(f"{name} siap, Master.", followup=False)
+                notifier = build_notifier(config.notify)
                 try:
                     with (
                         _gacha_watcher(config, gacha, assistant),
@@ -690,8 +698,9 @@ def _listen(args: argparse.Namespace) -> int:
                             schedule,
                             registry,
                             announce=assistant.announce,
-                            notifier=build_notifier(config.notify),
+                            notifier=notifier,
                         ),
+                        _briefing_timer(config, assistant, notifier),
                     ):
                         assistant.run(mic, segmenter)
                 except SttError as exc:
@@ -758,7 +767,8 @@ def _companion_brain(
     schedule: ScheduleStore | None,
 ) -> Brain:
     """The brain with the game tools when they are on, her long-term memory when it is on,
-    then her schedule when it is on, and with Claude her eyes on the screen when vision is on.
+    then her schedule when it is on, the day's briefing when it is on, and with Claude her
+    eyes on the screen when vision is on.
 
     With memory, every new session lists the notes as they are in the file at that moment.
     """
@@ -768,6 +778,8 @@ def _companion_brain(
         providers.append(MemoryTools(notes))
     if schedule is not None:
         providers.append(ScheduleTools(schedule, registry=registry, routines=config.routines))
+    if config.briefing.enabled:
+        providers.append(_briefing_tools(config.briefing, schedule))
     if config.vision.enabled and config.brain.backend == "claude":
         # Ollama's local model cannot see images, so it is never offered the screen. Her name
         # and wake words are left out of Master's words, as for the confirmation gate.
@@ -1658,6 +1670,96 @@ def _command_text(device: str, command: str, value: int | None) -> str:
     return f"{device} {command}" if value is None else f"{device} {command} {value}"
 
 
+# --- morning briefing ------------------------------------------------------------------------
+
+
+def _weather_client(briefing: BriefingConfig) -> WeatherClient | None:
+    """Open-Meteo for the place `briefing` names (its coordinates win over its city); None
+    when it names none. Nothing is asked until the weather is wanted."""
+    if briefing.city is None and briefing.latitude is None:
+        return None
+    return WeatherClient(
+        latitude=briefing.latitude, longitude=briefing.longitude, city=briefing.city
+    )
+
+
+def _briefing_tools(briefing: BriefingConfig, schedule: ScheduleStore | None) -> BriefingTools:
+    """The day's date, weather, and entries of `schedule` (none without one) for the brain."""
+    return BriefingTools(weather=_weather_client(briefing), schedule=schedule)
+
+
+def _briefing_timer(
+    config: AppConfig, assistant: Assistant, notifier: Notifier | None
+) -> AbstractContextManager[object]:
+    """Her morning greeting, asked of her once a day while the block runs and also pushed to
+    the phone when `briefing.push` and notifications are on; none with the briefing off.
+    A greeting whose turn never read the day (`daily_briefing`) is the brain's apology for a
+    failure, so it is neither said nor pushed."""
+    briefing = config.briefing
+    if not briefing.enabled:
+        return nullcontext()
+    on_reply = (
+        _phone_push(notifier, config.assistant.name)
+        if briefing.push and notifier is not None
+        else None
+    )
+    return BriefingTimer(
+        briefing,
+        request=lambda prompt: assistant.ask_aloud(
+            prompt, on_reply=on_reply, required_tool=DAILY_BRIEFING
+        ),
+    )
+
+
+def _phone_push(notifier: Notifier, title: str) -> Callable[[str], None]:
+    """Sends what she said by herself to the phone (the notifier logs a failed push)."""
+
+    def push(text: str) -> None:
+        notifier.send(title, text, tags=[BRIEFING_TAG])
+
+    return push
+
+
+def _briefing(args: argparse.Namespace) -> int:
+    """Print the briefing data the brain would get now, without the brain: the way to check the
+    weather. Exit 1 when a part of it failed; the rest is printed all the same."""
+    config = load_config(args.config)
+    schedule = _schedule_store(config) if config.schedule.enabled else None
+    result, is_error = _briefing_tools(config.briefing, schedule).run(DAILY_BRIEFING, {})
+    briefing = json.loads(result)
+    if is_error:
+        print(f"{FAIL} {briefing['message']}")
+        return 1
+    print(f"Ringkasan hari ini: {briefing['date']}")
+    if briefing["weather"] is not None:
+        print(f"{OK} {_weather_text(briefing['weather'])}")
+    else:
+        print(f"{FAIL} Cuaca: {briefing['weather_problem']}")
+    entries = briefing["schedule_today"]
+    if briefing["schedule_problem"] is not None:
+        print(f"{FAIL} Jadwal: {briefing['schedule_problem']}")
+    elif schedule is None:
+        print(f"{WARN} Jadwal mati (schedule.enabled: false)")
+    elif not entries:
+        print("Tidak ada jadwal hari ini.")
+    else:
+        print("Jadwal hari ini:")
+        for entry in entries:
+            print(f"  {entry['time']}  {entry['what']}")
+    failed = briefing["weather"] is None or briefing["schedule_problem"] is not None
+    return 1 if failed else 0
+
+
+def _weather_text(weather: dict[str, object]) -> str:
+    """`Cuaca di Bandung: berawan, 21.4°C; hari ini 18.6-27.9°C, ...`: the `daily_briefing`
+    weather as the owner reads it."""
+    return (
+        f"Cuaca di {weather['place']}: {weather['condition']}, {weather['temperature_c']:g}°C; "
+        f"hari ini {weather['min_c']:g}-{weather['max_c']:g}°C, "
+        f"peluang hujan {weather['rain_chance']}%; besok pagi {weather['tomorrow_morning']}"
+    )
+
+
 # --- check -----------------------------------------------------------------------------------
 
 
@@ -1683,6 +1785,7 @@ def _checks(config_path: Path) -> Iterator[Check]:
     yield _vision_check(config)
     yield _memory_check(config)
     yield _schedule_check(config)
+    yield _briefing_check(config.briefing)
     yield from _voice_package_checks(config)
     yield _microphone_check(config)
     yield from _anime_voice_checks(config)
@@ -1875,6 +1978,22 @@ def _schedule_check(config: AppConfig) -> Check:
             "(cara memulihkannya ada di README, bagian Jadwal, pengingat, dan rutinitas)"
         )
     return OK, status
+
+
+def _briefing_check(briefing: BriefingConfig) -> Check:
+    """When she greets by herself and where the weather is for (coordinates win over the city,
+    which still names the place); Open-Meteo is never asked."""
+    if not briefing.enabled:
+        return WARN, "Sapaan pagi mati"
+    if briefing.latitude is not None:
+        coordinates = f"{briefing.latitude}, {briefing.longitude}"
+        place = coordinates if briefing.city is None else f"{briefing.city} ({coordinates})"
+    elif briefing.city is not None:
+        place = briefing.city
+    else:
+        return WARN, "Sapaan pagi: cuaca belum diatur (isi briefing.city)"
+    hours = f"{briefing.time:%H:%M}-{briefing.until:%H:%M}"
+    return OK, f"Sapaan pagi: jam {hours}, cuaca untuk {place}"
 
 
 def _set_aside_files(path: Path) -> list[Path]:

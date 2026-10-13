@@ -37,6 +37,7 @@ Cyrene : "Komputer mau kumatikan sekarang, Master? Jawab iya kalau jadi." (minta
 - [Jadwal, pengingat, dan rutinitas](#jadwal-pengingat-dan-rutinitas)
 - [Musik, volume, dan aplikasi PC](#musik-volume-dan-aplikasi-pc)
 - [Melihat layar](#melihat-layar)
+- [Sapaan pagi dan ringkasan harian](#sapaan-pagi-dan-ringkasan-harian)
 - [Pemecahan masalah](#pemecahan-masalah)
 - [Checklist uji perangkat keras](#checklist-uji-perangkat-keras)
 - [Privasi](#privasi)
@@ -590,7 +591,8 @@ waifu speaker-test    # skor kecocokan langsung, Ctrl+C untuk berhenti
 | `waifu memory list` / `add` / `forget` / `clear` | Lihat, tambah, dan hapus catatan ingatannya (lihat [Ingatan Cyrene](#ingatan-cyrene)) |
 | `waifu schedule list` / `cancel <id>` / `clear` | Lihat dan batalkan pengingat dan perintah terjadwal (lihat [Jadwal, pengingat, dan rutinitas](#jadwal-pengingat-dan-rutinitas)) |
 | `waifu routine list` / `run <nama>` | Lihat rutinitas dari `config.yaml`, atau jalankan satu sekarang (`--dry-run`: perangkat simulasi) |
-| `waifu check` | Periksa config, kode IR, aplikasi PC, rutinitas, voiceprint, otak, ingatan, jadwal, paket suara, CUDA, mic, suara anime, dan avatar |
+| `waifu briefing` | Tampilkan ringkasan hari ini (tanggal, cuaca, jadwal) tanpa otak, untuk mengecek cuaca (lihat [Sapaan pagi dan ringkasan harian](#sapaan-pagi-dan-ringkasan-harian)) |
+| `waifu check` | Periksa config, kode IR, aplikasi PC, rutinitas, voiceprint, otak, ingatan, jadwal, sapaan pagi, paket suara, CUDA, mic, suara anime, dan avatar |
 
 Opsi untuk semua perintah: `--config <file>` (default `config.yaml`), `--dry-run`
 (perangkat simulasi), `-v` (log lebih rinci), `--log-file <file>` (log juga ditulis
@@ -1968,6 +1970,134 @@ lebih sulit dibaca. API Anthropic menerima paling besar 5 MB per gambar; di atas
 lagi dengan ukuran lebih kecil. Display scaling Windows (125%, 150%) tidak berpengaruh:
 seluruh layar tetap tertangkap. Jalankan ulang `waifu run` setelah mengubahnya.
 
+## Sapaan pagi dan ringkasan harian
+
+Sekali sehari, saat `waifu run` menyala pertama kali di antara jam 07.00 dan 12.00, Cyrene
+menyapa Master sendiri dan merangkum harinya dalam 2-4 kalimat pendek: cuaca, jadwal dan
+pengingat hari ini, game kalau [teman main gacha](#teman-main-gacha-hoyoverse) menyala, dan
+hal dari [ingatannya](#ingatan-cyrene) yang penting hari ini (ulang tahun, ujian). Data yang
+sama juga dipakai kapan saja kalau Master bertanya. Fitur ini sudah menyala dari awal
+(`briefing.enabled: true`), tapi cuacanya baru ada setelah kotanya diisi (lihat
+[Mengatur kota](#mengatur-kota)).
+
+```text
+(07.05)  Cyrene : "おはよう, Master! Bandung pagi ini berawan, 21 derajat, nanti paling panas
+                   28 dan peluang hujannya 85 persen, jadi bawa payung ya. Jam tiga sore ada
+                   pengingat minum obat, dan hari ini Master ujian. Semangat!"
+Master : "Makasih ya."                    (tanpa memanggil nama: jendela lanjutan terbuka)
+Master : "Cyrene, cuaca hari ini gimana?"
+Master : "Cyrene, hari ini ada jadwal apa?"
+Master : "Cyrene, ringkasan hari ini dong."
+```
+
+### Kapan dia menyapa
+
+- **Sekali sehari, di jendela jamnya.** Jendelanya `briefing.time` sampai sebelum
+  `briefing.until` (bawaan 07.00-12.00, jam PC), dicek setiap 30 detik selama `waifu run`
+  menyala. PC dinyalakan jam 08.30: dia menyapa begitu siap mendengarkan. Dinyalakan jam
+  13.00: hari itu tidak ada sapaan.
+- **Tidak pernah dua kali.** Hari sapaan terakhir ditulis ke `data\briefing.json` sebelum
+  dia mulai menyapa, jadi restart, PC yang dinyalakan lagi pagi itu, atau error di tengah
+  sapaan tidak membuatnya menyapa lagi. Sapaan yang gagal tidak diulang hari itu (lihat poin
+  terakhir). File yang rusak dipindah ke `briefing.json.corrupt-<waktu>` dan dia mulai dari
+  awal. Untuk mendengar sapaannya lagi hari ini (misalnya untuk mengujinya), hapus
+  `data\briefing.json` lalu jalankan ulang `waifu run` di dalam jendela jamnya. Menggeser
+  `time` atau `until` saja tidak cukup: hari yang sudah disapa tetap tercatat.
+- **Tidak pernah memotong.** Seperti pengingat, sapaan diucapkan di sela kalimat Master:
+  tidak saat dia menjawab, tidak saat Master sedang bicara, tidak selama jendela lanjutan
+  sesudah jawabannya masih terbuka (Master mungkin masih membalas, misalnya menjawab "iya"
+  untuk mematikan PC), dan tidak saat Master baru saja memotongnya dengan klik dua kali
+  (sapaannya menunggu sampai Master bicara atau jendela lanjutan lewat). Pengingat yang antre
+  bersamaan diucapkan dulu, baru sapaannya sesudah jeda singkat.
+- **Kalimatnya dari otaknya sendiri** (Claude atau Ollama), jadi berbeda setiap hari dan
+  butuh beberapa detik untuk dipikirkan. Sesudahnya jendela lanjutan terbuka: Master bisa
+  langsung membalas tanpa memanggil namanya.
+- **Ke HP juga**: teks sapaan yang sama dikirim lewat ntfy kalau `notify.enabled: true` dan
+  `briefing.push: true` (bawaan; lihat [Notifikasi ke HP](#3-notifikasi-ke-hp-ntfy)).
+  Pengirimannya berjalan di belakang, jadi dia langsung mendengarkan lagi walau ntfy lambat.
+- **Hanya selama `waifu run`.** `waifu chat` punya ringkasan yang sama untuk ditanyakan,
+  tapi tidak menyapa sendiri. `waifu run --dry-run` juga menyapa dan mencatat harinya di file
+  yang sama, tapi jadwalnya jadwal sementara yang kosong.
+- **Kalau cuaca gagal dibaca** (server cuaca tidak bisa dihubungi atau terlalu lama menjawab,
+  kota tidak ditemukan), dia tetap menyapa, bilang singkat bahwa cuacanya tidak bisa dicek,
+  lalu menyampaikan sisanya. Itu berlaku selama otaknya sendiri jalan: dengan Ollama (lokal)
+  dia tetap menyapa walau internet mati.
+- **Kalau otaknya gagal** (dengan Claude: internet mati, Wi-Fi belum tersambung saat PC baru
+  menyala, server Claude sibuk atau error), dia tidak menyapa hari itu: dia diam, tidak
+  mengucapkan permintaan maaf yang tidak diminta, dan tidak ada yang dikirim ke HP. Log
+  menampilkan `Not saying the answer to a request`. Hanya kalau otaknya gagal di tengah
+  sapaan, sesudah ringkasan hari itu terbaca, permintaan maafnya masih terucap dan terkirim.
+
+Isi cuacanya: kondisi dan suhu sekarang, suhu terendah dan tertinggi hari ini, peluang hujan
+tertinggi hari ini, dan kondisi besok jam 07.00. Tidak ada ramalan beberapa hari, berita,
+lalu lintas, atau kalender di luar jadwal Cyrene.
+
+### Mengatur kota
+
+Cuaca diambil dari [Open-Meteo](https://open-meteo.com/): gratis, tanpa akun atau API key,
+tapi **butuh internet**. Tulis kotamu di `config.yaml`:
+
+```yaml
+briefing:
+  city: Bandung
+```
+
+Nama kota dicari sekali di Open-Meteo saat cuaca pertama kali dibutuhkan, dan hasil pertama
+yang dipakai (`waifu briefing` menampilkan nama dan provinsinya). Kalau yang ditemukan kota
+lain dengan nama sama, atau kamu ingin titik yang persis, pakai koordinat. Isi keduanya;
+koordinat menang atas `city`: cuacanya diambil untuk koordinat itu tanpa mencari kotanya,
+dan `city` tetap dipakai sebagai nama tempat yang dia sebut (tanpa `city`, nama tempatnya
+angka koordinat). Jadi pastikan keduanya menunjuk tempat yang sama. Di Google Maps, klik
+kanan titiknya: angka pertama latitude, angka kedua longitude.
+
+```yaml
+briefing:
+  enabled: true
+  time: "07:00"      # sapaan paling cepat jam ini
+  until: "12:00"     # dan sebelum jam ini
+  city: Bandung      # nama tempat yang dia sebut
+  latitude: -6.9175
+  longitude: 107.6191
+  push: true         # kirim sapaannya juga ke HP (kalau notify menyala)
+  state_path: data/briefing.json
+```
+
+Tulis jamnya dengan tanda kutip (`"07:00"`), dan `time` harus sebelum `until`. Contoh
+lengkapnya ada di `config.example.yaml`. Jalankan ulang `waifu run` setelah mengubahnya.
+
+### Mengecek cuaca: `waifu briefing`
+
+`waifu briefing` menampilkan data yang sama dengan yang dibaca Cyrene untuk sapaannya, tanpa
+otak (tidak memakai Claude atau Ollama), jadi cocok untuk menguji kota dan internetnya:
+
+```text
+Ringkasan hari ini: Rabu, 14-10-2026
+✓ Cuaca di Bandung, Jawa Barat: berawan, 21.4°C; hari ini 18.6-27.9°C, peluang hujan 85%; besok pagi hujan
+Jadwal hari ini:
+  15:00  Master, sudah jam tiga, waktunya minum obat!
+  23:00  rutinitas tidur
+```
+
+Kalau cuaca gagal, baris `✗ Cuaca: ...` menyebut sebabnya (kota tidak ditemukan, server tidak
+bisa dihubungi atau terlalu lama menjawab, kota belum diisi), sisanya tetap ditampilkan, dan
+exit code-nya 1. Satu pengecekan cuaca, pencarian kota dan ramalannya bersama, dibatasi 8
+detik. Kalau jadwal tidak bisa dibaca, baris `✗ Jadwal: ...` muncul dan exit code-nya juga 1.
+Perintah ini juga jalan walau `briefing.enabled: false`.
+
+`waifu check` menampilkan `✓ Sapaan pagi: jam 07:00-12:00, cuaca untuk Bandung` (dengan
+koordinat: `cuaca untuk -6.9175, 107.6191`, atau `cuaca untuk Bandung (-6.9175, 107.6191)`
+kalau `city` juga diisi), `! Sapaan pagi: cuaca belum diatur (isi briefing.city)`, atau
+`! Sapaan pagi mati`, tanpa menghubungi Open-Meteo.
+
+### Mematikannya
+
+```yaml
+briefing:
+  enabled: false   # tanpa sapaan pagi dan tanpa ringkasan harian
+```
+
+Untuk tetap disapa tapi tanpa notifikasi HP, cukup `push: false`.
+
 ## Pemecahan masalah
 
 Log `waifu run` tampil di terminal dalam bahasa Inggris. Baris seperti
@@ -2223,6 +2353,23 @@ halaman tim di game atau sebuah error)
 - [ ] Dengan `vision.enabled: false`, `waifu check` menampilkan `! Melihat layar mati` dan
       "Cyrene, lihat layarku" tidak mengambil tangkapan layar.
 
+**Sapaan pagi** (isi dulu `briefing.city` di `config.yaml`; lihat
+[Mengatur kota](#mengatur-kota))
+
+- [ ] `waifu check` menampilkan `✓ Sapaan pagi: jam 07:00-12:00, cuaca untuk <kotamu>`.
+- [ ] `waifu briefing` menampilkan kota dan provinsi yang benar, cuaca yang masuk akal
+      dibanding langit di luar, dan jadwal hari ini; exit code-nya 0.
+- [ ] Hapus `data\briefing.json`, lalu jalankan `waifu run` di dalam jendela jamnya (atau
+      atur sementara `time` sebelum jam sekarang): dia menyapa sekali dengan cuaca dan
+      jadwalnya, dan HP menerima teks yang sama kalau notifikasi menyala. Balasan tanpa
+      memanggil namanya ("makasih ya") langsung dijawab.
+- [ ] Jalankan ulang `waifu run` pagi itu juga: dia tidak menyapa lagi.
+- [ ] Dengan otak Claude: hapus lagi `data\briefing.json`, matikan Wi-Fi, lalu jalankan
+      `waifu run`: dia tidak mengucapkan apa pun dan HP tidak menerima apa-apa; log
+      menampilkan `Not saying the answer to a request`. Nyalakan lagi Wi-Fi-nya.
+- [ ] Kapan saja: "Cyrene, cuaca hari ini gimana?" dan "Cyrene, hari ini ada jadwal apa?"
+      dijawab dengan data yang sama.
+
 ## Privasi
 
 - **Suara tidak pernah keluar dari PC.** Rekaman mic, verifikasi suara, dan
@@ -2240,7 +2387,10 @@ halaman tim di game atau sebuah error)
   - dengan teman main gacha, permintaan data game ke HoYoLAB dan ke server riwayat
     HoYoverse (dengan cookie dan authkey milikmu), hasilnya ke API Anthropic kalau otaknya
     Claude, dan teks pengingat ke `ntfy.sh` (siapa pun yang tahu nama topiknya bisa
-    membacanya).
+    membacanya);
+  - dengan sapaan pagi, nama kota atau koordinat di `briefing` ke Open-Meteo untuk cuacanya
+    (tanpa akun, tanpa data lain tentang Master), dan teks sapaannya ke `ntfy.sh` kalau
+    notifikasi HP menyala. Hari sapaan terakhir hanya disimpan di `data\briefing.json`.
 - **Cookie HoYoLAB setara kata sandi.** Hanya disimpan di `config.yaml` dan tidak pernah
   ditulis ke log. Riwayat pull ada di `data\gacha\` (nama filenya memuat UID game).
 - **Ingatan Cyrene** (hal yang dia ketahui tentang Master) ada di `data\memory.json`,

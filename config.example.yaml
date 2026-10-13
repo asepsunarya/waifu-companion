@@ -219,6 +219,26 @@ schedule:
 #   enabled: true
 #   max_side: 1280   # sisi terpanjang tangkapan layar dalam piksel (512-1568); tidak pernah diperbesar
 
+# Sapaan pagi dan ringkasan harian (README, bagian "Sapaan pagi dan ringkasan harian"): sekali
+# sehari, saat `waifu run` menyala pertama kali di antara `time` dan `until`, Cyrene menyapa
+# Master sendiri dan merangkum harinya dalam beberapa kalimat: cuaca, jadwal dan pengingat hari
+# ini, game kalau teman main gacha menyala, dan hal dari ingatannya yang penting hari ini.
+# Kapan saja, "Cyrene, cuaca hari ini gimana?" memakai data yang sama. Cuaca dari Open-Meteo
+# (gratis, tanpa akun atau key, butuh internet); cek dengan `waifu briefing`.
+# Sudah menyala tanpa ditulis, tapi tanpa cuaca: tulis bagian ini tanpa tanda # di depannya,
+# lalu ganti city dengan kotamu (atau enabled: false untuk mematikan sapaan dan ringkasannya).
+# briefing:
+#   enabled: true
+#   time: "07:00"     # sapaan paling cepat jam ini (jam PC)
+#   until: "12:00"    # dan sebelum jam ini; PC yang baru menyala sesudahnya tidak menyapa hari itu
+#   city: Bandung     # kota untuk cuaca, dicari di Open-Meteo
+#   # Atau koordinat persis (isi keduanya; menang atas city, yang tetap jadi nama tempat yang
+#   # dia sebut), misalnya dari Google Maps:
+#   # latitude: -6.9175
+#   # longitude: 107.6191
+#   push: true        # kirim sapaannya juga ke HP (kalau notify menyala)
+#   state_path: data/briefing.json   # hari sapaan terakhir, supaya restart tidak menyapa lagi
+
 ir_codes_path: data/ir_codes.json
 
 devices:

@@ -12,10 +12,11 @@ import tempfile
 import threading
 import types
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from importlib.machinery import ModuleSpec
 from pathlib import Path, PureWindowsPath
 
@@ -37,8 +38,10 @@ from waifu.avatar.window import AvatarWindow
 from waifu.brain import claude as claude_module
 from waifu.brain.base import Brain, BrainReply, ToolCallRecord
 from waifu.brain.memory_tools import MemoryTools
+from waifu.brain.persona import WEEKDAYS_ID
 from waifu.brain.schedule_tools import ScheduleTools
 from waifu.brain.screen_tools import ScreenTools
+from waifu.briefing import BRIEFING_PROMPT, DAILY_BRIEFING, BriefingTimer, BriefingTools
 from waifu.config import AvatarConfig, RvcConfig
 from waifu.devices.base import DeviceError
 from waifu.devices.ir_codes import IrCodeStore
@@ -66,6 +69,7 @@ from waifu.voice.rvc import RvcError
 from waifu.voice.speaker import SpeakerVerifier
 from waifu.voice.stt import WhisperStt
 from waifu.voice.tts import TtsError
+from waifu.weather import WeatherClient
 
 ROOT = Path(__file__).resolve().parent.parent
 SAMPLE_RATE = 16000
@@ -144,6 +148,57 @@ def only_under(tmp_path: Path, store_class: type) -> Callable[..., object]:
         return store_class(path, **limits)
 
     return store_under_tmp_path
+
+
+@pytest.fixture(autouse=True)
+def no_real_weather(monkeypatch):
+    """A test that forgets the Open-Meteo fake fails instead of asking the internet for the
+    weather (tests/conftest.py refuses it too, but the briefing turns any weather failure into
+    a problem field, so the refusal alone could go unnoticed). Yields the URLs it refused."""
+    reached: list[str] = []
+
+    def refuse(url: str, timeout_s: float) -> object:
+        reached.append(url)
+        raise AssertionError(f"a test reached Open-Meteo: {url}")
+
+    monkeypatch.setattr(cli, "WeatherClient", lambda **place: WeatherClient(**place, fetch=refuse))
+    yield reached
+    assert not reached, f"a test asked Open-Meteo for the weather: {reached}"
+
+
+class FakeBriefingTimer:
+    """Stands in for BriefingTimer without a thread, remembering whether `waifu run` listened
+    when it started and stopped. `tick_at(moment)` runs one check of a real BriefingTimer built
+    with the same arguments, to see what it would ask for at that moment."""
+
+    def __init__(self, config, *, request) -> None:
+        self.config = config
+        self.request = request
+        self.listening: list[bool] = []
+
+    def __enter__(self) -> "FakeBriefingTimer":
+        self.listening.append(listening())
+        return self
+
+    def __exit__(self, *exc_info) -> None:
+        self.listening.append(listening())
+
+    def tick_at(self, moment: datetime) -> None:
+        BriefingTimer(self.config, request=self.request, now=lambda: moment).tick_once()
+
+
+@pytest.fixture(autouse=True)
+def briefing_timers(monkeypatch) -> list[FakeBriefingTimer]:
+    """The real timer greets by the wall clock: between 07:00 and 12:00 it would ask for the
+    morning greeting in every `run` test, so every test gets the fake."""
+    built: list[FakeBriefingTimer] = []
+
+    def build(config, *, request) -> FakeBriefingTimer:
+        built.append(FakeBriefingTimer(config, request=request))
+        return built[-1]
+
+    monkeypatch.setattr(cli, "BriefingTimer", build)
+    return built
 
 
 @pytest.fixture(autouse=True)
@@ -594,6 +649,7 @@ def event_player(events, monkeypatch) -> None:
         (["schedule", "clear", "--yes"], "schedule"),
         (["routine", "list"], "routine"),
         (["routine", "run", "tidur", "--dry-run"], "routine"),
+        (["briefing"], "briefing"),
     ],
 )
 def test_every_subcommand_in_the_spec_parses(argv, command):
@@ -1460,7 +1516,8 @@ class RecordingAssistant:
     """Records what `waifu run` asks of her. `busy_answers` are what `busy` says, one per
     check (then False), and `cut_answers` what `interrupt` says, one per call (then False:
     nothing was playing); `cuts` counts those calls; `reacted` counts each reaction
-    (`speak_reaction` or `listen_now`)."""
+    (`speak_reaction` or `listen_now`); `asked` holds each `ask_aloud` with its `on_reply` and
+    `required_tool`."""
 
     instances: list["RecordingAssistant"] = []
 
@@ -1468,6 +1525,7 @@ class RecordingAssistant:
         self.collaborators = collaborators
         self.ran_with: tuple | None = None
         self.announced: list[tuple[str, str]] = []
+        self.asked: list[tuple[str, Callable[[str], None] | None, str | None]] = []
         self.busy_answers: list[bool] = []
         self.cut_answers: list[bool] = []
         self.cuts = 0
@@ -1500,6 +1558,9 @@ class RecordingAssistant:
 
     def announce(self, text: str, emotion: str = "neutral") -> None:
         self.announced.append((text, emotion))
+
+    def ask_aloud(self, prompt: str, *, on_reply=None, required_tool=None) -> None:
+        self.asked.append((prompt, on_reply, required_tool))
 
 
 class PreloadingStt(SpeechToText):
@@ -3775,11 +3836,12 @@ def test_run_with_the_games_on_gives_the_brain_the_game_tools_and_watches_while_
 
     assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
 
-    [tools, memory_tools, schedule] = brains[0].providers
-    assert (type(tools), type(memory_tools), type(schedule)) == (
+    [tools, memory_tools, schedule, briefing] = brains[0].providers
+    assert (type(tools), type(memory_tools), type(schedule), type(briefing)) == (
         GachaTools,
         MemoryTools,
         ScheduleTools,
+        BriefingTools,
     )
     assert [spec.name for spec in tools.specs()] == ["game_status", "gacha_history"]
     [watcher] = watchers
@@ -3803,6 +3865,7 @@ def test_run_without_a_cookie_has_the_game_tools_but_no_watcher(
         GachaTools,
         MemoryTools,
         ScheduleTools,
+        BriefingTools,
     ]
     assert watchers == []
 
@@ -3811,7 +3874,11 @@ def test_run_with_the_games_off_builds_none_of_it(home, run_fakes, brains, games
     assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
 
     assert (games.built, watchers) == ([], [])
-    assert [type(tools) for tools in brains[0].providers] == [MemoryTools, ScheduleTools]
+    assert [type(tools) for tools in brains[0].providers] == [
+        MemoryTools,
+        ScheduleTools,
+        BriefingTools,
+    ]
 
 
 def test_chat_with_the_games_on_gives_the_brain_the_game_tools(home, brains, games, monkeypatch):
@@ -3824,6 +3891,7 @@ def test_chat_with_the_games_on_gives_the_brain_the_game_tools(home, brains, gam
         GachaTools,
         MemoryTools,
         ScheduleTools,
+        BriefingTools,
     ]
 
 
@@ -3940,7 +4008,7 @@ def test_run_gives_the_brain_her_memory_tools_and_the_notes_at_each_session_star
     assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
 
     brain = brains[0]
-    [tools, _] = brain.providers  # then the schedule tools
+    [tools, _, _] = brain.providers  # then the schedule and briefing tools
     assert isinstance(tools, MemoryTools)
     assert brain.memory_section() == memory_prompt_section([])
     assert tools.run("remember", {"text": "Master alergi udang."})[1] is False
@@ -3957,7 +4025,11 @@ def test_chat_gives_the_brain_the_notes_saved_in_data_memory_json(home, brains, 
 
     assert cli.main(["chat", "--dry-run"]) == 0
 
-    assert [type(tools) for tools in brains[0].providers] == [MemoryTools, ScheduleTools]
+    assert [type(tools) for tools in brains[0].providers] == [
+        MemoryTools,
+        ScheduleTools,
+        BriefingTools,
+    ]
     assert "Master suka kopi." in brains[0].memory_section()
 
 
@@ -3970,7 +4042,7 @@ def test_with_the_memory_off_the_brain_gets_neither_the_tools_nor_the_notes(
 
     assert cli.main([*argv, "--dry-run"]) == 0
 
-    assert [type(tools) for tools in brains[0].providers] == [ScheduleTools]
+    assert [type(tools) for tools in brains[0].providers] == [ScheduleTools, BriefingTools]
     assert brains[0].memory_section is None
     assert not memory_file(home).exists()
 
@@ -4276,7 +4348,11 @@ def test_run_gives_the_brain_the_schedule_tools_and_fires_her_schedule_while_she
     assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
 
     brain = brains[0]
-    assert [type(tools) for tools in brain.providers] == [MemoryTools, ScheduleTools]
+    assert [type(tools) for tools in brain.providers] == [
+        MemoryTools,
+        ScheduleTools,
+        BriefingTools,
+    ]
     [scheduler] = schedulers
     assert scheduler.states == ["started", "stopped"]
     assert scheduler.listening == [False, True]
@@ -4405,7 +4481,7 @@ def test_with_the_schedule_off_she_gets_neither_the_tools_nor_a_scheduler(
 
     assert cli.main([*argv, "--dry-run"]) == 0
 
-    assert [type(tools) for tools in brains[0].providers] == [MemoryTools]
+    assert [type(tools) for tools in brains[0].providers] == [MemoryTools, BriefingTools]
     assert schedulers == []
     assert not schedule_file(home).exists()
 
@@ -4873,6 +4949,7 @@ def test_with_claude_she_may_look_at_the_screen_at_the_configured_size(
     assert [type(tools) for tools in brains[0].providers] == [
         MemoryTools,
         ScheduleTools,
+        BriefingTools,
         ScreenTools,
     ]
     screen = screen_tools(brains[0])
@@ -4980,7 +5057,11 @@ def test_without_claude_or_with_vision_off_the_brain_gets_no_screen_tool(
 
     assert cli.main(["chat", "--dry-run"]) == 0
 
-    assert [type(tools) for tools in brains[0].providers] == [MemoryTools, ScheduleTools]
+    assert [type(tools) for tools in brains[0].providers] == [
+        MemoryTools,
+        ScheduleTools,
+        BriefingTools,
+    ]
     assert capture.sizes == []
 
 
@@ -5005,3 +5086,369 @@ def test_check_reports_whether_she_can_look_at_the_screen(
 
     assert vision_line(capsys.readouterr().out) == expected
     assert capture.sizes == []
+
+
+# --- morning briefing ------------------------------------------------------------------------
+
+GEOCODING_HOST = "geocoding-api.open-meteo.com"
+FORECAST_HOST = "api.open-meteo.com"
+BANDUNG = {
+    "id": 1650357,
+    "name": "Bandung",
+    "latitude": -6.90389,
+    "longitude": 107.61861,
+    "country_code": "ID",
+    "timezone": "Asia/Jakarta",
+    "country": "Indonesia",
+    "admin1": "Jawa Barat",
+}
+
+
+def open_meteo_forecast(today: date) -> dict:
+    """A forecast shaped like Open-Meteo's documented reply to the briefing's request (current
+    values, two days of hourly and daily arrays in the place's time zone), trimmed to the
+    fields the weather client reads and the time zone it was given."""
+    days = [today, today + timedelta(days=1)]
+    return {
+        "timezone": "Asia/Jakarta",
+        "utc_offset_seconds": 25200,
+        "current": {
+            "time": f"{today}T07:15",
+            "interval": 900,
+            "temperature_2m": 21.4,
+            "weather_code": 2,
+        },
+        "hourly": {
+            "time": [f"{day}T{hour:02d}:00" for day in days for hour in range(24)],
+            "weather_code": [2] * 24 + [61] * 24,
+        },
+        "daily": {
+            "time": [day.isoformat() for day in days],
+            "weather_code": [95, 61],
+            "temperature_2m_max": [27.9, 28.3],
+            "temperature_2m_min": [18.6, 18.9],
+            "precipitation_probability_max": [85, 40],
+        },
+    }
+
+
+class FakeOpenMeteo:
+    """The weather client's fetch: answers like Open-Meteo's geocoding and forecast APIs for
+    today, or raises `failure`; records every URL and never goes online."""
+
+    def __init__(self) -> None:
+        self.urls: list[str] = []
+        self.failure: Exception | None = None
+
+    def __call__(self, url: str, timeout_s: float) -> object:
+        self.urls.append(url)
+        if self.failure is not None:
+            raise self.failure
+        if urllib.parse.urlsplit(url).hostname == GEOCODING_HOST:
+            return {"results": [BANDUNG], "generationtime_ms": 0.6}
+        return open_meteo_forecast(date.today())
+
+    def queries(self, host: str) -> list[dict[str, list[str]]]:
+        return [
+            urllib.parse.parse_qs(urllib.parse.urlsplit(url).query)
+            for url in self.urls
+            if urllib.parse.urlsplit(url).hostname == host
+        ]
+
+
+@pytest.fixture
+def open_meteo(monkeypatch) -> FakeOpenMeteo:
+    fake = FakeOpenMeteo()
+    monkeypatch.setattr(cli, "WeatherClient", lambda **place: WeatherClient(**place, fetch=fake))
+    return fake
+
+
+def write_out_example_briefing(home: Path) -> None:
+    """The example config with its commented `briefing` block written out (city Bandung)."""
+    config = home / "config.yaml"
+    text = config.read_text(encoding="utf-8")
+    commented = text[text.index("# briefing:\n") :].split("\n\n", 1)[0]
+    written_out = "\n".join(line.removeprefix("# ") for line in commented.splitlines())
+    config.write_text(text.replace(commented, written_out), encoding="utf-8")
+
+
+def append_config(home: Path, text: str) -> None:
+    with (home / "config.yaml").open("a", encoding="utf-8") as config:
+        config.write(f"\n{text}")
+
+
+def save_today_s_schedule(path: Path) -> None:
+    """Two entries today (15:00 and 23:00, saved as of midnight, whatever the time is now) and
+    one tomorrow, which today's briefing leaves out."""
+    midnight = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    store = ScheduleStore(path, now=lambda: midnight)
+    store.add(midnight.replace(hour=23), "daily", RoutineAction("tidur"))
+    store.add(midnight.replace(hour=15), "none", Reminder(MEDICINE))
+    store.add(midnight + timedelta(days=1, hours=7), "none", Reminder("Master, bangun!"))
+
+
+def briefing_tools(brain: HouseBrain) -> BriefingTools:
+    [tools] = [provider for provider in brain.providers if isinstance(provider, BriefingTools)]
+    return tools
+
+
+def daily_briefing(brain: HouseBrain) -> dict:
+    result, is_error = briefing_tools(brain).run("daily_briefing", {})
+    assert is_error is False
+    return json.loads(result)
+
+
+def today_text() -> str:
+    now = datetime.now()
+    return f"{WEEKDAYS_ID[now.weekday()]}, {now:%d-%m-%Y}"
+
+
+def test_run_greets_once_a_day_while_she_listens_and_pushes_the_greeting_to_the_phone(
+    home, run_fakes, brains, briefing_timers, monkeypatch
+):
+    enable_notify(home)
+    notifier = FakeNotifier()
+    use_notifier(monkeypatch, notifier)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    assert type(brains[0].providers[-1]) is BriefingTools
+    [timer] = briefing_timers
+    assert timer.listening == [False, True]
+    timer.tick_at(datetime(2026, 10, 14, 7, 30))
+    timer.tick_at(datetime(2026, 10, 14, 9, 0))  # she already greeted today
+    [(prompt, on_reply, required_tool)] = RecordingAssistant.instances[0].asked
+    assert prompt == BRIEFING_PROMPT
+    assert required_tool == DAILY_BRIEFING  # a failed turn (an apology) is never said
+    on_reply("Selamat pagi, Master! Hari ini cerah.")
+    assert notifier.sent == [("Cyrene", "Selamat pagi, Master! Hari ini cerah.", ("sunrise",))]
+
+
+def test_run_greets_in_the_configured_window_and_remembers_the_day_where_the_config_says(
+    home, run_fakes, briefing_timers
+):
+    write_config(
+        home, "briefing:\n  time: '06:00'\n  until: '09:30'\n  state_path: sapa/terakhir.json\n"
+    )
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    [timer] = briefing_timers
+    timer.tick_at(datetime(2026, 10, 14, 9, 30))  # too late today
+    late = list(RecordingAssistant.instances[0].asked)
+    timer.tick_at(datetime(2026, 10, 15, 6, 0))
+    assert late == []
+    assert [prompt for prompt, _, _ in RecordingAssistant.instances[0].asked] == [BRIEFING_PROMPT]
+    saved = json.loads((home / "sapa" / "terakhir.json").read_text(encoding="utf-8"))
+    assert saved["last_date"] == "2026-10-15"
+
+
+@pytest.mark.parametrize(
+    ("push", "notify"), [(False, True), (True, False)], ids=["push_off", "notify_off"]
+)
+def test_run_greets_without_a_push_when_push_or_notifications_are_off(
+    push, notify, home, run_fakes, briefing_timers, monkeypatch
+):
+    if notify:
+        enable_notify(home)
+    append_config(home, f"briefing:\n  push: {str(push).lower()}\n")
+    notifier = FakeNotifier()
+    use_notifier(monkeypatch, notifier)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    briefing_timers[0].request(BRIEFING_PROMPT)
+    [(_, on_reply, _)] = RecordingAssistant.instances[0].asked
+    assert on_reply is None
+    assert notifier.sent == []
+
+
+def test_chat_gives_the_brain_the_briefing_tool_but_never_greets_by_herself(
+    home, brains, briefing_timers, monkeypatch
+):
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main(["chat", "--dry-run"]) == 0
+
+    assert type(brains[0].providers[-1]) is BriefingTools
+    assert briefing_timers == []
+
+
+@pytest.mark.parametrize("argv", [["run", "--no-speaker-check"], ["chat"]])
+def test_with_the_briefing_off_she_gets_neither_the_tool_nor_the_greeting(
+    argv, home, run_fakes, brains, briefing_timers, monkeypatch
+):
+    append_config(home, "briefing:\n  enabled: false\n  city: Bandung\n")
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main([*argv, "--dry-run"]) == 0
+
+    assert [type(tools) for tools in brains[0].providers] == [MemoryTools, ScheduleTools]
+    assert briefing_timers == []
+
+
+def test_the_briefing_tool_tells_the_weather_of_the_configured_city_and_today_s_schedule(
+    home, brains, schedulers, open_meteo, monkeypatch
+):
+    write_out_example_briefing(home)
+    save_today_s_schedule(schedule_file(home))
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main(["chat"]) == 0
+
+    briefing = daily_briefing(brains[0])
+    assert briefing["date"] == today_text()
+    assert briefing["weather"]["place"] == "Bandung, Jawa Barat"
+    assert briefing["weather_problem"] is None
+    assert briefing["schedule_today"] == [
+        {"time": "15:00", "what": MEDICINE},
+        {"time": "23:00", "what": "rutinitas tidur"},
+    ]
+    assert [query["name"] for query in open_meteo.queries(GEOCODING_HOST)] == [["Bandung"]]
+
+
+def test_the_briefing_tool_asks_for_the_weather_at_the_coordinates_rather_than_the_city(
+    home, brains, open_meteo, monkeypatch
+):
+    write_config(home, "briefing:\n  city: Jakarta\n  latitude: -6.9175\n  longitude: 107.6191\n")
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main(["chat", "--dry-run"]) == 0
+
+    assert daily_briefing(brains[0])["weather"]["place"] == "Jakarta"  # the name she says
+    assert open_meteo.queries(GEOCODING_HOST) == []
+    [forecast] = open_meteo.queries(FORECAST_HOST)
+    assert (forecast["latitude"], forecast["longitude"]) == (["-6.9175"], ["107.6191"])
+
+
+def test_without_a_place_the_briefing_tool_says_how_to_set_one_and_asks_no_one(
+    home, brains, monkeypatch
+):
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main(["chat", "--dry-run"]) == 0  # the example config leaves briefing commented
+
+    briefing = daily_briefing(brains[0])
+    assert briefing["weather"] is None
+    assert "briefing.city" in briefing["weather_problem"]
+
+
+def test_a_test_that_forgets_the_open_meteo_fake_fails_instead_of_asking_it(no_real_weather):
+    with pytest.raises(AssertionError, match="a test reached Open-Meteo"):
+        cli.WeatherClient(city="Bandung").today()
+
+    assert [urllib.parse.urlsplit(url).hostname for url in no_real_weather] == [GEOCODING_HOST]
+    no_real_weather.clear()  # reached on purpose: the guard fails any other test that does
+
+
+def test_briefing_prints_today_s_date_weather_and_schedule_without_the_brain(
+    home, brains, open_meteo, capsys
+):
+    write_out_example_briefing(home)
+    save_today_s_schedule(schedule_file(home))
+
+    assert cli.main(["briefing"]) == 0
+
+    assert capsys.readouterr().out.splitlines() == [
+        f"Ringkasan hari ini: {today_text()}",
+        "✓ Cuaca di Bandung, Jawa Barat: berawan, 21.4°C; hari ini 18.6-27.9°C, "
+        "peluang hujan 85%; besok pagi hujan",
+        "Jadwal hari ini:",
+        f"  15:00  {MEDICINE}",
+        "  23:00  rutinitas tidur",
+    ]
+    assert brains == []
+
+
+def test_briefing_whose_weather_fails_still_prints_the_rest_and_exits_1(home, open_meteo, capsys):
+    write_out_example_briefing(home)
+    open_meteo.failure = urllib.error.URLError("getaddrinfo failed")
+
+    assert cli.main(["briefing"]) == 1
+
+    assert capsys.readouterr().out.splitlines() == [
+        f"Ringkasan hari ini: {today_text()}",
+        "✗ Cuaca: Server cuaca tidak bisa dihubungi. Cek koneksi internet, lalu coba lagi.",
+        "Tidak ada jadwal hari ini.",
+    ]
+
+
+def test_briefing_whose_schedule_cannot_be_read_still_prints_the_rest_and_exits_1(
+    home, open_meteo, capsys
+):
+    write_out_example_briefing(home)
+    schedule_file(home).mkdir(parents=True)  # a folder where the file should be: unreadable
+
+    assert cli.main(["briefing"]) == 1
+
+    assert capsys.readouterr().out.splitlines() == [
+        f"Ringkasan hari ini: {today_text()}",
+        "✓ Cuaca di Bandung, Jawa Barat: berawan, 21.4°C; hari ini 18.6-27.9°C, "
+        "peluang hujan 85%; besok pagi hujan",
+        "✗ Jadwal: Jadwal tidak bisa dibaca saat ini.",
+    ]
+
+
+def test_briefing_without_a_place_says_how_to_set_one_and_exits_1(home, capsys):
+    assert cli.main(["briefing"]) == 1
+
+    out = capsys.readouterr().out
+    assert "✗ Cuaca: cuaca belum diatur (isi briefing.city di config.yaml)" in out
+
+
+def test_briefing_shows_the_weather_also_with_the_greeting_and_the_schedule_off(
+    home, open_meteo, capsys
+):
+    disable_schedule(home)
+    append_config(home, "briefing:\n  enabled: false\n  city: Bandung\n")
+
+    assert cli.main(["briefing"]) == 0
+
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[1].startswith("✓ Cuaca di Bandung, Jawa Barat: ")
+    assert lines[2] == "! Jadwal mati (schedule.enabled: false)"
+
+
+def briefing_line(out: str) -> str:
+    [line] = [line for line in out.splitlines() if "Sapaan pagi" in line]
+    return line
+
+
+def coordinates_and_hours(home: Path) -> None:
+    append_config(
+        home,
+        "briefing:\n  time: '06:30'\n  until: '10:00'\n  latitude: -6.9175\n"
+        "  longitude: 107.6191\n",
+    )
+
+
+def city_and_coordinates(home: Path) -> None:
+    append_config(home, "briefing:\n  city: Bandung\n  latitude: -6.9175\n  longitude: 107.6191\n")
+
+
+def briefing_off(home: Path) -> None:
+    append_config(home, "briefing:\n  enabled: false\n")
+
+
+@pytest.mark.parametrize(
+    ("configure", "expected"),
+    [
+        (lambda home: None, "! Sapaan pagi: cuaca belum diatur (isi briefing.city)"),
+        (write_out_example_briefing, "✓ Sapaan pagi: jam 07:00-12:00, cuaca untuk Bandung"),
+        (coordinates_and_hours, "✓ Sapaan pagi: jam 06:30-10:00, cuaca untuk -6.9175, 107.6191"),
+        (
+            city_and_coordinates,  # the forecast is for the coordinates, which she calls Bandung
+            "✓ Sapaan pagi: jam 07:00-12:00, cuaca untuk Bandung (-6.9175, 107.6191)",
+        ),
+        (briefing_off, "! Sapaan pagi mati"),
+    ],
+    ids=["example", "example_written_out", "coordinates", "city_and_coordinates", "off"],
+)
+def test_check_reports_when_she_greets_and_where_the_weather_is_for_without_asking_it(
+    configure, expected, home, nothing_installed, capsys
+):
+    configure(home)
+
+    cli.main(["check"])
+
+    assert briefing_line(capsys.readouterr().out) == expected

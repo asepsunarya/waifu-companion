@@ -9,6 +9,10 @@ following the reply), and listening during the follow-up window.
 The avatar's interactions (`waifu.avatar.interactions`) speak from their own
 thread, so she says one thing at a time: replies, announcements, and reactions
 share one voice lock, and `busy` tells the interaction handler when to stay quiet.
+
+Other threads make her speak up by herself in two ways, both queued and handled by
+`run` between Master's utterances: `announce` says a fixed text (a reminder), and
+`ask_aloud` has the brain answer a prompt (the morning greeting) and says the reply.
 """
 
 from __future__ import annotations
@@ -59,6 +63,18 @@ def _tag_only_fallback(tool_calls: list[ToolCallRecord]) -> str:
     return TAG_ONLY_DONE if tool_calls else TAG_ONLY_NO_ANSWER
 
 
+def _called_successfully(reply: BrainReply, tool: str) -> bool:
+    return any(call.name == tool and not call.is_error for call in reply.tool_calls)
+
+
+def _pass_on(on_reply: ReplyHandler, text: str) -> None:
+    """Hand what she said by herself to `on_reply`; a failure is logged, never raised."""
+    try:
+        on_reply(text)
+    except Exception:
+        logger.exception("Could not pass on what she said by herself")
+
+
 class Speech(Protocol):
     def synthesize(self, text: str) -> tuple[np.ndarray, int]: ...
 
@@ -104,6 +120,20 @@ class Avatar(Protocol):
     def speak(self, audio: np.ndarray, sample_rate: int, emotion: str) -> None: ...
 
 
+# Gets what she said aloud in answer to `ask_aloud` (e.g. to push it to the phone), on a
+# thread of its own.
+ReplyHandler = Callable[[str], None]
+
+
+@dataclasses.dataclass(frozen=True)
+class _Request:
+    """A prompt queued by `ask_aloud`."""
+
+    prompt: str
+    on_reply: ReplyHandler | None
+    required_tool: str | None
+
+
 class Assistant:
     def __init__(
         self,
@@ -136,8 +166,13 @@ class Assistant:
         self._speaker_error_logged = False
         self._avatar_failing = False
         self._announcements: queue.SimpleQueue[tuple[str, str]] = queue.SimpleQueue()
-        # After a cut, on `clock`: announcements wait until then (see `_hold_announcements`).
+        self._requests: queue.SimpleQueue[_Request] = queue.SimpleQueue()
+        # After a cut, on `clock`: announcements and requests wait until then
+        # (see `_hold_announcements`).
         self._announcements_held_until: float | None = None
+        # When the follow-up window last opened by `_open_followup` ends, on `clock`: requests
+        # wait until then, since Master may still answer her.
+        self._followup_until: float | None = None
         self._voice = threading.Lock()  # one voice: replies, announcements, and reactions
         self._engaged_lock = threading.Lock()
         self._engaged_count = 0
@@ -213,6 +248,28 @@ class Assistant:
         """
         self._announcements.put((text, emotion))
 
+    def ask_aloud(
+        self,
+        prompt: str,
+        *,
+        on_reply: ReplyHandler | None = None,
+        required_tool: str | None = None,
+    ) -> None:
+        """Queue a prompt for the brain whose reply she says by herself; safe from any thread.
+
+        `run` handles it between utterances under the same conditions as announcements,
+        on a later frame than any announcements queued with it, never while a follow-up
+        window is open (Master may still answer her), and one request at a time: she thinks
+        up the reply, says it like a reply (the follow-up window opens, so Master can
+        answer without the wake word), and hands the spoken text to `on_reply` on a thread
+        of its own, so a slow push never keeps `run` from the microphone.
+
+        A brain answers a failure (no connection, a refusal) with an apology, never an
+        exception. With `required_tool`, a reply whose turn has no successful call of that
+        tool counts as such a failure: nobody asked, so it is logged, not said or passed on.
+        """
+        self._requests.put(_Request(prompt, on_reply, required_tool))
+
     def speak(self, text: str, emotion: str = NEUTRAL, *, followup: bool = True) -> None:
         """Say `text` with the microphone paused and the avatar mouthing it with `emotion`.
 
@@ -284,7 +341,7 @@ class Assistant:
                 utterance = segmenter.feed(frame)
                 if utterance is None:
                     if not segmenter.busy and not self._announcements_held():
-                        self._say_announcements()
+                        self._speak_up()
                     continue
                 try:
                     self.handle_utterance(utterance)
@@ -298,7 +355,7 @@ class Assistant:
             self.set_mic(None)
 
     def _hold_announcements(self) -> None:
-        """Keep queued announcements for the follow-up window after a cut.
+        """Keep queued announcements and requests for the follow-up window after a cut.
 
         Master cut her off to talk, and an announcement would pause the microphone again
         at once. They wait until Master's next words are accepted (`handle_utterance`)
@@ -311,8 +368,23 @@ class Assistant:
         held_until = self._announcements_held_until
         return held_until is not None and self._clock() < held_until
 
-    def _say_announcements(self) -> None:
-        """Say every queued announcement in one go, with the first one's emotion."""
+    def _followup_open(self) -> bool:
+        followup_until = self._followup_until
+        return followup_until is not None and self._clock() < followup_until
+
+    def _speak_up(self) -> None:
+        """Say the queued announcements, or else answer a request once Master has had his say.
+
+        A request never follows announcements in the same pass: the next frame checks again
+        that Master has not started talking and did not cut them short to talk. Nor does it
+        come while the follow-up window is open, so a conversation is never taken over.
+        """
+        if not self._say_announcements() and not self._followup_open():
+            self._answer_next_request()
+
+    def _say_announcements(self) -> bool:
+        """Say every queued announcement in one go, with the first one's emotion; True when
+        there was any."""
         texts: list[str] = []
         emotion = NEUTRAL
         while True:
@@ -323,9 +395,47 @@ class Assistant:
             if not texts:
                 emotion = mood
             texts.append(text)
-        if texts:
-            logger.info("Announcing: %s", " ".join(texts))
-            self.speak(" ".join(texts), emotion, followup=False)
+        if not texts:
+            return False
+        logger.info("Announcing: %s", " ".join(texts))
+        self.speak(" ".join(texts), emotion, followup=False)
+        return True
+
+    def _answer_next_request(self) -> None:
+        """Answer the oldest `ask_aloud` request aloud, if any.
+
+        One at a time: the next waits until Master has had the chance to answer this reply
+        (its follow-up window has closed). A failure is logged and listening goes on, as for
+        an utterance.
+        """
+        try:
+            request = self._requests.get_nowait()
+        except queue.Empty:
+            return
+        logger.info("Speaking up by herself in answer to a request")
+        try:
+            with self._engaged():
+                self._show(lambda avatar: avatar.state("thinking"))
+                emotion, reply = self._think(request.prompt)
+                tool = request.required_tool
+                if tool is not None and not _called_successfully(reply, tool):
+                    logger.warning(
+                        "Not saying the answer to a request: its turn has no successful %s "
+                        "call (the brain most likely failed and apologised)",
+                        tool,
+                    )
+                    self._show(lambda avatar: avatar.state("idle"))
+                    return
+                self.speak(reply.text, emotion)
+        except Exception:
+            logger.exception("Failed to answer a request aloud; still listening")
+            return
+        if request.on_reply is not None:
+            # A push to the phone may take its whole timeout: never on this thread, which must
+            # be back at the microphone while the follow-up window is open.
+            threading.Thread(
+                target=_pass_on, args=(request.on_reply, reply.text), name="pass-on", daemon=True
+            ).start()
 
     def _think(self, text: str) -> tuple[str, BrainReply]:
         """The brain's reply to `text`, split into its emotion and the reply without the tag."""
@@ -352,6 +462,7 @@ class Assistant:
     def _open_followup(self) -> None:
         """Hear Master without the wake word for `followup_seconds`, and show her listening."""
         self._gate.open_followup()
+        self._followup_until = self._clock() + self._followup_s
         if self._followup_s > 0:
             self._show(lambda avatar: avatar.state("listening", followup_s=self._followup_s))
         else:  # no follow-up window: only the wake word is heard
