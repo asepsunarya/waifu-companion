@@ -5,7 +5,8 @@ suite run. These guards fail such a test loudly instead: no power commands, no
 PowrProf, no registry writes, no scheduled-task or reg.exe changes. No test may
 reach beyond this PC either: a forgotten fake must not push to the owner's phone
 or check in on their HoYoLAB account. Nor may a test read the owner's game logs and
-caches, which hold their history authkeys.
+caches, which hold their history authkeys, press real keys (media keys would change the
+owner's music and volume), or open real programs and URLs.
 """
 
 import ctypes
@@ -32,6 +33,7 @@ except ImportError:  # not Windows
 os.environ["WAIFU_DISABLE_POWER"] = "1"
 
 _POWER_PROGRAMS = {"shutdown", "rundll32"}
+_KEY_PRESSERS = {"sendinput", "keybd_event"}
 _REG_WRITE_VERBS = {"add", "delete", "import", "restore", "copy", "load", "unload"}
 _REGISTRY_WRITERS = (
     "SetValue",
@@ -94,10 +96,31 @@ class _GuardedPopen(_REAL_POPEN):  # type: ignore[misc, valid-type]
         super().__init__(args, *pargs, **kwargs)
 
 
+class _GuardedUser32:
+    """user32 without its key-pressing functions: looking one up already fails."""
+
+    def __init__(self, dll) -> None:
+        self._dll = dll
+
+    def __getattr__(self, name: str):
+        return self[name]
+
+    def __getitem__(self, name: str):
+        if name.lower() in _KEY_PRESSERS:
+            raise AssertionError(f"a test tried to press real keys with user32.{name}")
+        return getattr(self._dll, name)
+
+
 def _guarded_windll(name, *args, **kwargs):
-    if "powrprof" in PurePath(str(name)).stem.lower():
+    stem = PurePath(str(name)).stem.lower()
+    if "powrprof" in stem:
         raise AssertionError("a test tried to load the real PowrProf.dll")
-    return _REAL_WINDLL(name, *args, **kwargs)
+    dll = _REAL_WINDLL(name, *args, **kwargs)
+    return _GuardedUser32(dll) if stem == "user32" else dll
+
+
+def _refuse_startfile(*args, **kwargs):
+    raise AssertionError(f"a test tried to open a real program or URL with os.startfile: {args!r}")
 
 
 def _refuse_registry_write(*args, **kwargs):
@@ -144,6 +167,9 @@ def _refuse_real_power_actions(monkeypatch):
     monkeypatch.setattr(subprocess, "Popen", _GuardedPopen)
     if _REAL_WINDLL is not None:
         monkeypatch.setattr(ctypes, "WinDLL", _guarded_windll)
+        monkeypatch.setattr(ctypes, "windll", ctypes.LibraryLoader(_guarded_windll))
+    if hasattr(os, "startfile"):
+        monkeypatch.setattr(os, "startfile", _refuse_startfile)
 
 
 @pytest.fixture(autouse=True)

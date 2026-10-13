@@ -126,3 +126,30 @@ def test_reading_the_owners_game_caches_is_refused(real_game_cache_reads):
 
 def test_game_caches_elsewhere_can_still_be_read(tmp_path):
     assert find_cached_gacha_url(GAMES["hsr"], tmp_path) is None
+
+
+def test_opening_a_program_or_url_with_startfile_is_refused(tmp_path):
+    if not hasattr(os, "startfile"):
+        pytest.skip("os.startfile only exists on Windows")
+    # A missing file, so even a broken guard would only raise FileNotFoundError.
+    with pytest.raises(AssertionError, match="startfile"):
+        os.startfile(str(tmp_path / "missing.exe"))
+
+
+@pytest.mark.parametrize("function", ["SendInput", "keybd_event"])
+def test_pressing_real_keys_through_user32_is_refused(function):
+    if not hasattr(ctypes, "WinDLL"):
+        pytest.skip("user32 only exists on Windows")
+    # Refused as soon as the function is looked up, so no key is ever pressed.
+    with pytest.raises(AssertionError, match=function):
+        getattr(ctypes.WinDLL("user32"), function)
+    with pytest.raises(AssertionError, match=function):
+        getattr(ctypes.windll.user32, function)
+
+
+def test_other_user32_functions_still_work():
+    if not hasattr(ctypes, "WinDLL"):
+        pytest.skip("user32 only exists on Windows")
+    sm_cxscreen = 0
+    assert ctypes.WinDLL("user32").GetSystemMetrics(sm_cxscreen) > 0
+    assert ctypes.windll.user32.GetSystemMetrics(sm_cxscreen) > 0
