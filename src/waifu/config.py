@@ -477,8 +477,8 @@ class VisionConfig(_Strict):
     """Looking at the screen when Master asks (Claude backend only)."""
 
     enabled: bool = True
-    # The screenshot's longer side: Claude reads up to about 1568 pixels, and a smaller PNG
-    # stays well within the API's 5 MB image limit.
+    # The screenshot's longer side: Claude reads up to about 1568 pixels. A busy screen whose PNG
+    # is over the API's 5 MB image limit is taken again smaller (see screen_tools).
     max_side: int = Field(default=1280, ge=512, le=1568)
 
 
