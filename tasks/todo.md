@@ -688,11 +688,12 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** none · **Files:** `src/waifu/config.py`, `src/waifu/brain/persona.py`, `src/waifu/brain/factory.py`, `config/persona.md`, tests · **Scope:** XS
 
-## Task 69: Use the owner call everywhere
+## Task 69: Use the owner call everywhere ✅
 
 **Acceptance criteria:**
-- [ ] Every hardcoded spoken/pushed/printed Indonesian sentence addressing the owner uses the injected `owner_call` (default "Master"); avatar default lines use `{owner}`
-- [ ] `is_yes` and the screen look-word gate skip the owner_call words; CLI wires `config.assistant.owner_call` everywhere
-- [ ] Tests: the default unchanged everywhere, and one non-default word through each path
+- [x] Every hardcoded spoken/pushed/printed Indonesian sentence addressing the owner uses the injected `owner_call` (default "Master"), capitalised where it opens a sentence; avatar default lines use `{owner}`; tool errors Ollama may read out use it too
+- [x] `is_yes` and the screen look-word gate skip the owner_call words; CLI wires `config.assistant.owner_call` everywhere
+- [x] `check` warns about reaction lines that still say "Master" to an owner called otherwise
+- [x] Tests: the default unchanged everywhere, and one non-default word through each path
 
 **Dependencies:** 69a · **Files:** across `src/waifu/` and tests · **Scope:** M

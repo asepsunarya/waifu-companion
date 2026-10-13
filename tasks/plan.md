@@ -251,7 +251,7 @@ persona and memory, and calls the game tool itself.
 
 ### Phase 17b: How she calls the owner (v1.12.1, see SPEC → how she calls the owner)
 - [x] Task 69a: `assistant.owner_call`, `{owner}` in the persona and `build_system_prompt`
-- [ ] Task 69: every spoken, pushed, or printed sentence uses `owner_call`; gates skip it
+- [x] Task 69: every spoken, pushed, or printed sentence uses `owner_call`; gates skip it
 
 ## Risks and Mitigations
 
