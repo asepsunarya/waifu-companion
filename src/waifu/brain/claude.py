@@ -78,19 +78,20 @@ _MAX_RETRIES = 1
 # request stays well under 32 MB.
 _SESSION_IMAGE_BYTES = 16 * 2**20
 
-_DONE = "Sudah, Master."
-_TOOLS_FAILED = "Maaf Master, ada perintah yang gagal dijalankan."
-_NO_ANSWER = "Maaf Master, aku belum bisa menjawab itu."
-_CUT_OFF = "Maaf Master, jawabanku terpotong. Coba ulangi, ya."
-_ROUND_LIMIT = "Maaf Master, permintaannya butuh terlalu banyak langkah, jadi aku berhenti dulu."
-_REFUSED = "Maaf Master, aku tidak bisa membantu yang itu."
-_BAD_CREDENTIALS = "Maaf Master, API key Claude belum diatur atau tidak valid."
-_RATE_LIMITED = "Maaf Master, server Claude sedang sibuk. Coba lagi sebentar lagi, ya."
-_NO_CONNECTION = "Maaf Master, aku tidak bisa terhubung ke server Claude."
-_SERVER_ERROR = "Maaf Master, server Claude sedang bermasalah. Coba lagi nanti, ya."
-_REQUEST_FAILED = "Maaf Master, ada masalah saat menghubungi Claude."
+# Her canned replies; `{owner}` is filled with what she calls the owner (owner_call).
+_DONE = "Sudah, {owner}."
+_TOOLS_FAILED = "Maaf {owner}, ada perintah yang gagal dijalankan."
+_NO_ANSWER = "Maaf {owner}, aku belum bisa menjawab itu."
+_CUT_OFF = "Maaf {owner}, jawabanku terpotong. Coba ulangi, ya."
+_ROUND_LIMIT = "Maaf {owner}, permintaannya butuh terlalu banyak langkah, jadi aku berhenti dulu."
+_REFUSED = "Maaf {owner}, aku tidak bisa membantu yang itu."
+_BAD_CREDENTIALS = "Maaf {owner}, API key Claude belum diatur atau tidak valid."
+_RATE_LIMITED = "Maaf {owner}, server Claude sedang sibuk. Coba lagi sebentar lagi, ya."
+_NO_CONNECTION = "Maaf {owner}, aku tidak bisa terhubung ke server Claude."
+_SERVER_ERROR = "Maaf {owner}, server Claude sedang bermasalah. Coba lagi nanti, ya."
+_REQUEST_FAILED = "Maaf {owner}, ada masalah saat menghubungi Claude."
 _NEEDS_WORKSPACE = (
-    "Maaf Master, API key Claude ini belum terikat ke workspace. Isi ANTHROPIC_WORKSPACE_ID "
+    "Maaf {owner}, API key Claude ini belum terikat ke workspace. Isi ANTHROPIC_WORKSPACE_ID "
     "dengan ID workspace-nya, atau buat API key di dalam sebuah workspace."
 )
 # Organization-level API keys must name a workspace on every request; the SDK only
@@ -114,11 +115,13 @@ class ClaudeBrain(Brain):
         max_session_turns: int = _SESSION_DEFAULTS.max_session_turns,
         providers: Sequence[ToolProvider] = (),
         confirmations: ConfirmationGate | None = None,
+        owner_call: str = "Master",
     ) -> None:
         self._max_tool_rounds = config.max_tool_rounds
         self._registry = registry
         self._providers = tuple(providers)
         self._confirmations = confirmations
+        self._owner_call = owner_call
         self._client = client
         self._session = SessionClock(session_idle_minutes, max_session_turns, clock)
         self._request = _frozen_request(config.claude, registry, self._providers)
@@ -217,12 +220,12 @@ class ClaudeBrain(Brain):
                 if calls:
                     logger.warning("Claude stopped (%s) mid tool call", response.stop_reason)
                     self._answer_without_running(calls, _NOT_RUN_CUT_OFF)
-                    return _CUT_OFF
-                return _final_text(content, tool_calls)
+                    return _CUT_OFF.format(owner=self._owner_call)
+                return _final_text(content, tool_calls, self._owner_call)
             if rounds >= self._max_tool_rounds:
                 logger.warning("Claude hit the limit of %d tool rounds", self._max_tool_rounds)
                 self._answer_without_running(calls, _NOT_RUN_ROUND_LIMIT)
-                return _ROUND_LIMIT
+                return _ROUND_LIMIT.format(owner=self._owner_call)
             rounds += 1
             if calls:
                 results = [self._run_tool(call, tool_calls) for call in calls]
@@ -263,6 +266,7 @@ class ClaudeBrain(Brain):
     def _roll_back(
         self, turn_start: int, apology: str, tool_calls: list[ToolCallRecord]
     ) -> BrainReply:
+        """Undo the turn and apologise with `apology`, one of the canned replies above."""
         if self._confirmations is not None:
             self._confirmations.discard_turn()
         if changed_memory(tool_calls):
@@ -272,7 +276,7 @@ class ClaudeBrain(Brain):
             self.reset()
         else:
             del self._history[turn_start:]
-        return BrainReply(apology, tool_calls)
+        return BrainReply(apology.format(owner=self._owner_call), tool_calls)
 
     def _client_or_create(self) -> anthropic.Anthropic:
         """The injected or cached client; a new one is kept only once it has credentials."""
@@ -366,8 +370,10 @@ def _image_block(image: ToolImage) -> BetaImageBlockParam:
     }
 
 
-def _final_text(content: Sequence[BetaContentBlock], tool_calls: list[ToolCallRecord]) -> str:
-    """The reply's text, or when it has none, what the tool calls did.
+def _final_text(
+    content: Sequence[BetaContentBlock], tool_calls: list[ToolCallRecord], owner_call: str
+) -> str:
+    """The reply's text, or when it has none, what the tool calls did, said to `owner_call`.
 
     Calls held for Master's yes are left out: the gate's question follows the reply, and is
     the whole reply when every call was held.
@@ -377,11 +383,12 @@ def _final_text(content: Sequence[BetaContentBlock], tool_calls: list[ToolCallRe
     if text:
         return text
     if not tool_calls:
-        return _NO_ANSWER
+        return _NO_ANSWER.format(owner=owner_call)
     ran = [call for call in tool_calls if not held_for_yes(call)]
     if not ran:
         return ""
-    return _TOOLS_FAILED if any(call.is_error for call in ran) else _DONE
+    canned = _TOOLS_FAILED if any(call.is_error for call in ran) else _DONE
+    return canned.format(owner=owner_call)
 
 
 def _log_cache_use(response: BetaMessage) -> None:

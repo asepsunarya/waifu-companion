@@ -55,6 +55,7 @@ class GachaWatcher:
         notifier: Notifier | None,
         announce: Callable[[str, str], None] | None,
         title: str = "Cyrene",
+        owner_call: str = "Master",
         now: Callable[[], datetime] = _local_now,
         state_path: Path | None = None,
     ) -> None:
@@ -63,6 +64,7 @@ class GachaWatcher:
         self._notifier = notifier
         self._announce = announce
         self._title = title
+        self._owner_call = owner_call
         self._now = now
         self._state_path = state_path or config.data_dir / "reminders.json"
         self._state = ReminderState.load(self._state_path)
@@ -77,10 +79,14 @@ class GachaWatcher:
         readable = {
             game: status for game, status in statuses.items() if isinstance(status, GameStatus)
         }
-        notices = due_notices(readable, now, self._state, self._config.reminders, offset)
+        notices = due_notices(
+            readable, now, self._state, self._config.reminders, offset, owner_call=self._owner_call
+        )
         for game, result in statuses.items():
             if isinstance(result, GachaError):
-                notice = problem_notice(game, result, now, self._state, offset)
+                notice = problem_notice(
+                    game, result, now, self._state, offset, owner_call=self._owner_call
+                )
                 notices.extend([notice] if notice else [])
         if self._config.checkin:
             notices.extend(self._checkin(now))
@@ -142,7 +148,9 @@ class GachaWatcher:
                     logger.info("Check-in of %s failed (%s); trying again later", game, error.kind)
                     retry = True
                     continue
-                notice = problem_notice(game, error, now, self._state, offset)
+                notice = problem_notice(
+                    game, error, now, self._state, offset, owner_call=self._owner_call
+                )
                 problems.extend([notice] if notice else [])
         if not retry:
             self._state.once(key, day)

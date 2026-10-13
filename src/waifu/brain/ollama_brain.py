@@ -44,13 +44,14 @@ _ASSISTANT_DEFAULTS = AssistantConfig()
 # The read limit still leaves room for a cold model load from disk.
 _REQUEST_TIMEOUT = httpx.Timeout(120.0, connect=5.0)
 
-_DONE = "Sudah, Master!"
-_SOME_FAILED = "Maaf, Master, ada yang gagal."
-_NO_ANSWER = "Maaf, Master, aku bingung mau jawab apa. Coba ulangi ya?"
-_ROUND_LIMIT = "Maaf, Master, permintaannya butuh terlalu banyak langkah, jadi aku berhenti dulu."
-_OLLAMA_TROUBLE = "Maaf, Master, Ollama sedang bermasalah. Coba lagi sebentar ya."
-_OLLAMA_TOO_SLOW = "Maaf, Master, Ollama terlalu lama menjawab. Coba lagi sebentar ya."
-_UNEXPECTED = "Maaf, Master, ada yang salah di pikiranku. Coba ulangi ya."
+# Her canned replies; `{owner}` is filled with what she calls the owner (owner_call).
+_DONE = "Sudah, {owner}!"
+_SOME_FAILED = "Maaf, {owner}, ada yang gagal."
+_NO_ANSWER = "Maaf, {owner}, aku bingung mau jawab apa. Coba ulangi ya?"
+_ROUND_LIMIT = "Maaf, {owner}, permintaannya butuh terlalu banyak langkah, jadi aku berhenti dulu."
+_OLLAMA_TROUBLE = "Maaf, {owner}, Ollama sedang bermasalah. Coba lagi sebentar ya."
+_OLLAMA_TOO_SLOW = "Maaf, {owner}, Ollama terlalu lama menjawab. Coba lagi sebentar ya."
+_UNEXPECTED = "Maaf, {owner}, ada yang salah di pikiranku. Coba ulangi ya."
 
 
 class OllamaBrain(Brain):
@@ -66,11 +67,13 @@ class OllamaBrain(Brain):
         max_session_turns: int = _ASSISTANT_DEFAULTS.max_session_turns,
         providers: Sequence[ToolProvider] = (),
         confirmations: ConfirmationGate | None = None,
+        owner_call: str = "Master",
     ) -> None:
         self._config = config
         self._registry = registry
         self._providers = tuple(providers)
         self._confirmations = confirmations
+        self._owner_call = owner_call
         self._system_prompt = system_prompt
         self._session_system = ""
         self._client = client
@@ -132,14 +135,14 @@ class OllamaBrain(Brain):
             message = self._chat()
             tool_calls = list(message.tool_calls or [])
             if not tool_calls:
-                return _spoken_text(message.content) or _fallback_text(records)
+                return _spoken_text(message.content) or _fallback_text(records, self._owner_call)
             if rounds >= self._config.max_tool_rounds:
                 logger.warning(
                     "Model still calling tools after %d rounds; not running %s",
                     rounds,
                     [call.function.name for call in tool_calls],
                 )
-                return _ROUND_LIMIT
+                return _ROUND_LIMIT.format(owner=self._owner_call)
             rounds += 1
             self._run_tool_calls(message.content, tool_calls, records)
 
@@ -181,27 +184,27 @@ class OllamaBrain(Brain):
             self._history.append({"role": "tool", "content": result, "tool_name": name})
 
     def _apology(self, exc: Exception) -> str:
-        model = self._config.ollama.model
+        owner, model = self._owner_call, self._config.ollama.model
         if isinstance(exc, ConnectionError):
             logger.error("Cannot reach Ollama at %s: %s", self._config.ollama.host, exc)
             return (
-                "Maaf, Master, aku tidak bisa terhubung ke Ollama. "
+                f"Maaf, {owner}, aku tidak bisa terhubung ke Ollama. "
                 f"Ollama belum jalan? Jalankan 'ollama serve' dan 'ollama pull {model}'."
             )
         if isinstance(exc, httpx.TimeoutException):
             logger.warning("Ollama at %s did not answer in time: %r", self._config.ollama.host, exc)
-            return _OLLAMA_TOO_SLOW
+            return _OLLAMA_TOO_SLOW.format(owner=owner)
         if isinstance(exc, ollama.ResponseError):
             if exc.status_code == 404 or "not found" in str(exc.error).lower():
                 logger.error("Ollama model '%s' is not available: %s", model, exc)
                 return (
-                    f"Maaf, Master, model {model} belum ada di Ollama. "
+                    f"Maaf, {owner}, model {model} belum ada di Ollama. "
                     f"Jalankan 'ollama pull {model}' dulu ya."
                 )
             logger.error("Ollama rejected the request: %s", exc)
-            return _OLLAMA_TROUBLE
+            return _OLLAMA_TROUBLE.format(owner=owner)
         logger.error("Unexpected error during an Ollama turn", exc_info=exc)
-        return _UNEXPECTED
+        return _UNEXPECTED.format(owner=owner)
 
 
 def _parse_arguments(raw: object) -> object:
@@ -228,18 +231,19 @@ def _spoken_text(content: str | None) -> str:
     return text.strip()
 
 
-def _fallback_text(records: list[ToolCallRecord]) -> str:
-    """What to say when the model's final reply is empty, based on what the tools did.
+def _fallback_text(records: list[ToolCallRecord], owner_call: str) -> str:
+    """What to say to `owner_call` when the model's final reply is empty, based on what the
+    tools did.
 
     Calls held for Master's yes are left out, and their message (meant for the model) is
     never spoken: the gate's question follows, and is the whole reply when every call was held.
     """
     if not records:
-        return _NO_ANSWER
+        return _NO_ANSWER.format(owner=owner_call)
     ran = [record for record in records if not held_for_yes(record)]
     if not ran:
         return ""
     failures = [json.loads(record.result).get("message", "") for record in ran if record.is_error]
     if not failures:
-        return _DONE
-    return " ".join([_SOME_FAILED, *filter(None, failures)])
+        return _DONE.format(owner=owner_call)
+    return " ".join([_SOME_FAILED.format(owner=owner_call), *filter(None, failures)])

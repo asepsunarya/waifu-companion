@@ -125,6 +125,18 @@ def test_remember_says_what_to_save_how_and_what_never_to_save(tmp_path):
         assert guidance in description
 
 
+# Written in lowercase, the word still opens the example sentence with a capital.
+@pytest.mark.parametrize("owner_call", ["Sayang", "sayang"])
+def test_the_note_example_calls_the_owner_what_she_calls_them(tmp_path, owner_call):
+    default = spec(MemoryTools(make_store(tmp_path)), "remember").description
+    sayang = spec(MemoryTools(make_store(tmp_path), owner_call=owner_call), "remember").description
+
+    assert "('Master alergi udang.')" in default
+    assert "('Sayang alergi udang.')" in sayang
+    assert "'Master" not in sayang
+    assert "fact about Master" in sayang  # her instructions keep Master
+
+
 def test_forget_deletes_by_id_and_points_changed_facts_to_replaces(tmp_path):
     description = spec(MemoryTools(make_store(tmp_path)), "forget").description
 

@@ -23,7 +23,7 @@ from collections.abc import Callable, Mapping
 from datetime import datetime, timedelta
 from types import TracebackType
 
-from waifu.config import RoutineConfig
+from waifu.config import RoutineConfig, at_sentence_start
 from waifu.devices.registry import DeviceRegistry
 from waifu.notify import Notifier
 from waifu.routines import pc_power_refusal, run_routine
@@ -61,6 +61,7 @@ class Scheduler:
         notifier: Notifier | None,
         grace_minutes: int,
         title: str = "Cyrene",
+        owner_call: str = "Master",
         now: Callable[[], datetime] = datetime.now,
         tick_seconds: float = 15,
     ) -> None:
@@ -71,6 +72,7 @@ class Scheduler:
         self._notifier = notifier
         self._grace = timedelta(minutes=grace_minutes)
         self._title = title
+        self._owner_call = owner_call
         self._now = now
         self._tick_seconds = tick_seconds
         # (id, at) of occurrences that ran but whose fired mark could not be saved.
@@ -100,7 +102,7 @@ class Scheduler:
             handled.add((entry.id, entry.at))
             self._settle(entry, earliest, missed)
         if missed:
-            self._say(_missed_text(missed, started), "sad")
+            self._say(_missed_text(missed, started, self._owner_call), "sad")
 
     def start(self) -> None:
         if self._thread is not None:
@@ -194,7 +196,8 @@ class Scheduler:
             logger.info("Schedule entry %s ran %s", entry.id, what)
             return
         logger.warning("Schedule entry %s could not run %s: %s", entry.id, what, problem)
-        text = f"Master, jadwal {what} jam {entry.at:%H.%M} gagal: {problem}"
+        owner = at_sentence_start(self._owner_call)
+        text = f"{owner}, jadwal {what} jam {entry.at:%H.%M} gagal: {problem}"
         self._say(text, "sad")
         self._push(text)
 
@@ -258,7 +261,7 @@ def _minute(moment: datetime) -> datetime:
     return moment.replace(second=0, microsecond=0)
 
 
-def _missed_text(missed: list[tuple[datetime, str]], now: datetime) -> str:
+def _missed_text(missed: list[tuple[datetime, str]], now: datetime, owner_call: str) -> str:
     """One announcement for every one-shot reminder a tick found missed, oldest first."""
 
     def when(at: datetime) -> str:
@@ -272,11 +275,12 @@ def _missed_text(missed: list[tuple[datetime, str]], now: datetime) -> str:
         return f"{day} jam {at:%H.%M}"
 
     texts = [(when(at), text) for at, text in missed]
+    owner = at_sentence_start(owner_call)
     if len(texts) == 1:
         [(moment, text)] = texts
-        return f"Master, ada pengingat yang terlewat {moment}: {text}"
-    told = " ".join(f"{moment[0].upper()}{moment[1:]}: {text}" for moment, text in texts)
-    return f"Master, ada {len(texts)} pengingat yang terlewat. {told}"
+        return f"{owner}, ada pengingat yang terlewat {moment}: {text}"
+    told = " ".join(f"{at_sentence_start(moment)}: {text}" for moment, text in texts)
+    return f"{owner}, ada {len(texts)} pengingat yang terlewat. {told}"
 
 
 def _command_words(device: str, command: str, value: int | None) -> str:

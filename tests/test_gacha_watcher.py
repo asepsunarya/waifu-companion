@@ -115,6 +115,30 @@ def test_several_notices_are_one_push_and_one_announcement_with_the_strongest_em
     assert emotion == "sad"
 
 
+def test_reminders_and_problems_call_the_owner_what_she_calls_them(tmp_path, clock):
+    statuses = {"hsr": NEAR_FULL, "zzz": GachaError("captcha", "HoYoLAB minta captcha ZZZ.")}
+    checkins = {"hsr": GachaError("captcha", "HoYoLAB minta captcha untuk check-in HSR.")}
+    announced: list[tuple[str, str]] = []
+    watcher = GachaWatcher(
+        FakeHoyolab(statuses, checkins),
+        GachaConfig(enabled=True, games=["hsr", "zzz"], data_dir=tmp_path / "gacha"),
+        notifier=None,
+        announce=lambda text, emotion: announced.append((text, emotion)),
+        owner_call="Sayang",
+        now=clock,
+    )
+
+    notices = watcher.poll_once()
+
+    assert [(notice.game, notice.kind) for notice in notices] == [
+        ("hsr", "stamina"),
+        ("zzz", "problem"),
+        ("hsr", "problem"),
+    ]
+    assert all(notice.text.startswith("Sayang, ") for notice in notices)
+    assert "Master" not in announced[0][0]
+
+
 def test_nothing_to_tell_stays_quiet(tmp_path, clock):
     watcher, notifier, announced = make_watcher(tmp_path, FakeHoyolab(), clock)
 

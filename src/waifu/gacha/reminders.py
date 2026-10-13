@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from waifu.config import GachaRemindersConfig
+from waifu.config import GachaRemindersConfig, at_sentence_start
 from waifu.gacha.files import write_json_atomic
 from waifu.gacha.games import (
     GAMES,
@@ -97,26 +97,36 @@ def due_notices(
     state: ReminderState,
     rules: GachaRemindersConfig,
     offset: int,
+    *,
+    owner_call: str = "Master",
 ) -> list[Notice]:
-    """What to tell the owner about these statuses right now; `state` remembers it."""
+    """What to tell the owner, called `owner_call`, about these statuses right now; `state`
+    remembers it."""
     day = game_day(now, offset)
     evening = reminder_due(now, rules.daily_time, offset)
     reset = next_daily_reset(now, offset).strftime("%H:%M")
+    owner = at_sentence_start(owner_call)  # every notice opens with it
     notices: list[Notice] = []
     for game_id, status in statuses.items():
         game = GAMES[game_id]
         candidates = [
-            _stamina(game, status, state, rules),
-            _daily(game, status, state, day, reset) if evening else None,
-            _weekly(game, status, state, day, reset) if evening and rules.weekly else None,
-            _expeditions(game, status, state) if rules.expeditions else None,
+            _stamina(game, status, state, rules, owner),
+            _daily(game, status, state, day, reset, owner) if evening else None,
+            _weekly(game, status, state, day, reset, owner) if evening and rules.weekly else None,
+            _expeditions(game, status, state, owner) if rules.expeditions else None,
         ]
         notices.extend(notice for notice in candidates if notice is not None)
     return notices
 
 
 def problem_notice(
-    game_id: str, error: GachaError, now: datetime, state: ReminderState, offset: int
+    game_id: str,
+    error: GachaError,
+    now: datetime,
+    state: ReminderState,
+    offset: int,
+    *,
+    owner_call: str = "Master",
 ) -> Notice | None:
     """A problem the owner must fix, told once a game day; passing ones are only logged."""
     if error.kind not in TOLD_DAILY:
@@ -127,7 +137,8 @@ def problem_notice(
     key = f"problem:{error.kind}:{day}" if account_wide else f"problem:{error.kind}:{game_id}:{day}"
     if not state.once(key, day):
         return None
-    return Notice(None if account_wide else game_id, "problem", f"Master, {error.message}", "sad")
+    text = f"{at_sentence_start(owner_call)}, {error.message}"
+    return Notice(None if account_wide else game_id, "problem", text, "sad")
 
 
 def checkin_notice(results: Iterable[CheckinResult]) -> Notice | None:
@@ -143,7 +154,11 @@ def checkin_notice(results: Iterable[CheckinResult]) -> Notice | None:
 
 
 def _stamina(
-    game: Game, status: GameStatus, state: ReminderState, rules: GachaRemindersConfig
+    game: Game,
+    status: GameStatus,
+    state: ReminderState,
+    rules: GachaRemindersConfig,
+    owner: str,
 ) -> Notice | None:
     key = f"stamina:{game.id}"
     full = status.stamina >= status.stamina_max or status.stamina_full_in_s <= 0
@@ -154,15 +169,15 @@ def _stamina(
         return None
     amount = f"{status.stamina} dari {status.stamina_max}"
     if full:
-        text = f"Master, {game.stamina} di {game.short} sudah penuh, {amount}."
+        text = f"{owner}, {game.stamina} di {game.short} sudah penuh, {amount}."
     else:
         wait = duration_text(math.ceil(status.stamina_full_in_s / 60))
-        text = f"Master, {game.stamina} di {game.short} sudah {amount}, penuh sekitar {wait} lagi."
+        text = f"{owner}, {game.stamina} di {game.short} sudah {amount}, penuh sekitar {wait} lagi."
     return Notice(game.id, "stamina", f"{text} Jangan sampai terbuang ya.", "surprised")
 
 
 def _daily(
-    game: Game, status: GameStatus, state: ReminderState, day: date, reset: str
+    game: Game, status: GameStatus, state: ReminderState, day: date, reset: str, owner: str
 ) -> Notice | None:
     if status.daily_done or not state.once(f"daily:{game.id}:{day}", day):
         return None
@@ -170,12 +185,12 @@ def _daily(
         progress = "sudah selesai, tinggal ambil hadiahnya"
     else:
         progress = f"belum selesai, baru {status.daily_current} dari {status.daily_max}"
-    text = f"Master, {game.daily} {game.short} {progress}. Reset jam {reset} nanti."
+    text = f"{owner}, {game.daily} {game.short} {progress}. Reset jam {reset} nanti."
     return Notice(game.id, "daily", text, "surprised")
 
 
 def _weekly(
-    game: Game, status: GameStatus, state: ReminderState, day: date, reset: str
+    game: Game, status: GameStatus, state: ReminderState, day: date, reset: str, owner: str
 ) -> Notice | None:
     left = [
         f"{task.name} {task.current} dari {task.max}" for task in status.weekly if not task.done
@@ -185,18 +200,18 @@ def _weekly(
     year, week, _ = day.isocalendar()
     if not state.once(f"weekly:{game.id}:{year}-W{week:02d}", day):
         return None
-    text = f"Master, reset mingguan {game.short} jam {reset} nanti. Masih tersisa {_join(left)}."
+    text = f"{owner}, reset mingguan {game.short} jam {reset} nanti. Masih tersisa {_join(left)}."
     return Notice(game.id, "weekly", text, "surprised")
 
 
-def _expeditions(game: Game, status: GameStatus, state: ReminderState) -> Notice | None:
+def _expeditions(game: Game, status: GameStatus, state: ReminderState, owner: str) -> Notice | None:
     key = f"expeditions:{game.id}"
     if not status.expeditions_total or status.expeditions_finished < status.expeditions_total:
         state.rearm(key)
         return None
     if not state.occasion(key):
         return None
-    text = f"Master, semua ekspedisi {game.short} sudah selesai. Ambil hadiahnya yuk."
+    text = f"{owner}, semua ekspedisi {game.short} sudah selesai. Ambil hadiahnya yuk."
     return Notice(game.id, "expeditions", text, "surprised")
 
 

@@ -13,12 +13,15 @@ from waifu.brain.confirm import ConfirmationGate
 from waifu.brain.memory_tools import MemoryTools
 from waifu.brain.ollama_brain import OllamaBrain
 from waifu.brain.persona import format_user_turn
+from waifu.brain.schedule_tools import ScheduleTools
 from waifu.brain.tools import build_tool_specs, to_ollama
 from waifu.config import BrainConfig, OllamaConfig
 from waifu.devices.base import Device, DeviceResult
+from waifu.devices.media import MediaKeys
 from waifu.devices.mock import MockDevice
 from waifu.devices.registry import DeviceRegistry
 from waifu.memory import MemoryStore, memory_prompt_section
+from waifu.schedule import ScheduleStore
 
 SYSTEM_PROMPT = "Kamu adalah Cyrene."
 NOW = datetime(2026, 10, 12, 7, 30)
@@ -516,6 +519,88 @@ def test_unexpected_error_becomes_an_apology_instead_of_escaping():
 
     assert result.text.startswith("Maaf, Master")
     assert result.tool_calls == []
+
+
+LAMP_ON = call("control_device", device="lampu_kamar", command="on")
+
+
+@pytest.mark.parametrize(
+    ("replies", "expected"),
+    [
+        ([reply("")], "Maaf, Sayang, aku bingung mau jawab apa. Coba ulangi ya?"),
+        ([reply("", LAMP_ON), reply("")], "Sudah, Sayang!"),
+        (
+            [reply("", call("control_device", device="tv", command="on")), reply("")],
+            "Maaf, Sayang, ada yang gagal. TV tidak bisa dihubungi.",
+        ),
+        (
+            [reply("", LAMP_ON)] * 6,
+            "Maaf, Sayang, permintaannya butuh terlalu banyak langkah, jadi aku berhenti dulu.",
+        ),
+        (
+            [ConnectionError("refused")],
+            "Maaf, Sayang, aku tidak bisa terhubung ke Ollama. Ollama belum jalan? "
+            "Jalankan 'ollama serve' dan 'ollama pull qwen3:8b'.",
+        ),
+        (
+            [httpx.ReadTimeout("timed out")],
+            "Maaf, Sayang, Ollama terlalu lama menjawab. Coba lagi sebentar ya.",
+        ),
+        (
+            [ollama.ResponseError('{"error":"model \\"qwen3:8b\\" not found"}', 404)],
+            "Maaf, Sayang, model qwen3:8b belum ada di Ollama. "
+            "Jalankan 'ollama pull qwen3:8b' dulu ya.",
+        ),
+        (
+            [ollama.ResponseError("server busy", 503)],
+            "Maaf, Sayang, Ollama sedang bermasalah. Coba lagi sebentar ya.",
+        ),
+        ([RuntimeError("boom")], "Maaf, Sayang, ada yang salah di pikiranku. Coba ulangi ya."),
+    ],
+    ids=[
+        "no_answer",
+        "done",
+        "some_failed",
+        "round_limit",
+        "unreachable",
+        "too_slow",
+        "missing_model",
+        "trouble",
+        "unexpected",
+    ],
+)
+def test_every_canned_reply_calls_the_owner_what_she_calls_them(replies, expected):
+    registry = DeviceRegistry([*house().all(), UnreachableTv()])
+    brain = brain_with(FakeOllama(*replies), registry, owner_call="Sayang")
+
+    assert brain.respond("halo", now=NOW).text == expected
+
+
+@pytest.mark.parametrize(
+    ("action", "error_part"),
+    [
+        ({"routine": "tidur"}, "Belum ada rutinitas; Sayang menulisnya di config.yaml."),
+        ({"device": "musik", "command": "play_pause"}, "menyalakan suara saat Sayang tidur."),
+    ],
+    ids=["no_routines", "media_toggle"],
+)
+def test_an_empty_reply_reads_a_schedule_error_with_what_she_calls_the_owner(
+    tmp_path, action, error_part
+):
+    pressed: list[list[int]] = []
+    registry = DeviceRegistry([MediaKeys("musik", "Musik PC", ["musik"], press=pressed.append)])
+    store = ScheduleStore(tmp_path / "schedule.json", now=lambda: NOW)
+    schedule = ScheduleTools(store, registry=registry, routines={}, owner_call="Sayang")
+    client = FakeOllama(reply("", call("schedule", at="2026-10-12 23:00", **action)), reply(""))
+    brain = brain_with(client, registry, providers=[schedule], owner_call="Sayang")
+
+    text = brain.respond("jadwalkan nanti malam", now=NOW).text
+
+    assert text.startswith("Maaf, Sayang, ada yang gagal. ")
+    assert error_part in text
+    assert "Master" not in text
+    assert store.entries() == []
+    assert pressed == []
 
 
 def test_tool_call_record_matches_the_brain_contract():

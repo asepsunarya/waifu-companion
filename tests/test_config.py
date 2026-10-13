@@ -288,6 +288,22 @@ def test_vrm_engine_model_must_be_a_vrm_file(tmp_path):
         load_config(write_yaml(tmp_path, text))
 
 
+def test_default_interaction_lines_call_the_owner_through_the_placeholder():
+    kinds = AppConfig().avatar.interactions.lines.values()
+    lines = [line for lines_of_kind in kinds for line in lines_of_kind]
+
+    assert not any("Master" in line for line in lines)
+    assert "{owner} sudah kembali! Aku kangen." in lines
+
+
+def test_the_example_config_shows_the_owner_call_and_the_default_lines():
+    # Lines copied from the example must not say "Master" to an owner called something else.
+    config = load_config(ROOT / "config.example.yaml")
+
+    assert config.assistant.owner_call == "Master"
+    assert config.avatar.interactions.lines == AppConfig().avatar.interactions.lines
+
+
 def test_interaction_lines_must_not_be_empty(tmp_path):
     text = "avatar:\n  interactions:\n    lines:\n      head_pat: []\n"
     with pytest.raises(ConfigError, match="head_pat"):

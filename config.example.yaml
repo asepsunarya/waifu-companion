@@ -3,6 +3,9 @@
 
 assistant:
   name: Cyrene
+  # Panggilannya untukmu, misalnya Sayang: dipakai di persona ({owner}), pengingat, pertanyaan
+  # konfirmasi, dan kalimat reaksi avatar. "iya, Sayang" tetap dihitung sebagai jawaban iya.
+  owner_call: Master
   # Kata panggilan, boleh di mana saja dalam kalimat: "Cyrene, nyalakan lampu".
   # Variasi ejaan membantu kalau Whisper menulis namanya berbeda. Hindari kata sehari-hari
   # seperti "sirene": dia akan terpanggil setiap kali kamu membicarakan sirene.
@@ -125,11 +128,12 @@ avatar:
     reaction_cooldown_s: 3    # jeda minimal antar-reaksi bersuara, supaya klik beruntun tidak jadi spam
     # Kalimat tiap reaksi, dipilih acak dan tidak pernah sama dua kali berturut-turut.
     # Hapus satu jenis untuk memakai bawaannya; tiap jenis butuh minimal satu kalimat.
+    # {owner} diganti dengan assistant.owner_call; kalimat yang memuatnya wajib diberi tanda kutip.
     lines:
-      head_pat: ["えへへ, geli, Master!", "Hehe, makasih elusannya, Master.", "Mm, enak dielus begini."]
-      body_touch: ["Hei! Kaget aku, Master.", "Eh? Ada apa, Master?", "Jangan iseng, ya!"]
-      welcome_back: ["おかえりなさい, Master!", "Master sudah kembali! Aku kangen."]
-      listen: ["はい, Master?", "Iya, aku dengar."]
+      head_pat: ["えへへ, geli, {owner}!", "Hehe, makasih elusannya, {owner}.", "Mm, enak dielus begini."]
+      body_touch: ["Hei! Kaget aku, {owner}.", "Eh? Ada apa, {owner}?", "Jangan iseng, ya!"]
+      welcome_back: ["おかえりなさい, {owner}!", "{owner} sudah kembali! Aku kangen."]
+      listen: ["はい, {owner}?", "Iya, aku dengar."]
   window: mascot          # mascot: jendela transparan Electron | app: jendela Edge | none: tanpa jendela
   width: 360              # ukuran jendela dalam piksel
   height: 640

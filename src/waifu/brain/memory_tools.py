@@ -15,6 +15,7 @@ from collections.abc import Mapping, Sequence
 
 from waifu import memory
 from waifu.brain.base import ToolCallRecord, ToolSpec
+from waifu.config import at_sentence_start
 
 logger = logging.getLogger(__name__)
 
@@ -31,10 +32,12 @@ class _InvalidArguments(Exception):
 class MemoryTools:
     """A `ToolProvider` for the brain: notes about Master, kept between sessions."""
 
-    def __init__(self, store: memory.MemoryStore) -> None:
+    def __init__(self, store: memory.MemoryStore, *, owner_call: str = "Master") -> None:
         self._store = store
+        self._owner_call = owner_call  # in the note example, which she may copy
 
     def specs(self) -> list[ToolSpec]:
+        owner = at_sentence_start(self._owner_call)  # opens the note example
         return [
             ToolSpec(
                 name=REMEMBER,
@@ -47,7 +50,7 @@ class MemoryTools:
                     "allergies and health, plans with their date (a full date such as "
                     "16-10-2026, not just a weekday), people and pets, routines, favourite "
                     "games and characters. Write the note in Indonesian, in the third person "
-                    "('Master alergi udang.'), one fact per call, at most "
+                    f"('{owner} alergi udang.'), one fact per call, at most "
                     f"{self._store.max_chars} characters. Do not save small talk, device "
                     "commands, anything already in your notes, or secrets: passwords, PINs, "
                     "OTPs, tokens, cookies, API keys, card numbers (they are refused). When a "

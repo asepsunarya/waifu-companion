@@ -58,6 +58,15 @@ def _ipv4_loopback(value: str, field: str) -> str:
     return value
 
 
+def at_sentence_start(word: str) -> str:
+    """`word` as it opens a sentence: first letter capitalised, the rest as written.
+
+    `owner_call` is used as written mid-sentence ("Sudah, sayang."), but "sayang" opens a
+    sentence as "Sayang, ...".
+    """
+    return word[:1].upper() + word[1:]
+
+
 class _Strict(BaseModel):
     # hide_input_in_errors: a validation error must never echo a local_key back to the console.
     model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
@@ -335,15 +344,17 @@ class DeviceConfig(_Strict):
         return self
 
 
+# `{owner}` is filled with `assistant.owner_call` when she says the line, in these and in lines
+# the owner writes.
 _DEFAULT_INTERACTION_LINES: dict[str, list[str]] = {
     "head_pat": [
-        "えへへ, geli, Master!",
-        "Hehe, makasih elusannya, Master.",
+        "えへへ, geli, {owner}!",
+        "Hehe, makasih elusannya, {owner}.",
         "Mm, enak dielus begini.",
     ],
-    "body_touch": ["Hei! Kaget aku, Master.", "Eh? Ada apa, Master?", "Jangan iseng, ya!"],
-    "welcome_back": ["おかえりなさい, Master!", "Master sudah kembali! Aku kangen."],
-    "listen": ["はい, Master?", "Iya, aku dengar."],
+    "body_touch": ["Hei! Kaget aku, {owner}.", "Eh? Ada apa, {owner}?", "Jangan iseng, ya!"],
+    "welcome_back": ["おかえりなさい, {owner}!", "{owner} sudah kembali! Aku kangen."],
+    "listen": ["はい, {owner}?", "Iya, aku dengar."],
 }
 
 

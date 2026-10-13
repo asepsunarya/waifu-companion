@@ -117,9 +117,9 @@ class _Request:
 def is_yes(text: str, names: Iterable[str] = ()) -> bool:
     """Whether Master's words are a plain yes, such as "Iya, matikan." or "Cyrene, boleh".
 
-    Leaving out "Master" and the `names` she answers to (her name and wake words), the words
-    must start with an affirmative word and hold only affirmative and order words. A question
-    ("iya?") is never a yes.
+    Leaving out "Master" and the `names` (her name and wake words she answers to, and what she
+    calls the owner), the words must start with an affirmative word and hold only affirmative
+    and order words. A question ("iya?") is never a yes.
     """
     text = unicodedata.normalize("NFKC", text).lower()
     if "?" in text:
@@ -144,7 +144,11 @@ def needs_confirmation(
 
 
 class ConfirmationGate:
-    """One request per turn, asked by the code and answered only by Master's next words."""
+    """One request per turn, asked by the code and answered only by Master's next words.
+
+    `names` are her name and wake words; `owner_call` is what she calls the owner. The question
+    calls the owner by it, and like her names it is left out of the answer ("iya, Sayang").
+    """
 
     def __init__(
         self,
@@ -152,10 +156,12 @@ class ConfirmationGate:
         clock: Callable[[], float] = time.monotonic,
         window_s: float = 60,
         names: Iterable[str] = (),
+        owner_call: str = "Master",
     ) -> None:
         self._clock = clock
         self._window_s = window_s
-        self._names = tuple(names)
+        self._names = (*names, owner_call)
+        self._owner_call = owner_call
         self._lock = threading.Lock()  # guards the turn, its yes, and both requests
         self._turn_at = 0.0
         self._turn_is_yes = False
@@ -205,7 +211,8 @@ class ConfirmationGate:
             if confirmed:
                 self._asked = None
             elif self._recorded is None:
-                self._recorded = _Request(call, self._clock(), _question(device, resolved))
+                question = _question(device, resolved, self._owner_call)
+                self._recorded = _Request(call, self._clock(), question)
             request = self._recorded
         if confirmed:
             logger.info("Master confirmed '%s' on '%s'", resolved, device_id)
@@ -248,11 +255,11 @@ def _gated(
     return (device, resolved) if resolved in to_confirm else None
 
 
-def _question(device: Device, command: str) -> str:
+def _question(device: Device, command: str, owner_call: str) -> str:
     """The spoken question: it names the action and invites a yes the gate hears."""
     warning = "" if device.kind == "pc" else " Listrik PC bisa langsung putus."
     action = _ACTIONS[command]
-    return f"{device.name} mau {action} sekarang, Master?{warning} Jawab iya kalau jadi."
+    return f"{device.name} mau {action} sekarang, {owner_call}?{warning} Jawab iya kalau jadi."
 
 
 def _ask_first_message(device: Device, command: str, question: str) -> str:

@@ -127,6 +127,8 @@ VOICE_LIBRARIES = (("Whisper", "faster_whisper"), ("ECAPA", "speechbrain.inferen
 VOICE_EXTRA_MISSING = "belum terpasang (paket suara untuk 'waifu run'; lihat README)"
 VOICE_REINSTALL_HINT = 'Pasang ulang paket suara: pip install -e ".[voice]" (lihat README).'
 _CUDA_PROBLEM = re.compile(r"cuda|cublas|cudnn|\.dll", re.IGNORECASE)
+# The owner's role name, written into reaction lines copied from the example before `{owner}`.
+_MASTER_WORD = re.compile(r"\bMaster\b")
 ENROLL_PHRASES = (
     "{name}, tolong nyalakan lampu kamar, ya.",
     "Hari ini cuacanya cerah sekali, enak untuk jalan-jalan sore.",
@@ -669,6 +671,7 @@ def _listen(args: argparse.Namespace) -> int:
                 listen=assistant.listen_now,
                 is_busy=lambda: assistant.busy,
                 interrupt=assistant.interrupt,
+                owner_call=config.assistant.owner_call,
             )
             with _open_mic(config) as mic, touches.answered_by(reactions):
                 mode = " (perangkat simulasi)" if args.dry_run else ""
@@ -688,7 +691,7 @@ def _listen(args: argparse.Namespace) -> int:
                         _await_avatar_viewer(avatar, _avatar_viewer_wait_s(config))
                     # Not a reply, so no follow-up window: after login only her name starts a
                     # conversation, as in a plain `run`.
-                    assistant.speak(f"{name} siap, Master.", followup=False)
+                    assistant.speak(f"{name} siap, {config.assistant.owner_call}.", followup=False)
                 notifier = build_notifier(config.notify)
                 try:
                     with (
@@ -750,7 +753,9 @@ def _chat(args: argparse.Namespace) -> int:
                         continue
                     if line.lower() in EXIT_WORDS:
                         break
-                    emotion, reply = split_reply(brain.respond(line))
+                    emotion, reply = split_reply(
+                        brain.respond(line), owner_call=config.assistant.owner_call
+                    )
                     if args.verbose:
                         for call in reply.tool_calls:
                             print(_describe_tool_call(call))
@@ -772,22 +777,28 @@ def _companion_brain(
 
     With memory, every new session lists the notes as they are in the file at that moment.
     """
+    owner_call = config.assistant.owner_call
     notes = _memory_store(config) if config.memory.enabled else None
     providers = _game_tools(config, gacha)
     if notes is not None:
-        providers.append(MemoryTools(notes))
+        providers.append(MemoryTools(notes, owner_call=owner_call))
     if schedule is not None:
-        providers.append(ScheduleTools(schedule, registry=registry, routines=config.routines))
+        providers.append(
+            ScheduleTools(
+                schedule, registry=registry, routines=config.routines, owner_call=owner_call
+            )
+        )
     if config.briefing.enabled:
         providers.append(_briefing_tools(config.briefing, schedule))
     if config.vision.enabled and config.brain.backend == "claude":
-        # Ollama's local model cannot see images, so it is never offered the screen. Her name
-        # and wake words are left out of Master's words, as for the confirmation gate.
+        # Ollama's local model cannot see images, so it is never offered the screen. Her name,
+        # wake words, and what she calls the owner are left out of Master's words, as for the
+        # confirmation gate.
         providers.append(
             ScreenTools(
                 capture=capture_screen,
                 max_side=config.vision.max_side,
-                names=[config.assistant.name, *config.assistant.wake_words],
+                names=[config.assistant.name, *config.assistant.wake_words, owner_call],
             )
         )
     if notes is None:
@@ -1249,7 +1260,11 @@ def _shown_reactions(config: AppConfig, avatar: AvatarBus) -> InteractionHandler
         print(LISTEN_NEEDS_RUN.format(name=name), flush=True)
 
     return InteractionHandler(
-        config.avatar.interactions, speak=show, listen=explain_listening, is_busy=lambda: False
+        config.avatar.interactions,
+        speak=show,
+        listen=explain_listening,
+        is_busy=lambda: False,
+        owner_call=config.assistant.owner_call,
     )
 
 
@@ -1351,6 +1366,7 @@ def _gacha_watcher(
         notifier=build_notifier(config.notify),
         announce=assistant.announce,
         title=config.assistant.name,
+        owner_call=config.assistant.owner_call,
     )
 
 
@@ -1575,6 +1591,7 @@ def _scheduler(
         notifier=notifier,
         grace_minutes=config.schedule.late_grace_minutes,
         title=config.assistant.name,
+        owner_call=config.assistant.owner_call,
     )
 
 
@@ -2180,6 +2197,30 @@ def _avatar_checks(config: AppConfig) -> Iterator[Check]:
         yield _path_check("Model VRM avatar", avatar.model, "avatar.model")
     yield _avatar_window_check(avatar)
     yield _avatar_port_check(avatar)
+    yield from _reaction_lines_checks(config)
+
+
+def _reaction_lines_checks(config: AppConfig) -> Iterator[Check]:
+    """A warning when reaction lines still say "Master" to an owner she calls otherwise: such
+    a line is said as written, since only `{owner}` is filled."""
+    owner_call = config.assistant.owner_call
+    interactions = config.avatar.interactions
+    if owner_call == "Master" or not interactions.enabled:
+        return
+    kinds = [
+        kind
+        for kind, lines in interactions.lines.items()
+        if any(_MASTER_WORD.search(line) for line in lines)
+    ]
+    if kinds:
+        yield (
+            WARN,
+            (
+                'Kalimat reaksi avatar masih menyebut "Master", padahal assistant.owner_call: '
+                f"{owner_call} (avatar.interactions.lines: {', '.join(kinds)}); ganti dengan "
+                '"{owner}" atau hapus jenisnya untuk memakai bawaannya'
+            ),
+        )
 
 
 def _live2d_checks(avatar: AvatarConfig) -> Iterator[Check]:

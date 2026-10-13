@@ -11,7 +11,18 @@ from waifu.config import AvatarInteractionsConfig
 LOGGER = "waifu.avatar.interactions"
 WORKER_NAME = "avatar-interactions"
 WAIT_S = 2.0  # an upper bound for events between threads, never a sleep
-LINES = AvatarInteractionsConfig().lines
+DEFAULT_LINES = AvatarInteractionsConfig().lines
+
+
+def lines_for(owner_call: str) -> dict[str, list[str]]:
+    """The default lines as she says them to an owner she calls `owner_call`."""
+    return {
+        kind: [line.replace("{owner}", owner_call) for line in lines]
+        for kind, lines in DEFAULT_LINES.items()
+    }
+
+
+LINES = lines_for("Master")
 
 
 class FakeClock:
@@ -493,6 +504,56 @@ def test_the_same_seed_picks_the_same_lines():
         said.append(assistant.spoken)
 
     assert said[0] == said[1]
+
+
+def calling_the_owner_sayang(
+    owner_call: str = "Sayang", **config: object
+) -> tuple[InteractionHandler, Assistant]:
+    """A handler without a cooldown for an owner she calls Sayang, spelt as `owner_call`."""
+    clock = FakeClock()
+    assistant = Assistant(clock)
+    handler = InteractionHandler(
+        AvatarInteractionsConfig.model_validate({"reaction_cooldown_s": 0, **config}),
+        speak=assistant.speak,
+        listen=assistant.listen,
+        is_busy=assistant.is_busy,
+        clock=clock,
+        owner_call=owner_call,
+    )
+    return handler, assistant
+
+
+def test_the_default_lines_call_the_owner_what_she_calls_them():
+    handler, assistant = calling_the_owner_sayang()
+
+    react(handler, "head_pat", "body_touch", "welcome_back", "double_click")
+
+    kinds = ["head_pat", "body_touch", "welcome_back", "listen"]
+    said = dict(zip(kinds, [line for line, _ in assistant.spoken], strict=True))
+    for kind, line in said.items():
+        assert line in lines_for("Sayang")[kind]
+        assert "Master" not in line
+    assert "Sayang" in said["welcome_back"]
+
+
+def test_lines_the_owner_wrote_call_the_owner_the_same_way():
+    handler, assistant = calling_the_owner_sayang(
+        lines={"head_pat": ["Hehe, {owner}! {owner} {x}"]}
+    )
+
+    react(handler, "head_pat")
+
+    assert assistant.spoken == [("Hehe, Sayang! Sayang {x}", "happy")]
+
+
+def test_a_line_that_opens_with_the_word_starts_with_a_capital_even_when_written_lowercase():
+    handler, assistant = calling_the_owner_sayang(
+        "sayang", lines={"welcome_back": ["{owner} sudah kembali! Aku kangen, {owner}."]}
+    )
+
+    react(handler, "welcome_back")
+
+    assert assistant.spoken == [("Sayang sudah kembali! Aku kangen, sayang.", "happy")]
 
 
 # The queue and failures

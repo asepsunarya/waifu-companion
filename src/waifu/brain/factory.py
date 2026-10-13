@@ -44,10 +44,13 @@ def build_brain(
         "max_session_turns": config.assistant.max_session_turns,
         "providers": providers,
         # Never off: turning the PC off or cutting its power waits for Master's own yes, which
-        # still carries her name ("iya, Cyrene") in the follow-up window and in chat.
+        # still carries her name ("iya, Cyrene") in the follow-up window and in chat, or what
+        # she calls the owner ("iya, Sayang").
         "confirmations": ConfirmationGate(
-            names=[config.assistant.name, *config.assistant.wake_words]
+            names=[config.assistant.name, *config.assistant.wake_words],
+            owner_call=config.assistant.owner_call,
         ),
+        "owner_call": config.assistant.owner_call,
     }
     if config.brain.backend == "claude":
         # Imported here so the Ollama path never loads the Anthropic SDK.

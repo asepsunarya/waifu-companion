@@ -21,7 +21,7 @@ from collections.abc import Mapping
 
 from waifu.avatar.emotion import split_emotion
 from waifu.brain.base import ToolSpec
-from waifu.config import RoutineConfig, RoutineStep
+from waifu.config import RoutineConfig, RoutineStep, at_sentence_start
 from waifu.devices.base import Device, DeviceResult
 from waifu.devices.ir_device import resolve_command
 from waifu.devices.registry import DeviceRegistry, value_problem
@@ -75,10 +75,13 @@ class ScheduleTools:
         *,
         registry: DeviceRegistry,
         routines: Mapping[str, RoutineConfig],
+        owner_call: str = "Master",
     ) -> None:
         self._store = store
         self._registry = registry
         self._routines = dict(routines)
+        # In the reminder example, which she may copy, and in errors Ollama may read out.
+        self._owner_call = owner_call
 
     def specs(self) -> list[ToolSpec]:
         specs = [self._schedule_spec(), _list_schedules_spec(), _cancel_schedule_spec()]
@@ -116,6 +119,7 @@ class ScheduleTools:
             routines = "a routine Master wrote, to run then (they are listed under run_routine)"
         else:
             routines = "a routine (Master has written none yet, so leave it out)"
+        owner = at_sentence_start(self._owner_call)  # opens the reminder example
         return ToolSpec(
             name=SCHEDULE,
             description=(
@@ -128,7 +132,7 @@ class ScheduleTools:
                 "(Monday-Friday), or weekends (Saturday-Sunday); leave it out for once. Give "
                 "exactly one action: `reminder`, the words for what you will say to Master "
                 "when it fires, in Indonesian, short, at most "
-                f"{MAX_REMINDER_CHARS} characters ('Master, sudah jam tiga, waktunya minum "
+                f"{MAX_REMINDER_CHARS} characters ('{owner}, sudah jam tiga, waktunya minum "
                 "obat!'); or `device` and `command` (and `value`), picked as for "
                 "control_device, which run silently at that time because Master may be "
                 f"asleep (only a failure is announced); or `routine`, {routines}. For music, "
@@ -235,9 +239,9 @@ class ScheduleTools:
         if device.kind == "media" and resolved in _MEDIA_TOGGLES:
             raise ScheduleError(
                 f"{resolved} pada {device.name} tidak bisa dijadwalkan: tombolnya bolak-balik, "
-                "jadi bisa malah memutar musik atau menyalakan suara saat Master tidur. Untuk "
-                "menghentikan musik jadwalkan stop; untuk mengecilkan suara jadwalkan volume "
-                "dengan angka kecil, misalnya 10."
+                "jadi bisa malah memutar musik atau menyalakan suara saat "
+                f"{self._owner_call} tidur. Untuk menghentikan musik jadwalkan stop; untuk "
+                "mengecilkan suara jadwalkan volume dengan angka kecil, misalnya 10."
             )
         problem = value_problem(device, resolved, value)
         if problem is not None:
@@ -273,7 +277,9 @@ class ScheduleTools:
 
     def _routine_name(self, name: str) -> str:
         if not self._routines:
-            raise ScheduleError("Belum ada rutinitas; Master menulisnya di config.yaml.")
+            raise ScheduleError(
+                f"Belum ada rutinitas; {self._owner_call} menulisnya di config.yaml."
+            )
         if name not in self._routines:
             raise ScheduleError(
                 f"Tidak ada rutinitas bernama '{name}'. "

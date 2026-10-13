@@ -232,6 +232,22 @@ def test_schedule_says_how_to_write_the_time_the_reminder_and_the_action(tmp_pat
         assert guidance in description
 
 
+# Written in lowercase, the word still opens the example sentence with a capital.
+@pytest.mark.parametrize("owner_call", ["Sayang", "sayang"])
+def test_the_reminder_example_calls_the_owner_what_she_calls_them(tmp_path, owner_call):
+    store = make_store(tmp_path)
+    registry, _ = make_house()
+    default = spec(ScheduleTools(store, registry=registry, routines={}), "schedule")
+    sayang = spec(
+        ScheduleTools(store, registry=registry, routines={}, owner_call=owner_call), "schedule"
+    )
+
+    assert "('Master, sudah jam tiga, waktunya minum obat!')" in default.description
+    assert "('Sayang, sudah jam tiga, waktunya minum obat!')" in sayang.description
+    assert "'Master," not in sayang.description
+    assert "what you will say to Master" in sayang.description  # her instructions keep Master
+
+
 def test_schedule_says_never_to_cut_the_power_of_the_pc_through_its_plug(tmp_path):
     # A plug that powers the PC is an ordinary plug to the code; switching it off while
     # Windows runs is pulling the cable, so the model must never schedule it or offer it
@@ -599,6 +615,25 @@ def test_a_routine_cannot_be_scheduled_before_the_owner_writes_one(tmp_path):
         True,
     )
     assert not store.path.exists()
+
+
+def test_errors_she_may_read_out_call_the_owner_what_she_calls_them(tmp_path):
+    # Ollama reads a failed tool's message aloud when the model's last reply is empty.
+    pressed: list[list[int]] = []
+    registry = DeviceRegistry([MediaKeys("musik", "Musik PC", ["musik"], press=pressed.append)])
+    store = make_store(tmp_path)
+    tools = ScheduleTools(store, registry=registry, routines={}, owner_call="Sayang")
+
+    toggle, _ = run(
+        tools, "schedule", {"at": "2026-10-13 23:00", "device": "musik", "command": "mute"}
+    )
+    routine, _ = run(tools, "schedule", {"at": "2026-10-14 02:00", "routine": "tidur"})
+
+    assert "menyalakan suara saat Sayang tidur." in toggle["message"]
+    assert routine["message"] == "Belum ada rutinitas; Sayang menulisnya di config.yaml."
+    assert "Master" not in toggle["message"] + routine["message"]
+    assert not store.path.exists()
+    assert pressed == []
 
 
 @pytest.mark.parametrize(

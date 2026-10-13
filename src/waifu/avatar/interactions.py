@@ -29,7 +29,7 @@ import time
 from collections.abc import Callable
 from types import TracebackType
 
-from waifu.config import AvatarInteractionsConfig
+from waifu.config import AvatarInteractionsConfig, at_sentence_start
 
 logger = logging.getLogger(__name__)
 
@@ -64,12 +64,14 @@ class InteractionHandler:
         interrupt: Callable[[], bool] = _nothing_to_interrupt,
         clock: Callable[[], float] = time.monotonic,
         rng: random.Random | None = None,
+        owner_call: str = "Master",
     ) -> None:
         self._config = config
         self._speak = speak
         self._listen = listen
         self._is_busy = is_busy
         self._interrupt = interrupt
+        self._owner_call = owner_call
         self._clock = clock
         self._rng = rng or random.Random()
         self._queue: queue.Queue[str | None] = queue.Queue(maxsize=QUEUE_SIZE)
@@ -217,12 +219,15 @@ class InteractionHandler:
             self._quiet_since = self._clock()
 
     def _pick_line(self, lines_key: str) -> str:
-        """A random line of `lines_key`, never the previous one when there is another."""
+        """A random line of `lines_key`, never the previous one when there is another, with
+        `{owner}` filled with what she calls the owner (capitalised when it opens the line)."""
         lines = self._config.lines[lines_key]
         previous = self._previous_line.get(lines_key)
         line = self._rng.choice([line for line in lines if line != previous] or lines)
         self._previous_line[lines_key] = line
-        return line
+        # str.replace, not str.format: a line the owner wrote may hold other braces.
+        filled = line.replace("{owner}", self._owner_call)
+        return at_sentence_start(filled) if line.startswith("{owner}") else filled
 
 
 def _within(now: float, since: float | None, span_s: float) -> bool:

@@ -58,11 +58,13 @@ class FakeClaudeBrain(Brain):
         max_session_turns=40,
         providers=(),
         confirmations=None,
+        owner_call="Master",
     ):
         self.config, self.registry, self.system_prompt = config, registry, system_prompt
         self.session_idle_minutes, self.max_session_turns = session_idle_minutes, max_session_turns
         self.providers = providers
         self.confirmations = confirmations
+        self.owner_call = owner_call
 
     def respond(self, user_text: str, *, now: datetime | None = None) -> BrainReply:
         return BrainReply(text="")
@@ -360,3 +362,54 @@ def test_the_gate_hears_master_through_the_assistants_name_and_wake_words(monkey
     registry = held_then_answered(monkeypatch, config, "Hei Hikari, iya. Hikari, boleh.")
 
     assert registry.get("komputer").calls == [("shutdown", None)]
+
+
+CALLED_SAYANG = AppConfig(assistant=AssistantConfig(owner_call="Sayang"))
+
+
+def test_iya_sayang_is_a_yes_from_an_owner_she_calls_sayang(monkeypatch):
+    registry = held_then_answered(monkeypatch, CALLED_SAYANG, "Iya, Sayang.")
+
+    assert registry.get("komputer").calls == [("shutdown", None)]
+
+
+def test_the_ollama_brain_asks_and_apologises_with_what_she_calls_the_owner(monkeypatch):
+    shutdown = ollama.Message.ToolCall(
+        function=ollama.Message.ToolCall.Function(
+            name="control_device", arguments={"device": "komputer", "command": "shutdown"}
+        )
+    )
+    client = ScriptedOllama(
+        ollama.Message(role="assistant", content="", tool_calls=[shutdown]),
+        ollama.Message(role="assistant", content=""),
+    )
+    monkeypatch.setattr(ollama, "Client", lambda host, **kwargs: client)
+    registry = DeviceRegistry(
+        [MockDevice("komputer", "Komputer", commands=["shutdown"], kind="pc")]
+    )
+    brain = build_brain(CALLED_SAYANG, registry, persona_text=PERSONA)
+
+    asked = brain.respond("Cyrene, matikan komputer.", now=NOW)
+    apology = brain.respond("halo", now=NOW)  # the scripted model has nothing more to say
+
+    assert asked.text == "Komputer mau kumatikan sekarang, Sayang? Jawab iya kalau jadi."
+    assert apology.text.startswith("Maaf, Sayang, ")
+
+
+def test_the_claude_brain_and_its_gate_call_the_owner_what_she_calls_them(monkeypatch):
+    monkeypatch.setattr("waifu.brain.claude.ClaudeBrain", FakeClaudeBrain)
+    config = AppConfig(
+        assistant=AssistantConfig(owner_call="Sayang"), brain=BrainConfig(backend="claude")
+    )
+    registry = DeviceRegistry(
+        [MockDevice("komputer", "Komputer", commands=["shutdown"], kind="pc")]
+    )
+
+    brain = build_brain(config, registry, persona_text=PERSONA)
+    brain.confirmations.begin_turn("matikan komputer")
+    brain.confirmations.check(registry, "komputer", "shutdown", None)
+
+    assert brain.owner_call == "Sayang"
+    assert brain.confirmations.with_question("") == (
+        "Komputer mau kumatikan sekarang, Sayang? Jawab iya kalau jadi."
+    )

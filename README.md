@@ -195,7 +195,7 @@ waifu check
 
 | Bagian | Isi |
 |---|---|
-| `assistant` | nama, `wake_words`, `followup_seconds`, `persona_file`, kapan obrolan direset |
+| `assistant` | nama, `owner_call` (panggilannya untukmu), `wake_words`, `followup_seconds`, `persona_file`, kapan obrolan direset |
 | `audio` | `input_device`/`output_device` (nomor atau nama dari `waifu mics`), `vad` (kepekaan deteksi bicara) |
 | `speaker` | verifikasi suara: `enabled`, `voiceprint_path`, `threshold`, `device` |
 | `stt` | model Whisper, `device`, `compute_type`, `languages` |
@@ -206,6 +206,13 @@ waifu check
 
 Kunci yang tidak dikenal ditolak dengan pesan yang jelas, jadi salah ketik langsung
 ketahuan saat `waifu check`. Kepribadian Cyrene ada di `config/persona.md`.
+
+`assistant.owner_call` (bawaan `Master`, misalnya `Sayang`) adalah panggilannya untukmu.
+Semua kalimatnya memakai kata itu: jawaban, persona (`{owner}`), pertanyaan konfirmasi,
+pengingat dan pengumuman jadwal atau game, permintaan maaf, sapaan saat `run --announce`,
+dan kalimat reaksi avatar. "Iya, Sayang" tetap dihitung sebagai jawaban iya. Kata itu
+dipakai persis seperti ditulis, kecuali di awal kalimat huruf pertamanya dibuat kapital
+(`sayang` jadi "Sayang, jadwal ... gagal", tetapi tetap "Sudah, sayang.").
 
 ## Memilih otak: Ollama atau Claude
 
@@ -1168,12 +1175,16 @@ Semua kunci ada di bawah `avatar.interactions` (contoh lengkap di `config.exampl
 avatar:
   interactions:
     lines:
-      head_pat: ["えへへ, geli, Master!", "Hehe, makasih elusannya, Master.", "Mm, enak dielus begini."]
-      body_touch: ["Hei! Kaget aku, Master.", "Eh? Ada apa, Master?", "Jangan iseng, ya!"]
-      welcome_back: ["おかえりなさい, Master!", "Master sudah kembali! Aku kangen."]
-      listen: ["はい, Master?", "Iya, aku dengar."]
+      head_pat: ["えへへ, geli, {owner}!", "Hehe, makasih elusannya, {owner}.", "Mm, enak dielus begini."]
+      body_touch: ["Hei! Kaget aku, {owner}.", "Eh? Ada apa, {owner}?", "Jangan iseng, ya!"]
+      welcome_back: ["おかえりなさい, {owner}!", "{owner} sudah kembali! Aku kangen."]
+      listen: ["はい, {owner}?", "Iya, aku dengar."]
 ```
 
+`{owner}` diganti dengan `assistant.owner_call` saat diucapkan; kalimat yang memuatnya
+wajib diberi tanda kutip. Kalimat yang kamu salin dulu dari contoh lama masih menulis
+"Master" langsung: ganti dengan `{owner}`, atau hapus jenisnya untuk memakai bawaannya.
+`waifu check` memperingatkan kalimat seperti itu selama `owner_call` bukan `Master`.
 Kalimat dipilih acak dan tidak pernah sama dua kali berturut-turut. Bagian Jepang
 diucapkan dengan suara Jepang seperti jawaban biasa. Jangan menulis tag ekspresi
 (`[senang]`) di sini: ekspresinya sudah tetap (elusan, sapaan, dan `listen` senang;

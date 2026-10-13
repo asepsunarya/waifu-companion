@@ -538,6 +538,102 @@ def test_empty_final_text_after_a_failed_tool_apologises():
     assert reply.tool_calls[0].is_error is True
 
 
+LAMP_ON = {"device": "lampu_kamar", "command": "on"}
+
+
+@pytest.mark.parametrize(
+    ("responses", "max_tool_rounds", "expected"),
+    [
+        ([message([], "end_turn")], 5, "Maaf Sayang, aku belum bisa menjawab itu."),
+        (
+            [
+                message([tool_use("call_1", "control_device", LAMP_ON)], "tool_use"),
+                message([], "end_turn"),
+            ],
+            5,
+            "Sudah, Sayang.",
+        ),
+        (
+            [
+                message([tool_use("call_1", "control_device", {"device": "x"})], "tool_use"),
+                message([], "end_turn"),
+            ],
+            5,
+            "Maaf Sayang, ada perintah yang gagal dijalankan.",
+        ),
+        (
+            [message([tool_use("call_1", "control_device", LAMP_ON)], "max_tokens")],
+            5,
+            "Maaf Sayang, jawabanku terpotong. Coba ulangi, ya.",
+        ),
+        (
+            [
+                message([tool_use("call_1", "control_device", LAMP_ON)], "tool_use"),
+                message([tool_use("call_2", "control_device", LAMP_ON)], "tool_use"),
+            ],
+            1,
+            "Maaf Sayang, permintaannya butuh terlalu banyak langkah, jadi aku berhenti dulu.",
+        ),
+        ([message([text("Aku")], "refusal")], 5, "Maaf Sayang, aku tidak bisa membantu yang itu."),
+        (
+            [request_error(anthropic.AuthenticationError, 401)],
+            5,
+            "Maaf Sayang, API key Claude belum diatur atau tidak valid.",
+        ),
+        (
+            [request_error(anthropic.RateLimitError, 429)],
+            5,
+            "Maaf Sayang, server Claude sedang sibuk. Coba lagi sebentar lagi, ya.",
+        ),
+        ([connection_error()], 5, "Maaf Sayang, aku tidak bisa terhubung ke server Claude."),
+        (
+            [request_error(anthropic.InternalServerError, 500)],
+            5,
+            "Maaf Sayang, server Claude sedang bermasalah. Coba lagi nanti, ya.",
+        ),
+        (
+            [request_error(anthropic.BadRequestError, 400)],
+            5,
+            "Maaf Sayang, ada masalah saat menghubungi Claude.",
+        ),
+    ],
+    ids=[
+        "no_answer",
+        "done",
+        "tool_failed",
+        "cut_off",
+        "round_limit",
+        "refused",
+        "bad_credentials",
+        "rate_limited",
+        "no_connection",
+        "server_error",
+        "request_failed",
+    ],
+)
+def test_every_canned_reply_calls_the_owner_what_she_calls_them(
+    responses, max_tool_rounds, expected
+):
+    brain = make_brain(
+        FakeAnthropic(*responses), max_tool_rounds=max_tool_rounds, owner_call="Sayang"
+    )
+
+    assert brain.respond("halo", now=NOW).text == expected
+
+
+def test_the_workspace_apology_calls_the_owner_what_she_calls_them():
+    request = httpx2.Request("POST", "https://api.anthropic.com/v1/messages")
+    error = anthropic.BadRequestError(
+        "requests must include the anthropic-workspace-id header",
+        response=httpx2.Response(400, request=request),
+        body=None,
+    )
+
+    reply = make_brain(FakeAnthropic(error), owner_call="Sayang").respond("halo", now=NOW)
+
+    assert reply.text.startswith("Maaf Sayang, API key Claude ini belum terikat ke workspace.")
+
+
 def test_client_is_created_lazily_and_reused(monkeypatch):
     created: list[FakeAnthropic] = []
 

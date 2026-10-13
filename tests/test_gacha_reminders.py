@@ -239,6 +239,57 @@ def test_a_game_specific_problem_is_told_once_a_day_per_game():
     assert problem_notice("genshin", error, wib(12, 18), state, ASIA) is not None
 
 
+@pytest.mark.parametrize(
+    ("status", "now", "expected"),
+    [
+        (
+            replace(HSR, stamina=295, stamina_full_in_s=30 * 60),
+            MONDAY_NOON,
+            "Sayang, Trailblaze Power di HSR sudah 295 dari 300, penuh sekitar 30 menit lagi. "
+            "Jangan sampai terbuang ya.",
+        ),
+        (
+            replace(HSR, stamina=300, stamina_full_in_s=0),
+            MONDAY_NOON,
+            "Sayang, Trailblaze Power di HSR sudah penuh, 300 dari 300. Jangan sampai terbuang ya.",
+        ),
+        (
+            UNFINISHED,
+            wib(12, 20, 0),
+            "Sayang, Daily Training HSR belum selesai, baru 300 dari 500. Reset jam 03:00 nanti.",
+        ),
+        (
+            LEFT_THIS_WEEK,
+            SUNDAY_EVENING,
+            "Sayang, reset mingguan HSR jam 03:00 nanti. Masih tersisa Echo of War 1 dari 3.",
+        ),
+        (
+            replace(HSR, expeditions_finished=4),
+            MONDAY_NOON,
+            "Sayang, semua ekspedisi HSR sudah selesai. Ambil hadiahnya yuk.",
+        ),
+    ],
+    ids=["stamina_near", "stamina_full", "daily", "weekly", "expeditions"],
+)
+# Written in lowercase, the word still opens her sentence with a capital.
+@pytest.mark.parametrize("owner_call", ["Sayang", "sayang"])
+def test_reminders_call_the_owner_what_she_calls_them(status, now, expected, owner_call):
+    notices = due_notices(
+        {status.game: status}, now, ReminderState(), RULES, ASIA, owner_call=owner_call
+    )
+
+    assert [notice.text for notice in notices] == [expected]
+
+
+@pytest.mark.parametrize("owner_call", ["Sayang", "sayang"])
+def test_a_problem_calls_the_owner_what_she_calls_them(owner_call):
+    error = GachaError("cookie", "Cookie HoYoLAB tidak berlaku lagi.")
+
+    notice = problem_notice("hsr", error, MONDAY_NOON, ReminderState(), ASIA, owner_call=owner_call)
+
+    assert notice.text == "Sayang, Cookie HoYoLAB tidak berlaku lagi."
+
+
 @pytest.mark.parametrize("kind", ["network", "rate_limit", "other"])
 def test_passing_problems_are_only_logged(kind):
     assert problem_notice("hsr", GachaError(kind, "x"), MONDAY_NOON, ReminderState(), ASIA) is None

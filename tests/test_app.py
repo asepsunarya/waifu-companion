@@ -6,15 +6,9 @@ from datetime import datetime
 import numpy as np
 import pytest
 
-from waifu.app import (
-    ACKNOWLEDGEMENT,
-    TAG_ONLY_DONE,
-    TAG_ONLY_FAILED,
-    TAG_ONLY_NO_ANSWER,
-    Assistant,
-)
+from waifu.app import Assistant
 from waifu.brain.base import Brain, BrainReply, ToolCallRecord
-from waifu.config import AppConfig, SpeakerConfig
+from waifu.config import AppConfig, AssistantConfig, SpeakerConfig
 from waifu.gate import WakeGate
 from waifu.voice.base import SpeechToText, Transcript, Utterance
 from waifu.voice.speaker import SpeakerError
@@ -289,8 +283,8 @@ def test_a_bare_wake_word_gets_an_acknowledgement_without_asking_the_brain():
     rig.clock.now += 2
     rig.assistant.handle_utterance(rig.utterance())
 
-    assert acknowledgement == ACKNOWLEDGEMENT == "はい、Master?"
-    assert rig.speech.texts[0] == ACKNOWLEDGEMENT
+    assert acknowledgement == "はい、Master?"
+    assert rig.speech.texts[0] == acknowledgement
     assert rig.brain.turns == [("nyalakan lampu kamar", NOW)]
 
 
@@ -438,8 +432,8 @@ def test_a_reply_that_is_only_a_tag_after_a_tool_call_is_still_answered_aloud():
 
     reply = rig.assistant.handle_utterance(rig.utterance())
 
-    assert reply == TAG_ONLY_DONE == "Sudah, Master."
-    assert rig.speech.texts == [TAG_ONLY_DONE]
+    assert reply == "Sudah, Master."
+    assert rig.speech.texts == [reply]
     assert rig.player.played == [24000]
     assert "avatar.speak happy" in rig.events
 
@@ -457,7 +451,10 @@ class ToollessBrain(FakeBrain):
 
 @pytest.mark.parametrize(
     ("brain", "expected"),
-    [(FailedToolBrain, TAG_ONLY_FAILED), (ToollessBrain, TAG_ONLY_NO_ANSWER)],
+    [
+        (FailedToolBrain, "Maaf Master, ada perintah yang gagal dijalankan."),
+        (ToollessBrain, "Maaf Master, aku belum bisa menjawab itu."),
+    ],
     ids=["tool-failed", "no-tool"],
 )
 def test_a_tag_only_reply_says_what_the_tools_did(brain, expected):
@@ -466,7 +463,30 @@ def test_a_tag_only_reply_says_what_the_tools_did(brain, expected):
     reply = rig.assistant.handle_text("nyalakan AC")
 
     assert reply.text == expected
-    assert expected.startswith("Maaf Master")
+
+
+CALLED_SAYANG = AppConfig(assistant=AssistantConfig(owner_call="Sayang"))
+
+
+def test_a_bare_wake_word_is_answered_with_what_she_calls_the_owner():
+    rig = Rig("Cyrene?", config=CALLED_SAYANG)
+
+    assert rig.assistant.handle_utterance(rig.utterance()) == "はい、Sayang?"
+
+
+@pytest.mark.parametrize(
+    ("brain", "expected"),
+    [
+        (FakeBrain, "Sudah, Sayang."),
+        (FailedToolBrain, "Maaf Sayang, ada perintah yang gagal dijalankan."),
+        (ToollessBrain, "Maaf Sayang, aku belum bisa menjawab itu."),
+    ],
+    ids=["done", "tool-failed", "no-tool"],
+)
+def test_a_tag_only_reply_calls_the_owner_what_she_calls_them(brain, expected):
+    rig = Rig(reply="[senang]", brain=brain, config=CALLED_SAYANG)
+
+    assert rig.assistant.handle_text("nyalakan AC").text == expected
 
 
 def test_handle_text_returns_the_reply_without_its_tag_and_keeps_the_tool_calls():

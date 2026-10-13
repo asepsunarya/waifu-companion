@@ -93,6 +93,11 @@ def test_is_yes_without_her_names_counts_a_name_as_another_word():
     assert not is_yes("cyrene iya")
 
 
+def test_is_yes_skips_what_she_calls_the_owner_when_given_with_her_names():
+    assert is_yes("iya sayang", (*NAMES, "Sayang"))
+    assert not is_yes("iya sayang", NAMES)
+
+
 @pytest.mark.parametrize(
     "text",
     [
@@ -269,6 +274,28 @@ def test_the_gate_hears_master_by_the_names_it_was_given():
     gate.begin_turn("matikan komputer")
     gate.check(registry, "komputer", "shutdown", None)
     gate.begin_turn("Cyrene, iya.")
+
+    assert gate.check(registry, "komputer", "shutdown", None) is None
+
+
+def test_the_question_calls_the_owner_what_she_calls_them():
+    registry = house()
+    gate = ConfirmationGate(clock=FakeClock(), owner_call="Sayang")
+    gate.begin_turn("matikan komputer")
+
+    message = gate.check(registry, "komputer", "shutdown", None)
+
+    question = "Komputer mau kumatikan sekarang, Sayang? Jawab iya kalau jadi."
+    assert gate.with_question("") == question
+    assert question in message
+
+
+def test_iya_sayang_answers_the_gate_of_an_owner_she_calls_sayang():
+    registry = house()
+    gate = ConfirmationGate(clock=FakeClock(), names=NAMES, owner_call="Sayang")
+    gate.begin_turn("Cyrene, matikan komputer.")
+    gate.check(registry, "komputer", "shutdown", None)
+    gate.begin_turn("Iya, Sayang.")
 
     assert gate.check(registry, "komputer", "shutdown", None) is None
 

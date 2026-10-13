@@ -594,6 +594,10 @@ TOUCH_LINES = (
     "      welcome_back: [Selamat datang]\n"
     "      listen: [Iya Master]\n"
 )
+# The same, with a listen line the owner wrote for whatever she calls them, and Sayang as that.
+SAYANG_TOUCH_LINES = (
+    TOUCH_LINES.replace("[Iya Master]", '["Iya, {owner}"]') + "assistant:\n  owner_call: Sayang\n"
+)
 
 
 def interaction_workers() -> list[threading.Thread]:
@@ -1101,6 +1105,18 @@ def test_chat_answers_a_reply_that_is_only_a_tag_instead_of_printing_nothing(
     assert "Cyrene: Sudah, Master." in out
     assert "Suara gagal" not in out
     assert speech[0].texts == ["Sudah, Master."]
+
+
+def test_chat_answers_a_tag_only_reply_with_what_she_calls_the_owner(
+    home, brains, monkeypatch, capsys
+):
+    write_config(home, "assistant:\n  owner_call: Sayang\n")
+    monkeypatch.setattr(HouseBrain, "reply", "[senang]")
+    monkeypatch.setattr(sys, "stdin", io.StringIO("nyalakan lampu kamar\n"))
+
+    assert cli.main(["chat", "--dry-run"]) == 0
+
+    assert "Cyrene: Sudah, Sayang." in capsys.readouterr().out
 
 
 def test_chat_speak_shows_the_avatar_mouthing_each_reply_with_its_emotion(
@@ -1854,6 +1870,14 @@ def test_run_announce_uses_the_configured_name(announcing, home):
     assert "say Aiko siap, Master." in announcing.events
 
 
+def test_run_announce_calls_the_owner_what_she_calls_them(announcing, home):
+    write_config(home, "assistant:\n  owner_call: Sayang\n")
+
+    assert cli.main(["run", "--dry-run", "--announce"]) == 0
+
+    assert "say Cyrene siap, Sayang." in announcing.events
+
+
 class HearingStt(PreloadingStt):
     """Transcribes every utterance as the same text."""
 
@@ -2136,6 +2160,20 @@ def test_run_answers_pats_pokes_and_double_clicks_on_the_avatar_through_the_assi
         ("speak", "Kaget aku", "surprised"),
         ("listen",),
         ("speak", "Iya Master", "happy"),
+    ]
+
+
+def test_run_reactions_call_the_owner_what_she_calls_them(run_fakes, avatar, home, monkeypatch):
+    enable_avatar(home, extra=SAYANG_TOUCH_LINES)
+    monkeypatch.setattr(
+        RecordingAssistant, "run", touched_while_listening(avatar, "double_click", reactions=2)
+    )
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    assert RecordingAssistant.instances[0].reactions == [
+        ("listen",),
+        ("speak", "Iya, Sayang", "happy"),
     ]
 
 
@@ -2460,6 +2498,17 @@ def test_avatar_double_click_explains_that_listening_needs_waifu_run(
     lines = capsys.readouterr().out.splitlines()
     hint = next(index for index, line in enumerate(lines) if "'waifu run'" in line)
     assert lines.index("Cyrene: Iya Master") > hint
+
+
+def test_avatar_prints_her_answer_with_what_she_calls_the_owner(home, avatar, monkeypatch, capsys):
+    enable_avatar(home, extra=SAYANG_TOUCH_LINES)
+    monkeypatch.setattr(
+        cli, "sleep", TouchingSleep(avatar, "double_click", until=("speak", "happy"))
+    )
+
+    assert cli.main(["avatar"]) == 0
+
+    assert "Cyrene: Iya, Sayang" in capsys.readouterr().out.splitlines()
 
 
 # --- autostart -------------------------------------------------------------------------------
@@ -3489,6 +3538,53 @@ def test_check_marks_a_missing_model3_json_and_skips_its_files(
     assert lines[2].startswith("✓ Cubism Core Live2D")
 
 
+# Reaction lines copied from the example before owner_call existed: "Master" written in them.
+OLD_EXAMPLE_LINES = (
+    "  interactions:\n"
+    "    lines:\n"
+    '      head_pat: ["えへへ, geli, Master!", "Mm, enak dielus begini."]\n'
+    '      body_touch: ["Jangan iseng, ya!"]\n'
+    '      welcome_back: ["Master sudah kembali! Aku kangen."]\n'
+    '      listen: ["Iya, aku dengar."]\n'
+)
+CALLED_SAYANG = "assistant:\n  owner_call: Sayang\n"
+OLD_LINES_WARNING = "Kalimat reaksi avatar masih menyebut"
+
+
+def test_check_warns_about_reaction_lines_that_still_say_master_to_an_owner_called_otherwise(
+    home, nothing_installed, avatar_install, capsys
+):
+    enable_avatar(home, extra=OLD_EXAMPLE_LINES + CALLED_SAYANG)
+
+    cli.main(["check"])
+
+    assert (
+        '! Kalimat reaksi avatar masih menyebut "Master", padahal assistant.owner_call: Sayang '
+        '(avatar.interactions.lines: head_pat, welcome_back); ganti dengan "{owner}" atau '
+        "hapus jenisnya untuk memakai bawaannya"
+    ) in capsys.readouterr().out.splitlines()
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        OLD_EXAMPLE_LINES,
+        CALLED_SAYANG,
+        OLD_EXAMPLE_LINES.replace("  interactions:\n", "  interactions:\n    enabled: false\n")
+        + CALLED_SAYANG,
+    ],
+    ids=["called_master", "owner_placeholder", "reactions_off"],
+)
+def test_check_is_quiet_about_reaction_lines_she_says_with_the_right_word_or_never_says(
+    home, nothing_installed, avatar_install, capsys, extra
+):
+    enable_avatar(home, extra=extra)
+
+    cli.main(["check"])
+
+    assert OLD_LINES_WARNING not in capsys.readouterr().out
+
+
 # Taken at import, before the autouse no_real_avatar fixture swaps it out for every test.
 REAL_PORT_IS_FREE = cli.port_is_free
 
@@ -3807,9 +3903,9 @@ def test_gacha_history_without_anything_saved_fails(home, games, capsys):
 class FakeWatcher:
     instances: list["FakeWatcher"] = []
 
-    def __init__(self, hoyolab, config, *, notifier, announce, title) -> None:
+    def __init__(self, hoyolab, config, *, notifier, announce, title, owner_call) -> None:
         self.hoyolab, self.config, self.notifier = hoyolab, config, notifier
-        self.announce, self.title = announce, title
+        self.announce, self.title, self.owner_call = announce, title, owner_call
         self.ran_when_started: bool | None = None
         self.ran_when_stopped: bool | None = None
         FakeWatcher.instances.append(self)
@@ -3848,10 +3944,31 @@ def test_run_with_the_games_on_gives_the_brain_the_game_tools_and_watches_while_
     assistant = RecordingAssistant.instances[0]
     assert watcher.hoyolab is games.hoyolab
     assert watcher.title == "Cyrene"
+    assert watcher.owner_call == "Master"
     assert watcher.notifier is None  # notify is off in the example config
     assert (watcher.ran_when_started, watcher.ran_when_stopped) == (False, True)
     watcher.announce("Master, resin penuh.", "surprised")
     assert assistant.announced == [("Master, resin penuh.", "surprised")]
+
+
+def call_the_owner(home: Path, word: str) -> None:
+    """The example config with `assistant.owner_call` set to `word`."""
+    config = home / "config.yaml"
+    text = config.read_text(encoding="utf-8")
+    called = text.replace("  owner_call: Master\n", f"  owner_call: {word}\n", 1)
+    assert called != text
+    config.write_text(called, encoding="utf-8")
+
+
+def test_run_watches_the_games_for_an_owner_she_calls_sayang(
+    home, run_fakes, brains, games, watchers
+):
+    enable_gacha(home)
+    call_the_owner(home, "Sayang")
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    assert watchers[0].owner_call == "Sayang"
 
 
 def test_run_without_a_cookie_has_the_game_tools_but_no_watcher(
@@ -4385,6 +4502,27 @@ def test_run_keeps_her_schedule_where_and_as_the_config_says(home, run_fakes, br
         ("Master, ada pengingat yang terlewat jam 07.00: Master, bangun!", "sad")
     ]
     assert store.entries() == []
+
+
+def test_run_gives_her_tools_and_schedule_what_she_calls_the_owner(
+    home, run_fakes, brains, schedulers
+):
+    write_config(home, "assistant:\n  owner_call: Sayang\nschedule:\n  late_grace_minutes: 5\n")
+
+    assert cli.main(["run", "--no-speaker-check"]) == 0
+
+    [memory_tools] = [tools for tools in brains[0].providers if isinstance(tools, MemoryTools)]
+    [remember] = [spec for spec in memory_tools.specs() if spec.name == "remember"]
+    assert "('Sayang alergi udang.')" in remember.description
+    tools = schedule_tools(brains[0])
+    [schedule] = [spec for spec in tools.specs() if spec.name == "schedule"]
+    assert "('Sayang, sudah jam tiga, waktunya minum obat!')" in schedule.description
+    at = tomorrow_at(7)
+    assert schedule_at(tools, at, reminder="Bangun!")[1] is False
+    schedulers[0].tick_at(at + timedelta(minutes=6))  # later than the 5 minutes of grace
+    assert RecordingAssistant.instances[0].announced == [
+        ("Sayang, ada pengingat yang terlewat jam 07.00: Bangun!", "sad")
+    ]
 
 
 def test_run_checks_her_schedule_in_a_thread_only_while_she_listens(run_fakes, monkeypatch):
@@ -4975,6 +5113,19 @@ def test_her_name_and_wake_words_never_ask_her_to_look(home, brains, capture, mo
     screen.begin_turn("Monitor, lihat layarku.")
     assert screen.run("look_at_screen", {})[1] is False
     assert capture.sizes == [1280]
+
+
+def test_what_she_calls_the_owner_never_asks_her_to_look(home, brains, capture, monkeypatch):
+    # A made-up call that is a look word: it is left out of Master's words like her names.
+    write_config(home, "assistant:\n  owner_call: Monitor\nbrain:\n  backend: claude\n")
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main(["chat", "--dry-run"]) == 0
+
+    screen = screen_tools(brains[0])
+    screen.begin_turn("Monitor, aku pulang.")
+    assert screen.run("look_at_screen", {})[1] is True
+    assert capture.sizes == []
 
 
 def test_verbose_logging_never_writes_out_a_screenshot_or_the_conversation(

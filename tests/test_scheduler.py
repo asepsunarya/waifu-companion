@@ -187,6 +187,32 @@ def test_missed_one_shot_reminders_are_told_together_in_one_announcement(tmp_pat
     assert len(house.notifier.sent) == 2
 
 
+@pytest.mark.parametrize(
+    ("missed", "expected"),
+    [
+        ([MEDICINE], f"Sayang, ada pengingat yang terlewat jam 15.00: {MEDICINE.text}"),
+        (
+            [MEDICINE, LAUNDRY],
+            f"Sayang, ada 2 pengingat yang terlewat. Jam 15.00: {MEDICINE.text} "
+            f"Jam 15.10: {LAUNDRY.text}",
+        ),
+    ],
+    ids=["one", "two"],
+)
+# Written in lowercase, the word still opens her sentence with a capital.
+@pytest.mark.parametrize("owner_call", ["Sayang", "sayang"])
+def test_missed_reminders_are_told_with_what_she_calls_the_owner(
+    tmp_path, missed, expected, owner_call
+):
+    house = House(tmp_path, owner_call=owner_call)
+    for minutes, reminder in zip([0, 10], missed, strict=False):
+        house.add(reminder, at=TODAY_15 + timedelta(minutes=minutes))
+
+    house.tick_at(datetime(2026, 10, 13, 16, 0))
+
+    assert house.announced == [(expected, "sad")]
+
+
 def test_a_missed_repeating_reminder_is_pushed_but_not_told(tmp_path):
     house = House(tmp_path)
     house.add(MEDICINE, repeat="daily")
@@ -239,6 +265,17 @@ def test_a_failed_device_action_is_spoken_sadly_and_pushed(tmp_path, action, exp
     assert emotion == "sad"
     assert house.notifier.sent == [("Cyrene", spoken, ("alarm_clock",))]
     assert house.store.entries() == []
+
+
+@pytest.mark.parametrize("owner_call", ["Sayang", "sayang"])
+def test_a_failure_is_told_and_pushed_with_what_she_calls_the_owner(tmp_path, owner_call):
+    house = House(tmp_path, owner_call=owner_call)
+    house.add(DeviceAction("tv", "off"))
+
+    house.tick_at(TODAY_15)
+
+    expected = "Sayang, jadwal tv off jam 15.00 gagal: TV tidak menjawab."
+    assert house.told == ([(expected, "sad")], [("Cyrene", expected, ("alarm_clock",))])
 
 
 def test_the_pc_is_refused_at_run_time_and_never_executed(tmp_path, caplog):

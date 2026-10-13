@@ -40,20 +40,21 @@ from waifu.voice.tts import TtsError
 
 logger = logging.getLogger(__name__)
 
-ACKNOWLEDGEMENT = "はい、Master?"
+# What she says herself; `{owner}` is filled with what she calls the owner (owner_call).
+ACKNOWLEDGEMENT = "はい、{owner}?"
 ACKNOWLEDGEMENT_EMOTION = "happy"
 # A reply that was only an emotion tag (say "[senang]" after a tool call) still gets spoken
 # words, picked like the brains pick theirs for an empty reply.
-TAG_ONLY_DONE = "Sudah, Master."
-TAG_ONLY_FAILED = "Maaf Master, ada perintah yang gagal dijalankan."
-TAG_ONLY_NO_ANSWER = "Maaf Master, aku belum bisa menjawab itu."
+TAG_ONLY_DONE = "Sudah, {owner}."
+TAG_ONLY_FAILED = "Maaf {owner}, ada perintah yang gagal dijalankan."
+TAG_ONLY_NO_ANSWER = "Maaf {owner}, aku belum bisa menjawab itu."
 
 
-def split_reply(reply: BrainReply) -> tuple[str, BrainReply]:
+def split_reply(reply: BrainReply, *, owner_call: str = "Master") -> tuple[str, BrainReply]:
     """The reply's emotion and the reply without its tags, never left without words."""
     emotion, text = split_emotion(reply.text)
     if not text:
-        text = _tag_only_fallback(reply.tool_calls)
+        text = _tag_only_fallback(reply.tool_calls).format(owner=owner_call)
     return emotion, dataclasses.replace(reply, text=text)
 
 
@@ -151,6 +152,7 @@ class Assistant:
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self._name = config.assistant.name
+        self._owner_call = config.assistant.owner_call
         self._followup_s = config.assistant.followup_seconds
         self._brain = brain
         self._stt = stt
@@ -232,7 +234,8 @@ class Assistant:
                 reply_text = reply.text
             else:
                 # A bare wake word ("Cyrene?") gets a quick answer without a round trip to the LLM.
-                emotion, reply_text = ACKNOWLEDGEMENT_EMOTION, ACKNOWLEDGEMENT
+                emotion = ACKNOWLEDGEMENT_EMOTION
+                reply_text = ACKNOWLEDGEMENT.format(owner=self._owner_call)
             self.speak(reply_text, emotion)
             return reply_text
 
@@ -446,7 +449,7 @@ class Assistant:
             outcome = "error" if call.is_error else "ok"
             logger.info("Tool %s(%s) -> %s", call.name, call.arguments, outcome)
             logger.debug("Tool %s result: %s", call.name, call.result)
-        return split_reply(reply)
+        return split_reply(reply, owner_call=self._owner_call)
 
     @contextlib.contextmanager
     def _engaged(self) -> Iterator[None]:
