@@ -1,3 +1,4 @@
+import base64
 import json
 import logging
 import os
@@ -8,19 +9,22 @@ from types import SimpleNamespace
 
 import anthropic
 import httpx2
+import numpy as np
 import pytest
 
 from waifu.brain import claude as claude_module
-from waifu.brain.base import ToolSpec
+from waifu.brain.base import ToolCallRecord, ToolSpec
 from waifu.brain.claude import ClaudeBrain
 from waifu.brain.confirm import ConfirmationGate
 from waifu.brain.memory_tools import MemoryTools
 from waifu.brain.persona import format_user_turn
+from waifu.brain.screen_tools import ScreenTools
 from waifu.config import BrainConfig, ClaudeConfig
 from waifu.devices.base import Device, DeviceResult
 from waifu.devices.mock import MockDevice
 from waifu.devices.registry import DeviceRegistry
 from waifu.memory import MemoryStore, memory_prompt_section
+from waifu.screen import ScreenImage, encode_png
 
 NOW = datetime(2026, 10, 12, 7, 30)
 SYSTEM_PROMPT = "Kamu Cyrene."
@@ -1286,3 +1290,240 @@ def test_a_rolled_back_turn_still_counts_so_a_yes_after_it_comes_too_late():
 
     assert registry.get("komputer").calls == []
     assert [call.is_error for call in reply.tool_calls] == [True]
+
+
+# Looking at the screen
+
+SCREEN_PNG = encode_png(np.full((9, 16, 3), 200, dtype=np.uint8))
+SCREENSHOT = ScreenImage(png=SCREEN_PNG, width=16, height=9)
+LOOKED = '{"ok":true,"width":16,"height":9}'
+SCREENSHOT_BLOCK = {
+    "type": "image",
+    "source": {
+        "type": "base64",
+        "media_type": "image/png",
+        "data": base64.b64encode(SCREEN_PNG).decode("ascii"),
+    },
+}
+
+
+class FakeCapture:
+    """Stands in for capture_screen: counts captures, never touches the real screen."""
+
+    def __init__(self, screenshot: ScreenImage = SCREENSHOT) -> None:
+        self.captures = 0
+        self.screenshot = screenshot
+
+    def __call__(self, max_side: int) -> ScreenImage:
+        self.captures += 1
+        return self.screenshot
+
+
+class TurnListener:
+    """A provider with only the optional begin_turn hook; records what each turn heard."""
+
+    def __init__(self, client: FakeAnthropic) -> None:
+        self.client = client
+        self.heard: list[tuple[str, int]] = []
+
+    def specs(self) -> list[ToolSpec]:
+        return []
+
+    def run(self, name: str, arguments: object) -> tuple[str, bool]:
+        raise AssertionError("it has no tools")
+
+    def begin_turn(self, user_text: str) -> None:
+        self.heard.append((user_text, len(self.client.requests)))
+
+
+def look_at_screen(block_id: str) -> SimpleNamespace:
+    return message([tool_use(block_id, "look_at_screen", {})], "tool_use")
+
+
+def test_providers_hear_each_turn_as_said_before_its_first_request_even_one_rolled_back():
+    client = FakeAnthropic(connection_error(), message([text("Halo!")], "end_turn"))
+    listener = TurnListener(client)
+    brain = make_brain(client, providers=[listener])
+
+    brain.respond("Cyrene, lihat layarku", now=NOW)
+    brain.respond("halo", now=NOW)
+
+    assert listener.heard == [("Cyrene, lihat layarku", 0), ("halo", 1)]
+
+
+def test_the_screenshot_master_asks_for_goes_with_the_tool_result_and_stays_in_the_history():
+    capture = FakeCapture()
+    client = FakeAnthropic(
+        look_at_screen("call_1"),
+        message([text("Timnya seimbang, Master!")], "end_turn"),
+        look_at_screen("call_2"),
+        message([text("Kubilang dari yang tadi saja, ya.")], "end_turn"),
+    )
+    brain = make_brain(client, providers=[ScreenTools(capture=capture, names=["Cyrene"])])
+
+    looked = brain.respond("Cyrene, lihat layarku, menurutmu tim ini gimana?", now=NOW)
+    later = brain.respond("Cyrene, terus siapa yang harus kuganti?", now=NOW)
+
+    assert [tool["name"] for tool in client.requests[0]["tools"]][-1] == "look_at_screen"
+    sent = client.requests[1]["messages"][-1]
+    assert sent == {
+        "role": "user",
+        "content": [
+            {
+                "type": "tool_result",
+                "tool_use_id": "call_1",
+                "content": [{"type": "text", "text": LOOKED}, SCREENSHOT_BLOCK],
+                "is_error": False,
+            }
+        ],
+    }
+    assert looked.text == "Timnya seimbang, Master!"
+    assert looked.tool_calls == [ToolCallRecord("look_at_screen", {}, LOOKED, False)]
+    # The next turn asks without a look word: refused, nothing captured, and the history
+    # still holds the first screenshot exactly as it was sent.
+    assert capture.captures == 1
+    assert client.requests[2]["messages"][2] is sent
+    [refused] = tool_results(client.requests[3]["messages"][-1])
+    assert refused["is_error"] is True
+    assert "Master tidak meminta" in json.loads(refused["content"])["message"]
+    assert later.text == "Kubilang dari yang tadi saja, ya."
+
+
+def test_a_session_holding_16_mb_of_screenshots_ends_before_the_next_turn():
+    # Every request resends the whole session, and the API refuses a request over 32 MB.
+    busy_screen = ScreenImage(png=bytes(3 * 2**20), width=1280, height=720)  # 4 MiB as base64
+    capture = FakeCapture(busy_screen)
+    outcomes = []
+    for look in range(1, 5):
+        outcomes += [look_at_screen(f"call_{look}"), message([text("Kelihatan!")], "end_turn")]
+    client = FakeAnthropic(*outcomes, message([text("Sama-sama!")], "end_turn"))
+    brain = make_brain(client, providers=[ScreenTools(capture=capture)])
+
+    for _ in range(4):
+        brain.respond("Cyrene, lihat layarku", now=NOW)
+    brain.respond("makasih", now=NOW)
+
+    assert capture.captures == 4
+    # The fourth look still went on with the session's 12 MiB of screenshots...
+    assert len(client.requests[6]["messages"]) == 13
+    # ...but with 16 MiB in the history, the next turn starts a new session.
+    assert client.requests[8]["messages"] == [
+        {"role": "user", "content": format_user_turn("makasih", NOW)}
+    ]
+
+
+def test_a_session_full_of_screenshots_waits_for_the_answer_to_its_question():
+    busy_screen = ScreenImage(png=bytes(3 * 2**20), width=1280, height=720)  # 4 MiB as base64
+    registry = pc_house()
+    outcomes = []
+    for look in range(1, 4):
+        outcomes += [look_at_screen(f"call_{look}"), message([text("Kelihatan!")], "end_turn")]
+    look_then_shutdown = [
+        tool_use("call_4", "look_at_screen", {}),
+        tool_use("call_5", "control_device", {"device": "komputer", "command": "shutdown"}),
+    ]
+    client = FakeAnthropic(
+        *outcomes,
+        message(look_then_shutdown, "tool_use"),
+        message([text("Baik, Master.")], "end_turn"),
+        shutdown("call_6"),
+        message([text("Komputer mati dalam 30 detik, Master.")], "end_turn"),
+        message([text("Halo!")], "end_turn"),
+    )
+    capture = FakeCapture(busy_screen)
+    brain = gated_brain(client, registry, providers=[ScreenTools(capture=capture)])
+
+    for _ in range(3):
+        brain.respond("Cyrene, lihat layarku", now=NOW)
+    brain.respond("Cyrene, lihat layarku, terus matikan komputer", now=NOW)
+    brain.respond("iya", now=NOW)
+    brain.respond("halo", now=NOW)
+
+    assert capture.captures == 4
+    # 16 MiB of screenshots, but the yes still went to the session that asked the question...
+    assert registry.get("komputer").calls == [("shutdown", None)]
+    assert len(client.requests[8]["messages"]) == 17
+    # ...and only the turn after it started a new one.
+    assert len(client.requests[10]["messages"]) == 1
+
+
+def test_a_rolled_back_look_leaves_no_screenshot_in_the_session():
+    busy_screen = ScreenImage(png=bytes(3 * 2**20), width=1280, height=720)
+    outcomes = []
+    for look in range(1, 5):
+        outcomes += [look_at_screen(f"call_{look}"), message([text("Kelihatan!")], "end_turn")]
+    outcomes[-1] = connection_error()  # the fourth look is rolled back with its screenshot
+    client = FakeAnthropic(*outcomes, message([text("Sama-sama!")], "end_turn"))
+    brain = make_brain(client, providers=[ScreenTools(capture=FakeCapture(busy_screen))])
+
+    for _ in range(4):
+        brain.respond("Cyrene, lihat layarku", now=NOW)
+    brain.respond("makasih", now=NOW)
+
+    assert len(client.requests[8]["messages"]) == 13  # 12 MiB of screenshots: the session goes on
+
+
+def test_a_tool_result_without_an_image_stays_a_plain_string():
+    client = FakeAnthropic(
+        message(
+            [tool_use("call_1", "control_device", {"device": "lampu_kamar", "command": "on"})],
+            "tool_use",
+        ),
+        message([text("Sudah.")], "end_turn"),
+    )
+    brain = make_brain(client, providers=[ScreenTools(capture=FakeCapture())])
+
+    brain.respond("Cyrene, nyalakan lampu dan lihat layarku", now=NOW)
+
+    [result] = tool_results(client.requests[1]["messages"][-1])
+    assert json.loads(result["content"])["ok"] is True
+
+
+def test_real_sdk_sends_the_screenshot_inside_the_tool_result_on_the_wire():
+    sent: list[dict] = []
+    usage = {"input_tokens": 10, "output_tokens": 5}
+    replies = [
+        {
+            "id": "msg_1",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-opus-5-5",
+            "content": [
+                {"type": "tool_use", "id": "toolu_1", "name": "look_at_screen", "input": {}}
+            ],
+            "stop_reason": "tool_use",
+            "usage": usage,
+        },
+        {
+            "id": "msg_2",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-opus-5-5",
+            "content": [{"type": "text", "text": "Kelihatan, Master!"}],
+            "stop_reason": "end_turn",
+            "usage": usage,
+        },
+    ]
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        sent.append(json.loads(request.content))
+        return httpx2.Response(200, json=replies[len(sent) - 1])
+
+    client = anthropic.Anthropic(
+        api_key="test-key",
+        max_retries=0,
+        http_client=httpx2.Client(transport=httpx2.MockTransport(handler)),
+    )
+    brain = make_brain(client, providers=[ScreenTools(capture=FakeCapture())])
+
+    reply = brain.respond("Cyrene, lihat layarku", now=NOW)
+
+    assert reply.text == "Kelihatan, Master!"
+    assert sent[1]["messages"][2]["content"] == [
+        {
+            "type": "tool_result",
+            "tool_use_id": "toolu_1",
+            "content": [{"type": "text", "text": LOOKED}, SCREENSHOT_BLOCK],
+            "is_error": False,
+        }
+    ]

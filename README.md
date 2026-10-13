@@ -36,6 +36,7 @@ Cyrene : "Komputer mau kumatikan sekarang, Master? Jawab iya kalau jadi." (minta
 - [Ingatan Cyrene](#ingatan-cyrene)
 - [Jadwal, pengingat, dan rutinitas](#jadwal-pengingat-dan-rutinitas)
 - [Musik, volume, dan aplikasi PC](#musik-volume-dan-aplikasi-pc)
+- [Melihat layar](#melihat-layar)
 - [Pemecahan masalah](#pemecahan-masalah)
 - [Checklist uji perangkat keras](#checklist-uji-perangkat-keras)
 - [Privasi](#privasi)
@@ -266,6 +267,9 @@ Pilih dengan `brain.backend` di `config.yaml`.
    `fallbacks: true` mengaktifkan fallback di sisi server: kalau model yang diminta
    menolak menjawab karena alasan kebijakan, server mencoba model pengganti.
 3. `waifu check` menampilkan status kunci API.
+
+Hanya dengan Claude, Cyrene bisa melihat layar saat Master memintanya (lihat
+[Melihat layar](#melihat-layar)).
 
 ## Menyambungkan perangkat
 
@@ -1873,6 +1877,90 @@ routines:
 - **"Windows menolak tombol medianya".** Windows sedang memblokir input, misalnya layar
   terkunci atau jendela izin administrator sedang terbuka.
 
+## Melihat layar
+
+Dengan otak Claude (`brain.backend: claude`), Cyrene bisa melihat layar PC saat Master
+memintanya: dia mengambil **satu** tangkapan layar monitor utama, melihatnya, lalu menjawab
+tentang isinya. Fitur ini sudah menyala dari awal (`vision.enabled: true`), di `waifu run`
+dan `waifu chat`.
+
+```text
+Master : "Cyrene, lihat layarku, menurutmu tim ini gimana?"
+Cyrene : "Timnya seimbang, Master! Tapi healer-nya levelnya masih rendah."
+Master : "Cyrene, ini error apa ya, coba lihat."
+Master : "Liat deh build-ku, Cyrene."
+```
+
+### Hanya kalau diminta
+
+- Dia hanya melihat kalau **kalimat Master di giliran itu juga** memintanya, yaitu memuat
+  salah satu kata ini: `lihat`, `liat`, `lihatin`, `liatin`, `tengok`, `tengokin`, `layar`,
+  `layarku`, `screen`, `screenshot`, `monitor`, atau `見て`. Kode Cyrene sendiri yang
+  memeriksanya, apa pun keinginan otaknya: tanpa kata itu, tangkapan layarnya ditolak.
+  Namanya dan kata panggilannya tidak dihitung, dan permintaan di kalimat sebelumnya tidak
+  berlaku lagi untuk kalimat berikutnya.
+- Kata-kata itu hanya membuka izinnya untuk kalimat itu. Otaknya diberi tahu untuk melihat
+  hanya kalau Master memang memintanya, jadi "aku lagi lihat film" biasanya tidak membuatnya
+  melihat layar, tapi itu keputusan model, bukan kode.
+- `見て` dihitung kalau terpisah dari kata lain ("キュレネ、見て!"); "これ見て" ditulis Whisper
+  tanpa spasi sebagai satu kata, jadi tidak dihitung.
+- Paling banyak satu tangkapan layar untuk setiap kalimat, dan hanya monitor utama (monitor
+  lain tidak pernah). Dia tidak pernah melihat sendiri, tidak merekam, tidak mengawasi
+  terus-menerus, dan tidak mengklik atau mengetik apa pun.
+- Dengan Ollama fitur ini tidak ada: qwen3:8b tidak bisa melihat gambar, jadi tool-nya tidak
+  ditawarkan sama sekali.
+
+### Privasi layar
+
+- **Apa pun yang tampil di monitor utama ikut terkirim** ke API Anthropic sebagai bagian dari
+  percakapan: chat, email, nama akun, notifikasi. Tutup atau kecilkan dulu yang pribadi
+  sebelum memintanya melihat. Dia diminta tidak membacakan detail pribadi (pesan, email,
+  nomor akun) kecuali Master menanyakannya, dan tidak menyimpan apa pun yang dilihatnya di
+  layar ke ingatannya kecuali Master memintanya.
+- Gambarnya tetap ada di riwayat sesi itu dan ikut terkirim lagi bersama giliran berikutnya
+  sampai sesinya berakhir (10 menit tanpa percakapan atau 40 giliran), seperti isi obrolan
+  lainnya. Jadi dia masih bisa menjawab pertanyaan lanjutan tentang gambar yang sama tanpa
+  melihat lagi. Setiap gambar juga menambah biaya API.
+- Karena setiap giliran mengirim ulang semua gambar sesi itu, sesi baru dimulai sendiri
+  begitu gambar di riwayatnya mencapai 16 MB, kira-kira 5 sampai 10 tangkapan layar game
+  yang ramai (layar desktop atau tulisan jauh lebih kecil). Setelah itu dia tidak ingat lagi
+  gambar dan obrolan sebelumnya.
+- Tangkapan layarnya **tidak pernah disimpan ke disk dan tidak ditulis ke log**, juga dengan
+  `-v` dan `--log-file`; log hanya mencatat ukurannya.
+
+### Maskot Cyrene ikut tertangkap
+
+Kalau avatar menyala, maskotnya (di pojok kanan bawah, selalu di atas) ikut masuk ke
+tangkapan layar. Cyrene diberi tahu bahwa sosok anime di pojok itu dirinya sendiri, jadi
+dia tidak menilainya sebagai bagian dari layar Master. Kalau bagian layar di belakang
+maskot penting (misalnya error di pojok kanan bawah), geser dulu maskotnya, pindahkan
+pojoknya dengan `avatar.corner`, atau sembunyikan dengan **×**.
+
+### Game layar penuh
+
+Game dengan mode layar penuh eksklusif (*fullscreen*) bisa tertangkap hitam. Pilih mode
+**borderless** (*windowed fullscreen*) atau *windowed* di pengaturan grafis gamenya. Kalau
+tangkapan layarnya hitam semua, Cyrene sendiri akan menyarankannya.
+
+### Mengatur dan mematikannya
+
+`waifu check` menampilkan `✓ Melihat layar: aktif (Claude)`,
+`! Melihat layar: tidak tersedia dengan Ollama`, atau `! Melihat layar mati`. Untuk
+mematikannya, tulis di `config.yaml` (contohnya ada di `config.example.yaml`):
+
+```yaml
+vision:
+  enabled: false
+  max_side: 1280   # sisi terpanjang tangkapan layar dalam piksel (512-1568)
+```
+
+`max_side` mengecilkan tangkapan layar (perbandingannya tetap, tidak pernah diperbesar)
+sampai sisi terpanjangnya sebesar itu: lebih kecil berarti lebih hemat, tapi tulisan kecil
+lebih sulit dibaca. API Anthropic menerima paling besar 5 MB per gambar; di atas sekitar
+1450, layar game yang sangat ramai bisa melewatinya, dan Cyrene otomatis mengambilnya sekali
+lagi dengan ukuran lebih kecil. Display scaling Windows (125%, 150%) tidak berpengaruh:
+seluruh layar tetap tertangkap. Jalankan ulang `waifu run` setelah mengubahnya.
+
 ## Pemecahan masalah
 
 Log `waifu run` tampil di terminal dalam bahasa Inggris. Baris seperti
@@ -2108,15 +2196,32 @@ untuk `ac` harus sudah dipelajari.)
 - [ ] "Cyrene, pause musiknya jam 11 malam": dia tidak menjadwalkan `play_pause`, tapi
       `stop` (cek dengan `waifu schedule list`, lalu batalkan).
 
+**Melihat layar** (otak Claude; buka dulu sesuatu yang tidak pribadi di monitor utama, misalnya
+halaman tim di game atau sebuah error)
+
+- [ ] `waifu check` menampilkan `✓ Melihat layar: aktif (Claude)`.
+- [ ] "Cyrene, lihat layarku, ini apa?": dia menjawab tentang yang tampil di monitor utama,
+      dan log menampilkan `Captured the main monitor at ...` sekali saja.
+- [ ] "Cyrene, menurutmu gimana?" (tanpa kata lihat/layar): tidak ada `Captured ...` baru di
+      log.
+- [ ] Game dalam mode borderless tertangkap dengan benar (bukan hitam).
+- [ ] Dengan scaling 125% atau 150% (Settings > Display > Scale) dan sesuatu yang tidak
+      pribadi di pojok kanan bawah: dia bisa menyebut isi pojok itu dan taskbar, jadi seluruh
+      layar tertangkap, bukan hanya bagian kiri atasnya. Kembalikan scaling-nya setelah itu.
+- [ ] Dengan `-v`, setelah "Cyrene, lihat layarku", log tidak memuat `Request options`.
+- [ ] Dengan `vision.enabled: false`, `waifu check` menampilkan `! Melihat layar mati` dan
+      "Cyrene, lihat layarku" tidak mengambil tangkapan layar.
+
 ## Privasi
 
 - **Suara tidak pernah keluar dari PC.** Rekaman mic, verifikasi suara, dan
   speech-to-text diproses lokal.
-- **Yang dikirim ke internet hanya teks:**
+- **Yang dikirim ke internet hanya teks**, kecuali tangkapan layar yang Master minta:
   - dengan `brain.backend: claude`, kalimat yang ditujukan ke Cyrene (sudah dalam
     bentuk teks), persona, daftar perangkat, hasil perintah perangkat, dan catatan
-    ingatannya (di awal setiap sesi) dikirim ke API Anthropic. Dengan Ollama, semuanya
-    lokal;
+    ingatannya (di awal setiap sesi) dikirim ke API Anthropic, juga tangkapan layar
+    monitor utama setiap kali Master memintanya melihat layar (tidak pernah disimpan ke
+    disk; lihat [Privasi layar](#privasi-layar)). Dengan Ollama, semuanya lokal;
   - dengan engine `edge` di `tts`, teks jawaban Cyrene dikirim ke layanan edge-tts
     Microsoft untuk dijadikan suara. GPT-SoVITS, suara anime (RVC), dan avatar (VRM
     atau Live2D, termasuk elusan dan colekannya) berjalan lokal (halaman avatar hanya

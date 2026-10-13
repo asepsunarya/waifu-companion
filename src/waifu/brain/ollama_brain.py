@@ -83,6 +83,11 @@ class OllamaBrain(Brain):
         if gate is not None:
             # Every turn counts, even one rolled back later: only the very next one can say yes.
             gate.begin_turn(user_text)
+        for provider in self._providers:
+            # An optional hook for tools that need Master's own words. The screen tool, which
+            # also hands over images, is never given to this brain: the local model cannot see.
+            if hasattr(provider, "begin_turn"):
+                provider.begin_turn(user_text)
         # A new session would hide the question this turn may answer, so it waits one turn.
         if self._session.should_reset() and not (gate is not None and gate.awaiting_answer()):
             logger.info("Session idle or at its turn cap; starting a new one")

@@ -26,6 +26,17 @@ class ToolCallRecord:
 
 
 @dataclass(frozen=True)
+class ToolImage:
+    """An image a tool hands the model with its result, such as a screenshot.
+
+    The bytes stay out of its repr, so an image never fills a log.
+    """
+
+    media_type: str
+    data: bytes = field(repr=False)
+
+
+@dataclass(frozen=True)
 class BrainReply:
     text: str
     tool_calls: list[ToolCallRecord] = field(default_factory=list)

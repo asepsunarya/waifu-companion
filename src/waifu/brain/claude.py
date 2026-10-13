@@ -17,10 +17,18 @@ A call held for Master's yes (`confirmations`) is answered like any failed tool
 call, so the gate never touches the system prompt, the tools, or earlier turns.
 The gate's question is added to the spoken reply only, never to the history; a
 rolled-back turn drops its request instead, since Master never hears its question.
+
+Providers may have two optional hooks: `begin_turn(user_text)` hears Master's
+words at the start of every turn, and `take_images()` hands over images (the
+screenshot Master asked for) that go back in that call's tool_result, after its
+JSON. The history keeps that tool_result exactly as it was sent. Every request
+resends the session's images, so a session holding 16 MB of them ends before the
+next turn, like an idle one.
 """
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import os
@@ -32,12 +40,14 @@ from typing import Any
 import anthropic
 from anthropic.types.beta import (
     BetaContentBlock,
+    BetaImageBlockParam,
     BetaMessage,
+    BetaTextBlockParam,
     BetaToolResultBlockParam,
     BetaToolUseBlock,
 )
 
-from waifu.brain.base import Brain, BrainReply, ToolCallRecord
+from waifu.brain.base import Brain, BrainReply, ToolCallRecord, ToolImage
 from waifu.brain.confirm import ConfirmationGate
 from waifu.brain.memory_tools import changed_memory
 from waifu.brain.persona import format_user_turn
@@ -62,6 +72,11 @@ _SESSION_DEFAULTS = AssistantConfig()
 # 10-minute default; a timeout becomes the "cannot connect" apology.
 _REQUEST_TIMEOUT = anthropic.Timeout(60.0, connect=5.0)
 _MAX_RETRIES = 1
+# Every request resends the session's screenshots, and the API refuses a request over 32 MB.
+# A session holding this much base64 image data ends before the next turn, so with the look
+# that crossed it and one more in a turn held for Master's yes (5 MB each at most), every
+# request stays well under 32 MB.
+_SESSION_IMAGE_BYTES = 16 * 2**20
 
 _DONE = "Sudah, Master."
 _TOOLS_FAILED = "Maaf Master, ada perintah yang gagal dijalankan."
@@ -116,9 +131,14 @@ class ClaudeBrain(Brain):
         if gate is not None:
             # Every turn counts, even one rolled back later: only the very next one can say yes.
             gate.begin_turn(user_text)
+        for provider in self._providers:
+            # An optional hook for tools that need Master's own words (the screen tool).
+            if hasattr(provider, "begin_turn"):
+                provider.begin_turn(user_text)
+        ending = self._session_ending()
         # A new session would hide the question this turn may answer, so it waits one turn.
-        if self._session.should_reset() and not (gate is not None and gate.awaiting_answer()):
-            logger.info("Claude session idle too long or at its turn cap; starting a new one")
+        if ending is not None and not (gate is not None and gate.awaiting_answer()):
+            logger.info("Claude session %s; starting a new one", ending)
             self.reset()
         if not self._history:
             # A new session (or a rolled-back first turn): its system prompt is fixed from here.
@@ -166,6 +186,15 @@ class ClaudeBrain(Brain):
         self._history = []
         self._session.reset()
 
+    def _session_ending(self) -> str | None:
+        """Why the session should end before this turn, or None when it goes on."""
+        if self._session.should_reset():
+            return "idle too long or at its turn cap"
+        image_bytes = _image_bytes(self._history)
+        if image_bytes >= _SESSION_IMAGE_BYTES:
+            return f"holds {image_bytes // 2**20} MB of screenshots"
+        return None
+
     def _run_turn(self, tool_calls: list[ToolCallRecord]) -> str | None:
         """Call Claude until it stops asking for tools. Returns the reply, or None on a refusal."""
         client = self._client_or_create()
@@ -212,7 +241,16 @@ class ClaudeBrain(Brain):
         logger.info("Tool %s %s -> %s", call.name, call.input, "error" if is_error else "ok")
         arguments = dict(call.input) if isinstance(call.input, Mapping) else {}
         tool_calls.append(ToolCallRecord(call.name, arguments, result, is_error))
-        return _tool_result(call.id, result, is_error)
+        return _tool_result(call.id, result, is_error, self._take_images())
+
+    def _take_images(self) -> list[ToolImage]:
+        """What the providers have to show for the call that just ran (a screenshot)."""
+        return [
+            image
+            for provider in self._providers
+            if hasattr(provider, "take_images")
+            for image in provider.take_images()
+        ]
 
     def _answer_without_running(self, calls: list[BetaToolUseBlock], reason: str) -> None:
         """Close unrun tool calls with error results so no tool_use is left unanswered."""
@@ -292,12 +330,39 @@ def _echoable(content: Sequence[BetaContentBlock]) -> list[BetaContentBlock]:
     ]
 
 
-def _tool_result(tool_use_id: str, content: str, is_error: bool) -> BetaToolResultBlockParam:
+def _tool_result(
+    tool_use_id: str, result: str, is_error: bool, images: Sequence[ToolImage] = ()
+) -> BetaToolResultBlockParam:
+    """The JSON result as plain text, or as a text block followed by one block per image."""
+    content: str | list[BetaTextBlockParam | BetaImageBlockParam] = result
+    if images:
+        content = [{"type": "text", "text": result}, *map(_image_block, images)]
     return {
         "type": "tool_result",
         "tool_use_id": tool_use_id,
         "content": content,
         "is_error": is_error,
+    }
+
+
+def _image_bytes(history: Sequence[Mapping[str, Any]]) -> int:
+    """The size of the base64 data of every image in the history's tool results."""
+    return sum(
+        len(block["source"]["data"])
+        for message in history
+        if message["role"] == "user" and isinstance(message["content"], list)
+        for result in message["content"]
+        if isinstance(result["content"], list)
+        for block in result["content"]
+        if block["type"] == "image"
+    )
+
+
+def _image_block(image: ToolImage) -> BetaImageBlockParam:
+    data = base64.b64encode(image.data).decode("ascii")
+    return {
+        "type": "image",
+        "source": {"type": "base64", "media_type": image.media_type, "data": data},
     }
 
 

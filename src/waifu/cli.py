@@ -50,6 +50,7 @@ from waifu.brain.factory import build_brain
 from waifu.brain.memory_tools import MemoryTools
 from waifu.brain.persona import WEEKDAYS_ID
 from waifu.brain.schedule_tools import ScheduleTools
+from waifu.brain.screen_tools import ScreenTools
 from waifu.brain.tools import ToolProvider
 from waifu.config import (
     APP_URL_SCHEMES,
@@ -90,6 +91,7 @@ from waifu.schedule import (
     ScheduleStore,
 )
 from waifu.scheduler import Scheduler
+from waifu.screen import capture_screen
 from waifu.single_instance import InstanceLock
 from waifu.voice.audio import MicStream, Player, list_devices
 from waifu.voice.rvc import (
@@ -537,6 +539,9 @@ def _configure_logging(verbose: bool) -> None:
     # tinytuya logs the device local_key at DEBUG (e.g. after a wrong key or version),
     # and -v output gets pasted when asking for help, so it stays at INFO even then.
     logging.getLogger("tinytuya").setLevel(logging.INFO)
+    # The Anthropic SDK logs every request in full at DEBUG ("Request options"): the whole
+    # conversation, and every screenshot of the session as base64. INFO, even with -v.
+    logging.getLogger("anthropic").setLevel(logging.INFO)
     if not verbose:
         # httpx logs every Ollama request at INFO, which would bury the conversation.
         logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -752,7 +757,7 @@ def _companion_brain(
     schedule: ScheduleStore | None,
 ) -> Brain:
     """The brain with the game tools when they are on, her long-term memory when it is on,
-    and then her schedule when it is on.
+    then her schedule when it is on, and with Claude her eyes on the screen when vision is on.
 
     With memory, every new session lists the notes as they are in the file at that moment.
     """
@@ -762,6 +767,16 @@ def _companion_brain(
         providers.append(MemoryTools(notes))
     if schedule is not None:
         providers.append(ScheduleTools(schedule, registry=registry, routines=config.routines))
+    if config.vision.enabled and config.brain.backend == "claude":
+        # Ollama's local model cannot see images, so it is never offered the screen. Her name
+        # and wake words are left out of Master's words, as for the confirmation gate.
+        providers.append(
+            ScreenTools(
+                capture=capture_screen,
+                max_side=config.vision.max_side,
+                names=[config.assistant.name, *config.assistant.wake_words],
+            )
+        )
     if notes is None:
         return build_brain(config, registry, providers=providers)
     return build_brain(
@@ -1664,6 +1679,7 @@ def _checks(config_path: Path) -> Iterator[Check]:
     yield from _routine_checks(config)
     yield _voiceprint_check(config)
     yield _brain_check(config)
+    yield _vision_check(config)
     yield _memory_check(config)
     yield _schedule_check(config)
     yield from _voice_package_checks(config)
@@ -1810,6 +1826,15 @@ def _pulled_models(tags: object) -> set[str]:
         for model in models or []
         if isinstance(model, dict)
     }
+
+
+def _vision_check(config: AppConfig) -> Check:
+    """Whether she can look at the screen: only with Claude, and only when vision is on."""
+    if not config.vision.enabled:
+        return WARN, "Melihat layar mati"
+    if config.brain.backend != "claude":
+        return WARN, "Melihat layar: tidak tersedia dengan Ollama"
+    return OK, "Melihat layar: aktif (Claude)"
 
 
 def _memory_check(config: AppConfig) -> Check:

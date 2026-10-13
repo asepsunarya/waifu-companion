@@ -206,6 +206,19 @@ schedule:
 #       - {device: lampu_kamar, command: off}
 #       - {device: ac, command: temp, value: 26}
 
+# Melihat layar (README, bagian "Melihat layar"): dengan otak Claude, Cyrene mengambil satu
+# tangkapan layar monitor utama hanya kalau kalimat Master sendiri memintanya ("Cyrene, lihat
+# layarku"), lalu menjawab tentang isinya. Gambarnya ikut dikirim ke API Anthropic bersama
+# percakapan dan tidak pernah disimpan ke disk atau ditulis ke log (juga dengan -v). Dengan
+# Ollama fitur ini tidak tersedia. API menerima paling besar 5 MB per gambar, dan max_side
+# tidak menjaminnya: di atas sekitar 1450, layar game yang sangat ramai otomatis diambil
+# sekali lagi dengan ukuran lebih kecil.
+# Sudah menyala tanpa ditulis; untuk mematikannya, tulis bagian ini tanpa tanda # di depannya
+# lalu ganti enabled menjadi false.
+# vision:
+#   enabled: true
+#   max_side: 1280   # sisi terpanjang tangkapan layar dalam piksel (512-1568); tidak pernah diperbesar
+
 ir_codes_path: data/ir_codes.json
 
 devices:

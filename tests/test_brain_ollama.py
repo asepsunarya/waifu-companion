@@ -984,3 +984,34 @@ def test_a_rolled_back_turn_still_counts_so_a_yes_after_it_comes_too_late():
 
     assert registry.get("komputer").calls == []
     assert [record.is_error for record in result.tool_calls] == [True]
+
+
+# Provider hooks
+
+
+class TurnListener:
+    """A provider with only the optional begin_turn hook; records what each turn heard."""
+
+    def __init__(self, client: FakeOllama) -> None:
+        self.client = client
+        self.heard: list[tuple[str, int]] = []
+
+    def specs(self) -> list[ToolSpec]:
+        return []
+
+    def run(self, name: str, arguments: object) -> tuple[str, bool]:
+        raise AssertionError("it has no tools")
+
+    def begin_turn(self, user_text: str) -> None:
+        self.heard.append((user_text, len(self.client.requests)))
+
+
+def test_providers_hear_each_turn_as_said_before_its_first_request_even_one_rolled_back():
+    client = FakeOllama(ConnectionError("refused"), reply("Halo!"))
+    listener = TurnListener(client)
+    brain = brain_with(client, providers=[listener])
+
+    brain.respond("Cyrene, lihat layarku", now=NOW)
+    brain.respond("halo", now=NOW)
+
+    assert listener.heard == [("Cyrene, lihat layarku", 0), ("halo", 1)]

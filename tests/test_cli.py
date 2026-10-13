@@ -1,3 +1,4 @@
+import base64
 import io
 import json
 import logging
@@ -18,6 +19,8 @@ from datetime import datetime, timedelta, timezone
 from importlib.machinery import ModuleSpec
 from pathlib import Path, PureWindowsPath
 
+import anthropic
+import httpx2
 import numpy as np
 import pytest
 from tinytuya.core.error_helper import ERR_PAYLOAD, error_json
@@ -31,9 +34,11 @@ from waifu.avatar.emotion import EMOTIONS
 from waifu.avatar.lipsync import VISEMES, viseme_track
 from waifu.avatar.server import AvatarError
 from waifu.avatar.window import AvatarWindow
+from waifu.brain import claude as claude_module
 from waifu.brain.base import Brain, BrainReply, ToolCallRecord
 from waifu.brain.memory_tools import MemoryTools
 from waifu.brain.schedule_tools import ScheduleTools
+from waifu.brain.screen_tools import ScreenTools
 from waifu.config import AvatarConfig, RvcConfig
 from waifu.devices.base import DeviceError
 from waifu.devices.ir_codes import IrCodeStore
@@ -54,6 +59,7 @@ from waifu.gacha.tools import GachaTools
 from waifu.memory import MemoryStore, memory_prompt_section
 from waifu.schedule import DeviceAction, Reminder, RoutineAction, ScheduleStore
 from waifu.scheduler import Scheduler
+from waifu.screen import ScreenImage
 from waifu.single_instance import InstanceLock
 from waifu.voice.base import SpeakerEmbedder, SpeechToText, Transcript
 from waifu.voice.rvc import RvcError
@@ -143,7 +149,7 @@ def only_under(tmp_path: Path, store_class: type) -> Callable[..., object]:
 @pytest.fixture(autouse=True)
 def restore_library_log_levels():
     """main() tunes third-party loggers process-wide; give later tests the levels back."""
-    loggers = [logging.getLogger(name) for name in ("tinytuya", "httpx")]
+    loggers = [logging.getLogger(name) for name in ("tinytuya", "httpx", "anthropic")]
     levels = [logger.level for logger in loggers]
     yield
     for logger, level in zip(loggers, levels, strict=True):
@@ -4713,3 +4719,203 @@ def test_check_marks_the_example_shortcuts_missing_until_they_point_at_this_pc(
         line.startswith("✗ ") and "file tidak ditemukan" in line for line in shortcuts
     )
     assert any(line.startswith("✓ ") and "steam://rungameid/" in line for line in lines)
+
+
+# --- looking at the screen -------------------------------------------------------------------
+
+
+class FakeCapture:
+    """Stands in for capture_screen: records each requested size, never touches the screen."""
+
+    png = b"\x89PNG synthetic"
+
+    def __init__(self) -> None:
+        self.sizes: list[int] = []
+
+    def __call__(self, max_side: int) -> ScreenImage:
+        self.sizes.append(max_side)
+        return ScreenImage(png=self.png, width=16, height=9)
+
+
+@pytest.fixture
+def capture(monkeypatch) -> FakeCapture:
+    fake = FakeCapture()
+    monkeypatch.setattr(cli, "capture_screen", fake)
+    return fake
+
+
+def use_claude(home: Path) -> None:
+    config = home / "config.yaml"
+    text = config.read_text(encoding="utf-8")
+    claude = text.replace("  backend: ollama", "  backend: claude", 1)
+    assert claude != text
+    config.write_text(claude, encoding="utf-8")
+
+
+def write_out_example_vision(home: Path, *, enabled: bool = True) -> None:
+    """The example config with its commented `vision` block written out."""
+    config = home / "config.yaml"
+    text = config.read_text(encoding="utf-8")
+    commented = text[text.index("# vision:\n") :].split("\n\n", 1)[0]
+    written_out = "\n".join(line.removeprefix("# ") for line in commented.splitlines())
+    if not enabled:
+        written_out = written_out.replace("enabled: true", "enabled: false")
+    config.write_text(text.replace(commented, written_out), encoding="utf-8")
+
+
+def screen_tools(brain: HouseBrain) -> ScreenTools:
+    [tools] = [provider for provider in brain.providers if isinstance(provider, ScreenTools)]
+    return tools
+
+
+def vision_line(out: str) -> str:
+    [line] = [line for line in out.splitlines() if "Melihat layar" in line]
+    return line
+
+
+@pytest.mark.parametrize("argv", [["run", "--no-speaker-check"], ["chat"]])
+def test_with_claude_she_may_look_at_the_screen_at_the_configured_size(
+    argv, home, run_fakes, brains, capture, monkeypatch
+):
+    use_claude(home)
+    with (home / "config.yaml").open("a", encoding="utf-8") as config:
+        config.write("\nvision:\n  max_side: 1024\n")
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main([*argv, "--dry-run"]) == 0
+
+    assert [type(tools) for tools in brains[0].providers] == [
+        MemoryTools,
+        ScheduleTools,
+        ScreenTools,
+    ]
+    screen = screen_tools(brains[0])
+    screen.begin_turn("Cyrene, lihat layarku")
+    assert screen.run("look_at_screen", {}) == ('{"ok":true,"width":16,"height":9}', False)
+    assert capture.sizes == [1024]
+
+
+def test_her_name_and_wake_words_never_ask_her_to_look(home, brains, capture, monkeypatch):
+    write_config(
+        home,
+        "assistant:\n  name: Monitor\n  wake_words: [monitor, hai screen]\n"
+        "brain:\n  backend: claude\n",
+    )
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main(["chat", "--dry-run"]) == 0
+
+    screen = screen_tools(brains[0])
+    for words in ["Monitor, nyalakan lampu kamar.", "Hai screen, aku pulang."]:
+        screen.begin_turn(words)
+        assert screen.run("look_at_screen", {})[1] is True
+    screen.begin_turn("Monitor, lihat layarku.")
+    assert screen.run("look_at_screen", {})[1] is False
+    assert capture.sizes == [1280]
+
+
+def test_verbose_logging_never_writes_out_a_screenshot_or_the_conversation(
+    home, capture, monkeypatch, caplog
+):
+    # The real Claude brain and Anthropic SDK, with a mock transport instead of the network.
+    use_claude(home)
+    (home / "config").mkdir()
+    shutil.copy(ROOT / "config" / "persona.md", home / "config" / "persona.md")
+    sent: list[dict] = []
+    usage = {"input_tokens": 10, "output_tokens": 5}
+    replies = [
+        [{"type": "tool_use", "id": "toolu_1", "name": "look_at_screen", "input": {}}],
+        [{"type": "text", "text": "Kelihatan, Master!"}],
+        [{"type": "text", "text": "Sama-sama, Master!"}],
+    ]
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        sent.append(json.loads(request.content))
+        content = replies[len(sent) - 1]
+        stop_reason = "tool_use" if content[0]["type"] == "tool_use" else "end_turn"
+        message = {
+            "id": f"msg_{len(sent)}",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-opus-5-5",
+            "content": content,
+            "stop_reason": stop_reason,
+            "usage": usage,
+        }
+        return httpx2.Response(200, json=message)
+
+    real_anthropic = anthropic.Anthropic
+
+    def build(**kwargs: object) -> anthropic.Anthropic:
+        transport = httpx2.MockTransport(handler)
+        return real_anthropic(
+            api_key="test-key", http_client=httpx2.Client(transport=transport), **kwargs
+        )
+
+    monkeypatch.setattr(claude_module.anthropic, "Anthropic", build)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("Cyrene, lihat layarku\nmakasih\nkeluar\n"))
+    caplog.set_level(logging.DEBUG)
+
+    assert cli.main(["-v", "chat", "--dry-run"]) == 0
+
+    screenshot = base64.b64encode(capture.png).decode("ascii")
+    # Sent with the look and again with the next turn, which carries the whole session...
+    assert [screenshot in json.dumps(body) for body in sent] == [False, True, True]
+    # ...but -v output gets pasted when asking for help, and --log-file keeps it on disk.
+    assert screenshot not in caplog.text
+    assert "makasih" not in caplog.text
+
+
+def test_the_example_vision_block_is_valid_once_written_out(home, brains, capture, monkeypatch):
+    use_claude(home)
+    write_out_example_vision(home)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main(["chat", "--dry-run"]) == 0
+
+    screen = screen_tools(brains[0])
+    screen.begin_turn("Cyrene, lihat layarku")
+    screen.run("look_at_screen", {})
+    assert capture.sizes == [1280]
+
+
+@pytest.mark.parametrize(
+    ("claude", "vision"),
+    [(False, True), (True, False), (False, False)],
+    ids=["ollama", "claude_with_vision_off", "ollama_with_vision_off"],
+)
+def test_without_claude_or_with_vision_off_the_brain_gets_no_screen_tool(
+    claude, vision, home, brains, capture, monkeypatch
+):
+    if claude:
+        use_claude(home)
+    write_out_example_vision(home, enabled=vision)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main(["chat", "--dry-run"]) == 0
+
+    assert [type(tools) for tools in brains[0].providers] == [MemoryTools, ScheduleTools]
+    assert capture.sizes == []
+
+
+@pytest.mark.parametrize(
+    ("claude", "vision", "expected"),
+    [
+        (True, True, "✓ Melihat layar: aktif (Claude)"),
+        (False, True, "! Melihat layar: tidak tersedia dengan Ollama"),
+        (True, False, "! Melihat layar mati"),
+        (False, False, "! Melihat layar mati"),
+    ],
+    ids=["claude", "ollama", "claude_with_vision_off", "ollama_with_vision_off"],
+)
+def test_check_reports_whether_she_can_look_at_the_screen(
+    claude, vision, expected, home, nothing_installed, capture, capsys
+):
+    if claude:
+        use_claude(home)
+    write_out_example_vision(home, enabled=vision)
+
+    cli.main(["check"])
+
+    assert vision_line(capsys.readouterr().out) == expected
+    assert capture.sizes == []
