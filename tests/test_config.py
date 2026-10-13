@@ -572,3 +572,39 @@ def test_she_calls_the_owner_master_unless_told_otherwise(tmp_path):
 def test_the_owner_call_is_a_short_plain_word(tmp_path, word):
     with pytest.raises(ConfigError, match="owner_call"):
         load_config(write_yaml(tmp_path, f"assistant:\n  owner_call: {word}\n"))
+
+
+def test_usage_is_recorded_by_default_without_a_budget():
+    usage = AppConfig().usage
+    assert usage.enabled is True
+    assert usage.path == Path("data/usage.json")
+    assert (usage.monthly_budget_usd, usage.idr_per_usd) == (None, None)
+    assert usage.prices == {}
+    assert usage.default_model == "claude-opus-5-5"
+
+
+def test_usage_budget_rate_and_prices_are_read(tmp_path):
+    text = (
+        "usage:\n  monthly_budget_usd: 10\n  idr_per_usd: 16300\n  prices:\n"
+        "    claude-sonnet-5-5: {input: 2, output: 10, cache_write: 2.5, cache_read: 0.2}\n"
+    )
+    usage = load_config(write_yaml(tmp_path, text)).usage
+    assert (usage.monthly_budget_usd, usage.idr_per_usd) == (10, 16300)
+    sonnet = usage.prices["claude-sonnet-5-5"]
+    assert (sonnet.input, sonnet.output, sonnet.cache_write, sonnet.cache_read) == (2, 10, 2.5, 0.2)
+
+
+@pytest.mark.parametrize(
+    "lines",
+    [
+        "  monthly_budget_usd: 0\n",
+        "  idr_per_usd: -1\n",
+        "  prices:\n    m: {input: 1, output: 1, cache_write: 1}\n",
+        "  prices:\n    m: {input: -1, output: 1, cache_write: 1, cache_read: 1}\n",
+        "  default_model: ''\n",
+        "  currency: idr\n",
+    ],
+)
+def test_bad_usage_settings_are_refused(tmp_path, lines):
+    with pytest.raises(ConfigError, match="usage"):
+        load_config(write_yaml(tmp_path, "usage:\n" + lines))

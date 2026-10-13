@@ -530,6 +530,28 @@ class BriefingConfig(_Strict):
         return self
 
 
+class ModelPrices(_Strict):
+    """US dollars per million tokens of one Claude model."""
+
+    input: float = Field(ge=0)
+    output: float = Field(ge=0)
+    cache_write: float = Field(ge=0)
+    cache_read: float = Field(ge=0)
+
+
+class UsageConfig(_Strict):
+    """The local record of what Claude costs: tokens per day and an estimated price."""
+
+    enabled: bool = True
+    path: Path = Path("data/usage.json")
+    monthly_budget_usd: float | None = Field(default=None, gt=0)
+    idr_per_usd: float | None = Field(default=None, gt=0)
+    # Merged over the built-in table in usage.py (model id -> prices).
+    prices: dict[str, ModelPrices] = Field(default_factory=dict)
+    # Whose prices a response from a model missing from the table is estimated with.
+    default_model: str = Field(default="claude-opus-5-5", min_length=1)
+
+
 class VisionConfig(_Strict):
     """Looking at the screen when Master asks (Claude backend only)."""
 
@@ -622,6 +644,7 @@ class AppConfig(_Strict):
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
     vision: VisionConfig = Field(default_factory=VisionConfig)
     briefing: BriefingConfig = Field(default_factory=BriefingConfig)
+    usage: UsageConfig = Field(default_factory=UsageConfig)
     schedule: ScheduleConfig = Field(default_factory=ScheduleConfig)
     routines: dict[str, RoutineConfig] = Field(default_factory=dict)
     devices: list[DeviceConfig] = Field(default_factory=list)
