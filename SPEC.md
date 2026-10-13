@@ -377,6 +377,35 @@ CLI:
 
 Safety: tests never touch the repository's `data/schedule.json`, never run real devices (mock registry), never sleep for real (injected clock, `tick_once`), and never call an LLM.
 
+### PC media and apps (v1.8)
+
+User stories (the owner plays games and listens to music on this PC):
+
+1. "Cyrene, pause musiknya." / "lagu berikutnya" / "kecilkan volume" / "volume 30" / "mute" → the Windows media and volume keys, whatever player is open (Spotify, YouTube in the browser, a game).
+2. "Cyrene, buka Genshin." / "buka Spotify" → starts an app or game the owner listed in config.yaml: a program, a shortcut, or a launcher URL such as `steam://rungameid/...`.
+3. Both are ordinary devices, so they work in schedules and routines too: "mode tidur" can stop the music and turn the volume down; "jam 7 pagi buka Spotify" works.
+4. Nothing outside the owner's list is ever started, and nothing is ever closed or killed.
+
+Non-goals: closing apps or killing processes, typing or clicking inside apps, per-app volume, choosing a song or playlist, anything that plays a game (macros break HoYoverse's terms), reading the current volume.
+
+Both are devices, so `control_device`, `list_devices`, schedules, routines, `waifu device`, `waifu devices`, and dry runs (mock copies keep the kind and commands) need no new tools.
+
+Config (committed with its tests before the parallel tasks): `DeviceConfig.type` gains `media` and `apps`. `DeviceConfig.apps: dict[str, str] | None` maps an app slug (`^[a-z0-9_]+$`) to its target; it is required for `type: apps` (1-30 apps) and refused for every other type. A target is either a URL whose scheme is `steam` or `com.epicgames.launcher`, or an absolute Windows path ending in `.exe`, `.lnk`, or `.url` (case-insensitive); anything else (`.bat`, `.cmd`, `.ps1`, `.vbs`, a relative path, another scheme) is a config error. Whether the file exists is checked by `waifu check` and at run time, not at load, so a moved game never stops Cyrene from starting. `commands` is ignored by both types (their commands are fixed or come from `apps`).
+
+`devices/media.py` — `MediaKeys(device_id, name, aliases, *, press=press_keys)`, kind `media`:
+- `press_keys(keys: Sequence[int]) -> None`: the real sender, `user32.SendInput` with one key-down and one key-up `INPUT` (type `INPUT_KEYBOARD`, `KEYBDINPUT.wVk`, `KEYEVENTF_KEYUP` for the release) per virtual key, through `ctypes.WinDLL("user32", use_last_error=True)` with full `argtypes`/`restype`; a short send (fewer events than given) raises `OSError` with `ctypes.get_last_error()`.
+- Commands and keys: `play_pause` (VK_MEDIA_PLAY_PAUSE 0xB3), `next` (0xB0), `previous` (0xB1), `stop` (0xB2), `mute` (VK_VOLUME_MUTE 0xAD, a toggle), `volume_up` (0xAF) and `volume_down` (0xAE): `value` steps of 2 % each, 1-50, default 5 without a value; `volume` with `value` 0-100: 50 × volume down, then `value // 2` × volume up (Windows has no key for a level; no new dependency). A value outside its range is a `DeviceError`; `volume` without a value too. State: `{"last": <command>}`. Messages are Indonesian ("Volume diatur ke sekitar 30%.").
+- `brain/tools.describe_commands` value ranges: `("media", "volume"): (0, 100)`, `("media", "volume_up"): (1, 50)`, `("media", "volume_down"): (1, 50)`.
+
+`devices/apps.py` — `AppLauncher(device_id, name, aliases, apps: Mapping[str, str], *, start=os.startfile, exists=os.path.exists)`, kind `apps`:
+- Commands `open_<slug>` for each app, in config order. `execute` starts the target with `start(target)` (Windows' own "open": it follows shortcuts and launcher URLs and never waits for the program). A path target whose file is missing, or a failed start (`OSError`), is a `DeviceError` with an Indonesian message naming the app; URL targets are not checked for existence. State: `{"last_opened": <slug>}`. Message: `"<slug> dibuka."` (or a friendlier Indonesian line).
+
+Registry: `build_registry` builds `MediaKeys` for `media` and `AppLauncher` for `apps`.
+
+CLI and docs: `waifu check` reports each app (✓ file found / ✗ file missing / URL, not checked); README (Indonesian) section "Musik, volume, dan aplikasi PC" with voice examples, the config (`media` device; `apps` with Start Menu shortcut paths, how to find a game's shortcut or Steam URL), that routines should use `stop` (not `play_pause`, which may start playback), and that nothing is ever closed. `config.example.yaml` gets commented `media` and `apps` devices.
+
+Safety: tests never press real keys or start real programs. `tests/conftest.py` is strengthened (never weakened): `os.startfile` refused, and `SendInput` and `keybd_event` refused on any `user32` loaded through `ctypes.WinDLL` or `ctypes.windll`; `tests/test_safety_guard.py` covers both. The real senders are module-level defaults injected into the devices, so tests pass fakes.
+
 ## Code Style
 
 See `CLAUDE.md` → Code Conventions and Patterns. Dataclasses for value

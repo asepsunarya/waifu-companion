@@ -185,6 +185,21 @@ model. The PC itself (shutdown, restart, sleep) is never scheduled.
 - [x] Python suite and ruff clean; no test touched `data/`, ran a real device, slept for real, or called an LLM (2026-10-13: 2350 pytest)
 - [ ] On the owner's PC: a reminder in a few minutes is spoken and pushed; a repeating one moves to the next day; a routine runs by voice
 
+### Phase 13: PC media and apps (v1.8, see SPEC → PC media and apps)
+Decision: two new device types instead of new tools, so voice, schedules, routines, and dry
+runs work with them unchanged. Media and volume go through the keyboard's own media keys
+(`SendInput`, no new dependency); apps start only from the owner's list in config.yaml, and
+nothing is ever closed. The test guards are strengthened first so no test can press a real
+key or open a real program.
+- [ ] Task 57a: `media` and `apps` device config; conftest refuses `os.startfile` and real key presses
+- [ ] Task 57: `devices/media.py`: `MediaKeys`
+- [ ] Task 58: `devices/apps.py`: `AppLauncher`
+- [ ] Task 59: registry, value ranges, `check`, README, example config
+
+### Checkpoint: PC media and apps
+- [ ] Python suite and ruff clean; no test pressed a key or started a program
+- [ ] On the owner's PC: "pause musiknya", "volume 30", and "buka Spotify" work by voice; a routine with `media stop` runs
+
 ## Risks and Mitigations
 
 | Risk | Impact | Mitigation |
