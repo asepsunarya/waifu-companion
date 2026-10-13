@@ -486,3 +486,15 @@ def test_unknown_tool_names_the_provider_tools_too():
     result, is_error = run_tool(house(), "open_garage", {}, [GameTools()])
     assert is_error
     assert "game_status" in json.loads(result)["message"]
+
+
+def test_device_line_warns_that_the_plug_powers_the_pc_but_leaves_the_pc_s_own_line_alone():
+    plug = MockDevice("colokan_pc", "Colokan PC", commands=["on", "off", "toggle"], kind="plug")
+    pc = MockDevice("komputer", "Komputer", commands=["wake", "shutdown"], kind="pc")
+    registry = DeviceRegistry([pc, plug], pc_power_ids={"colokan_pc"})
+
+    assert device_lines(registry) == [
+        "- komputer: Komputer — perintah: wake, shutdown",
+        "- colokan_pc: Colokan PC — perintah: on, off, toggle — mengalirkan listrik ke PC: "
+        "mematikan atau membaliknya (toggle) sama dengan mematikan PC, jadi minta konfirmasi dulu",
+    ]

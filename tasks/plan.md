@@ -179,6 +179,7 @@ model. The PC itself (shutdown, restart, sleep) is never scheduled.
 - [x] Task 53: `scheduler.py`: the firing thread
 - [x] Task 54: `brain/schedule_tools.py`: `schedule`, `list_schedules`, `cancel_schedule`, `run_routine`
 - [x] Task 55: CLI wiring (`run`, `chat`, `waifu schedule`, `waifu routine`, `check`), README, example config
+- [x] Task 56: Guard the plug that powers the PC (`powers_pc`) like the PC; tell missed one-shot reminders
 
 ### Checkpoint: Schedules, reminders, and routines
 - [x] Python suite and ruff clean; no test touched `data/`, ran a real device, slept for real, or called an LLM (2026-10-13: 2350 pytest)

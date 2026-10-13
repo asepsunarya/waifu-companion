@@ -9,6 +9,7 @@ config.yaml without opening any connection; vendor links open on first use.
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 from typing import Any
 
 from waifu.config import AppConfig, DeviceConfig, IrConnection
@@ -27,12 +28,18 @@ BlasterKey = tuple[str, str]
 
 
 class DeviceRegistry:
-    def __init__(self, devices: list[Device]) -> None:
+    def __init__(self, devices: list[Device], *, pc_power_ids: Iterable[str] = ()) -> None:
         self._devices: dict[str, Device] = {}
         for device in devices:
             if device.id in self._devices:
                 raise ValueError(f"duplicate device id '{device.id}'")
             self._devices[device.id] = device
+        self._pc_power_ids = frozenset(pc_power_ids)
+
+    def powers_pc(self, device_id: str) -> bool:
+        """Whether running `device_id` can turn the PC off: the PC itself or a plug feeding it."""
+        device = self._devices.get(device_id)
+        return device is not None and (device.kind == "pc" or device_id in self._pc_power_ids)
 
     def get(self, device_id: str) -> Device | None:
         return self._devices.get(device_id)
@@ -92,7 +99,8 @@ def build_registry(config: AppConfig, *, dry_run: bool = False) -> DeviceRegistr
     if dry_run:
         devices = [_simulated(device) for device in devices]
     logger.info("Built %d device(s)%s", len(devices), " as dry-run mocks" if dry_run else "")
-    return DeviceRegistry(devices)
+    pc_power_ids = [device.id for device in config.devices if device.powers_pc]
+    return DeviceRegistry(devices, pc_power_ids=pc_power_ids)
 
 
 def _build_device(

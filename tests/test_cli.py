@@ -4213,7 +4213,9 @@ def test_run_keeps_her_schedule_where_and_as_the_config_says(home, run_fakes, br
     store = ScheduleStore(home / "jadwal" / "jadwal.json")
     assert [entry.action for entry in store.entries()] == [Reminder("Master, bangun!")]
     schedulers[0].tick_at(at + timedelta(minutes=6))  # later than the 5 minutes of grace
-    assert RecordingAssistant.instances[0].announced == []
+    assert RecordingAssistant.instances[0].announced == [
+        ("Master, ada pengingat yang terlewat jam 07.00: Master, bangun!", "sad")
+    ]
     assert store.entries() == []
 
 

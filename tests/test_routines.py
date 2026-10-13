@@ -139,3 +139,25 @@ def test_routine_problems_names_every_bad_step_in_order():
         "Langkah 5 (tv explode): TV tidak punya perintah 'explode'.",
     ]
     assert all(device.calls == [] for device in devices.values())
+
+
+def test_the_plug_that_powers_the_pc_is_refused_and_never_switched():
+    plug = MockDevice("colokan_pc", "Colokan PC", commands=["on", "off"], kind="plug")
+    lamp = MockDevice("lampu_kamar", "Lampu kamar", kind="light")
+    registry = DeviceRegistry([plug, lamp], pc_power_ids={"colokan_pc"})
+    bedtime = routine(("colokan_pc", "off"), ("lampu_kamar", "off"))
+
+    results = run_routine(registry, bedtime)
+
+    assert plug.calls == []
+    assert [result.ok for result in results] == [False, True]
+    assert results[0].message == (
+        "Colokan PC mengalirkan listrik ke PC, jadi tidak pernah dijalankan "
+        "dari rutinitas: mematikannya sama dengan mencabut kabel PC."
+    )
+    [problem] = routine_problems(registry, bedtime)
+    assert problem == (
+        "Langkah 1 (colokan_pc off): Colokan PC mengalirkan listrik ke PC, jadi "
+        "tidak pernah dijalankan dari rutinitas: mematikannya sama dengan "
+        "mencabut kabel PC."
+    )

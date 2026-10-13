@@ -6,8 +6,9 @@ only a failure is spoken and pushed. Each occurrence is then marked fired, which
 one-shot entry and moves a repeating one on. An occurrence missed by more than the grace
 (the PC or Cyrene was off) is marked without running: a one-shot entry is removed, and a
 repeating one moves to its first occurrence still within the grace, so after days away
-today's still fires. Only a missed reminder is pushed, since saying it now would be too
-late. The PC itself never runs from a schedule.
+today's still fires. A missed reminder is pushed; a missed one-shot reminder is also told,
+all of a tick's together in one announcement, so it is never lost when the phone gets no
+push (a repeating one comes again anyway). The PC itself never runs from a schedule.
 
 It runs in a daemon thread. A failing entry is logged and the other entries go on; an
 occurrence that ran but could not be marked is marked again at the next tick, never run
@@ -25,12 +26,27 @@ from types import TracebackType
 from waifu.config import RoutineConfig
 from waifu.devices.registry import DeviceRegistry
 from waifu.notify import Notifier
-from waifu.routines import PC_KIND, run_routine
+from waifu.routines import pc_power_refusal, run_routine
 from waifu.schedule import DeviceAction, Entry, Reminder, ScheduleStore, due
 
 logger = logging.getLogger(__name__)
 
 SCHEDULE_TAG = "alarm_clock"  # ntfy shows it as an alarm clock emoji
+# Indexed by month - 1; spelled out so the OS locale never leaks in.
+MONTHS_ID = (
+    "Januari",
+    "Februari",
+    "Maret",
+    "April",
+    "Mei",
+    "Juni",
+    "Juli",
+    "Agustus",
+    "September",
+    "Oktober",
+    "November",
+    "Desember",
+)
 STOP_TIMEOUT_S = 5.0
 
 
@@ -79,9 +95,12 @@ class Scheduler:
             _minute(started - timedelta(seconds=self._tick_seconds)),
         )
         handled: set[tuple[str, datetime]] = set()
+        missed: list[tuple[datetime, str]] = []
         while (entry := self._next_due(earliest, handled)) is not None:
             handled.add((entry.id, entry.at))
-            self._settle(entry, earliest)
+            self._settle(entry, earliest, missed)
+        if missed:
+            self._say(_missed_text(missed, started), "sad")
 
     def start(self) -> None:
         if self._thread is not None:
@@ -126,25 +145,26 @@ class Scheduler:
             (entry for entry in [*skip, *fire] if (entry.id, entry.at) not in handled), None
         )
 
-    def _settle(self, entry: Entry, earliest: datetime) -> None:
+    def _settle(self, entry: Entry, earliest: datetime, missed: list[tuple[datetime, str]]) -> None:
         """Fire one occurrence, or skip it when it is older than `earliest`, once; then mark it.
 
         Failures are logged, never raised. A failed occurrence is marked too: retrying it
         every tick would repeat it until the grace ran out. A skipped repeating entry moves
-        to its first time not older than `earliest`, which fires next when it is due.
+        to its first time not older than `earliest`, which fires next when it is due. A
+        skipped one-shot reminder is added to `missed` (its time and text) for the tick to tell.
         """
-        missed = entry.at < earliest
+        late = entry.at < earliest
         occurrence = (entry.id, entry.at)
         if occurrence not in self._unmarked:
             try:
-                if missed:
-                    self._skip(entry)
+                if late:
+                    self._skip(entry, missed)
                 else:
                     self._fire(entry)
             except Exception:
                 logger.exception("Schedule entry %s failed", entry.id)
         try:
-            if missed:
+            if late:
                 self._store.skipped(entry.id, entry.at, earliest)
             else:
                 self._store.fired(entry.id, entry.at)
@@ -178,8 +198,8 @@ class Scheduler:
         self._say(text, "sad")
         self._push(text)
 
-    def _skip(self, entry: Entry) -> None:
-        """Push a missed reminder without saying it (it is too late); nothing else runs.
+    def _skip(self, entry: Entry, missed: list[tuple[datetime, str]]) -> None:
+        """Push a missed reminder, and keep a one-shot one in `missed` to tell; nothing runs.
 
         The push names the day too when the missed one was not today's, so it never reads as
         if today's had been missed.
@@ -195,14 +215,19 @@ class Scheduler:
             when = f"{entry.at:%H.%M}"
             if entry.at.date() != self._now().date():
                 when = f"{entry.at:%d-%m-%Y} {when}"
+            # Kept to tell before the push, which may raise when the phone is unreachable.
+            if entry.repeat == "none":
+                missed.append((entry.at, entry.action.text))
             self._push(f"Terlewat ({when}): {entry.action.text}")
 
     def _device_problem(self, action: DeviceAction) -> str | None:
-        """Why the device command failed, or None when it ran; the PC is never run."""
-        device = self._registry.get(action.device)
-        if device is not None and device.kind == PC_KIND:
-            logger.warning("Refused a scheduled command on the PC '%s'", action.device)
-            return f"{device.name} adalah PC, dan PC tidak pernah dijalankan dari jadwal."
+        """Why the device command failed, or None when it ran; nothing powering the PC runs."""
+        refusal = pc_power_refusal(self._registry, action.device, "jadwal")
+        if refusal is not None:
+            logger.warning(
+                "Refused a scheduled command on '%s', which powers the PC", action.device
+            )
+            return refusal
         result = self._registry.execute(action.device, action.command, action.value)
         return None if result.ok else result.message
 
@@ -231,6 +256,27 @@ class Scheduler:
 
 def _minute(moment: datetime) -> datetime:
     return moment.replace(second=0, microsecond=0)
+
+
+def _missed_text(missed: list[tuple[datetime, str]], now: datetime) -> str:
+    """One announcement for every one-shot reminder a tick found missed, oldest first."""
+
+    def when(at: datetime) -> str:
+        if at.date() == now.date():
+            return f"jam {at:%H.%M}"
+        day = f"tanggal {at.day}"
+        if (at.year, at.month) != (now.year, now.month):
+            day += f" {MONTHS_ID[at.month - 1]}"
+        if at.year != now.year:
+            day += f" {at.year}"
+        return f"{day} jam {at:%H.%M}"
+
+    texts = [(when(at), text) for at, text in missed]
+    if len(texts) == 1:
+        [(moment, text)] = texts
+        return f"Master, ada pengingat yang terlewat {moment}: {text}"
+    told = " ".join(f"{moment[0].upper()}{moment[1:]}: {text}" for moment, text in texts)
+    return f"Master, ada {len(texts)} pengingat yang terlewat. {told}"
 
 
 def _command_words(device: str, command: str, value: int | None) -> str:

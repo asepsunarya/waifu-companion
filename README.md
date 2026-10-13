@@ -465,9 +465,11 @@ Pilih salah satu:
 > Jangan pernah mematikan colokan selagi Windows masih menyala; itu sama dengan
 > mencabut kabel. Contoh config berisi `colokan_pc` supaya terlihat di
 > `waifu devices`; kalau khawatir salah perintah suara, hapus blok itu dari
-> `config.yaml` dan kendalikan colokan hanya dari aplikasi. Bagi Cyrene colokan ini
-> colokan biasa, bukan PC: jangan pernah menjadwalkannya mati atau menjadikannya langkah
-> rutinitas (lihat [Cara jadwal dijalankan](#cara-jadwal-dijalankan)).
+> `config.yaml` dan kendalikan colokan hanya dari aplikasi. `powers_pc: true` pada
+> `colokan_pc` membuat Cyrene menjaganya seperti PC: dia minta konfirmasi dulu sebelum
+> mematikannya, dan colokan itu tidak pernah bisa dijadwalkan atau jadi langkah rutinitas
+> (lihat [Cara jadwal dijalankan](#cara-jadwal-dijalankan)). Tandai juga colokan lain yang
+> mengalirkan listrik ke PC dengan `powers_pc: true`.
 
 **B. Wake-on-LAN.**
 
@@ -1495,10 +1497,12 @@ batalkan lalu ulangi.
   masih dijalankan. Yang lebih telat dilewati: jadwal sekali dihapus, dan jadwal berulang
   pindah ke jam berikutnya yang belum lewat dari batas itu. Jadi kalau PC mati sepanjang
   akhir pekan, jadwal "tiap hari jam 7" tetap jalan Senin pagi saat PC dinyalakan 07.10.
-- Pengingat yang terlewat hanya dikirim ke HP sebagai `Terlewat (07.00): ...` (dengan
-  tanggalnya kalau bukan hari ini, misalnya `Terlewat (10-10-2026 07.00): ...`), tidak
-  diucapkan. **Tanpa notifikasi HP** (`notify.enabled: false`, bawaan) **pengingat yang
-  terlewat hilang tanpa pemberitahuan**; jejaknya hanya baris WARNING di log.
+- Pengingat sekali yang terlewat diucapkan begitu Cyrene jalan lagi, semuanya dalam satu
+  kalimat ("Master, ada pengingat yang terlewat jam 07.00: ..."), dan dikirim ke HP sebagai
+  `Terlewat (07.00): ...` (dengan tanggalnya kalau bukan hari ini, misalnya
+  `Terlewat (10-10-2026 07.00): ...`). Pengingat berulang yang terlewat hanya dikirim ke HP,
+  karena jamnya akan datang lagi: **tanpa notifikasi HP** (`notify.enabled: false`, bawaan)
+  yang berulang tidak diucapkan maupun dikirim, dan jejaknya hanya baris WARNING di log.
 - Jadwal dicek setiap 15 detik, jadi bisa jalan sampai sekitar 15 detik setelah menitnya.
   Jam pada menit yang sedang berjalan masih diterima ("satu menit lagi" yang sampai sedikit
   terlambat) dan langsung jalan pada pengecekan berikutnya. Jadwal yang jatuh tempo selagi
@@ -1507,11 +1511,10 @@ batalkan lalu ulangi.
 - **PC tidak pernah dijadwalkan.** Mematikan, me-restart, atau menidurkan PC tetap hanya
   lewat perintah suara langsung dengan konfirmasi. Jadwal atau rutinitas yang menyebut PC
   (`type: pc`) ditolak, juga saat akan dijalankan.
-- **Colokan yang menyalakan PC tidak terlindungi.** Bagi kode, colokan pintar yang
-  mengalirkan listrik ke PC (contohnya `colokan_pc`) hanyalah colokan biasa. Cyrene diminta
-  tidak pernah menjadwalkannya mati, tapi tidak ada yang mencegahnya di kode. Jangan pernah
-  menjadwalkan colokan itu atau menjadikannya langkah rutinitas: jadwal hanya jalan selagi
-  Windows menyala, jadi mematikannya sama dengan mencabut kabel PC.
+- **Colokan yang menyalakan PC dijaga seperti PC**, asal ditandai `powers_pc: true` di
+  `config.yaml` (contoh `colokan_pc` sudah begitu): jadwal dan rutinitas yang memakainya
+  ditolak, juga saat akan dijalankan, karena mematikannya selagi Windows menyala sama
+  dengan mencabut kabel PC. Colokan yang belum ditandai dianggap colokan biasa.
 - `waifu chat` menjalankan jadwal hanya kalau tidak ada `waifu run` yang sedang berjalan:
   pengingat dicetak sebagai `Cyrene: ...`, tanpa suara dan tanpa notifikasi HP. Kalau
   `waifu run` sedang berjalan, yang menjalankan jadwal adalah Cyrene di `waifu run`, dan
@@ -1550,9 +1553,9 @@ routines:
   dia bilang langkah mana yang gagal.
 - Perangkat yang tidak ada di `devices`, atau PC (`type: pc`), membuat `config.yaml` ditolak
   saat start.
-- Jangan jadikan colokan yang mengalirkan listrik ke PC (misalnya `colokan_pc`) sebagai
-  langkah: kode tidak tahu colokan itu menyalakan PC, jadi `config.yaml` tidak menolaknya,
-  padahal mematikannya selagi Windows menyala sama dengan mencabut kabel.
+- Colokan yang ditandai `powers_pc: true` (misalnya `colokan_pc`) juga membuat
+  `config.yaml` ditolak kalau dijadikan langkah: mematikannya selagi Windows menyala sama
+  dengan mencabut kabel.
 - Setelah mengubah `config.yaml`, jalankan ulang `waifu run`. Cek dengan `waifu check`
   (`✓ Rutinitas tidur: ...`, atau `✗` dengan langkah yang tidak bisa jalan, misalnya kode IR
   yang belum dipelajari), lalu coba dengan `waifu routine run tidur --dry-run`.
@@ -1814,8 +1817,9 @@ untuk `ac` harus sudah dipelajari.)
 - [ ] "Cyrene, matikan semua perangkat jam 2 pagi": `waifu schedule list` tidak berisi
       `colokan_pc` (lalu batalkan jadwal yang dibuat).
 - [ ] Jadwalkan pengingat, tutup Cyrene sampai jamnya lewat lebih dari
-      `late_grace_minutes`, lalu jalankan lagi: dia tidak mengucapkannya, dan HP menerima
-      `Terlewat (...)`.
+      `late_grace_minutes`, lalu jalankan lagi: dia bilang ada pengingat yang terlewat, dan
+      HP menerima `Terlewat (...)`.
+- [ ] "Cyrene, matikan colokan PC": dia minta konfirmasi dulu (jawab "tidak").
 - [ ] Dengan `waifu run` berjalan, buka `waifu chat`: chat bilang jadwal dijalankan oleh
       Cyrene yang sedang berjalan, dan pengingat yang dibuat di chat diucapkan oleh
       `waifu run`.

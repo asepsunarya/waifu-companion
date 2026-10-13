@@ -23,7 +23,7 @@ from waifu.config import RoutineConfig, RoutineStep
 from waifu.devices.base import Device, DeviceResult
 from waifu.devices.ir_device import resolve_command
 from waifu.devices.registry import DeviceRegistry
-from waifu.routines import PC_KIND, describe_routine, run_routine
+from waifu.routines import describe_routine, run_routine
 from waifu.schedule import (
     MAX_REMINDER_CHARS,
     REPEATS,
@@ -214,9 +214,11 @@ class ScheduleTools:
                 f"Perangkat '{device_id}' tidak dikenal. "
                 f"Perangkat yang bisa dijadwalkan: {_join_or_none(self._schedulable_ids())}."
             )
-        if device.kind == PC_KIND:
-            logger.warning("Refused to schedule '%s' on the PC '%s'", command, device_id)
-            raise ScheduleError(_pc_refused(device))
+        if self._registry.powers_pc(device_id):
+            logger.warning(
+                "Refused to schedule '%s' on '%s', which powers the PC", command, device_id
+            )
+            raise ScheduleError(_refused(device))
         available = device.commands()
         if resolve_command(command, value, available) is None:
             with_value = f" dengan nilai {value}" if value is not None else ""
@@ -228,7 +230,9 @@ class ScheduleTools:
 
     def _schedulable_ids(self) -> list[str]:
         """Every device but the PC, in config order."""
-        return [device.id for device in self._registry.all() if device.kind != PC_KIND]
+        return [
+            device.id for device in self._registry.all() if not self._registry.powers_pc(device.id)
+        ]
 
     def _list(self, arguments: object) -> tuple[str, bool]:
         _arguments_mapping(arguments, allowed=frozenset())
@@ -329,13 +333,18 @@ def _step_json(step: RoutineStep, result: DeviceResult) -> dict[str, object]:
     return data
 
 
-def _pc_refused(device: Device) -> str:
+def _refused(device: Device) -> str:
     # The model reads this right after the refusal, where it might reach for the PC's plug.
+    if device.kind == "pc":
+        return (
+            f"{device.name} adalah PC, dan PC tidak pernah dijadwalkan: PC hanya dimatikan, "
+            "di-restart, atau ditidurkan lewat perintah suara langsung. Jangan menggantinya "
+            "dengan mematikan colokan yang mengalirkan listrik ke PC: itu sama dengan mencabut "
+            "kabelnya."
+        )
     return (
-        f"{device.name} adalah PC, dan PC tidak pernah dijadwalkan: PC hanya dimatikan, "
-        "di-restart, atau ditidurkan lewat perintah suara langsung. Jangan menggantinya "
-        "dengan mematikan colokan yang mengalirkan listrik ke PC: itu sama dengan mencabut "
-        "kabelnya."
+        f"{device.name} mengalirkan listrik ke PC, jadi tidak pernah dijadwalkan: mematikannya "
+        "sama dengan mencabut kabel PC. PC hanya dimatikan lewat perintah suara langsung."
     )
 
 

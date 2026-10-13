@@ -392,3 +392,33 @@ def test_a_routine_has_at_most_20_steps(tmp_path):
     text = ROUTINE_DEVICES + "routines:\n  tidur:\n    steps:\n" + steps
     with pytest.raises(ConfigError, match="tidur"):
         load_config(write_yaml(tmp_path, text))
+
+
+PC_PLUG = "  - id: colokan_pc\n    name: Colokan PC\n    type: mock\n    powers_pc: true\n"
+
+
+def test_a_plug_can_be_marked_as_powering_the_pc(tmp_path):
+    devices = load_config(write_yaml(tmp_path, ROUTINE_DEVICES + PC_PLUG)).devices
+    assert {device.id: device.powers_pc for device in devices} == {
+        "lampu_kamar": False,
+        "ac": False,
+        "komputer": False,
+        "colokan_pc": True,
+    }
+
+
+def test_only_a_plug_can_be_marked_as_powering_the_pc(tmp_path):
+    text = "devices:\n  - id: komputer\n    name: Komputer\n    type: pc\n    pc: {}\n"
+    with pytest.raises(ConfigError, match="powers_pc"):
+        load_config(write_yaml(tmp_path, text + "    powers_pc: true\n"))
+
+
+def test_a_routine_may_not_use_the_plug_that_powers_the_pc(tmp_path):
+    routines = "routines:\n  tidur:\n    steps: [{device: colokan_pc, command: off}]\n"
+    with pytest.raises(ConfigError, match="colokan_pc"):
+        load_config(write_yaml(tmp_path, ROUTINE_DEVICES + PC_PLUG + routines))
+
+
+def test_the_example_config_marks_its_pc_plug():
+    devices = load_config(ROOT / "config.example.yaml").devices
+    assert next(device for device in devices if device.id == "colokan_pc").powers_pc is True

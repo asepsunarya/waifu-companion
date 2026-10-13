@@ -197,7 +197,7 @@ schedule:
 # Hanya kamu yang menulisnya di sini. Nama rutinitas: huruf kecil, angka, atau garis bawah;
 # 1-20 langkah. Perangkatnya harus ada di `devices` di bawah, dan PC (type: pc) tidak boleh
 # jadi langkah: mematikan, me-restart, atau menidurkan PC hanya lewat perintah suara langsung.
-# Colokan yang menyalakan PC (colokan_pc) juga jangan: config tidak bisa menolaknya.
+# Colokan yang mengalirkan listrik ke PC (powers_pc: true, misalnya colokan_pc) juga ditolak.
 # `waifu check` memeriksa apakah setiap perintahnya ada (untuk IR: sudah dipelajari).
 # routines:
 #   tidur:
@@ -248,12 +248,13 @@ devices:
       mac: null            # isi untuk Wake-on-LAN dari perangkat lain
       shutdown_delay_s: 30
 
-  # Colokan yang mengalirkan listrik ke PC (README, "Colokan pintar + BIOS"). Bagi Cyrene ini
-  # colokan biasa, bukan PC: jangan pernah menjadwalkannya mati atau menjadikannya langkah
-  # rutinitas. Jadwal hanya jalan selagi Windows menyala, jadi mematikannya = mencabut kabel.
+  # Colokan yang mengalirkan listrik ke PC (README, "Colokan pintar + BIOS"). powers_pc: true
+  # membuatnya dijaga seperti PC: tidak pernah dijadwalkan atau jadi langkah rutinitas, dan
+  # Cyrene minta konfirmasi dulu sebelum mematikannya (mematikannya = mencabut kabel PC).
   - id: colokan_pc
     name: Colokan PC
     type: tuya_plug
+    powers_pc: true
     tuya:
       device_id: "isi_dari_tinytuya_wizard"
       local_key: "isi_dari_tinytuya_wizard"

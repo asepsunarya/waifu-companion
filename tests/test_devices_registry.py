@@ -3,11 +3,12 @@ import socket
 
 import pytest
 
+from waifu.config import AppConfig, DeviceConfig
 from waifu.devices.base import Device, DeviceError, DeviceResult
 from waifu.devices.ir_codes import IrCodeStore
 from waifu.devices.ir_device import IrDevice
 from waifu.devices.mock import MockDevice
-from waifu.devices.registry import DeviceRegistry
+from waifu.devices.registry import DeviceRegistry, build_registry
 
 
 class FixedResultDevice(Device):
@@ -177,3 +178,34 @@ def test_failure_while_listing_commands_is_also_contained(tmp_path):
     result = registry.execute("ac", "on")
 
     assert not result.ok
+
+
+def test_powers_pc_covers_the_pc_and_the_plugs_that_power_it():
+    registry = DeviceRegistry(
+        [
+            MockDevice("komputer", "Komputer", kind="pc"),
+            MockDevice("colokan_pc", "Colokan PC", kind="plug"),
+            MockDevice("ac", "AC", kind="ir"),
+        ],
+        pc_power_ids={"colokan_pc"},
+    )
+
+    powered = [registry.powers_pc(i) for i in ("komputer", "colokan_pc", "ac", "kulkas")]
+
+    assert powered == [True, True, False, False]
+
+
+@pytest.mark.parametrize("dry_run", [False, True])
+def test_build_registry_marks_the_plug_that_powers_the_pc(tmp_path, dry_run):
+    config = AppConfig(
+        ir_codes_path=tmp_path / "ir_codes.json",
+        devices=[
+            DeviceConfig(id="colokan_pc", name="Colokan PC", type="mock", powers_pc=True),
+            DeviceConfig(id="ac", name="AC", type="mock"),
+        ],
+    )
+
+    registry = build_registry(config, dry_run=dry_run)
+
+    assert registry.powers_pc("colokan_pc") is True
+    assert registry.powers_pc("ac") is False

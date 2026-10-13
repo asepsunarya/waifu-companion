@@ -915,3 +915,26 @@ def test_run_tool_hands_the_schedule_tools_their_calls(tmp_path):
     assert call("control_device", {"device": "ac", "command": "off"})[0]["ok"] is True
     assert devices["ac"].calls == [("off", None)]
     assert call("remember", {"text": "Master minum obat jam tiga."})[0]["id"] == "m1"
+
+
+def test_the_plug_that_powers_the_pc_can_be_neither_scheduled_nor_offered(tmp_path):
+    registry, devices = make_house()
+    plug = MockDevice("colokan_pc", "Colokan PC", commands=["on", "off"], kind="plug")
+    registry = DeviceRegistry([*devices.values(), plug], pc_power_ids={"colokan_pc"})
+    store = make_store(tmp_path)
+    tools = ScheduleTools(store, registry=registry, routines={})
+
+    result, is_error = tools.run(
+        "schedule", {"at": "2026-10-13 23:00", "device": "colokan_pc", "command": "off"}
+    )
+
+    assert is_error is True
+    assert json.loads(result)["message"] == (
+        "Colokan PC mengalirkan listrik ke PC, jadi tidak pernah dijadwalkan: "
+        "mematikannya sama dengan mencabut kabel PC. PC hanya dimatikan lewat "
+        "perintah suara langsung."
+    )
+    assert store.entries() == []
+    device_enum = spec(tools, "schedule").input_schema["properties"]["device"]["enum"]
+    assert "colokan_pc" not in device_enum
+    assert "komputer" not in device_enum

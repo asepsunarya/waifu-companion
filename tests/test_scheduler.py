@@ -157,9 +157,39 @@ def test_an_entry_late_by_at_most_the_grace_still_fires(tmp_path, grace_minutes,
     assert house.store.entries() == []
 
 
-def test_a_reminder_missed_beyond_the_grace_is_pushed_as_missed_but_not_spoken(tmp_path):
+def test_a_one_shot_reminder_missed_beyond_the_grace_is_pushed_and_told_as_missed(tmp_path):
     house = House(tmp_path)
     house.add(MEDICINE)
+
+    house.tick_at(datetime(2026, 10, 13, 15, 31))
+
+    assert house.told == (
+        [(f"Master, ada pengingat yang terlewat jam 15.00: {MEDICINE.text}", "sad")],
+        [("Cyrene", f"Terlewat (15.00): {MEDICINE.text}", ("alarm_clock",))],
+    )
+    assert house.store.entries() == []
+
+
+def test_missed_one_shot_reminders_are_told_together_in_one_announcement(tmp_path):
+    house = House(tmp_path)
+    house.add(MEDICINE)
+    house.add(LAUNDRY, at=datetime(2026, 10, 13, 15, 10))
+
+    house.tick_at(datetime(2026, 10, 13, 16, 0))
+
+    assert house.announced == [
+        (
+            f"Master, ada 2 pengingat yang terlewat. Jam 15.00: {MEDICINE.text} "
+            f"Jam 15.10: {LAUNDRY.text}",
+            "sad",
+        )
+    ]
+    assert len(house.notifier.sent) == 2
+
+
+def test_a_missed_repeating_reminder_is_pushed_but_not_told(tmp_path):
+    house = House(tmp_path)
+    house.add(MEDICINE, repeat="daily")
 
     house.tick_at(datetime(2026, 10, 13, 15, 31))
 
@@ -167,7 +197,6 @@ def test_a_reminder_missed_beyond_the_grace_is_pushed_as_missed_but_not_spoken(t
         [],
         [("Cyrene", f"Terlewat (15.00): {MEDICINE.text}", ("alarm_clock",))],
     )
-    assert house.store.entries() == []
 
 
 # --- device actions ------------------------------------------------------------------------------
@@ -304,14 +333,14 @@ def test_a_missed_repeating_entry_moves_on_without_running(tmp_path):
     assert moved.at == datetime(2026, 10, 14, 15, 0)
 
 
-def test_a_reminder_missed_on_an_earlier_day_is_pushed_with_its_date(tmp_path):
+def test_a_reminder_missed_on_an_earlier_day_is_pushed_and_told_with_its_date(tmp_path):
     house = House(tmp_path)
     house.add(MEDICINE)
 
     house.tick_at(datetime(2026, 10, 14, 9, 0))
 
     assert house.told == (
-        [],
+        [(f"Master, ada pengingat yang terlewat tanggal 13 jam 15.00: {MEDICINE.text}", "sad")],
         [("Cyrene", f"Terlewat (13-10-2026 15.00): {MEDICINE.text}", ("alarm_clock",))],
     )
 
@@ -555,3 +584,84 @@ def test_a_failing_tick_is_logged_and_the_thread_goes_on(tmp_path, caplog):
     assert spoken == [MEDICINE.text]
     assert "the disk hiccupped" in caplog.text
     assert not any(thread.name == "scheduler" for thread in threading.enumerate())
+
+
+def test_the_plug_that_powers_the_pc_is_refused_at_run_time(tmp_path):
+    house = House(tmp_path)
+    plug = MockDevice("colokan_pc", "Colokan PC", commands=["on", "off"], kind="plug")
+    registry = DeviceRegistry([*house.devices.values(), plug], pc_power_ids={"colokan_pc"})
+    house.scheduler = Scheduler(
+        house.store,
+        registry=registry,
+        routines={},
+        announce=lambda text, emotion: house.announced.append((text, emotion)),
+        notifier=house.notifier,
+        grace_minutes=30,
+        now=house.clock,
+    )
+    house.add(DeviceAction("colokan_pc", "off"))
+
+    house.tick_at(TODAY_15)
+
+    assert plug.calls == []
+    [(text, emotion)] = house.announced
+    assert text == (
+        "Master, jadwal colokan_pc off jam 15.00 gagal: Colokan PC mengalirkan "
+        "listrik ke PC, jadi tidak pernah dijalankan dari jadwal: mematikannya "
+        "sama dengan mencabut kabel PC."
+    )
+    assert emotion == "sad"
+
+
+class FlakySkipStore(ScheduleStore):
+    """Cannot save the first `skipped` mark, like a file another process holds open."""
+
+    failures = 1
+
+    def skipped(self, entry_id, at, earliest):
+        if self.failures:
+            self.failures -= 1
+            raise PermissionError("schedule.json is in use")
+        return super().skipped(entry_id, at, earliest)
+
+
+def test_a_missed_reminder_whose_mark_was_not_saved_is_told_only_once(tmp_path):
+    house = House(tmp_path, store_class=FlakySkipStore)
+    house.add(MEDICINE)
+
+    house.tick_at(datetime(2026, 10, 13, 15, 31, 0))
+    house.tick_at(datetime(2026, 10, 13, 15, 31, 15))
+
+    assert house.told == (
+        [(f"Master, ada pengingat yang terlewat jam 15.00: {MEDICINE.text}", "sad")],
+        [("Cyrene", f"Terlewat (15.00): {MEDICINE.text}", ("alarm_clock",))],
+    )
+    assert house.store.entries() == []
+
+
+def test_a_missed_reminder_is_still_told_when_the_push_raises(tmp_path):
+    house = House(tmp_path)
+    house.notifier.outcome = OSError("no internet")
+    house.add(MEDICINE)
+
+    house.tick_at(datetime(2026, 10, 13, 15, 31))
+
+    assert house.announced == [
+        (f"Master, ada pengingat yang terlewat jam 15.00: {MEDICINE.text}", "sad")
+    ]
+    assert house.store.entries() == []
+
+
+def test_a_missed_reminder_from_another_month_is_told_with_its_month(tmp_path):
+    house = House(tmp_path)
+    house.clock.current = datetime(2026, 9, 1, 8, 0)
+    house.add(MEDICINE, at=datetime(2026, 9, 13, 15, 0))
+
+    house.tick_at(datetime(2026, 10, 13, 16, 0))
+
+    assert house.announced == [
+        (
+            f"Master, ada pengingat yang terlewat tanggal 13 September jam 15.00: {MEDICINE.text}",
+            "sad",
+        )
+    ]

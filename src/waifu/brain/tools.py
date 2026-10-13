@@ -73,7 +73,7 @@ def describe_commands(commands: list[str], kind: str | None = None) -> str:
 
 def device_lines(registry: DeviceRegistry) -> list[str]:
     """One stable line per device with its id, name, aliases, and commands; no live state."""
-    return [_device_line(device) for device in registry.all()]
+    return [_device_line(device, _feeds_pc(registry, device)) for device in registry.all()]
 
 
 def build_tool_specs(
@@ -143,10 +143,22 @@ def _format_values(values: list[int]) -> str:
     return ", ".join(str(low) if low == high else f"{low}-{high}" for low, high in runs)
 
 
-def _device_line(device: Device) -> str:
+def _feeds_pc(registry: DeviceRegistry, device: Device) -> bool:
+    """A plug feeding the PC (the PC itself needs no note: the persona covers it)."""
+    return device.kind != "pc" and registry.powers_pc(device.id)
+
+
+def _device_line(device: Device, feeds_pc: bool = False) -> str:
     aliases = f" (alias: {', '.join(device.aliases)})" if device.aliases else ""
     commands = describe_commands(device.commands(), device.kind)
-    return f"- {device.id}: {device.name}{aliases} — perintah: {commands}"
+    # So the persona's "confirm before turning the PC off" covers cutting its power too.
+    note = (
+        " — mengalirkan listrik ke PC: mematikan atau membaliknya (toggle) sama dengan "
+        "mematikan PC, jadi minta konfirmasi dulu"
+        if feeds_pc
+        else ""
+    )
+    return f"- {device.id}: {device.name}{aliases} — perintah: {commands}{note}"
 
 
 def _control_device_spec(registry: DeviceRegistry) -> ToolSpec:

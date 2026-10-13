@@ -245,6 +245,9 @@ class DeviceConfig(_Strict):
     ir: IrConnection | None = None
     pc: PcConnection | None = None
     commands: list[str] = Field(default_factory=list)
+    # A plug that feeds the PC: switching it off cuts the PC's power like pulling the cable, so
+    # it is guarded like the PC itself (never scheduled, never a routine step).
+    powers_pc: bool = False
 
     @field_validator("id")
     @classmethod
@@ -276,6 +279,15 @@ class DeviceConfig(_Strict):
         needed = {"tuya_light": "tuya", "tuya_plug": "tuya", "ir": "ir", "pc": "pc"}.get(self.type)
         if needed and getattr(self, needed) is None:
             raise ValueError(f"device '{self.id}' of type '{self.type}' needs a '{needed}' block")
+        return self
+
+    @model_validator(mode="after")
+    def _only_a_plug_powers_the_pc(self) -> DeviceConfig:
+        if self.powers_pc and self.type not in ("tuya_plug", "mock"):
+            raise ValueError(
+                f"device '{self.id}': powers_pc is only for the plug that feeds the PC "
+                f"(type tuya_plug), not for type '{self.type}'"
+            )
         return self
 
 
@@ -516,16 +528,21 @@ class AppConfig(_Strict):
 
     @model_validator(mode="after")
     def _routines_use_known_devices_but_never_the_pc(self) -> AppConfig:
-        types = {device.id: device.type for device in self.devices}
+        devices = {device.id: device for device in self.devices}
         for name, routine in self.routines.items():
             if not DEVICE_ID_PATTERN.match(name):
                 raise ValueError(
                     f"routine name '{name}' must be lowercase letters, digits, or underscores"
                 )
             for step in routine.steps:
-                if step.device not in types:
+                device = devices.get(step.device)
+                if device is None:
                     raise ValueError(f"routine '{name}' uses unknown device '{step.device}'")
-                if types[step.device] == "pc":
+                if device.powers_pc:
+                    raise ValueError(
+                        f"routine '{name}' may not use '{step.device}': it powers the PC"
+                    )
+                if device.type == "pc":
                     # The PC is turned off, restarted, or put to sleep only by voice, with a
                     # confirmation: never as one step of a routine.
                     raise ValueError(f"routine '{name}' may not use the PC '{step.device}'")

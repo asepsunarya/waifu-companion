@@ -539,3 +539,13 @@ named `tests/test_<package>_<module>.py`.
 - [x] `--dry-run` (run and chat) uses a throwaway schedule in a temporary folder and never touches `schedule.path`; `chat` starts no scheduler while a `waifu run` holds the run lock
 
 **Dependencies:** 51-54 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py`, `README.md`, `config.example.yaml` · **Scope:** M
+
+## Task 56: Guard the PC's plug; tell missed reminders ✅
+
+**Acceptance criteria:**
+- [x] `DeviceConfig.powers_pc` (only `tuya_plug`/`mock`); a routine step on a marked plug is a config error; `DeviceRegistry.powers_pc` covers the PC and marked plugs, also in dry runs
+- [x] Routines, the scheduler, and the schedule tools refuse a marked plug like the PC (never executed, never offered in the tool's device enum); the device line tells the model that switching it off turns the PC off, and the persona's confirmation rule names it
+- [x] Missed one-shot reminders of a tick are told once, together; missed repeating ones are only pushed
+- [x] `config.example.yaml` and the owner's `config.yaml` mark `colokan_pc`; README and SPEC updated
+
+**Dependencies:** 51-55 · **Files:** `src/waifu/config.py`, `src/waifu/devices/registry.py`, `src/waifu/routines.py`, `src/waifu/scheduler.py`, `src/waifu/brain/schedule_tools.py`, `src/waifu/brain/tools.py`, `config/persona.md`, `config.example.yaml`, tests, README, SPEC · **Scope:** M
