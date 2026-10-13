@@ -1480,3 +1480,29 @@ def test_the_token_is_never_logged(
     logged = "\n".join(r.getMessage() for r in caplog.records) + caplog.text
     assert server.token not in logged
     assert server.token not in capsys.readouterr().err
+
+
+def test_a_refused_host_s_body_is_read_so_the_refusal_always_arrives(serve: Serve) -> None:
+    # Closing a socket with unread data resets it on Windows, which can throw away the 403
+    # the client has not read yet; repeated to catch that race.
+    interactions = Interactions()
+    server = serve(on_interact=interactions)
+    rebound = f"rebind.attacker.example:{address(server)[1]}"
+
+    for _ in range(200):
+        status, _, _ = interact(
+            server, valid(server), host=rebound, headers={"Origin": f"http://{rebound}"}
+        )
+        assert status == 403
+    assert interactions.kinds == []
+
+
+def test_a_refused_method_s_body_is_read_so_the_refusal_always_arrives(serve: Serve) -> None:
+    server = serve()
+    body = json.dumps({"kind": "head_pat"}).encode()
+
+    for _ in range(200):
+        status, _, _ = request(
+            server, "/config.json", "POST", headers={"Content-Type": "application/json"}, body=body
+        )
+        assert status == 405

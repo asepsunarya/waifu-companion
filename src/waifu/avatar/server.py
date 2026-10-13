@@ -266,8 +266,22 @@ class _AvatarRequestHandler(BaseHTTPRequestHandler):
         logger.warning(
             "Refused an avatar request for host %r from %s", host, self.client_address[0]
         )
+        self._discard_small_body()
         self._send_text(HTTPStatus.FORBIDDEN, FOREIGN_HOST_TEXT)
         return False
+
+    def _discard_small_body(self) -> None:
+        """Reads a refused request's body, up to INTERACT_MAX_BYTES, before answering.
+
+        On Windows a socket closed with unread data is reset, and the reset can throw away
+        the refusal before the client has read it. A larger body is left unread.
+        """
+        lengths = self.headers.get_all("Content-Length") or []
+        length = lengths[0].strip() if len(lengths) == 1 else ""
+        if not (length.isascii() and length.isdigit()):
+            return
+        if len(length) <= len(str(INTERACT_MAX_BYTES)) and int(length) <= INTERACT_MAX_BYTES:
+            self.rfile.read(int(length))
 
     def do_GET(self) -> None:
         path = urlsplit(self.path).path
@@ -297,6 +311,7 @@ class _AvatarRequestHandler(BaseHTTPRequestHandler):
             allowed, text = "POST", POST_ONLY_TEXT
         else:
             allowed, text = "GET", METHOD_NOT_ALLOWED_TEXT
+        self._discard_small_body()
         self._send_text(HTTPStatus.METHOD_NOT_ALLOWED, text, headers={"Allow": allowed})
 
     do_HEAD = do_PUT = do_DELETE = do_PATCH = _refuse_method
