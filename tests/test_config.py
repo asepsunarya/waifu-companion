@@ -608,3 +608,31 @@ def test_usage_budget_rate_and_prices_are_read(tmp_path):
 def test_bad_usage_settings_are_refused(tmp_path, lines):
     with pytest.raises(ConfigError, match="usage"):
         load_config(write_yaml(tmp_path, "usage:\n" + lines))
+
+
+def test_the_phone_is_off_by_default_on_its_own_port():
+    phone = AppConfig().phone
+    assert (phone.enabled, phone.port, phone.host) == (False, 9883, None)
+    assert phone.state_path == Path("data/phone.json")
+
+
+def test_the_phone_host_is_a_tailscale_name_kept_in_lowercase(tmp_path):
+    text = "phone:\n  enabled: true\n  host: Lynx-PC.Tail1234.TS.NET\n"
+    assert load_config(write_yaml(tmp_path, text)).phone.host == "lynx-pc.tail1234.ts.net"
+
+
+@pytest.mark.parametrize(
+    "lines",
+    [
+        "  port: 0\n",
+        "  port: 65536\n",
+        "  host: example.com\n",
+        "  host: lynx-pc.tail1234.ts.net:443\n",
+        "  host: https://lynx-pc.tail1234.ts.net\n",
+        "  host: ts.net\n",
+        "  camera: true\n",
+    ],
+)
+def test_bad_phone_settings_are_refused(tmp_path, lines):
+    with pytest.raises(ConfigError, match="phone"):
+        load_config(write_yaml(tmp_path, "phone:\n" + lines))

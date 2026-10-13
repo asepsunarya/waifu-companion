@@ -29,6 +29,8 @@ GameId = Literal["hsr", "genshin", "zzz"]
 HOYOLAB_LOGIN_COOKIES = (("ltuid_v2", "ltoken_v2"), ("ltuid", "ltoken"))
 # Anyone who knows a topic on the public ntfy server can read it, so it must be hard to guess.
 NTFY_TOPIC_PATTERN = re.compile(r"^[A-Za-z0-9_-]{16,64}$")
+# A Tailscale MagicDNS name: <machine>.<tailnet>.ts.net, no scheme or port.
+TAILSCALE_HOST_PATTERN = re.compile(r"^[a-z0-9-]+(\.[a-z0-9-]+)+\.ts\.net$")
 # What an `apps` device may start: launcher URLs, or a program or shortcut on a local drive.
 # The target itself is never a script (.bat, .cmd, .ps1, .vbs); what a listed shortcut points
 # to is the owner's choice.
@@ -530,6 +532,26 @@ class BriefingConfig(_Strict):
         return self
 
 
+class PhoneConfig(_Strict):
+    """Cyrene on the owner's phone: a page served on 127.0.0.1 and shared through Tailscale."""
+
+    enabled: bool = False
+    port: int = Field(default=9883, ge=1, le=65535)
+    # The PC's Tailscale name (`tailscale status`), the only outside Host the server answers.
+    host: str | None = None
+    state_path: Path = Path("data/phone.json")
+
+    @field_validator("host")
+    @classmethod
+    def _host_is_a_tailscale_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip().lower()
+        if not TAILSCALE_HOST_PATTERN.match(value):
+            raise ValueError("phone.host must be the PC's Tailscale name, like pc.tailnet.ts.net")
+        return value
+
+
 class ModelPrices(_Strict):
     """US dollars per million tokens of one Claude model."""
 
@@ -645,6 +667,7 @@ class AppConfig(_Strict):
     vision: VisionConfig = Field(default_factory=VisionConfig)
     briefing: BriefingConfig = Field(default_factory=BriefingConfig)
     usage: UsageConfig = Field(default_factory=UsageConfig)
+    phone: PhoneConfig = Field(default_factory=PhoneConfig)
     schedule: ScheduleConfig = Field(default_factory=ScheduleConfig)
     routines: dict[str, RoutineConfig] = Field(default_factory=dict)
     devices: list[DeviceConfig] = Field(default_factory=list)
