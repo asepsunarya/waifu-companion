@@ -1,0 +1,399 @@
+/* Cyrene's phone page: her avatar fills the screen, the chat sits over her lower half. */
+:root {
+  color-scheme: light;
+  --ink: #3b3350;
+  --ink-soft: rgba(59, 51, 80, 0.7);
+  --paper: rgba(255, 255, 255, 0.92);
+  --accent: #6f5bd3;
+  --talk: #e0567a;
+  --recording: #d9534f;
+  --ok: #4caf7a;
+  --thinking: #f0ad4e;
+  --shadow: 0 2px 10px rgba(40, 32, 56, 0.16);
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  background: linear-gradient(180deg, #f6f1ff 0%, #e9e4f7 55%, #dcd6ee 100%);
+  color: var(--ink);
+  font-family: system-ui, "Segoe UI", Roboto, "Noto Sans", "Noto Sans JP", sans-serif;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+#stage {
+  position: fixed;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
+
+/* --- Top bar: her name, what she is doing, the model's credit ------------------------------------ */
+
+#bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  padding: calc(var(--safe-top) + 10px) 14px 0;
+  pointer-events: none;
+}
+
+#title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+#name {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  text-shadow: 0 0 6px rgba(255, 255, 255, 0.9);
+}
+
+#status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--paper);
+  box-shadow: var(--shadow);
+  font-size: 12px;
+}
+
+#status::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ok);
+}
+
+body[data-state="listening"] #status::before {
+  background: var(--talk);
+}
+
+body[data-state="thinking"] #status::before {
+  background: var(--thinking);
+}
+
+body[data-state="speaking"] #status::before {
+  background: var(--accent);
+}
+
+#credit {
+  margin: 4px 0 0;
+  font-size: 10px;
+  color: var(--ink-soft);
+  text-shadow: 0 0 4px rgba(255, 255, 255, 0.9);
+}
+
+/* --- Loading and boot problems ------------------------------------------------------------------- */
+
+#boot {
+  position: fixed;
+  top: 24%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(86%, 360px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+#message {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--paper);
+  box-shadow: var(--shadow);
+  font-size: 14px;
+  line-height: 1.45;
+  text-align: center;
+}
+
+.pill {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 15px;
+  box-shadow: var(--shadow);
+}
+
+/* --- Pairing ------------------------------------------------------------------------------------- */
+
+#pairing {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(246, 241, 255, 0.82);
+  backdrop-filter: blur(6px);
+}
+
+#pair-form {
+  width: min(100%, 360px);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 20px;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 6px 24px rgba(40, 32, 56, 0.2);
+}
+
+#pair-form h1 {
+  margin: 0;
+  font-size: 20px;
+}
+
+#pair-form p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+#pair-form code {
+  padding: 1px 5px;
+  border-radius: 6px;
+  background: #f1edfb;
+  font-size: 13px;
+}
+
+#pair-code {
+  padding: 12px;
+  border: 1px solid rgba(59, 51, 80, 0.25);
+  border-radius: 12px;
+  font-size: 28px;
+  letter-spacing: 0.3em;
+  text-align: center;
+  color: var(--ink);
+}
+
+#pair-notice {
+  color: var(--recording);
+}
+
+/* --- Chat ---------------------------------------------------------------------------------------- */
+
+#chat {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 12px calc(var(--safe-bottom) + 12px);
+  pointer-events: none;
+}
+
+/* Positioned, so a bubble's offsetTop counts from the list (phone.js scrolls to her reply's first line). */
+#bubbles {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 44vh;
+  max-height: 44dvh;
+  margin: 0;
+  padding: 16px 0 0;
+  overflow-y: auto;
+  list-style: none;
+  pointer-events: auto;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 16px);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 16px);
+}
+
+.bubble {
+  max-width: 82%;
+  padding: 9px 13px;
+  border-radius: 18px;
+  font-size: 15px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  box-shadow: var(--shadow);
+}
+
+.from-owner {
+  align-self: flex-end;
+  border-bottom-right-radius: 6px;
+  background: var(--accent);
+  color: #fff;
+}
+
+.from-cyrene {
+  align-self: flex-start;
+  border-bottom-left-radius: 6px;
+  background: var(--paper);
+  backdrop-filter: blur(6px);
+}
+
+.typing span {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin: 0 2px;
+  border-radius: 50%;
+  background: var(--ink-soft);
+  animation: typing 1.2s infinite ease-in-out;
+}
+
+.typing span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.typing span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes typing {
+  0%,
+  60%,
+  100% {
+    opacity: 0.3;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
+}
+
+#notice {
+  align-self: center;
+  max-width: 92%;
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: rgba(59, 51, 80, 0.9);
+  color: #fff;
+  font-size: 13px;
+  line-height: 1.4;
+  text-align: center;
+  pointer-events: auto;
+}
+
+#composer {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  margin: 0;
+  pointer-events: auto;
+}
+
+#text {
+  flex: 1;
+  min-width: 0;
+  height: 44px;
+  max-height: 120px;
+  padding: 11px 16px;
+  border: 1px solid rgba(59, 51, 80, 0.18);
+  border-radius: 22px;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 16px;
+  line-height: 1.3;
+  resize: none;
+  box-shadow: var(--shadow);
+}
+
+.round {
+  flex: none;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  color: #fff;
+  box-shadow: var(--shadow);
+}
+
+.round svg {
+  width: 22px;
+  height: 22px;
+  fill: currentColor;
+}
+
+#send {
+  width: 44px;
+  height: 44px;
+  background: var(--accent);
+}
+
+#talk {
+  width: 56px;
+  height: 56px;
+  background: var(--talk);
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+
+#talk svg {
+  width: 26px;
+  height: 26px;
+}
+
+#talk[aria-pressed="true"] {
+  background: var(--recording);
+  transform: scale(1.08);
+  animation: recording 1.2s infinite ease-out;
+}
+
+@keyframes recording {
+  from {
+    box-shadow: 0 0 0 0 rgba(217, 83, 79, 0.55);
+  }
+  to {
+    box-shadow: 0 0 0 16px rgba(217, 83, 79, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .typing span,
+  #talk[aria-pressed="true"] {
+    animation: none;
+  }
+}
