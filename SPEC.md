@@ -486,6 +486,39 @@ CLI: `run` passes `interrupt=assistant.interrupt` to the handler; `waifu avatar`
 
 Safety: tests use a fake `sounddevice` module and fake players; nothing plays or records real audio.
 
+### morning briefing (v1.12)
+
+User stories:
+
+1. Once a day, the first time she is running between `briefing.time` (default 07:00) and `briefing.until` (default 12:00), she greets the owner by herself and sums up the day in a few sentences: the weather, today's schedules and reminders, her games when the gacha buddy is on, and whatever her memory holds for today (a birthday, an exam). The same text goes to the phone when notifications are on.
+2. "Cyrene, cuaca hari ini gimana?" / "ringkasan hari ini?" / "hari ini ada jadwal apa?" → the same data on request, any time of day.
+3. A restart, or a second PC start the same morning, never repeats the greeting.
+
+Non-goals: news, traffic, calendars outside Cyrene, holidays, multi-day forecasts beyond today and tomorrow morning, a greeting without `waifu run` running.
+
+Weather: Open-Meteo (free, no account or key; `https://api.open-meteo.com/v1/forecast` and `https://geocoding-api.open-meteo.com/v1/search`), reached only from `waifu run`/`chat`/`briefing`, never from tests (the conftest internet guard).
+
+Config `briefing` (committed with its tests before the parallel tasks): `enabled` (default true), `time` (default `07:00`), `until` (default `12:00`, after `time`), `city` (default none; for example "Bandung"), `latitude`/`longitude` (default none; both or neither; when set they win over `city`), `push` (default true: also send the greeting to the phone when `notify` is on), `state_path` (default `data/briefing.json`).
+
+`weather.py`:
+- `Weather` (frozen dataclass): `place: str`, `condition: str` (Indonesian, from the WMO weather code: 0 cerah, 1 cerah berawan, 2 berawan, 3 mendung, 45/48 berkabut, 51-57 gerimis, 61-67 hujan (65/67 deras), 80-82 hujan lokal (82 deras), 95-99 badai petir, 71-77/85-86 salju; anything else "tidak diketahui"), `temperature_c: float` (now), `min_c`/`max_c: float` (today), `rain_chance: int` (today's maximum precipitation probability, %), `tomorrow_morning: str` (condition at 07:00 tomorrow).
+- `WeatherError(Exception)`: Indonesian, speakable.
+- `WeatherClient(*, latitude=None, longitude=None, city=None, fetch=<urllib JSON GET with a 10 s timeout and a User-Agent>)`: `today() -> Weather`. With only a city it geocodes it once (`name=<city>&count=1&language=id`), caching the result for the client's life; no result → `WeatherError("Kota <city> tidak ditemukan ...")`. The forecast request uses `current=temperature_2m,weather_code`, `daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max`, `hourly=weather_code`, `timezone=auto`, `forecast_days=2`. Network or format problems → `WeatherError`. No location configured → `WeatherError` saying how to set `briefing.city`.
+
+`briefing.py`:
+- `BriefingTools(*, weather: WeatherClient | None, schedule: ScheduleStore | None, now=datetime.now)`, a `ToolProvider` with one strict tool `daily_briefing {}` (English description: today's date and weekday, the weather where Master lives, and today's schedule entries; use it for greetings, "how's the weather", "what's on today"; for games call game_status too when it exists; mention what memory holds for today). Result JSON: `{"date": "Selasa, 13-10-2026", "weather": {...} | null, "weather_problem": str | null, "schedule_today": [{"time": "15:00", "what": "<Indonesian>"}...]}`; a weather or schedule failure fills its `*_problem` field instead of failing the tool. `run` never raises.
+- `BriefingTimer(config: BriefingConfig, *, request: Callable[[str], None], now=datetime.now, tick_seconds=30)`: a daemon thread (`start`/`stop`/context manager/`tick_once()` like the scheduler). On a tick where `time <= now.time() < until` and the state file's `last_date` is not today, it writes today's date first (atomic, so a crash never repeats it) and then calls `request(BRIEFING_PROMPT)`. A corrupt state file is moved aside like the other stores. `BRIEFING_PROMPT` (Indonesian) tells the model this is her own morning greeting, not something Master said: greet Master warmly for the time of day, call `daily_briefing` (and `game_status` when available), and sum up the day in 2-4 short sentences, mentioning anything from memory that matters today. It contains no word that would open the screen tool's gate or count as a yes.
+
+`app.Assistant.ask_aloud(prompt: str, *, on_reply: Callable[[str], None] | None = None) -> None`: safe from any thread; queues the request. `run` handles queued requests between utterances like announcements (never during a reply, while Master speaks, or while announcements are held after a cut): it asks the brain (`_think(prompt)` inside `_engaged`), speaks the reply like a reply (follow-up window open, so Master can answer without the wake word), and passes the spoken text to `on_reply`.
+
+CLI:
+- `run`: when `briefing.enabled`, `BriefingTools` joins the providers and a `BriefingTimer` runs for the voice loop's lifetime, its `request` calling `assistant.ask_aloud(prompt, on_reply=<push to the phone when briefing.push and a notifier exists>)`. `chat`: the tools only (no timer).
+- `waifu briefing`: prints today's briefing data (date, weather or its problem, schedule) without the brain; exit 1 when the weather fails.
+- `check`: `✓ Sapaan pagi: jam 07:00-12:00, cuaca untuk <city or lat,lon>`, `! Sapaan pagi: cuaca belum diatur (isi briefing.city)`, or `! Sapaan pagi mati`; no network call.
+- README (Indonesian) section "Sapaan pagi dan ringkasan harian"; `config.example.yaml` documents `briefing`.
+
+Safety: tests never reach the internet (fake fetch; the conftest guard), never sleep for real, and never touch `data/`.
+
 ## Code Style
 
 See `CLAUDE.md` → Code Conventions and Patterns. Dataclasses for value

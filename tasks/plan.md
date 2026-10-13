@@ -235,6 +235,20 @@ echo cancellation).
 - [x] Python and JS suites, ruff clean; no test played or recorded real audio (2026-10-13: 2786 pytest, 223 JS)
 - [ ] On the owner's PC: a double-click during a long answer stops her at once and she listens
 
+### Phase 17: Morning briefing (v1.12, see SPEC → morning briefing)
+Decision: one tool (`daily_briefing`: date, Open-Meteo weather, today's schedule) used both on
+request and by a once-a-day greeting. The greeting is a queued brain request handled between
+utterances, like announcements, so it never races a reply; the model words it with her
+persona and memory, and calls the game tool itself.
+- [ ] Task 66a: `briefing` config
+- [ ] Task 66: `weather.py`: `WeatherClient` (Open-Meteo, geocoding, WMO conditions)
+- [ ] Task 67: `briefing.py`: `BriefingTools`, `BriefingTimer`
+- [ ] Task 68: `Assistant.ask_aloud`, wiring, `waifu briefing`, check, README
+
+### Checkpoint: Morning briefing
+- [ ] Python suite and ruff clean; no test reached the internet, slept for real, or touched `data/`
+- [ ] On the owner's PC: with `briefing.city` set, the morning greeting comes once, names the weather and the day's schedule, and "cuaca hari ini?" works any time
+
 ## Risks and Mitigations
 
 | Risk | Impact | Mitigation |
