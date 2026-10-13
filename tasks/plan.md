@@ -216,12 +216,12 @@ Decision: one screenshot per request, only when the owner's own words in that tu
 look, sent to Claude as an image in the tool result. GDI capture and a stdlib PNG encoder keep
 it free of new dependencies; the test guards are strengthened first so no test can capture the
 owner's real screen.
-- [ ] Task 62a: `vision` config; conftest refuses real screen capture
-- [ ] Task 62: `screen.py`: `capture_screen`, `encode_png`
-- [ ] Task 63: `ScreenTools`, provider hooks in the brains, image tool results, CLI, check, README
+- [x] Task 62a: `vision` config; conftest refuses real screen capture
+- [x] Task 62: `screen.py`: `capture_screen`, `encode_png`
+- [x] Task 63: `ScreenTools`, provider hooks in the brains, image tool results, CLI, check, README
 
 ### Checkpoint: Looking at the screen
-- [ ] Python suite and ruff clean; no test captured the real screen or called Claude
+- [x] Python suite and ruff clean; no test captured the real screen or called Claude (2026-10-13: 2758 pytest)
 - [ ] On the owner's PC: "Cyrene, lihat layarku" with the Claude backend gets an answer about what is on screen; a question that does not ask her to look never captures
 
 ## Risks and Mitigations

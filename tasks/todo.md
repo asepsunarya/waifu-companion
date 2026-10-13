@@ -603,27 +603,30 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 60 · **Files:** `src/waifu/brain/tools.py`, `src/waifu/brain/claude.py`, `src/waifu/brain/ollama_brain.py`, `src/waifu/brain/factory.py`, their tests, `config/persona.md`, `README.md` · **Scope:** M
 
-## Task 62a: Vision config, screen-capture guards
+## Task 62a: Vision config, screen-capture guards ✅
 
 **Acceptance criteria:**
-- [ ] `AppConfig.vision` (`enabled` true, `max_side` 1280, 512-1568)
-- [ ] `tests/conftest.py` refuses `BitBlt`/`StretchBlt` (gdi32) and `PrintWindow` (user32) through `ctypes.WinDLL` and `ctypes.windll`; `tests/test_safety_guard.py` proves it
+- [x] `AppConfig.vision` (`enabled` true, `max_side` 1280, 512-1568)
+- [x] `tests/conftest.py` refuses `BitBlt`/`StretchBlt` (gdi32) and `PrintWindow` (user32) through `ctypes.WinDLL` and `ctypes.windll`; `tests/test_safety_guard.py` proves it
 
 **Dependencies:** none · **Files:** `src/waifu/config.py`, `tests/test_config.py`, `tests/conftest.py`, `tests/test_safety_guard.py` · **Scope:** S
 
-## Task 62: Screen capture and PNG
+## Task 62: Screen capture and PNG ✅
 
 **Acceptance criteria:**
-- [ ] `encode_png` writes a valid RGB PNG (decoded back in tests: signature, chunk CRCs, IHDR, pixels)
-- [ ] `capture_screen` per SPEC: aspect kept, never upscaled, handles released on every path, errors as `OSError`; tested only with fakes (never a real capture)
+- [x] `encode_png` writes a valid RGB PNG (decoded back in tests: signature, chunk CRCs, IHDR, pixels) with adaptively filtered rows (all five filter types undone in tests; a smooth screen far smaller than unfiltered)
+- [x] `capture_screen` per SPEC: aspect kept, never upscaled, handles released on every path, errors as `OSError`; tested only with fakes (never a real capture)
+- [x] `capture_screen` is per-monitor DPI aware while it captures, so a scaled display is copied whole in physical pixels; the thread's own awareness is restored last
 
 **Dependencies:** 62a · **Files:** `src/waifu/screen.py`, `tests/test_screen.py` · **Scope:** M
 
-## Task 63: Screen tool and image results
+## Task 63: Screen tool and image results ✅
 
 **Acceptance criteria:**
-- [ ] `ScreenTools` with the keyword gate, one capture per turn, errors as results, `take_images`
-- [ ] Both brains call providers' `begin_turn`; `ClaudeBrain` sends image blocks in the `tool_result` and keeps them in history; Ollama unaffected
-- [ ] `run`/`chat` wiring (Claude only), `check` line, README section
+- [x] `ScreenTools` with the keyword gate, one capture per turn, errors as results, `take_images`
+- [x] Both brains call providers' `begin_turn`; `ClaudeBrain` sends image blocks in the `tool_result` and keeps them in history; Ollama unaffected
+- [x] `run`/`chat` wiring (Claude only), `check` line, README section
+- [x] A screenshot over 5 MB as base64 is taken once more, smaller (an error result when still too large); `ClaudeBrain` starts a new session once its history holds 16 MB of images
+- [x] `-v` never logs a screenshot or the conversation (the `anthropic` logger stays at INFO); the description says never to save what she sees unless asked, that her avatar may be in the picture, and what an all-black screenshot means
 
 **Dependencies:** 62 · **Files:** `src/waifu/brain/screen_tools.py`, `src/waifu/brain/base.py`, `src/waifu/brain/claude.py`, `src/waifu/brain/ollama_brain.py`, `src/waifu/cli.py`, tests, `README.md`, `config.example.yaml` · **Scope:** M
