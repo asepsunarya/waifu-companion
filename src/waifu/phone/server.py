@@ -17,6 +17,13 @@ phone that already has one gets a 304 instead of the file again.
 The server never touches the brain, the STT, or the TTS: a `PhoneBackend` (the Assistant in
 `waifu run`) answers. A device asks one thing at a time; asking again while she is still
 answering it is refused with 429.
+
+While the camera is on (`camera_max_side`), a chat or a talk sent with the page's viewfinder
+open says so (`"camera": true` in a JSON body) and carries one JPEG photo the page took as it
+was sent, in base64, unless the page could not take one. The photo reaches the backend
+untouched once it is a JPEG of a size the page makes (see `jpeg.py`); photos are private, so
+only a photo's byte size and dimensions are ever logged. While the camera is off, anything
+sent through it is refused.
 """
 
 from __future__ import annotations
@@ -60,6 +67,7 @@ from waifu.avatar.server import (
 )
 from waifu.config import AvatarConfig, PhoneConfig
 from waifu.phone.auth import CODE_LIFETIME, Device, PhoneAuth, Refusal
+from waifu.phone.jpeg import jpeg_size
 from waifu.screen import encode_png
 
 logger = logging.getLogger(__name__)
@@ -100,6 +108,17 @@ TALK_MAX_BYTES = 2 * 1024 * 1024
 TALK_RATE = 16000
 TALK_SAMPLE_BYTES = 2
 TALK_MAX_S = 60
+# While the camera is on, a JSON chat or talk may carry a photo of up to PHOTO_MAX_BYTES as
+# base64 (4/3 of its size): 5 MB for a chat, 8 MB for a talk with its recording in base64 too.
+CAMERA_CHAT_MAX_BYTES = 5 * 1024 * 1024
+CAMERA_TALK_MAX_BYTES = 8 * 1024 * 1024
+# 3.5 MB: the photo's base64 then stays under the API's 5 MB image limit.
+PHOTO_MAX_BYTES = 7 * 1024 * 1024 // 2
+PHOTO_MIN_SIDE = 16
+JPEG_START = b"\xff\xd8\xff"  # SOI and the marker after it
+# What a JSON chat or talk may hold besides its text or recording: the photo in base64, and
+# whether it was sent with the viewfinder open (always so with a photo).
+MESSAGE_EXTRAS: Mapping[str, type] = {"image": str, "camera": bool}
 JSON_TYPES = ("application/json", "application/json;charset=utf-8")
 WAV_TYPE = "audio/wav"
 # A refused request's body is read first when it is at most this long: on Windows a socket
@@ -127,6 +146,8 @@ WRONG_TYPE_TEXT = "Jenis isi permintaan tidak didukung."
 TEXT_TOO_LONG_TEXT = f"Pesannya terlalu panjang. Maksimal {MAX_CHAT_CHARS} karakter."
 BAD_AUDIO_TEXT = "Rekamannya harus WAV mono 16-bit 16 kHz."
 AUDIO_TOO_LONG_TEXT = f"Rekamannya terlalu panjang. Maksimal {TALK_MAX_S} detik."
+CAMERA_OFF_TEXT = "Kamera HP tidak aktif."
+BAD_PHOTO_TEXT = "Foto tidak valid."
 # Said in her voice: `{owner}` is assistant.owner_call, used as written mid-sentence.
 BUSY_TEXT = "Sebentar ya, {owner}, aku masih menjawab yang tadi."
 FAILED_TEXT = "Maaf, {owner}, ada masalah di PC. Coba lagi nanti ya."
@@ -195,8 +216,11 @@ class PhoneBackend(Protocol):
     at most one call running, but two devices may call at once.
     """
 
-    def chat(self, text: str) -> PhoneReply:
-        """Her reply to `text`, not spoken on the PC."""
+    def chat(self, text: str, image: bytes | None = None, *, camera: bool = False) -> PhoneReply:
+        """Her reply to `text`, not spoken on the PC; `image` is the JPEG photo the message
+        carries, and `camera` tells that it was sent with the viewfinder open (always so with
+        a photo, and also when the page could not take one). For a message not sent through
+        the camera the server calls `chat(text)`."""
         ...
 
     def transcribe(self, wav_bytes: bytes) -> str:
@@ -241,7 +265,8 @@ class PhoneServer(ThreadingHTTPServer):
     """Serves the phone page on `host:config.port`; a port in use raises PhoneError.
 
     `host` must be an IPv4 loopback address: Tailscale, not this server, faces the network.
-    `clock` times how long a burned pairing code is remembered.
+    `clock` times how long a burned pairing code is remembered. `camera_max_side` turns the
+    phone camera on: the longest side, in pixels, of the photos the page sends (None: off).
     """
 
     daemon_threads = True
@@ -263,11 +288,13 @@ class PhoneServer(ThreadingHTTPServer):
         web_root: Path = WEB_ROOT,
         host: str = LOOPBACK,
         clock: Callable[[], float] = time.monotonic,
+        camera_max_side: int | None = None,
     ) -> None:
         if not _is_ipv4_loopback(host):
             raise ValueError(f"The phone server listens only on IPv4 loopback, not {host!r}")
         self.auth = auth
         self.backend = backend
+        self.camera_max_side = camera_max_side
         self.files = AvatarFiles(avatar, web_root)
         self.page_root = (self.files.web_root / PAGE_FOLDER).resolve()
         settings = viewer_settings(avatar, assistant_name)
@@ -279,6 +306,7 @@ class PhoneServer(ThreadingHTTPServer):
             "name": assistant_name,
             "owner_call": owner_call,
             "framing": "upper",
+            "camera": {"enabled": camera_max_side is not None, "max_side": camera_max_side},
         }
         self.initial = assistant_name.strip()[:1].upper()
         self.busy_text = BUSY_TEXT.replace("{owner}", owner_call)
@@ -466,9 +494,10 @@ class _PhoneRequestHandler(BaseHTTPRequestHandler):
         body = self._read_body(PAIR_MAX_BYTES)
         if body is None:
             return
-        code = self._json_text(body, "code")
-        if code is None:
+        fields = self._json_fields(body, "code")
+        if fields is None:
             return
+        code = fields["code"]
         if not PAIR_CODE.fullmatch(code):
             self._send_error(HTTPStatus.BAD_REQUEST, BAD_REQUEST_TEXT)
             return
@@ -493,34 +522,131 @@ class _PhoneRequestHandler(BaseHTTPRequestHandler):
     # --- her answers --------------------------------------------------------------------------
 
     def _chat(self, device: Device) -> None:
-        body = self._read_body(CHAT_MAX_BYTES)
+        """`{"text"}`, or with the viewfinder open `{"text", "camera"}` and the photo `"image"`."""
+        body = self._read_body(self._body_limit(CHAT_MAX_BYTES, CAMERA_CHAT_MAX_BYTES))
         if body is None:
             return
-        text = self._json_text(body, "text")
-        if text is None:
+        fields = self._json_fields(body, "text", MESSAGE_EXTRAS)
+        if fields is None:
             return
-        text = text.strip()
+        text = fields["text"].strip()
         if not text:
             self._send_error(HTTPStatus.BAD_REQUEST, BAD_REQUEST_TEXT)
         elif len(text) > MAX_CHAT_CHARS:
             self._send_error(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, TEXT_TOO_LONG_TEXT)
         else:
-            self._answer(device, "chat", lambda backend: _reply_fields(backend.chat(text)))
+            self._answer_message(
+                device,
+                "chat",
+                fields,
+                lambda backend, photo, camera: _reply_fields(_ask(backend, text, photo, camera)),
+            )
 
     def _talk(self, device: Device) -> None:
-        body = self._read_body(TALK_MAX_BYTES)
+        """A recording as an `audio/wav` body, or as JSON `{"audio"}`, which may also hold the
+        viewfinder's `"camera"` and `"image"` as a chat does."""
+        body = self._read_body(self._body_limit(TALK_MAX_BYTES, CAMERA_TALK_MAX_BYTES))
         if body is None:
             return
-        if _content_type(self.headers) != WAV_TYPE:
+        content_type = _content_type(self.headers)
+        if content_type == WAV_TYPE:
+            sent, fields = body, {}
+        elif content_type in JSON_TYPES:
+            from_json = self._json_recording(body)
+            if from_json is None:
+                return
+            sent, fields = from_json
+        else:
             self._send_error(HTTPStatus.UNSUPPORTED_MEDIA_TYPE, WRONG_TYPE_TEXT)
             return
-        problem = _recording_problem(body)
+        problem = _recording_problem(sent)
         if problem is HTTPStatus.BAD_REQUEST:
             self._send_error(problem, BAD_AUDIO_TEXT)
         elif problem is HTTPStatus.REQUEST_ENTITY_TOO_LARGE:
             self._send_error(problem, AUDIO_TOO_LONG_TEXT)
         else:
-            self._answer(device, "talk", lambda backend: _talk_fields(backend, body))
+            self._answer_message(
+                device,
+                "talk",
+                fields,
+                lambda backend, photo, camera: _talk_fields(backend, sent, photo, camera),
+            )
+
+    def _json_recording(self, body: bytes) -> tuple[bytes, dict[str, Any]] | None:
+        """The WAV and the fields of a JSON /talk body; None after refusing it.
+
+        The recording must be strict base64 of at most TALK_MAX_BYTES, as an audio/wav body is.
+        """
+        fields = self._json_fields(body, "audio", MESSAGE_EXTRAS)
+        if fields is None:
+            return None
+        try:
+            sent = base64.b64decode(fields["audio"], validate=True)
+        except ValueError:  # binascii.Error, and a str that is not ASCII
+            self._send_error(HTTPStatus.BAD_REQUEST, BAD_AUDIO_TEXT)
+            return None
+        if len(sent) > TALK_MAX_BYTES:
+            self._send_error(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, TOO_LARGE_TEXT)
+            return None
+        return sent, fields
+
+    def _answer_message(
+        self,
+        device: Device,
+        route: str,
+        fields: Mapping[str, Any],
+        ask: Callable[[PhoneBackend, bytes | None, bool], Mapping[str, Any]],
+    ) -> None:
+        """Answers a message with what came through the viewfinder: whether it was open
+        (`"camera"`, or a photo), and the photo in base64 (`"image"`), if any.
+
+        Anything sent through the camera is refused (400) while it is off, and a photo when it
+        is not a JPEG of a size the page makes (`_camera_photo`).
+        """
+        image = fields.get("image")
+        camera = fields.get("camera", False) or image is not None
+        photo = None
+        if camera:
+            max_side = self.server.camera_max_side
+            if max_side is None:
+                logger.info(
+                    "Refused a phone %s of device %s sent through the camera: camera off",
+                    route,
+                    device.id,
+                )
+                self._send_error(HTTPStatus.BAD_REQUEST, CAMERA_OFF_TEXT)
+                return
+            if image is not None:
+                photo = self._photo(image, max_side, device, route)
+                if photo is None:
+                    return
+        self._answer(device, route, lambda backend: ask(backend, photo, camera))
+
+    def _photo(self, image: str, max_side: int, device: Device, route: str) -> bytes | None:
+        """The JPEG of a message's base64 `image`, or None after refusing it."""
+        checked = _camera_photo(image, max_side)
+        if checked is None:
+            logger.info(
+                "Refused a photo with a phone %s of device %s: not a JPEG of %d to %d pixels "
+                "a side within %d bytes",
+                route,
+                device.id,
+                PHOTO_MIN_SIDE,
+                max_side,
+                PHOTO_MAX_BYTES,
+            )
+            self._send_error(HTTPStatus.BAD_REQUEST, BAD_PHOTO_TEXT)
+            return None
+        photo, (width, height) = checked
+        logger.info(
+            "A phone %s of device %s carries a photo of %d bytes, %dx%d",
+            route,
+            device.id,
+            len(photo),
+            width,
+            height,
+        )
+        return photo
 
     def _answer(
         self,
@@ -546,6 +672,13 @@ class _PhoneRequestHandler(BaseHTTPRequestHandler):
 
     # --- request bodies -----------------------------------------------------------------------
 
+    def _body_limit(self, plain: int, with_photo: int) -> int:
+        """`with_photo` for a JSON body while the camera is on (it may carry a photo), else
+        `plain`; chosen from the Content-Type before the body is read."""
+        if self.server.camera_max_side is not None and _content_type(self.headers) in JSON_TYPES:
+            return with_photo
+        return plain
+
     def _read_body(self, limit: int) -> bytes | None:
         """The body, read only when its Content-Length allows `limit`; None once refused."""
         length = _body_length(self.headers, limit)
@@ -565,15 +698,18 @@ class _PhoneRequestHandler(BaseHTTPRequestHandler):
             return None
         return body
 
-    def _json_text(self, body: bytes, key: str) -> str | None:
-        """The text of a JSON body `{key: "..."}`; None after refusing anything else."""
+    def _json_fields(
+        self, body: bytes, key: str, optional: Mapping[str, type] | None = None
+    ) -> dict[str, Any] | None:
+        """The fields of a JSON body `{key: "..."}`, which may also hold the `optional` fields,
+        each of its type; None after refusing anything else."""
         if _content_type(self.headers) not in JSON_TYPES:
             self._send_error(HTTPStatus.UNSUPPORTED_MEDIA_TYPE, WRONG_TYPE_TEXT)
             return None
-        text = _json_string(body, key)
-        if text is None:
+        fields = _json_object(body, key, optional or {})
+        if fields is None:
             self._send_error(HTTPStatus.BAD_REQUEST, BAD_REQUEST_TEXT)
-        return text
+        return fields
 
     def _discard_small_body(self) -> None:
         """Reads a refused request's unread body when it is at most REFUSAL_READ_BYTES."""
@@ -712,20 +848,49 @@ def _body_length(headers: Message, limit: int) -> int | HTTPStatus:
     return int(digits)
 
 
-def _json_string(body: bytes, key: str) -> str | None:
-    """The string of a JSON body `{key: str}` that is valid UTF-8 text; None otherwise."""
+def _json_object(body: bytes, key: str, optional: Mapping[str, type]) -> dict[str, Any] | None:
+    """The fields of a JSON body `{key: str}` that may also hold the `optional` fields, each
+    of exactly its type (a bool is no number, null is nothing), every string valid UTF-8
+    text; None otherwise."""
     try:
         data = json.loads(body.decode("utf-8"))
     except (ValueError, RecursionError):  # also UnicodeDecodeError; deep nesting on 3.11-3.13
         return None
-    if not isinstance(data, dict) or data.keys() != {key} or not isinstance(data[key], str):
+    types = {**optional, key: str}
+    if not isinstance(data, dict) or key not in data or not data.keys() <= types.keys():
         return None
-    text = data[key]
+    if not all(type(value) is types[name] for name, value in data.items()):
+        return None
     try:
-        text.encode("utf-8")  # a lone surrogate from a \ud800 escape is not text
+        for value in data.values():
+            if isinstance(value, str):
+                value.encode("utf-8")  # a lone surrogate from a \ud800 escape is not text
     except UnicodeEncodeError:
         return None
-    return text
+    return data
+
+
+def _camera_photo(image: str, max_side: int) -> tuple[bytes, tuple[int, int]] | None:
+    """The JPEG of the base64 `image` and its (width, height), or None when it is not a photo
+    the camera page makes.
+
+    That is strict base64 of at most PHOTO_MAX_BYTES that starts like a JPEG and whose frame
+    header gives a longer side of at most `max_side` and a shorter one of at least
+    PHOTO_MIN_SIDE pixels.
+    """
+    try:
+        photo = base64.b64decode(image, validate=True)
+    except ValueError:  # binascii.Error, and a str that is not ASCII
+        return None
+    if len(photo) > PHOTO_MAX_BYTES or not photo.startswith(JPEG_START):
+        return None
+    try:
+        width, height = jpeg_size(photo)
+    except ValueError:
+        return None
+    if min(width, height) < PHOTO_MIN_SIDE or max(width, height) > max_side:
+        return None
+    return photo, (width, height)
 
 
 def _recording_problem(body: bytes) -> HTTPStatus | None:
@@ -756,12 +921,22 @@ def _recording_problem(body: bytes) -> HTTPStatus | None:
     return None
 
 
-def _talk_fields(backend: PhoneBackend, wav_bytes: bytes) -> dict[str, Any]:
+def _talk_fields(
+    backend: PhoneBackend, wav_bytes: bytes, photo: bytes | None, camera: bool
+) -> dict[str, Any]:
     """The /talk answer: what she heard and her reply, or no reply when nothing was heard."""
     heard = backend.transcribe(wav_bytes).strip()
     if not heard:
         return {"heard": "", "text": None}
-    return {"heard": heard, **_reply_fields(backend.chat(heard))}
+    return {"heard": heard, **_reply_fields(_ask(backend, heard, photo, camera))}
+
+
+def _ask(backend: PhoneBackend, text: str, photo: bytes | None, camera: bool) -> PhoneReply:
+    """Her reply to `text`, with the `photo` (if any) of a message sent through the camera; a
+    message not sent through it is the text-only call of v1.14."""
+    if not camera:
+        return backend.chat(text)
+    return backend.chat(text, image=photo, camera=True)
 
 
 def _reply_fields(reply: PhoneReply) -> dict[str, Any]:

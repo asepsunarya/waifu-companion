@@ -4,7 +4,8 @@ Every server binds port 0 and is stopped by the `serve` fixture. The web root, t
 model folder, the VRM, and the Cubism Core are small fake files under tmp_path, never the
 real models or Live2D's Core; pairing uses a real PhoneAuth on tmp_path, and her answers
 come from a fake backend (no brain, STT, or TTS). Nothing here runs Tailscale: the tailnet
-name is only a Host and an Origin the requests carry.
+name is only a Host and an Origin the requests carry. Camera photos are tiny JPEGs built by
+hand from marker segments (no image library), never a real camera frame.
 """
 
 from __future__ import annotations
@@ -32,7 +33,7 @@ import pytest
 
 from waifu.config import AvatarConfig, PhoneConfig
 from waifu.phone.auth import CODE_LIFETIME, PhoneAuth
-from waifu.phone.server import PhoneError, PhoneReply, PhoneServer
+from waifu.phone.server import PhoneBackend, PhoneError, PhoneReply, PhoneServer
 
 CLIENT_TIMEOUT_S = 5.0
 TAILNET = "cyrene-pc.tail1234.ts.net"
@@ -91,7 +92,8 @@ HEARD = "nyalakan lampu kamar"
 
 
 class FakeBackend:
-    """Stands in for the Assistant: records what it was asked and answers REPLY.
+    """Stands in for the Assistant: records what it was asked (the photo of each chat, None
+    without one, and whether it was sent through the camera) and answers REPLY.
 
     `release` holds every call until it is set (it starts set); `entered` tells that a call
     has begun, so a test can send a second request while the first is still answered.
@@ -110,13 +112,17 @@ class FakeBackend:
         self.chat_error = chat_error
         self.transcribe_error = transcribe_error
         self.chats: list[str] = []
+        self.photos: list[bytes | None] = []
+        self.cameras: list[bool] = []
         self.recordings: list[bytes] = []
         self.entered = threading.Event()
         self.release = threading.Event()
         self.release.set()
 
-    def chat(self, text: str) -> PhoneReply:
+    def chat(self, text: str, image: bytes | None = None, *, camera: bool = False) -> PhoneReply:
         self.chats.append(text)
+        self.photos.append(image)
+        self.cameras.append(camera)
         self.entered.set()
         assert self.release.wait(CLIENT_TIMEOUT_S)
         if self.chat_error is not None:
@@ -128,6 +134,22 @@ class FakeBackend:
         if self.transcribe_error is not None:
             raise self.transcribe_error
         return self.heard
+
+
+class TextOnlyBackend:
+    """A backend as v1.14 wrote it, whose chat takes no photo argument at all."""
+
+    def __init__(self) -> None:
+        self.chats: list[str] = []
+        self.recordings: list[bytes] = []
+
+    def chat(self, text: str) -> PhoneReply:
+        self.chats.append(text)
+        return REPLY
+
+    def transcribe(self, wav_bytes: bytes) -> str:
+        self.recordings.append(wav_bytes)
+        return HEARD
 
 
 class FakeClock:
@@ -197,12 +219,13 @@ def serve(web_root: Path, live2d_config: AvatarConfig, auth: PhoneAuth) -> Itera
 
     def start(
         *,
-        backend: FakeBackend | None = None,
+        backend: PhoneBackend | None = None,
         avatar: AvatarConfig = live2d_config,
         config: PhoneConfig | None = None,
         owner_call: str = "Master",
         name: str = "Cyrene",
         clock: Callable[[], float] = time.monotonic,
+        camera_max_side: int | None = None,
     ) -> PhoneServer:
         server = PhoneServer(
             config or make_phone_config(),
@@ -213,6 +236,7 @@ def serve(web_root: Path, live2d_config: AvatarConfig, auth: PhoneAuth) -> Itera
             assistant_name=name,
             web_root=web_root,
             clock=clock,
+            camera_max_side=camera_max_side,
         )
         started.append(server)
         server.start()
@@ -1051,7 +1075,19 @@ def test_config_json_describes_the_live2d_avatar_for_the_phone_without_secrets(
         "name": "Cyrene",
         "owner_call": "Sayang",
         "framing": "upper",
+        "camera": {"enabled": False, "max_side": None},
     }
+
+
+def test_config_json_offers_the_camera_with_the_longest_side_of_its_photos(
+    serve: Serve, auth: PhoneAuth
+) -> None:
+    server = serve(camera_max_side=1280)
+
+    status, _, body = request(server, "/config.json", token=pair_device(auth))
+
+    assert status == 200
+    assert json.loads(body)["camera"] == {"enabled": True, "max_side": 1280}
 
 
 def test_config_json_describes_the_vrm_avatar(
@@ -1070,6 +1106,7 @@ def test_config_json_describes_the_vrm_avatar(
         "name": "Cyrene",
         "owner_call": "Master",
         "framing": "upper",
+        "camera": {"enabled": False, "max_side": None},
     }
 
 
@@ -1801,6 +1838,528 @@ def test_talk_needs_the_device_cookie(serve: Serve) -> None:
 
     assert status == 401
     assert backend.recordings == []
+
+
+# --- photos from the phone camera ---------------------------------------------------------------
+
+CAMERA_SIDE = 1280
+MB = 1024 * 1024
+PHOTO_MAX_BYTES = 7 * MB // 2  # 3.5 MB: its base64 stays under the API's 5 MB image limit
+CAMERA_OFF = "Kamera HP tidak aktif."
+NOT_A_PHOTO = "Foto tidak valid."
+
+
+def jpeg_segment(marker: int, payload: bytes) -> bytes:
+    """A JPEG marker segment: 0xFF, the marker, a length counting itself, and the payload."""
+    return bytes((0xFF, marker)) + struct.pack(">H", len(payload) + 2) + payload
+
+
+def photo(
+    width: int = 640, height: int = 480, *, size: int | None = None, frame: bool = True
+) -> bytes:
+    """A JPEG as the page's canvas encodes one, built by hand from its marker segments: SOI,
+    APP0, DQT, a baseline frame header of `width` x `height`, DHT, a scan, and EOI.
+
+    `size` pads the scan's entropy-coded data so the photo has that many bytes; `frame=False`
+    leaves the frame header out.
+    """
+    components = b"\x01\x22\x00\x02\x11\x01\x03\x11\x01"
+    frame_header = jpeg_segment(0xC0, struct.pack(">BHHB", 8, height, width, 3) + components)
+    head = (
+        b"\xff\xd8"
+        + jpeg_segment(0xE0, b"JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00")
+        + jpeg_segment(0xDB, b"\x00" + bytes(range(1, 65)))
+        + (frame_header if frame else b"")
+        + jpeg_segment(0xC4, b"\x00\x01" + bytes(15) + b"\x00")
+        + jpeg_segment(0xDA, b"\x03\x01\x00\x02\x11\x03\x11\x00\x3f\x00")
+    )
+    scan = b"\x8a\x28\xa2\xff\x00\x3f"
+    if size is not None:
+        scan = (scan * (size // len(scan) + 1))[: size - len(head) - 2]
+    return head + scan + b"\xff\xd9"
+
+
+PHOTO = photo()
+
+
+def b64(data: bytes) -> str:
+    return base64.b64encode(data).decode("ascii")
+
+
+def chat_with_photo(
+    server: PhoneServer, token: str, image: str, text: str = HEARD, **kwargs: Any
+) -> tuple[int, http.client.HTTPMessage, bytes]:
+    return post(server, "/chat", {"text": text, "image": image}, token=token, **kwargs)
+
+
+def talk_as_json(
+    server: PhoneServer, token: str, sent: bytes, image: str | None, **kwargs: Any
+) -> tuple[int, http.client.HTTPMessage, bytes]:
+    """POST /talk as the page sends a recording with a photo: JSON, both in base64."""
+    payload = {"audio": b64(sent)} | ({} if image is None else {"image": image})
+    return post(server, "/talk", payload, token=token, **kwargs)
+
+
+def send_photo(
+    server: PhoneServer, token: str, route: str, image: str
+) -> tuple[int, http.client.HTTPMessage, bytes]:
+    """A chat or a talk carrying `image`."""
+    if route == "chat":
+        return chat_with_photo(server, token, image)
+    return talk_as_json(server, token, recording(), image)
+
+
+def test_a_chat_with_a_photo_hands_her_the_jpeg_untouched(serve: Serve, auth: PhoneAuth) -> None:
+    backend = FakeBackend()
+    server = serve(backend=backend, camera_max_side=CAMERA_SIDE)
+
+    status, headers, body = chat_with_photo(server, pair_device(auth), b64(PHOTO))
+
+    assert status == 200
+    assert headers.get_content_type() == "application/json"
+    assert json.loads(body) == REPLY_JSON
+    assert backend.chats == [HEARD]
+    assert backend.photos == [PHOTO]
+    assert backend.cameras == [True]  # a photo always comes through the camera
+
+
+def camera_message(route: str, sent: bytes | None = None) -> dict[str, Any]:
+    """A chat or a talk sent with the viewfinder open, carrying the photo `sent` (None: one that
+    could not be taken), as the page sends it."""
+    message = {"text": HEARD} if route == "chat" else {"audio": b64(recording())}
+    return message | ({} if sent is None else {"image": b64(sent)}) | {"camera": True}
+
+
+@pytest.mark.parametrize("route", ["chat", "talk"])
+def test_a_message_sent_with_the_viewfinder_open_but_without_a_photo_tells_her_so(
+    serve: Serve, auth: PhoneAuth, route: str
+) -> None:
+    # The page could not take the photo (the camera was still starting): "coba lihat ini" is
+    # still about the camera, not the PC screen.
+    backend = FakeBackend()
+    server = serve(backend=backend, camera_max_side=CAMERA_SIDE)
+
+    status, _, body = post(server, f"/{route}", camera_message(route), token=pair_device(auth))
+
+    assert status == 200
+    assert json.loads(body)["text"] == REPLY.text
+    assert backend.chats == [HEARD]
+    assert backend.photos == [None]
+    assert backend.cameras == [True]
+
+
+@pytest.mark.parametrize("route", ["chat", "talk"])
+def test_a_photo_sent_with_the_camera_mark_reaches_her_with_it(
+    serve: Serve, auth: PhoneAuth, route: str
+) -> None:
+    backend = FakeBackend()
+    server = serve(backend=backend, camera_max_side=CAMERA_SIDE)
+
+    status, _, _ = post(server, f"/{route}", camera_message(route, PHOTO), token=pair_device(auth))
+
+    assert status == 200
+    assert backend.photos == [PHOTO]
+    assert backend.cameras == [True]
+
+
+def test_a_recording_sent_as_json_with_a_photo_is_heard_and_answered_with_it(
+    serve: Serve, auth: PhoneAuth
+) -> None:
+    backend = FakeBackend()
+    server = serve(backend=backend, camera_max_side=CAMERA_SIDE)
+    sent = recording(1.5)
+
+    status, headers, body = talk_as_json(server, pair_device(auth), sent, b64(PHOTO))
+
+    assert status == 200
+    assert headers.get_content_type() == "application/json"
+    assert json.loads(body) == {"heard": HEARD, **REPLY_JSON}
+    assert backend.recordings == [sent]
+    assert backend.chats == [HEARD]
+    assert backend.photos == [PHOTO]
+
+
+@pytest.mark.parametrize("camera_max_side", [None, CAMERA_SIDE], ids=["camera off", "camera on"])
+def test_a_recording_sent_as_json_without_a_photo_is_answered_like_a_wav_body(
+    serve: Serve, auth: PhoneAuth, camera_max_side: int | None
+) -> None:
+    backend = FakeBackend()
+    server = serve(backend=backend, camera_max_side=camera_max_side)
+    sent = recording(1.5)
+
+    status, _, body = talk_as_json(server, pair_device(auth), sent, None)
+
+    assert status == 200
+    assert json.loads(body) == {"heard": HEARD, **REPLY_JSON}
+    assert backend.recordings == [sent]
+    assert backend.photos == [None]
+
+
+def test_nothing_heard_with_a_photo_answers_without_asking_her(
+    serve: Serve, auth: PhoneAuth
+) -> None:
+    backend = FakeBackend(heard=" ")
+    server = serve(backend=backend, camera_max_side=CAMERA_SIDE)
+
+    status, _, body = talk_as_json(server, pair_device(auth), recording(), b64(PHOTO))
+
+    assert status == 200
+    assert json.loads(body) == {"heard": "", "text": None}
+    assert backend.chats == []
+
+
+SEND_WITHOUT_A_PHOTO: dict[str, Callable[[PhoneServer, str], tuple[int, Any, bytes]]] = {
+    "chat": lambda server, token: chat(server, token),
+    "chat not through the camera": lambda server, token: post(
+        server, "/chat", {"text": HEARD, "camera": False}, token=token
+    ),
+    "talk as wav": lambda server, token: talk(server, token, recording()),
+    "talk as json": lambda server, token: talk_as_json(server, token, recording(), None),
+}
+
+
+@pytest.mark.parametrize("message", SEND_WITHOUT_A_PHOTO)
+def test_a_message_without_a_photo_asks_her_with_the_text_alone(
+    serve: Serve, auth: PhoneAuth, message: str
+) -> None:
+    # A backend that takes no photo argument at all still answers every message without one.
+    backend = TextOnlyBackend()
+    server = serve(backend=backend, camera_max_side=CAMERA_SIDE)
+
+    status, _, _ = SEND_WITHOUT_A_PHOTO[message](server, pair_device(auth))
+
+    assert status == 200
+    assert backend.chats == [HEARD]
+
+
+@pytest.mark.parametrize("route", ["chat", "talk"])
+def test_a_photo_while_the_camera_is_off_is_400_and_reaches_nobody(
+    serve: Serve, auth: PhoneAuth, route: str
+) -> None:
+    backend = FakeBackend()
+    server = serve(backend=backend)
+
+    status, headers, body = send_photo(server, pair_device(auth), route, b64(PHOTO))
+
+    assert status == 400
+    assert headers.get_content_type() == "application/json"
+    assert error_of(body) == CAMERA_OFF
+    assert backend.chats == []
+    assert backend.recordings == []
+
+
+# A photo as large as the page's (1280 x 720, 200 KB): its base64 alone is over 32 KB.
+REAL_PHOTO = photo(1280, 720, size=200_000)
+TOO_LARGE = "Permintaan terlalu besar."
+
+
+@pytest.mark.parametrize(
+    ("route", "sent", "expected"),
+    [
+        ("chat", None, (400, CAMERA_OFF)),
+        ("talk", None, (400, CAMERA_OFF)),
+        ("chat", REAL_PHOTO, (413, TOO_LARGE)),  # over the 32 KB a chat has without the camera
+        ("talk", REAL_PHOTO, (400, CAMERA_OFF)),
+    ],
+    ids=["chat marked", "talk marked", "chat with a real photo", "talk with a real photo"],
+)
+def test_a_message_sent_through_the_camera_while_it_is_off_is_refused_and_reaches_nobody(
+    serve: Serve,
+    auth: PhoneAuth,
+    route: str,
+    sent: bytes | None,
+    expected: tuple[int, str],
+) -> None:
+    # A page loaded before the camera was turned off still has its viewfinder: whatever it
+    # sends through it is refused, with or without a photo, before she is asked.
+    backend = FakeBackend()
+    server = serve(backend=backend)
+
+    status, _, body = post(
+        server, f"/{route}", camera_message(route, sent), token=pair_device(auth)
+    )
+
+    assert (status, error_of(body)) == expected
+    assert backend.chats == []
+    assert backend.recordings == []
+
+
+def test_a_long_recording_with_a_real_photo_while_the_camera_is_off_is_refused_unread(
+    serve: Serve, auth: PhoneAuth
+) -> None:
+    # 45 s of speech and the photo, both as base64, are over the 2 MB a talk has without it.
+    backend = FakeBackend()
+    server = serve(backend=backend)
+    message = {"audio": b64(recording(45)), "image": b64(REAL_PHOTO), "camera": True}
+
+    status, _, body = post(server, "/talk", message, token=pair_device(auth))
+
+    assert (status, error_of(body)) == (413, TOO_LARGE)
+    assert backend.recordings == []
+
+
+NOT_CAMERA_PHOTOS: dict[str, Callable[[], str]] = {
+    "not base64": lambda: "bukan base64!",
+    "data url": lambda: "data:image/jpeg;base64," + b64(PHOTO),
+    "line breaks": lambda: base64.encodebytes(PHOTO).decode("ascii"),
+    "url-safe alphabet": lambda: base64.urlsafe_b64encode(PHOTO).decode("ascii"),
+    "missing padding": lambda: b64(photo(size=1000)).rstrip("="),
+    "empty": lambda: "",
+    "png": lambda: b64(b"\x89PNG\r\n\x1a\n" + bytes(64)),
+    "soi alone": lambda: b64(b"\xff\xd8"),
+    "soi and a marker byte": lambda: b64(b"\xff\xd8\xff"),
+    "cut short": lambda: b64(PHOTO[:30]),
+    "no frame header": lambda: b64(photo(frame=False)),
+    "zero height": lambda: b64(photo(640, 0)),
+    "15 wide": lambda: b64(photo(15, 480)),
+    "15 high": lambda: b64(photo(640, 15)),
+    "1281 wide": lambda: b64(photo(1281, 720)),
+    "1281 high": lambda: b64(photo(720, 1281)),
+    "over 3.5 MB": lambda: b64(photo(size=PHOTO_MAX_BYTES + 1)),
+}
+
+
+@pytest.mark.parametrize("route", ["chat", "talk"])
+@pytest.mark.parametrize("kind", NOT_CAMERA_PHOTOS)
+def test_anything_but_a_jpeg_within_the_camera_s_limits_is_400(
+    serve: Serve, auth: PhoneAuth, route: str, kind: str
+) -> None:
+    backend = FakeBackend()
+    server = serve(backend=backend, camera_max_side=CAMERA_SIDE)
+
+    status, headers, body = send_photo(server, pair_device(auth), route, NOT_CAMERA_PHOTOS[kind]())
+
+    assert status == 400
+    assert headers.get_content_type() == "application/json"
+    assert error_of(body) == NOT_A_PHOTO
+    assert backend.chats == []
+    assert backend.recordings == []
+
+
+CAMERA_PHOTOS: dict[str, Callable[[], bytes]] = {
+    "16 x 16": lambda: photo(16, 16),
+    "landscape": lambda: photo(1280, 720),
+    "portrait": lambda: photo(720, 1280),
+    "square": lambda: photo(1280, 1280),
+    "a sliver across": lambda: photo(1280, 16),
+    "a sliver down": lambda: photo(16, 1280),
+    "3.5 MB": lambda: photo(size=PHOTO_MAX_BYTES),
+}
+
+
+@pytest.mark.parametrize("kind", CAMERA_PHOTOS)
+def test_a_photo_at_the_limits_is_accepted(serve: Serve, auth: PhoneAuth, kind: str) -> None:
+    backend = FakeBackend()
+    server = serve(backend=backend, camera_max_side=CAMERA_SIDE)
+    sent = CAMERA_PHOTOS[kind]()
+
+    status, _, _ = chat_with_photo(server, pair_device(auth), b64(sent))
+
+    assert status == 200
+    assert backend.photos == [sent]
+
+
+def test_the_longest_side_allowed_is_the_server_s_camera_side(
+    serve: Serve, auth: PhoneAuth
+) -> None:
+    backend = FakeBackend()
+    server = serve(backend=backend, camera_max_side=512)
+    token = pair_device(auth)
+
+    accepted = chat_with_photo(server, token, b64(photo(512, 384)))[0]
+    status, _, body = chat_with_photo(server, token, b64(photo(640, 480)))
+
+    assert accepted == 200
+    assert status == 400
+    assert error_of(body) == NOT_A_PHOTO
+    assert backend.photos == [photo(512, 384)]
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"image": b64(PHOTO)},
+        {"text": "", "image": b64(PHOTO)},
+        {"text": HEARD, "image": None},
+        {"text": HEARD, "image": 5},
+        {"text": HEARD, "image": [b64(PHOTO)]},
+        {"text": HEARD, "image": b64(PHOTO), "audio": ""},
+        {"text": HEARD, "camera": "true"},
+        {"text": HEARD, "camera": 1},
+        {"text": HEARD, "camera": None},
+        {"text": HEARD, "image": b64(PHOTO), "camera": [True]},
+    ],
+    ids=[
+        "no text",
+        "empty text",
+        "null photo",
+        "number",
+        "list",
+        "extra field",
+        "camera as text",
+        "camera as a number",
+        "null camera",
+        "camera as a list",
+    ],
+)
+def test_a_malformed_chat_with_a_photo_is_400(
+    serve: Serve, auth: PhoneAuth, payload: dict[str, Any]
+) -> None:
+    backend = FakeBackend()
+    server = serve(backend=backend, camera_max_side=CAMERA_SIDE)
+
+    status, _, _ = post(server, "/chat", payload, token=pair_device(auth))
+
+    assert status == 400
+    assert backend.chats == []
+
+
+MALFORMED_JSON_TALKS: dict[str, Callable[[], bytes]] = {
+    "not json": lambda: b"not json",
+    "a list": lambda: b"[]",
+    "no recording": lambda: json.dumps({"image": b64(PHOTO)}).encode(),
+    "recording not a string": lambda: json.dumps({"audio": 5}).encode(),
+    "null photo": lambda: json.dumps({"audio": b64(recording()), "image": None}).encode(),
+    "extra field": lambda: json.dumps({"audio": b64(recording()), "text": HEARD}).encode(),
+    "camera as text": lambda: json.dumps({"audio": b64(recording()), "camera": "1"}).encode(),
+    "null camera": lambda: json.dumps({"audio": b64(recording()), "camera": None}).encode(),
+    "recording not base64": lambda: json.dumps({"audio": "bukan base64!"}).encode(),
+    "recording with line breaks": lambda: json.dumps(
+        {"audio": base64.encodebytes(recording()).decode("ascii")}
+    ).encode(),
+}
+
+
+@pytest.mark.parametrize("kind", MALFORMED_JSON_TALKS)
+def test_a_malformed_json_talk_is_400(serve: Serve, auth: PhoneAuth, kind: str) -> None:
+    backend = FakeBackend()
+    server = serve(backend=backend, camera_max_side=CAMERA_SIDE)
+
+    status, headers, _ = post(
+        server, "/talk", MALFORMED_JSON_TALKS[kind](), token=pair_device(auth)
+    )
+
+    assert status == 400
+    assert headers.get_content_type() == "application/json"
+    assert backend.recordings == []
+    assert backend.chats == []
+
+
+@pytest.mark.parametrize("kind", NOT_TALK_RECORDINGS)
+def test_a_recording_sent_as_json_is_checked_like_a_wav_body(
+    serve: Serve, auth: PhoneAuth, kind: str
+) -> None:
+    backend = FakeBackend()
+    server = serve(backend=backend, camera_max_side=CAMERA_SIDE)
+
+    status, _, _ = talk_as_json(server, pair_device(auth), NOT_TALK_RECORDINGS[kind](), b64(PHOTO))
+
+    assert status == 400
+    assert backend.recordings == []
+
+
+def test_a_recording_sent_as_json_over_sixty_seconds_is_413(serve: Serve, auth: PhoneAuth) -> None:
+    backend = FakeBackend()
+    server = serve(backend=backend, camera_max_side=CAMERA_SIDE)
+
+    status, _, body = talk_as_json(
+        server, pair_device(auth), recording(frames=60 * 16000 + 1), b64(PHOTO)
+    )
+
+    assert status == 413
+    assert "60" in error_of(body)
+    assert backend.recordings == []
+
+
+@pytest.mark.parametrize(("size", "expected"), [(2 * MB, 200), (2 * MB + 1, 413)])
+def test_a_recording_sent_as_json_may_be_two_megabytes_like_a_wav_body(
+    serve: Serve, auth: PhoneAuth, size: int, expected: int
+) -> None:
+    backend = FakeBackend()
+    server = serve(backend=backend, camera_max_side=CAMERA_SIDE)
+    sixty_seconds = recording(60)
+    sent = sixty_seconds + bytes(size - len(sixty_seconds))  # data after the data chunk
+
+    status, _, _ = talk_as_json(server, pair_device(auth), sent, b64(PHOTO))
+
+    assert status == expected
+    assert backend.recordings == ([sent] if expected == 200 else [])
+
+
+@pytest.mark.parametrize(
+    ("path", "camera", "content_type", "limit", "at_the_limit"),
+    [
+        ("/chat", True, "application/json", 5 * MB, 400),
+        ("/chat", True, "application/json; charset=utf-8", 5 * MB, 400),
+        ("/chat", True, "text/plain", 32 * 1024, 415),
+        ("/chat", False, "application/json", 32 * 1024, 400),
+        ("/talk", True, "application/json", 8 * MB, 400),
+        ("/talk", True, "audio/wav", 2 * MB, 400),
+        ("/talk", True, "text/plain", 2 * MB, 415),
+        ("/talk", False, "application/json", 2 * MB, 400),
+        ("/talk", False, "audio/wav", 2 * MB, 400),
+    ],
+)
+def test_the_body_limit_is_chosen_from_the_content_type_before_the_body_is_read(
+    serve: Serve,
+    auth: PhoneAuth,
+    path: str,
+    camera: bool,
+    content_type: str,
+    limit: int,
+    at_the_limit: int,
+) -> None:
+    # With the camera on, JSON may carry a photo (and /talk's recording) as base64.
+    backend = FakeBackend()
+    server = serve(backend=backend, camera_max_side=CAMERA_SIDE if camera else None)
+    token = pair_device(auth)
+    head = post_head(server, path, token, b"Content-Length: %d\r\n" % (limit + 1))
+
+    # The body never comes: a server that tried to read it would time this request out.
+    over = raw_request(
+        server, head.replace(b"application/json", content_type.encode()), end_of_request=False
+    )
+    status, _, _ = post(
+        server, path, b" " * limit, token=token, headers={"Content-Type": content_type}
+    )
+
+    assert over.startswith(b"HTTP/1.0 413 ")
+    assert status == at_the_limit
+    assert backend.chats == []
+    assert backend.recordings == []
+
+
+def test_a_photo_is_logged_only_by_its_size_and_dimensions(
+    serve: Serve,
+    auth: PhoneAuth,
+    capsys: pytest.CaptureFixture[str],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    server = serve(camera_max_side=CAMERA_SIDE)
+    token = pair_device(auth)
+    refused = photo(2000, 1000)
+
+    with caplog.at_level(logging.DEBUG, logger="waifu"):
+        statuses = [
+            chat_with_photo(server, token, b64(PHOTO))[0],
+            talk_as_json(server, token, recording(), b64(PHOTO))[0],
+            chat_with_photo(server, token, b64(refused))[0],
+        ]
+
+    assert statuses == [200, 200, 400]
+    logged = "\n".join(record.getMessage() for record in caplog.records) + caplog.text
+    logged += capsys.readouterr().err
+    for sent in (PHOTO, refused):
+        encoded = b64(sent)
+        pieces = [encoded[start : start + 12] for start in range(0, len(encoded) - 12, 12)]
+        assert [piece for piece in pieces if piece in logged] == []
+        assert repr(sent[:6])[2:-1] not in logged
+    described = [
+        record
+        for record in caplog.records
+        if f"{len(PHOTO)} bytes" in record.getMessage() and "640x480" in record.getMessage()
+    ]
+    assert len(described) == 2
 
 
 # --- one request at a time per device -----------------------------------------------------
