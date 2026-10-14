@@ -268,6 +268,18 @@ def test_a_discarded_turn_asks_nothing_and_leaves_nothing_to_confirm():
     assert gate.check(registry, "komputer", "shutdown", None) is not None
 
 
+def test_a_forgotten_question_is_not_answered_by_the_yes_of_its_turn():
+    # A new session never saw the question, so the yes said to it must run nothing.
+    gate, registry = refused_then_answered("iya")
+    assert gate.awaiting_answer()
+
+    gate.forget_question()
+
+    assert not gate.awaiting_answer()
+    assert gate.check(registry, "komputer", "shutdown", None) is not None
+    assert gate.with_question("") == SHUTDOWN_QUESTION
+
+
 def test_the_gate_hears_master_by_the_names_it_was_given():
     registry = house()
     gate = ConfirmationGate(clock=FakeClock(), names=NAMES)

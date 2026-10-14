@@ -21,9 +21,17 @@ rolled-back turn drops its request instead, since Master never hears its questio
 Providers may have two optional hooks: `begin_turn(user_text)` hears Master's
 words at the start of every turn, and `take_images()` hands over images (the
 screenshot Master asked for) that go back in that call's tool_result, after its
-JSON. The history keeps that tool_result exactly as it was sent. Every request
-resends the session's images, so a session holding 16 MB of them ends before the
-next turn, like an idle one.
+JSON. The history keeps that tool_result exactly as it was sent.
+
+`turn_images` holds the photo Master sent with the turn's words (the phone
+camera). The turn takes it right after the providers' `begin_turn` and sends it
+in Master's own message: the image, a note saying it is from Master's phone
+camera, then the words. Without a photo Master's message stays the plain string,
+so those requests are exactly what they were before photos and the prompt cache
+stays warm. The history keeps the message as sent; a rolled-back turn drops it
+with the rest. Every request resends the session's images, screenshots and photos
+alike, so a session holding 10 MiB of them ends before the next turn, like an idle
+one, and one holding 20 MiB ends even while a question awaits Master's yes.
 
 `on_usage` (the API cost monitor's ledger) hears the model and the tokens of every
 response, a refused or cut-off one too, since each is billed; after a server-side
@@ -52,6 +60,7 @@ from anthropic.types.beta import (
     BetaToolUseBlock,
 )
 
+from waifu.brain.attachments import TurnImages
 from waifu.brain.base import Brain, BrainReply, ToolCallRecord, ToolImage
 from waifu.brain.confirm import ConfirmationGate
 from waifu.brain.memory_tools import changed_memory
@@ -81,11 +90,17 @@ _SESSION_DEFAULTS = AssistantConfig()
 # 10-minute default; a timeout becomes the "cannot connect" apology.
 _REQUEST_TIMEOUT = anthropic.Timeout(60.0, connect=5.0)
 _MAX_RETRIES = 1
-# Every request resends the session's screenshots, and the API refuses a request over 32 MB.
-# A session holding this much base64 image data ends before the next turn, so with the look
-# that crossed it and one more in a turn held for Master's yes (5 MB each at most), every
-# request stays well under 32 MB.
-_SESSION_IMAGE_BYTES = 16 * 2**20
+# Every request resends the session's images, screenshots and Master's photos alike, and the
+# API refuses a request over 32 MB (taken as 32,000,000 bytes). One turn adds at most one photo
+# (the phone server takes 3.5 MiB at most: 4,893,356 bytes as base64) and one screenshot (5 MiB
+# as base64 at most), 9.67 MiB together. A session holding _SESSION_IMAGE_BYTES of base64 image
+# data ends before the next turn, so the turn that crosses it ends under 10 + 9.67 MiB. A
+# question awaiting Master's yes keeps the session one turn more, which may add as much again:
+# 10 + 2 x 9.67 MiB = 30.76 MB, plus the text. That turn may ask a question of its own, and so
+# on, so a session holding _SESSION_IMAGE_CAP ends even while a question awaits (its yes then
+# runs nothing): its last turn stays under 20 + 9.67 MiB = 31.1 MB.
+_SESSION_IMAGE_BYTES = 10 * 2**20
+_SESSION_IMAGE_CAP = 20 * 2**20
 
 # Her canned replies; `{owner}` is filled with what she calls the owner (owner_call).
 _DONE = "Sudah, {owner}."
@@ -109,6 +124,13 @@ WORKSPACE_ENV = "ANTHROPIC_WORKSPACE_ID"
 _WORKSPACE_HEADER = "anthropic-workspace-id"
 _NOT_RUN_ROUND_LIMIT = "Tidak dijalankan: batas langkah untuk satu permintaan sudah tercapai."
 _NOT_RUN_CUT_OFF = "Tidak dijalankan: jawaban terpotong sebelum perintahnya lengkap."
+# Goes between a photo from the phone camera and Master's words, so she knows what it is: what
+# Master is showing her, so "lihat ini" is about the photo (the screen tool refuses such a turn's
+# bare look words too).
+_CAMERA_NOTE = (
+    "[Foto dari kamera HP {owner}, diambil saat pesan ini dikirim: inilah yang {owner} "
+    "tunjukkan. Jangan simpan isinya dengan remember kecuali diminta.]"
+)
 
 
 class ClaudeBrain(Brain):
@@ -126,6 +148,7 @@ class ClaudeBrain(Brain):
         confirmations: ConfirmationGate | None = None,
         owner_call: str = "Master",
         on_usage: Callable[[str, TokenUsage], None] | None = None,
+        turn_images: TurnImages | None = None,
     ) -> None:
         self._max_tool_rounds = config.max_tool_rounds
         self._registry = registry
@@ -133,6 +156,7 @@ class ClaudeBrain(Brain):
         self._confirmations = confirmations
         self._owner_call = owner_call
         self._on_usage = on_usage
+        self._turn_images = turn_images
         self._client = client
         self._session = SessionClock(session_idle_minutes, max_session_turns, clock)
         self._request = _frozen_request(config.claude, registry, self._providers)
@@ -149,17 +173,24 @@ class ClaudeBrain(Brain):
             # An optional hook for tools that need Master's own words (the screen tool).
             if hasattr(provider, "begin_turn"):
                 provider.begin_turn(user_text)
-        ending = self._session_ending()
-        # A new session would hide the question this turn may answer, so it waits one turn.
-        if ending is not None and not (gate is not None and gate.awaiting_answer()):
+        # The photo Master sent with these words, if any (the phone camera).
+        images = self._turn_images.take() if self._turn_images is not None else []
+        awaiting = gate is not None and gate.awaiting_answer()
+        ending = self._session_ending(awaiting)
+        if ending is not None:
             logger.info("Claude session %s; starting a new one", ending)
             self.reset()
+            if gate is not None and awaiting:
+                # The new session never saw the question, so Master's yes must run nothing.
+                gate.forget_question()
         if not self._history:
             # A new session (or a rolled-back first turn): its system prompt is fixed from here.
             self._session_system = _read_system_prompt(self._system_prompt)
         turn_start = len(self._history)
         user_turn = format_user_turn(user_text, now or datetime.now())
-        self._history.append({"role": "user", "content": user_turn})
+        self._history.append(
+            {"role": "user", "content": _user_content(user_turn, images, self._owner_call)}
+        )
         tool_calls: list[ToolCallRecord] = []
         try:
             text = self._run_turn(tool_calls)
@@ -200,13 +231,22 @@ class ClaudeBrain(Brain):
         self._history = []
         self._session.reset()
 
-    def _session_ending(self) -> str | None:
-        """Why the session should end before this turn, or None when it goes on."""
+    def _session_ending(self, awaiting: bool) -> str | None:
+        """Why the session should end before this turn, or None when it goes on.
+
+        While a question awaits Master's answer (`awaiting`), a new session would hide the
+        question this turn may answer, so it waits one turn; only at _SESSION_IMAGE_CAP it
+        does not.
+        """
+        image_bytes = _image_bytes(self._history)
+        if image_bytes >= _SESSION_IMAGE_CAP:
+            return f"holds {image_bytes // 2**20} MB of images, too many to wait for an answer"
+        if awaiting:
+            return None
         if self._session.should_reset():
             return "idle too long or at its turn cap"
-        image_bytes = _image_bytes(self._history)
         if image_bytes >= _SESSION_IMAGE_BYTES:
-            return f"holds {image_bytes // 2**20} MB of screenshots"
+            return f"holds {image_bytes // 2**20} MB of images"
         return None
 
     def _run_turn(self, tool_calls: list[ToolCallRecord]) -> str | None:
@@ -371,16 +411,39 @@ def _tool_result(
     }
 
 
+def _user_content(
+    user_turn: str, images: Sequence[ToolImage], owner_call: str
+) -> str | list[BetaTextBlockParam | BetaImageBlockParam]:
+    """Master's message: the words alone, or after the photo and a note saying where it is from.
+
+    Without a photo it stays the plain string, so such requests are exactly as they always were.
+    """
+    if not images:
+        return user_turn
+    return [
+        *map(_image_block, images),
+        {"type": "text", "text": _CAMERA_NOTE.format(owner=owner_call)},
+        {"type": "text", "text": user_turn},
+    ]
+
+
 def _image_bytes(history: Sequence[Mapping[str, Any]]) -> int:
-    """The size of the base64 data of every image in the history's tool results."""
-    return sum(
-        len(block["source"]["data"])
+    """The size of the base64 data of every image in the history: the photos in Master's own
+    messages and the screenshots in tool results."""
+    blocks = [
+        block
         for message in history
         if message["role"] == "user" and isinstance(message["content"], list)
-        for result in message["content"]
-        if isinstance(result["content"], list)
-        for block in result["content"]
-        if block["type"] == "image"
+        for block in message["content"]
+    ]
+    in_results = [
+        inner
+        for block in blocks
+        if block["type"] == "tool_result" and isinstance(block["content"], list)
+        for inner in block["content"]
+    ]
+    return sum(
+        len(block["source"]["data"]) for block in [*blocks, *in_results] if block["type"] == "image"
     )
 
 

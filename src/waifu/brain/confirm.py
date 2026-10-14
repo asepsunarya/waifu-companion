@@ -236,6 +236,12 @@ class ConfirmationGate:
         with self._lock:
             self._recorded = None
 
+    def forget_question(self) -> None:
+        """Drop the last turn's request, so this turn's yes runs nothing: the conversation that
+        asked it is gone."""
+        with self._lock:
+            self._asked = None
+
     def _answerable(self) -> bool:
         """The last turn's request is waiting and this turn's words came in time (lock held)."""
         return self._asked is not None and self._turn_at - self._asked.at <= self._window_s

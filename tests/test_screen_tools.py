@@ -13,6 +13,7 @@ import ollama
 import pytest
 from anthropic.types.beta import BetaToolParam
 
+from waifu.brain.attachments import CameraTurn
 from waifu.brain.base import ToolImage
 from waifu.brain.screen_tools import ScreenTools
 from waifu.brain.tools import to_anthropic, to_ollama
@@ -237,6 +238,73 @@ def test_one_screenshot_per_turn_and_a_new_request_may_look_again():
     assert "sekali" in second[0]["message"]
     assert third == (json.loads(LOOKED), False)
     assert capture.sizes == [1280, 1280]
+
+
+# --- while Master shows her something through the phone camera --------------------------------
+
+
+@pytest.mark.parametrize(
+    "words",
+    [
+        "coba lihat ini",
+        "lihat ini, bagus nggak bajuku?",
+        "liat deh",
+        "tengokin ini",
+        "キュレネ、見て!",
+    ],
+)
+def test_a_bare_look_word_sent_through_the_phone_camera_never_captures_the_pc_screen(words):
+    capture = FakeCapture()
+    camera = CameraTurn()
+    tools = ScreenTools(capture=capture, camera_turn=camera)
+
+    camera.begin()
+    tools.begin_turn(words)
+    result, is_error = look(tools)
+
+    assert is_error is True
+    assert "kamera HP" in result["message"]
+    assert "layar PC" in result["message"]
+    assert capture.sizes == []
+    assert tools.take_images() == []
+
+
+@pytest.mark.parametrize(
+    "words",
+    [
+        "lihat layarku",
+        "ada yang aneh di layar",
+        "cek screen-ku",
+        "ambil screenshot",
+        "monitor-ku kenapa ya?",
+    ],
+)
+def test_naming_the_pc_screen_through_the_phone_camera_still_lets_her_look(words):
+    capture = FakeCapture()
+    camera = CameraTurn()
+    tools = ScreenTools(capture=capture, camera_turn=camera)
+
+    camera.begin()
+    tools.begin_turn(words)
+
+    assert tools.run("look_at_screen", {}) == (LOOKED, False)
+    assert capture.sizes == [1280]
+
+
+def test_a_bare_look_word_asks_again_once_the_camera_turn_has_ended():
+    capture = FakeCapture()
+    camera = CameraTurn()
+    tools = ScreenTools(capture=capture, camera_turn=camera)
+
+    camera.begin()
+    tools.begin_turn("coba lihat ini")
+    refused = look(tools)[1]
+    camera.end()
+    tools.begin_turn("coba lihat ini")
+
+    assert refused is True
+    assert tools.run("look_at_screen", {}) == (LOOKED, False)
+    assert capture.sizes == [1280]
 
 
 # --- the image -----------------------------------------------------------------------------

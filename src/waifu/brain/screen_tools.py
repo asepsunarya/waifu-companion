@@ -2,7 +2,10 @@
 
 The brain hands every turn's words, as heard, to `begin_turn`; the screen is captured only
 when those words ask her to look (a look word such as "lihat" or "layar", her names left
-out), at most once per turn, whatever the model wants. The screenshot goes back to the model
+out), at most once per turn, whatever the model wants. In a turn sent through the phone
+camera (`CameraTurn`), Master is showing her something on the phone, so only words that name
+the screen itself ("layar", "screenshot") ask her to look at the PC: "coba lihat ini" is about
+the camera, also when its photo could not be taken. The screenshot goes back to the model
 with the tool's result (`take_images`, which only the Claude brain asks for) and is never
 written to disk or logged; one too large for the API's image limit is taken once more,
 smaller. The spec carries no state, so it stays byte-identical for the brain's lifetime and
@@ -18,28 +21,19 @@ import re
 import unicodedata
 from collections.abc import Callable, Iterable, Mapping
 
+from waifu.brain.attachments import CameraTurn
 from waifu.brain.base import ToolImage, ToolSpec
 from waifu.screen import ScreenImage, capture_screen
 
 logger = logging.getLogger(__name__)
 
 LOOK_AT_SCREEN = "look_at_screen"
-# Master's words in a turn must hold one of these for her to look in that turn.
-LOOK_WORDS = frozenset(
-    {
-        "lihat",
-        "liat",
-        "lihatin",
-        "liatin",
-        "tengok",
-        "tengokin",
-        "layar",
-        "layarku",
-        "screen",
-        "screenshot",
-        "monitor",
-        "見て",
-    }
+# Words that name the screen itself: in a turn sent through the phone camera, Master's words
+# must hold one of these for her to look at the PC in that turn.
+SCREEN_WORDS = frozenset({"layar", "layarku", "screen", "screenshot", "monitor"})
+# Master's words in any other turn must hold one of these for her to look in that turn.
+LOOK_WORDS = SCREEN_WORDS | frozenset(
+    {"lihat", "liat", "lihatin", "liatin", "tengok", "tengokin", "見て"}
 )
 DEFAULT_MAX_SIDE = 1280
 # An image's base64 data may be at most 5 MB: the smallest per-image limit of the platforms
@@ -57,6 +51,11 @@ _NOT_ASKED = (
     "Master tidak meminta melihat layar di pesan ini, jadi layarnya tidak dilihat. Lihat layar "
     "hanya kalau pesan Master sendiri memintanya."
 )
+_SHOWN_ON_CAMERA = (
+    "Pesan ini dikirim saat kamera HP Master terbuka: yang Master tunjukkan ada di kamera HP, "
+    "bukan di layar PC, jadi layar PC tidak dilihat. Kalau pesan ini tidak membawa foto, fotonya "
+    "gagal terkirim. Lihat layar PC hanya kalau Master menyebut layarnya."
+)
 _ONCE_PER_TURN = "Layar hanya dilihat sekali untuk setiap pesan Master."
 _CAPTURE_FAILED = "Layar tidak bisa dilihat: Windows gagal mengambilnya."
 _TOO_LARGE = "Layar tidak bisa dilihat: gambarnya terlalu besar untuk dikirim."
@@ -68,7 +67,11 @@ class _InvalidArguments(Exception):
 
 
 class ScreenTools:
-    """A `ToolProvider` for the brain: one screenshot of the main monitor when Master asks."""
+    """A `ToolProvider` for the brain: one screenshot of the main monitor when Master asks.
+
+    `camera_turn`, shared with the Assistant while the phone camera is offered, tells which
+    turns were sent through the phone camera.
+    """
 
     def __init__(
         self,
@@ -76,11 +79,14 @@ class ScreenTools:
         capture: Callable[[int], ScreenImage] = capture_screen,
         max_side: int = DEFAULT_MAX_SIDE,
         names: Iterable[str] = (),
+        camera_turn: CameraTurn | None = None,
     ) -> None:
         self._capture = capture
         self._max_side = max_side
         self._names = frozenset(word for name in names for word in _words(name))
+        self._camera_turn = camera_turn
         self._asked = False  # whether this turn's words ask her to look
+        self._on_camera = False  # whether this turn was sent through the phone camera
         self._looked = False  # whether this turn already tried to capture
         self._image: ToolImage | None = None  # the last screenshot, until handed over
 
@@ -108,11 +114,14 @@ class ScreenTools:
         ]
 
     def begin_turn(self, user_text: str) -> None:
-        """Start a turn with Master's words as heard; only these can ask her to look.
+        """Start a turn with Master's words as heard; only these can ask her to look, and in a
+        turn sent through the phone camera only by naming the screen.
 
         A screenshot never taken from the turn before is forgotten.
         """
-        self._asked = not LOOK_WORDS.isdisjoint(set(_words(user_text)) - self._names)
+        self._on_camera = self._camera_turn is not None and self._camera_turn.active
+        asking = SCREEN_WORDS if self._on_camera else LOOK_WORDS
+        self._asked = not asking.isdisjoint(set(_words(user_text)) - self._names)
         self._looked = False
         self._image = None
 
@@ -135,6 +144,9 @@ class ScreenTools:
     def _look(self, arguments: object) -> tuple[str, bool]:
         if not isinstance(arguments, Mapping) or arguments:
             raise _InvalidArguments("tool ini tidak menerima argumen; kirim objek kosong {}.")
+        if not self._asked and self._on_camera:
+            logger.info("Not looking at the screen: Master is showing the phone camera")
+            return _error(_SHOWN_ON_CAMERA)
         if not self._asked:
             logger.info("Not looking at the screen: Master did not ask to in this turn")
             return _error(_NOT_ASKED)

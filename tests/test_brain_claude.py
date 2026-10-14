@@ -14,7 +14,8 @@ import pytest
 from anthropic.types.beta import BetaUsage
 
 from waifu.brain import claude as claude_module
-from waifu.brain.base import ToolCallRecord, ToolSpec
+from waifu.brain.attachments import TurnImages
+from waifu.brain.base import ToolCallRecord, ToolImage, ToolSpec
 from waifu.brain.claude import ClaudeBrain
 from waifu.brain.confirm import ConfirmationGate
 from waifu.brain.memory_tools import MemoryTools
@@ -1487,78 +1488,87 @@ def test_the_screenshot_master_asks_for_goes_with_the_tool_result_and_stays_in_t
     assert later.text == "Kubilang dari yang tadi saja, ya."
 
 
-def test_a_session_holding_16_mb_of_screenshots_ends_before_the_next_turn():
+# The largest screenshot the screen tool sends: 5 MiB as base64.
+LARGEST_SCREEN = ScreenImage(png=bytes(5 * 2**20 // 4 * 3), width=1280, height=720)
+# A busy screen of 4 MiB as base64.
+BUSY_SCREEN = ScreenImage(png=bytes(3 * 2**20), width=1280, height=720)
+
+
+@pytest.mark.parametrize(
+    ("raw_bytes", "new_session"),
+    [(5 * 2**20 // 4 * 3, True), (5 * 2**20 // 4 * 3 - 3, False)],
+    ids=["10 MiB", "4 bytes under 10 MiB"],
+)
+def test_a_session_holding_10_mib_of_screenshots_ends_before_the_next_turn(raw_bytes, new_session):
     # Every request resends the whole session, and the API refuses a request over 32 MB.
-    busy_screen = ScreenImage(png=bytes(3 * 2**20), width=1280, height=720)  # 4 MiB as base64
-    capture = FakeCapture(busy_screen)
+    capture = FakeCapture(ScreenImage(png=bytes(raw_bytes), width=1280, height=720))
     outcomes = []
-    for look in range(1, 5):
+    for look in range(1, 3):
         outcomes += [look_at_screen(f"call_{look}"), message([text("Kelihatan!")], "end_turn")]
     client = FakeAnthropic(*outcomes, message([text("Sama-sama!")], "end_turn"))
     brain = make_brain(client, providers=[ScreenTools(capture=capture)])
 
-    for _ in range(4):
+    for _ in range(2):
         brain.respond("Cyrene, lihat layarku", now=NOW)
     brain.respond("makasih", now=NOW)
 
-    assert capture.captures == 4
-    # The fourth look still went on with the session's 12 MiB of screenshots...
-    assert len(client.requests[6]["messages"]) == 13
-    # ...but with 16 MiB in the history, the next turn starts a new session.
-    assert client.requests[8]["messages"] == [
-        {"role": "user", "content": format_user_turn("makasih", NOW)}
-    ]
+    assert capture.captures == 2
+    # The second look still went on with the session's first screenshot...
+    assert len(client.requests[2]["messages"]) == 5
+    # ...and with two of 5 MiB (as base64) in the history, the next turn starts a new session.
+    assert (
+        client.requests[4]["messages"]
+        == [{"role": "user", "content": format_user_turn("makasih", NOW)}]
+    ) is new_session
 
 
 def test_a_session_full_of_screenshots_waits_for_the_answer_to_its_question():
-    busy_screen = ScreenImage(png=bytes(3 * 2**20), width=1280, height=720)  # 4 MiB as base64
     registry = pc_house()
     outcomes = []
-    for look in range(1, 4):
+    for look in range(1, 3):
         outcomes += [look_at_screen(f"call_{look}"), message([text("Kelihatan!")], "end_turn")]
     look_then_shutdown = [
-        tool_use("call_4", "look_at_screen", {}),
-        tool_use("call_5", "control_device", {"device": "komputer", "command": "shutdown"}),
+        tool_use("call_3", "look_at_screen", {}),
+        tool_use("call_4", "control_device", {"device": "komputer", "command": "shutdown"}),
     ]
     client = FakeAnthropic(
         *outcomes,
         message(look_then_shutdown, "tool_use"),
         message([text("Baik, Master.")], "end_turn"),
-        shutdown("call_6"),
+        shutdown("call_5"),
         message([text("Komputer mati dalam 30 detik, Master.")], "end_turn"),
         message([text("Halo!")], "end_turn"),
     )
-    capture = FakeCapture(busy_screen)
+    capture = FakeCapture(BUSY_SCREEN)
     brain = gated_brain(client, registry, providers=[ScreenTools(capture=capture)])
 
-    for _ in range(3):
+    for _ in range(2):
         brain.respond("Cyrene, lihat layarku", now=NOW)
     brain.respond("Cyrene, lihat layarku, terus matikan komputer", now=NOW)
     brain.respond("iya", now=NOW)
     brain.respond("halo", now=NOW)
 
-    assert capture.captures == 4
-    # 16 MiB of screenshots, but the yes still went to the session that asked the question...
+    assert capture.captures == 3
+    # 12 MiB of screenshots, but the yes still went to the session that asked the question...
     assert registry.get("komputer").calls == [("shutdown", None)]
-    assert len(client.requests[8]["messages"]) == 17
+    assert len(client.requests[6]["messages"]) == 13
     # ...and only the turn after it started a new one.
-    assert len(client.requests[10]["messages"]) == 1
+    assert len(client.requests[8]["messages"]) == 1
 
 
 def test_a_rolled_back_look_leaves_no_screenshot_in_the_session():
-    busy_screen = ScreenImage(png=bytes(3 * 2**20), width=1280, height=720)
     outcomes = []
-    for look in range(1, 5):
+    for look in range(1, 4):
         outcomes += [look_at_screen(f"call_{look}"), message([text("Kelihatan!")], "end_turn")]
-    outcomes[-1] = connection_error()  # the fourth look is rolled back with its screenshot
+    outcomes[-1] = connection_error()  # the third look is rolled back with its screenshot
     client = FakeAnthropic(*outcomes, message([text("Sama-sama!")], "end_turn"))
-    brain = make_brain(client, providers=[ScreenTools(capture=FakeCapture(busy_screen))])
+    brain = make_brain(client, providers=[ScreenTools(capture=FakeCapture(BUSY_SCREEN))])
 
-    for _ in range(4):
+    for _ in range(3):
         brain.respond("Cyrene, lihat layarku", now=NOW)
     brain.respond("makasih", now=NOW)
 
-    assert len(client.requests[8]["messages"]) == 13  # 12 MiB of screenshots: the session goes on
+    assert len(client.requests[6]["messages"]) == 9  # 8 MiB of screenshots: the session goes on
 
 
 def test_a_tool_result_without_an_image_stays_a_plain_string():
@@ -1913,3 +1923,338 @@ def test_when_the_whole_chain_refuses_every_attempt_is_reported():
         (OPUS, TokenUsage(input=300, output=900, cache_read=20_000)),
         ("claude-opus-5", TokenUsage(input=300)),
     ]
+
+
+# Photos from the phone camera
+
+# A stand-in for a camera photo: JPEG markers only, never a real image.
+PHOTO_JPEG = bytes.fromhex("ffd8ffe000104a46494600010100000100010000ffd9")
+PHOTO = ToolImage("image/jpeg", PHOTO_JPEG)
+PHOTO_BLOCK = {
+    "type": "image",
+    "source": {
+        "type": "base64",
+        "media_type": "image/jpeg",
+        "data": base64.b64encode(PHOTO_JPEG).decode("ascii"),
+    },
+}
+CAMERA_NOTE = {
+    "type": "text",
+    "text": (
+        "[Foto dari kamera HP Master, diambil saat pesan ini dikirim: inilah yang Master "
+        "tunjukkan. Jangan simpan isinya dengan remember kecuali diminta.]"
+    ),
+}
+BUSY_PHOTO = ToolImage("image/jpeg", bytes(3 * 2**20))  # 4 MiB as base64
+
+
+def words_block(user_text: str) -> dict:
+    return {"type": "text", "text": format_user_turn(user_text, NOW)}
+
+
+def sdk_reply(content: list[dict], stop_reason: str) -> dict:
+    return {
+        "id": "msg_1",
+        "type": "message",
+        "role": "assistant",
+        "model": OPUS,
+        "content": content,
+        "stop_reason": stop_reason,
+        "usage": {"input_tokens": 10, "output_tokens": 5},
+    }
+
+
+def wire_bodies(replies: list[dict], turns: list[str], **kwargs: object) -> list[bytes]:
+    """The raw bodies the real SDK sends for Master's `turns`, answered with `replies`."""
+    sent: list[bytes] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        sent.append(request.content)
+        return httpx2.Response(200, json=replies[len(sent) - 1])
+
+    client = anthropic.Anthropic(
+        api_key="test-key",
+        max_retries=0,
+        http_client=httpx2.Client(transport=httpx2.MockTransport(handler)),
+    )
+    brain = make_brain(client, **kwargs)
+    for turn in turns:
+        brain.respond(turn, now=NOW)
+    return sent
+
+
+def test_a_photo_goes_in_masters_message_before_the_camera_note_and_masters_words():
+    images = TurnImages()
+    client = FakeAnthropic(message([text("Itu kucing, Master!")], "end_turn"))
+    brain = make_brain(client, turn_images=images)
+    images.put(PHOTO)
+
+    reply = brain.respond("ini apa?", now=NOW)
+
+    assert reply.text == "Itu kucing, Master!"
+    assert client.requests[0]["messages"] == [
+        {"role": "user", "content": [PHOTO_BLOCK, CAMERA_NOTE, words_block("ini apa?")]}
+    ]
+    assert images.take() == []  # the turn took it
+
+
+def test_the_photo_stays_in_the_history_as_sent_and_the_next_turn_without_one_is_plain_text():
+    images = TurnImages()
+    answer = [text("Itu kucing, Master!")]
+    client = FakeAnthropic(
+        message(answer, "end_turn"), message([text("Kucing oranye.")], "end_turn")
+    )
+    brain = make_brain(client, turn_images=images)
+
+    images.put(PHOTO)
+    brain.respond("ini apa?", now=NOW)
+    reply = brain.respond("warnanya apa?", now=NOW)
+
+    assert reply.text == "Kucing oranye."
+    second = client.requests[1]["messages"]
+    assert second[0] is client.requests[0]["messages"][0]
+    assert second[1] == {"role": "assistant", "content": answer}
+    assert second[2] == {"role": "user", "content": format_user_turn("warnanya apa?", NOW)}
+    assert len(second) == 3
+
+
+def test_the_camera_note_calls_the_owner_what_she_calls_them():
+    images = TurnImages()
+    client = FakeAnthropic(message([text("Bagus, Sayang!")], "end_turn"))
+    brain = make_brain(client, turn_images=images, owner_call="Sayang")
+    images.put(PHOTO)
+
+    brain.respond("bagus nggak bajuku?", now=NOW)
+
+    [_, note, _] = client.requests[0]["messages"][0]["content"]
+    assert note == {
+        "type": "text",
+        "text": (
+            "[Foto dari kamera HP Sayang, diambil saat pesan ini dikirim: inilah yang Sayang "
+            "tunjukkan. Jangan simpan isinya dengan remember kecuali diminta.]"
+        ),
+    }
+
+
+def test_without_a_photo_the_requests_are_byte_identical_to_a_brain_without_turn_images():
+    # Nothing changes for turns without a photo, so the prompt cache stays warm.
+    replies = [
+        sdk_reply([{"type": "text", "text": "Halo, Master!"}], "end_turn"),
+        sdk_reply(
+            [{"type": "tool_use", "id": "toolu_1", "name": "control_device", "input": LAMP_ON}],
+            "tool_use",
+        ),
+        sdk_reply([{"type": "text", "text": "Sudah, Master!"}], "end_turn"),
+    ]
+    turns = ["halo", "nyalakan lampu"]
+
+    with_holder = wire_bodies(replies, turns, turn_images=TurnImages())
+    without = wire_bodies(replies, turns)
+
+    assert len(with_holder) == 3
+    assert with_holder == without
+    assert json.loads(with_holder[0])["messages"] == [
+        {"role": "user", "content": format_user_turn("halo", NOW)}
+    ]
+
+
+def test_real_sdk_sends_the_photo_in_masters_message_on_the_wire():
+    images = TurnImages()
+    images.put(PHOTO)
+
+    [body] = wire_bodies(
+        [sdk_reply([{"type": "text", "text": "Itu kucing, Master!"}], "end_turn")],
+        ["ini apa?"],
+        turn_images=images,
+    )
+
+    assert json.loads(body)["messages"] == [
+        {"role": "user", "content": [PHOTO_BLOCK, CAMERA_NOTE, words_block("ini apa?")]}
+    ]
+
+
+def test_a_rolled_back_photo_turn_leaves_no_photo_in_the_session():
+    images = TurnImages()
+    client = FakeAnthropic(
+        message([text("Halo!")], "end_turn"),
+        connection_error(),
+        message([text("Oke.")], "end_turn"),
+    )
+    brain = make_brain(client, turn_images=images)
+
+    brain.respond("halo", now=NOW)
+    images.put(PHOTO)
+    apology = brain.respond("ini apa?", now=NOW)
+    brain.respond("coba lagi", now=NOW)
+
+    assert "tidak bisa terhubung" in apology.text
+    third = client.requests[2]["messages"]
+    assert [entry["role"] for entry in third] == ["user", "assistant", "user"]
+    assert third[2] == {"role": "user", "content": format_user_turn("coba lagi", NOW)}
+
+
+@pytest.mark.parametrize(
+    "image_turns",
+    [["photo"] * 3, ["photo", "look", "photo"]],
+    ids=["photos", "photos_and_screenshots"],
+)
+def test_a_session_holding_10_mib_of_images_ends_before_the_next_turn(image_turns, caplog):
+    images = TurnImages()
+    capture = FakeCapture(BUSY_SCREEN)
+    outcomes = []
+    for index, kind in enumerate(image_turns):
+        if kind == "look":
+            outcomes.append(look_at_screen(f"call_{index}"))
+        outcomes.append(message([text("Kelihatan!")], "end_turn"))
+    client = FakeAnthropic(*outcomes, message([text("Sama-sama!")], "end_turn"))
+    brain = make_brain(client, providers=[ScreenTools(capture=capture)], turn_images=images)
+
+    for kind in image_turns:
+        if kind == "photo":
+            images.put(BUSY_PHOTO)
+            brain.respond("ini apa?", now=NOW)
+        else:
+            brain.respond("Cyrene, lihat layarku", now=NOW)
+    with caplog.at_level(logging.INFO, logger=claude_module.__name__):
+        brain.respond("makasih", now=NOW)
+
+    assert "session holds 12 MB of images; starting a new one" in caplog.text
+    # The third image still went to the session holding 8 MiB of them...
+    assert client.requests[-2]["messages"][0] is client.requests[0]["messages"][0]
+    # ...but with 12 MiB in the history, the next turn starts a new session.
+    assert client.requests[-1]["messages"] == [
+        {"role": "user", "content": format_user_turn("makasih", NOW)}
+    ]
+
+
+def test_a_session_full_of_photos_waits_for_the_answer_to_its_question():
+    registry = pc_house()
+    images = TurnImages()
+    client = FakeAnthropic(
+        *[message([text("Kelihatan!")], "end_turn") for _ in range(2)],
+        shutdown("call_1"),
+        message([text("Baik, Master.")], "end_turn"),
+        shutdown("call_2"),
+        message([text("Komputer mati dalam 30 detik, Master.")], "end_turn"),
+        message([text("Halo!")], "end_turn"),
+    )
+    brain = gated_brain(client, registry, turn_images=images)
+
+    for _ in range(2):
+        images.put(BUSY_PHOTO)
+        brain.respond("ini apa?", now=NOW)
+    images.put(BUSY_PHOTO)
+    brain.respond("Cyrene, matikan komputer.", now=NOW)
+    brain.respond("iya", now=NOW)
+    brain.respond("halo", now=NOW)
+
+    # 12 MiB of photos, but the yes still went to the session that asked the question...
+    assert registry.get("komputer").calls == [("shutdown", None)]
+    assert client.requests[4]["messages"][0] is client.requests[0]["messages"][0]
+    # ...and only the turn after it started a new one.
+    assert client.requests[6]["messages"] == [
+        {"role": "user", "content": format_user_turn("halo", NOW)}
+    ]
+
+
+def test_at_20_mib_of_images_a_session_ends_even_while_a_question_awaits_its_yes(caplog):
+    # One question after another could keep a session full of images going for good, past the
+    # API's 32 MB a request: at 20 MiB it ends anyway, and the question goes with it.
+    registry = pc_house()
+    images = TurnImages()
+    plug_off = {"device": "colokan_pc", "command": "off"}
+    look_then = [tool_use("call_2", "look_at_screen", {}), *shutdown("call_3").content]
+    look_then_plug = [
+        tool_use("call_4", "look_at_screen", {}),
+        tool_use("call_5", "control_device", plug_off),
+    ]
+    client = FakeAnthropic(
+        look_at_screen("call_1"),
+        message([text("Kelihatan!")], "end_turn"),
+        message(look_then, "tool_use"),
+        message([text("Baik, Master.")], "end_turn"),
+        message(look_then_plug, "tool_use"),
+        message([text("Baik, Master.")], "end_turn"),
+        message([tool_use("call_6", "control_device", plug_off)], "tool_use"),
+        message([], "end_turn"),
+    )
+    capture = FakeCapture(BUSY_SCREEN)
+    brain = gated_brain(
+        client, registry, providers=[ScreenTools(capture=capture)], turn_images=images
+    )
+
+    for words in [
+        "Cyrene, lihat layarku",
+        "Cyrene, lihat layarku, terus matikan komputer",
+        "Cyrene, lihat layarku, terus matikan colokan PC",
+    ]:
+        images.put(BUSY_PHOTO)
+        brain.respond(words, now=NOW)
+    with caplog.at_level(logging.INFO, logger=claude_module.__name__):
+        answer = brain.respond("iya", now=NOW)
+
+    assert capture.captures == 3
+    # 16 MiB of images and a question awaiting its answer: the third turn kept the session...
+    assert client.requests[4]["messages"][0] is client.requests[0]["messages"][0]
+    # ...but with 24 MiB, the yes went to a new session, which never heard the question...
+    assert "session holds 24 MB of images" in caplog.text
+    assert client.requests[6]["messages"] == [
+        {"role": "user", "content": format_user_turn("iya", NOW)}
+    ]
+    # ...so even the very call it was asked about runs nothing and is asked about again.
+    assert registry.get("colokan_pc").calls == []
+    assert registry.get("komputer").calls == []
+    [held] = answer.tool_calls
+    assert json.loads(held.result)["needs_confirmation"] is True
+    assert answer.text == PLUG_QUESTION
+
+
+@pytest.mark.parametrize(
+    ("last_photo", "new_session"),
+    [(BUSY_PHOTO, True), (ToolImage("image/jpeg", bytes(3 * 2**20 - 3)), False)],
+    ids=["20 MiB", "4 bytes under 20 MiB"],
+)
+def test_a_session_holding_20_mib_of_images_ends_before_the_answer_to_its_question(
+    last_photo, new_session
+):
+    # No turn starts with 20 MiB of images, so with at most 9.67 MiB a turn no request reaches
+    # the API's 32 MB: two turns of a photo and a screenshot of 4 MiB each (as base64), then a
+    # photo of 4 MiB (or 4 bytes less) with a question of its own.
+    registry = pc_house()
+    images = TurnImages()
+    plug_off = {"device": "colokan_pc", "command": "off"}
+    look_then = [tool_use("call_2", "look_at_screen", {}), *shutdown("call_3").content]
+    client = FakeAnthropic(
+        look_at_screen("call_1"),
+        message([text("Kelihatan!")], "end_turn"),
+        message(look_then, "tool_use"),
+        message([text("Baik, Master.")], "end_turn"),
+        message([tool_use("call_4", "control_device", plug_off)], "tool_use"),
+        message([text("Baik, Master.")], "end_turn"),
+        message([tool_use("call_5", "control_device", plug_off)], "tool_use"),
+        message([], "end_turn"),
+    )
+    brain = gated_brain(
+        client,
+        registry,
+        providers=[ScreenTools(capture=FakeCapture(BUSY_SCREEN))],
+        turn_images=images,
+    )
+
+    for photo, words in [
+        (BUSY_PHOTO, "Cyrene, lihat layarku"),
+        (BUSY_PHOTO, "Cyrene, lihat layarku, terus matikan komputer"),
+        (last_photo, "Cyrene, matikan colokan PC"),
+    ]:
+        images.put(photo)
+        brain.respond(words, now=NOW)
+    brain.respond("iya", now=NOW)
+
+    # 16 MiB of images and a question awaiting its answer: the third turn kept the session...
+    assert client.requests[4]["messages"][0] is client.requests[0]["messages"][0]
+    # ...and the yes went to it under 20 MiB, so the plug went off; at 20 MiB, to a new session.
+    assert (
+        client.requests[6]["messages"]
+        == [{"role": "user", "content": format_user_turn("iya", NOW)}]
+    ) is new_session
+    assert registry.get("colokan_pc").calls == ([] if new_session else [("off", None)])
