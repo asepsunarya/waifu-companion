@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable, Sequence
 
+from waifu.brain.attachments import TurnImages
 from waifu.brain.base import Brain
 from waifu.brain.confirm import ConfirmationGate
 from waifu.brain.ollama_brain import OllamaBrain
@@ -27,13 +28,15 @@ def build_brain(
     providers: Sequence[ToolProvider] = (),
     memory_section: Callable[[], str] | None = None,
     on_usage: Callable[[str, TokenUsage], None] | None = None,
+    turn_images: TurnImages | None = None,
 ) -> Brain:
     """The configured backend; the persona comes from `assistant.persona_file` unless given.
 
     With `memory_section`, the brain reads the system prompt at each session start,
     and the section follows the unchanged base prompt. Every brain gets its own
     confirmation gate. `on_usage` hears what each Claude response used; Ollama is
-    free, so its brain never calls it.
+    free, so its brain never calls it. `turn_images` brings Claude the photo a phone
+    message carries; Ollama's model cannot see images, so its brain never gets it.
     """
     persona = load_persona(config.assistant.persona_file) if persona_text is None else persona_text
     base_prompt = build_system_prompt(
@@ -59,7 +62,14 @@ def build_brain(
         # Imported here so the Ollama path never loads the Anthropic SDK.
         from waifu.brain.claude import ClaudeBrain
 
-        return ClaudeBrain(config.brain, registry, system_prompt, **options, on_usage=on_usage)
+        return ClaudeBrain(
+            config.brain,
+            registry,
+            system_prompt,
+            **options,
+            on_usage=on_usage,
+            turn_images=turn_images,
+        )
     return OllamaBrain(config.brain, registry, system_prompt, **options)
 
 

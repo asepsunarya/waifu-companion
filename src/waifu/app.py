@@ -17,7 +17,11 @@ Other threads make her speak up by herself in two ways, both queued and handled 
 The owner's paired phone (`waifu.phone`) talks to her from the phone server's threads:
 `reply_for_phone` and `transcribe_for_phone`, handed to the server as `PhoneAnswers`. Brain
 turns, the voice loop's and the phone's, are taken one at a time (the history is
-append-only), and a phone reply is voiced for the phone, never on the PC.
+append-only), and a phone reply is voiced for the phone, never on the PC. While the phone
+camera is offered, a phone message may carry a photo: it waits in the `TurnImages` she shares
+with the brain only for the turn of that message. A message sent with the viewfinder open,
+with or without its photo, also makes only its own turn a camera turn in the `CameraTurn` she
+shares with the screen tool, so "coba lihat ini" is never taken as asking for the PC screen.
 """
 
 from __future__ import annotations
@@ -39,7 +43,8 @@ import numpy as np
 from waifu.avatar.bus import SPEAK_FPS
 from waifu.avatar.emotion import NEUTRAL, split_emotion
 from waifu.avatar.lipsync import viseme_track
-from waifu.brain.base import Brain, BrainReply, ToolCallRecord
+from waifu.brain.attachments import CameraTurn, TurnImages
+from waifu.brain.base import Brain, BrainReply, ToolCallRecord, ToolImage
 from waifu.config import AppConfig
 from waifu.gate import WakeGate
 from waifu.phone.server import PhoneReply
@@ -61,6 +66,8 @@ TAG_ONLY_FAILED = "Maaf {owner}, ada perintah yang gagal dijalankan."
 TAG_ONLY_NO_ANSWER = "Maaf {owner}, aku belum bisa menjawab itu."
 # Her voice on the phone: a mono 16-bit PCM WAV at this rate.
 PHONE_SAMPLE_RATE = 24000
+# What the phone page's camera sends: one JPEG per message.
+PHOTO_MEDIA_TYPE = "image/jpeg"
 PCM16_SCALE = 32767  # full scale of a 16-bit sample, symmetric so +1 and -1 both fit
 
 
@@ -199,6 +206,8 @@ class Assistant:
         avatar: Avatar | None = None,
         now: Callable[[], datetime] = datetime.now,
         clock: Callable[[], float] = time.monotonic,
+        turn_images: TurnImages | None = None,
+        camera_turn: CameraTurn | None = None,
     ) -> None:
         self._name = config.assistant.name
         self._owner_call = config.assistant.owner_call
@@ -212,6 +221,10 @@ class Assistant:
         self._avatar = avatar
         self._now = now
         self._clock = clock
+        # Shared with the brain while the phone camera is offered; None otherwise.
+        self._turn_images = turn_images
+        # Shared with the screen tool while the phone camera is offered; None otherwise.
+        self._camera_turn = camera_turn
         self._mic: Microphone | None = None
         self._segmenter: Segmenter | None = None
         self._speaker_error_logged = False
@@ -296,17 +309,24 @@ class Assistant:
         """Ask the brain directly: no wake word, no voice (text chat); the reply has no tag."""
         return self._think(text)[1]
 
-    def reply_for_phone(self, text: str) -> PhoneReply:
+    def reply_for_phone(
+        self, text: str, image: bytes | None = None, *, camera: bool = False
+    ) -> PhoneReply:
         """Her reply to what Master typed or said on the paired phone, voiced for the phone.
 
         One brain turn like any other (the confirmation and screen gates count it), taken
-        after the turn another thread is thinking up. Nothing is said on the PC, whose
-        microphone, follow-up window, and avatar stay as they are. Her voice comes back as a
-        16-bit WAV at PHONE_SAMPLE_RATE with the avatar's mouth track; when it cannot be made
-        (the logs say why), the reply is only its text. Safe from any thread.
+        after the turn another thread is thinking up. `image` is the JPEG the phone camera
+        took as the message was sent: she sees it in this turn only. Without the camera's
+        TurnImages (the camera is not offered) it is dropped with a warning. `camera` tells
+        that the message was sent with the viewfinder open, also when its photo could not be
+        taken (a photo always was): that turn is a camera turn, in which only words naming the
+        screen let her look at the PC's. Nothing is said on the PC, whose microphone,
+        follow-up window, and avatar stay as they are. Her voice comes back as a 16-bit WAV at
+        PHONE_SAMPLE_RATE with the avatar's mouth track; when it cannot be made (the logs say
+        why), the reply is only its text. Safe from any thread.
         """
         logger.info("Phone message: %s", text)
-        emotion, reply = self._think(text)
+        emotion, reply = self._think(text, photo=image, camera=camera or image is not None)
         try:
             audio, sample_rate = self._speech.synthesize(reply.text)
         except Exception as exc:
@@ -540,12 +560,16 @@ class Assistant:
                 target=_pass_on, args=(request.on_reply, reply.text), name="pass-on", daemon=True
             ).start()
 
-    def _think(self, text: str) -> tuple[str, BrainReply]:
+    def _think(
+        self, text: str, *, photo: bytes | None = None, camera: bool = False
+    ) -> tuple[str, BrainReply]:
         """The brain's reply to `text`, split into its emotion and the reply without the tag.
 
         Waits while another thread's turn is thought up: the history takes one turn at a time.
+        `photo` (a JPEG from the phone camera) goes with this turn only (`_showing`), and with
+        `camera` only this turn is a camera turn (`_through_camera`).
         """
-        with self._turn:
+        with self._turn, self._through_camera(camera), self._showing(photo):
             reply = self._brain.respond(text, now=self._now())
         for call in reply.tool_calls:
             # The result itself only at DEBUG: the INFO log (logs\waifu.log under autostart)
@@ -554,6 +578,48 @@ class Assistant:
             logger.info("Tool %s(%s) -> %s", call.name, call.arguments, outcome)
             logger.debug("Tool %s result: %s", call.name, call.result)
         return split_reply(reply, owner_call=self._owner_call)
+
+    @contextlib.contextmanager
+    def _showing(self, photo: bytes | None) -> Iterator[None]:
+        """Hand `photo` to the brain for the turn inside the block, under the turn lock.
+
+        The shared TurnImages is cleared afterwards, also when the turn fails, so the photo
+        never reaches a later turn (a voice turn included). Without one (the camera is not
+        offered) the photo is dropped with a warning. Photos are private: only their size is
+        ever logged.
+        """
+        images = self._turn_images
+        if photo is not None and images is None:
+            logger.warning(
+                "Dropped a photo of %d bytes from the phone: the camera is not offered", len(photo)
+            )
+        if photo is None or images is None:
+            yield
+            return
+        images.put(ToolImage(PHOTO_MEDIA_TYPE, photo))
+        try:
+            yield
+        finally:
+            images.clear()
+
+    @contextlib.contextmanager
+    def _through_camera(self, camera: bool) -> Iterator[None]:
+        """With `camera`, mark the turn inside the block, under the turn lock, as sent through
+        the phone camera in the CameraTurn shared with the screen tool.
+
+        The mark ends afterwards, also when the turn fails, so a later turn (a voice turn
+        included) is never taken for one. Without a CameraTurn (the camera is not offered)
+        there is nothing to mark.
+        """
+        camera_turn = self._camera_turn
+        if not camera or camera_turn is None:
+            yield
+            return
+        camera_turn.begin()
+        try:
+            yield
+        finally:
+            camera_turn.end()
 
     @contextlib.contextmanager
     def _engaged(self) -> Iterator[None]:
@@ -609,8 +675,8 @@ class PhoneAnswers:
     def __init__(self, assistant: Assistant) -> None:
         self._assistant = assistant
 
-    def chat(self, text: str) -> PhoneReply:
-        return self._assistant.reply_for_phone(text)
+    def chat(self, text: str, image: bytes | None = None, *, camera: bool = False) -> PhoneReply:
+        return self._assistant.reply_for_phone(text, image, camera=camera)
 
     def transcribe(self, wav_bytes: bytes) -> str:
         return self._assistant.transcribe_for_phone(wav_bytes)

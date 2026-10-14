@@ -3,22 +3,38 @@ import http.client
 import io
 import json
 import logging
+import struct
 import threading
 import wave
 from collections.abc import Callable, Iterator
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
 from waifu.app import Assistant, PhoneAnswers
 from waifu.avatar.lipsync import viseme_track
-from waifu.brain.base import Brain, BrainReply, ToolCallRecord
-from waifu.config import AppConfig, AssistantConfig, AvatarConfig, PhoneConfig, SpeakerConfig
+from waifu.brain.attachments import CameraTurn, TurnImages
+from waifu.brain.base import Brain, BrainReply, ToolCallRecord, ToolImage
+from waifu.brain.claude import ClaudeBrain
+from waifu.brain.screen_tools import ScreenTools
+from waifu.config import (
+    AppConfig,
+    AssistantConfig,
+    AvatarConfig,
+    BrainConfig,
+    ClaudeConfig,
+    PhoneConfig,
+    SpeakerConfig,
+)
+from waifu.devices.mock import MockDevice
+from waifu.devices.registry import DeviceRegistry
 from waifu.gate import WakeGate
 from waifu.phone.auth import PhoneAuth
 from waifu.phone.server import PhoneBackend, PhoneReply, PhoneServer
+from waifu.screen import ScreenImage, encode_png
 from waifu.voice.base import SpeechToText, Transcript, Utterance
 from waifu.voice.speaker import SpeakerError
 from waifu.voice.stt import SttError
@@ -194,7 +210,7 @@ class Rig:
         *heard: str | Exception,
         owner: tuple[bool, float] | Exception = (True, 0.71),
         reply: str = REPLY,
-        brain: type[FakeBrain] = FakeBrain,
+        brain: Callable[[str], Brain] = FakeBrain,
         speech_error: Exception | None = None,
         player_error: Exception | None = None,
         config: AppConfig | None = None,
@@ -202,6 +218,8 @@ class Rig:
         speaker_check: bool = True,
         with_avatar: bool = False,
         avatar_error: Exception | None = None,
+        turn_images: TurnImages | None = None,
+        camera_turn: CameraTurn | None = None,
     ) -> None:
         config = config or AppConfig()
         self.events: list[str] = []
@@ -227,6 +245,8 @@ class Rig:
             avatar=self.avatar if with_avatar or avatar_error else None,
             now=lambda: NOW,
             clock=self.clock,
+            turn_images=turn_images,
+            camera_turn=camera_turn,
         )
 
     def utterance(self) -> Utterance:
@@ -1759,10 +1779,17 @@ def test_the_assistant_answers_the_phone_server_through_phone_answers():
 
 
 def ask_phone_server(
-    rig: Rig, state_path: Path, route: str, body: bytes, content_type: str
+    rig: Rig,
+    state_path: Path,
+    route: str,
+    body: bytes,
+    content_type: str,
+    *,
+    camera_max_side: int | None = None,
 ) -> tuple[int, dict]:
     """POSTs `body` from a paired phone to a real PhoneServer on 127.0.0.1 (a free port) whose
-    backend is the rig's Assistant; the status and the JSON answer."""
+    backend is the rig's Assistant, its camera on with `camera_max_side`; the status and the
+    JSON answer."""
     auth = PhoneAuth(state_path)
     token = auth.redeem(auth.new_code(), "Android")
     with PhoneServer(
@@ -1772,6 +1799,7 @@ def ask_phone_server(
         PhoneAnswers(rig.assistant),
         owner_call="Master",
         assistant_name="Cyrene",
+        camera_max_side=camera_max_side,
     ) as server:
         host, port = server.server_address[:2]
         connection = http.client.HTTPConnection(host, port, timeout=WAIT_S)
@@ -1819,3 +1847,434 @@ def test_what_a_paired_phone_says_is_heard_and_answered_through_the_phone_server
     assert (answer["heard"], answer["text"]) == (PHONE_TEXT, REPLY)
     assert rig.verifier.calls == 0
     assert rig.brain.turns == [(PHONE_TEXT, NOW)]
+
+
+# Seeing through the phone camera: a photo goes with the phone message it was sent with
+
+
+def camera_jpeg(width: int = 640, height: int = 480) -> bytes:
+    """The head of a JPEG as the page's canvas makes one, built by hand: SOI, a baseline frame
+    header of `width` x `height` with three components, and EOI. Nothing reads further."""
+    components = b"\x01\x22\x00\x02\x11\x01\x03\x11\x01"
+    frame = struct.pack(">HBHHB", 8 + len(components), 8, height, width, 3) + components
+    return b"\xff\xd8\xff\xc0" + frame + b"\xff\xd9"
+
+
+PHOTO = camera_jpeg()
+SEEN_PHOTO = ToolImage("image/jpeg", PHOTO)
+
+
+class SeeingBrain(FakeBrain):
+    """Takes the photo waiting for each turn from `turn_images`, as the Claude brain does, at the
+    end of its turn instead of the start (a turn may take its time)."""
+
+    def __init__(self, reply: str = REPLY) -> None:
+        super().__init__(reply)
+        self.turn_images = TurnImages()
+        self.seen: list[list[ToolImage]] = []
+
+    def respond(self, user_text: str, *, now: datetime | None = None) -> BrainReply:
+        reply = super().respond(user_text, now=now)
+        self.seen.append(self.turn_images.take())
+        return reply
+
+
+def camera_rig(*heard: str, brain: type[SeeingBrain] = SeeingBrain) -> Rig:
+    """A Rig whose Assistant and brain share one TurnImages, as `waifu run` wires them while the
+    phone camera is offered."""
+    images = TurnImages()
+    rig = Rig(*heard, brain=brain, turn_images=images)
+    rig.brain.turn_images = images
+    return rig
+
+
+def test_a_phone_photo_goes_to_her_with_the_words_it_was_sent_with():
+    rig = camera_rig()
+
+    reply = rig.assistant.reply_for_phone(PHONE_TEXT, PHOTO)
+
+    assert rig.brain.turns == [(PHONE_TEXT, NOW)]
+    assert rig.brain.seen == [[SEEN_PHOTO]]
+    assert reply.text == REPLY
+    assert rig.brain.turn_images.take() == []  # nothing waits for the next turn
+
+
+def test_a_phone_message_without_a_photo_and_a_voice_turn_carry_none():
+    rig = camera_rig("Cyrene, nyalakan lampu kamar")
+
+    rig.assistant.reply_for_phone(PHONE_TEXT)
+    rig.assistant.handle_utterance(rig.utterance())
+
+    assert rig.brain.seen == [[], []]
+
+
+class CrashingBrain(SeeingBrain):
+    """Fails its first turn before taking the photo (say a provider's begin_turn breaks), then
+    thinks as usual."""
+
+    def __init__(self, reply: str = REPLY) -> None:
+        super().__init__(reply)
+        self.crashed = False
+
+    def respond(self, user_text: str, *, now: datetime | None = None) -> BrainReply:
+        if not self.crashed:
+            self.crashed = True
+            raise RuntimeError("brain crashed")
+        return super().respond(user_text, now=now)
+
+
+def test_a_phone_turn_that_fails_never_leaks_its_photo_into_the_next_voice_turn():
+    rig = camera_rig("Cyrene, matikan TV", brain=CrashingBrain)
+
+    with pytest.raises(RuntimeError, match="brain crashed"):
+        rig.assistant.reply_for_phone(PHONE_TEXT, PHOTO)
+    rig.assistant.handle_utterance(rig.utterance())
+
+    assert rig.brain.turns == [("matikan TV", NOW)]
+    assert rig.brain.seen == [[]]
+
+
+class SlowSeeingBrain(SeeingBrain):
+    """Holds its first turn until `release` is set, then takes the photo waiting for it."""
+
+    def __init__(self, reply: str = REPLY) -> None:
+        super().__init__(reply)
+        self.thinking = threading.Event()
+        self.release = threading.Event()
+
+    def respond(self, user_text: str, *, now: datetime | None = None) -> BrainReply:
+        if not self.thinking.is_set():
+            self.thinking.set()
+            self.release.wait(WAIT_S)
+        return super().respond(user_text, now=now)
+
+
+def test_a_phone_photo_waits_for_the_voice_loop_s_turn_and_goes_only_with_the_phone_s_words():
+    rig = camera_rig("Cyrene, matikan TV", brain=SlowSeeingBrain)
+    voice = threading.Thread(target=rig.assistant.handle_utterance, args=(rig.utterance(),))
+    voice.start()
+    assert rig.brain.thinking.wait(WAIT_S)
+
+    phone = threading.Thread(target=rig.assistant.reply_for_phone, args=(PHONE_TEXT, PHOTO))
+    phone.start()
+    phone.join(0.1)
+    rig.brain.release.set()
+    voice.join(WAIT_S)
+    phone.join(WAIT_S)
+
+    assert [text for text, _ in rig.brain.turns] == ["matikan TV", PHONE_TEXT]
+    assert rig.brain.seen == [[], [SEEN_PHOTO]]
+
+
+def test_a_phone_photo_is_dropped_with_a_warning_while_the_camera_is_off(caplog):
+    rig = Rig(reply=f"[senang] {REPLY}")
+
+    with caplog.at_level(logging.DEBUG):
+        reply = rig.assistant.reply_for_phone(PHONE_TEXT, PHOTO)
+
+    assert rig.brain.turns == [(PHONE_TEXT, NOW)]
+    assert (reply.text, reply.emotion) == (REPLY, "happy")
+    [warning] = [record for record in caplog.records if record.levelno == logging.WARNING]
+    assert f"{len(PHOTO)} bytes" in warning.getMessage()
+    # Photos are private: only their size is ever logged.
+    assert base64.b64encode(PHOTO).decode("ascii") not in caplog.text
+    assert repr(PHOTO)[2:-1] not in caplog.text
+
+
+def test_phone_answers_hands_her_the_photo_a_message_carries():
+    rig = camera_rig()
+    backend: PhoneBackend = PhoneAnswers(rig.assistant)
+
+    reply = backend.chat(PHONE_TEXT, image=PHOTO)
+
+    assert reply.text == REPLY
+    assert rig.brain.seen == [[SEEN_PHOTO]]
+
+
+def test_a_photo_typed_with_on_the_phone_reaches_her_through_the_phone_server(tmp_path):
+    rig = camera_rig()
+    message = {"text": PHONE_TEXT, "image": base64.b64encode(PHOTO).decode("ascii")}
+
+    status, answer = ask_phone_server(
+        rig,
+        tmp_path / "phone.json",
+        "/chat",
+        json.dumps(message).encode(),
+        "application/json",
+        camera_max_side=1280,
+    )
+
+    assert (status, answer["text"]) == (200, REPLY)
+    assert rig.brain.turns == [(PHONE_TEXT, NOW)]
+    assert rig.brain.seen == [[SEEN_PHOTO]]
+
+
+def test_a_photo_said_with_on_the_phone_reaches_her_with_what_she_heard(tmp_path):
+    rig = camera_rig(PHONE_TEXT)
+    message = {
+        "audio": base64.b64encode(wav_bytes(bytes(32000), 16000)).decode("ascii"),
+        "image": base64.b64encode(PHOTO).decode("ascii"),
+    }
+
+    status, answer = ask_phone_server(
+        rig,
+        tmp_path / "phone.json",
+        "/talk",
+        json.dumps(message).encode(),
+        "application/json",
+        camera_max_side=1280,
+    )
+
+    assert (status, answer["heard"], answer["text"]) == (200, PHONE_TEXT, REPLY)
+    assert rig.brain.seen == [[SEEN_PHOTO]]
+
+
+# A phone message sent through the camera never lets a bare look word photograph the PC screen
+
+
+class CameraWatchingBrain(FakeBrain):
+    """Notes, for each turn, whether it was thought up as sent through the phone camera."""
+
+    def __init__(self, reply: str = REPLY) -> None:
+        super().__init__(reply)
+        self.camera_turn = CameraTurn()
+        self.through_camera: list[bool] = []
+
+    def respond(self, user_text: str, *, now: datetime | None = None) -> BrainReply:
+        self.through_camera.append(self.camera_turn.active)
+        return super().respond(user_text, now=now)
+
+
+class CrashingCameraBrain(CameraWatchingBrain):
+    """Fails its first turn, then thinks as usual."""
+
+    def __init__(self, reply: str = REPLY) -> None:
+        super().__init__(reply)
+        self.crashed = False
+
+    def respond(self, user_text: str, *, now: datetime | None = None) -> BrainReply:
+        if not self.crashed:
+            self.crashed = True
+            raise RuntimeError("brain crashed")
+        return super().respond(user_text, now=now)
+
+
+class SlowCameraWatchingBrain(CameraWatchingBrain):
+    """Notes whether each turn is a camera turn as it starts, and holds the first turn until
+    `release` is set."""
+
+    def __init__(self, reply: str = REPLY) -> None:
+        super().__init__(reply)
+        self.thinking = threading.Event()
+        self.release = threading.Event()
+
+    def respond(self, user_text: str, *, now: datetime | None = None) -> BrainReply:
+        reply = super().respond(user_text, now=now)
+        if not self.thinking.is_set():
+            self.thinking.set()
+            self.release.wait(WAIT_S)
+        return reply
+
+
+def camera_watching_rig(*heard: str, brain: type[CameraWatchingBrain] = CameraWatchingBrain) -> Rig:
+    """A Rig whose Assistant and brain share one CameraTurn, as `waifu run` shares it with the
+    screen tool while the phone camera is offered."""
+    camera = CameraTurn()
+    rig = Rig(*heard, brain=brain, camera_turn=camera)
+    rig.brain.camera_turn = camera
+    return rig
+
+
+def test_a_phone_message_sent_with_the_viewfinder_open_is_thought_up_as_a_camera_turn():
+    rig = camera_watching_rig()
+
+    rig.assistant.reply_for_phone("coba lihat ini", camera=True)
+
+    assert rig.brain.turns == [("coba lihat ini", NOW)]
+    assert rig.brain.through_camera == [True]
+    assert rig.brain.camera_turn.active is False  # over with its turn
+
+
+def test_a_phone_photo_always_makes_its_turn_a_camera_turn():
+    rig = camera_watching_rig()
+
+    rig.assistant.reply_for_phone(PHONE_TEXT, PHOTO)
+
+    assert rig.brain.through_camera == [True]
+
+
+def test_phone_messages_without_the_camera_and_voice_turns_are_no_camera_turns():
+    rig = camera_watching_rig("Cyrene, coba lihat")
+
+    rig.assistant.reply_for_phone(PHONE_TEXT)
+    rig.assistant.handle_utterance(rig.utterance())
+    rig.assistant.handle_text("coba lihat")
+
+    assert rig.brain.through_camera == [False, False, False]
+
+
+def test_a_failed_camera_turn_never_marks_the_next_voice_turn():
+    rig = camera_watching_rig("Cyrene, coba lihat", brain=CrashingCameraBrain)
+
+    with pytest.raises(RuntimeError, match="brain crashed"):
+        rig.assistant.reply_for_phone("coba lihat ini", camera=True)
+    rig.assistant.handle_utterance(rig.utterance())
+
+    assert rig.brain.through_camera == [False]
+    assert rig.brain.camera_turn.active is False
+
+
+def test_a_phone_message_sent_through_the_camera_is_marked_only_once_it_has_the_turn():
+    rig = camera_watching_rig(
+        "Cyrene, matikan TV", "Cyrene, coba lihat", brain=SlowCameraWatchingBrain
+    )
+    voice = threading.Thread(target=rig.assistant.handle_utterance, args=(rig.utterance(),))
+    voice.start()
+    assert rig.brain.thinking.wait(WAIT_S)
+    queued_voice = threading.Thread(target=rig.assistant.handle_utterance, args=(rig.utterance(),))
+    queued_voice.start()
+    queued_voice.join(0.1)
+
+    phone = threading.Thread(
+        target=rig.assistant.reply_for_phone, args=("coba lihat ini",), kwargs={"camera": True}
+    )
+    phone.start()
+    phone.join(0.1)
+    waiting = phone.is_alive()
+    marked_while_waiting = rig.brain.camera_turn.active
+    rig.brain.release.set()
+    for thread in (voice, queued_voice, phone):
+        thread.join(WAIT_S)
+
+    assert waiting
+    # While it waits for the turn lock, a turn that gets it first (here the voice turn queued
+    # before it) must not be taken for a camera turn: its "coba lihat" may mean the PC screen.
+    assert marked_while_waiting is False
+    turns = [text for text, _ in rig.brain.turns]
+    assert dict(zip(turns, rig.brain.through_camera, strict=True)) == {
+        "matikan TV": False,
+        "coba lihat": False,
+        "coba lihat ini": True,
+    }
+
+
+def test_phone_answers_tells_her_the_message_came_through_the_camera():
+    rig = camera_watching_rig()
+    backend: PhoneBackend = PhoneAnswers(rig.assistant)
+
+    backend.chat("coba lihat ini", camera=True)
+    backend.chat(PHONE_TEXT)
+
+    assert rig.brain.through_camera == [True, False]
+
+
+def test_a_message_sent_through_the_camera_without_a_photo_is_a_camera_turn_via_the_server(
+    tmp_path,
+):
+    rig = camera_watching_rig()
+    message = {"text": "coba lihat ini", "camera": True}
+
+    status, answer = ask_phone_server(
+        rig,
+        tmp_path / "phone.json",
+        "/chat",
+        json.dumps(message).encode(),
+        "application/json",
+        camera_max_side=1280,
+    )
+
+    assert (status, answer["text"]) == (200, REPLY)
+    assert rig.brain.through_camera == [True]
+
+
+SCREEN = ScreenImage(png=encode_png(np.full((9, 16, 3), 200, dtype=np.uint8)), width=16, height=9)
+DESCRIBED = "Begitu, Master."
+
+
+class ScreenCapture:
+    """Stands in for capture_screen: counts the screenshots, never touches the real screen."""
+
+    def __init__(self) -> None:
+        self.captures = 0
+
+    def __call__(self, max_side: int) -> ScreenImage:
+        self.captures += 1
+        return SCREEN
+
+
+class LookingClaude:
+    """Stands in for anthropic.Anthropic as a model that answers every message by calling
+    look_at_screen, then saying DESCRIBED; keeps each tool result it was sent."""
+
+    api_key = "test-key"
+    auth_token = None
+    credentials = None
+
+    def __init__(self) -> None:
+        self.results: list[dict] = []
+        self.beta = SimpleNamespace(messages=SimpleNamespace(create=self._create))
+
+    def _create(self, **request: object) -> SimpleNamespace:
+        content = request["messages"][-1]["content"]
+        if isinstance(content, list) and content[0]["type"] == "tool_result":
+            self.results.append(content[0])
+            reply = [SimpleNamespace(type="text", text=DESCRIBED)]
+            return SimpleNamespace(content=reply, stop_reason="end_turn", stop_details=None)
+        call = SimpleNamespace(type="tool_use", id="toolu_1", name="look_at_screen", input={})
+        return SimpleNamespace(content=[call], stop_reason="tool_use", stop_details=None)
+
+
+def looking_rig() -> tuple[Rig, ScreenCapture, LookingClaude]:
+    """A Rig around a real Claude brain with the screen tool, sharing the photo holder and the
+    camera turn as `waifu run` does while the phone camera is offered."""
+    capture = ScreenCapture()
+    client = LookingClaude()
+    images = TurnImages()
+    camera = CameraTurn()
+    claude = ClaudeBrain(
+        BrainConfig(backend="claude", claude=ClaudeConfig(model="claude-opus-5-5")),
+        DeviceRegistry([MockDevice("lampu_kamar", "Lampu kamar", commands=["on", "off"])]),
+        "Kamu Cyrene.",
+        client=client,
+        providers=[ScreenTools(capture=capture, camera_turn=camera)],
+        turn_images=images,
+    )
+    rig = Rig(brain=lambda reply: claude, turn_images=images, camera_turn=camera)
+    return rig, capture, client
+
+
+@pytest.mark.parametrize(
+    ("image", "camera"), [(PHOTO, False), (None, True)], ids=["with its photo", "photo not taken"]
+)
+@pytest.mark.parametrize("words", ["coba lihat ini", "lihat ini, bagus nggak bajuku?"])
+def test_a_bare_look_word_from_the_phone_camera_never_photographs_the_pc_screen(
+    words, image, camera
+):
+    rig, capture, client = looking_rig()
+
+    reply = rig.assistant.reply_for_phone(words, image, camera=camera)
+
+    assert capture.captures == 0
+    [result] = client.results
+    assert result["is_error"] is True
+    assert "kamera HP" in result["content"]
+    assert reply.text == DESCRIBED
+
+
+def test_naming_the_pc_screen_from_the_phone_camera_still_looks_at_it():
+    rig, capture, client = looking_rig()
+
+    rig.assistant.reply_for_phone("lihat layarku", camera=True)
+
+    assert capture.captures == 1
+    [result] = client.results
+    assert result["is_error"] is False
+
+
+def test_after_a_camera_turn_a_bare_look_word_on_the_pc_looks_at_the_screen_again():
+    rig, capture, _ = looking_rig()
+
+    rig.assistant.reply_for_phone("coba lihat ini", camera=True)
+    rig.assistant.handle_text("coba lihat ini")
+
+    assert capture.captures == 1

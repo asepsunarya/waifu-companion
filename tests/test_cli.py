@@ -37,6 +37,7 @@ from waifu.avatar.lipsync import VISEMES, viseme_track
 from waifu.avatar.server import AvatarError
 from waifu.avatar.window import AvatarWindow
 from waifu.brain import claude as claude_module
+from waifu.brain.attachments import CameraTurn, TurnImages
 from waifu.brain.base import Brain, BrainReply, ToolCallRecord
 from waifu.brain.memory_tools import MemoryTools
 from waifu.brain.persona import WEEKDAYS_ID
@@ -268,12 +269,18 @@ class HouseBrain(Brain):
     reply = REPLY
 
     def __init__(
-        self, registry: DeviceRegistry, providers=(), memory_section=None, on_usage=None
+        self,
+        registry: DeviceRegistry,
+        providers=(),
+        memory_section=None,
+        on_usage=None,
+        turn_images=None,
     ) -> None:
         self.registry = registry
         self.providers = list(providers)
         self.memory_section = memory_section
         self.on_usage = on_usage
+        self.turn_images = turn_images
         self.heard: list[str] = []
 
     def respond(self, user_text: str, *, now: datetime | None = None) -> BrainReply:
@@ -1022,8 +1029,10 @@ def test_verbose_logging_never_reveals_a_tuya_local_key(home, monkeypatch, caplo
 def brains(monkeypatch) -> list[HouseBrain]:
     built: list[HouseBrain] = []
 
-    def build(config, registry, *, providers=(), memory_section=None, on_usage=None):
-        built.append(HouseBrain(registry, providers, memory_section, on_usage))
+    def build(
+        config, registry, *, providers=(), memory_section=None, on_usage=None, turn_images=None
+    ):
+        built.append(HouseBrain(registry, providers, memory_section, on_usage, turn_images))
         return built[-1]
 
     monkeypatch.setattr(cli, "build_brain", build)
@@ -1578,7 +1587,9 @@ class RecordingAssistant:
     nothing was playing); `cuts` counts those calls; `reacted` counts each reaction
     (`speak_reaction` or `listen_now`); `asked` holds each `ask_aloud` with its `on_reply` and
     `required_tool`; `waiting_for_followup` the texts of announcements that wait while the
-    follow-up window is open; `phone_messages` and `phone_recordings` what the phone asked."""
+    follow-up window is open; `phone_messages`, `phone_photos` (None for a message without
+    one), `phone_cameras` (whether each was sent through the camera), and `phone_recordings`
+    what the phone asked."""
 
     instances: list["RecordingAssistant"] = []
 
@@ -1594,6 +1605,8 @@ class RecordingAssistant:
         self.reactions: list[tuple[str, ...]] = []
         self.reacted = threading.Semaphore(0)
         self.phone_messages: list[str] = []
+        self.phone_photos: list[bytes | None] = []
+        self.phone_cameras: list[bool] = []
         self.phone_recordings: list[bytes] = []
         RecordingAssistant.instances.append(self)
 
@@ -1628,8 +1641,12 @@ class RecordingAssistant:
     def ask_aloud(self, prompt: str, *, on_reply=None, required_tool=None) -> None:
         self.asked.append((prompt, on_reply, required_tool))
 
-    def reply_for_phone(self, text: str) -> PhoneReply:
+    def reply_for_phone(
+        self, text: str, image: bytes | None = None, *, camera: bool = False
+    ) -> PhoneReply:
         self.phone_messages.append(text)
+        self.phone_photos.append(image)
+        self.phone_cameras.append(camera)
         return PhoneReply(REPLY, "happy", None, 60, [], 0.0)
 
     def transcribe_for_phone(self, wav_bytes: bytes) -> str:
@@ -6373,13 +6390,16 @@ class FakePhoneServer:
     """Stands in for PhoneServer without a port, remembering whether `waifu run` listened when it
     started and stopped serving."""
 
-    def __init__(self, config, avatar, auth, backend, *, owner_call, assistant_name) -> None:
+    def __init__(
+        self, config, avatar, auth, backend, *, owner_call, assistant_name, camera_max_side=None
+    ) -> None:
         self.config = config
         self.avatar = avatar
         self.auth = auth
         self.backend = backend
         self.owner_call = owner_call
         self.assistant_name = assistant_name
+        self.camera_max_side = camera_max_side
         self.url = f"http://127.0.0.1:{config.port}/"
         self.listening: list[bool] = []
 
@@ -6504,6 +6524,7 @@ def test_check_with_the_phone_ready_marks_tailscale_its_serve_the_host_and_the_p
         f"✓ Tailscale tersambung; nama PC ini {TAILNET_NAME}",
         f"✓ tailscale serve membagikan https://{TAILNET_NAME}/ ke 127.0.0.1:9883",
         f"✓ phone.host: {TAILNET_NAME}",
+        "! Kamera HP: tidak tersedia dengan Ollama",  # the example config's brain
         "✓ HP terpasang: 1 (lihat 'waifu phone devices')",
     ]
     assert [command[1:] for command in tailscale.commands] == [
@@ -6605,6 +6626,7 @@ def test_check_fails_a_phone_without_tailscale_and_still_checks_the_rest(
     assert lines[1].startswith("✗ Tailscale belum terpasang")
     assert lines[2:] == [
         f"✓ phone.host: {TAILNET_NAME}",
+        "! Kamera HP: tidak tersedia dengan Ollama",
         "! Belum ada HP yang dipasangkan; jalankan 'waifu phone pair'",
     ]
 
@@ -6658,3 +6680,147 @@ def test_check_fails_a_pairing_file_it_cannot_read(home, nothing_installed, caps
 
     line = phone_lines(capsys.readouterr().out)[-1]
     assert line.startswith(f"✗ File HP terpasang {Path('data/phone.json')} tidak bisa dibaca")
+
+
+# --- seeing through the phone camera ------------------------------------------------------------
+
+RUN_ARGV = ["run", "--no-speaker-check", "--dry-run"]
+PHOTO = b"\xff\xd8\xff\xc0 a photo from the phone camera"
+
+
+def test_run_shares_one_photo_holder_with_her_brain_and_the_phone_while_the_camera_is_offered(
+    home, run_fakes, brains, phone_servers
+):
+    use_claude(home)
+    append_config(home, PHONE_ON + "vision:\n  max_side: 1024\n")
+
+    assert cli.main(RUN_ARGV) == 0
+
+    images = brains[0].turn_images
+    assert isinstance(images, TurnImages)
+    assert RecordingAssistant.instances[0].collaborators["turn_images"] is images
+    [server] = phone_servers
+    assert server.camera_max_side == 1024  # photos as large as her screenshots
+
+
+def test_run_lets_a_turn_sent_through_the_phone_camera_look_at_the_screen_only_when_named(
+    home, run_fakes, brains, phone_servers, capture
+):
+    use_claude(home)
+    append_config(home, PHONE_ON)
+    assert cli.main(RUN_ARGV) == 0
+    camera_turn = RecordingAssistant.instances[0].collaborators["camera_turn"]
+    screen = screen_tools(brains[0])
+
+    camera_turn.begin()
+    screen.begin_turn("coba lihat ini")
+    refused = screen.run("look_at_screen", {})[1]
+    screen.begin_turn("lihat layarku")
+    named = screen.run("look_at_screen", {})[1]
+    camera_turn.end()
+    screen.begin_turn("coba lihat ini")
+    after = screen.run("look_at_screen", {})[1]
+
+    assert isinstance(camera_turn, CameraTurn)
+    assert (refused, named, after) == (True, False, False)
+    assert capture.sizes == [1280, 1280]
+
+
+@pytest.mark.parametrize(
+    ("argv", "claude", "settings"),
+    [
+        (RUN_ARGV, False, PHONE_ON),
+        (RUN_ARGV, True, PHONE_ON + "  camera: false\n"),
+        (RUN_ARGV, True, PHONE_ON + "vision:\n  enabled: false\n"),
+        (RUN_ARGV, True, ""),
+        (["chat", "--dry-run"], True, PHONE_ON),
+    ],
+    ids=["ollama", "camera-off", "vision-off", "phone-off", "chat"],
+)
+def test_without_the_camera_offered_nothing_holds_a_photo_and_the_phone_refuses_them(
+    argv, claude, settings, home, run_fakes, brains, phone_servers, monkeypatch
+):
+    if claude:
+        use_claude(home)
+    append_config(home, settings)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main(argv) == 0
+
+    assert brains[0].turn_images is None
+    assert [a.collaborators["turn_images"] for a in RecordingAssistant.instances] in ([], [None])
+    assert [a.collaborators["camera_turn"] for a in RecordingAssistant.instances] in ([], [None])
+    assert all(server.camera_max_side is None for server in phone_servers)
+
+
+def test_run_hands_a_photo_from_the_phone_to_her_with_its_message(home, run_fakes, phone_servers):
+    use_claude(home)
+    append_config(home, PHONE_ON)
+    assert cli.main(RUN_ARGV) == 0
+    [server] = phone_servers
+    assistant = RecordingAssistant.instances[0]
+
+    reply = server.backend.chat("ini apa?", image=PHOTO, camera=True)
+    server.backend.chat("coba lihat ini", camera=True)
+    server.backend.chat("makasih")
+
+    assert assistant.phone_messages == ["ini apa?", "coba lihat ini", "makasih"]
+    assert assistant.phone_photos == [PHOTO, None, None]
+    assert assistant.phone_cameras == [True, True, False]
+    assert reply.text == REPLY
+
+
+def write_out_example_phone(home: Path) -> None:
+    """The example config with its commented `phone` block written out."""
+    config = home / "config.yaml"
+    text = config.read_text(encoding="utf-8")
+    commented = text[text.index("# phone:\n") :].split("\n\n", 1)[0]
+    written_out = "\n".join(line.removeprefix("# ") for line in commented.splitlines())
+    config.write_text(text.replace(commented, written_out), encoding="utf-8")
+
+
+@pytest.mark.parametrize(("camera", "max_side"), [(True, 1280), (False, None)])
+def test_the_example_phone_block_is_valid_once_written_out_and_switches_the_camera(
+    camera, max_side, home, run_fakes, phone_servers
+):
+    use_claude(home)
+    write_out_example_phone(home)
+    if not camera:
+        config = home / "config.yaml"
+        text = config.read_text(encoding="utf-8")
+        assert "  camera: true" in text
+        config.write_text(text.replace("  camera: true", "  camera: false"), encoding="utf-8")
+
+    assert cli.main(RUN_ARGV) == 0
+
+    [server] = phone_servers
+    assert server.config.host == "nama-pc.tailnet-kamu.ts.net"
+    assert server.camera_max_side == max_side
+
+
+def camera_line(out: str) -> str:
+    [line] = [line for line in out.splitlines() if "Kamera HP" in line]
+    return line
+
+
+@pytest.mark.parametrize(
+    ("claude", "settings", "expected"),
+    [
+        (True, "", "✓ Kamera HP: aktif"),
+        (False, "", "! Kamera HP: tidak tersedia dengan Ollama"),
+        (True, "vision:\n  enabled: false\n", "! Kamera HP mati (vision.enabled: false)"),
+        (True, "  camera: false\n", "! Kamera HP mati (phone.camera: false)"),
+        (False, "  camera: false\n", "! Kamera HP mati (phone.camera: false)"),
+    ],
+    ids=["claude", "ollama", "vision-off", "camera-off", "ollama-with-camera-off"],
+)
+def test_check_reports_whether_the_phone_page_offers_its_camera(
+    claude, settings, expected, home, nothing_installed, capsys
+):
+    if claude:
+        use_claude(home)
+    append_config(home, PHONE_ON + settings)
+
+    cli.main(["check"])
+
+    assert camera_line(capsys.readouterr().out) == expected

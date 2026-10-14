@@ -1,12 +1,15 @@
+import base64
 import copy
 import logging
 import time
 from datetime import datetime
+from types import SimpleNamespace
 
 import ollama
 import pytest
 
-from waifu.brain.base import Brain, BrainReply, ToolSpec
+from waifu.brain.attachments import TurnImages
+from waifu.brain.base import Brain, BrainReply, ToolImage, ToolSpec
 from waifu.brain.confirm import ConfirmationGate
 from waifu.brain.factory import build_brain
 from waifu.brain.ollama_brain import OllamaBrain
@@ -61,6 +64,7 @@ class FakeClaudeBrain(Brain):
         confirmations=None,
         owner_call="Master",
         on_usage=None,
+        turn_images=None,
     ):
         self.config, self.registry, self.system_prompt = config, registry, system_prompt
         self.session_idle_minutes, self.max_session_turns = session_idle_minutes, max_session_turns
@@ -68,6 +72,7 @@ class FakeClaudeBrain(Brain):
         self.confirmations = confirmations
         self.owner_call = owner_call
         self.on_usage = on_usage
+        self.turn_images = turn_images
 
     def respond(self, user_text: str, *, now: datetime | None = None) -> BrainReply:
         return BrainReply(text="")
@@ -227,6 +232,70 @@ def test_the_ollama_brain_ignores_the_usage_hook_because_ollama_is_free(ollama_c
     assert isinstance(brain, OllamaBrain)
     assert reply.text == "Halo!"
     assert recorder.calls == []
+
+
+# A photo from the phone camera, sent with Master's message
+
+PHOTO = b"\xff\xd8\xff\xc0 a photo from the phone camera"
+
+
+class RecordingAnthropic:
+    """Stands in for anthropic.Anthropic inside the real Claude brain: records the messages of
+    each request and answers it with a short text reply, never reaching the network."""
+
+    api_key = "test-key"
+    auth_token = None
+    credentials = None
+
+    def __init__(self) -> None:
+        self.sent: list[list[dict]] = []
+        self.beta = SimpleNamespace(messages=SimpleNamespace(create=self._create))
+
+    def _create(self, **request: object) -> SimpleNamespace:
+        self.sent.append(copy.deepcopy(request["messages"]))
+        answer = SimpleNamespace(type="text", text="Itu kucing, Master!")
+        return SimpleNamespace(content=[answer], stop_reason="end_turn", stop_details=None)
+
+
+def test_a_photo_in_the_turn_images_reaches_claude_inside_masters_message(monkeypatch):
+    clients: list[RecordingAnthropic] = []
+
+    def build_client(**options: object) -> RecordingAnthropic:
+        clients.append(RecordingAnthropic())
+        return clients[-1]
+
+    monkeypatch.setattr("waifu.brain.claude.anthropic.Anthropic", build_client)
+    images = TurnImages()
+    brain = build_brain(claude_config(), house(), persona_text=PERSONA, turn_images=images)
+
+    images.put(ToolImage("image/jpeg", PHOTO))
+    reply = brain.respond("ini apa?", now=NOW)
+
+    assert reply.text == "Itu kucing, Master!"
+    [[message]] = clients[0].sent
+    assert message["content"][0] == {
+        "type": "image",
+        "source": {
+            "type": "base64",
+            "media_type": "image/jpeg",
+            "data": base64.b64encode(PHOTO).decode("ascii"),
+        },
+    }
+    assert images.take() == []
+
+
+def test_the_ollama_brain_never_gets_the_turn_images_because_its_model_cannot_see(
+    ollama_clients,
+):
+    images = TurnImages()
+    brain = build_brain(AppConfig(), house(), persona_text=PERSONA, turn_images=images)
+
+    images.put(ToolImage("image/jpeg", PHOTO))
+    reply = brain.respond("ini apa?", now=NOW)
+
+    assert isinstance(brain, OllamaBrain)
+    assert reply.text == "Halo!"
+    assert images.take() == [ToolImage("image/jpeg", PHOTO)]  # never taken
 
 
 # Memory section

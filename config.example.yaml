@@ -271,12 +271,16 @@ schedule:
 # admin console Tailscale, jalankan `waifu phone setup` dan sekali perintah `tailscale serve`
 # yang ditampilkannya, lalu tulis bagian ini tanpa tanda # di depannya. Avatarnya memakai
 # model di bagian avatar di atas (avatar.engine, avatar.model, avatar.live2d_core), juga kalau
-# avatar.enabled: false. Cek dengan `waifu check`.
+# avatar.enabled: false. Kamera HP (README, bagian "Kamera HP"): selama jendela kamera di
+# halaman terbuka, setiap pesan membawa satu foto saat itu, yang ikut dikirim ke API Anthropic
+# dan tidak pernah disimpan atau ditulis ke log. Hanya dengan otak Claude dan vision menyala;
+# sisi terpanjang fotonya vision.max_side. Cek dengan `waifu check`.
 # phone:
 #   enabled: true
 #   host: nama-pc.tailnet-kamu.ts.net   # nama PC ini di Tailscale, dari `waifu phone setup`
 #   port: 9883                          # server HP di 127.0.0.1; sama dengan port di perintah `tailscale serve`
 #   state_path: data/phone.json         # HP yang dipasangkan (token tersimpan sebagai hash), hanya di PC ini
+#   camera: true                        # tombol kamera di halaman HP; false menyembunyikannya dan server menolak foto
 
 ir_codes_path: data/ir_codes.json
 

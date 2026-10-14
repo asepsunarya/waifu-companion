@@ -49,6 +49,7 @@ from waifu.avatar.interactions import InteractionHandler
 from waifu.avatar.lipsync import SHAPE_CENTRE_HZ
 from waifu.avatar.server import AvatarError, AvatarServer, file_under
 from waifu.avatar.window import AvatarWindow
+from waifu.brain.attachments import CameraTurn, TurnImages
 from waifu.brain.base import Brain, ToolCallRecord
 from waifu.brain.factory import build_brain
 from waifu.brain.memory_tools import MemoryTools
@@ -712,8 +713,15 @@ def _listen(args: argparse.Namespace) -> int:
     registry = build_registry(config, dry_run=args.dry_run)
     gacha = build_gacha(config) if config.gacha.enabled else None
     usage = _usage_recorder(config)
+    # Only while the phone page offers its camera (the phone server then takes photos): the photo
+    # a phone message carries waits for its turn in `turn_images`, shared by the brain and the
+    # Assistant, and `camera_turn`, shared by the Assistant and the screen tool, tells which
+    # turns were sent through the camera.
+    camera_offered = _camera_offered(config)
+    turn_images = TurnImages() if camera_offered else None
+    camera_turn = CameraTurn() if camera_offered else None
     with _session_schedule(config, dry_run=args.dry_run) as schedule:
-        brain = _companion_brain(config, registry, gacha, schedule, usage)
+        brain = _companion_brain(config, registry, gacha, schedule, usage, turn_images, camera_turn)
         stt = WhisperStt(config.stt, name)
         gate = WakeGate(config.assistant.wake_words, config.assistant.followup_seconds)
         segmenter = EnergySegmenter(config.audio.sample_rate, config.audio.vad)
@@ -745,6 +753,8 @@ def _listen(args: argparse.Namespace) -> int:
                 verifier=verifier,
                 speaker_check=speaker_check,
                 avatar=avatar,
+                turn_images=turn_images,
+                camera_turn=camera_turn,
             )
             reactions = InteractionHandler(
                 config.avatar.interactions,
@@ -786,7 +796,7 @@ def _listen(args: argparse.Namespace) -> int:
                         ),
                         _briefing_timer(config, assistant, notifier),
                         _budget_told(usage, _budget_teller(config, assistant, notifier)),
-                        _phone_server(config, assistant),
+                        _phone_server(config, assistant, camera=camera_offered),
                     ):
                         assistant.run(mic, segmenter)
                 except SttError as exc:
@@ -865,13 +875,18 @@ def _companion_brain(
     gacha: GachaParts | None,
     schedule: ScheduleStore | None,
     usage: _UsageRecorder | None,
+    turn_images: TurnImages | None = None,
+    camera_turn: CameraTurn | None = None,
 ) -> Brain:
     """The brain with the game tools when they are on, her long-term memory when it is on,
     then her schedule when it is on, the day's briefing when it is on, with Claude her eyes on
     the screen when vision is on, and with `usage` what her requests cost.
 
     With memory, every new session lists the notes as they are in the file at that moment.
-    With `usage`, every Claude response is recorded in its ledger.
+    With `usage`, every Claude response is recorded in its ledger. With `turn_images` (only
+    while the phone camera is offered), Claude sees the photo a phone message carries, and
+    with `camera_turn` the screen tool looks at the PC in a turn sent through the phone camera
+    only when Master names the screen.
     """
     owner_call = config.assistant.owner_call
     notes = _memory_store(config) if config.memory.enabled else None
@@ -895,19 +910,23 @@ def _companion_brain(
                 capture=capture_screen,
                 max_side=config.vision.max_side,
                 names=[config.assistant.name, *config.assistant.wake_words, owner_call],
+                camera_turn=camera_turn,
             )
         )
     if usage is not None:
         providers.append(UsageTools(usage.ledger, idr_per_usd=config.usage.idr_per_usd))
     on_usage = None if usage is None else usage.record
     if notes is None:
-        return build_brain(config, registry, providers=providers, on_usage=on_usage)
+        return build_brain(
+            config, registry, providers=providers, on_usage=on_usage, turn_images=turn_images
+        )
     return build_brain(
         config,
         registry,
         providers=providers,
         memory_section=lambda: memory_prompt_section(notes.facts()),
         on_usage=on_usage,
+        turn_images=turn_images,
     )
 
 
@@ -2015,12 +2034,26 @@ def _rupiah(amount: float) -> str:
 # --- Cyrene on the phone ---------------------------------------------------------------------
 
 
+def _camera_offered(config: AppConfig) -> bool:
+    """Whether the phone page offers its camera: the phone and `phone.camera` on, and Claude with
+    vision on to see the photos (Ollama's model cannot see images)."""
+    phone = config.phone
+    return (
+        phone.enabled
+        and phone.camera
+        and config.vision.enabled
+        and config.brain.backend == "claude"
+    )
+
+
 @contextmanager
-def _phone_server(config: AppConfig, assistant: Assistant) -> Iterator[None]:
+def _phone_server(config: AppConfig, assistant: Assistant, *, camera: bool) -> Iterator[None]:
     """Serve her to the paired phone for the block, when `phone.enabled`.
 
     The server listens on 127.0.0.1 only; `tailscale serve` shares it with the owner's tailnet.
-    One that cannot start (its port is taken) only costs the phone, never her voice.
+    With `camera`, a message may carry a photo whose longer side is at most `vision.max_side`;
+    otherwise the server refuses photos. One that cannot start (its port is taken) only costs
+    the phone, never her voice.
     """
     phone = config.phone
     if not phone.enabled:
@@ -2035,6 +2068,7 @@ def _phone_server(config: AppConfig, assistant: Assistant) -> Iterator[None]:
             PhoneAnswers(assistant),
             owner_call=config.assistant.owner_call,
             assistant_name=name,
+            camera_max_side=config.vision.max_side if camera else None,
         )
     except PhoneError as exc:
         logger.warning("Phone server unavailable, going on without it: %s", exc)
@@ -2294,8 +2328,8 @@ def _is_phone_server(target: object, port: int) -> bool:
 
 def _phone_checks(config: AppConfig) -> Iterator[Check]:
     """The phone server, Tailscale (its CLI, its login, and its serve of the server's port, never
-    through Funnel), phone.host, the avatar's model, and the paired phones. Asks Tailscale only
-    about its state, never changes it."""
+    through Funnel), phone.host, the avatar's model, the camera, and the paired phones. Asks
+    Tailscale only about its state, never changes it."""
     phone = config.phone
     label = f"{config.assistant.name} di HP"
     if not phone.enabled:
@@ -2318,6 +2352,7 @@ def _phone_checks(config: AppConfig) -> Iterator[Check]:
     yield _phone_host_check(phone.host, tailnet_host)
     if config.avatar.model is None:
         yield WARN, PHONE_WITHOUT_MODEL_TEXT
+    yield _phone_camera_check(config)
     yield _paired_phones_check(phone.state_path)
 
 
@@ -2355,6 +2390,18 @@ def _phone_host_check(host: str | None, tailnet_host: str | None) -> Check:
             f"phone.host {host} bukan nama PC ini di Tailscale; ganti dengan host: {tailnet_host}"
         )
     return OK, f"phone.host: {host}"
+
+
+def _phone_camera_check(config: AppConfig) -> Check:
+    """Whether the phone page offers its camera, as `run` decides it, or what keeps it off: the
+    owner's own switches first, then the backend."""
+    if _camera_offered(config):
+        return OK, "Kamera HP: aktif"
+    if not config.phone.camera:
+        return WARN, "Kamera HP mati (phone.camera: false)"
+    if not config.vision.enabled:
+        return WARN, "Kamera HP mati (vision.enabled: false)"
+    return WARN, "Kamera HP: tidak tersedia dengan Ollama"
 
 
 def _paired_phones_check(path: Path) -> Check:

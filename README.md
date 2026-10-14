@@ -131,7 +131,8 @@ perintah perangkat dan rutinitas dijalankan lewat `DeviceRegistry` yang sama.
 Cyrene di HP (opsional) menambah server kedua di `127.0.0.1` selama `waifu run`, yang
 dibagikan ke HP lewat `tailscale serve`: teks atau rekaman dari HP masuk ke otak yang sama
 (satu giliran pada satu waktu, bergantian dengan mic PC), dan jawabannya disuarakan untuk HP,
-tidak di speaker PC.
+tidak di speaker PC. Selama kamera di halaman HP terbuka, pesan itu membawa satu foto yang
+masuk ke otak Claude bersama kalimatnya, hanya untuk giliran itu.
 
 Kode ada di `src/waifu/`: `devices/`, `brain/`, `voice/`, `avatar/`, `gacha/`, `phone/`, lalu
 `memory.py`, `schedule.py`, `routines.py`, `scheduler.py`, `notify.py`, `gate.py`, `app.py`,
@@ -1930,6 +1931,9 @@ Master : "Liat deh build-ku, Cyrene."
   memeriksanya, apa pun keinginan otaknya: tanpa kata itu, tangkapan layarnya ditolak.
   Namanya dan kata panggilannya tidak dihitung, dan permintaan di kalimat sebelumnya tidak
   berlaku lagi untuk kalimat berikutnya.
+- Pesan dari HP yang dikirim selama jendela [kamera HP](#kamera-hp) terbuka hanya membuka
+  izinnya dengan kata yang menyebut layarnya (`layar`, `layarku`, `screen`, `screenshot`,
+  `monitor`): di pesan seperti itu "lihat ini" berarti kamera HP, bukan layar PC.
 - Kata-kata itu hanya membuka izinnya untuk kalimat itu. Otaknya diberi tahu untuk melihat
   hanya kalau Master memang memintanya, jadi "aku lagi lihat film" biasanya tidak membuatnya
   melihat layar, tapi itu keputusan model, bukan kode.
@@ -1953,9 +1957,12 @@ Master : "Liat deh build-ku, Cyrene."
   lainnya. Jadi dia masih bisa menjawab pertanyaan lanjutan tentang gambar yang sama tanpa
   melihat lagi. Setiap gambar juga menambah biaya API.
 - Karena setiap giliran mengirim ulang semua gambar sesi itu, sesi baru dimulai sendiri
-  begitu gambar di riwayatnya mencapai 16 MB, kira-kira 5 sampai 10 tangkapan layar game
-  yang ramai (layar desktop atau tulisan jauh lebih kecil). Setelah itu dia tidak ingat lagi
-  gambar dan obrolan sebelumnya.
+  begitu gambar di riwayatnya mencapai 10 MB, kira-kira 3 sampai 6 tangkapan layar game
+  yang ramai (layar desktop atau tulisan jauh lebih kecil; foto [kamera HP](#kamera-hp) ikut
+  dihitung). Setelah itu dia tidak ingat lagi gambar dan obrolan sebelumnya. Kalau dia sedang
+  menunggu jawaban "iya" (misalnya untuk mematikan komputer), sesinya menunggu satu giliran
+  lagi supaya jawabannya sampai; hanya kalau gambarnya sudah 20 MB sesinya tetap berganti, dan
+  pertanyaannya ikut hilang: "iya" itu tidak menjalankan apa pun, jadi minta lagi perintahnya.
 - Tangkapan layarnya **tidak pernah disimpan ke disk dan tidak ditulis ke log**, juga dengan
   `-v` dan `--log-file`; log hanya mencatat ukurannya.
 
@@ -2238,10 +2245,11 @@ bisa dilihat dengan `waifu usage`.
 
 Selama `waifu run` berjalan di PC, Cyrene juga bisa dibuka dari HP Android Master, di rumah
 atau di luar: avatarnya (model yang sama dengan maskot, dibingkai setengah badan), chat teks,
-dan tombol mikrofon yang ditahan selama bicara. Dia menjawab dengan teks dan dengan suara
-animenya dari speaker HP; mulut avatar ikut bergerak dan wajahnya menunjukkan emosi jawaban.
-Ini Cyrene yang sama: ingatan, perangkat rumah, jadwal, game, sapaan pagi, dan aturan
-konfirmasinya sama, jadi "matikan lampu kamar" dari HP benar-benar mematikan lampu, dan
+tombol mikrofon yang ditahan selama bicara, dan dengan otak Claude, kamera HP untuk
+menunjukkan sesuatu padanya (lihat [Kamera HP](#kamera-hp)). Dia menjawab dengan teks dan
+dengan suara animenya dari speaker HP; mulut avatar ikut bergerak dan wajahnya menunjukkan
+emosi jawaban. Ini Cyrene yang sama: ingatan, perangkat rumah, jadwal, game, sapaan pagi, dan
+aturan konfirmasinya sama, jadi "matikan lampu kamar" dari HP benar-benar mematikan lampu, dan
 "matikan komputer" tetap dijawab dengan pertanyaan dulu. Jawaban untuk HP tidak diucapkan di
 speaker PC.
 
@@ -2341,13 +2349,15 @@ Cek semuanya dengan `waifu check`:
 ✓ Tailscale tersambung; nama PC ini pc-lynx.tail1234.ts.net
 ✓ tailscale serve membagikan https://pc-lynx.tail1234.ts.net/ ke 127.0.0.1:9883
 ✓ phone.host: pc-lynx.tail1234.ts.net
+✓ Kamera HP: aktif
 ✓ HP terpasang: 1 (lihat 'waifu phone devices')
 ```
 
 Baris `✗` menyebut apa yang kurang: Tailscale belum terpasang atau belum login, `tailscale
 serve` belum dijalankan (beserta perintahnya), Tailscale Funnel menyala untuk alamat PC ini
 (beserta perintah untuk mematikannya), atau `phone.host` kosong atau bukan nama PC ini. Baris
-`!` tentang `avatar.model` berarti halaman HP hanya menampilkan chat, tanpa avatar.
+`!` tentang `avatar.model` berarti halaman HP hanya menampilkan chat, tanpa avatar. Baris
+`! Kamera HP` menyebut kenapa tombol kamera tidak ada (lihat [Kamera HP](#kamera-hp)).
 
 ### 4. Pasangkan HP dan pasang di layar utama
 
@@ -2388,7 +2398,84 @@ sekali lagi.
   sedang bicara dengannya, jawaban HP menunggu sampai giliran itu selesai dipikirkan.
 - Konfirmasi tetap berlaku: "matikan komputer" dari HP ditanyakan dulu, dan "iya" berikutnya
   (dari HP atau dari mic PC) yang menjalankannya. Lihat layar ("lihat layarku") juga bisa,
-  yang dilihat adalah layar PC.
+  yang dilihat adalah layar PC. Untuk menunjukkan sesuatu di depan HP, pakai
+  [kamera HP](#kamera-hp): selama jendela kamera terbuka, hanya kata yang menyebut layarnya
+  (`layar`, `layarku`, `screen`, `screenshot`, `monitor`) yang membuatnya melihat layar PC;
+  "lihat ini" atau "coba liat deh" berarti kamera HP.
+
+### Kamera HP
+
+Dengan otak Claude, Cyrene bisa melihat lewat kamera HP. Ketuk tombol **kamera** di sebelah
+tombol kirim: jendela kamera terbuka di bagian bawah halaman dengan kamera belakang (tombol
+**putar** menggantinya ke kamera depan, **×** menutupnya). Selama jendela itu terbuka, setiap
+pesan yang diketik, atau diucapkan lalu dilepas tombol mikrofonnya, dikirim bersama **satu
+foto** yang diambil saat itu juga, dan Cyrene menjawab tentang yang terlihat. Gelembung pesan
+Master menampilkan gambar kecil dari foto yang persis dia lihat.
+
+```text
+Master : "ini apa?"                             (kamera belakang ke arah kucing)
+Cyrene : "Itu kucing oranye, Master! Lagi tidur di sofa, lucu banget."
+Master : "lihat ini, bagus nggak bajuku?"       (kamera depan)
+Master : "tanaman ini kenapa daunnya kuning?"   (kamera ke arah tanaman)
+```
+
+- **Hanya saat jendela kamera terbuka.** Tanpa jendela kamera tidak ada yang difoto. Cyrene
+  tidak bisa membuka kamera sendiri, tidak merekam video, dan tidak mengawasi terus-menerus:
+  satu foto untuk setiap pesan yang Master kirim, tidak lebih.
+- **Kamera, bukan layar PC.** Pesan yang dikirim selama jendela kamera terbuka ditandai
+  "lewat kamera HP", juga kalau fotonya gagal diambil. Di pesan seperti itu "lihat ini" atau
+  "coba liat deh" tidak pernah membuatnya mengambil tangkapan layar PC (kode Cyrene sendiri
+  yang menolaknya); hanya kata yang menyebut layarnya, seperti "lihat layarku", yang masih
+  membuatnya melihat layar PC.
+- **Kamera mati sendiri** saat jendela kamera ditutup, saat halaman disembunyikan atau
+  ditinggalkan (pindah aplikasi, layar dikunci, tab ditutup), dan **2 menit** setelah jendela
+  dibuka, setelah foto terakhir, atau setelah tombol mikrofon terakhir ditekan, mana yang
+  paling akhir (jadi kamera tidak mati selagi tombol mikrofon ditahan). Selama kamera menyala,
+  Android (12 ke atas) menampilkan tanda kamera di pojok kanan atas bilah status.
+- **Ukuran foto:** halaman mengecilkan foto sampai sisi terpanjangnya paling besar
+  `vision.max_side` (bawaan 1280 piksel; perbandingannya tetap, tidak pernah diperbesar), lalu
+  mengirimnya sebagai JPEG. Foto di atas 3,5 MB dikompres lebih kuat; kalau masih terlalu
+  besar, pesannya terkirim tanpa foto dan halaman memberi tahu.
+- **Hanya dengan Claude dan `vision.enabled: true`.** Dengan Ollama tombol kamera tidak muncul
+  (qwen3:8b tidak bisa melihat gambar) dan server HP menolak foto. `waifu check` menampilkan
+  `✓ Kamera HP: aktif`, `! Kamera HP: tidak tersedia dengan Ollama`,
+  `! Kamera HP mati (vision.enabled: false)`, atau `! Kamera HP mati (phone.camera: false)`.
+
+**Izin kamera di Chrome.** Saat tombol kamera pertama kali diketuk, Chrome menanyakan izin
+kamera untuk alamat Cyrene; pilih izinkan (kalau Android juga menanyakan izin kamera untuk
+Chrome, izinkan juga). Kalau terlanjur ditolak, halaman menampilkan "Izin kamera ditolak":
+buka menu Chrome ⋮ → **Setelan** → **Setelan situs** → **Kamera**, ketuk alamat `...ts.net`
+di bagian yang diblokir, pilih **Izinkan**, lalu muat ulang halaman. Ikon Cyrene di layar
+utama memakai izin yang sama dengan Chrome. Cek juga Setelan Android → Aplikasi → Chrome →
+Izin → Kamera. "Kamera sedang dipakai aplikasi lain" berarti aplikasi lain (misalnya video
+call) masih memegang kamera: tutup dulu aplikasi itu.
+
+**Privasi foto.**
+
+- Foto dikirim ke API Anthropic bersama pesan itu, seperti tangkapan layar, dan tetap ada di
+  riwayat sesi itu sampai sesinya berakhir (10 menit tanpa percakapan atau 40 giliran), jadi
+  dia masih bisa menjawab pertanyaan lanjutan tentang foto yang sama. Begitu gambar di riwayat
+  (foto dan tangkapan layar) mencapai 10 MB, sesi baru dimulai sendiri (lihat
+  [Privasi layar](#privasi-layar)). Setiap foto menambah biaya API.
+- Apa pun yang tertangkap kamera ikut terkirim: orang lain, dokumen, layar. Arahkan kameranya
+  dengan sadar.
+- Foto **tidak pernah disimpan ke disk dan tidak ditulis ke log** di PC, juga dengan `-v` dan
+  `--log-file`; log hanya mencatat ukuran dan dimensinya. Di HP, halaman hanya memegang gambar
+  kecilnya di memori selama gelembungnya masih tampil (tidak di penyimpanan Chrome); begitu
+  gelembung itu keluar dari daftar chat atau halaman ditutup, gambarnya hilang.
+- Cyrene diberi tahu bahwa foto itu dari kamera HP Master dan itulah yang Master tunjukkan,
+  dan diminta tidak menyimpan isinya ke ingatannya kecuali Master memintanya.
+
+**Mematikannya.** Tambahkan `camera: false` ke bagian `phone` di `config.yaml`, jalankan ulang
+`waifu run`, lalu muat ulang halaman di HP: tombol kamera hilang dan server HP menolak foto.
+`vision.enabled: false` mematikan kamera HP sekaligus fitur [melihat layar](#melihat-layar).
+
+```yaml
+phone:
+  enabled: true
+  host: pc-lynx.tail1234.ts.net
+  camera: false
+```
 
 ### Mengatur HP yang dipasangkan
 
@@ -2419,6 +2506,9 @@ mengubah daftar itu, jadi HP yang dilupakan tidak pernah kembali.
   tidak disimpan.
 - Teks dari HP diperlakukan seperti kalimat lewat mic: dengan otak Claude dikirim ke API
   Anthropic seperti biasa, dan tercatat di log (`Phone message: ...`, `Heard on the phone ...`).
+- Foto dari kamera HP hanya diambil selama jendela kamera terbuka, dikirim ke API Anthropic
+  bersama pesannya, dan tidak pernah disimpan atau ditulis ke log; lihat
+  [Kamera HP](#kamera-hp).
 - Tailscale melihat bahwa HP dan PC tersambung, tapi isi sambungannya terenkripsi ujung ke
   ujung. Nama PC dan nama tailnet tercatat di log Certificate Transparency publik (syarat
   sertifikat HTTPS).
@@ -2456,6 +2546,25 @@ perintah `tailscale serve` dari `waifu phone setup`; `waifu check` menampilkan p
 pilih izinkan. Kalau terlanjur ditolak: ketuk ikon di kiri alamat (atau Setelan situs di
 menu Chrome) → **Mikrofon** → **Izinkan**, lalu muat ulang halaman. Cek juga Setelan Android →
 Aplikasi → Chrome → Izin → Mikrofon.
+
+**Tombol kamera tidak ada, atau "Kamera HP sudah dimatikan di PC".** Lihat baris `Kamera HP`
+di `waifu check`: kamera HP hanya ada dengan `brain.backend: claude`, `vision.enabled: true`,
+dan tanpa `phone.camera: false`. Setelah mengubah `config.yaml`, jalankan ulang `waifu run`
+lalu muat ulang halaman di HP. Halaman yang sudah terbuka sebelum kameranya dimatikan masih
+menampilkan tombol kamera; pesan pertama yang dikirim lewat jendela kamera ditolak PC, dan
+halaman lalu menampilkan "Kamera HP sudah dimatikan di PC, jadi pesan tadi tidak terkirim.
+Kirim lagi tanpa kamera.", menutup jendela kamera, dan menyembunyikan tombolnya. Pesan yang
+diketik kembali ke kotak pesan; pesan suara diucapkan lagi.
+
+**Kamera tidak bisa dibuka.** "Izin kamera ditolak": izinkan seperti di
+[Kamera HP](#kamera-hp). "Kamera sedang dipakai aplikasi lain": tutup aplikasi yang memakai
+kamera (video call, aplikasi kamera), lalu ketuk tombol kamera lagi.
+
+**"Fotonya tidak bisa diambil" atau "Fotonya terlalu besar untuk dikirim".** Pesannya tetap
+terkirim, hanya tanpa foto (tetap ditandai lewat kamera HP, jadi "lihat ini" tidak membuatnya
+melihat layar PC). Cyrene hanya menerima kata-katanya dan baru tahu fotonya tidak sampai kalau
+dia mencoba melihat layar, jadi kirim lagi pesannya setelah jendela kamera menampilkan gambar.
+Kalau foto sering terlalu besar, kecilkan `vision.max_side`.
 
 **Jawaban hanya teks, tanpa suara.** Ketuk layar sekali setelah halaman dibuka (aturan
 autoplay Chrome), dan pastikan volume media HP tidak 0. Kalau suaranya gagal dibuat di PC
@@ -2778,6 +2887,24 @@ halaman tim di game atau sebuah error)
       lain di tailnet yang belum dipasangkan hanya muncul formulir pasangan.
 - [ ] `waifu phone forget d1` → halaman di HP kembali ke formulir pasangan di permintaan
       berikutnya.
+- [ ] Dengan otak Claude, `waifu check` menampilkan `✓ Kamera HP: aktif`. Di HP ketuk tombol
+      kamera: Chrome meminta izin kamera; izinkan. Jendela kamera menampilkan kamera
+      belakang, tombol putar mengganti ke kamera depan, dan tanda kamera Android muncul.
+- [ ] Arahkan ke sebuah benda dan ketik "ini apa?" → gelembungmu menampilkan gambar kecilnya
+      dan Cyrene menyebut benda itu. Tahan tombol mikrofon, tanya hal lain sambil mengarahkan
+      ke benda lain: dia menjawab tentang foto yang baru.
+- [ ] Tutup jendela kamera dengan **×**: tanda kamera Android hilang, dan pesan berikutnya
+      tidak membawa foto (tanpa gambar kecil di gelembung).
+- [ ] Dengan jendela kamera terbuka, ketik "coba lihat ini": dia menjawab tentang foto, dan log
+      `waifu run` tidak memuat `Tool look_at_screen {} -> ok`. Ketik "lihat layarku": dia
+      menjawab tentang layar PC.
+- [ ] Buka jendela kamera lalu diamkan 2 menit: kamera mati sendiri. Buka lagi lalu pindah ke
+      aplikasi lain: kamera langsung mati.
+- [ ] Log `waifu run` hanya mencatat ukuran foto (`carries a photo of ... bytes, ...`), tanpa
+      isinya, dan tidak ada file foto baru di PC.
+- [ ] `camera: false` di bagian `phone`, jalankan ulang `waifu run`, muat ulang halaman HP:
+      tombol kamera hilang, dan `waifu check` menampilkan
+      `! Kamera HP mati (phone.camera: false)`.
 
 ## Privasi
 
@@ -2785,12 +2912,15 @@ halaman tim di game atau sebuah error)
   speech-to-text diproses lokal. Dengan Cyrene di HP, rekaman dari HP yang sudah dipasangkan
   dikirim ke PC lewat Tailscale (terenkripsi), diproses di PC, dan tidak disimpan; jawabannya
   kembali ke HP itu saja. Lihat [Privasi Cyrene di HP](#privasi-cyrene-di-hp).
-- **Yang dikirim ke internet hanya teks**, kecuali tangkapan layar yang Master minta:
+- **Yang dikirim ke internet hanya teks**, kecuali tangkapan layar yang Master minta dan foto
+  kamera HP yang Master kirim:
   - dengan `brain.backend: claude`, kalimat yang ditujukan ke Cyrene (sudah dalam
     bentuk teks), persona, daftar perangkat, hasil perintah perangkat, dan catatan
     ingatannya (di awal setiap sesi) dikirim ke API Anthropic, juga tangkapan layar
     monitor utama setiap kali Master memintanya melihat layar (tidak pernah disimpan ke
-    disk; lihat [Privasi layar](#privasi-layar)). Dengan Ollama, semuanya lokal;
+    disk; lihat [Privasi layar](#privasi-layar)) dan foto kamera HP yang dikirim bersama
+    pesan dari HP selama jendela kamera terbuka (tidak pernah disimpan ke disk; lihat
+    [Kamera HP](#kamera-hp)). Dengan Ollama, semuanya lokal;
   - dengan engine `edge` di `tts`, teks jawaban Cyrene dikirim ke layanan edge-tts
     Microsoft untuk dijadikan suara. GPT-SoVITS, suara anime (RVC), dan avatar (VRM
     atau Live2D, termasuk elusan dan colekannya) berjalan lokal (halaman avatar hanya
