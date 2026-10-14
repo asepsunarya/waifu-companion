@@ -289,14 +289,14 @@ a tool call: the owner opened the viewfinder, so the photo is already what they 
 and one request answers it. A `TurnImages` holder injected into the Claude brain carries it, so
 the `Brain` contract stays as it is; the PC webcam and presence detection wait for a later version.
 - [x] Task 77a: `phone.camera` config
-- [ ] Task 77: `TurnImages` and photos in the Claude brain's user messages
-- [ ] Task 78: photos on the phone server (`/chat`, `/talk` JSON, `jpeg.py`, `/config.json`)
-- [ ] Task 79: the viewfinder on the phone page and its pure JS helpers
-- [ ] Task 80: Assistant and `run` wiring, check, README
+- [x] Task 77: `TurnImages` and photos in the Claude brain's user messages
+- [x] Task 78: photos on the phone server (`/chat`, `/talk` JSON, `jpeg.py`, `/config.json`)
+- [x] Task 79: the viewfinder on the phone page and its pure JS helpers
+- [x] Task 80: Assistant and `run` wiring, check, README
 
 ### Checkpoint: seeing through the phone camera
-- [ ] Python and JS suites, ruff clean; no test opened a camera or reached Claude
-- [ ] In a browser at phone size with a stubbed camera: viewfinder, flip, a photo with a chat and with a talk, the thumbnail, the camera off after close/hide/2 minutes
+- [x] Python and JS suites, ruff clean; no test opened a camera or reached Claude (2026-10-14: 3970 pytest and 380 node tests on the committed tree plus tasks 77-80 and the review fixes)
+- [x] In a browser at phone size with a stubbed camera: viewfinder, flip, a photo with a chat and with a talk, the thumbnail, the camera off after close/hide/2 minutes (2026-10-14 after both fix rounds, against the real PhoneServer with the camera on and a fake backend: a 1280x720 JPEG reached it with camera:true for a chat and a talk, flip asked for the user camera and ended the old track, close and a hidden page ended the track, a message after close went without photo or camera flag; the 2-minute timer is covered by mock-timer node tests)
 - [ ] On the owner's Android: "ini apa?" with the camera open is answered about what it shows
 
 ## Risks and Mitigations
