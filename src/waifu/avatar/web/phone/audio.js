@@ -42,6 +42,14 @@ const PROBLEM_TEXTS = {
   audio_failed: "Suaranya tidak bisa diputar, jadi hanya teksnya yang tampil.",
   mic_denied: "Izin mikrofon ditolak. Izinkan mikrofon untuk halaman ini di pengaturan Chrome.",
   mic_unavailable: "Mikrofon tidak bisa dipakai di HP ini.",
+  camera_denied:
+    "Izin kamera ditolak. Izinkan kamera untuk halaman ini di Chrome: Setelan → Setelan situs → Kamera.",
+  camera_missing: "Kamera tidak ditemukan di HP ini.",
+  camera_busy: "Kamera sedang dipakai aplikasi lain. Tutup aplikasi itu, lalu coba lagi.",
+  camera_unavailable: "Kamera tidak bisa dibuka. Coba lagi, atau muat ulang halaman ini.",
+  photo_failed: "Fotonya tidak bisa diambil, jadi pesan ini terkirim tanpa foto.",
+  photo_too_big: "Fotonya terlalu besar untuk dikirim, jadi pesan ini terkirim tanpa foto.",
+  camera_off: "Kamera HP sudah dimatikan di PC, jadi pesan tadi tidak terkirim. Kirim lagi tanpa kamera.",
   pair_invalid: "Kodenya harus 6 angka.",
   pair_wrong:
     "Kodenya salah atau sudah kedaluwarsa. Cek lagi kode di PC, atau buat kode baru dengan waifu phone pair.",

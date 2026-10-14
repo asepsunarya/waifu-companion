@@ -79,6 +79,27 @@
 
     <main id="chat" hidden>
       <ol id="bubbles" aria-live="polite"></ol>
+      <section id="viewfinder" aria-label="Kamera" hidden>
+        <video id="camera-view" muted playsinline autoplay></video>
+        <button id="camera-close" class="round" type="button" aria-label="Tutup kamera" title="Tutup kamera">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M19 6.4 17.6 5 12 10.6 6.4 5 5 6.4l5.6 5.6L5 17.6 6.4 19l5.6-5.6 5.6 5.6 1.4-1.4-5.6-5.6z" />
+          </svg>
+        </button>
+        <button
+          id="camera-flip"
+          class="round"
+          type="button"
+          aria-label="Ganti kamera depan atau belakang"
+          title="Ganti kamera depan atau belakang"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M12 5V2L8 6l4 4V7a5 5 0 0 1 4.6 7l1.5 1.5A7 7 0 0 0 12 5zm-4.6 3.5L5.9 7A7 7 0 0 0 12 19v3l4-4-4-4v3a5 5 0 0 1-4.6-8.5z"
+            />
+          </svg>
+        </button>
+      </section>
       <p id="notice" role="status" hidden></p>
       <form id="composer" novalidate>
         <textarea
@@ -89,6 +110,23 @@
           placeholder="Tulis pesan…"
           aria-label="Pesan"
         ></textarea>
+        <button
+          id="camera"
+          class="round"
+          type="button"
+          aria-pressed="false"
+          aria-controls="viewfinder"
+          aria-label="Kamera: kirim foto bersama pesan"
+          title="Kamera"
+          hidden
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              fill-rule="evenodd"
+              d="M9 4 7.2 6H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-3.2L15 4zm3 5a4 4 0 1 0 0 8 4 4 0 0 0 0-8z"
+            />
+          </svg>
+        </button>
         <button id="send" class="round" type="submit" aria-label="Kirim" title="Kirim">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.4 20.4 21 12 3.4 3.6 3.3 10l12.6 2-12.6 2z" /></svg>
         </button>

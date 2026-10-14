@@ -1,8 +1,11 @@
-// The phone page's own behaviour (phone.js), run against a fake DOM, a fake fetch, and a fake AudioContext: no
-// browser, network, microphone, or speaker. The chat list has a simple layout (fixed line height, a 200 px window,
-// 16 px top padding) so the tests can tell where it is scrolled.
+// The phone page's own behaviour (phone.js), run against a fake DOM, a fake fetch, a fake AudioContext, and a fake
+// camera and microphone: no browser, network, camera, microphone, or speaker. The chat list has a simple layout (fixed
+// line height, a 200 px window, 16 px top padding) so the tests can tell where it is scrolled.
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
+
+import { problemText } from "../../src/waifu/avatar/web/phone/audio.js";
+import { CAMERA_IDLE_MS, MAX_PHOTO_BYTES } from "../../src/waifu/avatar/web/phone/camera.js";
 
 const PHONE_JS = new URL("../../src/waifu/avatar/web/phone/phone.js", import.meta.url);
 const ELEMENT_IDS = [
@@ -23,8 +26,13 @@ const ELEMENT_IDS = [
   "text",
   "send",
   "talk",
+  "camera",
+  "viewfinder",
+  "camera-view",
+  "camera-flip",
+  "camera-close",
 ];
-const HIDDEN_AT_START = new Set(["retry", "pairing", "chat", "notice", "pair-notice"]);
+const HIDDEN_AT_START = new Set(["retry", "pairing", "chat", "notice", "pair-notice", "camera", "viewfinder"]);
 // phone.css: #bubbles has 16 px of top padding (its faded edge) and 6 px between bubbles.
 const LIST_PADDING_TOP = 16;
 const LIST_GAP = 6;
@@ -45,6 +53,20 @@ const LIVE2D_CONFIG = {
 };
 const SHORT_REPLY = "Lampu kamar sudah kunyalakan, Master.";
 const LONG_REPLY = `${"Baik, Master, ini penjelasannya dari awal sampai akhir dengan cukup panjang. ".repeat(6)}Selesai.`;
+// A PC with the camera on (the chat alone, no avatar: these tests are about the camera).
+const CAMERA_CONFIG = { ...LIVE2D_CONFIG, model: null, camera: { enabled: true, max_side: 1280 } };
+const CAMERA_WISHES = { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } };
+// What the fake cameras film: the back camera landscape, the front one portrait.
+const FILM_SIZES = { environment: [1920, 1080], user: [1080, 1920] };
+const HEARD = "ini apa";
+
+/** A JPEG's first bytes, telling the quality it was encoded at. */
+function smallJpeg(quality) {
+  return Uint8Array.of(0xff, 0xd8, 0xff, 0xe0, Math.round(quality * 100));
+}
+
+// What the page did to the camera's frame ("draw") and the microphone's worklet ("stop"), in order.
+let timeline = [];
 
 class FakeElement {
   constructor(tagName, id = "") {
@@ -83,6 +105,14 @@ class FakeElement {
       node.remove();
       node.parentElement = this;
       this.children.push(node);
+    }
+  }
+
+  prepend(...nodes) {
+    for (const node of nodes.toReversed()) {
+      node.remove();
+      node.parentElement = this;
+      this.children.unshift(node);
     }
   }
 
@@ -176,12 +206,146 @@ class FakeSource {
   }
 }
 
+/** The viewfinder's <video>: it shows the size its stream films once the stream is set. */
+class FakeVideo extends FakeElement {
+  constructor(id) {
+    super("video", id);
+    this.stream = null;
+  }
+
+  get srcObject() {
+    return this.stream;
+  }
+
+  set srcObject(stream) {
+    this.stream = stream;
+  }
+
+  get videoWidth() {
+    return this.stream?.width ?? 0;
+  }
+
+  get videoHeight() {
+    return this.stream?.height ?? 0;
+  }
+}
+
+/**
+ * A canvas the page draws a frame on and encodes; every one made and every encoding is recorded. While `held` is a
+ * list, encodings wait in it (as functions that finish them) instead of finishing at once, as a slow phone's do.
+ */
+class FakeCanvas extends FakeElement {
+  static made = [];
+  static encodings = [];
+  static held = null;
+  // The JPEG bytes an encoding at `quality` gives.
+  static jpeg = smallJpeg;
+
+  constructor() {
+    super("canvas");
+    this.width = 300;
+    this.height = 150;
+    this.drawn = [];
+    FakeCanvas.made.push(this);
+  }
+
+  getContext(kind) {
+    assert.equal(kind, "2d");
+    return {
+      drawImage: (...args) => {
+        timeline.push("draw");
+        this.drawn.push(args);
+      },
+    };
+  }
+
+  toBlob(callback, type, quality) {
+    FakeCanvas.encodings.push({ type, quality, width: this.width, height: this.height });
+    const bytes = FakeCanvas.jpeg(quality);
+    const finish = () => callback(new Blob([bytes], { type }));
+    if (FakeCanvas.held) FakeCanvas.held.push(finish);
+    else queueMicrotask(finish);
+  }
+}
+
+class FakeTrack {
+  constructor(kind) {
+    this.kind = kind;
+    this.readyState = "live";
+  }
+
+  stop() {
+    this.readyState = "ended";
+  }
+}
+
+class FakeStream {
+  constructor(kind, facing = null) {
+    this.tracks = [new FakeTrack(kind)];
+    this.facing = facing;
+    [this.width, this.height] = FILM_SIZES[facing] ?? [0, 0];
+  }
+
+  getTracks() {
+    return this.tracks;
+  }
+
+  get live() {
+    return this.tracks.every((track) => track.readyState === "live");
+  }
+}
+
+/** navigator.mediaDevices: records what the page asks for; `answer(constraints)`, when set, decides the answer. */
+class FakeMediaDevices {
+  constructor() {
+    this.asked = [];
+    this.cameras = [];
+    // How many cameras were still on at each request.
+    this.liveWhenAsked = [];
+    this.answer = null;
+  }
+
+  async getUserMedia(constraints) {
+    this.asked.push(constraints);
+    this.liveWhenAsked.push(this.cameras.filter((stream) => stream.live).length);
+    if (this.answer) return this.answer(constraints);
+    if (!constraints.video) return new FakeStream("audio");
+    const stream = new FakeStream("video", constraints.video.facingMode.ideal);
+    this.cameras.push(stream);
+    return stream;
+  }
+}
+
+/** The capture worklet: on "stop" it hands over half a second of the microphone, then its end marker. */
+class FakeAudioWorkletNode {
+  constructor() {
+    this.port = {
+      onmessage: null,
+      postMessage: (message) => {
+        if (message !== "stop") return;
+        timeline.push("stop");
+        queueMicrotask(() => {
+          this.port.onmessage({ data: new Float32Array(8000).fill(0.1) });
+          this.port.onmessage({ data: null });
+        });
+      },
+      close() {},
+    };
+  }
+}
+
 class FakeAudioContext {
   static sources = [];
 
   constructor() {
     this.state = "running";
     this.destination = {};
+    this.sampleRate = 16000;
+    this.audioWorklet = { addModule: async () => {} };
+  }
+
+  createMediaStreamSource() {
+    return { connect() {}, disconnect() {} };
   }
 
   async resume() {}
@@ -205,13 +369,31 @@ async function settle() {
   for (let i = 0; i < 10; i++) await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+/** Lets pending promises run without timers, for tests that mock setTimeout. */
+async function flush() {
+  for (let i = 0; i < 20; i++) await new Promise((resolve) => setImmediate(resolve));
+}
+
 let loads = 0;
 const saved = {};
+const savedObjectUrls = { create: URL.createObjectURL, revoke: URL.revokeObjectURL };
 
-/** Loads phone.js afresh against a page whose /config.json is `config` and whose /chat answers `replyText`. */
-async function openPage({ config = LIVE2D_CONFIG, replyText = SHORT_REPLY } = {}) {
+function chatAnswer(text) {
+  return { text, emotion: "happy", audio: "UklGRg==", fps: 0, visemes: [], duration: 2 };
+}
+
+/**
+ * Loads phone.js afresh against a page whose /config.json is `config` (as it is at each request) and whose /chat and
+ * /talk answer `replyText` (or the status `chatStatus`, `talkStatus`). Every request is recorded in `requests`
+ * ({route, init}); object URLs in `objectUrls`.
+ */
+async function openPage({ config = LIVE2D_CONFIG, replyText = SHORT_REPLY, chatStatus = 200, talkStatus = 200 } = {}) {
   const elements = new Map(
-    ELEMENT_IDS.map((id) => [id, id === "bubbles" ? new FakeList(id) : new FakeElement("div", id)]),
+    ELEMENT_IDS.map((id) => {
+      if (id === "bubbles") return [id, new FakeList(id)];
+      if (id === "camera-view") return [id, new FakeVideo(id)];
+      return [id, new FakeElement("div", id)];
+    }),
   );
   elements.get("message").textContent = "Memuat Cyrene…";
   const scripts = [];
@@ -221,26 +403,29 @@ async function openPage({ config = LIVE2D_CONFIG, replyText = SHORT_REPLY } = {}
     // No Cubism Core here: loading it fails, as it does on a PC without avatar.live2d_core.
     setTimeout(() => script.dispatch("error"), 0);
   };
+  const requests = [];
+  const devices = new FakeMediaDevices();
+  const objectUrls = { created: [], revoked: [] };
   const fakes = {
-    document: {
+    document: Object.assign(new FakeElement("#document"), {
       body: new FakeElement("body"),
       head,
-      hidden: false,
       getElementById: (id) => elements.get(id) ?? null,
-      createElement: (tagName) => new FakeElement(tagName),
-      addEventListener() {},
-    },
-    window: globalThis,
+      createElement: (tagName) => (tagName === "canvas" ? new FakeCanvas() : new FakeElement(tagName)),
+    }),
+    window: new FakeElement("window"),
+    navigator: { mediaDevices: devices },
     location: { reload() {} },
     // The page logs that its renderer could not load: there is none here.
     console: { ...console, error() {}, warn() {} },
     AudioContext: FakeAudioContext,
+    AudioWorkletNode: FakeAudioWorkletNode,
     getComputedStyle: (element) => ({ paddingTop: element instanceof FakeList ? `${LIST_PADDING_TOP}px` : "0px" }),
-    fetch: async (route) => {
+    fetch: async (route, init) => {
+      requests.push({ route, init });
       if (route === "/config.json") return jsonResponse(config);
-      if (route === "/chat") {
-        return jsonResponse({ text: replyText, emotion: "happy", audio: "UklGRg==", fps: 0, visemes: [], duration: 2 });
-      }
+      if (route === "/chat") return jsonResponse(chatAnswer(replyText), chatStatus);
+      if (route === "/talk") return jsonResponse({ heard: HEARD, ...chatAnswer(replyText) }, talkStatus);
       return jsonResponse({ error: "Tidak ditemukan." }, 404);
     },
   };
@@ -248,11 +433,21 @@ async function openPage({ config = LIVE2D_CONFIG, replyText = SHORT_REPLY } = {}
     if (!(name in saved)) saved[name] = Object.getOwnPropertyDescriptor(globalThis, name);
     Object.defineProperty(globalThis, name, { value, configurable: true, writable: true });
   }
+  URL.createObjectURL = (blob) => {
+    const url = `blob:test/${objectUrls.created.length + 1}`;
+    objectUrls.created.push({ url, blob });
+    return url;
+  };
+  URL.revokeObjectURL = (url) => objectUrls.revoked.push(url);
   FakeAudioContext.sources = [];
+  FakeCanvas.made = [];
+  FakeCanvas.encodings = [];
+  FakeCanvas.held = null;
+  timeline = [];
   loads += 1;
   await import(`${PHONE_JS.href}?load=${loads}`);
   await settle();
-  return { element: (id) => elements.get(id), scripts };
+  return { element: (id) => elements.get(id), scripts, requests, devices, objectUrls };
 }
 
 async function send(page, text) {
@@ -262,11 +457,16 @@ async function send(page, text) {
 }
 
 afterEach(() => {
+  // Turns off a camera the test left on, and with it the timer that would keep the test process alive two minutes.
+  if (globalThis.window instanceof FakeElement) window.dispatch("pagehide");
   for (const [name, descriptor] of Object.entries(saved)) {
     if (descriptor) Object.defineProperty(globalThis, name, descriptor);
     else delete globalThis[name];
     delete saved[name];
   }
+  URL.createObjectURL = savedObjectUrls.create;
+  URL.revokeObjectURL = savedObjectUrls.revoke;
+  FakeCanvas.jpeg = smallJpeg;
 });
 
 describe("phone page without a model on the PC", () => {
@@ -348,5 +548,492 @@ describe("phone chat list", () => {
       list.children.map((item) => item.className),
       ["bubble from-owner", "bubble from-cyrene"],
     );
+  });
+});
+
+/** The page with the camera on, its viewfinder opened. */
+async function openViewfinder(options = {}) {
+  const page = await openPage({ config: CAMERA_CONFIG, ...options });
+  page.element("camera").dispatch("click");
+  await settle();
+  return page;
+}
+
+const lastRequest = (page, route) => page.requests.findLast((request) => request.route === route);
+const sentJson = (page, route) => JSON.parse(lastRequest(page, route).init.body);
+const fromBase64 = (text) => new Uint8Array(Buffer.from(text, "base64"));
+
+function ownerBubbles(page) {
+  return page.element("bubbles").children.filter((item) => item.className === "bubble from-owner");
+}
+
+function thumbnailOf(bubble) {
+  return bubble.children.find((child) => child.tagName === "IMG") ?? null;
+}
+
+/** Holds the talk button with the keyboard (Space), then lets go: what the owner says is sent. */
+async function talk(page) {
+  page.element("talk").dispatch("keydown", { key: " ", repeat: false });
+  await settle();
+  page.element("talk").dispatch("keyup", { key: " " });
+  await settle();
+}
+
+describe("phone camera button", () => {
+  it("stays hidden when the PC offers no camera", async () => {
+    for (const config of [LIVE2D_CONFIG, { ...CAMERA_CONFIG, camera: { enabled: false, max_side: null } }]) {
+      const page = await openPage({ config });
+
+      assert.equal(page.element("camera").hidden, true);
+    }
+  });
+
+  it("shows when the PC offers the camera", async () => {
+    const page = await openPage({ config: CAMERA_CONFIG });
+
+    assert.equal(page.element("camera").hidden, false);
+    assert.equal(page.element("viewfinder").hidden, true);
+  });
+
+  it("photographs nothing while the viewfinder is closed", async () => {
+    const page = await openPage({ config: CAMERA_CONFIG });
+
+    await send(page, "halo");
+
+    assert.equal(lastRequest(page, "/chat").init.body, '{"text":"halo"}');
+    assert.deepEqual(page.devices.asked, []);
+    assert.deepEqual(FakeCanvas.made, []);
+  });
+
+  it("opens the back camera, without sound, into the viewfinder", async () => {
+    const page = await openViewfinder();
+    const [back] = page.devices.cameras;
+
+    assert.deepEqual(page.devices.asked, [{ video: CAMERA_WISHES, audio: false }]);
+    assert.equal(page.element("viewfinder").hidden, false);
+    assert.equal(page.element("camera-view").srcObject, back);
+    assert.equal(page.element("camera").attributes.get("aria-pressed"), "true");
+  });
+});
+
+describe("phone photos", () => {
+  it("sends one photo of the moment, scaled to the PC's size, with each message", async () => {
+    const page = await openViewfinder();
+    const video = page.element("camera-view");
+
+    await send(page, "ini apa?");
+
+    const [canvas] = FakeCanvas.made;
+    assert.equal(lastRequest(page, "/chat").init.headers["Content-Type"], "application/json");
+    assert.deepEqual(Object.keys(sentJson(page, "/chat")), ["text", "camera", "image"]);
+    assert.equal(sentJson(page, "/chat").text, "ini apa?");
+    assert.equal(sentJson(page, "/chat").camera, true);
+    assert.deepEqual(fromBase64(sentJson(page, "/chat").image), smallJpeg(0.85));
+    assert.deepEqual([canvas.width, canvas.height], [1280, 720]);
+    assert.deepEqual(canvas.drawn, [[video, 0, 0, 1280, 720]]);
+    assert.deepEqual(FakeCanvas.encodings, [{ type: "image/jpeg", quality: 0.85, width: 1280, height: 720 }]);
+
+    await send(page, "kalau ini?");
+
+    assert.equal(FakeCanvas.made.length, 2, "a new photo for the next message");
+    assert.equal(sentJson(page, "/chat").text, "kalau ini?");
+  });
+
+  it("shows the photo she saw in the owner's bubble", async () => {
+    const page = await openViewfinder();
+
+    await send(page, "ini apa?");
+
+    const [bubble] = ownerBubbles(page);
+    const thumbnail = thumbnailOf(bubble);
+    const [{ url, blob }] = page.objectUrls.created;
+    assert.equal(bubble.textContent, "ini apa?");
+    assert.equal(thumbnail.className, "photo");
+    assert.equal(thumbnail.src, url);
+    assert.deepEqual([thumbnail.width, thumbnail.height], [1280, 720]);
+    assert.deepEqual(new Uint8Array(await blob.arrayBuffer()), smallJpeg(0.85));
+  });
+
+  it("sends the message without the photo when even the lowest quality is too big, and says so", async () => {
+    const page = await openViewfinder();
+    FakeCanvas.jpeg = () => new Uint8Array(MAX_PHOTO_BYTES + 1);
+
+    await send(page, "ini apa?");
+
+    assert.deepEqual(FakeCanvas.encodings.map(({ quality }) => quality), [0.85, 0.7, 0.5]);
+    // Still sent through the camera: "ini apa?" is about what the camera shows, not the PC screen.
+    assert.equal(lastRequest(page, "/chat").init.body, '{"text":"ini apa?","camera":true}');
+    assert.equal(thumbnailOf(ownerBubbles(page)[0]), null);
+    assert.deepEqual(page.objectUrls.created, []);
+    assert.equal(page.element("notice").hidden, false);
+    assert.equal(page.element("notice").textContent, problemText("photo_too_big"));
+  });
+
+  it("sends the message without a photo while the camera is still opening, and says so", async () => {
+    const page = await openPage({ config: CAMERA_CONFIG });
+    page.devices.answer = () => new Promise(() => {});
+    page.element("camera").dispatch("click");
+    await settle();
+
+    await send(page, "coba lihat ini");
+
+    assert.equal(lastRequest(page, "/chat").init.body, '{"text":"coba lihat ini","camera":true}');
+    assert.deepEqual(FakeCanvas.made, []);
+    assert.equal(page.element("notice").textContent, problemText("photo_failed"));
+  });
+
+  it("keeps send and talk off while the photo of a typed message is encoded, so nothing else goes", async () => {
+    const page = await openViewfinder();
+    FakeCanvas.held = [];
+
+    await send(page, "ini apa?");
+    const whileEncoding = [page.element("send").disabled, page.element("talk").disabled];
+    await send(page, "kalau ini?");
+    for (const finish of FakeCanvas.held) finish();
+    await settle();
+
+    assert.deepEqual(whileEncoding, [true, true]);
+    assert.deepEqual(
+      page.requests.filter(({ route }) => route === "/chat").map(({ init }) => JSON.parse(init.body).text),
+      ["ini apa?"],
+    );
+    assert.equal(page.element("text").value, "kalau ini?", "the second message waits in the text box");
+  });
+
+  it("lets go of a thumbnail when its bubble leaves the chat strip", async () => {
+    const page = await openViewfinder();
+    for (const text of ["satu", "dua", "tiga"]) await send(page, text);
+    const urls = page.objectUrls.created.map(({ url }) => url);
+
+    assert.deepEqual(page.objectUrls.revoked, []);
+    await send(page, "empat");
+    assert.deepEqual(page.objectUrls.revoked, [urls[0]]);
+    await send(page, "lima");
+    assert.deepEqual(page.objectUrls.revoked, [urls[0], urls[1]]);
+  });
+
+  it("lets go of the thumbnail of a message she did not answer", async () => {
+    const page = await openViewfinder({ chatStatus: 500 });
+
+    await send(page, "ini apa?");
+
+    assert.deepEqual(ownerBubbles(page), []);
+    assert.deepEqual(page.objectUrls.revoked, [page.objectUrls.created[0].url]);
+    assert.equal(page.element("text").value, "ini apa?");
+  });
+
+  it("sends a photo with what the owner says", async () => {
+    const page = await openViewfinder();
+
+    await talk(page);
+
+    const request = lastRequest(page, "/talk");
+    const sent = sentJson(page, "/talk");
+    assert.equal(request.init.headers["Content-Type"], "application/json");
+    assert.deepEqual(Object.keys(sent), ["audio", "camera", "image"]);
+    assert.equal(Buffer.from(fromBase64(sent.audio).subarray(0, 4)).toString("latin1"), "RIFF");
+    assert.equal(sent.camera, true);
+    assert.deepEqual(fromBase64(sent.image), smallJpeg(0.85));
+    const [bubble] = ownerBubbles(page);
+    assert.equal(bubble.textContent, HEARD);
+    assert.equal(thumbnailOf(bubble).src, page.objectUrls.created[0].url);
+  });
+
+  it("photographs the moment the talk button is let go, before the recording ends", async () => {
+    const page = await openViewfinder();
+
+    await talk(page);
+
+    assert.deepEqual(timeline, ["draw", "stop"]);
+  });
+
+  it("sends what the owner says through the camera without a photo too big to send, and says so", async () => {
+    const page = await openViewfinder();
+    FakeCanvas.jpeg = () => new Uint8Array(MAX_PHOTO_BYTES + 1);
+
+    await talk(page);
+
+    const sent = sentJson(page, "/talk");
+    assert.equal(lastRequest(page, "/talk").init.headers["Content-Type"], "application/json");
+    assert.deepEqual(Object.keys(sent), ["audio", "camera"]);
+    assert.equal(Buffer.from(fromBase64(sent.audio).subarray(0, 4)).toString("latin1"), "RIFF");
+    assert.equal(sent.camera, true);
+    assert.equal(thumbnailOf(ownerBubbles(page)[0]), null);
+    assert.equal(page.element("notice").hidden, false);
+    assert.equal(page.element("notice").textContent, problemText("photo_too_big"));
+  });
+
+  it("keeps send and talk off while the photo of a released recording is encoded", async () => {
+    const page = await openViewfinder();
+    FakeCanvas.held = [];
+
+    await talk(page);
+    const whileEncoding = [page.element("send").disabled, page.element("talk").disabled];
+    await send(page, "halo");
+    page.element("talk").dispatch("keydown", { key: " ", repeat: false });
+    await settle();
+    const microphones = page.devices.asked.filter((constraints) => constraints.audio).length;
+    for (const finish of FakeCanvas.held) finish();
+    await settle();
+
+    assert.deepEqual(whileEncoding, [true, true]);
+    assert.equal(microphones, 1, "no second recording starts");
+    assert.deepEqual(
+      page.requests.map(({ route }) => route).filter((route) => route !== "/config.json"),
+      ["/talk"],
+    );
+    assert.equal(page.element("text").value, "halo", "the typed message waits in the text box");
+  });
+
+  it("sends what the owner says as a WAV, as before, while the viewfinder is closed", async () => {
+    const page = await openPage({ config: CAMERA_CONFIG });
+
+    await talk(page);
+
+    const request = lastRequest(page, "/talk");
+    assert.equal(request.init.headers["Content-Type"], "audio/wav");
+    assert.ok(request.init.body instanceof Uint8Array);
+    assert.equal(page.devices.asked.length, 1, "the microphone only");
+    assert.equal(page.devices.asked[0].video, undefined);
+    assert.deepEqual(FakeCanvas.made, []);
+  });
+});
+
+describe("phone viewfinder", () => {
+  it("flips between the back and the front camera", async () => {
+    const page = await openViewfinder();
+    const [back] = page.devices.cameras;
+
+    page.element("camera-flip").dispatch("click");
+    await settle();
+    const front = page.devices.cameras[1];
+
+    assert.equal(back.live, false);
+    assert.deepEqual(page.devices.liveWhenAsked, [0, 0], "the back camera is off before the front one is asked for");
+    assert.deepEqual(page.devices.asked[1].video.facingMode, { ideal: "user" });
+    assert.equal(page.element("camera-view").srcObject, front);
+    await send(page, "bajuku bagus?");
+    assert.deepEqual([FakeCanvas.made[0].width, FakeCanvas.made[0].height], [720, 1280]);
+
+    page.element("camera-flip").dispatch("click");
+    await settle();
+
+    assert.equal(front.live, false);
+    assert.deepEqual(page.devices.asked[2].video.facingMode, { ideal: "environment" });
+  });
+
+  it("turns the camera off when the owner closes it, and photographs nothing after", async () => {
+    const page = await openViewfinder();
+    const [back] = page.devices.cameras;
+
+    page.element("camera-close").dispatch("click");
+    await send(page, "halo");
+
+    assert.equal(back.live, false);
+    assert.equal(page.element("viewfinder").hidden, true);
+    assert.equal(page.element("camera-view").srcObject, null);
+    assert.equal(page.element("camera").attributes.get("aria-pressed"), "false");
+    assert.equal(lastRequest(page, "/chat").init.body, '{"text":"halo"}');
+    assert.deepEqual(FakeCanvas.made, []);
+  });
+
+  it("turns the camera off when its button is tapped again", async () => {
+    const page = await openViewfinder();
+
+    page.element("camera").dispatch("click");
+
+    assert.equal(page.devices.cameras[0].live, false);
+    assert.equal(page.element("viewfinder").hidden, true);
+  });
+
+  it("turns the camera off when the page is hidden", async () => {
+    const page = await openViewfinder();
+
+    document.hidden = true;
+    document.dispatch("visibilitychange");
+
+    assert.equal(page.devices.cameras[0].live, false);
+    assert.equal(page.element("viewfinder").hidden, true);
+  });
+
+  it("turns the camera off when the page is left", async () => {
+    const page = await openViewfinder();
+
+    window.dispatch("pagehide", { persisted: true });
+
+    assert.equal(page.devices.cameras[0].live, false);
+    assert.equal(page.element("viewfinder").hidden, true);
+  });
+
+  it("turns the camera off when this phone must be paired again", async () => {
+    const page = await openViewfinder({ chatStatus: 401 });
+
+    await send(page, "halo");
+
+    assert.equal(page.element("pairing").hidden, false);
+    assert.equal(page.devices.cameras[0].live, false);
+  });
+
+  it("turns the camera off two minutes after it opened", async (t) => {
+    const page = await openPage({ config: CAMERA_CONFIG });
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    page.element("camera").dispatch("click");
+    await flush();
+    const [back] = page.devices.cameras;
+
+    t.mock.timers.tick(CAMERA_IDLE_MS - 1);
+    assert.equal(back.live, true);
+    t.mock.timers.tick(1);
+
+    assert.equal(back.live, false);
+    assert.equal(page.element("viewfinder").hidden, true);
+  });
+
+  it("keeps the camera on for two minutes after the last photo", async (t) => {
+    const page = await openPage({ config: CAMERA_CONFIG });
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    page.element("camera").dispatch("click");
+    await flush();
+    const [back] = page.devices.cameras;
+    t.mock.timers.tick(60_000);
+
+    page.element("text").value = "ini apa?";
+    page.element("composer").dispatch("submit");
+    await flush();
+    t.mock.timers.tick(CAMERA_IDLE_MS - 1);
+    assert.equal(back.live, true);
+    t.mock.timers.tick(1);
+
+    assert.equal(back.live, false);
+  });
+
+  it("gives a viewfinder opened again its own two minutes", async (t) => {
+    const page = await openPage({ config: CAMERA_CONFIG });
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    page.element("camera").dispatch("click");
+    await flush();
+    t.mock.timers.tick(110_000);
+    page.element("camera-close").dispatch("click");
+    t.mock.timers.tick(5_000);
+
+    page.element("camera").dispatch("click");
+    await flush();
+    t.mock.timers.tick(5_000);
+
+    const [, again] = page.devices.cameras;
+    assert.equal(again.live, true, "the first viewfinder's two minutes are over, not this one's");
+    assert.equal(page.element("viewfinder").hidden, false);
+    t.mock.timers.tick(CAMERA_IDLE_MS - 5_000);
+    assert.equal(again.live, false);
+  });
+
+  it("keeps the camera on while the talk button is held, two minutes from its press", async (t) => {
+    const page = await openPage({ config: CAMERA_CONFIG });
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    page.element("camera").dispatch("click");
+    await flush();
+    const [back] = page.devices.cameras;
+    t.mock.timers.tick(110_000);
+
+    page.element("talk").dispatch("keydown", { key: " ", repeat: false });
+    await flush();
+    t.mock.timers.tick(15_000);
+    const heldPastTwoMinutes = back.live;
+    page.element("talk").dispatch("keyup", { key: " " });
+    await flush();
+
+    assert.equal(heldPastTwoMinutes, true, "the press restarted the two minutes");
+    assert.equal(sentJson(page, "/talk").camera, true);
+    assert.deepEqual(fromBase64(sentJson(page, "/talk").image), smallJpeg(0.85));
+  });
+
+  it("hides the camera when the PC turned it off after the page loaded, and says it was not sent", async () => {
+    const config = structuredClone(CAMERA_CONFIG);
+    // A photo is over the 32 KB a chat may have on a PC without the camera.
+    const page = await openViewfinder({ config, chatStatus: 413 });
+    config.camera = { enabled: false, max_side: null };
+
+    await send(page, "ini apa?");
+
+    assert.equal(page.requests.filter(({ route }) => route === "/config.json").length, 2, "read again");
+    assert.equal(page.element("notice").textContent, problemText("camera_off"));
+    assert.equal(page.devices.cameras[0].live, false);
+    assert.equal(page.element("viewfinder").hidden, true);
+    assert.equal(page.element("camera").hidden, true);
+    assert.equal(page.element("text").value, "ini apa?", "the message is back in the text box");
+    assert.equal(page.element("send").disabled, false);
+
+    await send(page, "ini apa?");
+
+    assert.equal(lastRequest(page, "/chat").init.body, '{"text":"ini apa?"}', "sent again without the camera");
+  });
+
+  // 413: a long recording with a photo is over the 2 MB a recording may have on a PC without the camera.
+  for (const talkStatus of [400, 413]) {
+    it(`hides the camera when a PC that turned it off refuses a recording through it (${talkStatus})`, async () => {
+      const config = structuredClone(CAMERA_CONFIG);
+      const page = await openViewfinder({ config, talkStatus });
+      config.camera = { enabled: false, max_side: null };
+
+      await talk(page);
+
+      assert.equal(page.element("notice").textContent, problemText("camera_off"));
+      assert.equal(page.element("camera").hidden, true);
+      assert.equal(page.element("viewfinder").hidden, true);
+    });
+  }
+
+  it("keeps the camera and says what went wrong when the PC still offers it", async () => {
+    const page = await openViewfinder({ chatStatus: 400 });
+
+    await send(page, "ini apa?");
+
+    assert.equal(page.requests.filter(({ route }) => route === "/config.json").length, 2);
+    assert.equal(page.element("notice").textContent, problemText("bad_request"));
+    assert.equal(page.element("camera").hidden, false);
+    assert.equal(page.element("viewfinder").hidden, false);
+    assert.equal(page.devices.cameras[0].live, true);
+  });
+
+  it("never asks the PC about its camera for a message sent without it", async () => {
+    const page = await openPage({ config: CAMERA_CONFIG, chatStatus: 413 });
+
+    await send(page, "halo");
+
+    assert.equal(page.requests.filter(({ route }) => route === "/config.json").length, 1);
+    assert.equal(page.element("notice").textContent, problemText("too_long_text"));
+    assert.equal(page.element("camera").hidden, false);
+  });
+
+  it("stops a camera that opens only after the viewfinder closed", async () => {
+    const page = await openPage({ config: CAMERA_CONFIG });
+    let open;
+    const late = new FakeStream("video", "environment");
+    page.devices.answer = () => new Promise((resolve) => (open = () => resolve(late)));
+
+    page.element("camera").dispatch("click");
+    await settle();
+    page.element("camera-close").dispatch("click");
+    open();
+    await settle();
+
+    assert.equal(late.live, false);
+    assert.equal(page.element("camera-view").srcObject, null);
+    assert.equal(page.element("viewfinder").hidden, true);
+  });
+
+  it("says in Indonesian why the camera did not open, and closes the viewfinder", async () => {
+    const page = await openPage({ config: CAMERA_CONFIG });
+    page.devices.answer = async () => {
+      throw Object.assign(new Error("Permission denied"), { name: "NotAllowedError" });
+    };
+
+    page.element("camera").dispatch("click");
+    await settle();
+
+    assert.equal(page.element("notice").textContent, problemText("camera_denied"));
+    assert.equal(page.element("notice").hidden, false);
+    assert.equal(page.element("viewfinder").hidden, true);
+    assert.equal(page.element("camera").attributes.get("aria-pressed"), "false");
   });
 });

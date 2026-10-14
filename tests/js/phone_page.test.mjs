@@ -105,6 +105,7 @@ describe("phone page", () => {
     assert.deepEqual(pageModules, ["/phone/phone.js"]);
     assert.deepEqual(missing, []);
     assert.ok(seen.has("/phone/audio.js"));
+    assert.ok(seen.has("/phone/camera.js"));
     assert.ok(seen.has("/live2d.js"), "the Live2D renderer");
     assert.ok(seen.has("/avatar.js"), "the VRM renderer");
   });
@@ -131,6 +132,20 @@ describe("phone page", () => {
       assert.match(path, /^\/vendor\//, specifier);
       const stats = statSync(servedFile(path));
       assert.ok(specifier.endsWith("/") ? stats.isDirectory() : stats.isFile(), specifier);
+    }
+  });
+
+  it("lets the photo thumbnails show, which are object URLs", () => {
+    assert.ok(policy()["img-src"].includes("blob:"));
+  });
+
+  it("has a viewfinder that plays the camera inline and silently, by itself", () => {
+    const videos = [...page.matchAll(/<video\b([^>]*)>/g)].map(([, attributes]) => attributes);
+
+    assert.equal(videos.length, 1);
+    assert.match(videos[0], /\bid="camera-view"/);
+    for (const name of ["muted", "playsinline", "autoplay"]) {
+      assert.match(videos[0], new RegExp(`\\s${name}(\\s|$)`), name);
     }
   });
 

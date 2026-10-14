@@ -9,6 +9,7 @@ const SHELL = new Set([
   "/",
   "/phone/phone.js",
   "/phone/audio.js",
+  "/phone/camera.js",
   "/phone/phone.css",
   "/manifest.webmanifest",
   "/icon-192.png",

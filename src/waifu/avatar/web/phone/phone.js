@@ -8,6 +8,13 @@
 // shows as a bubble and plays through an AudioContext, which Chrome lets make sound only after a touch on the page
 // (its autoplay policy), so the context is created and resumed on the owner's first touch; the renderer moves her
 // mouth with the reply's visemes from the moment the audio starts.
+//
+// When the PC offers the camera (SPEC, "seeing through the phone camera (v1.15)"), the camera button opens a
+// viewfinder over the lower part of the page. While it is open, each message, typed or said, says it was sent through
+// the camera and takes one photo of that moment (camera.js), which goes with it to /chat or /talk and shows as a
+// thumbnail in the owner's bubble. The camera turns off when the viewfinder closes, the page is hidden or left, or two
+// minutes pass without a photo or a press of the talk button. A PC restarted with the camera off refuses what is sent
+// through it; the page then reads /config.json again and hides the camera.
 import {
   DEFAULT_OWNER_CALL,
   MAX_TALK_S,
@@ -24,6 +31,18 @@ import {
   speakEventFor,
   talkWav,
 } from "./audio.js";
+import {
+  BACK_CAMERA,
+  CAMERA_IDLE_MS,
+  FRONT_CAMERA,
+  cameraProblem,
+  chatRequest,
+  fitWithin,
+  jpegWithin,
+  openCamera,
+  parseCameraConfig,
+  talkRequest,
+} from "./camera.js";
 
 const CONFIG_URL = "/config.json";
 const CHAT_URL = "/chat";
@@ -63,6 +82,12 @@ const CORE_MISSING_TEXT =
   "Cubism Core belum diatur di PC (avatar.live2d_core), jadi avatarnya tidak tampil. Chat tetap bisa dipakai.";
 const MODEL_MISSING_TEXT =
   "Model avatar belum diatur di PC (avatar.model), jadi avatarnya tidak tampil. Chat tetap bisa dipakai.";
+const PHOTO_ALT = "Foto dari kamera yang dikirim bersama pesan ini";
+// What a message sent while the viewfinder is closed takes from the camera (takePhoto's answer).
+const NOT_THROUGH_CAMERA = Object.freeze({ camera: false, photo: null, problem: null });
+// How the PC refuses a message sent through the camera once `waifu run` restarted with the camera off: 400, or 413
+// for a body over the limits it keeps without the camera.
+const CAMERA_REFUSALS = new Set(["bad_request", "too_long_text", "too_long_audio"]);
 
 const page = {
   name: document.getElementById("name"),
@@ -82,6 +107,11 @@ const page = {
   text: document.getElementById("text"),
   send: document.getElementById("send"),
   talk: document.getElementById("talk"),
+  camera: document.getElementById("camera"),
+  viewfinder: document.getElementById("viewfinder"),
+  cameraView: document.getElementById("camera-view"),
+  cameraFlip: document.getElementById("camera-flip"),
+  cameraClose: document.getElementById("camera-close"),
 };
 
 let ownerCall = DEFAULT_OWNER_CALL;
@@ -98,6 +128,10 @@ let captureModule = null;
 let playing = null;
 // The held talk button: {recorder: Promise<recorder | null>, startedMs, timer}.
 let talk = null;
+// The PC's camera settings ({maxSide}) when it offers the camera, else null.
+let cameraSettings = null;
+// The open viewfinder: {facing, stream (null while the camera opens), timer (turns it off)}, else null.
+let viewfinder = null;
 
 class CoreMissingError extends Error {}
 
@@ -129,12 +163,24 @@ function showTyping(on) {
   page.bubbles.scrollTop = page.bubbles.scrollHeight;
 }
 
+/** The thumbnail of a photo in its bubble; its size reserves the room before the image has loaded. */
+function thumbnailImage({ url, width, height }) {
+  const image = document.createElement("img");
+  image.className = "photo";
+  image.src = url;
+  image.width = width;
+  image.height = height;
+  image.alt = PHOTO_ALT;
+  return image;
+}
+
 /** Puts the bubbles in the chat list, the typing dots (if any) after them; returns their items, oldest first. */
 function renderBubbles() {
-  const items = bubbles.map(({ from, text }) => {
+  const items = bubbles.map(({ from, text, thumbnail }) => {
     const item = document.createElement("li");
     item.className = `bubble from-${from}`;
     item.textContent = text;
+    if (thumbnail) item.prepend(thumbnailImage(thumbnail));
     return item;
   });
   page.bubbles.replaceChildren(...items);
@@ -142,14 +188,23 @@ function renderBubbles() {
   return items;
 }
 
+/** Lets go of the photos of bubbles that left the chat strip: a thumbnail is all the page keeps of a photo. */
+function forgetBubbles(gone) {
+  for (const { thumbnail } of gone) {
+    if (thumbnail) URL.revokeObjectURL(thumbnail.url);
+  }
+}
+
 /**
- * Adds a bubble and scrolls to it: the owner's to the end of the list, hers to her first line, below the list's
- * faded top edge, so a reply taller than the list is read from its start.
+ * Adds a bubble, with the thumbnail of `photo` (a photo taken for it) when given, and scrolls to it: the owner's to
+ * the end of the list, hers to her first line, below the list's faded top edge, so a reply taller than the list is
+ * read from its start.
  */
-function addBubble(from, text) {
-  const bubble = { from, text };
+function addBubble(from, text, photo = null) {
+  const thumbnail = photo && { url: URL.createObjectURL(photo.blob), width: photo.width, height: photo.height };
+  const bubble = { from, text, thumbnail };
   bubbles.push(bubble);
-  bubbles.splice(0, bubbles.length - MAX_BUBBLES);
+  forgetBubbles(bubbles.splice(0, bubbles.length - MAX_BUBBLES));
   const item = renderBubbles().at(-1);
   page.bubbles.scrollTop =
     from === "cyrene"
@@ -160,7 +215,7 @@ function addBubble(from, text) {
 
 function removeBubble(bubble) {
   const index = bubbles.indexOf(bubble);
-  if (index >= 0) bubbles.splice(index, 1);
+  if (index >= 0) forgetBubbles(bubbles.splice(index, 1));
   renderBubbles();
 }
 
@@ -208,6 +263,7 @@ function showBootProblem(kind) {
 
 function showPairing() {
   cancelTalk();
+  closeViewfinder();
   stopPlayback();
   setState("idle");
   page.message.hidden = true;
@@ -243,11 +299,13 @@ async function pair(event) {
   location.reload();
 }
 
-function showChat(config) {
+function showChat(config, camera) {
   ownerCall = config.owner_call;
+  cameraSettings = camera;
   page.name.textContent = config.name;
   page.credit.textContent = config.credit;
   page.text.placeholder = `Tulis pesan untuk ${config.name}…`;
+  page.camera.hidden = camera === null;
   page.chat.hidden = false;
   // Chrome lets an AudioContext make sound only after the owner touched the page (pointerup for a finger,
   // pointerdown for a mouse, a key): every one of them creates or resumes it, so her first reply can play.
@@ -306,7 +364,7 @@ async function boot() {
     showBootProblem(result.problem ?? "bad_reply");
     return;
   }
-  showChat(config);
+  showChat(config, parseCameraConfig(result.data));
   if (config.model === null) {
     showMessage(MODEL_MISSING_TEXT);
     return;
@@ -381,21 +439,28 @@ async function playReply(reply) {
 
 // --- Asking her ---------------------------------------------------------------------------------------
 
-/** Sends one request while she thinks; its JSON answer, or null after showing the problem (or the pairing form). */
-async function ask(route, body, contentType) {
+/**
+ * Sends one request ({body, contentType}) of a message while she thinks; `shot` is what the camera gave the message
+ * (takePhoto), whose problem, if any, shows meanwhile. Its JSON answer, or null after showing the problem (or the
+ * pairing form).
+ */
+async function ask(route, request, shot) {
   setBusy(true);
-  hideNotice();
+  if (shot.problem) showNotice(shot.problem);
+  else hideNotice();
   stopPlayback();
   setState("thinking");
-  const result = await requestCyrene(fetch, route, { body, contentType });
+  const result = await requestCyrene(fetch, route, request);
+  const refusedCamera = shot.camera && CAMERA_REFUSALS.has(result.problem) && (await cameraTurnedOff());
+  const problem = refusedCamera ? "camera_off" : result.problem;
   setBusy(false);
-  if (result.problem === "unpaired") {
+  if (problem === "unpaired") {
     showPairing();
     return null;
   }
-  if (result.problem) {
+  if (problem) {
     setState("idle");
-    showNotice(result.problem);
+    showNotice(problem);
     return null;
   }
   return result;
@@ -419,10 +484,13 @@ async function sendText() {
     showNotice(problem);
     return;
   }
+  // Busy already while the photo is taken, so the message cannot be sent twice.
+  setBusy(true);
   page.text.value = "";
   fitTextBox();
-  const sent = addBubble("owner", text);
-  const result = await ask(CHAT_URL, JSON.stringify({ text }), "application/json");
+  const shot = await takePhoto();
+  const sent = addBubble("owner", text, shot.photo);
+  const result = await ask(CHAT_URL, chatRequest(text, { camera: shot.camera, photo: shot.photo?.bytes }), shot);
   if (result === null) {
     // She did not answer it: the message goes back to the text box to send again.
     removeBubble(sent);
@@ -433,15 +501,16 @@ async function sendText() {
   await answer(parseChatReply(result.data));
 }
 
-async function sendSpeech(wav) {
-  const result = await ask(TALK_URL, wav, "audio/wav");
+/** Sends a recording with what the camera gave it (`shot`, takePhoto's answer): through it or not, and its photo. */
+async function sendSpeech(wav, shot) {
+  const result = await ask(TALK_URL, talkRequest(wav, { camera: shot.camera, photo: shot.photo?.bytes }), shot);
   if (result === null) return;
   const heard = parseTalkReply(result.data);
   if (heard === null) {
     await answer(null);
     return;
   }
-  if (heard.heard) addBubble("owner", heard.heard);
+  if (heard.heard) addBubble("owner", heard.heard, shot.photo);
   if (heard.reply === null) {
     setState("idle");
     showNotice("not_heard");
@@ -502,6 +571,8 @@ function startTalk() {
   if (busy || talk) return;
   hideNotice();
   stopPlayback();
+  // The owner is about to send through the camera: a long hold never loses it before the release takes its photo.
+  if (viewfinder) keepCameraAwhile(viewfinder);
   const session = { startedMs: performance.now(), timer: 0, recorder: null };
   session.recorder = openRecorder(ensureAudio()).catch((error) => {
     console.warn("The microphone could not be opened", error);
@@ -530,8 +601,12 @@ async function finishTalk(send) {
   const heldS = (performance.now() - session.startedMs) / 1000;
   endTalk(send ? "thinking" : "idle");
   setBusy(true);
+  // The photo of the moment the button is let go, drawn before the recording stops; busy until it is encoded too,
+  // so nothing else is sent meanwhile.
+  const taking = send ? takePhoto() : null;
   const recorder = await session.recorder;
   const recording = recorder && (await recorder.stop());
+  const shot = taking && (await taking);
   setBusy(false);
   if (!send || recording === null) {
     setState("idle");
@@ -545,11 +620,137 @@ async function finishTalk(send) {
     showNotice(heldS < MIN_TALK_S ? "too_short" : "audio_locked");
     return;
   }
-  await sendSpeech(wav);
+  await sendSpeech(wav, shot);
 }
 
 function cancelTalk() {
   finishTalk(false);
+}
+
+// --- The camera ---------------------------------------------------------------------------------------
+
+const stopTracks = (stream) => stream?.getTracks().forEach((track) => track.stop());
+
+/** (Re)starts the two minutes after which the viewfinder of `session` turns the camera off. */
+function keepCameraAwhile(session) {
+  clearTimeout(session.timer);
+  session.timer = setTimeout(closeViewfinder, CAMERA_IDLE_MS);
+}
+
+/** Opens the camera `session` faces into the viewfinder; a failure closes it and says why. */
+async function startCamera(session) {
+  page.cameraFlip.disabled = true;
+  let stream;
+  try {
+    stream = await openCamera(navigator.mediaDevices, session.facing);
+  } catch (error) {
+    console.warn("The camera could not be opened", error);
+    if (viewfinder !== session) return;
+    closeViewfinder();
+    showNotice(cameraProblem(error));
+    return;
+  }
+  if (viewfinder !== session) {
+    // Closed while the camera was opening (the permission prompt, a hidden page).
+    stopTracks(stream);
+    return;
+  }
+  session.stream = stream;
+  page.cameraView.srcObject = stream;
+  page.cameraFlip.disabled = false;
+}
+
+function openViewfinder() {
+  const session = { facing: BACK_CAMERA, stream: null, timer: 0 };
+  viewfinder = session;
+  page.viewfinder.hidden = false;
+  page.camera.setAttribute("aria-pressed", "true");
+  keepCameraAwhile(session);
+  startCamera(session);
+}
+
+/** Turns the camera off and hides the viewfinder; nothing is photographed until it opens again. */
+function closeViewfinder() {
+  const session = viewfinder;
+  if (session === null) return;
+  viewfinder = null;
+  clearTimeout(session.timer);
+  stopTracks(session.stream);
+  page.cameraView.srcObject = null;
+  page.viewfinder.hidden = true;
+  page.camera.setAttribute("aria-pressed", "false");
+}
+
+function toggleViewfinder() {
+  if (viewfinder) closeViewfinder();
+  else openViewfinder();
+}
+
+/** Switches between the back and the front camera; the first is closed before the other opens (Android has one). */
+function flipCamera() {
+  const session = viewfinder;
+  if (session === null || session.stream === null) return;
+  stopTracks(session.stream);
+  session.stream = null;
+  page.cameraView.srcObject = null;
+  session.facing = session.facing === BACK_CAMERA ? FRONT_CAMERA : BACK_CAMERA;
+  startCamera(session);
+}
+
+function canvasJpeg(canvas, quality) {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => (blob ? resolve(blob) : reject(new Error("The photo could not be encoded"))),
+      "image/jpeg",
+      quality,
+    );
+  });
+}
+
+/** A message sent through the camera whose photo could not be taken, for the reason `problem` (a problem kind). */
+const withoutPhoto = (problem) => ({ camera: true, photo: null, problem });
+
+/**
+ * What the camera gives the message being sent: {camera, photo, problem}. `camera` tells whether the viewfinder is
+ * open; then `photo` is its frame of this moment, scaled to the PC's size, as a JPEG ({blob, bytes, width, height}),
+ * or null with the `problem` kind that kept it from being taken. NOT_THROUGH_CAMERA while the viewfinder is closed.
+ * Never rejects.
+ */
+async function takePhoto() {
+  const session = viewfinder;
+  if (session === null) return NOT_THROUGH_CAMERA;
+  keepCameraAwhile(session);
+  const video = page.cameraView;
+  if (session.stream === null || video.videoWidth === 0) return withoutPhoto("photo_failed");
+  try {
+    // Drawn before the first await: the frame of the moment the message was sent.
+    const { width, height } = fitWithin(video.videoWidth, video.videoHeight, cameraSettings.maxSide);
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    canvas.getContext("2d").drawImage(video, 0, 0, width, height);
+    const blob = await jpegWithin((quality) => canvasJpeg(canvas, quality));
+    if (blob === null) return withoutPhoto("photo_too_big");
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    return { camera: true, photo: { blob, bytes, width, height }, problem: null };
+  } catch (error) {
+    console.warn("The photo could not be taken", error);
+    return withoutPhoto("photo_failed");
+  }
+}
+
+/**
+ * Whether the PC no longer offers the camera. The page reads /config.json only as it loads, so after `waifu run`
+ * restarted with the camera off, a message sent through it is refused; this reads it again, and when the camera is
+ * off, closes the viewfinder and hides its button.
+ */
+async function cameraTurnedOff() {
+  const result = await requestCyrene(fetch, CONFIG_URL);
+  if (result.problem || parseCameraConfig(result.data) !== null) return false;
+  closeViewfinder();
+  cameraSettings = null;
+  page.camera.hidden = true;
+  return true;
 }
 
 const isTalkKey = (event) => event.key === " " || event.key === "Enter";
@@ -577,8 +778,16 @@ page.talk.addEventListener("keyup", (event) => {
 });
 page.talk.addEventListener("blur", cancelTalk);
 document.addEventListener("visibilitychange", () => {
-  if (document.hidden) cancelTalk();
+  if (!document.hidden) return;
+  cancelTalk();
+  closeViewfinder();
 });
+// Leaving the page fires pagehide; a mobile browser may skip either event, so both turn the camera off.
+window.addEventListener("pagehide", closeViewfinder);
+
+page.camera.addEventListener("click", toggleViewfinder);
+page.cameraFlip.addEventListener("click", flipCamera);
+page.cameraClose.addEventListener("click", closeViewfinder);
 
 page.composer.addEventListener("submit", (event) => {
   event.preventDefault();

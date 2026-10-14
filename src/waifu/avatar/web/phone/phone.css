@@ -337,6 +337,13 @@ body[data-state="speaking"] #status::before {
   box-shadow: var(--shadow);
 }
 
+/* One line, cut short when the buttons beside the box leave too little room for it (the camera button, a long name). */
+#text::placeholder {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .round {
   flex: none;
   display: grid;
@@ -389,6 +396,73 @@ body[data-state="speaking"] #status::before {
   to {
     box-shadow: 0 0 0 16px rgba(217, 83, 79, 0);
   }
+}
+
+/* --- The camera ---------------------------------------------------------------------------------- */
+
+#camera {
+  width: 44px;
+  height: 44px;
+  background: var(--paper);
+  color: var(--accent);
+}
+
+#camera[aria-pressed="true"] {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* The viewfinder sits between the chat list and the text box; the list gives it room, so her face stays in view. */
+#chat:has(#viewfinder:not([hidden])) #bubbles {
+  max-height: 22vh;
+  max-height: 22dvh;
+}
+
+#viewfinder {
+  position: relative;
+  flex: none;
+  height: 34vh;
+  height: 34dvh;
+  border-radius: 18px;
+  overflow: hidden;
+  background: #1d1a26;
+  box-shadow: var(--shadow);
+  pointer-events: auto;
+}
+
+/* The whole frame, as the photo will be. */
+#camera-view {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+#viewfinder .round {
+  position: absolute;
+  top: 10px;
+  width: 40px;
+  height: 40px;
+  background: rgba(20, 16, 30, 0.55);
+}
+
+#camera-close {
+  left: 10px;
+}
+
+#camera-flip {
+  right: 10px;
+}
+
+/* The photo she saw, in the owner's bubble; its width and height attributes keep the room while it loads. */
+.bubble .photo {
+  display: block;
+  width: auto;
+  height: 120px;
+  max-width: 100%;
+  margin-bottom: 6px;
+  border-radius: 12px;
+  object-fit: cover;
 }
 
 @media (prefers-reduced-motion: reduce) {
