@@ -53,6 +53,7 @@ from waifu.brain.attachments import CameraTurn, TurnImages
 from waifu.brain.base import Brain, ToolCallRecord
 from waifu.brain.factory import build_brain
 from waifu.brain.memory_tools import MemoryTools
+from waifu.brain.pc_tools import PcTools
 from waifu.brain.persona import WEEKDAYS_ID
 from waifu.brain.schedule_tools import ScheduleTools
 from waifu.brain.screen_tools import ScreenTools
@@ -102,6 +103,8 @@ from waifu.gacha.watcher import GachaWatcher
 from waifu.gate import WakeGate
 from waifu.memory import MemoryStore, memory_prompt_section
 from waifu.notify import Notifier, build_notifier
+from waifu.pc_health import CpuLoad, Drive, GpuStatus, PcSnapshot, gpu_status, read_snapshot
+from waifu.pc_watch import PcWatcher
 from waifu.phone.auth import CODE_LIFETIME, MAX_TRIES, PhoneAuth
 from waifu.phone.server import LOOPBACK, PhoneError, PhoneServer
 from waifu.routines import describe_routine, routine_problems, run_routine
@@ -273,6 +276,8 @@ PHONE_WITHOUT_MODEL_TEXT = (
     "avatar.model (dan avatar.live2d_core untuk Live2D) di config.yaml, juga kalau "
     "avatar.enabled: false"
 )
+PC_UNREADABLE = "tidak terbaca"
+PC_WITHOUT_GPU = "tidak terbaca (bukan NVIDIA atau nvidia-smi tidak ada)"
 REPEAT_TEXT: dict[Repeat, str] = {
     "none": "sekali",
     "daily": "tiap hari",
@@ -409,6 +414,11 @@ def build_parser() -> argparse.ArgumentParser:
         type=_year_month,
         metavar="YYYY-MM",
         help="bulan yang ditampilkan, misalnya 2026-09 (default bulan ini)",
+    )
+    command(
+        "pc",
+        _pc,
+        "Tampilkan kondisi PC: beban CPU, RAM, sisa disk, GPU NVIDIA, dan waktu sejak restart.",
     )
     command("check", _check, "Periksa konfigurasi, perangkat, dan dependensi.")
     command("notify-test", _notify_test, "Kirim notifikasi tes ke HP lewat ntfy.")
@@ -742,6 +752,7 @@ def _listen(args: argparse.Namespace) -> int:
     registry = build_registry(config, dry_run=args.dry_run)
     gacha = build_gacha(config) if config.gacha.enabled else None
     usage = _usage_recorder(config)
+    pc = _session_pc_reader(config)  # the PC tool and the PC watcher read the PC through it
     # Only while the phone page offers its camera (the phone server then takes photos): the photo
     # a phone message carries waits for its turn in `turn_images`, shared by the brain and the
     # Assistant, and `camera_turn`, shared by the Assistant and the screen tool, tells which
@@ -750,7 +761,9 @@ def _listen(args: argparse.Namespace) -> int:
     turn_images = TurnImages() if camera_offered else None
     camera_turn = CameraTurn() if camera_offered else None
     with _session_schedule(config, dry_run=args.dry_run) as schedule:
-        brain = _companion_brain(config, registry, gacha, schedule, usage, turn_images, camera_turn)
+        brain = _companion_brain(
+            config, registry, gacha, schedule, usage, pc, turn_images, camera_turn
+        )
         stt = WhisperStt(config.stt, name)
         gate = WakeGate(config.assistant.wake_words, config.assistant.followup_seconds)
         segmenter = EnergySegmenter(config.audio.sample_rate, config.audio.vad)
@@ -816,6 +829,7 @@ def _listen(args: argparse.Namespace) -> int:
                 try:
                     with (
                         _gacha_watcher(config, gacha, assistant),
+                        _pc_watcher(config, pc, assistant, notifier),
                         _scheduler(
                             config,
                             schedule,
@@ -842,7 +856,9 @@ def _chat(args: argparse.Namespace) -> int:
     usage = _usage_recorder(config)
     name = config.assistant.name
     with _session_schedule(config, dry_run=args.dry_run) as schedule:
-        brain = _companion_brain(config, registry, gacha, schedule, usage)
+        brain = _companion_brain(
+            config, registry, gacha, schedule, usage, _session_pc_reader(config)
+        )
         # One scheduler fires the real schedule, and one teller gives the budget notices: a
         # running `waifu run`, which speaks and pushes, rather than this chat, which would take
         # the entries and the notices and only print them. A dry run has a schedule of its own,
@@ -904,12 +920,14 @@ def _companion_brain(
     gacha: GachaParts | None,
     schedule: ScheduleStore | None,
     usage: _UsageRecorder | None,
+    pc: Callable[[], PcSnapshot] | None,
     turn_images: TurnImages | None = None,
     camera_turn: CameraTurn | None = None,
 ) -> Brain:
     """The brain with the game tools when they are on, her long-term memory when it is on,
-    then her schedule when it is on, the day's briefing when it is on, with Claude her eyes on
-    the screen when vision is on, and with `usage` what her requests cost.
+    then her schedule when it is on, the day's briefing when it is on, with `pc` how the PC is
+    doing, with Claude her eyes on the screen when vision is on, and with `usage` what her
+    requests cost.
 
     With memory, every new session lists the notes as they are in the file at that moment.
     With `usage`, every Claude response is recorded in its ledger. With `turn_images` (only
@@ -930,6 +948,8 @@ def _companion_brain(
         )
     if config.briefing.enabled:
         providers.append(_briefing_tools(config.briefing, schedule))
+    if pc is not None:
+        providers.append(PcTools(pc, owner_call=owner_call))
     if config.vision.enabled and config.brain.backend == "claude":
         # Ollama's local model cannot see images, so it is never offered the screen. Her name,
         # wake words, and what she calls the owner are left out of Master's words, as for the
@@ -2583,6 +2603,124 @@ def _paired_phones_check(path: Path) -> Check:
     return OK, f"HP terpasang: {count} (lihat 'waifu phone devices')"
 
 
+# --- PC health -------------------------------------------------------------------------------
+
+
+def _session_pc_reader(config: AppConfig) -> Callable[[], PcSnapshot] | None:
+    """How one `run` or `chat` reads the PC, or None with the PC health off.
+
+    The PC tool and the PC watcher of a `run` share one reader: a reading within 10 s of the
+    previous one, by either of them, gives the CPU load since it without waiting for a fresh
+    half-second sample.
+    """
+    if not config.pc_health.enabled:
+        return None
+    cpu = CpuLoad()
+    return lambda: read_snapshot(cpu=cpu)
+
+
+@contextmanager
+def _pc_watcher(
+    config: AppConfig,
+    pc: Callable[[], PcSnapshot] | None,
+    assistant: Assistant,
+    notifier: Notifier | None,
+) -> Iterator[None]:
+    """Her notices about a nearly full drive or a GPU that stays hot while the block runs, also
+    pushed to the phone when notifications are on; none with the PC health or its notices
+    off."""
+    if pc is None or not config.pc_health.notices:
+        yield
+        return
+    watcher = PcWatcher(
+        pc,
+        config.pc_health,
+        announce=assistant.announce,
+        notifier=notifier,
+        owner_call=config.assistant.owner_call,
+        title=config.assistant.name,
+    )
+    watcher.start()
+    try:
+        yield
+    finally:
+        watcher.stop()
+
+
+def _pc(args: argparse.Namespace) -> int:
+    """Print how the PC is doing now, read as the `pc_health` tool reads it (the first reading
+    samples the CPU over half a second). It needs no config, so it works with the PC health
+    off too."""
+    for line in _pc_lines(read_snapshot(cpu=CpuLoad())):
+        print(line)
+    return 0
+
+
+def _uptime_text(seconds: int) -> str:
+    """Under a day as hours and minutes, else as days and hours: "26 hari 13 jam"."""
+    days, rest = divmod(seconds, 86400)
+    if not days:
+        return duration_text(rest // 60)
+    hours = rest // 3600
+    return f"{days} hari {hours} jam" if hours else f"{days} hari"
+
+
+def _pc_lines(snapshot: PcSnapshot) -> list[str]:
+    """One line per part of the PC, rounded as the tool rounds them; a part that could not be
+    read says so."""
+    cpu = PC_UNREADABLE if snapshot.cpu_percent is None else f"{round(snapshot.cpu_percent)}%"
+    drives = [f"Disk {drive.letter} {_drive_text(drive)}" for drive in snapshot.drives]
+    uptime = PC_UNREADABLE if snapshot.uptime_s is None else _uptime_text(snapshot.uptime_s)
+    return [
+        f"CPU: {cpu}",
+        f"RAM: {_ram_text(snapshot.ram_used_gb, snapshot.ram_total_gb)}",
+        *(drives or [f"Disk: {PC_UNREADABLE}"]),
+        f"GPU: {_gpu_text(snapshot.gpu)}",
+        f"Sejak restart: {uptime}",
+    ]
+
+
+def _ram_text(used_gb: float | None, total_gb: float | None) -> str:
+    """`12,3 dari 31,9 GB terpakai (39%)`."""
+    if used_gb is None or total_gb is None:
+        return PC_UNREADABLE
+    used, total = _decimal_comma(used_gb), _decimal_comma(total_gb)
+    return f"{used} dari {total} GB terpakai ({_share(used_gb, total_gb)}%)"
+
+
+def _drive_text(drive: Drive) -> str:
+    """`tinggal 120,5 dari 465,1 GB (26% kosong)`."""
+    free, total = _decimal_comma(drive.free_gb), _decimal_comma(drive.total_gb)
+    return f"tinggal {free} dari {total} GB ({_share(drive.free_gb, drive.total_gb)}% kosong)"
+
+
+def _gpu_text(gpu: GpuStatus | None) -> str:
+    """The GPU's name and each reading nvidia-smi could give."""
+    if gpu is None:
+        return PC_WITHOUT_GPU
+    readings = [gpu.name]
+    if gpu.temp_c is not None:
+        readings.append(f"{gpu.temp_c}°C")
+    if gpu.load_percent is not None:
+        readings.append(f"beban {gpu.load_percent}%")
+    if gpu.vram_used_gb is not None and gpu.vram_total_gb is not None:
+        used, total = _decimal_comma(gpu.vram_used_gb), _decimal_comma(gpu.vram_total_gb)
+        readings.append(f"VRAM {used} dari {total} GB")
+    if gpu.power_w is not None:
+        readings.append(f"daya {_decimal_comma(gpu.power_w)} W")
+    return ", ".join(readings)
+
+
+def _share(part: float, whole: float) -> int:
+    """`part` as a whole percent of `whole`; of nothing (a drive reporting no size) it is 0."""
+    return round(100 * part / whole) if whole > 0 else 0
+
+
+def _decimal_comma(value: float) -> str:
+    """`8,4`: one decimal, written with the Indonesian decimal comma."""
+    return f"{value:.1f}".replace(".", ",")
+
+
 # --- check -----------------------------------------------------------------------------------
 
 
@@ -2610,6 +2748,7 @@ def _checks(config_path: Path) -> Iterator[Check]:
     yield _schedule_check(config)
     yield _briefing_check(config.briefing)
     yield _usage_check(config)
+    yield _pc_health_check(config)
     yield from _voice_package_checks(config)
     yield _microphone_check(config)
     yield from _anime_voice_checks(config)
@@ -2844,6 +2983,16 @@ def _usage_check(config: AppConfig) -> Check:
             "(lihat README, bagian Biaya API Claude)"
         )
     return OK, status
+
+
+def _pc_health_check(config: AppConfig) -> Check:
+    """Whether she reads the PC, and the GPU nvidia-smi names; it is asked only while on."""
+    if not config.pc_health.enabled:
+        return WARN, "Kesehatan PC mati"
+    gpu = gpu_status()
+    if gpu is None:
+        return WARN, "Kesehatan PC: aktif, GPU tidak terbaca"
+    return OK, f"Kesehatan PC: aktif, GPU {gpu.name}"
 
 
 def _set_aside_files(path: Path) -> list[Path]:

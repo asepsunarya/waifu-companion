@@ -40,6 +40,7 @@ Cyrene : "Komputer mau kumatikan sekarang, Master? Jawab iya kalau jadi." (minta
 - [Sapaan pagi dan ringkasan harian](#sapaan-pagi-dan-ringkasan-harian)
 - [Biaya API Claude](#biaya-api-claude)
 - [Cyrene di HP](#cyrene-di-hp)
+- [Kesehatan PC](#kesehatan-pc)
 - [Pemecahan masalah](#pemecahan-masalah)
 - [Checklist uji perangkat keras](#checklist-uji-perangkat-keras)
 - [Privasi](#privasi)
@@ -611,7 +612,8 @@ waifu speaker-test    # skor kecocokan langsung, Ctrl+C untuk berhenti
 | `waifu briefing` | Tampilkan ringkasan hari ini (tanggal, cuaca, jadwal) tanpa otak, untuk mengecek cuaca (lihat [Sapaan pagi dan ringkasan harian](#sapaan-pagi-dan-ringkasan-harian)) |
 | `waifu usage` / `waifu usage --month 2026-09` | Perkiraan biaya API Claude per hari bulan ini atau bulan lain (lihat [Biaya API Claude](#biaya-api-claude)) |
 | `waifu phone setup` / `pair` / `devices` / `forget <id>` | Siapkan Cyrene di HP lewat Tailscale, pasangkan HP dengan kode, lihat dan lupakan HP (lihat [Cyrene di HP](#cyrene-di-hp)) |
-| `waifu check` | Periksa config, kode IR, aplikasi PC, rutinitas, voiceprint, otak, ingatan, jadwal, sapaan pagi, biaya API, paket suara, CUDA, mic, suara anime, avatar, dan Cyrene di HP |
+| `waifu pc` | Tampilkan kondisi PC saat ini: beban CPU, RAM, sisa disk, GPU NVIDIA, dan waktu sejak Windows terakhir di-restart (lihat [Kesehatan PC](#kesehatan-pc)) |
+| `waifu check` | Periksa config, kode IR, aplikasi PC, rutinitas, voiceprint, otak, ingatan, jadwal, sapaan pagi, biaya API, kesehatan PC, paket suara, CUDA, mic, suara anime, avatar, dan Cyrene di HP |
 
 Opsi untuk semua perintah: `--config <file>` (default `config.yaml`), `--dry-run`
 (perangkat simulasi), `-v` (log lebih rinci), `--log-file <file>` (log juga ditulis
@@ -2731,6 +2733,113 @@ Cyrene lain) di port itu. Tutup program itu, atau ganti `phone.port`, jalankan l
 `waifu phone setup`, dan jalankan perintah `tailscale serve` yang baru (matikan yang lama dengan
 `tailscale serve --https=443 off`).
 
+## Kesehatan PC
+
+Cyrene bisa membaca kondisi PC ini saat ditanya: beban CPU, RAM yang terpakai, sisa ruang tiap
+disk (C:, D:, ...), suhu, beban, VRAM, dan daya GPU NVIDIA, serta sudah berapa lama sejak Windows
+terakhir di-restart. Selama `waifu run` dia juga bilang sendiri kalau sebuah disk hampir penuh atau
+GPU terus panas. Fitur ini sudah menyala dari awal (`pc_health.enabled: true`), dengan otak Ollama
+maupun Claude, tanpa paket tambahan: CPU, RAM, disk, dan waktu sejak restart dibaca langsung dari
+Windows, dan GPU dari `nvidia-smi`, yang terpasang bersama driver NVIDIA.
+
+```text
+Master : "Cyrene, PC-ku gimana?"
+Cyrene : "Aman, Master. CPU-nya 23 persen, RAM kepakai 12 dari 32 GB, GPU 54 derajat."
+Master : "GPU-ku panas nggak?"                 (tanpa memanggil nama, masih dalam jendela lanjutan)
+Master : "Cyrene, RAM kepake berapa?"
+Master : "Cyrene, disk C sisa berapa?"
+Master : "Cyrene, sudah berapa lama sejak PC-ku terakhir restart?"
+```
+
+Setiap kali ditanya dia membaca PC saat itu juga, tidak menebak, dan menjawab dalam satu atau
+dua kalimat dengan angka yang dibulatkan. Gigabyte-nya dihitung seperti Windows Explorer
+(1 GB = 1024 × 1024 × 1024 byte), jadi sisa disk sama dengan yang terlihat di Explorer. Beban CPU
+adalah beban beberapa detik terakhir: kalau PC terakhir dibaca paling lama 10 detik sebelumnya
+(misalnya oleh pemberitahuan selama `waifu run`), rata-rata sejak itu; kalau tidak, dia mengukurnya
+setengah detik saat itu juga. Waktu sejak restart dihitung sejak Windows terakhir di-restart, dengan
+waktu sleep ikut terhitung: sleep dan shutdown dengan Fast Startup (bawaan Windows 11) tidak
+mengulangnya, jadi bisa jauh lebih lama dari sejak PC dinyalakan pagi ini.
+
+### Pemberitahuan dan pengaturannya
+
+- **Disk hampir penuh.** Sisa sebuah disk di bawah `disk_warn_gb` (bawaan 10 GB): "Master, disk
+  C: tinggal 8,4 GB. Mungkin perlu dibersihkan sedikit." Sisanya dibulatkan ke bawah, jadi disk
+  yang sedikit di bawah batas tidak terdengar seperti batasnya (9,96 GB disebut 9,9). Sekali per
+  disk per hari (tanggal PC): kalau sisanya naik lagi lalu turun lagi di hari yang sama, dia diam.
+  Huruf drive dari `subst` (folder yang dipasang sebagai drive) tidak dihitung sebagai disk sendiri.
+- **GPU terus panas.** GPU di `gpu_warn_c` (bawaan 85°C) atau lebih di setiap pembacaan selama
+  paling sedikit `gpu_warn_minutes` (bawaan 3 menit): "Master, GPU-nya sudah 88°C beberapa menit.
+  Istirahat sebentar atau cek pendinginnya, ya." Paling sering sekali per jam. Satu pembacaan di
+  bawah batas, atau tanpa angka suhu, membuat hitungannya mulai dari awal.
+- PC dibaca setiap `poll_seconds` (bawaan 60 detik), mulai begitu dia siap mendengarkan.
+- Seperti pengingat, kalimatnya diucapkan di sela obrolan, tidak pernah memotong Master atau
+  jawabannya, dengan wajah sedih, dan dikirim juga ke HP kalau notifikasi menyala (lihat
+  [Notifikasi ke HP](#3-notifikasi-ke-hp-ntfy)).
+- Yang sudah diberitahukan hanya diingat selama `waifu run` berjalan (tidak ada yang ditulis ke
+  disk), jadi setelah restart satu pemberitahuan bisa terulang sekali.
+- Hanya selama `waifu run`. `waifu chat` bisa ditanya, tapi tidak bilang sendiri.
+
+```yaml
+pc_health:
+  enabled: true        # false: tanpa tool dan tanpa pemberitahuan (`waifu pc` tetap jalan)
+  notices: true        # false: hanya menjawab kalau ditanya, tidak pernah bilang sendiri
+  poll_seconds: 60     # baca PC tiap N detik selama `waifu run` (15-3600)
+  disk_warn_gb: 10     # batas sisa disk dalam GB (1-2000)
+  gpu_warn_c: 85       # batas suhu GPU dalam °C (60-100)
+  gpu_warn_minutes: 3  # berapa menit berturut-turut GPU di atas batas sebelum dia bilang (1-60)
+```
+
+Bagian ini tidak perlu ditulis untuk memakai bawaannya; contohnya ada di `config.example.yaml`.
+Jalankan ulang `waifu run` setelah mengubahnya.
+
+### Melihat angkanya: `waifu pc`
+
+`waifu pc` menampilkan data yang sama dengan yang dibaca Cyrene, tanpa otak, satu baris per
+bagian:
+
+```text
+CPU: 23%
+RAM: 12,3 dari 31,9 GB terpakai (39%)
+Disk C: tinggal 120,5 dari 465,1 GB (26% kosong)
+Disk D: tinggal 8,4 dari 931,5 GB (1% kosong)
+GPU: NVIDIA GeForce RTX 5060 Ti, 54°C, beban 12%, VRAM 3,2 dari 15,9 GB, daya 45,1 W
+Sejak restart: 5 jam 12 menit
+```
+
+Bagian yang tidak bisa dibaca ditulis `tidak terbaca`, dan angka yang tidak dilaporkan
+`nvidia-smi` dilewati. Tanpa GPU NVIDIA atau tanpa `nvidia-smi`, barisnya
+`GPU: tidak terbaca (bukan NVIDIA atau nvidia-smi tidak ada)`. Perintah ini butuh sekitar setengah
+detik untuk mengukur CPU, dan jalan walau `pc_health.enabled: false`, juga selagi `waifu run`
+berjalan.
+
+`waifu check` menampilkan `✓ Kesehatan PC: aktif, GPU NVIDIA GeForce RTX 5060 Ti`,
+`! Kesehatan PC: aktif, GPU tidak terbaca`, atau `! Kesehatan PC mati`; untuk itu `nvidia-smi`
+ditanya sekali.
+
+### Yang tidak bisa dia baca
+
+- **Suhu CPU.** Windows tidak menyediakannya tanpa driver kernel (seperti milik
+  LibreHardwareMonitor), jadi kalau ditanya dia bilang tidak bisa membacanya. Putaran kipas juga
+  tidak.
+- **GPU selain NVIDIA** (AMD, Intel): bagian GPU tidak ada. Dengan beberapa GPU NVIDIA, hanya
+  yang pertama.
+- **Flashdisk, kartu memori, drive jaringan, dan CD/DVD** tidak dihitung, dan disk BitLocker yang
+  masih terkunci dilewati.
+- **Program yang sedang berjalan** tidak pernah dibaca (namanya bisa ikut terkirim ke otaknya),
+  jadi dia tidak tahu program mana yang berat. Dia boleh menyarankan menutup program berat atau
+  membersihkan disk, tapi tidak pernah menutup program atau menghapus file sendiri, dan tidak
+  pernah menyarankan membeli perangkat keras.
+
+### Privasi kesehatan PC
+
+Yang dibaca hanya angka, huruf drive, dan nama model GPU: tidak ada nama program, file, atau user
+Windows. Tidak ada yang disimpan ke disk. Dengan otak Claude, angka itu ikut terkirim ke API
+Anthropic sebagai hasil tool setiap kali Master bertanya (dengan Ollama, semuanya lokal), dan teks
+pemberitahuannya ke `ntfy.sh` kalau notifikasi HP menyala.
+
+Untuk tetap bisa bertanya tapi tanpa pemberitahuan, tulis `notices: false` di bagian
+`pc_health`; untuk mematikan semuanya, `enabled: false`.
+
 ## Pemecahan masalah
 
 Log `waifu run` tampil di terminal dalam bahasa Inggris. Baris seperti
@@ -3075,6 +3184,24 @@ halaman tim di game atau sebuah error)
       tombol kamera hilang, dan `waifu check` menampilkan
       `! Kamera HP mati (phone.camera: false)`.
 
+**Kesehatan PC** (lihat [Kesehatan PC](#kesehatan-pc))
+
+- [ ] `waifu pc` menampilkan CPU, RAM, setiap disk dengan sisa yang sama dengan Explorer, GPU
+      dengan suhu dan VRAM, dan waktu sejak restart; CPU, RAM, dan GPU kira-kira sama dengan tab
+      Performance di Task Manager. `waifu check` menampilkan
+      `✓ Kesehatan PC: aktif, GPU NVIDIA GeForce RTX 5060 Ti`.
+- [ ] Di `waifu run`: "Cyrene, PC-ku gimana?" dijawab dalam satu atau dua kalimat dengan angka
+      yang dibulatkan, sesuai `waifu pc`. "Cyrene, suhu CPU-ku berapa?": dia bilang tidak bisa
+      membacanya.
+- [ ] Isi `pc_health.disk_warn_gb` di atas sisa disk C (misalnya `2000`) dan jalankan ulang
+      `waifu run`: begitu dia siap, dia bilang disk C (dan setiap disk lain yang sisanya di bawah
+      batas itu) hampir penuh, satu kalimat per disk, dengan wajah sedih, dan HP menerima
+      masing-masing kalau notifikasi menyala. Ditunggu beberapa menit: tidak ada yang diulang.
+      Setelah itu kembalikan nilainya.
+- [ ] Isi `gpu_warn_c: 60` dan `gpu_warn_minutes: 1`, jalankan ulang `waifu run`, lalu main
+      game yang berat: setelah sekitar 1-2 menit dia bilang GPU-nya panas, dan tidak diulang
+      dalam satu jam. Setelah itu kembalikan nilainya.
+
 ## Privasi
 
 - **Suara tidak pernah keluar dari PC.** Rekaman mic, verifikasi suara, dan
@@ -3112,6 +3239,10 @@ halaman tim di game atau sebuah error)
 - **Catatan biaya API** (jumlah token dan biaya per hari, tanpa isi obrolan) ada di
   `data\usage.json`, hanya di PC ini. Pemberitahuan anggaran juga dikirim ke `ntfy.sh` kalau
   notifikasi HP menyala. Lihat [File data\usage.json](#file-datausagejson).
+- **Kesehatan PC** hanya berisi angka, huruf drive, dan nama model GPU (tanpa nama program,
+  file, atau user) dan tidak disimpan. Dengan Claude, angkanya ikut ke API Anthropic saat Master
+  bertanya; pemberitahuannya ke `ntfy.sh` kalau notifikasi HP menyala. Lihat
+  [Privasi kesehatan PC](#privasi-kesehatan-pc).
 - **Voiceprint adalah data biometrik.** `data/voiceprint.npy` (dan seluruh `data/`)
   ada di `.gitignore` dan tidak boleh di-commit atau dibagikan. Begitu juga
   `config.yaml` (local key Tuya) dan `models/`.

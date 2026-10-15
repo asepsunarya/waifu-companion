@@ -42,12 +42,13 @@ from waifu.brain import claude as claude_module
 from waifu.brain.attachments import CameraTurn, TurnImages
 from waifu.brain.base import Brain, BrainReply, ToolCallRecord
 from waifu.brain.memory_tools import MemoryTools
+from waifu.brain.pc_tools import PcTools
 from waifu.brain.persona import WEEKDAYS_ID
 from waifu.brain.schedule_tools import ScheduleTools
 from waifu.brain.screen_tools import ScreenTools
 from waifu.brain.usage_tools import UsageTools
 from waifu.briefing import BRIEFING_PROMPT, DAILY_BRIEFING, BriefingTimer, BriefingTools
-from waifu.config import AvatarConfig, RvcConfig
+from waifu.config import AvatarConfig, PcHealthConfig, RvcConfig
 from waifu.devices.base import DeviceError
 from waifu.devices.ir_codes import IrCodeStore
 from waifu.devices.ir_device import IrDevice
@@ -77,6 +78,7 @@ from waifu.gacha.starrail import (
 )
 from waifu.gacha.tools import GachaTools
 from waifu.memory import MemoryStore, memory_prompt_section
+from waifu.pc_health import Drive, GpuStatus, PcSnapshot
 from waifu.phone.auth import CODE_LIFETIME, PhoneAuth, Refusal
 from waifu.phone.server import PhoneError, PhoneReply
 from waifu.schedule import DeviceAction, Reminder, RoutineAction, ScheduleStore
@@ -87,7 +89,7 @@ from waifu.usage import TokenUsage, UsageLedger
 from waifu.voice.base import SpeakerEmbedder, SpeechToText, Transcript
 from waifu.voice.rvc import RvcError
 from waifu.voice.speaker import SpeakerVerifier
-from waifu.voice.stt import WhisperStt
+from waifu.voice.stt import SttError, WhisperStt
 from waifu.voice.tts import TtsError
 from waifu.weather import WeatherClient
 
@@ -248,6 +250,81 @@ def briefing_timers(monkeypatch) -> list[FakeBriefingTimer]:
         return built[-1]
 
     monkeypatch.setattr(cli, "BriefingTimer", build)
+    return built
+
+
+QUIET_PC = PcSnapshot(12.0, 9.5, 31.9, (Drive("C:", 120.0, 465.1),), None, 3600)
+
+
+class FakeCpuLoad:
+    """Stands in for pc_health.CpuLoad, which would ask Windows for the CPU times."""
+
+
+class PcReadings:
+    """Stands in for pc_health's readers: `read_snapshot` hands out `snapshot` and remembers
+    the CPU sampler of each reading; `gpu_status` hands out `gpu` and counts its readings."""
+
+    def __init__(self) -> None:
+        self.snapshot = QUIET_PC
+        self.gpu: GpuStatus | None = None
+        self.samplers: list[FakeCpuLoad] = []
+        self.gpu_reads = 0
+
+    def read_snapshot(self, *, cpu: FakeCpuLoad) -> PcSnapshot:
+        self.samplers.append(cpu)
+        return self.snapshot
+
+    def gpu_status(self) -> GpuStatus | None:
+        self.gpu_reads += 1
+        return self.gpu
+
+
+@pytest.fixture(autouse=True)
+def pc_readings(monkeypatch) -> PcReadings:
+    """The example config reads the PC (pc_health is on by default) in `run`, `chat`, and
+    `check`: every test gets these fakes instead of Windows' counters and nvidia-smi, which
+    no test may reach."""
+    readings = PcReadings()
+    monkeypatch.setattr(cli, "CpuLoad", FakeCpuLoad)
+    monkeypatch.setattr(cli, "read_snapshot", readings.read_snapshot)
+    monkeypatch.setattr(cli, "gpu_status", readings.gpu_status)
+    return readings
+
+
+class FakePcWatcher:
+    """Stands in for PcWatcher without a thread, remembering what it was given, whether
+    `waifu run` listened when it started and stopped, and the test's `events` up to then."""
+
+    def __init__(
+        self, read, config, *, announce, notifier, owner_call, title, events: list[str]
+    ) -> None:
+        self.read, self.config, self.announce = read, config, announce
+        self.notifier, self.owner_call, self.title = notifier, owner_call, title
+        self._events = events
+        self.listening: list[bool] = []
+        self.events_when_started: list[str] | None = None
+        self.events_when_stopped: list[str] | None = None
+
+    def start(self) -> None:
+        self.listening.append(listening())
+        self.events_when_started = list(self._events)
+
+    def stop(self) -> None:
+        self.listening.append(listening())
+        self.events_when_stopped = list(self._events)
+
+
+@pytest.fixture(autouse=True)
+def pc_watchers(events, monkeypatch) -> list[FakePcWatcher]:
+    """The real watcher reads the PC in a thread through every `run` (the example config has
+    pc_health and its notices on), so every test gets the fake."""
+    built: list[FakePcWatcher] = []
+
+    def build(read, config, **arguments) -> FakePcWatcher:
+        built.append(FakePcWatcher(read, config, **arguments, events=events))
+        return built[-1]
+
+    monkeypatch.setattr(cli, "PcWatcher", build)
     return built
 
 
@@ -4043,12 +4120,13 @@ def test_run_with_the_games_on_gives_the_brain_the_game_tools_and_watches_while_
 
     assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
 
-    [tools, hsr_tools, memory_tools, schedule, briefing] = brains[0].providers
-    assert (type(tools), type(memory_tools), type(schedule), type(briefing)) == (
+    [tools, hsr_tools, memory_tools, schedule, briefing, pc] = brains[0].providers
+    assert (type(tools), type(memory_tools), type(schedule), type(briefing), type(pc)) == (
         GachaTools,
         MemoryTools,
         ScheduleTools,
         BriefingTools,
+        PcTools,
     )
     assert type(hsr_tools) is HsrTools
     assert [spec.name for spec in tools.specs()] == ["game_status", "gacha_history"]
@@ -4096,6 +4174,7 @@ def test_run_without_a_cookie_has_the_game_tools_but_no_watcher(
         MemoryTools,
         ScheduleTools,
         BriefingTools,
+        PcTools,
     ]
     assert watchers == []
 
@@ -4108,6 +4187,7 @@ def test_run_with_the_games_off_builds_none_of_it(home, run_fakes, brains, games
         MemoryTools,
         ScheduleTools,
         BriefingTools,
+        PcTools,
     ]
 
 
@@ -4123,6 +4203,7 @@ def test_chat_with_the_games_on_gives_the_brain_the_game_tools(home, brains, gam
         MemoryTools,
         ScheduleTools,
         BriefingTools,
+        PcTools,
     ]
 
 
@@ -4183,6 +4264,7 @@ def test_without_hsr_among_the_games_there_are_no_hsr_tools(
         MemoryTools,
         ScheduleTools,
         BriefingTools,
+        PcTools,
     ]
     assert hsr_sources == []
 
@@ -4580,7 +4662,7 @@ def test_run_gives_the_brain_her_memory_tools_and_the_notes_at_each_session_star
     assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
 
     brain = brains[0]
-    [tools, _, _] = brain.providers  # then the schedule and briefing tools
+    [tools, _, _, _] = brain.providers  # then the schedule, briefing, and PC tools
     assert isinstance(tools, MemoryTools)
     assert brain.memory_section() == memory_prompt_section([])
     assert tools.run("remember", {"text": "Master alergi udang."})[1] is False
@@ -4601,6 +4683,7 @@ def test_chat_gives_the_brain_the_notes_saved_in_data_memory_json(home, brains, 
         MemoryTools,
         ScheduleTools,
         BriefingTools,
+        PcTools,
     ]
     assert "Master suka kopi." in brains[0].memory_section()
 
@@ -4614,7 +4697,11 @@ def test_with_the_memory_off_the_brain_gets_neither_the_tools_nor_the_notes(
 
     assert cli.main([*argv, "--dry-run"]) == 0
 
-    assert [type(tools) for tools in brains[0].providers] == [ScheduleTools, BriefingTools]
+    assert [type(tools) for tools in brains[0].providers] == [
+        ScheduleTools,
+        BriefingTools,
+        PcTools,
+    ]
     assert brains[0].memory_section is None
     assert not memory_file(home).exists()
 
@@ -4924,6 +5011,7 @@ def test_run_gives_the_brain_the_schedule_tools_and_fires_her_schedule_while_she
         MemoryTools,
         ScheduleTools,
         BriefingTools,
+        PcTools,
     ]
     [scheduler] = schedulers
     assert scheduler.states == ["started", "stopped"]
@@ -5074,7 +5162,7 @@ def test_with_the_schedule_off_she_gets_neither_the_tools_nor_a_scheduler(
 
     assert cli.main([*argv, "--dry-run"]) == 0
 
-    assert [type(tools) for tools in brains[0].providers] == [MemoryTools, BriefingTools]
+    assert [type(tools) for tools in brains[0].providers] == [MemoryTools, BriefingTools, PcTools]
     assert schedulers == []
     assert not schedule_file(home).exists()
 
@@ -5543,6 +5631,7 @@ def test_with_claude_she_may_look_at_the_screen_at_the_configured_size(
         MemoryTools,
         ScheduleTools,
         BriefingTools,
+        PcTools,
         ScreenTools,
         UsageTools,
     ]
@@ -5668,6 +5757,7 @@ def test_without_claude_or_with_vision_off_the_brain_gets_no_screen_tool(
         MemoryTools,
         ScheduleTools,
         BriefingTools,
+        PcTools,
         *([UsageTools] if claude else []),  # what her requests cost, with Claude only
     ]
     assert capture.sizes == []
@@ -5820,7 +5910,7 @@ def test_run_greets_once_a_day_while_she_listens_and_pushes_the_greeting_to_the_
 
     assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
 
-    assert type(brains[0].providers[-1]) is BriefingTools
+    assert [type(tools) for tools in brains[0].providers][-2:] == [BriefingTools, PcTools]
     [timer] = briefing_timers
     assert timer.listening == [False, True]
     timer.tick_at(datetime(2026, 10, 14, 7, 30))
@@ -5878,7 +5968,7 @@ def test_chat_gives_the_brain_the_briefing_tool_but_never_greets_by_herself(
 
     assert cli.main(["chat", "--dry-run"]) == 0
 
-    assert type(brains[0].providers[-1]) is BriefingTools
+    assert [type(tools) for tools in brains[0].providers][-2:] == [BriefingTools, PcTools]
     assert briefing_timers == []
 
 
@@ -5891,7 +5981,7 @@ def test_with_the_briefing_off_she_gets_neither_the_tool_nor_the_greeting(
 
     assert cli.main([*argv, "--dry-run"]) == 0
 
-    assert [type(tools) for tools in brains[0].providers] == [MemoryTools, ScheduleTools]
+    assert [type(tools) for tools in brains[0].providers] == [MemoryTools, ScheduleTools, PcTools]
     assert briefing_timers == []
 
 
@@ -7204,3 +7294,225 @@ def test_check_reports_whether_the_phone_page_offers_its_camera(
     cli.main(["check"])
 
     assert camera_line(capsys.readouterr().out) == expected
+
+
+# --- PC health -----------------------------------------------------------------------------------
+
+RTX = GpuStatus("NVIDIA GeForce RTX 5060 Ti", 54, 12, 3.21, 15.93, 45.07)
+BUSY_PC = PcSnapshot(
+    23.4,
+    12.34,
+    31.9,
+    (Drive("C:", 120.46, 465.1), Drive("D:", 8.43, 931.5)),
+    RTX,
+    5 * 3600 + 12 * 60 + 30,
+)
+
+
+def write_out_example_pc_health(home: Path, *, enabled: bool = True, notices: bool = True) -> None:
+    """The example config with its commented `pc_health` block written out."""
+    config = home / "config.yaml"
+    text = config.read_text(encoding="utf-8")
+    commented = text[text.index("# pc_health:\n") :].split("\n\n", 1)[0]
+    written_out = "\n".join(line.removeprefix("# ") for line in commented.splitlines())
+    if not enabled:
+        written_out = written_out.replace("enabled: true", "enabled: false")
+    if not notices:
+        written_out = written_out.replace("notices: true", "notices: false")
+    config.write_text(text.replace(commented, written_out), encoding="utf-8")
+
+
+def pc_tools(brain: HouseBrain) -> PcTools:
+    [tools] = [provider for provider in brain.providers if isinstance(provider, PcTools)]
+    return tools
+
+
+def test_run_gives_the_brain_the_pc_tool_and_watches_the_pc_while_she_listens(
+    home, run_fakes, brains, pc_readings, pc_watchers, monkeypatch
+):
+    enable_notify(home)
+    notifier = FakeNotifier()
+    use_notifier(monkeypatch, notifier)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    [watcher] = pc_watchers
+    assert watcher.config == PcHealthConfig()  # the example config's settings
+    assert (watcher.owner_call, watcher.title, watcher.notifier) == ("Master", "Cyrene", notifier)
+    assert watcher.listening == [False, True]
+    assert "mic opened" in watcher.events_when_started  # once she is ready to listen
+    assert "mic closed" not in watcher.events_when_stopped
+    watcher.announce("Master, disk C: tinggal 8,4 GB.", "sad")
+    assert RecordingAssistant.instances[0].announced == [("Master, disk C: tinggal 8,4 GB.", "sad")]
+    # One CPU sampler for the tool and the watcher: a reading within seconds of the other's
+    # measures since it instead of sampling half a second again.
+    result, is_error = pc_tools(brains[0]).run("pc_health", {})
+    assert (json.loads(result)["cpu_percent"], is_error) == (12, False)
+    assert watcher.read() == QUIET_PC
+    [tool_sampler, watcher_sampler] = pc_readings.samplers
+    assert tool_sampler is watcher_sampler
+
+
+def test_run_watches_the_pc_for_an_owner_she_calls_sayang_without_pushing_when_notify_is_off(
+    home, run_fakes, brains, pc_watchers
+):
+    call_the_owner(home, "Sayang")
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    [watcher] = pc_watchers
+    assert (watcher.owner_call, watcher.notifier) == ("Sayang", None)
+
+
+@pytest.mark.parametrize(
+    ("failure", "exit_code"),
+    [(SttError("Whisper berhenti."), 1), (KeyboardInterrupt(), 130)],
+    ids=["whisper-fails", "ctrl-c"],
+)
+def test_run_stops_watching_the_pc_however_listening_ends(
+    failure, exit_code, home, run_fakes, brains, pc_watchers, monkeypatch
+):
+    def listen_until_it_fails(self, mic, segmenter) -> None:
+        self.ran_with = (mic, segmenter)
+        raise failure
+
+    monkeypatch.setattr(RecordingAssistant, "run", listen_until_it_fails)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == exit_code
+
+    [watcher] = pc_watchers
+    assert watcher.listening == [False, True]
+
+
+def test_run_with_the_pc_notices_off_answers_about_the_pc_but_never_speaks_up_about_it(
+    home, run_fakes, brains, pc_watchers
+):
+    write_out_example_pc_health(home, notices=False)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    assert pc_tools(brains[0]).run("pc_health", {})[1] is False
+    assert pc_watchers == []
+
+
+@pytest.mark.parametrize("claude", [False, True], ids=["ollama", "claude"])
+def test_chat_gives_either_brain_the_pc_tool_but_never_watches_the_pc(
+    claude, home, brains, pc_readings, pc_watchers, monkeypatch
+):
+    if claude:
+        use_claude(home)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main(["chat", "--dry-run"]) == 0
+
+    tools = pc_tools(brains[0])
+    for _ in range(2):
+        result, is_error = tools.run("pc_health", {})
+        assert (json.loads(result)["cpu_percent"], is_error) == (12, False)
+    [first, second] = pc_readings.samplers
+    assert first is second  # a reading within seconds of her previous one measures since it
+    assert pc_watchers == []
+
+
+@pytest.mark.parametrize("argv", [["run", "--no-speaker-check"], ["chat"]])
+def test_with_the_pc_health_off_she_neither_reads_nor_watches_the_pc(
+    argv, home, run_fakes, brains, pc_readings, pc_watchers, monkeypatch
+):
+    write_out_example_pc_health(home, enabled=False)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main([*argv, "--dry-run"]) == 0
+
+    assert not any(isinstance(tools, PcTools) for tools in brains[0].providers)
+    assert (pc_watchers, pc_readings.samplers) == ([], [])
+
+
+def test_pc_prints_one_line_per_part_rounded_with_a_decimal_comma(home, pc_readings, capsys):
+    pc_readings.snapshot = BUSY_PC
+
+    assert cli.main(["pc"]) == 0
+
+    assert capsys.readouterr().out.splitlines() == [
+        "CPU: 23%",
+        "RAM: 12,3 dari 31,9 GB terpakai (39%)",
+        "Disk C: tinggal 120,5 dari 465,1 GB (26% kosong)",
+        "Disk D: tinggal 8,4 dari 931,5 GB (1% kosong)",
+        "GPU: NVIDIA GeForce RTX 5060 Ti, 54°C, beban 12%, VRAM 3,2 dari 15,9 GB, daya 45,1 W",
+        "Sejak restart: 5 jam 12 menit",
+    ]
+    [sampler] = pc_readings.samplers  # one reading: the first samples the CPU over 0.5 s
+    assert isinstance(sampler, FakeCpuLoad)
+
+
+def test_pc_names_each_part_it_could_not_read(home, pc_readings, capsys):
+    pc_readings.snapshot = PcSnapshot(None, None, None, (), None, None)
+
+    assert cli.main(["pc"]) == 0
+
+    assert capsys.readouterr().out.splitlines() == [
+        "CPU: tidak terbaca",
+        "RAM: tidak terbaca",
+        "Disk: tidak terbaca",
+        "GPU: tidak terbaca (bukan NVIDIA atau nvidia-smi tidak ada)",
+        "Sejak restart: tidak terbaca",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("uptime_s", "text"),
+    [
+        (26 * 86400 + 13 * 3600 + 28 * 60, "26 hari 13 jam"),
+        (3 * 86400 + 59, "3 hari"),
+        (86400 - 60, "23 jam 59 menit"),
+    ],
+)
+def test_pc_gives_a_long_uptime_in_days_and_hours(home, pc_readings, capsys, uptime_s, text):
+    pc_readings.snapshot = PcSnapshot(23.4, 12.34, 31.9, (), None, uptime_s)
+
+    assert cli.main(["pc"]) == 0
+
+    assert capsys.readouterr().out.splitlines()[-1] == f"Sejak restart: {text}"
+
+
+def test_pc_leaves_out_the_gpu_readings_nvidia_smi_could_not_give(home, pc_readings, capsys):
+    gpu = GpuStatus("NVIDIA GeForce RTX 5060 Ti", 54, None, None, 15.93, None)
+    pc_readings.snapshot = PcSnapshot(23.4, 12.34, 31.9, (), gpu, 420)
+
+    assert cli.main(["pc"]) == 0
+
+    out = capsys.readouterr().out.splitlines()
+    assert out[-2:] == ["GPU: NVIDIA GeForce RTX 5060 Ti, 54°C", "Sejak restart: 7 menit"]
+
+
+def test_pc_reads_the_pc_with_the_pc_health_off_too(home, pc_readings, capsys):
+    write_out_example_pc_health(home, enabled=False)
+
+    assert cli.main(["pc"]) == 0
+
+    assert capsys.readouterr().out.startswith("CPU: 12%\n")
+
+
+def pc_health_line(out: str) -> str:
+    [line] = [line for line in out.splitlines() if "Kesehatan PC" in line]
+    return line
+
+
+@pytest.mark.parametrize(
+    ("enabled", "gpu", "expected"),
+    [
+        (True, RTX, "✓ Kesehatan PC: aktif, GPU NVIDIA GeForce RTX 5060 Ti"),
+        (True, None, "! Kesehatan PC: aktif, GPU tidak terbaca"),
+        (False, RTX, "! Kesehatan PC mati"),
+    ],
+    ids=["nvidia", "no-gpu", "off"],
+)
+def test_check_reports_whether_she_reads_the_pc_and_which_gpu(
+    enabled, gpu, expected, home, nothing_installed, pc_readings, capsys
+):
+    write_out_example_pc_health(home, enabled=enabled)
+    pc_readings.gpu = gpu
+
+    cli.main(["check"])
+
+    assert pc_health_line(capsys.readouterr().out) == expected
+    assert pc_readings.gpu_reads == (1 if enabled else 0)  # nvidia-smi only while it is on

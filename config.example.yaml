@@ -261,6 +261,23 @@ schedule:
 #     claude-opus-5-5: {input: 4.00, output: 20.00, cache_write: 5.00, cache_read: 0.20}
 #   default_model: claude-opus-5-5   # harga model ini dipakai untuk model yang tidak ada di prices (perkiraan); harus punya harga
 
+# Kesehatan PC (README, bagian "Kesehatan PC"): "Cyrene, PC-ku gimana?", "GPU-ku panas nggak?",
+# atau "disk C sisa berapa?" membuatnya membaca PC saat itu juga: beban CPU, RAM, sisa tiap
+# disk tetap, suhu, beban, VRAM, dan daya GPU NVIDIA (lewat nvidia-smi), dan sudah berapa lama
+# sejak Windows terakhir di-restart (sleep dan shutdown dengan Fast Startup tidak mengulangnya).
+# Selama `waifu run` dia juga bilang sendiri (dan mengirimnya ke HP kalau notify menyala) saat
+# sebuah disk hampir penuh atau GPU terus panas. Suhu CPU tidak bisa dibaca.
+# Lihat angkanya dengan `waifu pc`. Hanya angka, huruf drive, dan nama model GPU; tidak ada
+# nama program atau file, dan tidak ada yang disimpan ke disk.
+# Sudah menyala tanpa ditulis; untuk mengubahnya, tulis bagian ini tanpa tanda # di depannya.
+# pc_health:
+#   enabled: true          # false: tanpa tool dan tanpa pemberitahuan (`waifu pc` tetap jalan)
+#   notices: true          # false: hanya menjawab kalau ditanya, tidak pernah bilang sendiri
+#   poll_seconds: 60       # baca PC tiap N detik selama `waifu run` (15-3600)
+#   disk_warn_gb: 10       # sisa disk di bawah N GB: diberi tahu sekali per disk per hari (1-2000)
+#   gpu_warn_c: 85         # GPU di N °C atau lebih (60-100) ...
+#   gpu_warn_minutes: 3    # ... selama N menit berturut-turut: diberi tahu paling sering sekali per jam (1-60)
+
 # Cyrene di HP (README, bagian "Cyrene di HP"): selama `waifu run` berjalan, HP Android Master
 # membuka halaman Cyrene (avatar, chat, dan tombol tahan-untuk-bicara) lewat Tailscale, di
 # rumah atau di luar. Server HP hanya mendengarkan di 127.0.0.1; `tailscale serve` yang
