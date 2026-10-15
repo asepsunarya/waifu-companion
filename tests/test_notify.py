@@ -47,6 +47,70 @@ def test_send_publishes_json_to_the_server_root():
     assert timeout_s == 7.0
 
 
+def test_send_with_a_click_link_opens_it_when_the_notification_is_tapped():
+    post = RecordingPost()
+    link = "https://store.epicgames.com/en-US/p/bad-cheese-4256d9"
+
+    assert NtfyNotifier(ntfy_config(), http_post=post).send(
+        "Cyrene", "Master, ada game gratis baru.", tags=["video_game"], click=link
+    )
+
+    body = post.calls[0][1]
+    assert body["click"] == link  # ntfy's Click action, in its JSON form
+    assert body["message"] == "Master, ada game gratis baru."
+
+
+@pytest.mark.parametrize(
+    "link",
+    [
+        "http://store.epicgames.com/en-US/p/bad-cheese",
+        "javascript:alert(1)",
+        "file:///C:/Windows/System32/calc.exe",
+        "https://",
+        "store.epicgames.com/en-US/p/bad-cheese",
+    ],
+)
+def test_a_click_link_that_is_not_https_is_left_out_and_the_message_still_goes(link, caplog):
+    post = RecordingPost()
+
+    with caplog.at_level(logging.WARNING, logger="waifu.notify"):
+        assert NtfyNotifier(ntfy_config(), http_post=post).send("Cyrene", "halo", click=link)
+
+    assert "click" not in post.calls[0][1]
+    assert "not an https link" in caplog.text
+    assert TOPIC not in caplog.text
+
+
+@pytest.mark.parametrize(
+    "link",
+    [
+        "https://www.anthropic.com@evil.example/claim",
+        "https://www.anthropic.com:8443/claim",
+        # Python reads the host as ...anthropic.com; a browser reads the backslash as a slash.
+        "https://claude-credits.example\\.anthropic.com/claim",
+        "https://claude-credits.example∕.anthropic.com/claim",
+        "https://www.anthropic.com/claim‮moc.elpmaxe",
+        "https://www.anthropic.com/claim\x00",
+        "https://www.anthropic.com/claim free",
+    ],
+    ids=["user name", "port", "backslash", "non-ASCII host", "bidi override", "control", "space"],
+)
+def test_a_click_link_whose_host_a_browser_could_read_differently_is_left_out(link):
+    post = RecordingPost()
+
+    assert NtfyNotifier(ntfy_config(), http_post=post).send("Cyrene", "halo", click=link)
+
+    assert "click" not in post.calls[0][1]
+
+
+def test_send_without_a_click_link_publishes_no_click():
+    post = RecordingPost()
+
+    NtfyNotifier(ntfy_config(), http_post=post).send("Cyrene", "halo")
+
+    assert "click" not in post.calls[0][1]
+
+
 def test_send_uses_a_self_hosted_server():
     post = RecordingPost()
     NtfyNotifier(ntfy_config(server="https://ntfy.example.com/"), http_post=post).send("a", "b")
