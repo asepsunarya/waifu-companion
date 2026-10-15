@@ -50,15 +50,26 @@ from waifu.brain.schedule_tools import ScheduleTools
 from waifu.brain.screen_tools import ScreenTools
 from waifu.brain.usage_tools import UsageTools
 from waifu.briefing import BRIEFING_PROMPT, DAILY_BRIEFING, BriefingTimer, BriefingTools
-from waifu.config import AvatarConfig, FreeOffersConfig, PcHealthConfig, RvcConfig
+from waifu.config import (
+    AvatarConfig,
+    FreeOffersConfig,
+    PcHealthConfig,
+    RedeemCodesConfig,
+    RvcConfig,
+)
 from waifu.devices.base import DeviceError
 from waifu.devices.ir_codes import IrCodeStore
 from waifu.devices.ir_device import IrDevice
 from waifu.devices.mock import MockDevice
 from waifu.devices.registry import DeviceRegistry
+from waifu.gacha.code_store import CodeStore
+from waifu.gacha.code_tools import CodeTools
+from waifu.gacha.codes import CodesError, RedeemResult
 from waifu.gacha.games import GAMES
 from waifu.gacha.history import BannerStats, GachaHistory, HistoryReport, TopPull
 from waifu.gacha.hoyolab import (
+    NO_COOKIE,
+    REDEEM_MESSAGES,
     Account,
     CheckinResult,
     GachaError,
@@ -410,6 +421,66 @@ def offers_watchers(events, monkeypatch) -> list[FakeOffersWatcher]:
         return built[-1]
 
     monkeypatch.setattr(cli, "OffersWatcher", build)
+    return built
+
+
+@pytest.fixture(autouse=True)
+def code_source_asked(tmp_path, monkeypatch):
+    """Every redeem code store a command builds lives under tmp_path, and no test asks the code
+    source (hoyo-codes.seria.moe; tests/conftest.py also refuses httpx beyond loopback): a test
+    that forgets the fake fails afterwards. Yields the games of each refused read."""
+    monkeypatch.setattr(cli, "CodeStore", only_under(tmp_path, cli.CodeStore))
+    refused: list[list[str]] = []
+
+    def refuse(games, *, http) -> object:
+        refused.append(list(games))
+        raise AssertionError("a test asked the redeem code source")
+
+    monkeypatch.setattr(cli, "read_codes", refuse)
+    yield refused
+    assert not refused, f"a test asked the redeem code source for {refused}"
+
+
+class FakeCodeWatcher:
+    """Stands in for CodeWatcher without a thread, remembering what it was given and whether
+    `waifu run` listened when it started and stopped."""
+
+    def __init__(
+        self,
+        store,
+        read_codes,
+        hoyolab,
+        config,
+        games,
+        *,
+        announce,
+        notifier,
+        owner_call,
+        title,
+    ) -> None:
+        self.store, self.read_codes, self.hoyolab = store, read_codes, hoyolab
+        self.config, self.games, self.announce = config, games, announce
+        self.notifier, self.owner_call, self.title = notifier, owner_call, title
+        self.listening: list[bool] = []
+
+    def start(self) -> None:
+        self.listening.append(listening())
+
+    def stop(self) -> None:
+        self.listening.append(listening())
+
+
+@pytest.fixture(autouse=True)
+def code_watchers(monkeypatch) -> list[FakeCodeWatcher]:
+    """The real watcher reads the code source in a thread through every `run` with the games on
+    (redeem codes and their notices are on by default), so every test gets the fake."""
+    built: list[FakeCodeWatcher] = []
+
+    def build(*arguments, **options) -> FakeCodeWatcher:
+        built.append(FakeCodeWatcher(*arguments, **options))
+        return built[-1]
+
+    monkeypatch.setattr(cli, "CodeWatcher", build)
     return built
 
 
@@ -881,6 +952,8 @@ def event_player(events, monkeypatch) -> None:
         (["phone", "pair"], "phone"),
         (["phone", "devices"], "phone"),
         (["phone", "forget", "d1"], "phone"),
+        (["gacha", "codes"], "gacha"),
+        (["gacha", "codes", "hsr", "--redeem"], "gacha"),
     ],
 )
 def test_every_subcommand_in_the_spec_parses(argv, command):
@@ -3966,6 +4039,9 @@ class FakeGameClient:
         self.hsr_events = HsrCalendar(None, (), (), ())
         self.hsr_failure: GachaError | None = None
         self.hsr_asked: list[object] = []
+        self.redeemed: list[tuple[str, list[str]]] = []  # nothing ever reaches HoYoLAB
+        self.redeem_outcomes: dict[str, str] = {}  # by code; redeemed when not listed
+        self.redeem_failure: GachaError | None = None
 
     def accounts(self):
         if self.failure is not None:
@@ -3997,6 +4073,19 @@ class FakeGameClient:
         if self.hsr_failure is not None:
             raise self.hsr_failure
         return self.hsr_events
+
+    def redeem_codes(self, game_id, codes):
+        self.redeemed.append((game_id, list(codes)))
+        if self.redeem_failure is not None:
+            raise self.redeem_failure
+        results = []
+        for code in codes[:10]:
+            outcome = self.redeem_outcomes.get(code, "redeemed")
+            message = REDEEM_MESSAGES[outcome].format(
+                code=code, game=GAMES[game_id].short, problem="HoYoLAB bermasalah."
+            )
+            results.append(RedeemResult(game_id, code, outcome, message))
+        return results
 
 
 class FakeGameHistory:
@@ -4207,7 +4296,9 @@ def test_run_with_the_games_on_gives_the_brain_the_game_tools_and_watches_while_
 
     assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
 
-    [tools, hsr_tools, memory_tools, schedule, briefing, pc, offers] = brains[0].providers
+    [tools, hsr_tools, code_tools, memory_tools, schedule, briefing, pc, offers] = brains[
+        0
+    ].providers
     assert (
         type(tools),
         type(memory_tools),
@@ -4216,7 +4307,7 @@ def test_run_with_the_games_on_gives_the_brain_the_game_tools_and_watches_while_
         type(pc),
         type(offers),
     ) == (GachaTools, MemoryTools, ScheduleTools, BriefingTools, PcTools, OffersTools)
-    assert type(hsr_tools) is HsrTools
+    assert (type(hsr_tools), type(code_tools)) == (HsrTools, CodeTools)
     assert [spec.name for spec in tools.specs()] == ["game_status", "gacha_history"]
     [watcher] = watchers
     assistant = RecordingAssistant.instances[0]
@@ -4259,6 +4350,7 @@ def test_run_without_a_cookie_has_the_game_tools_but_no_watcher(
     assert [type(tools) for tools in brains[0].providers] == [
         GachaTools,
         HsrTools,
+        CodeTools,
         MemoryTools,
         ScheduleTools,
         BriefingTools,
@@ -4290,6 +4382,7 @@ def test_chat_with_the_games_on_gives_the_brain_the_game_tools(home, brains, gam
     assert [type(tools) for tools in brains[0].providers] == [
         GachaTools,
         HsrTools,
+        CodeTools,
         MemoryTools,
         ScheduleTools,
         BriefingTools,
@@ -4352,6 +4445,7 @@ def test_without_hsr_among_the_games_there_are_no_hsr_tools(
 
     assert [type(tools) for tools in brains[0].providers] == [
         GachaTools,
+        CodeTools,
         MemoryTools,
         ScheduleTools,
         BriefingTools,
@@ -8544,3 +8638,512 @@ def test_the_example_usage_block_prices_the_web_searches(home):
     write_out_example_block(home, "usage")
 
     assert cli.load_config(home / "config.yaml").usage.web_search_per_1000_usd == 10.0
+
+
+# --- redeem codes --------------------------------------------------------------------------------
+
+# From the source's real answer on 2026-10-17.
+JADE_60 = ("5S6ZHRWTDNJB", "60 stellar jade")
+JADE_30 = (
+    "4TKSX77Y58QK",
+    "30 stellar jade, three traveler’s guides, five condensed aether, four lost gold "
+    "fragments, and 20k credits",
+)
+STAR_RAIL_GIFT = (
+    "STARRAILGIFT",
+    "50 stellar jade, 10k credits, two traveler’s guides, and five bottled soda",
+)
+GENSHIN_GIFT = ("GENSHINGIFT", "50 primogems and three hero’s wit")
+CODES_CREDIT = "Sumber kode: hoyo-codes.seria.moe (API komunitas di balik Hoyo Buddy)"
+
+
+class CodeSource:
+    """Stands in for codes.read_codes: hands out `found` and remembers the games it was asked
+    for and the HTTP client it was given."""
+
+    def __init__(self, found: dict | CodesError) -> None:
+        self.found = found
+        self.asked: list[list[str]] = []
+        self.clients: list[object] = []
+
+    def __call__(self, games, *, http) -> dict | CodesError:
+        self.asked.append(list(games))
+        self.clients.append(http)
+        return self.found
+
+
+def use_code_source(monkeypatch, found: dict | CodesError) -> CodeSource:
+    source = CodeSource(found)
+    monkeypatch.setattr(cli, "read_codes", source)
+    return source
+
+
+def codes_file(home: Path) -> Path:
+    return home / "data" / "redeem_codes.json"
+
+
+def kept_codes(home: Path) -> CodeStore:
+    return CodeStore(codes_file(home))
+
+
+def code_tools(brain: HouseBrain) -> CodeTools:
+    [tools] = [provider for provider in brain.providers if isinstance(provider, CodeTools)]
+    return tools
+
+
+def test_run_with_the_games_on_watches_for_new_codes_while_she_listens(
+    home, run_fakes, brains, games, watchers, code_watchers, monkeypatch
+):
+    enable_gacha(home)
+    enable_notify(home)
+    notifier = FakeNotifier()
+    use_notifier(monkeypatch, notifier)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    [watcher] = code_watchers
+    assert watcher.store.path == Path("data") / "redeem_codes.json"
+    assert watcher.hoyolab is games.hoyolab
+    assert watcher.config == RedeemCodesConfig()  # the defaults
+    assert watcher.games == ["hsr", "genshin", "zzz"]
+    assert (watcher.owner_call, watcher.title, watcher.notifier) == ("Master", "Cyrene", notifier)
+    assert watcher.listening == [False, True]  # once she is ready to listen
+    watcher.announce("Master, ada 1 kode HSR baru: 60 stellar jade. Mau kutukarkan?", "happy")
+    assert RecordingAssistant.instances[0].announced == [
+        ("Master, ada 1 kode HSR baru: 60 stellar jade. Mau kutukarkan?", "happy")
+    ]
+
+
+def test_the_code_watcher_reads_the_source_for_the_games_it_is_given_over_httpx(
+    home, run_fakes, brains, games, watchers, code_watchers, monkeypatch
+):
+    enable_gacha(home)
+    source = use_code_source(monkeypatch, {"hsr": [JADE_60]})
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    [watcher] = code_watchers
+    assert watcher.read_codes(["hsr"]) == {"hsr": [JADE_60]}
+    assert source.asked == [["hsr"]]
+    assert isinstance(source.clients[0], httpx.Client)
+
+
+def test_run_without_a_cookie_still_watches_for_codes(
+    home, run_fakes, brains, games, watchers, code_watchers
+):
+    enable_gacha(home, cookie=None)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    assert len(code_watchers) == 1  # listing codes needs no cookie
+
+
+def test_the_code_tools_redeem_through_hoyolab_and_keep_codes_in_the_state_path(
+    home, brains, games, monkeypatch
+):
+    enable_gacha(home)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main(["chat", "--dry-run"]) == 0
+
+    result, is_error = code_tools(brains[0]).run(
+        "redeem_codes", {"game": "hsr", "codes": ["ABCDE12345"]}
+    )
+    assert is_error is False, result
+    assert games.hoyolab.redeemed == [("hsr", ["ABCDE12345"])]
+    assert [code for code, _ in kept_codes(home).recent("hsr", 5)][0].code == "ABCDE12345"
+
+
+def test_chat_with_the_games_on_never_watches_for_codes(
+    home, brains, games, code_watchers, monkeypatch
+):
+    enable_gacha(home)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main(["chat", "--dry-run"]) == 0
+
+    assert code_watchers == []
+
+
+@pytest.mark.parametrize("argv", [["run", "--no-speaker-check"], ["chat"]])
+def test_with_the_redeem_codes_off_there_are_no_code_tools_and_no_watcher(
+    argv, home, run_fakes, brains, games, watchers, code_watchers, monkeypatch
+):
+    enable_gacha(home)
+    append_config(home, "redeem_codes:\n  enabled: false\n")
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main([*argv, "--dry-run"]) == 0
+
+    assert not any(isinstance(tools, CodeTools) for tools in brains[0].providers)
+    assert code_watchers == []
+
+
+def test_with_the_code_notices_off_the_watcher_still_keeps_her_answers_about_codes_current(
+    home, run_fakes, brains, games, watchers, code_watchers
+):
+    # The watcher then only reads and keeps the codes: it never tells or redeems them.
+    enable_gacha(home)
+    append_config(home, "redeem_codes:\n  notices: false\n")
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    assert any(isinstance(tools, CodeTools) for tools in brains[0].providers)
+    [watcher] = code_watchers
+    assert watcher.config == RedeemCodesConfig(notices=False)
+    assert watcher.listening == [False, True]
+
+
+@pytest.mark.parametrize("argv", [["run", "--no-speaker-check"], ["chat"]])
+def test_the_code_tools_and_watcher_cover_only_the_configured_games(
+    argv, home, run_fakes, brains, games, watchers, code_watchers, monkeypatch
+):
+    enable_gacha(home)
+    play_only(home, "[hsr, zzz]")
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main([*argv, "--dry-run"]) == 0
+
+    assert [
+        spec.input_schema["properties"]["game"]["enum"] for spec in code_tools(brains[0]).specs()
+    ] == [
+        ["hsr", "zzz"],
+        ["hsr", "zzz"],
+    ]
+    assert [watcher.games for watcher in code_watchers] == (
+        [["hsr", "zzz"]] if argv[0] == "run" else []
+    )
+
+
+@pytest.mark.parametrize("argv", [["run", "--no-speaker-check"], ["chat"]])
+def test_with_the_games_off_there_are_no_code_tools_and_no_watcher(
+    argv, home, run_fakes, brains, games, watchers, code_watchers, monkeypatch
+):
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main([*argv, "--dry-run"]) == 0
+
+    assert not any(isinstance(tools, CodeTools) for tools in brains[0].providers)
+    assert code_watchers == []
+
+
+@pytest.mark.parametrize(
+    ("failure", "exit_code"),
+    [(SttError("Whisper berhenti."), 1), (KeyboardInterrupt(), 130)],
+    ids=["whisper-fails", "ctrl-c"],
+)
+def test_run_stops_watching_for_codes_however_listening_ends(
+    failure, exit_code, home, run_fakes, brains, games, watchers, code_watchers, monkeypatch
+):
+    def listen_until_it_fails(self, mic, segmenter) -> None:
+        self.ran_with = (mic, segmenter)
+        raise failure
+
+    enable_gacha(home)
+    monkeypatch.setattr(RecordingAssistant, "run", listen_until_it_fails)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == exit_code
+
+    [watcher] = code_watchers
+    assert watcher.listening == [False, True]
+
+
+def test_gacha_codes_reads_the_source_keeps_the_new_codes_and_prints_each_game(
+    home, monkeypatch, capsys
+):
+    three_days_ago = datetime.now().astimezone() - timedelta(days=3)
+    store = kept_codes(home)
+    old_code = ("OLDCODE123", "10 stellar jade")
+    store.add("hsr", [old_code, STAR_RAIL_GIFT, ("EXPIRED123", "")], three_days_ago)
+    store.record([RedeemResult("hsr", STAR_RAIL_GIFT[0], "claimed", "Sudah dipakai.")])
+    source = use_code_source(
+        monkeypatch,
+        {"hsr": [JADE_60, JADE_30, old_code], "genshin": [GENSHIN_GIFT], "zzz": []},
+    )
+
+    assert cli.main(["gacha", "codes"]) == 0
+
+    assert source.asked == [["hsr", "genshin", "zzz"]]
+    # Newest first; EXPIRED123, which the source no longer lists, is not one to redeem.
+    assert capsys.readouterr().out.splitlines() == [
+        "HSR (Honkai: Star Rail)",
+        "  Belum ditukarkan:",
+        f"    {JADE_60[0]}  {JADE_60[1]}  (baru)",
+        f"    {JADE_30[0]}  {JADE_30[1]}  (baru)",
+        f"    OLDCODE123  10 stellar jade  (sejak {three_days_ago:%d-%m-%Y})",
+        "  Terakhir dicoba:",
+        f"    {STAR_RAIL_GIFT[0]}  sudah pernah ditukarkan  ({STAR_RAIL_GIFT[1]})",
+        "Genshin (Genshin Impact)",
+        "  Belum ditukarkan:",
+        f"    {GENSHIN_GIFT[0]}  {GENSHIN_GIFT[1]}  (baru)",
+        "  Terakhir dicoba: tidak ada",
+        "ZZZ (Zenless Zone Zero)",
+        "  Belum ditukarkan: tidak ada",
+        "  Terakhir dicoba: tidak ada",
+        CODES_CREDIT,
+    ]
+    # Kept, and left for a running Cyrene to announce: printing them here tells no phone.
+    assert [code.code for code in kept_codes(home).unannounced("hsr")] == [
+        JADE_60[0],
+        JADE_30[0],
+        "OLDCODE123",
+    ]
+
+
+def test_gacha_codes_of_one_game_reads_only_that_game(home, monkeypatch, capsys):
+    source = use_code_source(monkeypatch, {"zzz": []})
+
+    assert cli.main(["gacha", "codes", "zzz"]) == 0
+
+    assert source.asked == [["zzz"]]
+    assert capsys.readouterr().out.splitlines()[0] == "ZZZ (Zenless Zone Zero)"
+
+
+def test_gacha_codes_works_with_the_games_and_the_codes_off(home, monkeypatch, capsys):
+    append_config(home, "redeem_codes:\n  enabled: false\n")
+    use_code_source(monkeypatch, {"hsr": [JADE_60], "genshin": [], "zzz": []})
+
+    assert cli.main(["gacha", "codes"]) == 0
+
+    assert f"    {JADE_60[0]}  {JADE_60[1]}  (baru)" in capsys.readouterr().out.splitlines()
+
+
+def test_gacha_codes_that_cannot_be_read_show_the_kept_ones_and_fail(home, monkeypatch, capsys):
+    kept_codes(home).add("hsr", [JADE_60], datetime.now().astimezone())
+    use_code_source(monkeypatch, CodesError("Kode redeem tidak bisa diambil."))
+
+    assert cli.main(["gacha", "codes", "hsr"]) == 1
+
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0] == "! Kode redeem tidak bisa diambil. Ini kode yang tersimpan."
+    assert lines[3].startswith(f"    {JADE_60[0]}  {JADE_60[1]}  (sejak ")
+
+
+def test_gacha_codes_says_which_game_the_source_left_out_and_fails(home, monkeypatch, capsys):
+    use_code_source(monkeypatch, {"hsr": [JADE_60]})
+
+    assert cli.main(["gacha", "codes"]) == 1
+
+    out = capsys.readouterr().out.splitlines()
+    assert out[:2] == [
+        "! Kode Genshin tidak terbaca dari hoyo-codes.seria.moe; ini yang tersimpan.",
+        "! Kode ZZZ tidak terbaca dari hoyo-codes.seria.moe; ini yang tersimpan.",
+    ]
+    assert f"    {JADE_60[0]}  {JADE_60[1]}  (baru)" in out
+
+
+def test_gacha_codes_redeem_needs_a_game(home, games, capsys):
+    assert cli.main(["gacha", "codes", "--redeem"]) == 2
+
+    assert capsys.readouterr().out == (
+        "✗ --redeem butuh satu game, misalnya: waifu gacha codes hsr --redeem\n"
+    )
+    assert games.hoyolab.redeemed == []
+
+
+def test_gacha_codes_redeem_redeems_that_game_s_codes_and_prints_each_result(
+    home, games, monkeypatch, capsys
+):
+    games.hoyolab.redeem_outcomes = {JADE_30[0]: "expired"}
+    use_code_source(monkeypatch, {"hsr": [JADE_60, JADE_30]})
+    kept_codes(home).add("genshin", [GENSHIN_GIFT], datetime.now().astimezone())
+
+    assert cli.main(["gacha", "codes", "hsr", "--redeem"]) == 0
+
+    assert games.hoyolab.redeemed == [("hsr", [JADE_60[0], JADE_30[0]])]
+    assert capsys.readouterr().out.splitlines() == [
+        "Menukarkan 2 kode HSR di HoYoLAB satu per satu, sekitar 6 detik per kode...",
+        f"✓ Kode {JADE_60[0]} berhasil ditukarkan. Hadiahnya ada di surat dalam game HSR.",
+        f"! Kode {JADE_30[0]} sudah kedaluwarsa.",
+    ]
+    store = kept_codes(home)
+    assert [(code.code, outcome) for code, outcome in store.recent("hsr", 5)] == [
+        (JADE_60[0], "redeemed"),
+        (JADE_30[0], "expired"),
+    ]
+    assert store.unannounced("hsr") == []
+    assert [code.code for code in store.unredeemed("genshin")] == [GENSHIN_GIFT[0]]
+
+
+def test_gacha_codes_redeem_fails_when_a_code_is_left_to_redeem_again(
+    home, games, monkeypatch, capsys
+):
+    games.hoyolab.redeem_outcomes = {JADE_60[0]: "cooldown"}
+    use_code_source(monkeypatch, {"hsr": [JADE_60]})
+
+    assert cli.main(["gacha", "codes", "hsr", "--redeem"]) == 1
+
+    assert capsys.readouterr().out.splitlines()[-1] == (
+        f"✗ Kode {JADE_60[0]} belum bisa ditukarkan: HoYoLAB sedang membatasi penukaran kode. "
+        "Coba lagi sebentar lagi."
+    )
+    assert [code.code for code in kept_codes(home).unredeemed("hsr")] == [JADE_60[0]]
+    assert kept_codes(home).unannounced("hsr") == []  # Master saw it here
+
+
+def test_gacha_codes_redeem_prints_each_result_even_when_they_cannot_be_saved(
+    home, games, monkeypatch, capsys
+):
+    # HoYoLAB has redeemed them by then: only the bookkeeping may be lost.
+    use_code_source(monkeypatch, {"hsr": [JADE_60]})
+
+    def file_in_use(self, results) -> None:
+        raise PermissionError("[WinError 5] Access is denied")
+
+    monkeypatch.setattr(CodeStore, "record", file_in_use)
+
+    assert cli.main(["gacha", "codes", "hsr", "--redeem"]) == 0
+
+    assert capsys.readouterr().out.splitlines()[1:] == [
+        f"✓ Kode {JADE_60[0]} berhasil ditukarkan. Hadiahnya ada di surat dalam game HSR.",
+        f"! Hasil penukaran tidak bisa disimpan di {Path('data') / 'redeem_codes.json'}: "
+        "[WinError 5] Access is denied",
+    ]
+
+
+def test_gacha_codes_redeem_without_a_cookie_says_how_to_set_it(home, games, monkeypatch, capsys):
+    games.hoyolab.redeem_failure = GachaError("no_cookie", NO_COOKIE)
+    use_code_source(monkeypatch, {"hsr": [JADE_60]})
+
+    assert cli.main(["gacha", "codes", "hsr", "--redeem"]) == 1
+
+    assert capsys.readouterr().out.splitlines()[-1] == f"✗ {NO_COOKIE}"
+    assert [code.code for code in kept_codes(home).unredeemed("hsr")] == [JADE_60[0]]
+
+
+def test_gacha_codes_redeem_with_nothing_to_redeem_asks_no_one(home, games, monkeypatch, capsys):
+    use_code_source(monkeypatch, {"hsr": []})
+
+    assert cli.main(["gacha", "codes", "hsr", "--redeem"]) == 0
+
+    assert capsys.readouterr().out == "Tidak ada kode HSR yang belum ditukarkan.\n"
+    assert games.hoyolab.redeemed == []
+
+
+def test_gacha_codes_redeem_redeems_ten_codes_at_a_time(home, games, monkeypatch, capsys):
+    codes = [(f"CODE{n:02d}AAA", "10 stellar jade") for n in range(12)]
+    use_code_source(monkeypatch, {"hsr": codes})
+
+    assert cli.main(["gacha", "codes", "hsr", "--redeem"]) == 0
+
+    assert games.hoyolab.redeemed == [("hsr", [code for code, _ in codes[:10]])]
+    assert capsys.readouterr().out.splitlines()[-1] == (
+        "! Masih ada 2 kode HSR; jalankan perintah ini lagi."
+    )
+
+
+def test_gacha_codes_redeem_that_cannot_read_the_source_still_redeems_the_kept_codes(
+    home, games, monkeypatch, capsys
+):
+    kept_codes(home).add("hsr", [JADE_60], datetime.now().astimezone())
+    use_code_source(monkeypatch, CodesError("Kode redeem tidak bisa diambil."))
+
+    assert cli.main(["gacha", "codes", "hsr", "--redeem"]) == 1
+
+    assert games.hoyolab.redeemed == [("hsr", [JADE_60[0]])]
+    assert capsys.readouterr().out.splitlines()[0] == (
+        "! Kode redeem tidak bisa diambil. Ini kode yang tersimpan."
+    )
+
+
+def redeem_codes_line(out: str) -> str:
+    [line] = [line for line in out.splitlines() if "Kode redeem" in line]
+    return line
+
+
+def test_check_reports_the_redeem_codes_off_with_the_games(home, nothing_installed, capsys):
+    cli.main(["check"])
+
+    assert redeem_codes_line(capsys.readouterr().out) == (
+        "! Kode redeem mati (gacha.enabled: false); 'waifu gacha codes' tetap bisa dipakai"
+    )
+
+
+def test_check_reports_the_redeem_codes_off(home, nothing_installed, capsys):
+    enable_gacha(home)
+    append_config(home, "redeem_codes:\n  enabled: false\n")
+
+    cli.main(["check"])
+
+    assert redeem_codes_line(capsys.readouterr().out) == (
+        "! Kode redeem mati (redeem_codes.enabled: false); 'waifu gacha codes' tetap bisa dipakai"
+    )
+
+
+@pytest.mark.parametrize(
+    ("cookie", "settings", "line"),
+    [
+        (
+            GACHA_COOKIE,
+            "",
+            "✓ Kode redeem: aktif, cek tiap 6 jam, ditukarkan hanya kalau diminta; cookie "
+            "memuat cookie_token_v2",
+        ),
+        (
+            GACHA_COOKIE,
+            "  auto_redeem: true\n  poll_hours: 3\n",
+            "✓ Kode redeem: aktif, cek tiap 3 jam, kode baru langsung ditukarkan (auto_redeem); "
+            "cookie memuat cookie_token_v2",
+        ),
+        (
+            GACHA_COOKIE,
+            "  auto_redeem: true\n  notices: false\n",
+            "✓ Kode redeem: aktif, cek tiap 6 jam tanpa pemberitahuan, ditukarkan hanya kalau "
+            "diminta; cookie memuat cookie_token_v2",
+        ),
+        (
+            "ltuid_v2=1; ltoken_v2=v2_SECRETCOOKIE",
+            "",
+            "! Kode redeem: aktif, cek tiap 6 jam, ditukarkan hanya kalau diminta; cookie "
+            "HoYoLAB tanpa cookie_token_v2, jadi HoYoLAB akan menolak penukarannya",
+        ),
+        (
+            None,
+            "",
+            "! Kode redeem: aktif, cek tiap 6 jam, ditukarkan hanya kalau diminta; cookie "
+            "HoYoLAB belum diisi (gacha.cookie), jadi kode hanya diberitahukan",
+        ),
+        (
+            None,
+            "  notices: false\n",
+            "! Kode redeem: aktif, cek tiap 6 jam tanpa pemberitahuan, ditukarkan hanya kalau "
+            "diminta; cookie HoYoLAB belum diisi (gacha.cookie), jadi penukaran gagal sampai "
+            "cookie diisi",
+        ),
+        (
+            None,
+            "  auto_redeem: true\n",
+            "! Kode redeem: aktif, cek tiap 6 jam, kode baru langsung ditukarkan (auto_redeem); "
+            "cookie HoYoLAB belum diisi (gacha.cookie), jadi kode hanya diberitahukan dan belum "
+            "ditukarkan otomatis",
+        ),
+    ],
+    ids=[
+        "defaults",
+        "auto-redeem",
+        "no-notices",
+        "no-cookie-token",
+        "no-cookie",
+        "no-cookie-no-notices",
+        "no-cookie-auto-redeem",
+    ],
+)
+def test_check_reports_how_she_handles_codes_and_whether_the_cookie_can_redeem_them(
+    cookie, settings, line, home, nothing_installed, capsys
+):
+    enable_gacha(home, cookie=cookie)
+    if settings:
+        append_config(home, f"redeem_codes:\n{settings}")
+
+    cli.main(["check"])
+
+    out = capsys.readouterr().out
+    assert redeem_codes_line(out) == line
+    for secret in ("SECRETCOOKIE", "SECRETTOKEN"):
+        assert secret not in out
+
+
+def test_the_example_redeem_codes_block_is_valid_once_written_out(home):
+    write_out_example_block(home, "redeem_codes")
+
+    assert cli.load_config(home / "config.yaml").redeem_codes == RedeemCodesConfig()

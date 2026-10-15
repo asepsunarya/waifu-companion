@@ -1354,6 +1354,8 @@ Yang dia lakukan:
   limited, dan reaksi seperti teman: senang kalau menang 50/50, menghibur kalau kalah.
 - **Akun HSR.** Karakter, Eidolon, dan Light Cone milik Master, progres endgame musim
   ini, serta banner dan event yang sedang jalan (lihat "Data akun HSR").
+- **Kode redeem.** Kode baru ketiga game diberitahukan lewat suara dan HP, dan ditukarkan
+  di HoYoLAB hanya kalau Master minta (lihat "Kode redeem").
 - **Tidak pernah menyarankan top-up** atau membelanjakan uang.
 
 Semuanya hanya jalan selama PC menyala.
@@ -1425,6 +1427,7 @@ waifu gacha accounts              # akun game di cookie; → = akun yang dipakai
 waifu gacha status                # stamina, daily, mingguan, ekspedisi, check-in tiap game
 waifu gacha checkin               # ambil check-in sekarang (biasanya otomatis)
 waifu gacha history hsr --full    # impor riwayat pertama (1100 pull HSR: sekitar 40 detik)
+waifu gacha codes                 # kode redeem tiap game: yang belum ditukarkan dan hasil terakhir
 waifu notify-test                 # notifikasi tes ke HP
 ```
 
@@ -1519,6 +1522,110 @@ Kalau tertutup, Cyrene bilang "Data HSR ini tidak bisa dibaca karena Battle Chro
 HoYoLAB tidak publik" dan di mana setelannya. **Dia tidak pernah mengubah setelan itu
 sendiri**: membukanya atau tidak, Master yang memutuskan.
 
+### Kode redeem
+
+Selama `waifu run` dan teman main gacha menyala, Cyrene memeriksa kode redeem baru untuk
+game di `gacha.games` (HSR, Genshin, ZZZ), lalu bilang sendiri dan mengirimnya ke HP kalau
+notifikasi menyala. **Kode hanya ditukarkan di akun HoYoLAB Master kalau Master minta atau
+setuju**, kecuali `auto_redeem: true`.
+
+```text
+Cyrene : "Master, ada 2 kode HSR baru: 60 stellar jade, dan 50 stellar jade, 10k credits,
+          two traveler’s guides, and five bottled soda. Mau kutukarkan?"
+Master : "Cyrene, iya, tukarkan."
+Cyrene : "Satu kode sudah kutukarkan, Master, hadiahnya ada di surat dalam game. Yang satu
+          lagi ternyata sudah pernah dipakai."
+Master : "Cyrene, pakai kode ABC123XYZ di Genshin."
+Master : "Cyrene, ada kode baru nggak?"
+```
+
+- **Sumbernya:** API komunitas `hoyo-codes.seria.moe`, yang juga dipakai penukaran kode
+  otomatis **Hoyo Buddy** (proyek GPL-3.0). Kodenya dicek ke HoYoLAB dengan akun Asia, dan
+  hanya kode yang masih berlaku menurut sumber itu yang dipakai: kode yang tidak lagi
+  tercantum di sana (misalnya kode livestream yang sudah kedaluwarsa) tidak lagi ditawarkan
+  untuk ditukarkan. Terima kasih kepada pembuatnya. Karena tidak ada ketentuan pemakaian yang
+  dipublikasikan untuk pihak lain, Cyrene bertanya sekali sekitar semenit setelah `waifu run`
+  siap, lalu paling sering sekali per game setiap `poll_hours` (bawaan 6 jam), ditambah saat
+  kamu menjalankan `waifu gacha codes`. Kode yang hanya bisa dipakai lewat game (kode event
+  web) tidak termasuk.
+- **Pemberitahuan:** sekitar satu menit setelah dia siap, lalu setiap `poll_hours`, kode baru
+  tiap game disebut dalam satu kalimat dengan wajah senang: hadiahnya (paling banyak tiga,
+  sisanya dihitung), lalu "Mau kutukarkan?". Notifikasi HP memuat setiap kode beserta
+  hadiahnya. Pengumuman tidak membuka jendela lanjutan, jadi jawab dengan memanggil namanya:
+  "Cyrene, iya, tukarkan." Setiap kode hanya diberitahukan sekali, juga setelah restart. Saat
+  pertama kali menyala, semua kode yang masih berlaku ikut diberitahukan sebagai kode baru;
+  yang sudah pernah Master pakai akan dia sebut "sudah pernah ditukarkan". Dengan
+  `notices: false` dia tetap mengecek kode baru (jadi jawabannya tetap terkini), hanya tidak
+  pernah bilang sendiri. `waifu chat` tidak mengecek sendiri: dia tahu kode yang terakhir
+  dibaca `waifu run` atau `waifu gacha codes`.
+- **Menukarkan:** "iya, tukarkan", "redeem kode HSR yang baru", atau "pakai kode ABC123 di
+  Genshin". Kode ditukarkan satu per satu dengan jeda 6 detik (HoYoLAB menolak penukaran yang
+  terlalu rapat), yang terbaru dulu, paling banyak 10 sekali minta. **Hadiahnya masuk ke
+  surat dalam game.** Kalau HoYoLAB tidak bisa dihubungi, sedang membatasi permintaan, minta
+  captcha, atau menolak cookie-nya, sisa kodenya tidak dicoba dulu: minta lagi nanti. Kode
+  yang Master sebut sendiri ikut disimpan, tetap bisa dicoba lagi walau tidak tercantum di
+  sumbernya, dan tidak pernah diumumkan sebagai kode baru. Dia tidak pernah mengarang kode.
+- **`auto_redeem: true`:** kode baru langsung ditukarkan tanpa bertanya, lalu dia bilang
+  hasilnya: "Master, aku sudah menukarkan 2 kode HSR baru: ... Hadiahnya ada di surat dalam
+  game." Ini bertindak atas akun Master tanpa bertanya dulu, jadi bawaannya mati. Kode yang
+  saat itu belum bisa ditukarkan (misalnya HoYoLAB sedang bermasalah) disebut sekali beserta
+  alasannya, lalu menunggu sampai Master minta mencoba lagi. Kalau `waifu run` dimatikan saat
+  dia sedang menukarkan, dia berhenti sebelum kode berikutnya: kode yang sudah dijawab
+  HoYoLAB tidak diumumkan, tapi hasilnya tercatat (lihat `waifu gacha codes`, atau tanya "ada
+  kode baru nggak?"), dan sisanya ditukarkan lalu diberitahukan setelah dia menyala lagi.
+- **Cookie yang dibutuhkan:** melihat kode tidak butuh cookie. Menukarkan butuh `gacha.cookie`
+  yang memuat `cookie_token_v2`, `account_id_v2`, dan `account_mid_v2` (langkah 1 sudah
+  menyalin semuanya). `waifu check` menunjukkan apakah `cookie_token_v2` ada, hanya namanya,
+  tidak pernah isinya.
+
+Hasil penukaran yang mungkin:
+
+| Hasil | Artinya |
+|---|---|
+| berhasil ditukarkan | hadiahnya ada di surat dalam game |
+| sudah pernah ditukarkan | kode ini sudah dipakai di akun ini |
+| sudah kedaluwarsa | masa berlakunya habis |
+| tidak valid | HoYoLAB tidak mengenal kodenya |
+| tidak berlaku di server akun ini | kodenya untuk server lain |
+| butuh level akun yang lebih tinggi | naikkan level akun dulu |
+| belum bisa ditukarkan | HoYoLAB sedang membatasi penukaran, cookie tidak bisa dipakai (tanpa `cookie_token_v2` atau sudah kedaluwarsa: ambil ulang, langkah 1), atau masalah lain seperti koneksi; pesannya menyebut yang mana |
+
+Kode yang belum bisa ditukarkan tetap ada di daftar "belum ditukarkan" dan bisa dicoba lagi.
+
+Dari terminal (juga saat `gacha.enabled: false` atau `redeem_codes.enabled: false`):
+
+```powershell
+waifu gacha codes               # baca kode terbaru, lalu tiap game: yang belum ditukarkan (baru, atau sejak tanggal) dan 5 hasil terakhir
+waifu gacha codes hsr           # satu game saja
+waifu gacha codes hsr --redeem  # tukarkan kode HSR yang belum ditukarkan di akun HoYoLAB Master
+```
+
+Kode yang baru terbaca di terminal tetap diberitahukan oleh `waifu run` yang sedang berjalan
+(juga ke HP), kecuali sudah ditukarkan dengan `--redeem`.
+
+Pengaturan (tidak perlu ditulis untuk memakai bawaannya; contohnya ada di
+`config.example.yaml`, dan `waifu run` perlu dijalankan ulang setelah mengubahnya):
+
+```yaml
+redeem_codes:
+  enabled: true                       # false: tanpa tool dan tanpa pemberitahuan
+  poll_hours: 6                       # cek kode baru tiap N jam selama `waifu run` (1-48)
+  auto_redeem: false                  # true: kode baru langsung ditukarkan tanpa bertanya
+  notices: true                       # false: hanya menjawab kalau ditanya; kode tetap dicek (auto_redeem pun tidak jalan)
+  state_path: data/redeem_codes.json
+```
+
+`data\redeem_codes.json` hanya ada di PC ini dan tidak di-commit: kode yang dikenal, hadiahnya,
+hasil penukaran terakhir, dan mana yang sudah diberitahukan. Kode yang tidak lagi ada di
+sumbernya tidak ditawarkan lagi dan dilupakan setelah 60 hari (sampai saat itu, kalau muncul
+lagi, kode itu tidak dianggap baru). Seperti file Cyrene lainnya, file yang rusak tidak pernah
+ditimpa: namanya diganti menjadi `redeem_codes.json.corrupt-<tanggal>-<jam>` dan dia mulai dari
+kosong.
+
+**Privasi.** Ke `hoyo-codes.seria.moe` hanya dikirim nama game, tanpa cookie atau data
+tentang Master. Penukaran ke HoYoLAB memakai cookie yang sama dengan bagian lain; cookie dan
+UID tidak pernah masuk log atau pesan.
+
 ### Pengingat
 
 | Pengingat | Kapan | Berapa kali | Mengatur |
@@ -1546,6 +1653,8 @@ tenang: dia juga bicara di malam hari selama `waifu run` jalan.
   `checkin: false`.
 - Kalau HoYoverse mengubah API-nya, Cyrene akan bilang data tidak bisa dibaca;
   `pip install -U genshin` di venv biasanya memperbaikinya.
+- Penukaran kode redeem memakai halaman penukaran web yang sama dengan situs resmi, lewat
+  `genshin.py` yang tidak resmi, dan hanya saat Master minta (atau dengan `auto_redeem`).
 
 ### Pemecahan masalah gacha
 
@@ -1561,6 +1670,12 @@ tenang: dia juga bicara di malam hari selama `waifu run` jalan.
 - **"Server riwayat ... minta pelan-pelan".** Tunggu semenit.
 - **Pity berbeda dengan di game.** Riwayatnya mungkin baru terbaca sebagian: jalankan
   `waifu gacha history <game> --full`.
+- **"Cookie HoYoLAB tidak bisa dipakai untuk menukarkan kode".** Penukaran butuh
+  `cookie_token_v2` (dengan `account_id_v2` dan `account_mid_v2`): ambil ulang cookie-nya
+  (langkah 1), lalu minta lagi.
+- **"Kode redeem tidak bisa diambil".** `hoyo-codes.seria.moe` tidak bisa dihubungi; `waifu
+  run` mencoba lagi di pemeriksaan berikutnya, dan `waifu gacha codes` tetap menampilkan kode
+  yang tersimpan.
 
 ## Ingatan Cyrene
 
@@ -3259,6 +3374,14 @@ mendengarkan"; jawaban pertama bisa lebih lama karena model Ollama baru dimuat)
       sama dengan di game.
 - [ ] Turunkan sementara `stamina_minutes` sampai di atas sisa waktu penuh: dalam 15
       menit dia mengingatkan lewat suara dan HP, sekali saja.
+- [ ] `waifu gacha codes`: tiap game tanpa `!`, dan kode yang belum ditukarkan sama dengan kode
+      yang masih berlaku menurut pengumuman resmi game.
+- [ ] Di `waifu run`: sekitar semenit setelah siap, kode baru (pertama kali: semua yang masih
+      berlaku) diumumkan dan masuk ke HP dengan kodenya; setelah `waifu run` dijalankan ulang,
+      kode itu tidak diumumkan lagi.
+- [ ] Untuk kode yang belum pernah kamu pakai: "Cyrene, iya, tukarkan" (atau `waifu gacha
+      codes hsr --redeem`) bilang berhasil, hadiahnya muncul di surat dalam game, dan
+      `waifu gacha codes hsr` mencatatnya di "Terakhir dicoba".
 
 **Data akun HSR** (lihat [Data akun HSR](#data-akun-hsr-karakter-endgame-dan-event))
 
@@ -3481,6 +3604,10 @@ halaman tim di game atau sebuah error)
     notifikasi HP menyala. Hari sapaan terakhir hanya disimpan di `data\briefing.json`.
 - **Cookie HoYoLAB setara kata sandi.** Hanya disimpan di `config.yaml` dan tidak pernah
   ditulis ke log. Riwayat pull ada di `data\gacha\` (nama filenya memuat UID game).
+- **Kode redeem:** ke `hoyo-codes.seria.moe` hanya nama game; penukaran ke HoYoLAB dengan
+  cookie milikmu, hanya saat Master minta (atau dengan `auto_redeem`). Kode, hadiah, dan hasil
+  penukarannya ada di `data\redeem_codes.json`, hanya di PC ini; pemberitahuannya ke `ntfy.sh`
+  kalau notifikasi HP menyala. Lihat [Kode redeem](#kode-redeem).
 - **Ingatan Cyrene** (hal yang dia ketahui tentang Master) ada di `data\memory.json`,
   hanya di PC ini; rahasia seperti kata sandi atau nomor kartu tidak pernah disimpan.
   Lihat [Privasi ingatan](#privasi-ingatan).

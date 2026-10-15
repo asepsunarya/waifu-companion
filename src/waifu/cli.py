@@ -70,6 +70,7 @@ from waifu.config import (
     AvatarConfig,
     BriefingConfig,
     ConfigError,
+    GameId,
     OllamaConfig,
     PhoneConfig,
     RvcConfig,
@@ -80,6 +81,10 @@ from waifu.devices.base import DeviceError
 from waifu.devices.ir_codes import COMMAND_PATTERN, IrCodeStoreError
 from waifu.devices.ir_device import IrDevice
 from waifu.devices.registry import DeviceRegistry, build_registry
+from waifu.gacha.code_store import CodeStore
+from waifu.gacha.code_tools import RECENT_CODES, CodeTools
+from waifu.gacha.code_watcher import OUTCOME_TEXT, CodeWatcher, ReadCodes
+from waifu.gacha.codes import CODES_SOURCE, FINAL_OUTCOMES, CodesError, RedeemCode, read_codes
 from waifu.gacha.games import GAMES, Game, next_daily_reset
 from waifu.gacha.history import (
     GachaHistory,
@@ -88,7 +93,14 @@ from waifu.gacha.history import (
     TopPull,
     find_cached_gacha_url,
 )
-from waifu.gacha.hoyolab import GachaError, GameStatus, HoyolabClient, preferred_uids
+from waifu.gacha.hoyolab import (
+    REDEEM_CODES_AT_MOST,
+    REDEEM_GAP_S,
+    GachaError,
+    GameStatus,
+    HoyolabClient,
+    preferred_uids,
+)
 from waifu.gacha.hsr_tools import HsrTools
 from waifu.gacha.reminders import duration_text
 from waifu.gacha.starrail import (
@@ -230,10 +242,13 @@ NOTIFY_TEST_MESSAGE = "Tes notifikasi dari {name}. Kalau ini muncul di HP, notif
 NOTIFY_TAG = "video_game"  # ntfy shows it as a game controller emoji
 GACHA_DESCRIPTION = (
     "Teman main game HoYoverse: status stamina dan daily, check-in harian HoYoLAB, "
-    "riwayat pull (pity, 50/50), dan data akun HSR (karakter, endgame, kalender event). "
-    "Perintah ini jalan walau gacha.enabled: false; yang dinyalakan gacha.enabled hanyalah "
-    "tool game dan pengingat saat 'waifu run'."
+    "riwayat pull (pity, 50/50), data akun HSR (karakter, endgame, kalender event), dan kode "
+    "redeem. Perintah ini jalan walau gacha.enabled: false; yang dinyalakan gacha.enabled "
+    "hanyalah tool game dan pengingat saat 'waifu run'."
 )
+# The community source of the redeem codes (see gacha.codes), credited wherever its codes show.
+CODES_CREDIT = f"Sumber kode: {CODES_SOURCE} (API komunitas di balik Hoyo Buddy)"
+REDEEM_NEEDS_GAME = "--redeem butuh satu game, misalnya: waifu gacha codes hsr --redeem"
 # Where the games keep their logs, which lead to their history caches; tests point it elsewhere.
 GAME_LOGS_DIR = Path.home() / "AppData" / "LocalLow"
 HSR_VIEWS = ("characters", "endgame", "events")
@@ -521,7 +536,7 @@ def build_parser() -> argparse.ArgumentParser:
     gacha_command = commands.add_parser(
         "gacha",
         parents=[shared],
-        help="Teman main game HoYoverse: status, check-in, riwayat pull, data HSR.",
+        help="Teman main game HoYoverse: status, check-in, riwayat pull, data HSR, kode redeem.",
         description=GACHA_DESCRIPTION,
     )
     gacha_actions = gacha_command.add_subparsers(dest="action", required=True, metavar="<aksi>")
@@ -559,6 +574,20 @@ def build_parser() -> argparse.ArgumentParser:
         choices=HSR_VIEWS,
         help="characters: karakter dan Light Cone; endgame: bintang dan lantai musim ini; "
         "events: warp, event, dan jadwal endgame",
+    )
+    codes = command(
+        "codes",
+        _gacha_codes,
+        "Kode redeem baru tiap game: yang belum ditukarkan dan hasil terakhir.",
+        gacha_actions,
+    )
+    codes.add_argument(
+        "game", nargs="?", choices=list(GAMES), help="satu game saja (wajib untuk --redeem)"
+    )
+    codes.add_argument(
+        "--redeem",
+        action="store_true",
+        help="tukarkan kode game itu yang belum ditukarkan di akun HoYoLAB Master",
     )
     memory_command = commands.add_parser(
         "memory",
@@ -886,6 +915,7 @@ def _listen(args: argparse.Namespace) -> int:
                 try:
                     with (
                         _gacha_watcher(config, gacha, assistant),
+                        _code_watcher(config, gacha, assistant, notifier),
                         _pc_watcher(config, pc, assistant, notifier),
                         _offers_watcher(config, assistant, notifier, usage),
                         _scheduler(
@@ -1591,6 +1621,8 @@ def _game_tools(config: AppConfig, gacha: GachaParts | None) -> list[ToolProvide
     ]
     if "hsr" in config.gacha.games:
         tools.append(HsrTools(gacha.hoyolab))
+    if config.redeem_codes.enabled:
+        tools.append(CodeTools(_code_store(config), gacha.hoyolab, config.gacha.games))
     return tools
 
 
@@ -1608,6 +1640,56 @@ def _gacha_watcher(
         title=config.assistant.name,
         owner_call=config.assistant.owner_call,
     )
+
+
+def _code_store(config: AppConfig) -> CodeStore:
+    """The redeem codes she knows, what redeeming them did, and which she told, in the file
+    `redeem_codes.state_path` names (`run`, `chat`, and `waifu gacha codes` share it)."""
+    return CodeStore(config.redeem_codes.state_path)
+
+
+def _codes_reader() -> ReadCodes:
+    """Reads the given games' redeem codes from the community source, with a connection of its
+    own each time (reads are hours apart)."""
+
+    def read(games: Sequence[GameId]) -> dict[GameId, list[tuple[str, str]]] | CodesError:
+        with httpx.Client() as http:
+            return read_codes(games, http=http)
+
+    return read
+
+
+@contextmanager
+def _code_watcher(
+    config: AppConfig,
+    gacha: GachaParts | None,
+    assistant: Assistant,
+    notifier: Notifier | None,
+) -> Iterator[None]:
+    """Her notices about new redeem codes while the block runs (redeemed first with
+    `auto_redeem`), also pushed to the phone when notifications are on; with their notices off
+    the watcher only keeps the codes fresh for her answers, and none runs with the games or
+    the codes off. Listing codes needs no cookie, so it watches without one."""
+    codes = config.redeem_codes
+    if gacha is None or not codes.enabled:
+        yield
+        return
+    watcher = CodeWatcher(
+        _code_store(config),
+        _codes_reader(),
+        gacha.hoyolab,
+        codes,
+        config.gacha.games,
+        announce=assistant.announce,
+        notifier=notifier,
+        owner_call=config.assistant.owner_call,
+        title=config.assistant.name,
+    )
+    watcher.start()
+    try:
+        yield
+    finally:
+        watcher.stop()
 
 
 def _gacha_accounts(args: argparse.Namespace) -> int:
@@ -1855,6 +1937,116 @@ def _time_left(left: timedelta) -> str:
 
 def _labelled(label: str, parts: list[str], *, separator: str = ", ") -> str:
     return f"{label}: {separator.join(parts)}" if parts else label
+
+
+def _gacha_codes(args: argparse.Namespace) -> int:
+    """Read the redeem codes fresh, keep them, and print each game's codes to redeem and the
+    last ones tried; with --redeem, redeem one game's codes to redeem instead and print each
+    result. Exit 1 when a game could not be read or a code is left to redeem again. It works
+    whether or not `gacha.enabled` and `redeem_codes.enabled` are on."""
+    if args.redeem and args.game is None:
+        print(f"{FAIL} {REDEEM_NEEDS_GAME}")
+        return 2
+    config = load_config(args.config)
+    games: list[GameId] = [args.game] if args.game else config.gacha.games
+    store = _code_store(config)
+    new, every_game_read = _keep_fresh_codes(store, games)
+    if args.redeem:
+        settled = _redeem_kept_codes(build_gacha(config).hoyolab, store, args.game)
+        return 0 if every_game_read and settled else 1
+    for game in games:
+        _print_codes(store, game, new)
+    print(CODES_CREDIT)
+    return 0 if every_game_read else 1
+
+
+def _keep_fresh_codes(
+    store: CodeStore, games: Sequence[GameId]
+) -> tuple[set[tuple[GameId, str]], bool]:
+    """Read the games' codes from the source and keep them: the new ones as (game, code), and
+    whether every game was read. A game that could not be read is pointed out; its kept codes
+    still count. They stay unannounced, so a running `waifu run` still pushes them."""
+    found = _codes_reader()(games)
+    if isinstance(found, CodesError):
+        print(f"{WARN} {found} Ini kode yang tersimpan.")
+        return set(), False
+    now = datetime.now().astimezone()
+    new: set[tuple[GameId, str]] = set()
+    for game in games:
+        if game not in found:
+            print(
+                f"{WARN} Kode {GAMES[game].short} tidak terbaca dari {CODES_SOURCE}; "
+                "ini yang tersimpan."
+            )
+            continue
+        new.update((game, code.code) for code in store.add(game, found[game], now))
+    return new, all(game in found for game in games)
+
+
+def _print_codes(store: CodeStore, game: GameId, new: set[tuple[GameId, str]]) -> None:
+    """`5S6ZHRWTDNJB  60 stellar jade  (baru)` for each code still to redeem, then the last
+    ones tried with what happened, as the redeem_codes_list tool gives them."""
+    print(f"{GAMES[game].short} ({GAMES[game].name})")
+    to_redeem = [
+        f"  {code.code}  {code.rewards or 'hadiah tidak disebutkan'}  "
+        f"({_first_seen_text(code, (game, code.code) in new)})"
+        for code in store.unredeemed(game)
+    ]
+    _print_section("  Belum ditukarkan", to_redeem)
+    recent = [
+        f"  {code.code}  {OUTCOME_TEXT[outcome]}" + (f"  ({code.rewards})" if code.rewards else "")
+        for code, outcome in store.recent(game, RECENT_CODES)
+    ]
+    _print_section("  Terakhir dicoba", recent)
+
+
+def _first_seen_text(code: RedeemCode, new: bool) -> str:
+    return "baru" if new else f"sejak {code.first_seen.astimezone():%d-%m-%Y}"
+
+
+def _redeem_kept_codes(hoyolab: HoyolabClient, store: CodeStore, game: GameId) -> bool:
+    """Redeem the first REDEEM_CODES_AT_MOST codes of `game` still to redeem (the newest
+    first), record and print each result, and mark them told (Master saw them here); whether
+    none is left to redeem again. A store that cannot be written is pointed out after the
+    results, which HoYoLAB has given by then."""
+    short = GAMES[game].short
+    codes = store.unredeemed(game)
+    if not codes:
+        print(f"Tidak ada kode {short} yang belum ditukarkan.")
+        return True
+    trying = codes[:REDEEM_CODES_AT_MOST]
+    print(
+        f"Menukarkan {len(trying)} kode {short} di HoYoLAB satu per satu, sekitar "
+        f"{REDEEM_GAP_S:g} detik per kode...",
+        flush=True,
+    )
+    try:
+        results = hoyolab.redeem_codes(game, [code.code for code in trying])
+    except GachaError as error:
+        print(f"{FAIL} {error.message}")
+        return False
+    unsaved: OSError | None = None
+    try:
+        store.record(results)
+        store.mark_announced(trying)
+    except OSError as exc:
+        unsaved = exc
+    for result in results:
+        print(f"{_outcome_mark(result.outcome)} {result.message}")
+    if unsaved is not None:
+        print(f"{WARN} Hasil penukaran tidak bisa disimpan di {store.path}: {unsaved}")
+    left = len(codes) - len(trying)
+    if left > 0:
+        print(f"{WARN} Masih ada {left} kode {short}; jalankan perintah ini lagi.")
+    return all(result.outcome in FINAL_OUTCOMES for result in results)
+
+
+def _outcome_mark(outcome: str) -> str:
+    """✓ for rewards, ! for a code settled otherwise (used, expired, ...), ✗ for one left to
+    redeem again."""
+    if outcome == "redeemed":
+        return OK
+    return WARN if outcome in FINAL_OUTCOMES else FAIL
 
 
 # --- long-term memory ------------------------------------------------------------------------
@@ -3104,6 +3296,7 @@ def _checks(config_path: Path) -> Iterator[Check]:
     yield from _anime_voice_checks(config)
     yield from _avatar_checks(config)
     yield from _gacha_checks(config)
+    yield _redeem_codes_check(config)
     yield _notify_check(config)
     yield from _phone_checks(config)
 
@@ -3553,6 +3746,36 @@ def _gacha_checks(config: AppConfig) -> Iterator[Check]:
                     "di game sekali"
                 ),
             )
+
+
+def _redeem_codes_check(config: AppConfig) -> Check:
+    """Whether she watches for redeem codes and redeems them by herself, and whether the cookie
+    holds cookie_token_v2, which redeeming needs (by its name only); the source is never
+    asked."""
+    codes = config.redeem_codes
+    if not (config.gacha.enabled and codes.enabled):
+        off = "redeem_codes.enabled" if config.gacha.enabled else "gacha.enabled"
+        return WARN, f"Kode redeem mati ({off}: false); 'waifu gacha codes' tetap bisa dipakai"
+    every = f"cek tiap {codes.poll_hours} jam"
+    if not codes.notices:
+        plan = f"{every} tanpa pemberitahuan, ditukarkan hanya kalau diminta"
+        without_cookie = "penukaran gagal sampai cookie diisi"
+    elif codes.auto_redeem:
+        plan = f"{every}, kode baru langsung ditukarkan (auto_redeem)"
+        without_cookie = "kode hanya diberitahukan dan belum ditukarkan otomatis"
+    else:
+        plan = f"{every}, ditukarkan hanya kalau diminta"
+        without_cookie = "kode hanya diberitahukan"
+    status = f"Kode redeem: aktif, {plan}"
+    cookie = config.gacha.cookie
+    if cookie is None:
+        return WARN, f"{status}; cookie HoYoLAB belum diisi (gacha.cookie), jadi {without_cookie}"
+    if "cookie_token_v2" not in cookie_names(cookie.get_secret_value()):
+        return WARN, (
+            f"{status}; cookie HoYoLAB tanpa cookie_token_v2, jadi HoYoLAB akan menolak "
+            "penukarannya"
+        )
+    return OK, f"{status}; cookie memuat cookie_token_v2"
 
 
 def _notify_check(config: AppConfig) -> Check:

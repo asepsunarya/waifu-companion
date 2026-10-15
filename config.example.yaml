@@ -167,6 +167,22 @@ gacha:
   # off_banner: {hsr: [Yunli]}
   data_dir: data/gacha
 
+# Kode redeem (README, bagian "Kode redeem"): selama `waifu run` dan teman main gacha menyala,
+# Cyrene membaca kode redeem baru untuk game di gacha.games dari hoyo-codes.seria.moe (API
+# komunitas di balik Hoyo Buddy, yang mengecek kodenya ke HoYoLAB), lalu bilang sendiri dan
+# mengirimnya ke HP kalau notify menyala: "Master, ada 2 kode HSR baru: ... Mau kutukarkan?".
+# Kode hanya ditukarkan di akun HoYoLAB Master kalau Master minta ("iya, tukarkan", "pakai kode
+# ABC123 di Genshin"), kecuali auto_redeem: true. Menukarkan butuh gacha.cookie yang memuat
+# cookie_token_v2, account_id_v2, dan account_mid_v2; hadiahnya masuk ke surat dalam game.
+# Lihat dan tukarkan dari terminal dengan `waifu gacha codes [game] [--redeem]`.
+# Sudah menyala tanpa ditulis; untuk mengubahnya, tulis bagian ini tanpa tanda # di depannya.
+# redeem_codes:
+#   enabled: true                         # false: tanpa tool dan tanpa pemberitahuan (`waifu gacha codes` tetap jalan)
+#   poll_hours: 6                         # cek kode baru tiap N jam selama `waifu run` (1-48)
+#   auto_redeem: false                    # true: kode baru langsung ditukarkan tanpa bertanya dulu
+#   notices: true                         # false: tidak pernah bilang sendiri, kode tetap dicek (dan auto_redeem tidak jalan)
+#   state_path: data/redeem_codes.json    # kode yang dikenal, hasil penukarannya, dan yang sudah diberitahukan, hanya di PC ini
+
 # Notifikasi ke HP lewat ntfy (aplikasi gratis, tanpa akun): langganan topik yang sama di aplikasinya.
 notify:
   enabled: false
