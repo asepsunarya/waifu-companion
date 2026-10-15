@@ -1,12 +1,25 @@
 import asyncio
 import copy
 import logging
+from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
 import aiohttp
 import genshin
+import pydantic
 import pytest
 from genshin import errors
-from genshin.models import Notes, StarRailNote, ZZZNotes
+from genshin.models import (
+    AnomalyArbitration,
+    HSREventCalendar,
+    Notes,
+    StarRailAPCShadow,
+    StarRailChallenge,
+    StarRailDetailCharacterResponse,
+    StarRailNote,
+    StarRailPureFiction,
+    ZZZNotes,
+)
 from genshin.models.genshin.daily import DailyReward, DailyRewardInfo
 from genshin.models.hoyolab.record import GenshinAccount
 
@@ -19,9 +32,14 @@ from waifu.gacha.hoyolab import (
     WeeklyTask,
     preferred_uids,
 )
+from waifu.gacha.starrail import ENDGAME_MODES, HsrEndgame
 
 COOKIE = "ltuid_v2=1; ltoken_v2=v2_SECRETCOOKIE; cookie_token_v2=SECRETTOKEN; account_id_v2=1"
 UIDS = {"hsr": 800000001, "genshin": 800000002, "zzz": 1300000003}
+CHRONICLE_PRIVATE = (
+    "Data HSR ini tidak bisa dibaca karena Battle Chronicle di HoYoLAB tidak publik. "
+    "Pengaturannya ada di HoYoLAB, di Battle Chronicle; Cyrene tidak mengubahnya."
+)
 
 HSR_NOTES = {
     "current_stamina": 232,
@@ -98,6 +116,123 @@ ZZZ_NOTES = {
         "weekly_currency_max": 1000,
     },
 }
+HSR_CHARACTERS = {
+    "avatar_list": [
+        {
+            "id": 1308,
+            "element": "Lightning",
+            "rarity": 5,
+            "icon": "",
+            "name": "Acheron",
+            "level": 80,
+            "rank": 2,
+            "image": "",
+            "equip": {
+                "id": 23024,
+                "level": 80,
+                "rank": 1,
+                "name": "Along the Passing Shore",
+                "desc": "",
+                "icon": "",
+                "rarity": 5,
+            },
+            "relics": [],
+            "ornaments": [],
+            "ranks": [],
+            "base_type": 5,
+            "figure_path": "",
+            "properties": [{"property_type": 1, "base": "1000", "add": "2512", "final": "3512"}],
+            "skills": [],
+            "servant_detail": None,
+        }
+    ],
+    "equip_wiki": {},
+    "relic_wiki": {},
+    "property_info": {
+        "1": {
+            "property_type": 1,
+            "name": "HP",
+            "icon": "",
+            "property_name_relic": "HP",
+            "property_name_filter": "HP",
+        }
+    },
+    "recommend_property": {
+        "1308": {
+            "recommend_relic_properties": [],
+            "custom_relic_properties": [],
+            "is_custom_property_valid": False,
+        }
+    },
+    "relic_properties": [],
+}
+# genshin.py adds the uid's server offset ("tzinfo") to the endgame times it returns.
+SEASON_END = {"year": 2026, "month": 11, "day": 17, "hour": 3, "minute": 59, "tzinfo": 8}
+SEASON = {
+    "schedule_id": 1012,
+    "name_mi18n": "Gleaming Treasure",
+    "status": "challenge_status_open",
+    "begin_time": {**SEASON_END, "month": 10, "day": 6, "hour": 4, "minute": 0},
+    "end_time": SEASON_END,
+}
+MEMORY_OF_CHAOS = {
+    "schedule_id": 1012,
+    "begin_time": None,
+    "end_time": None,
+    "star_num": 30,
+    "max_floor": "Stage 12",
+    "max_floor_id": 12,
+    "battle_num": 12,
+    "has_data": True,
+    "all_floor_detail": [],
+    "groups": [SEASON],
+}
+PURE_FICTION = {
+    "star_num": 12,
+    "max_floor": "Stage 4",
+    "battle_num": 8,
+    "has_data": True,
+    "all_floor_detail": [],
+    "groups": [SEASON],
+    "max_floor_id": 4,
+}
+APOCALYPTIC_SHADOW = {**PURE_FICTION, "star_num": 9, "battle_num": 6}
+ANOMALY_ARBITRATION = {
+    "challenge_peak_records": [],
+    "challenge_peak_best_record_brief": None,
+    "role": {
+        "server": "prod_official_asia",
+        "nickname": "Master",
+        "level": 70,
+        "role_id": "800000001",
+    },
+}
+CALENDAR_NOW = 1_800_000_000  # the calendar's own clock, as unix seconds
+HSR_CALENDAR = {
+    "avatar_card_pool_list": [
+        {
+            "time_info": {
+                "start_ts": str(CALENDAR_NOW - 86400),
+                "end_ts": str(CALENDAR_NOW + 5 * 86400),
+                "start_time": {"year": 2027},
+                "now": str(CALENDAR_NOW),
+            },
+            "name": "Butterfly on Swordtip",
+            "type": "CardPoolRole",
+            "avatar_list": [],
+            "equip_list": [],
+            "is_after_version": False,
+            "version": "3.7",
+            "id": 1,
+        }
+    ],
+    "equip_card_pool_list": [],
+    "act_list": [],
+    "challenge_list": [],
+    "cur_game_version": "3.7",
+    "now": str(CALENDAR_NOW),
+}
+FETCHED_AT = datetime(2026, 10, 15, 13, 0, tzinfo=UTC)
 
 
 def account(game_biz: str, uid: int, level: int) -> GenshinAccount:
@@ -123,20 +258,28 @@ ACCOUNTS = [
 class FakeHoyolab:
     """genshin.Client's async surface for these calls, answering with real genshin.py models."""
 
-    def __init__(self, *, failures=None, accounts=ACCOUNTS, delay_s=0.0):
+    def __init__(self, *, failures=None, answers=None, accounts=ACCOUNTS, delay_s=0.0):
         self.failures = failures or {}
+        self.answers = answers or {}
         self.accounts = accounts
         self.delay_s = delay_s
         self.calls: list[tuple] = []
+        self.in_flight = 0
+        self.most_in_flight = 0
 
     async def _answer(self, call: tuple, value):
         self.calls.append(call)
-        if self.delay_s:
-            await asyncio.sleep(self.delay_s)
+        self.in_flight += 1
+        self.most_in_flight = max(self.most_in_flight, self.in_flight)
+        try:
+            if self.delay_s:
+                await asyncio.sleep(self.delay_s)
+        finally:
+            self.in_flight -= 1
         failure = self.failures.get(call[0])
         if failure is not None:
             raise failure
-        return value
+        return self.answers.get(call[0], value)
 
     async def get_game_accounts(self):
         return await self._answer(("accounts",), self.accounts)
@@ -163,6 +306,40 @@ class FakeHoyolab:
 
     async def fetch_authkey(self, uid, *, game):
         return await self._answer(("authkey", uid, game), "fresh-authkey")
+
+    # The HSR Battle Chronicle, with genshin.py's signatures, recording every argument.
+    async def get_starrail_characters(self, uid=None, *, lang=None, simple=False):
+        response = StarRailDetailCharacterResponse(**copy.deepcopy(HSR_CHARACTERS))
+        return await self._answer(("characters", uid, {"lang": lang, "simple": simple}), response)
+
+    async def get_starrail_challenge(self, uid=None, *, previous=False, lang=None, raw=False):
+        model = StarRailChallenge(**copy.deepcopy(MEMORY_OF_CHAOS))
+        arguments = {"previous": previous, "lang": lang, "raw": raw}
+        return await self._answer(("memory_of_chaos", uid, arguments), model)
+
+    async def get_starrail_pure_fiction(self, uid=None, *, previous=False, lang=None, raw=False):
+        model = StarRailPureFiction(**copy.deepcopy(PURE_FICTION))
+        arguments = {"previous": previous, "lang": lang, "raw": raw}
+        return await self._answer(("pure_fiction", uid, arguments), model)
+
+    async def get_starrail_apc_shadow(self, uid=None, *, previous=False, lang=None, raw=False):
+        model = StarRailAPCShadow(**copy.deepcopy(APOCALYPTIC_SHADOW))
+        arguments = {"previous": previous, "lang": lang, "raw": raw}
+        return await self._answer(("apocalyptic_shadow", uid, arguments), model)
+
+    async def get_anomaly_arbitration(
+        self, uid=None, *, previous=False, lang=None, raw=False, schedule_type=3
+    ):
+        model = AnomalyArbitration(**copy.deepcopy(ANOMALY_ARBITRATION))
+        arguments = {"previous": previous, "lang": lang, "raw": raw, "schedule_type": schedule_type}
+        return await self._answer(("anomaly_arbitration", uid, arguments), model)
+
+    async def get_starrail_event_calendar(self, uid=None, *, lang=None):
+        model = HSREventCalendar(**copy.deepcopy(HSR_CALENDAR))
+        return await self._answer(("calendar", uid, {"lang": lang}), model)
+
+    async def update_settings(self, *args, **kwargs):
+        return await self._answer(("update_settings",), None)
 
 
 def make_client(fake: FakeHoyolab, *, cookie=COOKIE, uids=UIDS, **kwargs) -> HoyolabClient:
@@ -391,3 +568,244 @@ def test_the_first_of_the_highest_level_accounts_is_the_one_used():
     ]
 
     assert preferred_uids(accounts) == {"hsr": 800000001, "zzz": 1300000003}
+
+
+# ---- HSR data (v1.16) ---------------------------------------------------------------------------
+
+ENDGAME_CALLS = {
+    "memory_of_chaos": (800000001, {"previous": False, "lang": None, "raw": False}),
+    "pure_fiction": (800000001, {"previous": False, "lang": None, "raw": False}),
+    "apocalyptic_shadow": (800000001, {"previous": False, "lang": None, "raw": False}),
+    "anomaly_arbitration": (
+        800000001,
+        {"previous": False, "lang": None, "raw": False, "schedule_type": 1},
+    ),
+}
+
+
+def new_path_error() -> pydantic.ValidationError:
+    """What genshin.py raises for a character of a Path it does not know yet."""
+    payload = copy.deepcopy(HSR_CHARACTERS)
+    payload["avatar_list"][0]["base_type"] = 99
+    try:
+        StarRailDetailCharacterResponse(**payload)
+    except pydantic.ValidationError as error:
+        return error
+    raise AssertionError("genshin.py accepted an unknown Path")
+
+
+def test_hsr_characters_reads_the_detailed_roster_of_the_hsr_uid():
+    fake = FakeHoyolab()
+
+    characters = make_client(fake).hsr_characters()
+
+    assert [character.name for character in characters] == ["Acheron"]
+    assert (characters[0].eidolon, characters[0].light_cone.superimposition) == (2, 1)
+    assert fake.calls == [("characters", 800000001, {"lang": None, "simple": False})]
+
+
+def test_hsr_endgame_reads_every_mode_asked_for_this_season_of_the_hsr_uid():
+    fake = FakeHoyolab()
+
+    results = make_client(fake).hsr_endgame(ENDGAME_MODES)
+
+    assert list(results) == list(ENDGAME_MODES)
+    assert all(isinstance(result, HsrEndgame) for result in results.values())
+    assert (results["memory_of_chaos"].stars, results["apocalyptic_shadow"].stars) == (30, 9)
+    assert {call[0]: call[1:] for call in fake.calls} == ENDGAME_CALLS
+
+
+def test_hsr_endgame_reads_only_the_modes_asked_for():
+    fake = FakeHoyolab()
+
+    results = make_client(fake).hsr_endgame(["pure_fiction"])
+
+    assert list(results) == ["pure_fiction"]
+    assert [call[0] for call in fake.calls] == ["pure_fiction"]
+
+
+def test_at_most_two_endgame_requests_are_in_flight_at_once():
+    fake = FakeHoyolab(delay_s=0.05)
+
+    results = make_client(fake).hsr_endgame(ENDGAME_MODES)
+
+    assert all(isinstance(result, HsrEndgame) for result in results.values())
+    assert fake.most_in_flight == 2
+
+
+def test_one_failing_endgame_mode_does_not_hide_the_others():
+    failures = {
+        "pure_fiction": errors.DataNotPublic({"retcode": 10102}),
+        "apocalyptic_shadow": errors.GenshinException({"retcode": -999}),
+    }
+
+    results = make_client(FakeHoyolab(failures=failures)).hsr_endgame(ENDGAME_MODES)
+
+    assert isinstance(results["memory_of_chaos"], HsrEndgame)
+    assert isinstance(results["anomaly_arbitration"], HsrEndgame)
+    assert results["pure_fiction"].kind == "chronicle_private"
+    assert results["apocalyptic_shadow"].kind == "other"
+
+
+def test_a_failure_of_the_whole_endgame_call_gives_every_mode_that_error():
+    fake = FakeHoyolab(failures={"accounts": errors.InvalidCookies()})
+
+    results = make_client(fake, uids={}).hsr_endgame(ENDGAME_MODES)
+
+    assert list(results) == list(ENDGAME_MODES)
+    assert {result.kind for result in results.values()} == {"cookie"}
+
+
+def test_a_slow_hoyolab_fails_every_endgame_mode_as_network():
+    fake = FakeHoyolab(delay_s=1.0)
+
+    results = make_client(fake, timeout_s=0.05).hsr_endgame(ENDGAME_MODES)
+
+    assert {result.kind for result in results.values()} == {"network"}
+
+
+def test_hsr_calendar_anchors_its_times_on_the_fetch_time():
+    fake = FakeHoyolab()
+
+    calendar = make_client(fake, now=lambda: FETCHED_AT).hsr_calendar()
+
+    assert calendar.version == "3.7"
+    assert calendar.warps[0].starts_at == FETCHED_AT - timedelta(days=1)
+    assert calendar.warps[0].ends_at == FETCHED_AT + timedelta(days=5)
+    assert fake.calls == [("calendar", 800000001, {"lang": None})]
+
+
+def test_the_calendar_fetch_time_is_read_before_the_request():
+    fake = FakeHoyolab()
+
+    def now() -> datetime:
+        fake.calls.append(("now",))
+        return FETCHED_AT
+
+    make_client(fake, now=now).hsr_calendar()
+
+    assert [call[0] for call in fake.calls] == ["now", "calendar"]
+
+
+def test_the_calendar_fetch_time_defaults_to_the_aware_utc_now():
+    # A calendar whose clock agrees with the PC's: only the right anchor gives its end back.
+    api_now = int(datetime.now(UTC).timestamp())
+    payload = copy.deepcopy(HSR_CALENDAR)
+    payload["now"] = str(api_now)
+    payload["avatar_card_pool_list"][0]["time_info"].update(
+        start_ts=str(api_now - 86400), end_ts=str(api_now + 5 * 86400), now=str(api_now)
+    )
+    fake = FakeHoyolab(answers={"calendar": HSREventCalendar(**payload)})
+
+    ends_at = make_client(fake).hsr_calendar().warps[0].ends_at
+
+    assert ends_at.utcoffset() == timedelta(0)
+    assert ends_at == datetime.fromtimestamp(api_now, UTC) + timedelta(days=5)
+
+
+def test_hidden_battle_chronicle_data_is_chronicle_private_and_says_where_the_setting_is():
+    hidden = errors.DataNotPublic({"retcode": 10102})
+    names = ("characters", "calendar", "memory_of_chaos", "hsr_notes")
+    client = make_client(FakeHoyolab(failures=dict.fromkeys(names, hidden)))
+
+    for call in (client.hsr_characters, client.hsr_calendar):
+        with pytest.raises(GachaError) as caught:
+            call()
+        assert (caught.value.kind, caught.value.message) == ("chronicle_private", CHRONICLE_PRIVATE)
+    assert client.hsr_endgame(["memory_of_chaos"])["memory_of_chaos"].kind == "chronicle_private"
+    # The Real-Time Notes keep their own kind: they are switched on elsewhere.
+    assert client.status(["hsr"])["hsr"].kind == "notes_off"
+
+
+def test_hsr_data_without_an_hsr_account_is_an_account_error():
+    fake = FakeHoyolab(accounts=[account("hk4e_global", 800000002, 60)])
+    client = make_client(fake, uids={})
+
+    for call in (client.hsr_characters, client.hsr_calendar):
+        with pytest.raises(GachaError) as caught:
+            call()
+        assert caught.value.kind == "account"
+        assert "HSR" in caught.value.message
+    assert {result.kind for result in client.hsr_endgame(ENDGAME_MODES).values()} == {"account"}
+    assert {call[0] for call in fake.calls} == {"accounts"}
+
+
+def test_without_configured_uids_hsr_data_is_read_for_the_highest_level_hsr_account():
+    fake = FakeHoyolab()
+
+    make_client(fake, uids={}).hsr_characters()
+
+    assert ("characters", 800000001, {"lang": None, "simple": False}) in fake.calls
+
+
+def test_hsr_data_without_a_cookie_says_to_fill_it_in():
+    client = HoyolabClient(None, client_factory=lambda cookie: FakeHoyolab())
+
+    for call in (client.hsr_characters, client.hsr_calendar):
+        with pytest.raises(GachaError) as caught:
+            call()
+        assert caught.value.kind == "no_cookie"
+    assert {result.kind for result in client.hsr_endgame(ENDGAME_MODES).values()} == {"no_cookie"}
+
+
+def test_an_unreachable_hoyolab_is_a_network_error_for_hsr_data():
+    failures = {"characters": aiohttp.ClientConnectionError("down"), "calendar": OSError("down")}
+    client = make_client(FakeHoyolab(failures=failures))
+
+    for call in (client.hsr_characters, client.hsr_calendar):
+        with pytest.raises(GachaError) as caught:
+            call()
+        assert caught.value.kind == "network"
+
+
+def test_hsr_data_that_does_not_parse_is_other():
+    fake = FakeHoyolab(
+        failures={"characters": new_path_error()},
+        answers={"calendar": SimpleNamespace(), "apocalyptic_shadow": SimpleNamespace()},
+    )
+    client = make_client(fake)
+
+    for call in (client.hsr_characters, client.hsr_calendar):
+        with pytest.raises(GachaError) as caught:
+            call()
+        assert caught.value.kind == "other"
+        assert "HSR" in caught.value.message
+    results = client.hsr_endgame(ENDGAME_MODES)
+    assert results["apocalyptic_shadow"].kind == "other"
+    assert isinstance(results["memory_of_chaos"], HsrEndgame)
+
+
+def test_each_hsr_call_is_one_fresh_client_and_never_changes_a_hoyolab_setting():
+    hidden = errors.DataNotPublic({"retcode": 10102})
+    fake = FakeHoyolab(failures={"pure_fiction": hidden})
+    client = make_client(fake)
+
+    client.hsr_characters()
+    client.hsr_endgame(ENDGAME_MODES)
+    client.hsr_calendar()
+
+    assert fake.cookies == [COOKIE] * 3
+    assert ("update_settings",) not in fake.calls
+
+
+def test_hsr_results_errors_and_logs_never_hold_the_cookie_uid_or_nickname(caplog):
+    failures = {
+        "characters": new_path_error(),
+        "memory_of_chaos": errors.GenshinException({"retcode": -999}),
+        "pure_fiction": errors.DataNotPublic({"retcode": 10102}),
+        "apocalyptic_shadow": aiohttp.ClientConnectionError("down"),
+        "calendar": errors.InvalidCookies(),
+    }
+    client = make_client(FakeHoyolab(failures=failures))
+
+    with caplog.at_level(logging.DEBUG):
+        endgame = client.hsr_endgame(ENDGAME_MODES)
+        texts = [repr(endgame)]
+        for call in (client.hsr_characters, client.hsr_calendar):
+            with pytest.raises(GachaError) as caught:
+                call()
+            texts.append(str(caught.value))
+
+    for secret in ("SECRETCOOKIE", "SECRETTOKEN", "800000001", "Master"):
+        assert all(secret not in text for text in texts)
+        assert secret not in caplog.text

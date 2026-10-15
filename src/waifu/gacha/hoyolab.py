@@ -1,10 +1,11 @@
-"""HoYoLAB for the owner's three games through genshin.py: accounts, live notes, check-in.
+"""HoYoLAB for the owner's games through genshin.py: accounts, notes, check-in, HSR data.
 
 genshin.py is async (aiohttp). Each public call here is one `asyncio.run` with a new
 `genshin.Client`, so the voice loop (the brain's tool calls) and the watcher thread
 never share an event loop, a session, or a lock. Failures become `GachaError`s whose
 Indonesian message tells the owner what to do; the cookie never reaches a message or
-a log line. Notes are read with `autoauth=False`: Cyrene never changes HoYoLAB settings.
+a log line. Notes are read with `autoauth=False` and the HSR Battle Chronicle is only
+read: Cyrene never changes HoYoLAB settings.
 """
 
 from __future__ import annotations
@@ -14,10 +15,19 @@ import logging
 import threading
 from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any, Literal, TypeVar
 
 from waifu.config import cookie_names
 from waifu.gacha.games import GAMES, Game
+from waifu.gacha.starrail import (
+    HsrCalendar,
+    HsrCharacter,
+    HsrEndgame,
+    read_calendar,
+    read_character,
+    read_endgame,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +42,7 @@ ErrorKind = Literal[
     "network",
     "authkey",
     "locked",
+    "chronicle_private",
     "other",
 ]
 ClientFactory = Callable[[str], Any]
@@ -40,6 +51,20 @@ ClientFactory = Callable[[str], Any]
 NOTES_OFF_RETCODES = frozenset({10102, 10104})
 GAME_BIZ_PREFIXES = {"hkrpg_": "hsr", "hk4e_": "genshin", "nap_": "zzz"}
 NO_COOKIE = "Cookie HoYoLAB belum diisi. Isi gacha.cookie di config.yaml (lihat README)."
+CHRONICLE_PRIVATE = (
+    "Data HSR ini tidak bisa dibaca karena Battle Chronicle di HoYoLAB tidak publik. "
+    "Pengaturannya ada di HoYoLAB, di Battle Chronicle; Cyrene tidak mengubahnya."
+)
+ENDGAME_REQUESTS_AT_ONCE = 2
+HSR = GAMES["hsr"]
+# Each endgame mode's Battle Chronicle request. Anomaly Arbitration's schedule_type=1 is
+# this season (genshin.py's default 3 returns the last three).
+_ENDGAME_REQUESTS: dict[str, Callable[[Any, int], Awaitable[Any]]] = {
+    "memory_of_chaos": lambda client, uid: client.get_starrail_challenge(uid),
+    "pure_fiction": lambda client, uid: client.get_starrail_pure_fiction(uid),
+    "apocalyptic_shadow": lambda client, uid: client.get_starrail_apc_shadow(uid),
+    "anomaly_arbitration": lambda client, uid: client.get_anomaly_arbitration(uid, schedule_type=1),
+}
 
 
 class GachaError(Exception):
@@ -99,6 +124,10 @@ def _default_client_factory(cookie: str) -> Any:
     return genshin.Client(cookie, lang="en-us")
 
 
+def _utc_now() -> datetime:
+    return datetime.now(UTC)
+
+
 class HoyolabClient:
     def __init__(
         self,
@@ -107,11 +136,13 @@ class HoyolabClient:
         uids: Mapping[str, int] | None = None,
         client_factory: ClientFactory | None = None,
         timeout_s: float = 20.0,
+        now: Callable[[], datetime] = _utc_now,
     ) -> None:
         self._cookie = cookie
         self._uids = dict(uids or {})
         self._client_factory = client_factory or _default_client_factory
         self._timeout_s = timeout_s
+        self._now = now  # the anchor for the HSR calendar's times
         self._uids_lock = threading.Lock()
 
     @property
@@ -169,6 +200,51 @@ class HoyolabClient:
 
         return self._run(fetch, game)
 
+    def hsr_characters(self) -> tuple[HsrCharacter, ...]:
+        """Every owned HSR character in detail, from the HoYoLAB Battle Chronicle."""
+
+        async def characters(client: Any) -> tuple[HsrCharacter, ...]:
+            uid = await self._hsr_uid(client)
+            response = await _chronicle(client.get_starrail_characters(uid))
+            return tuple(read_character(character) for character in response.avatar_list)
+
+        return self._run(characters, HSR)
+
+    def hsr_endgame(self, modes: Iterable[str]) -> dict[str, HsrEndgame | GachaError]:
+        """This season of each endgame mode; a failing mode does not hide the others."""
+        modes = list(modes)
+
+        async def all_modes(client: Any) -> list[HsrEndgame | BaseException]:
+            uid = await self._hsr_uid(client)
+            at_once = asyncio.Semaphore(ENDGAME_REQUESTS_AT_ONCE)
+
+            async def one(mode: str) -> HsrEndgame:
+                async with at_once:
+                    model = await _chronicle(_ENDGAME_REQUESTS[mode](client, uid))
+                return read_endgame(mode, model)
+
+            return await asyncio.gather(*(one(mode) for mode in modes), return_exceptions=True)
+
+        try:
+            results = self._run(all_modes, HSR)
+        except GachaError as error:
+            return dict.fromkeys(modes, error)
+        return {
+            mode: _to_error(result, HSR) if isinstance(result, BaseException) else result
+            for mode, result in zip(modes, results, strict=True)
+        }
+
+    def hsr_calendar(self) -> HsrCalendar:
+        """The HSR event calendar: warps, events, and endgame windows, in absolute times."""
+
+        async def calendar(client: Any) -> HsrCalendar:
+            uid = await self._hsr_uid(client)
+            fetched_at = self._now()
+            model = await _chronicle(client.get_starrail_event_calendar(uid))
+            return read_calendar(model, fetched_at)
+
+        return self._run(calendar, HSR)
+
     def _run(self, work: Callable[[Any], Awaitable[T]], game: Game | None) -> T:
         if self._cookie is None:
             raise GachaError("no_cookie", NO_COOKIE)
@@ -203,6 +279,17 @@ class HoyolabClient:
                 for game, uid in preferred.items():
                     self._uids.setdefault(game, uid)
         return dict(self._uids)
+
+    async def _hsr_uid(self, client: Any) -> int:
+        """The HSR uid, passed to every request.
+
+        genshin.py then never looks one up itself, and it knows the server offset that
+        makes the endgame times aware.
+        """
+        uid = (await self._resolve_uids(client, [HSR.id])).get(HSR.id)
+        if uid is None:
+            raise GachaError("account", f"Akun {HSR.short} tidak ditemukan di HoYoLAB ini.")
+        return uid
 
     async def _status(self, client: Any, game: Game) -> GameStatus:
         uid = self._uids.get(game.id)
@@ -241,6 +328,20 @@ def _hoyolab_game(game: Game) -> Any:
     import genshin
 
     return genshin.Game(game.hoyolab_game)
+
+
+async def _chronicle(request: Awaitable[T]) -> T:
+    """An HSR Battle Chronicle request: data hidden from HoYoLAB is chronicle_private.
+
+    The same retcode means notes_off for the Real-Time Notes, so only these requests
+    turn genshin.py's `DataNotPublic` into this kind.
+    """
+    from genshin import errors
+
+    try:
+        return await request
+    except errors.DataNotPublic:
+        raise GachaError("chronicle_private", CHRONICLE_PRIVATE) from None
 
 
 def _game_of(game_biz: str) -> str | None:
