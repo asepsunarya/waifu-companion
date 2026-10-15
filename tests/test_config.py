@@ -736,3 +736,29 @@ def test_web_search_and_free_offers_load_from_yaml(tmp_path):
 def test_bad_web_search_and_free_offers_settings_are_refused(tmp_path, section, lines):
     with pytest.raises(ConfigError, match=section):
         load_config(write_yaml(tmp_path, f"{section}:\n{lines}"))
+
+
+def test_redeem_codes_are_watched_and_redeemed_only_when_asked_by_default():
+    codes = AppConfig().redeem_codes
+    assert (codes.enabled, codes.poll_hours, codes.auto_redeem, codes.notices) == (
+        True,
+        6,
+        False,
+        True,
+    )
+    assert codes.state_path == Path("data/redeem_codes.json")
+
+
+def test_redeem_codes_settings_load_from_yaml(tmp_path):
+    text = "redeem_codes:\n  poll_hours: 12\n  auto_redeem: true\n"
+    codes = load_config(write_yaml(tmp_path, text)).redeem_codes
+    assert (codes.poll_hours, codes.auto_redeem) == (12, True)
+
+
+@pytest.mark.parametrize(
+    "lines",
+    ["  poll_hours: 0\n", "  poll_hours: 49\n", "  auto_redeem: maybe\n", "  games: [hsr]\n"],
+)
+def test_bad_redeem_codes_settings_are_refused(tmp_path, lines):
+    with pytest.raises(ConfigError, match="redeem_codes"):
+        load_config(write_yaml(tmp_path, "redeem_codes:\n" + lines))

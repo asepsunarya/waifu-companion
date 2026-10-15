@@ -455,6 +455,17 @@ class GachaRemindersConfig(_Strict):
         return _clock_from_yaml(value)
 
 
+class RedeemCodesConfig(_Strict):
+    """New redeem codes for the gacha buddy's games, redeemed on HoYoLAB when Master asks."""
+
+    enabled: bool = True
+    poll_hours: int = Field(default=6, ge=1, le=48)
+    # Redeem new codes without asking first; off by default: it acts on Master's account.
+    auto_redeem: bool = False
+    notices: bool = True
+    state_path: Path = Path("data/redeem_codes.json")
+
+
 class GachaConfig(_Strict):
     """The HoYoverse games companion: status, reminders, check-in, and pull history."""
 
@@ -734,6 +745,7 @@ class AppConfig(_Strict):
     ir_codes_path: Path = Path("data/ir_codes.json")
     avatar: AvatarConfig = Field(default_factory=AvatarConfig)
     gacha: GachaConfig = Field(default_factory=GachaConfig)
+    redeem_codes: RedeemCodesConfig = Field(default_factory=RedeemCodesConfig)
     notify: NotifyConfig = Field(default_factory=NotifyConfig)
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
     pc_health: PcHealthConfig = Field(default_factory=PcHealthConfig)
