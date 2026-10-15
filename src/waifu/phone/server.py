@@ -125,6 +125,11 @@ WAV_TYPE = "audio/wav"
 # closed with unread data is reset, and the reset can throw away the refusal before the
 # client has read it. A larger body is left unread.
 REFUSAL_READ_BYTES = 4096
+# A larger one is drained after the refusal instead, so the client can finish sending and read
+# the refusal whole: at most this much of it, for at most this long.
+DRAIN_MAX_BYTES = 16 * 2**20
+DRAIN_MAX_S = 3.0
+DRAIN_CHUNK_BYTES = 65536
 # A client that stops sending its request, or stops reading the answer, is dropped.
 SOCKET_TIMEOUT_S = 30
 
@@ -391,6 +396,32 @@ class _PhoneRequestHandler(BaseHTTPRequestHandler):
     timeout = SOCKET_TIMEOUT_S
     # Whether this request's body has been read (a refusal then reads nothing more).
     _body_read = False
+    # How much of a refused body, too large to read before the refusal, to drain after it.
+    _drain_bytes = 0
+
+    def finish(self) -> None:
+        """Sends what is left of the answer, then drains a refused body left unread: on Windows
+        a socket closed with unread data is reset, which the client, still sending, would get
+        instead of the refusal."""
+        try:
+            super().finish()
+        finally:
+            if self._drain_bytes:
+                self._drain(self._drain_bytes)
+
+    def _drain(self, limit: int) -> None:
+        """Reads and drops up to `limit` bytes of the request, for at most DRAIN_MAX_S."""
+        deadline = time.monotonic() + DRAIN_MAX_S
+        left = limit
+        try:
+            while left > 0 and (wait := deadline - time.monotonic()) > 0:
+                self.connection.settimeout(wait)
+                chunk = self.connection.recv(min(left, DRAIN_CHUNK_BYTES))
+                if not chunk:
+                    return
+                left -= len(chunk)
+        except OSError:  # a timeout, or the client went away
+            return
 
     def parse_request(self) -> bool:
         """Parses the request and refuses (403) any Host but this server's own names, and any
@@ -712,13 +743,17 @@ class _PhoneRequestHandler(BaseHTTPRequestHandler):
         return fields
 
     def _discard_small_body(self) -> None:
-        """Reads a refused request's unread body when it is at most REFUSAL_READ_BYTES."""
+        """Reads a refused request's unread body when it is at most REFUSAL_READ_BYTES, and
+        marks a larger one to be drained once the refusal has been sent."""
         if self._body_read:
             return
         length = _body_length(self.headers, REFUSAL_READ_BYTES)
         if not isinstance(length, HTTPStatus):  # an IntEnum: test it before int
             self.rfile.read(length)
             self._body_read = True
+        elif length is HTTPStatus.REQUEST_ENTITY_TOO_LARGE:
+            declared = _body_length(self.headers, DRAIN_MAX_BYTES)
+            self._drain_bytes = DRAIN_MAX_BYTES if isinstance(declared, HTTPStatus) else declared
 
     # --- replies ------------------------------------------------------------------------------
 

@@ -32,6 +32,7 @@ import numpy as np
 import pytest
 
 from waifu.config import AvatarConfig, PhoneConfig
+from waifu.phone import server as phone_server
 from waifu.phone.auth import CODE_LIFETIME, PhoneAuth
 from waifu.phone.server import PhoneBackend, PhoneError, PhoneReply, PhoneServer
 
@@ -2096,6 +2097,48 @@ def test_a_long_recording_with_a_real_photo_while_the_camera_is_off_is_refused_u
 
     assert (status, error_of(body)) == (413, TOO_LARGE)
     assert backend.recordings == []
+
+
+def test_a_body_too_large_to_read_first_is_drained_so_the_client_can_finish_sending(
+    serve: Serve, auth: PhoneAuth
+) -> None:
+    # On Windows a socket closed with unread data is reset: the phone, still sending its body,
+    # would lose the connection (and maybe the refusal) instead of reading a clean 413.
+    server = serve()
+    size = 3_000_000  # over the 2 MB a talk may have with the camera off
+    head = post_head(server, "/talk", pair_device(auth), b"Content-Length: %d\r\n" % size)
+    with socket.create_connection(address(server), timeout=CLIENT_TIMEOUT_S) as client:
+        client.sendall(head)
+        reply = client.recv(65536)  # the refusal starts before any of the body was sent
+        sent = 0
+        while sent < size:
+            sent += client.send(bytes(min(65536, size - sent)))
+        client.shutdown(socket.SHUT_WR)
+        while chunk := client.recv(65536):
+            reply += chunk
+
+    status_line, _, body = reply.partition(b"\r\n")
+    assert b" 413 " in status_line
+    assert error_of(body.split(b"\r\n\r\n", 1)[1]) == TOO_LARGE
+
+
+def test_a_refused_body_is_drained_for_a_few_seconds_at_most(
+    serve: Serve, auth: PhoneAuth, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A client that declares a body and never sends it holds the request thread only briefly.
+    monkeypatch.setattr(phone_server, "DRAIN_MAX_S", 0.3)
+    server = serve()
+    head = post_head(server, "/talk", pair_device(auth), b"Content-Length: 3000000\r\n")
+    with socket.create_connection(address(server), timeout=CLIENT_TIMEOUT_S) as client:
+        client.sendall(head)
+        started = time.monotonic()
+        reply = b""
+        while chunk := client.recv(65536):
+            reply += chunk
+        waited = time.monotonic() - started
+
+    assert b" 413 " in reply.split(b"\r\n", 1)[0]
+    assert waited < 3
 
 
 NOT_CAMERA_PHOTOS: dict[str, Callable[[], str]] = {
