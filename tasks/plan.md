@@ -299,6 +299,21 @@ the `Brain` contract stays as it is; the PC webcam and presence detection wait f
 - [x] In a browser at phone size with a stubbed camera: viewfinder, flip, a photo with a chat and with a talk, the thumbnail, the camera off after close/hide/2 minutes (2026-10-14 after both fix rounds, against the real PhoneServer with the camera on and a fake backend: a 1280x720 JPEG reached it with camera:true for a chat and a talk, flip asked for the user camera and ended the old track, close and a hidden page ended the track, a message after close went without photo or camera flag; the 2-minute timer is covered by mock-timer node tests)
 - [ ] On the owner's Android: "ini apa?" with the camera open is answered about what it shows
 
+### Phase 21: HSR data (v1.16, see SPEC → HSR data)
+Decision: three read-only tools in a sibling provider (`HsrTools`) over three new HoyolabClient
+methods, with compact capped JSON for voice and a short in-memory cache; data only, no advice
+code, no reminders or briefing changes, never a HoYoLAB setting changed. The calendar's times are
+anchored on its own `now` to undo genshin.py 1.7.31's relabelled timezone.
+- [ ] Task 81: contract: `gacha/starrail.py` dataclasses, `gacha/hsr_tools.py` static specs and argument checks
+- [ ] Task 82: HoYoLAB side: `hsr_characters`, `hsr_endgame`, `hsr_calendar`, `chronicle_private`, the readers
+- [ ] Task 83: tool results, name matching, size caps, and the cache
+- [ ] Task 84: wiring (`run`/`chat`), `waifu gacha hsr`, persona, README
+
+### Checkpoint: HSR data
+- [ ] Python suite and ruff clean; no test reached HoYoLAB; `update_settings` never called
+- [ ] One real read-only run of `waifu gacha hsr characters|endgame|events` on the owner's account: privacy behaviour, latency, calendar times vs the game
+- [ ] By voice or chat: "Acheron-ku Eidolon berapa?", "Memory of Chaos-ku berapa bintang?", "banner apa sekarang?"
+
 ## Risks and Mitigations
 
 | Risk | Impact | Mitigation |

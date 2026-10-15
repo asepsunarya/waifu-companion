@@ -807,3 +807,35 @@ named `tests/test_<package>_<module>.py`.
 - [x] `check` camera lines; README camera section; `config.example.yaml`
 
 **Dependencies:** 77, 78, 79 · **Files:** `src/waifu/app.py`, `src/waifu/cli.py`, tests, `README.md`, `config.example.yaml` · **Scope:** M
+
+## Task 81: HSR data contract
+
+**Acceptance criteria:**
+- [ ] `gacha/starrail.py`: `ENDGAME_MODES` and the frozen dataclasses per SPEC (no genshin import)
+- [ ] `gacha/hsr_tools.py`: `HsrSource` Protocol, tool names, `HsrTools(source, *, now)`, the complete static strict specs, argument validation, the unknown-name error; spec tests (byte-identical, strict, no live data, description rules)
+
+**Dependencies:** none · **Files:** `src/waifu/gacha/starrail.py`, `src/waifu/gacha/hsr_tools.py`, `tests/test_gacha_hsr_tools.py` · **Scope:** S
+
+## Task 82: HoYoLAB side
+
+**Acceptance criteria:**
+- [ ] `chronicle_private`, the `now` anchor, `hsr_characters`, `hsr_endgame` (per-mode errors, at most 2 requests at once), `hsr_calendar` per SPEC; never `update_settings`, `raw`, or `previous`; no secret or uid in messages or logs
+- [ ] Readers `read_character`, `read_endgame`, `read_calendar` (anchored calendar times) tested with real genshin.py models
+
+**Dependencies:** 81 · **Files:** `src/waifu/gacha/hoyolab.py`, `src/waifu/gacha/starrail.py` (readers), `tests/test_gacha_hoyolab.py`, `tests/test_gacha_starrail.py` · **Scope:** M
+
+## Task 83: Tool results and cache
+
+**Acceptance criteria:**
+- [ ] Roster rows, detail matching (NFKD, casefold, substring, close names), endgame and calendar JSON with local times and hours left, caps and size budgets, partial errors
+- [ ] The TTL cache (successes only, per-mode reuse, lock not held during fetches)
+
+**Dependencies:** 81 · **Files:** `src/waifu/gacha/hsr_tools.py`, `tests/test_gacha_hsr_tools.py` · **Scope:** M
+
+## Task 84: Wiring, CLI, persona, README
+
+**Acceptance criteria:**
+- [ ] `run`/`chat` add `HsrTools` when the gacha buddy is on and `hsr` is in its games; `waifu gacha hsr characters|endgame|events`
+- [ ] `config/persona.md` names the three tools; README section (Indonesian)
+
+**Dependencies:** 81 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py`, `config/persona.md`, `README.md` · **Scope:** M
