@@ -809,6 +809,37 @@ CLI: `run` and `chat` add `CodeTools` when `gacha.enabled` and `redeem_codes.ena
 
 Safety: tests fake the source (injected HTTP client), genshin.py (a fake client recording `redeem_code` calls; it is never called with a real cookie), the waits, the clock, and the notifier; conftest refuses the network; nothing is redeemed by a test.
 
+### to-do list (v1.20)
+
+User stories (one of the owner's wishes in Cyrene's memory: "calendar/tasks"; schedules and reminders exist since v1.7, so this adds the tasks without a set time):
+
+1. "Cyrene, tambah tugas: beli susu", "catat tugas kerjakan laporan, tenggatnya Jumat" → a task on her list, with a due date when one was said (she turns "Jumat" or "besok" into a date: the user turn starts with today's date and weekday).
+2. "Tugasku apa aja?", "ada yang telat nggak?" → the open tasks, overdue first, then by due date, then the rest, briefly.
+3. "Beli susu sudah", "tugas laporan selesai", "hapus tugas X", "ganti tenggat laporan jadi Senin" → done, removed, or changed.
+4. Her morning greeting (v1.12) and "hari ini ada apa?" also mention the tasks due today and the overdue ones.
+5. `waifu todo [add|done|remove|list]` from the terminal.
+
+Non-goals (v1.20): times of day and reminders for tasks (a timed reminder stays a schedule entry; she can make one when asked), recurring tasks, sub-tasks, sharing, syncing with Google Calendar or other services, priorities beyond the order above.
+
+Privacy: the list stays in `data/todo.json`; like memory notes, a task that looks like a secret (`memory.looks_secret`: passwords, PINs, OTPs, tokens, card numbers) is refused.
+
+Config `todo` (committed with its tests before the parallel tasks): `enabled` (true), `path` (`data/todo.json`), `max_tasks` (100, 1–500 open tasks), `max_chars` (200, 20–1000), `keep_done_days` (7, 0–90: done tasks are kept that long for "what did I finish?", then forgotten).
+
+Values (`todo.py` top, committed with the config): `Task(id: str, text: str, due: date | None, created: datetime, done: datetime | None)`; ids are "t1", "t2", ... never reused (like memory notes).
+
+`todo.py` — `TodoStore(path, *, max_tasks, max_chars, keep_done_days, now=<aware local now>)` (the store file rules as `memory.py`: re-read per call, process-wide lock, atomic replace, never created by reading, a corrupt file moved aside): `add(text, due=None) -> Task` (`TodoError` with an Indonesian message when the text is empty, too long, looks like a secret, or the list is full; text whitespace-collapsed), `open_tasks() -> list[Task]` (overdue first, then by due date, then undated by creation), `done_tasks() -> list[Task]` (newest first), `complete(id) -> Task | None`, `reopen(id) -> Task | None`, `remove(id) -> Task | None`, `edit(id, *, text=None, due=<keep>|None) -> Task | None` (a sentinel tells "clear the due date" from "keep it"), `due_or_overdue(today) -> list[Task]`; done tasks older than `keep_done_days` are dropped on write.
+
+`brain/todo_tools.py` — `TodoTools(store, *, now)`, strict static specs (static English descriptions; dates as "YYYY-MM-DD"):
+- `add_task {text: string, due?: string}`, `list_tasks {include_done?: boolean}` → `{"today", "open": [{"id", "text", "due"?, "overdue"?}], "done"?: [{"id", "text", "done"}]}`, `complete_task {id}`, `reopen_task {id}`, `remove_task {id}`, `edit_task {id, text?: string, due?: string | null}` (null clears the due date).
+- Descriptions: add a task only when Master asks to note something to do; a task with a time of day belongs in a schedule reminder instead (say so or make both when asked); pick the task by its text from `list_tasks` when Master names it; confirm briefly; never read every task aloud unless asked: say how many and the most urgent.
+- Results are compact JSON; an unknown id or a `TodoError` is an error result with its Indonesian message; `run` never raises.
+
+Briefing (`briefing.py`): `BriefingTools(..., todo: TodoStore | None = None)`: `daily_briefing` gains `"tasks": {"due_today": [...], "overdue": [...], "open_count": n}` when a store is given (a store failure fills a `tasks_problem` field instead); `BRIEFING_PROMPT` adds the tasks due today and overdue to what she sums up (one more clause, still 2–4 sentences).
+
+CLI: `run` and `chat` add `TodoTools` when `todo.enabled` (both backends) and pass the store to `BriefingTools`; `waifu todo` (= `list`), `waifu todo add <text> [--due YYYY-MM-DD]`, `waifu todo done <id>`, `waifu todo remove <id>`, `waifu todo list --done` (Indonesian output, works whether or not `todo.enabled`); `check` adds `✓ Daftar tugas: N terbuka` or `! Daftar tugas mati`. README (Indonesian): examples, the difference from schedules and reminders, privacy.
+
+Safety: tests use tmp paths and injected clocks; nothing else is touched.
+
 ## Code Style
 
 See `CLAUDE.md` → Code Conventions and Patterns. Dataclasses for value

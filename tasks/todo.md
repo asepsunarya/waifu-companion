@@ -950,3 +950,31 @@ named `tests/test_<package>_<module>.py`.
 - [x] `redeem_codes_list` and `redeem_codes` tools; `CodeWatcher` (announce or auto-redeem, never repeat, keeps reading with notices off, nothing more after `stop()`); recording after redeeming is best effort; `run`/`chat` wiring; `waifu gacha codes [game] [--redeem]`; check line; README; `config.example.yaml`
 
 **Dependencies:** 97, 98 · **Files:** `src/waifu/gacha/code_tools.py`, `src/waifu/gacha/code_watcher.py`, `src/waifu/cli.py`, their tests, `README.md`, `config.example.yaml` · **Scope:** L
+
+## Task 103a: To-do config and value ✅
+
+**Acceptance criteria:**
+- [x] `AppConfig.todo` (`enabled`, `path`, `max_tasks`, `max_chars`, `keep_done_days`) with ranges; the `Task` frozen dataclass in `todo.py`
+
+**Dependencies:** none · **Files:** `src/waifu/config.py`, `tests/test_config.py`, `src/waifu/todo.py` (value only), `tests/test_todo.py` · **Scope:** XS
+
+## Task 103: The task store
+
+**Acceptance criteria:**
+- [ ] `TodoStore` per SPEC (file rules, ids never reused, ordering, edits with the keep/clear due sentinel, secret refusal, limits, done tasks forgotten after `keep_done_days`)
+
+**Dependencies:** 103a · **Files:** `src/waifu/todo.py`, `tests/test_todo.py` · **Scope:** M
+
+## Task 104: Tools and the briefing
+
+**Acceptance criteria:**
+- [ ] The six strict tools per SPEC; `daily_briefing` gains the tasks and `BRIEFING_PROMPT` mentions them
+
+**Dependencies:** 103a · **Files:** `src/waifu/brain/todo_tools.py`, `src/waifu/briefing.py`, `tests/test_todo_tools.py`, `tests/test_briefing.py` · **Scope:** M
+
+## Task 105: Wiring, CLI, README
+
+**Acceptance criteria:**
+- [ ] `run`/`chat` wiring; `waifu todo [add|done|remove|list]`; check line; README; `config.example.yaml`
+
+**Dependencies:** 103, 104 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py`, `README.md`, `config.example.yaml` · **Scope:** S

@@ -372,6 +372,18 @@ cooldown respected.
 - [x] `waifu gacha codes hsr` on the owner's PC lists the codes the API has (2026-10-17: HSR 10, Genshin 10, ZZZ 4 codes; 'Item*count;Item*count' rewards now read as counted items for the spoken notices; nothing redeemed)
 - [ ] The owner redeems once by voice or with `waifu gacha codes hsr --redeem`
 
+### Phase 25: to-do list (v1.20, see SPEC → to-do list)
+Decision: a small local task store beside the schedules (tasks have dates, never times), six
+strict tools, the due and overdue tasks in her morning greeting, and `waifu todo`.
+- [x] Task 103a: `todo` config and the `Task` value
+- [ ] Task 103: `TodoStore`
+- [ ] Task 104: `TodoTools` and the briefing's tasks
+- [ ] Task 105: wiring, `waifu todo`, check, README
+
+### Checkpoint: to-do list
+- [ ] Python suite and ruff clean
+- [ ] By voice or chat: add a task with a due day, list, finish one; the next morning greeting mentions a due task
+
 ## Risks and Mitigations
 
 | Risk | Impact | Mitigation |
