@@ -643,3 +643,38 @@ def test_the_phone_camera_is_on_by_default_and_can_be_turned_off(tmp_path):
 def test_bad_phone_settings_are_refused(tmp_path, lines):
     with pytest.raises(ConfigError, match="phone"):
         load_config(write_yaml(tmp_path, "phone:\n" + lines))
+
+
+def test_pc_health_is_on_with_notices_by_default():
+    pc = AppConfig().pc_health
+    assert (pc.enabled, pc.notices, pc.poll_seconds) == (True, True, 60)
+    assert (pc.disk_warn_gb, pc.gpu_warn_c, pc.gpu_warn_minutes) == (10, 85, 3)
+
+
+def test_pc_health_settings_load_from_yaml(tmp_path):
+    text = (
+        "pc_health:\n  notices: false\n  poll_seconds: 30\n  disk_warn_gb: 25\n"
+        "  gpu_warn_c: 80\n  gpu_warn_minutes: 5\n"
+    )
+    pc = load_config(write_yaml(tmp_path, text)).pc_health
+    assert (pc.enabled, pc.notices, pc.poll_seconds) == (True, False, 30)
+    assert (pc.disk_warn_gb, pc.gpu_warn_c, pc.gpu_warn_minutes) == (25, 80, 5)
+
+
+@pytest.mark.parametrize(
+    "lines",
+    [
+        "  poll_seconds: 14\n",
+        "  poll_seconds: 3601\n",
+        "  disk_warn_gb: 0\n",
+        "  disk_warn_gb: 2001\n",
+        "  gpu_warn_c: 59\n",
+        "  gpu_warn_c: 101\n",
+        "  gpu_warn_minutes: 0\n",
+        "  gpu_warn_minutes: 61\n",
+        "  cpu_warn_c: 90\n",
+    ],
+)
+def test_bad_pc_health_settings_are_refused(tmp_path, lines):
+    with pytest.raises(ConfigError, match="pc_health"):
+        load_config(write_yaml(tmp_path, "pc_health:\n" + lines))

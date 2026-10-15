@@ -585,6 +585,18 @@ class VisionConfig(_Strict):
     max_side: int = Field(default=1280, ge=512, le=1568)
 
 
+class PcHealthConfig(_Strict):
+    """Reading the PC's load, memory, disks, and GPU, and speaking up when it needs care."""
+
+    enabled: bool = True
+    # The proactive part: a nearly full drive, a GPU that stays hot. Off keeps the tool.
+    notices: bool = True
+    poll_seconds: int = Field(default=60, ge=15, le=3600)
+    disk_warn_gb: int = Field(default=10, ge=1, le=2000)
+    gpu_warn_c: int = Field(default=85, ge=60, le=100)
+    gpu_warn_minutes: int = Field(default=3, ge=1, le=60)
+
+
 class MemoryConfig(_Strict):
     """Cyrene's long-term memory: facts about the owner kept between sessions."""
 
@@ -666,6 +678,7 @@ class AppConfig(_Strict):
     gacha: GachaConfig = Field(default_factory=GachaConfig)
     notify: NotifyConfig = Field(default_factory=NotifyConfig)
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
+    pc_health: PcHealthConfig = Field(default_factory=PcHealthConfig)
     vision: VisionConfig = Field(default_factory=VisionConfig)
     briefing: BriefingConfig = Field(default_factory=BriefingConfig)
     usage: UsageConfig = Field(default_factory=UsageConfig)
