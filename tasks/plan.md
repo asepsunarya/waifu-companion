@@ -304,12 +304,12 @@ Decision: keep painting regardless of Chromium's occlusion guess, recover a lost
 crashed GPU/renderer process by reloading the page, restart a crashed Electron, re-place her after
 display changes, and log every such event so the owner's next game session shows the real cause.
 She still hides behind a fullscreen game (the owner's choice).
-- [ ] Task 85: Electron shell and page (occlusion, throttling, reloads, display changes, diagnostics, 30 fps)
-- [ ] Task 86: `avatar/window.py` (piped diagnostics, supervision) and README troubleshooting
+- [x] Task 85: Electron shell and page (occlusion, throttling, reloads, display changes, diagnostics, 30 fps)
+- [x] Task 86: `avatar/window.py` (piped diagnostics, supervision) and README troubleshooting
 
 ### Checkpoint: fullscreen games
-- [ ] Python and JS suites, ruff clean; no test spawned Electron
-- [ ] A lost WebGL context recovers in a browser; Electron's stdout reaches Python (windowless probe)
+- [x] Python and JS suites, ruff clean; no test spawned Electron (2026-10-15: 4005 pytest and 454 node tests on the committed tree plus tasks 85-86 and the review fixes; main.js and preload.js run against a fake `electron` in a VM context)
+- [x] A lost WebGL context recovers in a browser; Electron's stdout reaches Python (windowless probe) (2026-10-15: the real AvatarServer page reloaded and rendered again after WEBGL_lose_context; task 85 also checked the phone page redraw; a windowless Electron 44 app's console.log/console.error reached a Python pipe)
 - [ ] On the owner's PC: a Fullscreen game session; she is back after Alt+Tab or on the other monitor, and the `Cyrene mascot:` lines are recorded
 
 ### Phase 21: HSR data (v1.16, see SPEC → HSR data)
