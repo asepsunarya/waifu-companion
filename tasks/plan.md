@@ -347,13 +347,13 @@ and GamerPower (credited); AI programs from a weekly scan by Claude with web sea
 that has no other tools; new offers announced and their links pushed to the phone. No new
 dependency; nothing is ever claimed or applied for on the owner's behalf.
 - [x] Task 90a: `web_search`, `free_offers`, `usage.web_search_per_1000_usd` config and the offer values
-- [ ] Task 90: web search in the brain (server tool, system note, fallback echo rule, search fees)
-- [ ] Task 91: free games (Epic + GamerPower readers)
-- [ ] Task 92: AI offers scan and the offers store
-- [ ] Task 93: tools, watcher, notifier click links, `waifu offers`, check, README
+- [x] Task 90: web search in the brain (server tool, system note, fallback echo rule, search fees)
+- [x] Task 91: free games (Epic + GamerPower readers)
+- [x] Task 92: AI offers scan and the offers store
+- [x] Task 93: tools, watcher, notifier click links, `waifu offers`, check, README
 
 ### Checkpoint: web search and free offers
-- [ ] Python suite and ruff clean; no test reached Epic, GamerPower, Claude, or ntfy
+- [x] Python suite and ruff clean; no test reached Epic, GamerPower, Claude, or ntfy (2026-10-16: 4885 pytest and 454 node tests on the committed tree plus tasks 90-93 and both review-fix rounds; ruff check and format clean on src, tests, and tools; the full suite run once more with a socket guard outside the repo that refuses and records every DNS lookup or connection beyond loopback: 0 attempts. Games are read through an injected httpx client on httpx's MockTransport, Claude through injected fake clients, ntfy through a fake poster; `test_cli.py` refuses `read_free_games` and a real `anthropic.Anthropic` for every test. `tests/conftest.py` still guards only urllib and aiohttp, not httpx)
 - [ ] `waifu offers games` on the owner's PC matches the Epic store; one real `waifu offers ai --scan` with its cost
 - [ ] By voice or chat: a web question, "ada game gratis apa?", "ada promo AI gratis?"
 
