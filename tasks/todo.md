@@ -856,3 +856,32 @@ named `tests/test_<package>_<module>.py`.
 - [x] README troubleshooting "Cyrene hilang saat main game", including how to bring her back once the automatic recovery gave up
 
 **Dependencies:** none · **Files:** `src/waifu/avatar/window.py`, `tests/test_avatar_window.py`, `README.md` · **Scope:** M
+
+## Task 87a: PC health config and values ✅
+
+**Acceptance criteria:**
+- [x] `AppConfig.pc_health` (`enabled`, `notices`, `poll_seconds`, `disk_warn_gb`, `gpu_warn_c`, `gpu_warn_minutes`) with ranges; `Drive`, `GpuStatus`, `PcSnapshot` frozen dataclasses in `pc_health.py`
+
+**Dependencies:** none · **Files:** `src/waifu/config.py`, `tests/test_config.py`, `src/waifu/pc_health.py` (values only) · **Scope:** XS
+
+## Task 87: PC health readers
+
+**Acceptance criteria:**
+- [ ] `CpuLoad`, `memory()`, `fixed_drives()`, `uptime_s()`, `gpu_status()`, `read_snapshot()` per SPEC through injected collaborators; unreadable parts are None and logged once; no new dependency
+
+**Dependencies:** 87a · **Files:** `src/waifu/pc_health.py`, `tests/test_pc_health.py` · **Scope:** M
+
+## Task 88: The tool and the watcher
+
+**Acceptance criteria:**
+- [ ] `PcTools` (strict static `pc_health {}`, rounded compact JSON, None parts left out)
+- [ ] `PcWatcher` (disk once per drive per day, GPU streak once per hour, announce + notifier, failures logged, prompt stop)
+
+**Dependencies:** 87a · **Files:** `src/waifu/brain/pc_tools.py`, `src/waifu/pc_watch.py`, `tests/test_pc_tools.py`, `tests/test_pc_watch.py` · **Scope:** M
+
+## Task 89: Wiring, `waifu pc`, check, README
+
+**Acceptance criteria:**
+- [ ] `run`/`chat` add the tool when enabled; `run` starts and stops the watcher; `waifu pc`; check lines; README section "Kesehatan PC"; `config.example.yaml`
+
+**Dependencies:** 87, 88 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py`, `README.md`, `config.example.yaml` · **Scope:** M

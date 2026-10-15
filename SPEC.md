@@ -700,6 +700,38 @@ CLI: `run` and `chat` add `HsrTools(gacha.hoyolab)` after `GachaTools` when `gac
 
 Safety: tests fake genshin.py's client with real genshin.py models built from deep-copied sample dicts (its validators change their input), assert that `update_settings` is never called and that the cookie, uid, and nickname appear in no result or log; nothing reaches HoYoLAB.
 
+### PC health (v1.17)
+
+User stories:
+
+1. "Cyrene, PC-ku gimana?", "GPU-ku panas nggak?", "RAM kepake berapa?", "disk C sisa berapa?" → she reads the PC right then: CPU load, RAM, each fixed drive's free space, the NVIDIA GPU's temperature, load, VRAM, and power draw, and how long the PC has been on, and answers in a sentence or two.
+2. While she runs, she speaks up by herself (and pushes the same text to the phone when notifications are on) when a fixed drive has less than `pc_health.disk_warn_gb` free (once per drive per day, local date), or the GPU has stayed at or above `pc_health.gpu_warn_c` for `pc_health.gpu_warn_minutes` (once per hour at most).
+3. `waifu pc` prints the same report.
+
+Non-goals (v1.17): CPU temperature (Windows exposes none without a kernel driver such as LibreHardwareMonitor's), fans, per-process lists (process names would go to the model), ending processes, cleaning disks, overclocking, non-NVIDIA GPU details (the GPU part is then simply absent), history graphs.
+
+Privacy: only numbers, drive letters, and the GPU's model name; no process, file, or user names; nothing is written to disk (the once-per-day/hour notice memory lives in the running process, so a restart may repeat a notice once).
+
+Config `pc_health` (committed with its tests before the parallel tasks): `enabled` (true), `notices` (true: the proactive part; false keeps only the tool and `waifu pc`), `poll_seconds` (60, 15–3600), `disk_warn_gb` (10, 1–2000), `gpu_warn_c` (85, 60–100), `gpu_warn_minutes` (3, 1–60).
+
+`pc_health.py` (no new dependency; Windows calls through `ctypes.WinDLL` with full `argtypes`/`restype`; every collaborator injected; nothing here raises to the caller — a part that cannot be read is None and is logged once at WARNING):
+- Values (frozen dataclasses, committed with the config): `Drive(letter: str, free_gb: float, total_gb: float)`, `GpuStatus(name: str, temp_c: int | None, load_percent: int | None, vram_used_gb: float | None, vram_total_gb: float | None, power_w: float | None)`, `PcSnapshot(cpu_percent: float | None, ram_used_gb: float | None, ram_total_gb: float | None, drives: tuple[Drive, ...], gpu: GpuStatus | None, uptime_s: int | None)`. Gigabytes are GiB (2**30 bytes), as Windows Explorer shows them.
+- `CpuLoad(*, system_times=<kernel32.GetSystemTimes>, sleep=time.sleep)`: `percent()` is the busy share since the previous call ((kernel + user − idle) / (kernel + user) of the deltas; kernel time includes idle), the first call sampling over 0.5 s; never below 0 or above 100.
+- `memory()` via `GlobalMemoryStatusEx` (used = total − available); `fixed_drives()` via `GetLogicalDrives` + `GetDriveTypeW` (DRIVE_FIXED only; removable, network, and optical drives are skipped) + `shutil.disk_usage`; `uptime_s()` via `GetTickCount64`.
+- `gpu_status(*, run=subprocess.run, nvidia_smi=<shutil.which or %SystemRoot%\System32\nvidia-smi.exe>)`: `nvidia-smi --query-gpu=name,temperature.gpu,utilization.gpu,memory.used,memory.total,power.draw --format=csv,noheader,nounits`, timeout 5 s, `CREATE_NO_WINDOW`, the first GPU's line; `[N/A]`/`[Not Supported]` fields are None; no nvidia-smi, a failure, or a timeout is None.
+- `read_snapshot(*, cpu: CpuLoad, memory=..., drives=..., gpu=..., uptime=...) -> PcSnapshot`.
+
+`brain/pc_tools.py` — `PcTools(read: Callable[[], PcSnapshot], *, owner_call)` (`ToolProvider`, a strict tool `pc_health {}`, static English description): `{"cpu_percent", "ram": {"used_gb", "total_gb", "percent"}, "drives": [{"drive": "C:", "free_gb", "total_gb", "free_percent"}], "gpu"?: {"name", "temp_c", "load_percent", "vram_used_gb", "vram_total_gb", "power_w"}, "uptime_hours"}`, numbers rounded (one decimal for GB and watts, whole percents), parts that are None left out. The description: use it when Master asks how the PC is doing, about temperature, load, memory, or disk space; never guess; answer in one or two short sentences with rounded numbers; there is no CPU temperature (say so when asked); never suggest buying hardware; she may suggest closing heavy programs or cleaning the disk.
+
+`pc_watch.py` — `PcWatcher(read, config: PcHealthConfig, *, announce: Callable[[str, str], None] | None, notifier: Notifier | None, owner_call, title="Cyrene", clock=time.monotonic, now=datetime.now, sleep_event=threading.Event)`: `poll_once() -> list[str]` (the notices it gave) and `start()`/`stop()` (a daemon thread polling every `poll_seconds`, stopped promptly by `stop()`):
+- Disk: a fixed drive below `disk_warn_gb` free → `"{owner}, disk C: tinggal 8,4 GB. Mungkin perlu dibersihkan sedikit."` once per drive per local date (the drive going back above the line and dipping again the same day stays quiet).
+- GPU: `temp_c ≥ gpu_warn_c` in every poll for at least `gpu_warn_minutes` (by `clock`; a poll below the line or with no reading restarts the streak) → `"{owner}, GPU-nya sudah {t}°C beberapa menit. Istirahat sebentar atau cek pendinginnya, ya."` at most once per hour.
+- Each notice goes to `announce(text, "khawatir")` (she says it between utterances, as the gacha watcher's) and, when given, to the notifier (push failures logged, never raised); a failing `read` is logged and the thread goes on.
+
+CLI: `run` and `chat` add `PcTools` when `pc_health.enabled` (both brain backends); `run` starts `PcWatcher` after "ready" when `pc_health.enabled` and `pc_health.notices`, stopped on exit. `waifu pc` prints the report (Indonesian, one line per part; `GPU: tidak terbaca (bukan NVIDIA atau nvidia-smi tidak ada)` when absent) and works whether or not `pc_health.enabled`. `check` adds `✓ Kesehatan PC: aktif, GPU <name>` / `! Kesehatan PC: aktif, GPU tidak terbaca` / `! Kesehatan PC mati`. README (Indonesian) section "Kesehatan PC": examples, the notices and their settings, what she cannot read (CPU temperature), privacy.
+
+Safety: tests never call the real Windows functions or nvidia-smi (fakes for every collaborator; the watcher's clock, date, and waits are injected); no audio, no push, no network.
+
 ## Code Style
 
 See `CLAUDE.md` → Code Conventions and Patterns. Dataclasses for value

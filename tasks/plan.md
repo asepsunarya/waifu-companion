@@ -327,6 +327,20 @@ anchored on its own `now` to undo genshin.py 1.7.31's relabelled timezone.
 - [x] One real read-only run of `waifu gacha hsr characters|endgame|events` on the owner's account: privacy behaviour, latency, calendar times vs the game (2026-10-15: no chronicle_private with the owner's settings; the full roster in 3.2 s; endgame ends at 03:00 WIB = the 04:00 server reset; warps end 10:59 WIB = 11:59 server time, so the calendar anchoring holds; HoYoLAB gives warps no name, now left out; genshin.py warns once about an unknown event status 'DoubleRewardActStatusFinish')
 - [ ] By voice or chat: "Acheron-ku Eidolon berapa?", "Memory of Chaos-ku berapa bintang?", "banner apa sekarang?"
 
+### Phase 22: PC health (v1.17, see SPEC → PC health)
+Decision: no new dependency: Windows' own counters through ctypes and nvidia-smi for the GPU; one
+read-only tool, a `waifu pc` report, and a small watcher that speaks up about a nearly full drive
+or a GPU that stays hot. No CPU temperature (Windows has none without a kernel driver).
+- [x] Task 87a: `pc_health` config and the snapshot values
+- [ ] Task 87: `pc_health.py` readers (CPU, RAM, drives, uptime, nvidia-smi)
+- [ ] Task 88: `brain/pc_tools.py` and `pc_watch.py`
+- [ ] Task 89: wiring (`run`/`chat`), `waifu pc`, check, README
+
+### Checkpoint: PC health
+- [ ] Python suite and ruff clean; no test touched the real counters, nvidia-smi, audio, or a push
+- [ ] `waifu pc` on the owner's PC matches Task Manager and nvidia-smi
+- [ ] By voice or chat: "PC-ku gimana?", "GPU-ku panas nggak?"
+
 ## Risks and Mitigations
 
 | Risk | Impact | Mitigation |
