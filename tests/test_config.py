@@ -678,3 +678,61 @@ def test_pc_health_settings_load_from_yaml(tmp_path):
 def test_bad_pc_health_settings_are_refused(tmp_path, lines):
     with pytest.raises(ConfigError, match="pc_health"):
         load_config(write_yaml(tmp_path, "pc_health:\n" + lines))
+
+
+def test_web_search_is_on_for_indonesia_by_default():
+    search = AppConfig().web_search
+    assert (search.enabled, search.max_uses) == (True, 3)
+    assert (search.country, search.timezone, search.city) == ("ID", "Asia/Jakarta", None)
+
+
+def test_free_offers_default_to_games_and_a_weekly_ai_scan():
+    offers = AppConfig().free_offers
+    assert (offers.enabled, offers.games, offers.ai, offers.notices) == (True, True, True, True)
+    assert offers.game_platforms == ["epic", "steam", "gog"]
+    assert (offers.games_poll_hours, offers.ai_scan_days, offers.ai_max_searches) == (6, 7, 6)
+    assert offers.state_path == Path("data/free_offers.json")
+
+
+def test_web_searches_cost_ten_dollars_per_thousand_by_default():
+    assert AppConfig().usage.web_search_per_1000_usd == 10.0
+
+
+def test_web_search_and_free_offers_load_from_yaml(tmp_path):
+    text = (
+        "web_search:\n  max_uses: 5\n  city: Cianjur\n"
+        "free_offers:\n  game_platforms: [epic, itchio]\n  ai_scan_days: 14\n  notices: false\n"
+        "usage:\n  web_search_per_1000_usd: 12.5\n"
+    )
+    config = load_config(write_yaml(tmp_path, text))
+    assert (config.web_search.max_uses, config.web_search.city) == (5, "Cianjur")
+    assert config.free_offers.game_platforms == ["epic", "itchio"]
+    assert (config.free_offers.ai_scan_days, config.free_offers.notices) == (14, False)
+    assert config.usage.web_search_per_1000_usd == 12.5
+
+
+@pytest.mark.parametrize(
+    ("section", "lines"),
+    [
+        ("web_search", "  max_uses: 0\n"),
+        ("web_search", "  max_uses: 11\n"),
+        ("web_search", "  country: id\n"),
+        ("web_search", "  country: IDN\n"),
+        ("web_search", "  timezone: Mars/Olympus\n"),
+        ("web_search", "  city: ''\n"),
+        ("web_search", "  allowed_domains: [example.com]\n"),
+        ("free_offers", "  game_platforms: [epic, xbox]\n"),
+        ("free_offers", "  game_platforms: [epic, epic]\n"),
+        ("free_offers", "  game_platforms: []\n"),
+        ("free_offers", "  games_poll_hours: 0\n"),
+        ("free_offers", "  games_poll_hours: 49\n"),
+        ("free_offers", "  ai_scan_days: 0\n"),
+        ("free_offers", "  ai_scan_days: 31\n"),
+        ("free_offers", "  ai_max_searches: 0\n"),
+        ("free_offers", "  ai_max_searches: 21\n"),
+        ("usage", "  web_search_per_1000_usd: -1\n"),
+    ],
+)
+def test_bad_web_search_and_free_offers_settings_are_refused(tmp_path, section, lines):
+    with pytest.raises(ConfigError, match=section):
+        load_config(write_yaml(tmp_path, f"{section}:\n{lines}"))

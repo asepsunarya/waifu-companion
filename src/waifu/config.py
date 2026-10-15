@@ -37,6 +37,14 @@ TAILSCALE_HOST_PATTERN = re.compile(r"^[a-z0-9-]+(\.[a-z0-9-]+)+\.ts\.net$")
 APP_URL_SCHEMES = ("steam://", "com.epicgames.launcher://")
 APP_FILE_SUFFIXES = (".exe", ".lnk", ".url")
 MAX_APPS = 30
+# The web search's location: an ISO 3166-1 alpha-2 country and an IANA time zone (this Python
+# has no tz database to look names up in, so the form is checked; the API checks the name).
+COUNTRY_CODE_PATTERN = re.compile(r"^[A-Z]{2}$")
+IANA_TIMEZONE_PATTERN = re.compile(
+    r"^(UTC|(Africa|America|Antarctica|Arctic|Asia|Atlantic|Australia|Europe|Indian|Pacific|Etc)"
+    r"(/[A-Za-z0-9_+-]+){1,2})$"
+)
+GamePlatform = Literal["epic", "steam", "gog", "itchio", "pc"]
 
 
 def cookie_names(cookie: str) -> set[str]:
@@ -574,6 +582,56 @@ class UsageConfig(_Strict):
     prices: dict[str, ModelPrices] = Field(default_factory=dict)
     # Whose prices a response from a model missing from the table is estimated with.
     default_model: str = Field(default="claude-opus-5-5", min_length=1)
+    # Claude's server-side web search, billed per search on top of the tokens.
+    web_search_per_1000_usd: float = Field(default=10.0, ge=0)
+
+
+class WebSearchConfig(_Strict):
+    """Claude's server-side web search in her conversation (Claude backend only)."""
+
+    enabled: bool = True
+    max_uses: int = Field(default=3, ge=1, le=10)  # searches per turn
+    country: str = "ID"
+    timezone: str = "Asia/Jakarta"
+    # None: briefing.city.
+    city: str | None = Field(default=None, min_length=1)
+
+    @field_validator("country")
+    @classmethod
+    def _country_is_two_letters(cls, value: str) -> str:
+        if not COUNTRY_CODE_PATTERN.fullmatch(value):
+            raise ValueError("web_search.country must be two uppercase letters, like ID")
+        return value
+
+    @field_validator("timezone")
+    @classmethod
+    def _timezone_is_iana(cls, value: str) -> str:
+        if not IANA_TIMEZONE_PATTERN.fullmatch(value):
+            raise ValueError("web_search.timezone must be an IANA time zone, like Asia/Jakarta")
+        return value
+
+
+class FreeOffersConfig(_Strict):
+    """Free games and AI programs she finds, and the notices about new ones."""
+
+    enabled: bool = True
+    games: bool = True
+    game_platforms: list[GamePlatform] = Field(
+        default_factory=lambda: ["epic", "steam", "gog"], min_length=1
+    )
+    games_poll_hours: int = Field(default=6, ge=1, le=48)
+    ai: bool = True
+    ai_scan_days: int = Field(default=7, ge=1, le=30)
+    ai_max_searches: int = Field(default=6, ge=1, le=20)
+    notices: bool = True
+    state_path: Path = Path("data/free_offers.json")
+
+    @field_validator("game_platforms")
+    @classmethod
+    def _platforms_are_unique(cls, value: list[GamePlatform]) -> list[GamePlatform]:
+        if len(set(value)) != len(value):
+            raise ValueError("free_offers.game_platforms lists a platform twice")
+        return value
 
 
 class VisionConfig(_Strict):
@@ -679,6 +737,8 @@ class AppConfig(_Strict):
     notify: NotifyConfig = Field(default_factory=NotifyConfig)
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
     pc_health: PcHealthConfig = Field(default_factory=PcHealthConfig)
+    web_search: WebSearchConfig = Field(default_factory=WebSearchConfig)
+    free_offers: FreeOffersConfig = Field(default_factory=FreeOffersConfig)
     vision: VisionConfig = Field(default_factory=VisionConfig)
     briefing: BriefingConfig = Field(default_factory=BriefingConfig)
     usage: UsageConfig = Field(default_factory=UsageConfig)
