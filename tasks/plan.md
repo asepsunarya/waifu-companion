@@ -363,13 +363,13 @@ account), polled every few hours; she tells the owner and redeems through HoYoLA
 genshin.py only when asked, unless `auto_redeem` is on; one code at a time with HoYoLAB's
 cooldown respected.
 - [x] Task 97a: `redeem_codes` config and the code values
-- [ ] Task 97: the code source and the code store
-- [ ] Task 98: `HoyolabClient.redeem_codes`
-- [ ] Task 99: tools, watcher, `waifu gacha codes`, check, README
+- [x] Task 97: the code source and the code store
+- [x] Task 98: `HoyolabClient.redeem_codes`
+- [x] Task 99: tools, watcher, `waifu gacha codes`, check, README
 
 ### Checkpoint: redeem codes
-- [ ] Python suite and ruff clean; no test reached the source or HoYoLAB, nothing was redeemed
-- [ ] `waifu gacha codes hsr` on the owner's PC lists the codes the API has
+- [x] Python suite and ruff clean; no test reached the source or HoYoLAB, nothing was redeemed (2026-10-16: 5213 pytest and 454 node tests on the committed tree plus tasks 97-99 and both review-fix rounds; ruff check and format clean on src, tests, and tools; the full suite run once more with a recorder outside the repo for every DNS lookup, socket connection, aiohttp or urllib request beyond loopback and every call to the real `genshin.Client.redeem_code`: the only 7 attempts were `test_safety_guard.py`'s own tests that the guards refuse them, all refused; none to hoyo-codes.seria.moe, none from a v1.19 test, and no real `redeem_code` call. The source is read through an injected httpx client on httpx's MockTransport, genshin.py through fake clients with made-up cookies, the waits, clock, and ntfy through fakes; `test_cli.py` refuses `read_codes` and replaces `CodeWatcher` for every test, and every store lives under tmp_path; `tests/conftest.py` now refuses sockets beyond loopback below every client)
+- [x] `waifu gacha codes hsr` on the owner's PC lists the codes the API has (2026-10-17: HSR 10, Genshin 10, ZZZ 4 codes; 'Item*count;Item*count' rewards now read as counted items for the spoken notices; nothing redeemed)
 - [ ] The owner redeems once by voice or with `waifu gacha codes hsr --redeem`
 
 ## Risks and Mitigations

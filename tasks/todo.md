@@ -930,23 +930,23 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** none · **Files:** `src/waifu/config.py`, `tests/test_config.py`, `src/waifu/gacha/codes.py` (values only), `tests/test_gacha_codes.py` · **Scope:** XS
 
-## Task 97: Code source and store
+## Task 97: Code source and store ✅
 
 **Acceptance criteria:**
-- [ ] `read_codes` per SPEC (game mapping, OK only, format check, per-game failures); `CodeStore` (file rules, new codes, unredeemed, outcomes, announced, forgetting)
+- [x] `read_codes` per SPEC (game mapping, OK only, format check, per-game failures); `CodeStore` (file rules, new codes, unredeemed newest first and only codes the latest read listed or Master named, `add_named`, outcomes, announced, forgetting)
 
 **Dependencies:** 97a · **Files:** `src/waifu/gacha/codes.py`, `src/waifu/gacha/code_store.py`, `tests/test_gacha_codes.py`, `tests/test_gacha_code_store.py` · **Scope:** M
 
-## Task 98: Redemption on HoYoLAB
+## Task 98: Redemption on HoYoLAB ✅
 
 **Acceptance criteria:**
-- [ ] `HoyolabClient.redeem_codes` (one at a time, 6 s apart, cooldown retry, at most 10, per-attempt timeouts, error → outcome mapping, cookie stops the rest, no secrets in logs)
+- [x] `HoyolabClient.redeem_codes` (one at a time, 6 s apart, cooldown retry, at most 10, per-attempt timeouts, error → outcome mapping, a refused cookie, unreachable HoYoLAB, rate-limiting, or a captcha stops the rest, `on_result`, no secrets in logs)
 
 **Dependencies:** 97a · **Files:** `src/waifu/gacha/hoyolab.py`, `tests/test_gacha_hoyolab.py` · **Scope:** M
 
-## Task 99: Tools, watcher, CLI, README
+## Task 99: Tools, watcher, CLI, README ✅
 
 **Acceptance criteria:**
-- [ ] `redeem_codes_list` and `redeem_codes` tools; `CodeWatcher` (announce or auto-redeem, never repeat); `run`/`chat` wiring; `waifu gacha codes [game] [--redeem]`; check line; README; `config.example.yaml`
+- [x] `redeem_codes_list` and `redeem_codes` tools; `CodeWatcher` (announce or auto-redeem, never repeat, keeps reading with notices off, nothing more after `stop()`); recording after redeeming is best effort; `run`/`chat` wiring; `waifu gacha codes [game] [--redeem]`; check line; README; `config.example.yaml`
 
 **Dependencies:** 97, 98 · **Files:** `src/waifu/gacha/code_tools.py`, `src/waifu/gacha/code_watcher.py`, `src/waifu/cli.py`, their tests, `README.md`, `config.example.yaml` · **Scope:** L
