@@ -2,12 +2,21 @@
 
 // Gives Cyrene's mascot page window.cyrene and nothing else: never ipcRenderer
 // itself. It runs sandboxed, where require() only knows 'electron', 'events',
-// 'timers' and 'url', so lib.js cannot be loaded here and the drag limit below
-// repeats lib.isDragDelta (main.js checks every message again).
+// 'timers' and 'url', so lib.js cannot be loaded here: the drag limit and the
+// diagnostic kinds below repeat lib.isDragDelta and lib.DIAGNOSTIC_KINDS
+// (main.js checks every message again).
 
 const { contextBridge, ipcRenderer } = require('electron');
 
 const MAX_DRAG_STEP = 2000;
+const DIAGNOSTIC_KINDS = new Set([
+  'page-visible',
+  'page-hidden',
+  'webgl-context-lost',
+  'webgl-context-restored',
+  'webgl-unavailable',
+  'page-reload',
+]);
 
 // main.js sends the cursor only when it moves: remember the last position so a
 // page that subscribes later can still look at a cursor that is standing still.
@@ -57,6 +66,18 @@ contextBridge.exposeInMainWorld('cyrene', {
   setClickThrough(flag) {
     if (typeof flag === 'boolean') {
       ipcRenderer.send('click-through', flag);
+    }
+  },
+
+  /**
+   * Tells Cyrene's log what the page went through: 'page-visible', 'page-hidden',
+   * 'webgl-context-lost', 'webgl-context-restored', 'webgl-unavailable' (her
+   * renderer got no WebGL; main.js then reloads the page or ends the mascot) or
+   * 'page-reload'. Any other kind is ignored.
+   */
+  diagnostic(kind) {
+    if (DIAGNOSTIC_KINDS.has(kind)) {
+      ipcRenderer.send('diagnostic', kind);
     }
   },
 });

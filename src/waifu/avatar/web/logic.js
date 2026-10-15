@@ -187,6 +187,25 @@ export function emotionEndAfterState(emotionUntilS, speech, state, nowS, tailS) 
   return speechEmotion && state !== "speaking" ? Math.min(emotionUntilS, nowS + tailS) : emotionUntilS;
 }
 
+// The mascot keeps drawing while a fullscreen game covers her (SPEC v1.15.1), so she draws no faster than her Live2D
+// motions are made: 30 frames a second.
+const MASCOT_MAX_FPS = 30;
+// A frame this much early still counts as due: a 60 Hz display's every second frame comes 33.3 ms apart, give or take.
+const FRAME_TOLERANCE_S = 0.002;
+
+/** The most frames a second her renderer draws on a page shown in `mode` (?mode=): 30 for the mascot, else 0. */
+export function maxFpsFor(mode) {
+  return mode === "mascot" ? MASCOT_MAX_FPS : 0;
+}
+
+/**
+ * Whether a render loop limited to `maxFps` frames a second (0: no limit) draws the frame at `nowS`, its last frame
+ * having been drawn at `lastS` (-Infinity before the first).
+ */
+export function frameDue(lastS, nowS, maxFps) {
+  return !(maxFps > 0) || nowS - lastS >= 1 / maxFps - FRAME_TOLERANCE_S;
+}
+
 /** The avatar window's title: never just her name, which is the title of Cyrene's console. */
 export function avatarTitle(name) {
   return `Avatar ${name}`;

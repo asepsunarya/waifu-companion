@@ -1,13 +1,15 @@
 // Renders Cyrene's Live2D model (PixiJS 8 + untitled-pixi-live2d-engine, Cubism 5) on the avatar page.
 //
 // Renderer interface, the same for avatar.js (VRM). Each renderer module exports `createRenderer(config)`, where
-// `config` is the page's /config.json; it resolves to the renderer below once the model is on screen, and
-// rejects when the model cannot be shown (after putting an Indonesian message on the page). index.html imports
-// the module of `config.engine`, then calls `startInteractions({renderer, config})` from interaction.js (when
-// that module loads), then opens /events: state, speak and emotion events go to the renderer, and every event
-// also goes to the `handleEvent(event)` of the object startInteractions returned (speak events count as
-// activity). Points are CSS pixels relative to the canvas's top-left corner (pointer clientX/clientY, or the
-// mascot's cursor feed, which may lie outside the window).
+// `config` is the page's /config.json plus `maxFps`, the most frames a second it draws (index.html sets 30 for the
+// mascot with logic.maxFpsFor; 0 or none: no limit). It draws on the page's #stage canvas and resolves to the
+// renderer below once the model is on screen, and rejects when the model cannot be shown (after putting an
+// Indonesian message on the page; with recovery.WebGLUnavailableError when the window gave it no WebGL, which the
+// mascot reports, recovery.reportRendererFailure). index.html imports the module of `config.engine`, then calls
+// `startInteractions({renderer, config})` from interaction.js (when that module loads), then opens /events: state,
+// speak and emotion events go to the renderer, and every event also goes to the `handleEvent(event)` of the object
+// startInteractions returned (speak events count as activity). Points are CSS pixels relative to the canvas's
+// top-left corner (pointer clientX/clientY, or the mascot's cursor feed, which may lie outside the window).
 //   setEmotion(name, holdS = 4)  one of the six emotions, back to neutral after holdS seconds
 //   speak(event)                 a speak event: the mouth follows its visemes from when it arrived (minus its
 //                                `elapsed`), and its emotion shows until the speech ends plus a short tail
@@ -20,6 +22,9 @@
 //   hitTest(x, y)                "head" | "body" | null
 //   isOpaqueAt(x, y)             whether a visible pixel of her is there (the mascot lets clicks through elsewhere)
 //   canvas                       the <canvas> she is drawn on
+//   destroy()                    stops drawing and lets go of the model and the GPU; createRenderer can then draw
+//                                her again on a fresh #stage canvas (the phone page does after a lost WebGL context,
+//                                recovery.keepRenderer)
 //
 // The engine updates the model while rendering (CubismInternalModel.update): motions, then saveParameters(),
 // then eye blink, focus, breath, physics, and the "beforeModelUpdate" event, then the Core's update and
@@ -45,6 +50,7 @@ import {
   speechAfterState,
   speechStartS,
 } from "./logic.js";
+import { WebGLUnavailableError } from "./recovery.js";
 
 const MAX_RESOLUTION = 2;
 const MAX_FRAME_DT_S = 0.1;
@@ -290,8 +296,10 @@ export async function createRenderer(config) {
     app = await createApplication(canvas);
   } catch (error) {
     showMessage("WebGL tidak tersedia di jendela ini, jadi avatar tidak bisa ditampilkan.");
-    throw error;
+    throw new WebGLUnavailableError("PixiJS could not get a WebGL context", { cause: error });
   }
+  // The engine updates the model on this ticker too, so the cap holds for her motions as well as the drawing.
+  if (config.maxFps > 0) app.ticker.maxFPS = config.maxFps;
 
   let model;
   try {
@@ -553,5 +561,12 @@ export async function createRenderer(config) {
     },
     hitTest,
     isOpaqueAt,
+    destroy() {
+      window.removeEventListener("resize", frame);
+      // The model first: it leaves the app's ticker, which the app destroys before its stage. Its textures stay in
+      // PixiJS's asset cache for the next model; the page replaces the canvas.
+      model.destroy();
+      app.destroy();
+    },
   };
 }

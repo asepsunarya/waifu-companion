@@ -12,6 +12,24 @@ const HEIGHT = { fallback: 640, min: 160, max: 2000 };
 const IPV4_LOOPBACK = /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/;
 // A single drag step larger than this is not a drag (preload.js checks the same limit).
 const MAX_DRAG_STEP = 2000;
+// How much of the window, on each axis, a drag keeps inside a work area (clampToWorkArea,
+// isOffScreen).
+const KEEP_INSIDE_PX = 48;
+// After her renderer or the GPU process is gone, main.js reloads her page at most this often.
+const RELOAD_LIMIT = 5;
+const RELOAD_WINDOW_MS = 10 * 60 * 1000;
+// What the page may report through the preload's diagnostic(kind) (preload.js repeats the
+// list): nothing the page writes itself ever reaches Cyrene's log.
+const DIAGNOSTIC_KINDS = Object.freeze([
+  'page-visible',
+  'page-hidden',
+  'webgl-context-lost',
+  'webgl-context-restored',
+  'webgl-unavailable',
+  'page-reload',
+]);
+// Cyrene logs the mascot's output lines that start with this (waifu.avatar.window).
+const DIAGNOSTIC_PREFIX = 'Cyrene mascot:';
 
 /**
  * Read the mascot options from process.argv: `--url=` (required), `--width=`,
@@ -100,7 +118,7 @@ function cursorReport(feed, cursor, showing) {
  * or the work area is smaller): a dragged mascot can never be lost off-screen.
  * The size never changes; the position is in whole pixels.
  */
-function clampToWorkArea(bounds, workArea, keep = 48) {
+function clampToWorkArea(bounds, workArea, keep = KEEP_INSIDE_PX) {
   return {
     x: keepInside(bounds.x, bounds.width, workArea.x, workArea.width, keep),
     y: keepInside(bounds.y, bounds.height, workArea.y, workArea.height, keep),
@@ -142,6 +160,116 @@ function isDragDelta(dx, dy) {
   );
 }
 
+/**
+ * Whether no work area in `workAreas` holds the window at `bounds` the way a drag keeps it
+ * (clampToWorkArea): 48 px of it on each axis inside, all of it when it or the work area is
+ * smaller. A fullscreen game switching its monitor's resolution, or a display unplugged, can
+ * leave her like that.
+ */
+function isOffScreen(bounds, workAreas) {
+  const holds = (area) =>
+    overlap(bounds.x, bounds.width, area.x, area.width) >=
+      Math.min(KEEP_INSIDE_PX, bounds.width, area.width) &&
+    overlap(bounds.y, bounds.height, area.y, area.height) >=
+      Math.min(KEEP_INSIDE_PX, bounds.height, area.height);
+  return !workAreas.some(holds);
+}
+
+function overlap(start, size, areaStart, areaSize) {
+  return Math.min(start + size, areaStart + areaSize) - Math.max(start, areaStart);
+}
+
+/**
+ * Where the mascot at `bounds` goes once the displays changed, given `workAreas` (every display's)
+ * and `placed`, what the last call remembered, or null. Her home is her own `size`
+ * ({width, height}) in `corner` of `primaryWorkArea`, where she started (cornerPosition).
+ * - While she still stands where she was put (`placed.at`: nobody moved her since) and the spot
+ *   she was taken from (`placed.from`) is on a display again (isOffScreen), she goes back there:
+ *   a fullscreen game gave her display its resolution back, or a sleeping monitor woke up.
+ * - While she stands where she was put and that spot is still off-screen, she stays at home,
+ *   which follows the primary work area.
+ * - Otherwise she stays where she is while a display shows her, else she goes home and the spot
+ *   she was taken from is remembered.
+ * Returns {bounds, placed}: her new bounds, or null to leave her where she is, and what to pass
+ * as `placed` next time ({from, at} or null).
+ */
+function placementAfterDisplayChange(
+  bounds,
+  workAreas,
+  primaryWorkArea,
+  size,
+  corner,
+  placed = null,
+) {
+  const { x, y } = cornerPosition(primaryWorkArea, size.width, size.height, corner);
+  const home = { x, y, width: size.width, height: size.height };
+  if (placed !== null && samePlace(bounds, placed.at)) {
+    if (!isOffScreen(placed.from, workAreas)) {
+      return { bounds: placed.from, placed: null };
+    }
+    if (samePlace(bounds, home)) {
+      return { bounds: null, placed };
+    }
+    return { bounds: home, placed: { from: placed.from, at: home } };
+  }
+  if (!isOffScreen(bounds, workAreas)) {
+    return { bounds: null, placed: null };
+  }
+  return { bounds: home, placed: { from: { ...bounds, ...size }, at: home } };
+}
+
+function samePlace(bounds, other) {
+  return bounds.x === other.x && bounds.y === other.y;
+}
+
+/**
+ * Whether `status`, the WebGL status of Electron's app.getGPUFeatureStatus() (chrome://gpu), says
+ * pages can have WebGL: 'enabled' or one of its variants ('enabled_on', 'enabled_readback',
+ * 'enabled_force', 'enabled_force_on'). 'disabled_*' and 'unavailable_*' (say, after Chromium gave
+ * up on the GPU when its process crashed too often) mean no page of this Electron gets it again.
+ */
+function isWebglEnabled(status) {
+  return typeof status === 'string' && status.startsWith('enabled');
+}
+
+/**
+ * Whether the mascot may reload her page at `now` (ms on a monotonic clock) after her renderer or
+ * the GPU process was gone, given `history`, the times of the reloads before it: at most 5 in any
+ * 10 minutes, so a page that crashes on every load is not reloaded forever. Returns
+ * {allowed, history}: the answer and the history to keep, the reloads still inside those 10
+ * minutes plus `now` when it is allowed.
+ */
+function reloadAllowed(history, now) {
+  const recent = history.filter((time) => now - time < RELOAD_WINDOW_MS);
+  const allowed = recent.length < RELOAD_LIMIT;
+  return { allowed, history: allowed ? [...recent, now] : recent };
+}
+
+/** Whether `kind` is one the page may report through the preload's diagnostic(kind). */
+function isDiagnosticKind(kind) {
+  return DIAGNOSTIC_KINDS.includes(kind);
+}
+
+/** A line for Cyrene's log, which reads the mascot's stdout: `Cyrene mascot: <event> <details>`. */
+function diagnosticLine(event, details = '') {
+  return details ? `${DIAGNOSTIC_PREFIX} ${event} ${details}` : `${DIAGNOSTIC_PREFIX} ${event}`;
+}
+
+/** The details of a process that is gone (Electron's render-process-gone / child-process-gone). */
+function goneDetails({ reason, exitCode }) {
+  return `reason=${reason} exit-code=${exitCode}`;
+}
+
+/** A display (Electron's Display) for the log: its id, bounds, work area and scale factor. */
+function describeDisplay({ id, bounds, workArea, scaleFactor }) {
+  const area = rectangle(workArea);
+  return `id=${id} bounds=${rectangle(bounds)} work-area=${area} scale=${scaleFactor}`;
+}
+
+function rectangle({ x, y, width, height }) {
+  return `${x},${y} ${width}x${height}`;
+}
+
 function loopbackUrl(text) {
   if (!text) {
     throw new Error('--url=http://127.0.0.1:<port>/ is required');
@@ -168,12 +296,21 @@ function clampedInt(text, { fallback, min, max }) {
 }
 
 module.exports = {
+  DIAGNOSTIC_KINDS,
   NEW_CURSOR_FEED,
   clampToWorkArea,
   cornerPosition,
   cursorReport,
+  describeDisplay,
+  diagnosticLine,
   dragStep,
+  goneDetails,
+  isDiagnosticKind,
   isDragDelta,
+  isOffScreen,
+  isWebglEnabled,
   parseArgs,
+  placementAfterDisplayChange,
   relativeCursor,
+  reloadAllowed,
 };

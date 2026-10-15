@@ -326,7 +326,8 @@ function loadClassicScript(url) {
 
 async function loadLive2dRenderer(coreUrl) {
   try {
-    await loadClassicScript(coreUrl);
+    // Her renderer drawn again after a lost WebGL context (keepDrawing) keeps the Core the engine already runs on.
+    if (!window.Live2DCubismCore) await loadClassicScript(coreUrl);
   } catch (error) {
     throw new CoreMissingError("The Cubism Core could not be loaded", { cause: error });
   }
@@ -371,6 +372,29 @@ async function boot() {
   }
   renderer = await startRenderer(config);
   renderer?.setState(state);
+  if (renderer !== null) keepDrawing(config);
+}
+
+/**
+ * After a lost WebGL context (Android Chrome drops it for a page in the background, a GPU reset drops any), draws her
+ * again on a fresh canvas instead of reloading the page, so the chat stays (recovery.keepRenderer). recovery.js comes
+ * from the PC with the renderers: the service worker keeps only the page's own files, which never import it.
+ */
+async function keepDrawing(config) {
+  let recovery;
+  try {
+    recovery = await import("/recovery.js");
+  } catch (error) {
+    console.warn("Her avatar cannot be drawn again after a lost WebGL context", error);
+    return;
+  }
+  recovery.keepRenderer(renderer, {
+    start: () => startRenderer(config),
+    onRenderer(next) {
+      renderer = next;
+      renderer?.setState(state);
+    },
+  });
 }
 
 // --- Her voice --------------------------------------------------------------------------------------

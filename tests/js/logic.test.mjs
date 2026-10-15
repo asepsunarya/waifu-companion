@@ -15,6 +15,7 @@ import {
   cursorLook,
   emotionEndAfterState,
   emotionTargets,
+  frameDue,
   framingFor,
   idlePhase,
   idleSway,
@@ -25,6 +26,7 @@ import {
   live2dPlacement,
   live2dRegionAt,
   mapToRange,
+  maxFpsFor,
   nextBlinkDelay,
   sampleVisemes,
   speechAfterState,
@@ -1239,5 +1241,54 @@ describe("adaptCubismCore", () => {
       const core = adaptCubismCore(core6({ blendModes: [NORMAL, mode, NORMAL] }));
       assert.throws(() => core.Model.fromMoc("moc"), /blend modes/);
     }
+  });
+});
+
+describe("maxFpsFor", () => {
+  it("caps the mascot at 30 frames a second, the rate Live2D motions are made at", () => {
+    assert.equal(maxFpsFor("mascot"), 30);
+  });
+
+  it("leaves the app window and the phone page unlimited", () => {
+    for (const mode of ["app", undefined, null, "", "MASCOT"]) {
+      assert.equal(maxFpsFor(mode), 0, String(mode));
+    }
+  });
+});
+
+describe("frameDue", () => {
+  /** How many of the frames of one second on a `hz` display a render loop capped at `maxFps` draws. */
+  function drawnInASecond(hz, maxFps) {
+    let lastS = -Infinity;
+    let drawn = 0;
+    for (let frame = 0; frame < hz; frame++) {
+      if (frameDue(lastS, frame / hz, maxFps)) {
+        lastS = frame / hz;
+        drawn += 1;
+      }
+    }
+    return drawn;
+  }
+
+  it("draws every frame without a cap", () => {
+    assert.equal(frameDue(1, 1.001, 0), true);
+    assert.equal(drawnInASecond(144, 0), 144);
+  });
+
+  it("draws every other frame of a 60 Hz display at 30 fps, despite a little jitter", () => {
+    assert.equal(drawnInASecond(60, 30), 30);
+    assert.equal(frameDue(0, 0.0325, 30), true);
+    assert.equal(frameDue(0, 0.0167, 30), false);
+  });
+
+  it("never draws more than 30 frames a second on a faster display", () => {
+    for (const hz of [75, 120, 144, 165, 240]) {
+      const drawn = drawnInASecond(hz, 30);
+      assert.ok(drawn <= 30 && drawn >= 24, `${hz} Hz: ${drawn} frames`);
+    }
+  });
+
+  it("draws the first frame", () => {
+    assert.equal(frameDue(-Infinity, 0, 30), true);
   });
 });

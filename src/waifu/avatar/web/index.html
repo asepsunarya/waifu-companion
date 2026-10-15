@@ -190,10 +190,20 @@
       (served by Cyrene from avatar.live2d_core, never part of this folder) has to be loaded as a classic script
       before the engine. The renderer modules share one interface (see the top of live2d.js); interaction.js
       adds the mouse. The event stream opens once the model is on screen (or has failed), so a viewer that
-      subscribed can show the first words.
+      subscribed can show the first words. A lost WebGL context (a fullscreen game's display-mode switch, a GPU
+      reset) reloads the page once it is restored or after 3 s (recovery.js): a fresh renderer, and the stream
+      reconnects by itself. The mascot reports that and every visibility change to Cyrene's log, and a renderer
+      that got no WebGL at all, which its main process answers with a reload or a fresh mascot.
     -->
     <script id="avatar-script" type="module">
-      import { avatarTitle } from "./logic.js";
+      import { avatarTitle, maxFpsFor } from "./logic.js";
+      import {
+        DIAGNOSTICS,
+        reportDiagnostic,
+        reportRendererFailure,
+        watchContextLoss,
+        watchVisibility,
+      } from "./recovery.js";
 
       const CONFIG_URL = "/config.json";
       const EVENTS_URL = "/events";
@@ -267,10 +277,11 @@
           return null;
         }
         try {
-          return await module.createRenderer(config);
+          return await module.createRenderer({ ...config, maxFps: maxFpsFor(document.documentElement.dataset.mode) });
         } catch (error) {
-          // The renderer has already put the reason on the page.
+          // The renderer has already put the reason on the page; the mascot acts on a missing WebGL.
           console.error("The avatar could not be shown", error);
+          reportRendererFailure(error);
           return null;
         }
       }
@@ -331,7 +342,14 @@
         };
       }
 
+      function reloadPage() {
+        reportDiagnostic(DIAGNOSTICS.reload);
+        location.reload();
+      }
+
       async function boot() {
+        watchVisibility(document);
+        watchContextLoss(document.getElementById("stage"), { recover: reloadPage });
         let config;
         try {
           config = await fetchConfig();

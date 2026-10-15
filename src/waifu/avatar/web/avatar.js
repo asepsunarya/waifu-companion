@@ -1,5 +1,6 @@
 // Renders Cyrene's VRM avatar (three.js + three-vrm) behind the renderer interface described in live2d.js:
-// index.html imports this module for `engine: vrm`, awaits createRenderer(config), and feeds it the events.
+// index.html imports this module for `engine: vrm`, awaits createRenderer(config), and feeds it the events. The module
+// holds one renderer at a time: createRenderer may run again only after destroy().
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { VRMLoaderPlugin, VRMUtils } from "@pixiv/three-vrm";
@@ -11,6 +12,7 @@ import {
   cursorLook,
   emotionEndAfterState,
   emotionTargets,
+  frameDue,
   framingFor,
   idleSway,
   listeningEndS,
@@ -19,6 +21,7 @@ import {
   speechAfterState,
   speechStartS,
 } from "./logic.js";
+import { WebGLUnavailableError } from "./recovery.js";
 
 const MODEL_URL = "/model.vrm";
 const MAX_PIXEL_RATIO = 2;
@@ -85,7 +88,6 @@ const YAWN_EYES = 0.5;
 const YAWN_HEAD_TILT = 8 * DEG;
 const YAWN_HEAD_PITCH = 6 * DEG;
 
-const canvas = document.getElementById("stage");
 const messageElement = document.getElementById("message");
 
 const nowS = () => performance.now() / 1000;
@@ -134,7 +136,10 @@ function createWebGLRenderer() {
   return webgl;
 }
 
+// The page's #stage canvas, the renderer drawing on it, and the most frames a second it draws (0: no limit).
+let canvas;
 let webgl;
+let maxFps = 0;
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(30, 1, 0.1, 20);
@@ -404,6 +409,7 @@ let lastFrameS = nowS();
 
 function frame() {
   const timeS = nowS();
+  if (!frameDue(lastFrameS, timeS, maxFps)) return;
   const dt = Math.min(timeS - lastFrameS, MAX_FRAME_DT_S);
   lastFrameS = timeS;
 
@@ -430,7 +436,9 @@ function showEmotion(emotion, holdS) {
 }
 
 const vrmRenderer = {
-  canvas,
+  get canvas() {
+    return canvas;
+  },
   setEmotion(name, holdS = DEFAULT_EMOTION_HOLD_S) {
     showEmotion(name, holdS ?? DEFAULT_EMOTION_HOLD_S);
   },
@@ -472,19 +480,33 @@ const vrmRenderer = {
   },
   hitTest,
   isOpaqueAt,
+  destroy() {
+    webgl.setAnimationLoop(null);
+    window.removeEventListener("resize", resize);
+    if (avatar.vrm) {
+      scene.remove(avatar.vrm.scene);
+      VRMUtils.deepDispose(avatar.vrm.scene);
+      avatar.vrm = null;
+    }
+    pickTarget.dispose();
+    webgl.dispose();
+  },
 };
 
 /**
  * Starts rendering on the page's canvas and resolves to the renderer once `config.model` (a VRM) is on
- * screen; rejects after showing an Indonesian message when WebGL or the model is not available.
+ * screen; rejects after showing an Indonesian message when WebGL (WebGLUnavailableError) or the model is not
+ * available.
  */
 export async function createRenderer(config) {
+  canvas = document.getElementById("stage");
+  maxFps = config.maxFps > 0 ? config.maxFps : 0;
   try {
     webgl = createWebGLRenderer();
   } catch (error) {
     console.error("WebGL renderer could not be created", error);
     showMessage("WebGL tidak tersedia di jendela ini, jadi avatar tidak bisa ditampilkan.");
-    throw error;
+    throw new WebGLUnavailableError("three.js could not get a WebGL context", { cause: error });
   }
   avatar.framing = config.framing ?? avatar.framing;
   resize();
