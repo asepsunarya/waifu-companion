@@ -28,14 +28,16 @@ from collections import deque
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import AbstractContextManager, ExitStack, contextmanager, nullcontext
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from importlib import import_module
 from importlib.util import find_spec
 from itertools import count
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from time import sleep
+from typing import TYPE_CHECKING
 
+import httpx
 import numpy as np
 from pydantic import ValidationError
 
@@ -53,6 +55,7 @@ from waifu.brain.attachments import CameraTurn, TurnImages
 from waifu.brain.base import Brain, ToolCallRecord
 from waifu.brain.factory import build_brain
 from waifu.brain.memory_tools import MemoryTools
+from waifu.brain.offers_tools import OffersTools
 from waifu.brain.pc_tools import PcTools
 from waifu.brain.persona import WEEKDAYS_ID
 from waifu.brain.schedule_tools import ScheduleTools
@@ -103,6 +106,12 @@ from waifu.gacha.watcher import GachaWatcher
 from waifu.gate import WakeGate
 from waifu.memory import MemoryStore, memory_prompt_section
 from waifu.notify import Notifier, build_notifier
+from waifu.offers.checks import official_link
+from waifu.offers.errors import OffersError
+from waifu.offers.games import GAMERPOWER, GAMERPOWER_PLATFORMS, read_free_games
+from waifu.offers.store import OffersStore
+from waifu.offers.values import AiOffer, GameGiveaway
+from waifu.offers.watcher import OffersWatcher, ReadGames, ScanAiOffers
 from waifu.pc_health import CpuLoad, Drive, GpuStatus, PcSnapshot, gpu_status, read_snapshot
 from waifu.pc_watch import PcWatcher
 from waifu.phone.auth import CODE_LIFETIME, MAX_TRIES, PhoneAuth
@@ -119,7 +128,7 @@ from waifu.schedule import (
 from waifu.scheduler import MONTHS_ID, Scheduler
 from waifu.screen import capture_screen
 from waifu.single_instance import InstanceLock
-from waifu.usage import DayUsage, TokenUsage, UsageLedger, UsageSummary
+from waifu.usage import DayUsage, TokenUsage, UsageLedger, UsageSummary, cost_usd
 from waifu.voice.audio import MicStream, Player, list_devices
 from waifu.voice.rvc import (
     SERVER_SCRIPT,
@@ -134,6 +143,9 @@ from waifu.voice.speaker import MIN_ENROLL_SAMPLES, EcapaEmbedder, SpeakerError,
 from waifu.voice.stt import CUDA_HINT, SttError, WhisperStt, register_cuda_dll_dirs
 from waifu.voice.tts import SpeechRouter, TtsError, build_speech_router
 from waifu.weather import WeatherClient
+
+if TYPE_CHECKING:
+    import anthropic
 
 logger = logging.getLogger(__name__)
 
@@ -278,6 +290,32 @@ PHONE_WITHOUT_MODEL_TEXT = (
 )
 PC_UNREADABLE = "tidak terbaca"
 PC_WITHOUT_GPU = "tidak terbaca (bukan NVIDIA atau nvidia-smi tidak ada)"
+OFFERS_DESCRIPTION = (
+    "Promo gratis: game gratis untuk disimpan (Epic Games Store dari Epic sendiri, Steam, GOG, "
+    "dan lainnya dari GamerPower.com) dan promo AI (kredit gratis, paket gratis, program "
+    "startup atau pelajar) dari pencarian mingguan Cyrene, dengan linknya. Cyrene hanya memberi "
+    "tahu: klaim dan daftar dilakukan Master sendiri. Perintah ini jalan walau "
+    "free_offers.enabled: false."
+)
+GAMES_OFF = "Pencarian game gratis dimatikan (free_offers.games: false)."
+SCAN_RUNNING = (
+    "Pencarian promo AI lain sedang berjalan, misalnya oleh 'waifu run'. Coba lagi setelah selesai."
+)
+UNVERIFIED_LINK = "(belum terverifikasi: bukan situs resmi penyedia yang dikenal)"
+# GamerPower.com's terms: free for any use with attribution and a link to it.
+GAMERPOWER_CREDIT = f"Sumber: {GAMERPOWER} (https://www.gamerpower.com)"
+GAME_PLATFORM_NAMES = {"epic": "Epic", **GAMERPOWER_PLATFORMS}
+AI_KIND_TEXT = {
+    "free_credits": "kredit gratis",
+    "free_tier": "paket gratis",
+    "startup_program": "program startup",
+    "student_program": "program pelajar",
+    "trial": "uji coba gratis",
+    "other": "program lain",
+}
+AI_ACCESS_TEXT = {"claim": "bisa langsung diklaim", "apply": "perlu mendaftar"}
+# Organization-level API keys must name a workspace on every request (see brain.claude).
+CLAUDE_WORKSPACE_HEADER = "anthropic-workspace-id"
 REPEAT_TEXT: dict[Repeat, str] = {
     "none": "sekali",
     "daily": "tiap hari",
@@ -419,6 +457,25 @@ def build_parser() -> argparse.ArgumentParser:
         "pc",
         _pc,
         "Tampilkan kondisi PC: beban CPU, RAM, sisa disk, GPU NVIDIA, dan waktu sejak restart.",
+    )
+    offers_command = commands.add_parser(
+        "offers",
+        parents=[shared],
+        help="Promo gratis: game gratis dan promo AI, dengan linknya.",
+        description=OFFERS_DESCRIPTION,
+    )
+    offers_command.set_defaults(handler=_offers)
+    offers_kinds = offers_command.add_subparsers(dest="action", metavar="<jenis>")
+    command(
+        "games", _offers_games, "Game gratis sekarang dan segera, dengan linknya.", offers_kinds
+    )
+    ai_offers = command(
+        "ai", _offers_ai, "Promo AI dari pencarian terakhir, dengan linknya.", offers_kinds
+    )
+    ai_offers.add_argument(
+        "--scan",
+        action="store_true",
+        help="cari sekarang dengan Claude dan pencarian web (berbayar, bisa beberapa menit)",
     )
     command("check", _check, "Periksa konfigurasi, perangkat, dan dependensi.")
     command("notify-test", _notify_test, "Kirim notifikasi tes ke HP lewat ntfy.")
@@ -753,6 +810,7 @@ def _listen(args: argparse.Namespace) -> int:
     gacha = build_gacha(config) if config.gacha.enabled else None
     usage = _usage_recorder(config)
     pc = _session_pc_reader(config)  # the PC tool and the PC watcher read the PC through it
+    notifier = build_notifier(config.notify)
     # Only while the phone page offers its camera (the phone server then takes photos): the photo
     # a phone message carries waits for its turn in `turn_images`, shared by the brain and the
     # Assistant, and `camera_turn`, shared by the Assistant and the screen tool, tells which
@@ -762,7 +820,7 @@ def _listen(args: argparse.Namespace) -> int:
     camera_turn = CameraTurn() if camera_offered else None
     with _session_schedule(config, dry_run=args.dry_run) as schedule:
         brain = _companion_brain(
-            config, registry, gacha, schedule, usage, pc, turn_images, camera_turn
+            config, registry, gacha, schedule, usage, pc, notifier, turn_images, camera_turn
         )
         stt = WhisperStt(config.stt, name)
         gate = WakeGate(config.assistant.wake_words, config.assistant.followup_seconds)
@@ -825,11 +883,11 @@ def _listen(args: argparse.Namespace) -> int:
                     # Not a reply, so no follow-up window: after login only her name starts a
                     # conversation, as in a plain `run`.
                     assistant.speak(f"{name} siap, {config.assistant.owner_call}.", followup=False)
-                notifier = build_notifier(config.notify)
                 try:
                     with (
                         _gacha_watcher(config, gacha, assistant),
                         _pc_watcher(config, pc, assistant, notifier),
+                        _offers_watcher(config, assistant, notifier, usage),
                         _scheduler(
                             config,
                             schedule,
@@ -856,8 +914,15 @@ def _chat(args: argparse.Namespace) -> int:
     usage = _usage_recorder(config)
     name = config.assistant.name
     with _session_schedule(config, dry_run=args.dry_run) as schedule:
+        # Only the offers tool pushes from chat, when Master asks for a link.
         brain = _companion_brain(
-            config, registry, gacha, schedule, usage, _session_pc_reader(config)
+            config,
+            registry,
+            gacha,
+            schedule,
+            usage,
+            _session_pc_reader(config),
+            build_notifier(config.notify),
         )
         # One scheduler fires the real schedule, and one teller gives the budget notices: a
         # running `waifu run`, which speaks and pushes, rather than this chat, which would take
@@ -921,13 +986,14 @@ def _companion_brain(
     schedule: ScheduleStore | None,
     usage: _UsageRecorder | None,
     pc: Callable[[], PcSnapshot] | None,
+    notifier: Notifier | None,
     turn_images: TurnImages | None = None,
     camera_turn: CameraTurn | None = None,
 ) -> Brain:
     """The brain with the game tools when they are on, her long-term memory when it is on,
     then her schedule when it is on, the day's briefing when it is on, with `pc` how the PC is
-    doing, with Claude her eyes on the screen when vision is on, and with `usage` what her
-    requests cost.
+    doing, the free offers when they are on (their links pushed through `notifier`), with
+    Claude her eyes on the screen when vision is on, and with `usage` what her requests cost.
 
     With memory, every new session lists the notes as they are in the file at that moment.
     With `usage`, every Claude response is recorded in its ledger. With `turn_images` (only
@@ -950,6 +1016,8 @@ def _companion_brain(
         providers.append(_briefing_tools(config.briefing, schedule))
     if pc is not None:
         providers.append(PcTools(pc, owner_call=owner_call))
+    if config.free_offers.enabled:
+        providers.append(_offers_tools(config, notifier))
     if config.vision.enabled and config.brain.backend == "claude":
         # Ollama's local model cannot see images, so it is never offered the screen. Her name,
         # wake words, and what she calls the owner are left out of Master's words, as for the
@@ -2126,7 +2194,12 @@ def _usage_ledger(config: AppConfig) -> UsageLedger:
     """Her API cost records, in the file `usage.path` names, whatever the backend and whether
     the monitor is on or not; the configured prices go over the built-in ones."""
     usage = config.usage
-    return UsageLedger(usage.path, prices=usage.prices, default_model=usage.default_model)
+    return UsageLedger(
+        usage.path,
+        prices=usage.prices,
+        default_model=usage.default_model,
+        web_search_per_1000_usd=usage.web_search_per_1000_usd,
+    )
 
 
 def _usage_recorder(config: AppConfig) -> _UsageRecorder | None:
@@ -2186,11 +2259,14 @@ def _usage(args: argparse.Namespace) -> int:
         print("Belum ada catatan biaya.")
         return 0
     rate = config.usage.idr_per_usd
-    header = ("TANGGAL", "PERMINTAAN", "INPUT", "OUTPUT", "CACHE TULIS", "CACHE BACA", "USD")
+    # Web searches get a column only in a month that has any.
+    searches = summary.tokens.web_searches > 0
+    header = ("TANGGAL", "PERMINTAAN", "INPUT", "OUTPUT", "CACHE TULIS", "CACHE BACA")
+    header += ("PENCARIAN WEB", "USD") if searches else ("USD",)
     if rate is not None:
         header += ("IDR",)
-    rows = [_usage_row(f"{day.day:%d-%m-%Y}", day, rate) for day in summary.by_day]
-    rows.append(_usage_row("Total", summary, rate))
+    rows = [_usage_row(f"{day.day:%d-%m-%Y}", day, rate, searches) for day in summary.by_day]
+    rows.append(_usage_row("Total", summary, rate, searches))
     name = config.assistant.name
     print(f"Biaya API Claude {MONTHS_ID[month - 1]} {year}, dari catatan {name} sendiri:")
     print(_format_table((*header, ""), rows))
@@ -2203,11 +2279,14 @@ def _usage(args: argparse.Namespace) -> int:
 
 
 def _usage_row(
-    label: str, used: DayUsage | UsageSummary, idr_per_usd: float | None
+    label: str, used: DayUsage | UsageSummary, idr_per_usd: float | None, searches: bool
 ) -> tuple[str, ...]:
-    """One line of `waifu usage`: requests, tokens, the cost, and whether it is an estimate."""
+    """One line of `waifu usage`: requests, tokens, web searches when `searches`, the cost, and
+    whether it is an estimate."""
     tokens = used.tokens
-    counts = (used.requests, tokens.input, tokens.output, tokens.cache_write, tokens.cache_read)
+    counts = [used.requests, tokens.input, tokens.output, tokens.cache_write, tokens.cache_read]
+    if searches:
+        counts.append(tokens.web_searches)
     cells = [label, *map(str, counts), f"${used.cost_usd:.2f}"]
     if idr_per_usd is not None:
         cells.append(_rupiah(used.cost_usd * idr_per_usd))
@@ -2721,6 +2800,275 @@ def _decimal_comma(value: float) -> str:
     return f"{value:.1f}".replace(".", ",")
 
 
+# --- free offers -----------------------------------------------------------------------------
+
+
+def _offers_store(config: AppConfig) -> OffersStore:
+    """The games already told, the AI offers her scans found, and the last scan, in the file
+    `free_offers.state_path` names (`run`, `chat`, and `waifu offers` share it)."""
+    return OffersStore(config.free_offers.state_path)
+
+
+def _games_reader(config: AppConfig) -> ReadGames:
+    """Reads the free games on `free_offers.game_platforms` from Epic and GamerPower.com, with a
+    connection of its own each time (reads are half an hour or hours apart)."""
+    platforms = tuple(config.free_offers.game_platforms)
+
+    def read() -> tuple[GameGiveaway, ...] | OffersError:
+        with httpx.Client() as http:
+            return read_free_games(platforms, http=http, now=datetime.now().astimezone())
+
+    return read
+
+
+def _games_off() -> OffersError:
+    return OffersError(GAMES_OFF)
+
+
+def _offers_tools(config: AppConfig, notifier: Notifier | None) -> OffersTools:
+    """The free games (unless `free_offers.games` is off) and the AI offers her scans kept, with
+    their links pushed through `notifier` when Master asks."""
+    read = _games_reader(config) if config.free_offers.games else _games_off
+    return OffersTools(
+        _offers_store(config), read, notifier=notifier, owner_call=config.assistant.owner_call
+    )
+
+
+def _claude_client() -> anthropic.Anthropic:
+    """A Claude client for the AI scan, made as the Claude brain makes one: with the workspace
+    an organization-level API key needs, and refused without credentials. It keeps the SDK's
+    own timeout and retries: the scan runs in the background, and a search may take minutes."""
+    import anthropic
+
+    from waifu.brain.claude import WORKSPACE_ENV
+
+    workspace_id = os.environ.get(WORKSPACE_ENV, "").strip()
+    client = anthropic.Anthropic(
+        default_headers={CLAUDE_WORKSPACE_HEADER: workspace_id} if workspace_id else None
+    )
+    if client.api_key is None and client.auth_token is None and client.credentials is None:
+        raise anthropic.CredentialsError("no Claude API key, auth token, or profile found")
+    return client
+
+
+def _ai_scan(config: AppConfig, on_usage: Callable[[str, TokenUsage], None]) -> ScanAiOffers:
+    """The AI offers scan: the configured Claude model with web search, given the offers already
+    kept; `on_usage` hears what each of its responses used.
+
+    One scan at a time across processes (`waifu run`'s watcher and `waifu offers ai --scan`),
+    held by a lock file next to the offers file: a second one would pay for the same searches.
+    One that finds the lock held is an error that cost nothing, so the watcher tries again at
+    its next poll."""
+    state_path = config.free_offers.state_path
+    lock_path = state_path.with_name(f"{state_path.name}.scan.lock")
+
+    def scan(known: Sequence[AiOffer]) -> list[AiOffer] | OffersError:
+        # Here, so that a run with Ollama loads the Anthropic SDK only once a scan is due.
+        from waifu.offers.ai_scan import scan_ai_offers
+
+        lock = InstanceLock(lock_path)
+        if not lock.acquire():
+            logger.info("Another AI offers scan holds %s; not scanning", lock_path)
+            return OffersError(SCAN_RUNNING)
+        try:
+            return scan_ai_offers(
+                client_factory=_claude_client,
+                model=config.brain.claude.model,
+                fallbacks=config.brain.claude.fallbacks,
+                max_searches=config.free_offers.ai_max_searches,
+                on_usage=on_usage,
+                known=known,
+            )
+        finally:
+            lock.release()
+
+    return scan
+
+
+def _not_recorded(model: str, tokens: TokenUsage) -> None:
+    """Without the cost monitor (Ollama, or `usage.enabled` off) no response is recorded."""
+
+
+@contextmanager
+def _offers_watcher(
+    config: AppConfig,
+    assistant: Assistant,
+    notifier: Notifier | None,
+    usage: _UsageRecorder | None,
+) -> Iterator[None]:
+    """Her notices about new free games and new AI offers while the block runs, also pushed to
+    the phone when notifications are on; none with the offers or their notices off. The scan's
+    responses are recorded with her other Claude costs when the cost monitor is on."""
+    offers = config.free_offers
+    if not (offers.enabled and offers.notices):
+        yield
+        return
+    watcher = OffersWatcher(
+        _offers_store(config),
+        _games_reader(config),
+        _ai_scan(config, usage.record if usage is not None else _not_recorded),
+        offers,
+        announce=assistant.announce,
+        notifier=notifier,
+        owner_call=config.assistant.owner_call,
+        title=config.assistant.name,
+    )
+    watcher.start()
+    try:
+        yield
+    finally:
+        watcher.stop()
+
+
+def _offers(args: argparse.Namespace) -> int:
+    """Print the free games, then the AI offers; exit 1 when the games could not be read."""
+    config = load_config(args.config)
+    games_read = _print_games(config)
+    print()
+    _print_ai_offers(_offers_store(config))
+    return 0 if games_read else 1
+
+
+def _offers_games(args: argparse.Namespace) -> int:
+    return 0 if _print_games(load_config(args.config)) else 1
+
+
+def _offers_ai(args: argparse.Namespace) -> int:
+    config = load_config(args.config)
+    if args.scan:
+        return _scan_ai_offers_now(config)
+    _print_ai_offers(_offers_store(config))
+    return 0
+
+
+def _print_games(config: AppConfig) -> bool:
+    """Print the games free now, then those free soon, each with its link, and GamerPower.com's
+    credit when a game came from it; False when they could not be read. The switches only
+    concern her, so the games are read whatever `free_offers` says."""
+    games = _games_reader(config)()
+    if isinstance(games, OffersError):
+        print(f"{FAIL} {games}")
+        return False
+    if not games:
+        print("Tidak ada game gratis saat ini.")
+        return True
+    now = datetime.now().astimezone()
+    soon = [game for game in games if game.starts_at is not None and game.starts_at > now]
+    free = [game for game in games if game not in soon]
+    for heading, listed in (("Game gratis sekarang:", free), ("Segera gratis:", soon)):
+        if listed:
+            print(heading)
+        for game in listed:
+            print(f"  {_game_text(game, now)}")
+            print(f"    {game.url}")
+    if any(game.source == GAMERPOWER for game in games):
+        print(GAMERPOWER_CREDIT)
+    return True
+
+
+def _game_text(game: GameGiveaway, now: datetime) -> str:
+    """`Portal di Steam (biasanya $9.99), sampai Minggu 25-10-2026`; a game free soon says when
+    it starts."""
+    parts = [f"{game.title} di {game.platform}"]
+    if game.worth_usd is not None:
+        parts[0] += f" (biasanya ${game.worth_usd:.2f})"
+    if game.starts_at is not None and game.starts_at > now:
+        parts.append(f"mulai {_schedule_time(game.starts_at.astimezone())}")
+    if game.ends_at is not None:
+        parts.append(f"sampai {_schedule_time(game.ends_at.astimezone())}")
+    elif game.ends_on is not None:
+        parts.append(f"sampai {_day_text(game.ends_on)}")
+    return ", ".join(parts)
+
+
+def _print_ai_offers(store: OffersStore) -> None:
+    """Print the kept AI offers, the newest first, each with its link, and when the last scan
+    ran; or that none ran yet."""
+    last_scan = store.last_ai_scan()
+    if last_scan is None:
+        print(
+            "Promo AI belum pernah dicari. Jalankan 'waifu offers ai --scan' (memakai Claude "
+            "dengan pencarian web, berbayar)."
+        )
+        return
+    offers = store.ai_offers()
+    scanned = _schedule_time(last_scan)
+    if not offers:
+        print(f"Belum ada promo AI yang tersimpan (pencarian terakhir {scanned}).")
+        return
+    print(f"Promo AI (pencarian terakhir {scanned}):")
+    _print_offer_list(sorted(offers, key=lambda offer: offer.first_seen.timestamp(), reverse=True))
+
+
+def _print_offer_list(offers: Sequence[AiOffer]) -> None:
+    for offer in offers:
+        terms = f"{AI_KIND_TEXT[offer.kind]}, {AI_ACCESS_TEXT[offer.access]}"
+        if offer.deadline is not None:
+            terms += f", sampai {_day_text(offer.deadline)}"
+        print(f"  {offer.title} dari {offer.provider}: {terms}")
+        print(f"    {offer.summary}")
+        print(f"    Untuk: {offer.eligibility}")
+        # The scan reads pages anyone can write: a link off the provider's site may be a lure.
+        print(f"    {offer.url}" + ("" if official_link(offer.url) else f"  {UNVERIFIED_LINK}"))
+
+
+def _scan_ai_offers_now(config: AppConfig) -> int:
+    """Run the AI scan now, keep what it found, and print the new offers and what the scan cost
+    by the usage prices. Its responses are recorded with her other Claude costs when the cost
+    monitor is on; exit 1 when it failed."""
+    store = _offers_store(config)
+    recorder = _usage_recorder(config)
+    # Built before the scan, so a price table that cannot price it stops before any spending.
+    ledger = recorder.ledger if recorder is not None else _usage_ledger(config)
+    used: list[tuple[str, TokenUsage]] = []
+
+    def on_usage(model: str, tokens: TokenUsage) -> None:
+        used.append((model, tokens))
+        if recorder is not None:
+            recorder.record(model, tokens)
+
+    print("Mencari promo AI dengan Claude dan pencarian web, bisa beberapa menit...", flush=True)
+    found = _ai_scan(config, on_usage)(store.ai_offers())
+    if isinstance(found, OffersError):
+        print(f"{FAIL} {found}")
+    else:
+        new = store.merge_ai_offers(found, datetime.now())
+        if new:
+            print(f"{OK} {len(new)} promo AI baru:")
+            _print_offer_list(new)
+        else:
+            print(f"{OK} Tidak ada promo AI baru. Semua yang tersimpan: 'waifu offers ai'.")
+    if used:
+        print(_scan_cost_text(used, ledger, config.usage.web_search_per_1000_usd))
+        if recorder is None:
+            print(
+                "(Tidak dicatat di 'waifu usage': biaya API hanya dicatat dengan brain.backend: "
+                "claude dan usage.enabled: true.)"
+            )
+    return 1 if isinstance(found, OffersError) else 0
+
+
+def _scan_cost_text(
+    used: Sequence[tuple[str, TokenUsage]], ledger: UsageLedger, web_search_per_1000_usd: float
+) -> str:
+    """`Perkiraan biaya pencarian ini: $0.18 (1 permintaan, 6 pencarian web).`: the tokens by
+    the ledger's prices and the searches by `usage.web_search_per_1000_usd`."""
+    searches = sum(tokens.web_searches for _, tokens in used)
+    tokens_usd = sum(
+        cost_usd(model, tokens, ledger.prices, ledger.default_model)[0] for model, tokens in used
+    )
+    cost = tokens_usd + searches * web_search_per_1000_usd / 1000
+    return (
+        f"Perkiraan biaya pencarian ini: ${cost:.2f} ({len(used)} permintaan, {searches} "
+        "pencarian web)."
+    )
+
+
+def _day_text(day: date) -> str:
+    """`Minggu 25-10-2026`: a day as the owner reads it."""
+    return f"{WEEKDAYS_ID[day.weekday()]} {day:%d-%m-%Y}"
+
+
 # --- check -----------------------------------------------------------------------------------
 
 
@@ -2744,11 +3092,13 @@ def _checks(config_path: Path) -> Iterator[Check]:
     yield _voiceprint_check(config)
     yield _brain_check(config)
     yield _vision_check(config)
+    yield _web_search_check(config)
     yield _memory_check(config)
     yield _schedule_check(config)
     yield _briefing_check(config.briefing)
     yield _usage_check(config)
     yield _pc_health_check(config)
+    yield _free_offers_check(config)
     yield from _voice_package_checks(config)
     yield _microphone_check(config)
     yield from _anime_voice_checks(config)
@@ -2905,6 +3255,21 @@ def _vision_check(config: AppConfig) -> Check:
     return OK, "Melihat layar: aktif (Claude)"
 
 
+def _web_search_check(config: AppConfig) -> Check:
+    """Whether she can search the web: Claude's server tool, so only with Claude. `max_uses`
+    caps each request, and one question may take a request per tool round and one more."""
+    if not config.web_search.enabled:
+        return WARN, "Pencarian web mati"
+    if config.brain.backend != "claude":
+        return WARN, "Pencarian web: tidak tersedia dengan Ollama"
+    searches = config.web_search.max_uses
+    per_question = searches * (config.brain.max_tool_rounds + 1)
+    return OK, (
+        f"Pencarian web: aktif (Claude, paling banyak {searches} pencarian per permintaan, "
+        f"{per_question} per pertanyaan)"
+    )
+
+
 def _memory_check(config: AppConfig) -> Check:
     """How many notes she has, and where a broken memory file was moved, if one was."""
     if not config.memory.enabled:
@@ -2995,8 +3360,44 @@ def _pc_health_check(config: AppConfig) -> Check:
     return OK, f"Kesehatan PC: aktif, GPU {gpu.name}"
 
 
+def _free_offers_check(config: AppConfig) -> Check:
+    """Which stores she reads the free games of, when the AI offers were last searched for,
+    and where a broken offers file was moved, if one was; nothing is asked of the internet."""
+    offers = config.free_offers
+    if not offers.enabled:
+        return WARN, "Promo gratis mati"
+    path = offers.state_path
+    try:
+        last_scan = _offers_store(config).last_ai_scan()  # moves a broken file aside, as run would
+    except OSError as exc:
+        return FAIL, f"File promo gratis {path} tidak bisa dibaca: {exc}"
+    platforms = ", ".join(GAME_PLATFORM_NAMES[platform] for platform in offers.game_platforms)
+    parts = [f"game {platforms}" if offers.games else "game mati"]
+    if not offers.ai:
+        parts.append("promo AI mati")
+    elif last_scan is None:
+        parts.append("promo AI belum pernah dicari")
+    else:
+        parts.append(f"promo AI terakhir dicari {_schedule_time(last_scan)}")
+    if not offers.notices:
+        # The watcher both tells and scans: without it only 'waifu offers ai --scan' searches.
+        parts.append(
+            "tanpa pemberitahuan dan tanpa pencarian promo AI mingguan"
+            if offers.ai
+            else "tanpa pemberitahuan"
+        )
+    status = f"Promo gratis: {'; '.join(parts)}"
+    moved = _set_aside_files(path)
+    if moved:
+        return WARN, (
+            f"{status}; file promo yang rusak dipindah ke {', '.join(map(str, moved))} "
+            "(lihat README, bagian Pencarian web dan promo gratis)"
+        )
+    return OK, status
+
+
 def _set_aside_files(path: Path) -> list[Path]:
-    """The copies a broken memory, schedule, or usage file was renamed to
+    """The copies a broken memory, schedule, usage, or offers file was renamed to
     (`<name>.corrupt-<time>`), oldest first.
 
     They stay until the owner repairs or deletes them, so `check` points at them every time.

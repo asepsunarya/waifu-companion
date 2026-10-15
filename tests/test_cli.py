@@ -24,6 +24,7 @@ from pathlib import Path, PureWindowsPath
 
 import anthropic
 import genshin
+import httpx
 import httpx2
 import numpy as np
 import pytest
@@ -42,13 +43,14 @@ from waifu.brain import claude as claude_module
 from waifu.brain.attachments import CameraTurn, TurnImages
 from waifu.brain.base import Brain, BrainReply, ToolCallRecord
 from waifu.brain.memory_tools import MemoryTools
+from waifu.brain.offers_tools import OffersTools
 from waifu.brain.pc_tools import PcTools
 from waifu.brain.persona import WEEKDAYS_ID
 from waifu.brain.schedule_tools import ScheduleTools
 from waifu.brain.screen_tools import ScreenTools
 from waifu.brain.usage_tools import UsageTools
 from waifu.briefing import BRIEFING_PROMPT, DAILY_BRIEFING, BriefingTimer, BriefingTools
-from waifu.config import AvatarConfig, PcHealthConfig, RvcConfig
+from waifu.config import AvatarConfig, FreeOffersConfig, PcHealthConfig, RvcConfig
 from waifu.devices.base import DeviceError
 from waifu.devices.ir_codes import IrCodeStore
 from waifu.devices.ir_device import IrDevice
@@ -78,6 +80,9 @@ from waifu.gacha.starrail import (
 )
 from waifu.gacha.tools import GachaTools
 from waifu.memory import MemoryStore, memory_prompt_section
+from waifu.offers.errors import OffersError
+from waifu.offers.store import OffersStore
+from waifu.offers.values import AiOffer, GameGiveaway
 from waifu.pc_health import Drive, GpuStatus, PcSnapshot
 from waifu.phone.auth import CODE_LIFETIME, PhoneAuth, Refusal
 from waifu.phone.server import PhoneError, PhoneReply
@@ -85,7 +90,7 @@ from waifu.schedule import DeviceAction, Reminder, RoutineAction, ScheduleStore
 from waifu.scheduler import MONTHS_ID, Scheduler
 from waifu.screen import ScreenImage
 from waifu.single_instance import InstanceLock
-from waifu.usage import TokenUsage, UsageLedger
+from waifu.usage import TokenUsage, UsageLedger, UsageSummary
 from waifu.voice.base import SpeakerEmbedder, SpeechToText, Transcript
 from waifu.voice.rvc import RvcError
 from waifu.voice.speaker import SpeakerVerifier
@@ -325,6 +330,86 @@ def pc_watchers(events, monkeypatch) -> list[FakePcWatcher]:
         return built[-1]
 
     monkeypatch.setattr(cli, "PcWatcher", build)
+    return built
+
+
+@pytest.fixture(autouse=True)
+def free_games_asked(tmp_path, monkeypatch):
+    """Every offers store a command builds lives under tmp_path, and no test asks Epic or
+    GamerPower.com for the free games (tests/conftest.py does not cover httpx): a test that
+    forgets the fake fails afterwards, also when the tool turned the refusal into an error
+    result. Yields the platforms of each refused read."""
+    monkeypatch.setattr(cli, "OffersStore", only_under(tmp_path, cli.OffersStore))
+    refused: list[list[str]] = []
+
+    def refuse(platforms, *, http, now) -> object:
+        refused.append(list(platforms))
+        raise AssertionError("a test asked Epic or GamerPower.com for the free games")
+
+    monkeypatch.setattr(cli, "read_free_games", refuse)
+    yield refused
+    assert not refused, f"a test asked for the free games of {refused}"
+
+
+@pytest.fixture(autouse=True)
+def no_real_claude(monkeypatch):
+    """A Claude client is only built over a fake transport: a test that forgets one fails
+    instead of calling the API (tests/conftest.py does not cover the SDK's httpx2)."""
+    real = anthropic.Anthropic
+
+    def only_with_a_fake_transport(*args, http_client=None, **kwargs) -> anthropic.Anthropic:
+        if http_client is None:
+            raise AssertionError("a test built a Claude client without a fake transport")
+        return real(*args, http_client=http_client, **kwargs)
+
+    monkeypatch.setattr(anthropic, "Anthropic", only_with_a_fake_transport)
+
+
+class FakeOffersWatcher:
+    """Stands in for OffersWatcher without a thread, remembering what it was given, whether
+    `waifu run` listened when it started and stopped, and the test's `events` up to then."""
+
+    def __init__(
+        self,
+        store,
+        read_games,
+        scan,
+        config,
+        *,
+        announce,
+        notifier,
+        owner_call,
+        title,
+        events: list[str],
+    ) -> None:
+        self.store, self.read_games, self.scan, self.config = store, read_games, scan, config
+        self.announce, self.notifier = announce, notifier
+        self.owner_call, self.title = owner_call, title
+        self._events = events
+        self.listening: list[bool] = []
+        self.events_when_started: list[str] | None = None
+        self.events_when_stopped: list[str] | None = None
+
+    def start(self) -> None:
+        self.listening.append(listening())
+        self.events_when_started = list(self._events)
+
+    def stop(self) -> None:
+        self.listening.append(listening())
+        self.events_when_stopped = list(self._events)
+
+
+@pytest.fixture(autouse=True)
+def offers_watchers(events, monkeypatch) -> list[FakeOffersWatcher]:
+    """The real watcher reads the free games and runs the AI scan in a thread through every
+    `run` (free_offers and its notices are on by default), so every test gets the fake."""
+    built: list[FakeOffersWatcher] = []
+
+    def build(store, read_games, scan, config, **arguments) -> FakeOffersWatcher:
+        built.append(FakeOffersWatcher(store, read_games, scan, config, **arguments, events=events))
+        return built[-1]
+
+    monkeypatch.setattr(cli, "OffersWatcher", build)
     return built
 
 
@@ -3775,9 +3860,11 @@ class FakeNotifier:
     def __init__(self, delivered: bool = True) -> None:
         self.delivered = delivered
         self.sent: list[tuple[str, str, tuple[str, ...]]] = []
+        self.clicks: list[str | None] = []  # the link each notification opens when tapped
 
-    def send(self, title: str, message: str, *, tags=()) -> bool:
+    def send(self, title: str, message: str, *, tags=(), click=None) -> bool:
         self.sent.append((title, message, tuple(tags)))
+        self.clicks.append(click)
         return self.delivered
 
 
@@ -4120,14 +4207,15 @@ def test_run_with_the_games_on_gives_the_brain_the_game_tools_and_watches_while_
 
     assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
 
-    [tools, hsr_tools, memory_tools, schedule, briefing, pc] = brains[0].providers
-    assert (type(tools), type(memory_tools), type(schedule), type(briefing), type(pc)) == (
-        GachaTools,
-        MemoryTools,
-        ScheduleTools,
-        BriefingTools,
-        PcTools,
-    )
+    [tools, hsr_tools, memory_tools, schedule, briefing, pc, offers] = brains[0].providers
+    assert (
+        type(tools),
+        type(memory_tools),
+        type(schedule),
+        type(briefing),
+        type(pc),
+        type(offers),
+    ) == (GachaTools, MemoryTools, ScheduleTools, BriefingTools, PcTools, OffersTools)
     assert type(hsr_tools) is HsrTools
     assert [spec.name for spec in tools.specs()] == ["game_status", "gacha_history"]
     [watcher] = watchers
@@ -4175,6 +4263,7 @@ def test_run_without_a_cookie_has_the_game_tools_but_no_watcher(
         ScheduleTools,
         BriefingTools,
         PcTools,
+        OffersTools,
     ]
     assert watchers == []
 
@@ -4188,6 +4277,7 @@ def test_run_with_the_games_off_builds_none_of_it(home, run_fakes, brains, games
         ScheduleTools,
         BriefingTools,
         PcTools,
+        OffersTools,
     ]
 
 
@@ -4204,6 +4294,7 @@ def test_chat_with_the_games_on_gives_the_brain_the_game_tools(home, brains, gam
         ScheduleTools,
         BriefingTools,
         PcTools,
+        OffersTools,
     ]
 
 
@@ -4265,6 +4356,7 @@ def test_without_hsr_among_the_games_there_are_no_hsr_tools(
         ScheduleTools,
         BriefingTools,
         PcTools,
+        OffersTools,
     ]
     assert hsr_sources == []
 
@@ -4662,7 +4754,7 @@ def test_run_gives_the_brain_her_memory_tools_and_the_notes_at_each_session_star
     assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
 
     brain = brains[0]
-    [tools, _, _, _] = brain.providers  # then the schedule, briefing, and PC tools
+    [tools, _, _, _, _] = brain.providers  # then the schedule, briefing, PC, and offers tools
     assert isinstance(tools, MemoryTools)
     assert brain.memory_section() == memory_prompt_section([])
     assert tools.run("remember", {"text": "Master alergi udang."})[1] is False
@@ -4684,6 +4776,7 @@ def test_chat_gives_the_brain_the_notes_saved_in_data_memory_json(home, brains, 
         ScheduleTools,
         BriefingTools,
         PcTools,
+        OffersTools,
     ]
     assert "Master suka kopi." in brains[0].memory_section()
 
@@ -4701,6 +4794,7 @@ def test_with_the_memory_off_the_brain_gets_neither_the_tools_nor_the_notes(
         ScheduleTools,
         BriefingTools,
         PcTools,
+        OffersTools,
     ]
     assert brains[0].memory_section is None
     assert not memory_file(home).exists()
@@ -5012,6 +5106,7 @@ def test_run_gives_the_brain_the_schedule_tools_and_fires_her_schedule_while_she
         ScheduleTools,
         BriefingTools,
         PcTools,
+        OffersTools,
     ]
     [scheduler] = schedulers
     assert scheduler.states == ["started", "stopped"]
@@ -5162,7 +5257,12 @@ def test_with_the_schedule_off_she_gets_neither_the_tools_nor_a_scheduler(
 
     assert cli.main([*argv, "--dry-run"]) == 0
 
-    assert [type(tools) for tools in brains[0].providers] == [MemoryTools, BriefingTools, PcTools]
+    assert [type(tools) for tools in brains[0].providers] == [
+        MemoryTools,
+        BriefingTools,
+        PcTools,
+        OffersTools,
+    ]
     assert schedulers == []
     assert not schedule_file(home).exists()
 
@@ -5632,6 +5732,7 @@ def test_with_claude_she_may_look_at_the_screen_at_the_configured_size(
         ScheduleTools,
         BriefingTools,
         PcTools,
+        OffersTools,
         ScreenTools,
         UsageTools,
     ]
@@ -5673,6 +5774,26 @@ def test_what_she_calls_the_owner_never_asks_her_to_look(home, brains, capture, 
     assert capture.sizes == []
 
 
+def sse_event(name: str, data: dict) -> bytes:
+    return f"event: {name}\ndata: {json.dumps(data)}\n\n".encode()
+
+
+def streamed_message(message: dict) -> httpx2.Response:
+    """`message` as the API streams it (as it does with web search), each block whole."""
+    started = {**message, "content": [], "stop_reason": None}
+    events = [sse_event("message_start", {"type": "message_start", "message": started})]
+    for index, block in enumerate(message["content"]):
+        start = {"type": "content_block_start", "index": index, "content_block": block}
+        stop = {"type": "content_block_stop", "index": index}
+        events += [sse_event("content_block_start", start), sse_event("content_block_stop", stop)]
+    delta = {"stop_reason": message["stop_reason"], "stop_sequence": None}
+    finished = {"type": "message_delta", "delta": delta, "usage": message["usage"]}
+    events += [sse_event("message_delta", finished), sse_event("message_stop", {})]
+    return httpx2.Response(
+        200, headers={"content-type": "text/event-stream"}, content=b"".join(events)
+    )
+
+
 def test_verbose_logging_never_writes_out_a_screenshot_or_the_conversation(
     home, capture, monkeypatch, caplog
 ):
@@ -5701,7 +5822,8 @@ def test_verbose_logging_never_writes_out_a_screenshot_or_the_conversation(
             "stop_reason": stop_reason,
             "usage": usage,
         }
-        return httpx2.Response(200, json=message)
+        assert sent[-1]["stream"] is True  # web search is on by default
+        return streamed_message(message)
 
     real_anthropic = anthropic.Anthropic
 
@@ -5758,6 +5880,7 @@ def test_without_claude_or_with_vision_off_the_brain_gets_no_screen_tool(
         ScheduleTools,
         BriefingTools,
         PcTools,
+        OffersTools,
         *([UsageTools] if claude else []),  # what her requests cost, with Claude only
     ]
     assert capture.sizes == []
@@ -5910,7 +6033,11 @@ def test_run_greets_once_a_day_while_she_listens_and_pushes_the_greeting_to_the_
 
     assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
 
-    assert [type(tools) for tools in brains[0].providers][-2:] == [BriefingTools, PcTools]
+    assert [type(tools) for tools in brains[0].providers][-3:] == [
+        BriefingTools,
+        PcTools,
+        OffersTools,
+    ]
     [timer] = briefing_timers
     assert timer.listening == [False, True]
     timer.tick_at(datetime(2026, 10, 14, 7, 30))
@@ -5968,7 +6095,11 @@ def test_chat_gives_the_brain_the_briefing_tool_but_never_greets_by_herself(
 
     assert cli.main(["chat", "--dry-run"]) == 0
 
-    assert [type(tools) for tools in brains[0].providers][-2:] == [BriefingTools, PcTools]
+    assert [type(tools) for tools in brains[0].providers][-3:] == [
+        BriefingTools,
+        PcTools,
+        OffersTools,
+    ]
     assert briefing_timers == []
 
 
@@ -5981,7 +6112,12 @@ def test_with_the_briefing_off_she_gets_neither_the_tool_nor_the_greeting(
 
     assert cli.main([*argv, "--dry-run"]) == 0
 
-    assert [type(tools) for tools in brains[0].providers] == [MemoryTools, ScheduleTools, PcTools]
+    assert [type(tools) for tools in brains[0].providers] == [
+        MemoryTools,
+        ScheduleTools,
+        PcTools,
+        OffersTools,
+    ]
     assert briefing_timers == []
 
 
@@ -6257,6 +6393,17 @@ def test_a_model_missing_from_the_prices_is_priced_like_the_configured_default_m
     assert (month["cost_usd"], month["estimated"]) == (0.01, True)
 
 
+def test_with_claude_each_web_search_is_priced_as_the_config_says(home, brains, monkeypatch):
+    use_claude(home)
+    append_config(home, "usage:\n  web_search_per_1000_usd: 20\n")
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main(["chat", "--dry-run"]) == 0
+
+    brains[0].on_usage(OPUS, TokenUsage(web_searches=50))
+    assert api_usage(brains[0], "month")["cost_usd"] == 1.0  # the default 10 would make it 0.5
+
+
 def write_out_example_usage(home: Path) -> None:
     """The example config with its commented `usage` block written out."""
     config = home / "config.yaml"
@@ -6509,6 +6656,21 @@ def test_usage_month_shows_that_month_in_rupiah_too_and_marks_estimates_with_the
         "  (perkiraan)",
         "(perkiraan): sebagian respons datang dari model yang tidak ada di tabel harga, jadi "
         "dihitung dengan harga claude-opus-5-5.",
+    ]
+
+
+def test_usage_shows_the_web_searches_when_the_month_has_any(home, capsys):
+    now = datetime.now()
+    record_usage(usage_file(home), now, OPUS, TokenUsage(output=1000, web_searches=3))  # $0.05
+    record_usage(usage_file(home), now, OPUS, TokenUsage(output=1000))  # $0.02
+
+    assert cli.main(["usage"]) == 0
+
+    assert capsys.readouterr().out.splitlines() == [
+        f"Biaya API Claude {MONTHS_ID[now.month - 1]} {now.year}, dari catatan Cyrene sendiri:",
+        "TANGGAL     PERMINTAAN  INPUT  OUTPUT  CACHE TULIS  CACHE BACA  PENCARIAN WEB  USD",
+        f"{now:%d-%m-%Y}  2           0      2000    0            0           3              $0.07",
+        "Total       2           0      2000    0            0           3              $0.07",
     ]
 
 
@@ -7516,3 +7678,869 @@ def test_check_reports_whether_she_reads_the_pc_and_which_gpu(
 
     assert pc_health_line(capsys.readouterr().out) == expected
     assert pc_readings.gpu_reads == (1 if enabled else 0)  # nvidia-smi only while it is on
+
+
+# --- web search and free offers ----------------------------------------------------------------
+
+
+def offers_file(home: Path) -> Path:
+    """Where the example config keeps the free offers, inside the test's working directory."""
+    return home / "data" / "free_offers.json"
+
+
+def offers_tools(brain: HouseBrain) -> OffersTools:
+    [tools] = [provider for provider in brain.providers if isinstance(provider, OffersTools)]
+    return tools
+
+
+def local_at(days: int, hour: int) -> datetime:
+    """An aware time in this PC's zone, `days` from today at `hour` o'clock."""
+    day = date.today() + timedelta(days=days)
+    return datetime(day.year, day.month, day.day, hour).astimezone()
+
+
+def when_text(moment: datetime) -> str:
+    """`Kamis 22-10-2026 22:00`, as the CLI writes a local time."""
+    return f"{WEEKDAYS_ID[moment.weekday()]} {moment:%d-%m-%Y %H:%M}"
+
+
+def day_text(day: date) -> str:
+    return f"{WEEKDAYS_ID[day.weekday()]} {day:%d-%m-%Y}"
+
+
+def free_games_now() -> tuple[GameGiveaway, ...]:
+    """Bad Cheese free on Epic until next week, Portal on Steam (from GamerPower.com), and Sker
+    Ritual free on Epic from next week."""
+    return (
+        GameGiveaway(
+            id="epic:6a846880836044a2adad614ac771f487",
+            title="Bad Cheese",
+            platform="Epic Games Store",
+            source="Epic Games Store",
+            worth_usd=None,
+            starts_at=local_at(-1, 22),
+            ends_at=local_at(6, 22),
+            ends_on=None,
+            url="https://store.epicgames.com/en-US/p/bad-cheese-4256d9",
+        ),
+        GameGiveaway(
+            id="gamerpower:3820",
+            title="Portal",
+            platform="Steam",
+            source="GamerPower.com",
+            worth_usd=9.99,
+            starts_at=None,
+            ends_at=None,
+            ends_on=date.today() + timedelta(days=9),
+            url="https://www.gamerpower.com/open/portal-steam-giveaway",
+        ),
+        GameGiveaway(
+            id="epic:6aab3ddef4f84fbc9dd81c60f9d8549c",
+            title="Sker Ritual",
+            platform="Epic Games Store",
+            source="Epic Games Store",
+            worth_usd=None,
+            starts_at=local_at(6, 22),
+            ends_at=local_at(13, 22),
+            ends_on=None,
+            url="https://store.epicgames.com/en-US/p/sker-ritual-aac702",
+        ),
+    )
+
+
+class FreeGames:
+    """Stands in for offers.games.read_free_games: hands out `result` and remembers the
+    platforms of each read."""
+
+    def __init__(self, result: tuple[GameGiveaway, ...] | OffersError) -> None:
+        self.result = result
+        self.platforms: list[list[str]] = []
+
+    def __call__(self, platforms, *, http, now) -> tuple[GameGiveaway, ...] | OffersError:
+        assert isinstance(http, httpx.Client) and not http.is_closed
+        assert now.tzinfo is not None
+        self.platforms.append(list(platforms))
+        return self.result
+
+
+def use_free_games(monkeypatch, result: tuple[GameGiveaway, ...] | OffersError) -> FreeGames:
+    fake = FreeGames(result)
+    monkeypatch.setattr(cli, "read_free_games", fake)
+    return fake
+
+
+# Each provider's own site, where its offers' links lead.
+PROVIDER_SITES = {"Anthropic": "www.anthropic.com", "Google": "ai.google.dev"}
+
+
+def ai_offer(title: str, provider: str, **fields: object) -> AiOffer:
+    slug = title.lower().replace(" ", "-")
+    defaults: dict[str, object] = {
+        "id": f"ai:{slug}",
+        "kind": "free_credits",
+        "access": "claim",
+        "eligibility": "Siapa saja.",
+        "deadline": None,
+        "url": f"https://{PROVIDER_SITES[provider]}/{slug}",
+        "summary": "Kredit gratis.",
+        "first_seen": datetime.now().replace(microsecond=0),
+    }
+    return AiOffer(title=title, provider=provider, **{**defaults, **fields})
+
+
+def keep_ai_offers(home: Path, *offers: AiOffer) -> datetime:
+    """`offers` kept in the example config's offers file by a scan two days ago; its time."""
+    scanned = datetime.now().replace(second=0, microsecond=0) - timedelta(days=2)
+    OffersStore(offers_file(home)).merge_ai_offers(offers, scanned)
+    return scanned
+
+
+def claude_reports(monkeypatch, *offers: dict, searches: int = 3) -> list[dict]:
+    """Claude, over a fake transport, answers every request with a report_offers call holding
+    `offers`, after `searches` web searches; returns the bodies of the requests."""
+    sent: list[dict] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        sent.append(json.loads(request.content))
+        report = {"type": "tool_use", "id": "toolu_1", "name": "report_offers"}
+        return httpx2.Response(
+            200,
+            json={
+                "id": f"msg_{len(sent)}",
+                "type": "message",
+                "role": "assistant",
+                "model": OPUS,
+                "content": [{**report, "input": {"offers": list(offers)}}],
+                "stop_reason": "tool_use",
+                "usage": {
+                    "input_tokens": 20_000,
+                    "output_tokens": 2_000,
+                    "server_tool_use": {"web_search_requests": searches, "web_fetch_requests": 0},
+                },
+            },
+        )
+
+    use_claude_transport(monkeypatch, handler)
+    return sent
+
+
+def use_claude_transport(monkeypatch, handler, **options: object) -> None:
+    """Every Claude client a command builds answers through `handler` instead of the API."""
+    real_anthropic = anthropic.Anthropic
+
+    def build(**kwargs: object) -> anthropic.Anthropic:
+        transport = httpx2.MockTransport(handler)
+        return real_anthropic(
+            api_key="test-key", http_client=httpx2.Client(transport=transport), **options, **kwargs
+        )
+
+    monkeypatch.setattr(anthropic, "Anthropic", build)
+
+
+GEMINI_REPORT = {
+    "title": "Gemini API free tier",
+    "provider": "Google",
+    "kind": "free_tier",
+    "access": "claim",
+    "eligibility": "Siapa saja dengan akun Google.",
+    "deadline": None,
+    "url": "https://ai.google.dev/pricing",
+    "summary": "Kuota gratis Gemini API setiap hari.",
+}
+
+
+def write_out_example_block(home: Path, name: str) -> None:
+    """The example config with its commented `name` block written out."""
+    config = home / "config.yaml"
+    text = config.read_text(encoding="utf-8")
+    commented = text[text.index(f"# {name}:\n") :].split("\n\n", 1)[0]
+    written_out = "\n".join(line.removeprefix("# ") for line in commented.splitlines())
+    config.write_text(text.replace(commented, written_out), encoding="utf-8")
+
+
+def month_usage(home: Path) -> UsageSummary:
+    today = date.today()
+    return UsageLedger(usage_file(home), prices={}, default_model=OPUS).month(
+        today.year, today.month
+    )
+
+
+def test_run_gives_the_brain_the_offers_tools_and_watches_for_offers_while_she_listens(
+    home, run_fakes, brains, offers_watchers, monkeypatch
+):
+    enable_notify(home)
+    notifier = FakeNotifier()
+    use_notifier(monkeypatch, notifier)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    assert [type(tools) for tools in brains[0].providers][-2:] == [PcTools, OffersTools]
+    [watcher] = offers_watchers
+    assert watcher.config == FreeOffersConfig()  # the example config's settings
+    assert (watcher.owner_call, watcher.title, watcher.notifier) == ("Master", "Cyrene", notifier)
+    assert watcher.store.path == Path("data") / "free_offers.json"
+    assert watcher.listening == [False, True]
+    assert "mic opened" in watcher.events_when_started  # once she is ready to listen
+    assert "mic closed" not in watcher.events_when_stopped
+    watcher.announce("Master, ada game gratis baru: Portal di Steam.", "happy")
+    assert RecordingAssistant.instances[0].announced == [
+        ("Master, ada game gratis baru: Portal di Steam.", "happy")
+    ]
+
+
+def test_run_watches_for_offers_for_an_owner_she_calls_sayang_without_pushing_when_notify_is_off(
+    home, run_fakes, brains, offers_watchers
+):
+    call_the_owner(home, "Sayang")
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    [watcher] = offers_watchers
+    assert (watcher.owner_call, watcher.notifier) == ("Sayang", None)
+
+
+def test_the_offers_tool_sends_a_link_to_the_phone_through_her_notifier(
+    home, run_fakes, brains, monkeypatch
+):
+    enable_notify(home)
+    notifier = FakeNotifier()
+    use_notifier(monkeypatch, notifier)
+    claude_offer = ai_offer("Claude for Startups", "Anthropic", access="apply")
+    keep_ai_offers(home, claude_offer)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    result, is_error = offers_tools(brains[0]).run("send_offer_link", {"id": claude_offer.id})
+    assert is_error is False, result
+    assert notifier.sent == [
+        (
+            "Claude for Startups",
+            f"Anthropic: Kredit gratis. Perlu mendaftar.\n{claude_offer.url}",
+            ("link",),
+        )
+    ]
+    assert notifier.clicks == [claude_offer.url]
+
+
+@pytest.mark.parametrize("claude", [False, True], ids=["ollama", "claude"])
+def test_chat_gives_either_brain_the_offers_tools_but_never_watches(
+    claude, home, brains, offers_watchers, monkeypatch
+):
+    if claude:
+        use_claude(home)
+    games = use_free_games(monkeypatch, free_games_now())
+    keep_ai_offers(home, ai_offer("Gemini API free tier", "Google"))
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main(["chat", "--dry-run"]) == 0
+
+    result, is_error = offers_tools(brains[0]).run("free_offers", {})
+    offers = json.loads(result)
+    assert is_error is False
+    assert [game["title"] for game in offers["games"]] == ["Bad Cheese", "Portal", "Sker Ritual"]
+    assert [offer["title"] for offer in offers["ai"]["offers"]] == ["Gemini API free tier"]
+    assert games.platforms == [["epic", "steam", "gog"]]  # the default platforms
+    assert offers_watchers == []
+
+
+def test_chat_sends_a_link_to_the_phone_when_master_asks(home, brains, monkeypatch):
+    enable_notify(home)
+    notifier = FakeNotifier()
+    use_notifier(monkeypatch, notifier)
+    gemini = ai_offer("Gemini API free tier", "Google")
+    keep_ai_offers(home, gemini)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main(["chat"]) == 0
+
+    assert offers_tools(brains[0]).run("send_offer_link", {"id": gemini.id})[1] is False
+    assert notifier.clicks == [gemini.url]
+
+
+def test_the_offers_tool_reads_the_configured_platforms(home, brains, monkeypatch):
+    append_config(home, "free_offers:\n  game_platforms: [gog, itchio]\n")
+    games = use_free_games(monkeypatch, ())
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main(["chat"]) == 0
+
+    assert offers_tools(brains[0]).run("free_offers", {"category": "games"})[1] is False
+    assert games.platforms == [["gog", "itchio"]]
+
+
+def test_with_the_games_off_the_offers_tool_says_so_without_reading_them(home, brains, monkeypatch):
+    append_config(home, "free_offers:\n  games: false\n")
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main(["chat"]) == 0
+
+    result, is_error = offers_tools(brains[0]).run("free_offers", {"category": "games"})
+    assert (json.loads(result)["message"], is_error) == (
+        "Pencarian game gratis dimatikan (free_offers.games: false).",
+        True,
+    )
+
+
+def test_run_with_the_offers_notices_off_answers_about_offers_but_never_speaks_up(
+    home, run_fakes, brains, offers_watchers
+):
+    append_config(home, "free_offers:\n  notices: false\n")
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    assert any(isinstance(tools, OffersTools) for tools in brains[0].providers)
+    assert offers_watchers == []
+
+
+@pytest.mark.parametrize("argv", [["run", "--no-speaker-check"], ["chat"]])
+def test_with_the_free_offers_off_she_neither_tells_nor_watches(
+    argv, home, run_fakes, brains, offers_watchers, monkeypatch
+):
+    append_config(home, "free_offers:\n  enabled: false\n")
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main([*argv, "--dry-run"]) == 0
+
+    assert not any(isinstance(tools, OffersTools) for tools in brains[0].providers)
+    assert offers_watchers == []
+
+
+@pytest.mark.parametrize(
+    ("failure", "exit_code"),
+    [(SttError("Whisper berhenti."), 1), (KeyboardInterrupt(), 130)],
+    ids=["whisper-fails", "ctrl-c"],
+)
+def test_run_stops_watching_for_offers_however_listening_ends(
+    failure, exit_code, home, run_fakes, brains, offers_watchers, monkeypatch
+):
+    def listen_until_it_fails(self, mic, segmenter) -> None:
+        self.ran_with = (mic, segmenter)
+        raise failure
+
+    monkeypatch.setattr(RecordingAssistant, "run", listen_until_it_fails)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == exit_code
+
+    [watcher] = offers_watchers
+    assert watcher.listening == [False, True]
+
+
+def test_the_watcher_reads_the_configured_platforms(
+    home, run_fakes, brains, offers_watchers, monkeypatch
+):
+    append_config(home, "free_offers:\n  game_platforms: [epic, pc]\n")
+    games = use_free_games(monkeypatch, free_games_now())
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    [watcher] = offers_watchers
+    assert [game.title for game in watcher.read_games()] == ["Bad Cheese", "Portal", "Sker Ritual"]
+    assert games.platforms == [["epic", "pc"]]
+
+
+def test_the_watcher_s_scan_asks_the_configured_claude_and_records_its_cost_with_claude(
+    home, run_fakes, brains, offers_watchers, monkeypatch
+):
+    use_claude(home)
+    append_config(home, "free_offers:\n  ai_max_searches: 4\n")
+    sent = claude_reports(monkeypatch, GEMINI_REPORT)
+    known = ai_offer("Claude for Startups", "Anthropic")
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    [watcher] = offers_watchers
+    [found] = watcher.scan([known])
+    assert (found.title, found.url) == ("Gemini API free tier", "https://ai.google.dev/pricing")
+    [request] = sent
+    assert request["model"] == "claude-opus-5-5"
+    assert [tool["name"] for tool in request["tools"]] == ["web_search", "report_offers"]
+    assert request["tools"][0]["max_uses"] == 4
+    assert "Claude for Startups (Anthropic)" in request["messages"][0]["content"]
+    # 20,000 input tokens ($0.08), 2,000 output tokens ($0.04), 3 searches ($0.03).
+    month = month_usage(home)
+    assert (month.requests, month.tokens.web_searches) == (1, 3)
+    assert round(month.cost_usd, 4) == 0.15
+
+
+def test_the_watcher_s_scan_asks_for_no_fallback_when_the_claude_fallbacks_are_off(
+    home, run_fakes, brains, offers_watchers, monkeypatch
+):
+    use_claude(home)
+    config = home / "config.yaml"
+    config.write_text(
+        config.read_text(encoding="utf-8").replace("fallbacks: true", "fallbacks: false", 1),
+        encoding="utf-8",
+    )
+    sent = claude_reports(monkeypatch, GEMINI_REPORT)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    [watcher] = offers_watchers
+    watcher.scan([])
+    [request] = sent
+    assert "fallbacks" not in request
+
+
+def test_with_ollama_the_watcher_s_scan_still_asks_claude_but_records_nothing(
+    home, run_fakes, brains, offers_watchers, monkeypatch
+):
+    sent = claude_reports(monkeypatch)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    [watcher] = offers_watchers
+    assert watcher.scan([]) == []
+    assert len(sent) == 1
+    assert not usage_file(home).exists()
+
+
+def test_offers_games_prints_each_game_with_its_link_and_credits_gamerpower(
+    home, monkeypatch, capsys
+):
+    games = free_games_now()
+    reads = use_free_games(monkeypatch, games)
+    bad_cheese, portal, sker_ritual = games
+
+    assert cli.main(["offers", "games"]) == 0
+
+    assert capsys.readouterr().out.splitlines() == [
+        "Game gratis sekarang:",
+        f"  Bad Cheese di Epic Games Store, sampai {when_text(bad_cheese.ends_at)}",
+        f"    {bad_cheese.url}",
+        f"  Portal di Steam (biasanya $9.99), sampai {day_text(portal.ends_on)}",
+        f"    {portal.url}",
+        "Segera gratis:",
+        f"  Sker Ritual di Epic Games Store, mulai {when_text(sker_ritual.starts_at)}, "
+        f"sampai {when_text(sker_ritual.ends_at)}",
+        f"    {sker_ritual.url}",
+        "Sumber: GamerPower.com (https://www.gamerpower.com)",
+    ]
+    assert reads.platforms == [["epic", "steam", "gog"]]
+
+
+def test_offers_games_from_epic_alone_needs_no_credit(home, monkeypatch, capsys):
+    bad_cheese = free_games_now()[0]
+    use_free_games(monkeypatch, (bad_cheese,))
+
+    assert cli.main(["offers", "games"]) == 0
+
+    assert "GamerPower" not in capsys.readouterr().out
+
+
+def test_offers_games_reads_them_with_the_free_offers_off_too(home, monkeypatch, capsys):
+    append_config(home, "free_offers:\n  enabled: false\n  games: false\n")
+    use_free_games(monkeypatch, ())
+
+    assert cli.main(["offers", "games"]) == 0
+
+    assert capsys.readouterr().out == "Tidak ada game gratis saat ini.\n"
+
+
+def test_offers_games_that_cannot_be_read_fail_with_the_reason(home, monkeypatch, capsys):
+    use_free_games(monkeypatch, OffersError("Daftar game gratis tidak bisa diambil."))
+
+    assert cli.main(["offers", "games"]) == 1
+
+    assert capsys.readouterr().out == "✗ Daftar game gratis tidak bisa diambil.\n"
+
+
+def test_offers_ai_prints_the_kept_offers_newest_first_with_their_links(home, capsys):
+    deadline = date.today() + timedelta(days=60)
+    older = ai_offer(
+        "Claude for Startups",
+        "Anthropic",
+        kind="startup_program",
+        access="apply",
+        eligibility="Startup yang didukung modal ventura mitra Anthropic.",
+        summary="Kredit API Claude gratis untuk startup.",
+        url="https://www.anthropic.com/startups",
+        first_seen=datetime.now().replace(microsecond=0) - timedelta(days=9),
+    )
+    newer = ai_offer("Gemini API free tier", "Google", kind="free_tier", deadline=deadline)
+    keep_ai_offers(home, older)
+    scanned = keep_ai_offers(home, newer)
+
+    assert cli.main(["offers", "ai"]) == 0
+
+    assert capsys.readouterr().out.splitlines() == [
+        f"Promo AI (pencarian terakhir {when_text(scanned)}):",
+        "  Gemini API free tier dari Google: paket gratis, bisa langsung diklaim, sampai "
+        f"{day_text(deadline)}",
+        "    Kredit gratis.",
+        "    Untuk: Siapa saja.",
+        f"    {newer.url}",
+        "  Claude for Startups dari Anthropic: program startup, perlu mendaftar",
+        "    Kredit API Claude gratis untuk startup.",
+        "    Untuk: Startup yang didukung modal ventura mitra Anthropic.",
+        "    https://www.anthropic.com/startups",
+    ]
+
+
+def test_offers_ai_marks_a_link_off_the_provider_s_own_site_as_unverified(home, capsys):
+    keep_ai_offers(
+        home, ai_offer("Claude Pro gratis", "Anthropic", url="https://claude-pro-free.example/")
+    )
+
+    assert cli.main(["offers", "ai"]) == 0
+
+    assert capsys.readouterr().out.splitlines()[-1] == (
+        "    https://claude-pro-free.example/  (belum terverifikasi: bukan situs resmi "
+        "penyedia yang dikenal)"
+    )
+
+
+NEVER_SCANNED = (
+    "Promo AI belum pernah dicari. Jalankan 'waifu offers ai --scan' (memakai Claude dengan "
+    "pencarian web, berbayar)."
+)
+
+
+def test_offers_ai_before_any_scan_says_how_to_run_one(home, capsys):
+    assert cli.main(["offers", "ai"]) == 0
+
+    assert capsys.readouterr().out == f"{NEVER_SCANNED}\n"
+    assert not offers_file(home).exists()
+
+
+def test_offers_ai_after_a_scan_that_kept_nothing_says_when_it_ran(home, capsys):
+    scanned = keep_ai_offers(home)
+
+    assert cli.main(["offers", "ai"]) == 0
+
+    assert capsys.readouterr().out == (
+        f"Belum ada promo AI yang tersimpan (pencarian terakhir {when_text(scanned)}).\n"
+    )
+
+
+def test_offers_prints_the_games_and_then_the_ai_offers(home, monkeypatch, capsys):
+    use_free_games(monkeypatch, ())
+
+    assert cli.main(["offers"]) == 0
+
+    assert capsys.readouterr().out.splitlines() == [
+        "Tidak ada game gratis saat ini.",
+        "",
+        NEVER_SCANNED,
+    ]
+
+
+def test_offers_fails_when_the_games_cannot_be_read_but_still_prints_the_ai_offers(
+    home, monkeypatch, capsys
+):
+    use_free_games(monkeypatch, OffersError("Daftar game gratis tidak bisa diambil."))
+
+    assert cli.main(["offers"]) == 1
+
+    assert capsys.readouterr().out.splitlines()[-1] == NEVER_SCANNED
+
+
+def test_offers_ai_scan_runs_a_scan_now_keeps_it_and_prints_the_new_offers_and_its_cost(
+    home, monkeypatch, capsys
+):
+    use_claude(home)
+    sent = claude_reports(monkeypatch, GEMINI_REPORT, searches=6)
+    before = datetime.now().replace(microsecond=0)
+
+    assert cli.main(["offers", "ai", "--scan"]) == 0
+
+    store = OffersStore(offers_file(home))
+    [kept] = store.ai_offers()
+    assert kept.title == "Gemini API free tier"
+    assert store.last_ai_scan() >= before
+    assert len(sent) == 1
+    assert capsys.readouterr().out.splitlines() == [
+        "Mencari promo AI dengan Claude dan pencarian web, bisa beberapa menit...",
+        "✓ 1 promo AI baru:",
+        "  Gemini API free tier dari Google: paket gratis, bisa langsung diklaim",
+        "    Kuota gratis Gemini API setiap hari.",
+        "    Untuk: Siapa saja dengan akun Google.",
+        "    https://ai.google.dev/pricing",
+        # 20,000 input tokens ($0.08), 2,000 output tokens ($0.04), 6 searches ($0.06).
+        "Perkiraan biaya pencarian ini: $0.18 (1 permintaan, 6 pencarian web).",
+    ]
+    assert month_usage(home).tokens.web_searches == 6  # recorded with her other Claude costs
+
+
+def test_offers_ai_scan_that_finds_only_known_offers_says_nothing_is_new(home, monkeypatch, capsys):
+    use_claude(home)
+    claude_reports(monkeypatch, GEMINI_REPORT)
+    assert cli.main(["offers", "ai", "--scan"]) == 0
+    capsys.readouterr()
+
+    assert cli.main(["offers", "ai", "--scan"]) == 0
+
+    assert capsys.readouterr().out.splitlines()[1:] == [
+        "✓ Tidak ada promo AI baru. Semua yang tersimpan: 'waifu offers ai'.",
+        "Perkiraan biaya pencarian ini: $0.15 (1 permintaan, 3 pencarian web).",
+    ]
+
+
+def test_offers_ai_scan_with_ollama_prints_its_cost_and_says_it_is_not_recorded(
+    home, monkeypatch, capsys
+):
+    claude_reports(monkeypatch)
+
+    assert cli.main(["offers", "ai", "--scan"]) == 0
+
+    assert capsys.readouterr().out.splitlines()[-2:] == [
+        "Perkiraan biaya pencarian ini: $0.15 (1 permintaan, 3 pencarian web).",
+        "(Tidak dicatat di 'waifu usage': biaya API hanya dicatat dengan brain.backend: claude "
+        "dan usage.enabled: true.)",
+    ]
+    assert not usage_file(home).exists()
+
+
+def test_offers_ai_scan_that_fails_says_why_and_still_prints_what_it_cost(
+    home, monkeypatch, capsys
+):
+    use_claude(home)
+
+    def refuse(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(
+            200,
+            json={
+                "id": "msg_1",
+                "type": "message",
+                "role": "assistant",
+                "model": OPUS,
+                "content": [],
+                "stop_reason": "refusal",
+                "usage": {"input_tokens": 10_000, "output_tokens": 0},
+            },
+        )
+
+    use_claude_transport(monkeypatch, refuse)
+
+    assert cli.main(["offers", "ai", "--scan"]) == 1
+
+    assert capsys.readouterr().out.splitlines()[1:] == [
+        "✗ Claude menolak mencari promo AI kali ini.",
+        "Perkiraan biaya pencarian ini: $0.04 (1 permintaan, 0 pencarian web).",
+    ]
+    assert OffersStore(offers_file(home)).last_ai_scan() is None  # the next scan tries again
+
+
+def hold_the_scan_lock(home: Path) -> InstanceLock:
+    """Another scan (`waifu run`'s watcher, or a second `--scan`) is running."""
+    lock = InstanceLock(home / "data" / "free_offers.json.scan.lock")
+    assert lock.acquire()
+    return lock
+
+
+SCAN_RUNNING = (
+    "Pencarian promo AI lain sedang berjalan, misalnya oleh 'waifu run'. Coba lagi setelah selesai."
+)
+
+
+def test_offers_ai_scan_while_another_scan_runs_says_so_and_asks_nothing(home, monkeypatch, capsys):
+    use_claude(home)
+    sent = claude_reports(monkeypatch, GEMINI_REPORT)
+    lock = hold_the_scan_lock(home)
+    try:
+        assert cli.main(["offers", "ai", "--scan"]) == 1
+    finally:
+        lock.release()
+
+    assert sent == []
+    assert capsys.readouterr().out.splitlines()[1:] == [f"✗ {SCAN_RUNNING}"]
+    assert cli.main(["offers", "ai", "--scan"]) == 0  # and once it is done, it runs
+    assert len(sent) == 1
+
+
+def test_the_watcher_s_scan_skips_while_another_scan_runs_and_retries_at_the_next_poll(
+    home, run_fakes, brains, offers_watchers, monkeypatch
+):
+    sent = claude_reports(monkeypatch, GEMINI_REPORT)
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+    [watcher] = offers_watchers
+
+    lock = hold_the_scan_lock(home)
+    try:
+        skipped = watcher.scan([])
+    finally:
+        lock.release()
+
+    assert isinstance(skipped, OffersError)
+    assert (str(skipped), skipped.billed) == (SCAN_RUNNING, False)
+    assert sent == []
+
+
+def test_offers_ai_scan_without_claude_credentials_says_so_and_asks_nothing(
+    home, monkeypatch, capsys
+):
+    real_anthropic = anthropic.Anthropic
+    for name in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_PROFILE"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("ANTHROPIC_CONFIG_DIR", str(home / "no-profile"))
+
+    def without_credentials(**kwargs: object) -> anthropic.Anthropic:
+        unreachable = httpx2.MockTransport(lambda request: pytest.fail("Claude was asked"))
+        return real_anthropic(http_client=httpx2.Client(transport=unreachable), **kwargs)
+
+    monkeypatch.setattr(anthropic, "Anthropic", without_credentials)
+
+    assert cli.main(["offers", "ai", "--scan"]) == 1
+
+    assert capsys.readouterr().out.splitlines()[1:] == [
+        "✗ API key Claude belum diatur atau tidak valid, jadi promo AI belum bisa dicari."
+    ]
+
+
+def test_offers_ai_scan_names_the_workspace_an_organization_key_needs(home, monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_WORKSPACE_ID", " wrkspc_01 ")
+    workspaces: list[str | None] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        workspaces.append(request.headers.get("anthropic-workspace-id"))
+        return httpx2.Response(500, json={"type": "error", "error": {"type": "api_error"}})
+
+    use_claude_transport(monkeypatch, handler, max_retries=0)
+
+    assert cli.main(["offers", "ai", "--scan"]) == 1
+
+    assert workspaces == ["wrkspc_01"]
+
+
+@pytest.mark.parametrize("argv", [["offers", "games", "--scan"], ["offers", "--scan"]])
+def test_only_the_ai_offers_can_be_scanned(argv):
+    with pytest.raises(SystemExit) as exit_info:
+        cli.build_parser().parse_args(argv)
+
+    assert exit_info.value.code == 2
+
+
+def web_search_line(out: str) -> str:
+    [line] = [line for line in out.splitlines() if "Pencarian web" in line]
+    return line
+
+
+@pytest.mark.parametrize(
+    ("claude", "enabled", "expected"),
+    [
+        (
+            True,
+            True,
+            "✓ Pencarian web: aktif (Claude, paling banyak 3 pencarian per permintaan, 18 per "
+            "pertanyaan)",
+        ),
+        (False, True, "! Pencarian web: tidak tersedia dengan Ollama"),
+        (True, False, "! Pencarian web mati"),
+        (False, False, "! Pencarian web mati"),
+    ],
+    ids=["claude", "ollama", "claude_with_search_off", "ollama_with_search_off"],
+)
+def test_check_reports_whether_she_can_search_the_web(
+    claude, enabled, expected, home, nothing_installed, capsys
+):
+    if claude:
+        use_claude(home)
+    if not enabled:
+        append_config(home, "web_search:\n  enabled: false\n")
+
+    cli.main(["check"])
+
+    assert web_search_line(capsys.readouterr().out) == expected
+
+
+def free_offers_line(out: str) -> str:
+    [line] = [line for line in out.splitlines() if "promo gratis" in line.lower()]
+    return line
+
+
+def test_check_reports_the_free_offers_before_any_scan_without_creating_the_file(
+    home, nothing_installed, capsys
+):
+    cli.main(["check"])
+
+    assert free_offers_line(capsys.readouterr().out) == (
+        "✓ Promo gratis: game Epic, Steam, GOG; promo AI belum pernah dicari"
+    )
+    assert not offers_file(home).exists()
+
+
+def test_check_reports_when_the_ai_offers_were_last_searched_for(home, nothing_installed, capsys):
+    scanned = keep_ai_offers(home)
+
+    cli.main(["check"])
+
+    assert free_offers_line(capsys.readouterr().out) == (
+        f"✓ Promo gratis: game Epic, Steam, GOG; promo AI terakhir dicari {when_text(scanned)}"
+    )
+
+
+@pytest.mark.parametrize(
+    ("settings", "expected"),
+    [
+        ("  enabled: false\n", "! Promo gratis mati"),
+        (
+            "  games: false\n  ai: false\n  notices: false\n",
+            "✓ Promo gratis: game mati; promo AI mati; tanpa pemberitahuan",
+        ),
+        (
+            "  notices: false\n",
+            "✓ Promo gratis: game Epic, Steam, GOG; promo AI belum pernah dicari; tanpa "
+            "pemberitahuan dan tanpa pencarian promo AI mingguan",
+        ),
+        (
+            "  game_platforms: [itchio, pc]\n",
+            "✓ Promo gratis: game itch.io, PC; promo AI belum pernah dicari",
+        ),
+    ],
+    ids=["off", "parts-off", "notices-off", "platforms"],
+)
+def test_check_reports_the_free_offers_settings(
+    settings, expected, home, nothing_installed, capsys
+):
+    append_config(home, f"free_offers:\n{settings}")
+
+    cli.main(["check"])
+
+    assert free_offers_line(capsys.readouterr().out) == expected
+
+
+def test_check_shows_where_a_broken_offers_file_was_moved(home, nothing_installed, capsys):
+    offers_file(home).parent.mkdir()
+    offers_file(home).write_text("{promo yang rusak", encoding="utf-8")
+
+    cli.main(["check"])
+
+    [moved] = offers_file(home).parent.glob("free_offers.json.corrupt-*")
+    line = free_offers_line(capsys.readouterr().out)
+    assert line.startswith("! Promo gratis: game Epic, Steam, GOG; promo AI belum pernah dicari")
+    assert str(Path("data") / moved.name) in line
+    assert moved.read_text(encoding="utf-8") == "{promo yang rusak"
+
+
+def test_check_fails_an_offers_file_it_cannot_read(home, nothing_installed, capsys):
+    offers_file(home).mkdir(parents=True)  # a folder where the file should be
+
+    cli.main(["check"])
+
+    line = free_offers_line(capsys.readouterr().out)
+    assert line.startswith(f"✗ File promo gratis {Path('data/free_offers.json')} tidak bisa dibaca")
+
+
+def test_the_example_web_search_block_is_valid_once_written_out(home, nothing_installed, capsys):
+    use_claude(home)
+    write_out_example_block(home, "web_search")
+
+    cli.main(["check"])
+
+    assert web_search_line(capsys.readouterr().out).startswith("✓ Pencarian web: aktif")
+
+
+def test_the_example_free_offers_block_is_valid_once_written_out(
+    home, run_fakes, brains, offers_watchers
+):
+    write_out_example_block(home, "free_offers")
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    [watcher] = offers_watchers
+    assert watcher.config == FreeOffersConfig()  # the example writes out the defaults
+
+
+def test_the_example_usage_block_prices_the_web_searches(home):
+    write_out_example_block(home, "usage")
+
+    assert cli.load_config(home / "config.yaml").usage.web_search_per_1000_usd == 10.0

@@ -41,6 +41,7 @@ Cyrene : "Komputer mau kumatikan sekarang, Master? Jawab iya kalau jadi." (minta
 - [Biaya API Claude](#biaya-api-claude)
 - [Cyrene di HP](#cyrene-di-hp)
 - [Kesehatan PC](#kesehatan-pc)
+- [Pencarian web dan promo gratis](#pencarian-web-dan-promo-gratis)
 - [Pemecahan masalah](#pemecahan-masalah)
 - [Checklist uji perangkat keras](#checklist-uji-perangkat-keras)
 - [Privasi](#privasi)
@@ -286,7 +287,8 @@ Pilih dengan `brain.backend` di `config.yaml`.
 3. `waifu check` menampilkan status kunci API.
 
 Hanya dengan Claude, Cyrene bisa melihat layar saat Master memintanya (lihat
-[Melihat layar](#melihat-layar)). Dia juga mencatat perkiraan biaya setiap jawabannya dan
+[Melihat layar](#melihat-layar)) dan mencari di web (lihat
+[Pencarian web dan promo gratis](#pencarian-web-dan-promo-gratis)). Dia juga mencatat perkiraan biaya setiap jawabannya dan
 bisa memberi tahu saat anggaran bulanan hampir habis (lihat
 [Biaya API Claude](#biaya-api-claude)).
 
@@ -613,7 +615,8 @@ waifu speaker-test    # skor kecocokan langsung, Ctrl+C untuk berhenti
 | `waifu usage` / `waifu usage --month 2026-09` | Perkiraan biaya API Claude per hari bulan ini atau bulan lain (lihat [Biaya API Claude](#biaya-api-claude)) |
 | `waifu phone setup` / `pair` / `devices` / `forget <id>` | Siapkan Cyrene di HP lewat Tailscale, pasangkan HP dengan kode, lihat dan lupakan HP (lihat [Cyrene di HP](#cyrene-di-hp)) |
 | `waifu pc` | Tampilkan kondisi PC saat ini: beban CPU, RAM, sisa disk, GPU NVIDIA, dan waktu sejak Windows terakhir di-restart (lihat [Kesehatan PC](#kesehatan-pc)) |
-| `waifu check` | Periksa config, kode IR, aplikasi PC, rutinitas, voiceprint, otak, ingatan, jadwal, sapaan pagi, biaya API, kesehatan PC, paket suara, CUDA, mic, suara anime, avatar, dan Cyrene di HP |
+| `waifu offers` / `offers games` / `offers ai` | Game gratis dan promo AI yang tersimpan, dengan linknya; `waifu offers ai --scan` mencari promo AI sekarang dengan Claude (berbayar) (lihat [Pencarian web dan promo gratis](#pencarian-web-dan-promo-gratis)) |
+| `waifu check` | Periksa config, kode IR, aplikasi PC, rutinitas, voiceprint, otak, ingatan, jadwal, sapaan pagi, biaya API, kesehatan PC, pencarian web, promo gratis, paket suara, CUDA, mic, suara anime, avatar, dan Cyrene di HP |
 
 Opsi untuk semua perintah: `--config <file>` (default `config.yaml`), `--dry-run`
 (perangkat simulasi), `-v` (log lebih rinci), `--log-file <file>` (log juga ditulis
@@ -2302,7 +2305,10 @@ Master : "Cyrene, kalau dirupiahkan berapa?"           (perlu usage.idr_per_usd)
   (satu kalimat Master bisa jadi beberapa permintaan) dan jawaban yang ditolak. Kalau model
   utama menolak di tengah jalan lalu model pengganti menjawab (`fallbacks: true`), keduanya
   ditagih, jadi keduanya dicatat sebagai permintaan sendiri-sendiri. Dari setiap jawaban
-  dicatat jumlah token yang dilaporkan API: input, output, tulis cache, dan baca cache.
+  dicatat jumlah token yang dilaporkan API: input, output, tulis cache, dan baca cache,
+  serta jumlah pencarian web (10 dolar per 1000 pencarian, `usage.web_search_per_1000_usd`).
+  Pencarian promo AI mingguan juga tercatat (lihat
+  [Pencarian web dan promo gratis](#pencarian-web-dan-promo-gratis)).
   Totalnya disimpan per hari (jam PC) dan per model di `data\usage.json`.
 - **Harganya perkiraan.** Biaya dihitung dari harga resmi per sejuta token yang dibawa
   Cyrene, untuk `claude-opus-5-5`: input 4 dolar, output 20 dolar, tulis cache 5 dolar (cache
@@ -2333,8 +2339,9 @@ Total       59          24340  18120   48700        913500      $0.89  Rp14.441 
 ```
 
 Angka di kolom token adalah jumlah token. Kolom IDR hanya muncul kalau `usage.idr_per_usd`
-diisi. Bulan tanpa catatan menampilkan `Belum ada catatan biaya.` Perintah ini hanya membaca
-catatannya, tanpa menghubungi API, jadi jalan dengan otak apa pun dan walau
+diisi, dan kolom `PENCARIAN WEB` hanya di bulan yang ada pencarian webnya. Bulan tanpa catatan
+menampilkan `Belum ada catatan biaya.` Perintah ini hanya membaca catatannya, tanpa
+menghubungi API, jadi jalan dengan otak apa pun dan walau
 `usage.enabled: false`, juga selagi `waifu run` berjalan.
 
 `waifu check` menampilkan `✓ Biaya API: $0.89 bulan ini (59 permintaan)`, atau
@@ -2349,6 +2356,7 @@ usage:
   idr_per_usd: 16300       # kurs rupiah per dolar, untuk ikut menyebut biayanya dalam rupiah
   prices:                  # dolar per sejuta token; menimpa atau menambah harga bawaan
     claude-opus-5-5: {input: 4.00, output: 20.00, cache_write: 5.00, cache_read: 0.20}
+  web_search_per_1000_usd: 10   # pencarian web Claude: dolar per 1000 pencarian, di luar token
 ```
 
 - **Anggaran:** dengan `monthly_budget_usd`, sekali saat biaya bulan itu melewati 80% dan
@@ -2840,6 +2848,229 @@ pemberitahuannya ke `ntfy.sh` kalau notifikasi HP menyala.
 Untuk tetap bisa bertanya tapi tanpa pemberitahuan, tulis `notices: false` di bagian
 `pc_health`; untuk mematikan semuanya, `enabled: false`.
 
+## Pencarian web dan promo gratis
+
+Dengan otak Claude, Cyrene bisa mencari di web untuk pertanyaan yang jawabannya baru atau berubah,
+lalu menjawab singkat dan menyebut sumbernya. Dia juga memberi tahu **game yang gratis untuk
+disimpan** (Epic Games Store, Steam, GOG, dan lainnya) dan **promo AI** dari penyedia ternama
+(misalnya Claude for Startups dari Anthropic, kredit atau paket gratis dari OpenAI, Google Gemini,
+dan lainnya) yang bisa langsung diklaim gratis atau perlu mendaftar. Selama `waifu run` dia bilang
+sendiri saat ada yang baru, dan mengirim linknya ke HP kalau notifikasi menyala.
+
+**Dia hanya memberi tahu.** Cyrene tidak pernah mengklaim game, mendaftar program, login ke akun,
+atau membeli apa pun untuk Master, tidak pernah membuka link di PC, dan tidak pernah menyarankan
+membayar. Mengklaim dan mendaftar selalu dilakukan Master sendiri.
+
+**Setelah memperbarui ke versi ini, jalankan ulang `waifu run` dulu** sebelum memakai
+`waifu chat` dengan Claude atau `waifu offers ai --scan`. `waifu run` versi lama yang masih
+berjalan menganggap `data\usage.json` yang memuat jumlah pencarian web sebagai file rusak dan
+memindahkannya (lihat [File data\usage.json](#file-datausagejson)).
+
+```text
+Master : "Cyrene, cari berita terbaru soal RTX 5070."
+Master : "Cyrene, harga RTX 5070 sekarang berapa?"
+Master : "Cyrene, kapan HSR 4.7 rilis?"
+Master : "Cyrene, ada game gratis apa sekarang?"
+Cyrene : "Ada Bad Cheese di Epic sampai Kamis jam sepuluh malam, dan Portal di Steam sampai
+          25 Oktober, infonya dari GamerPower.com."
+Master : "Kirim linknya Bad Cheese ke HP."        (tanpa memanggil nama, masih dalam jendela lanjutan)
+Master : "Cyrene, ada promo AI gratis nggak?"
+Cyrene : "Ada Claude for Startups dari Anthropic, kredit API untuk startup, tapi harus mendaftar dulu."
+```
+
+### Pencarian web
+
+- **Hanya dengan Claude** (`brain.backend: claude`): pencarian web Claude berjalan di server
+  Anthropic. Dengan Ollama fitur ini tidak tersedia, dan `waifu check` menampilkan
+  `! Pencarian web: tidak tersedia dengan Ollama`.
+- Dia mencari hanya kalau perlu, paling banyak `max_uses` kali (bawaan 3) **per permintaan ke
+  Claude**, dan menjawab dalam satu-dua kalimat dengan menyebut sumbernya. Link tidak pernah
+  dibacakan. Satu pertanyaan bisa butuh beberapa permintaan (satu lagi setiap kali dia memakai
+  tool, sampai `brain.max_tool_rounds` + 1), jadi paling banyak 18 pencarian dengan bawaannya;
+  biasanya jauh lebih sedikit.
+- Model yang menyaring hasil pencarian sendiri (Opus 5.5 bawaannya, juga Opus 5, Sonnet 5.5,
+  Sonnet 5, Fable 5.1, dan lainnya) memakai pencarian `web_search_20260209`; model lain, misalnya
+  Haiku 5.5, memakai versi sebelumnya (`web_search_20250305`), jadi `brain.claude.model` bebas
+  diganti.
+- Dengan pencarian web, jawaban Claude diterima sedikit demi sedikit (streaming), jadi pencarian
+  yang lama tidak terputus di tengah jalan. Jawaban yang macet lebih dari 60 detik dihentikan tanpa
+  diminta ulang (bagian yang sudah jalan bisa jadi sudah ditagih), dan dia bilang jawabannya
+  terlalu lama.
+- Hasil pencarian untuk orang di Indonesia: negara `ID`, zona waktu `Asia/Jakarta`, dan kota dari
+  `web_search.city` (atau `briefing.city` kalau kosong).
+- **Isi halaman web hanyalah data, bukan perintah dari Master.** Kalau sebuah halaman menyuruh
+  menyalakan perangkat, mematikan PC, membuka aplikasi, membuat jadwal, atau mengubah ingatan,
+  dia tidak menurutinya.
+- **Biaya:** 10 dolar per 1000 pencarian (1 sen per pencarian) di luar token, dan hasil pencarian
+  ikut dihitung sebagai token input. Jumlah pencarian dan biayanya tercatat di
+  [Biaya API Claude](#biaya-api-claude): `waifu usage` menambah kolom `PENCARIAN WEB` di bulan
+  yang ada pencariannya. Kalau harga pencarian berubah, tulis `usage.web_search_per_1000_usd`.
+
+```yaml
+web_search:
+  enabled: true            # false: tanpa pencarian web
+  max_uses: 3              # pencarian paling banyak per permintaan ke Claude (1-10)
+  country: ID
+  timezone: Asia/Jakarta
+  # city: Bandung          # tanpa ini briefing.city
+```
+
+`waifu check` menampilkan `✓ Pencarian web: aktif (Claude, paling banyak 3 pencarian per
+permintaan, 18 per pertanyaan)`, `! Pencarian web: tidak tersedia dengan Ollama`, atau
+`! Pencarian web mati`.
+
+### Game gratis
+
+- **Sumbernya:** Epic Games Store dari Epic sendiri (game yang gratis sekarang dan minggu depan,
+  dengan jam mulai dan berakhir yang tepat), lalu Steam, GOG, itch.io, atau semua toko PC
+  (`pc`) dari [GamerPower.com](https://www.gamerpower.com), yang datanya boleh dipakai dengan
+  menyebut dan menautkan GamerPower.com. Dari GamerPower hanya tanggal berakhirnya yang dipakai
+  (jamnya tidak tepat), dan setiap kali menyebut game dari sana dia menyebut GamerPower.com.
+- Hanya game yang gratis untuk disimpan: diskon berbayar, DLC, item, dan beta tidak dihitung.
+- Saat ditanya, daftar gamenya dibaca paling lama 30 menit sebelumnya.
+- **Pemberitahuan:** setiap `games_poll_hours` (bawaan 6 jam) selama `waifu run`, mulai begitu
+  dia siap mendengarkan, game gratis yang belum pernah diberitahukan disebut dalam satu kalimat
+  dengan wajah senang, misalnya "Master, ada game gratis baru: Bad Cheese dan Lost Castle di
+  Epic, sampai Kamis 22.00." Kalau ada game dari GamerPower, dia menutupnya dengan "infonya dari
+  GamerPower.com", misalnya "Master, ada game gratis baru: Portal di Steam, sampai 25 Oktober,
+  infonya dari GamerPower.com." Paling banyak tiga judul disebut, sisanya dihitung. Game yang baru
+  gratis minggu depan diberitahukan saat sudah bisa diklaim. Setiap game hanya sekali; game yang
+  diberikan gratis lagi lebih dari 30 hari setelah berakhir dianggap baru lagi.
+
+### Promo AI
+
+- **Pencarian mingguan:** selama pemberitahuan menyala (`notices: true`), setiap `ai_scan_days`
+  (bawaan 7 hari), dan pertama kali begitu `waifu run` siap, Claude mencari di web promo yang
+  sedang dibuka penyedia AI ternama
+  (Anthropic, OpenAI, Google Gemini, xAI, Mistral, Meta, AWS, Microsoft, GitHub Copilot, Hugging
+  Face, dan lainnya): kredit gratis, paket gratis, uji coba, serta program startup, riset, atau
+  pelajar, yang bisa didapat dari Indonesia. Setiap promo dicatat dengan penyedianya, jenisnya,
+  apakah **bisa langsung diklaim** atau **perlu mendaftar**, siapa yang bisa mendapatkannya,
+  batas waktunya kalau ada, dan link ke halaman penyedianya sendiri. Skema referral, giveaway yang
+  butuh pembayaran, dan promo yang sudah berakhir tidak dihitung. Dengan `notices: false`
+  pencarian mingguan ini juga berhenti: jalankan `waifu offers ai --scan` sendiri.
+- Pencarian ini memakai Claude (`brain.claude.model`) **juga dengan otak Ollama**, jadi butuh API
+  key Claude; tanpa itu, tulis `ai: false`. Pencarian ini hanya punya pencarian web dan satu tool
+  untuk melaporkan hasilnya: tidak ada perangkat, PC, ingatan, atau jadwal di dekatnya, dan yang
+  dikirim tentang Master hanya negaranya (Indonesia).
+- **Biaya:** paling banyak `ai_max_searches` (bawaan 6) pencarian web per permintaan ke Claude,
+  dan satu pencarian promo bisa sampai 6 permintaan kalau pencariannya dilanjutkan, ditambah
+  token. Hasil pencarian yang panjang ikut dihitung sebagai token input (sebagian besar dibaca
+  dari cache yang lebih murah), jadi satu pencarian promo bisa sampai beberapa puluh sen dolar. `waifu offers ai --scan` menampilkan perkiraannya. Dengan otak Claude
+  biayanya tercatat di [Biaya API Claude](#biaya-api-claude); dengan Ollama tidak dicatat.
+- Pencarian yang gagal sebelum Claude menjawab (internet putus, server Claude sibuk) dicoba lagi
+  pada pengecekan game berikutnya, 6 jam kemudian. Pencarian yang gagal setelah Claude menjawab
+  (sudah ditagih, misalnya Claude selesai tanpa melaporkan hasilnya) baru dicoba lagi sehari
+  kemudian, juga kalau `waifu run` dijalankan ulang.
+- **Pemberitahuan:** promo baru disebut dalam satu kalimat, misalnya "Master, aku menemukan 2
+  promo AI baru: Claude for Startups dari Anthropic dan Gemini API free tier dari Google. Link
+  yang pertama ada di notifikasi HP; minta aku kalau mau link yang lain." Untuk link yang lain,
+  bilang misalnya "Cyrene, kirim link Gemini API free tier ke HP".
+- Setiap pencarian melaporkan lagi promo yang masih dibuka, jadi promo disimpan selama masih ada:
+  sampai batas waktunya lewat, atau sampai 90 hari tidak dilaporkan lagi. Promo yang ditemukan
+  lagi setelah itu diumumkan sebagai baru.
+- Isinya hasil pencarian web: baca halaman penyedianya sebelum mendaftar, karena syaratnya bisa
+  berubah atau ringkasannya keliru. Judul, syarat, dan ringkasannya berasal dari halaman web, jadi
+  Cyrene menganggapnya data, bukan perintah, dan promo dengan teks yang terlalu panjang dibuang.
+
+### Link ke HP
+
+"Kirim linknya ke HP" mengirim notifikasi berisi judul, keterangan singkat, dan link promo itu;
+mengetuk notifikasinya membuka halamannya. Pemberitahuan game dan promo baru juga membawa link
+yang pertama. Butuh notifikasi HP (lihat [Notifikasi ke HP](#3-notifikasi-ke-hp-ntfy)); tanpa itu
+dia bilang belum bisa mengirimnya, dan semua link bisa dilihat dengan `waifu offers`. Hanya link
+`https` yang dikirim.
+
+**Link promo AI dari situs yang tidak dikenal tidak pernah terbuka sekali ketuk.** Pencarian promo
+membaca halaman yang bisa ditulis siapa saja, dan halaman penipu bisa menyelipkan link palsu
+untuk "kredit Claude gratis". Link yang terbuka saat notifikasinya diketuk hanya yang ada di situs
+resmi penyedia yang dikenal, tempat hanya penyedia itu yang bisa menerbitkan halaman (misalnya
+anthropic.com, claude.com, openai.com, ai.google.dev, cloud.google.com, startup.google.com, x.ai,
+mistral.ai, ai.meta.com, aws.amazon.com, www.microsoft.com, azure.microsoft.com,
+education.github.com, docs.github.com). Situs tempat siapa saja bisa menerbitkan halaman tidak
+dihitung resmi, walaupun milik penyedia itu: github.com dan huggingface.co (repo dan Space milik
+siapa saja), claude.ai, chatgpt.com, dan gemini.google.com (chat yang dibagikan, artifact, GPT
+buatan orang), serta forum seperti community.openai.com dan answers.microsoft.com. Link lain
+tetap dikirim kalau diminta, tetapi hanya sebagai teks dengan peringatan "Bukan situs resmi yang
+kukenal, periksa alamatnya dulu", dan pemberitahuan promo barunya tidak membuka apa-apa. Link
+yang alamat situsnya bisa dibaca lain oleh browser, yaitu yang memakai nama pengguna, port,
+garis miring terbalik (`\`), spasi, atau karakter tak terlihat (misalnya
+`https://anthropic.com@situs-lain.example/`), dibuang sejak pencarian dan tidak pernah terbuka
+sekali ketuk.
+
+### Melihat promo: `waifu offers`
+
+`waifu offers` menampilkan game gratis lalu promo AI, `waifu offers games` gamenya saja, dan
+`waifu offers ai` promo AI yang tersimpan, masing-masing dengan linknya:
+
+```text
+Game gratis sekarang:
+  Bad Cheese di Epic Games Store, sampai Kamis 22-10-2026 22:00
+    https://store.epicgames.com/en-US/p/bad-cheese-4256d9
+  Portal di Steam (biasanya $9.99), sampai Minggu 25-10-2026
+    https://www.gamerpower.com/open/portal-steam-giveaway
+Segera gratis:
+  Sker Ritual di Epic Games Store, mulai Kamis 22-10-2026 22:00, sampai Kamis 29-10-2026 22:00
+    https://store.epicgames.com/en-US/p/sker-ritual-aac702
+Sumber: GamerPower.com (https://www.gamerpower.com)
+
+Promo AI (pencarian terakhir Rabu 14-10-2026 09:30):
+  Claude for Startups dari Anthropic: program startup, perlu mendaftar
+    Kredit API Claude gratis untuk startup.
+    Untuk: Startup yang didukung modal ventura mitra Anthropic.
+    https://www.anthropic.com/startups
+```
+
+Link promo AI yang bukan dari situs resmi penyedia yang dikenal ditandai
+`(belum terverifikasi: bukan situs resmi penyedia yang dikenal)`.
+
+`waifu offers ai --scan` menjalankan pencarian promo AI sekarang juga (bisa beberapa menit),
+menyimpan hasilnya, lalu menampilkan promo yang baru dan perkiraan biayanya, misalnya
+`Perkiraan biaya pencarian ini: $0.18 (1 permintaan, 6 pencarian web).` Perintah ini jalan
+walau `free_offers.enabled: false`, juga selagi `waifu run` berjalan; promo yang ditemukan
+`--scan` tidak diumumkan lagi oleh `waifu run`. Hanya satu pencarian promo AI yang berjalan
+sekaligus: kalau `waifu run` sedang mencari, `--scan` langsung berhenti tanpa biaya dengan
+`✗ Pencarian promo AI lain sedang berjalan, misalnya oleh 'waifu run'. Coba lagi setelah
+selesai.`, dan sebaliknya `waifu run` mencoba lagi pada pengecekan berikutnya.
+
+`waifu check` menampilkan misalnya `✓ Promo gratis: game Epic, Steam, GOG; promo AI terakhir
+dicari Rabu 14-10-2026 09:30` (ditambah `tanpa pemberitahuan dan tanpa pencarian promo AI
+mingguan` dengan `notices: false`), atau `! Promo gratis mati`; internet tidak dihubungi.
+
+### Pengaturan promo gratis
+
+```yaml
+free_offers:
+  enabled: true                       # false: tanpa tool dan tanpa pemberitahuan (`waifu offers` tetap jalan)
+  games: true                         # false: tanpa game gratis
+  game_platforms: [epic, steam, gog]  # dari epic, steam, gog, itchio, pc (semua toko PC)
+  games_poll_hours: 6                 # cek game gratis tiap N jam selama `waifu run` (1-48)
+  ai: true                            # false: tanpa pencarian promo AI
+  ai_scan_days: 7                     # cari promo AI tiap N hari (1-30)
+  ai_max_searches: 6                  # pencarian web paling banyak per permintaan ke Claude dalam pencarian promo AI (1-20)
+  notices: true                       # false: tidak pernah bilang sendiri, dan pencarian promo AI mingguan juga berhenti
+  state_path: data/free_offers.json
+```
+
+Bagian ini tidak perlu ditulis untuk memakai bawaannya; contohnya ada di `config.example.yaml`.
+Jalankan ulang `waifu run` setelah mengubahnya.
+
+### Privasi pencarian dan promo
+
+- Pencarian web hanya mengirim kata kunci yang ditulis modelnya, ditambah negara, zona waktu,
+  dan kota di atas, ke pencarian Anthropic. Halaman yang dibacanya tidak disimpan.
+- Daftar game diminta dari Epic dan GamerPower.com tanpa data tentang Master (Epic hanya diberi
+  tahu negaranya, Indonesia).
+- Pencarian promo AI tidak mengirim data pribadi apa pun selain negara (Indonesia) dan judul
+  promo yang sudah tersimpan.
+- `data\free_offers.json` hanya ada di PC ini dan tidak di-commit: id game yang sudah
+  diberitahukan, promo AI yang ditemukan, dan waktu pencarian terakhir (juga yang terakhir gagal
+  setelah ditagih). Seperti file Cyrene
+  lainnya, file yang rusak tidak pernah ditimpa: namanya diganti menjadi
+  `free_offers.json.corrupt-<tanggal>-<jam>`, dia mulai dari kosong (game yang sedang gratis
+  diberitahukan sekali lagi), dan `waifu check` menunjukkannya dengan `!`.
+- Teks pemberitahuan dan link yang dikirim ke HP lewat `ntfy.sh` kalau notifikasi HP menyala.
+
 ## Pemecahan masalah
 
 Log `waifu run` tampil di terminal dalam bahasa Inggris. Baris seperti
@@ -3202,6 +3433,26 @@ halaman tim di game atau sebuah error)
       game yang berat: setelah sekitar 1-2 menit dia bilang GPU-nya panas, dan tidak diulang
       dalam satu jam. Setelah itu kembalikan nilainya.
 
+**Pencarian web dan promo gratis** (lihat
+[Pencarian web dan promo gratis](#pencarian-web-dan-promo-gratis))
+
+- [ ] Dengan otak Claude, `waifu check` menampilkan `✓ Pencarian web: aktif` dan
+      `✓ Promo gratis: game Epic, Steam, GOG; promo AI belum pernah dicari`.
+- [ ] "Cyrene, harga RTX 5070 sekarang berapa?" dijawab dalam satu-dua kalimat dengan menyebut
+      sumbernya, tanpa membacakan link; `waifu usage` menampilkan kolom `PENCARIAN WEB`.
+- [ ] `waifu offers games` menampilkan game gratis yang sama dengan halaman Free Games di Epic
+      Games Store (judul dan jam berakhirnya) dan baris `Sumber: GamerPower.com` kalau ada game
+      dari Steam atau GOG; link-linknya membuka halaman gamenya.
+- [ ] `waifu offers ai --scan` selesai dalam beberapa menit, menampilkan promo AI dengan link ke
+      halaman penyedianya dan perkiraan biayanya; buka beberapa linknya dan cocokkan isinya.
+- [ ] Hapus `data\free_offers.json` saat Cyrene mati, nyalakan notifikasi HP, lalu jalankan
+      `waifu run`: begitu siap dia menyebut game gratis yang sedang ada (dan promo AI setelah
+      pencarian pertamanya selesai); HP menerima notifikasinya, dan mengetuknya membuka link
+      yang pertama. Jalankan ulang `waifu run`: tidak ada yang diulang.
+- [ ] "Cyrene, ada promo AI gratis nggak?" lalu "kirim linknya ke HP": HP menerima notifikasi
+      dengan judul promonya, dan mengetuknya membuka halaman penyedianya. Dia tidak membuka apa pun
+      di PC.
+
 ## Privasi
 
 - **Suara tidak pernah keluar dari PC.** Rekaman mic, verifikasi suara, dan
@@ -3243,6 +3494,13 @@ halaman tim di game atau sebuah error)
   file, atau user) dan tidak disimpan. Dengan Claude, angkanya ikut ke API Anthropic saat Master
   bertanya; pemberitahuannya ke `ntfy.sh` kalau notifikasi HP menyala. Lihat
   [Privasi kesehatan PC](#privasi-kesehatan-pc).
+- **Pencarian web dan promo gratis:** dengan Claude, kata kunci pencarian (ditambah negara,
+  zona waktu, dan kota) ke pencarian Anthropic; permintaan daftar game ke Epic dan
+  GamerPower.com tanpa data tentang Master; pencarian promo AI mingguan ke API Anthropic
+  tanpa data pribadi selain negara (Indonesia). Game yang sudah diberitahukan dan promo AI
+  yang ditemukan ada di `data\free_offers.json`, hanya di PC ini; pemberitahuannya dan
+  linknya ke `ntfy.sh` kalau notifikasi HP menyala. Lihat
+  [Privasi pencarian dan promo](#privasi-pencarian-dan-promo).
 - **Voiceprint adalah data biometrik.** `data/voiceprint.npy` (dan seluruh `data/`)
   ada di `.gitignore` dan tidak boleh di-commit atau dibagikan. Begitu juga
   `config.yaml` (local key Tuya) dan `models/`.

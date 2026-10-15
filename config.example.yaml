@@ -223,6 +223,20 @@ schedule:
 #   enabled: true
 #   max_side: 1280   # sisi terpanjang tangkapan layar dalam piksel (512-1568); tidak pernah diperbesar
 
+# Pencarian web (README, bagian "Pencarian web dan promo gratis"): dengan otak Claude, "Cyrene,
+# cari berita terbaru soal ...", "harga RTX 5070 sekarang berapa?", atau "kapan HSR 4.7 rilis?"
+# membuatnya mencari di web lalu menjawab dalam satu-dua kalimat dan menyebut sumbernya.
+# Pencariannya berjalan di server Anthropic dengan kata kunci yang ditulis modelnya saja, ditambah
+# negara, zona waktu, dan kota di bawah. Biayanya 10 dolar per 1000 pencarian di luar token (lihat
+# usage.web_search_per_1000_usd). Dengan Ollama fitur ini tidak tersedia.
+# Sudah menyala tanpa ditulis; untuk mengubahnya, tulis bagian ini tanpa tanda # di depannya.
+# web_search:
+#   enabled: true
+#   max_uses: 3              # pencarian paling banyak per permintaan ke Claude; satu pertanyaan bisa beberapa permintaan (1-10)
+#   country: ID              # negara hasil pencarian, dua huruf besar
+#   timezone: Asia/Jakarta   # zona waktu IANA
+#   # city: Bandung          # kota untuk hasil lokal; tanpa ini briefing.city
+
 # Sapaan pagi dan ringkasan harian (README, bagian "Sapaan pagi dan ringkasan harian"): sekali
 # sehari, saat `waifu run` menyala pertama kali di antara `time` dan `until`, Cyrene menyapa
 # Master sendiri dan merangkum harinya dalam beberapa kalimat: cuaca, jadwal dan pengingat hari
@@ -260,6 +274,7 @@ schedule:
 #   prices:
 #     claude-opus-5-5: {input: 4.00, output: 20.00, cache_write: 5.00, cache_read: 0.20}
 #   default_model: claude-opus-5-5   # harga model ini dipakai untuk model yang tidak ada di prices (perkiraan); harus punya harga
+#   web_search_per_1000_usd: 10      # pencarian web Claude (di obrolan dan pencarian promo AI), dolar per 1000 pencarian, di luar token
 
 # Kesehatan PC (README, bagian "Kesehatan PC"): "Cyrene, PC-ku gimana?", "GPU-ku panas nggak?",
 # atau "disk C sisa berapa?" membuatnya membaca PC saat itu juga: beban CPU, RAM, sisa tiap
@@ -277,6 +292,31 @@ schedule:
 #   disk_warn_gb: 10       # sisa disk di bawah N GB: diberi tahu sekali per disk per hari (1-2000)
 #   gpu_warn_c: 85         # GPU di N °C atau lebih (60-100) ...
 #   gpu_warn_minutes: 3    # ... selama N menit berturut-turut: diberi tahu paling sering sekali per jam (1-60)
+
+# Promo gratis (README, bagian "Pencarian web dan promo gratis"): "Ada game gratis apa sekarang?"
+# membuatnya membaca game yang gratis untuk disimpan di Epic Games Store (dari Epic sendiri) dan
+# di Steam, GOG, dan lainnya (dari GamerPower.com). "Ada promo AI gratis nggak?" membacakan promo
+# dari penyedia AI ternama (Anthropic, OpenAI, Google, dan lainnya): kredit gratis, paket gratis,
+# uji coba, dan program startup atau pelajar, yang bisa langsung diklaim atau perlu mendaftar.
+# Promo AI dicari seminggu sekali oleh Claude dengan pencarian web: berbayar, paling banyak
+# ai_max_searches pencarian web per permintaan ditambah token, jadi satu pencarian promo bisa sampai
+# beberapa puluh sen dolar (`waifu offers ai --scan` menampilkan perkiraannya), juga dengan otak
+# Ollama (butuh API key Claude; tanpa itu tulis ai: false).
+# Selama `waifu run` dia bilang sendiri saat ada game gratis baru atau promo AI baru, dan
+# mengirimnya ke HP dengan linknya kalau notify menyala; "kirim linknya ke HP" mengirim link satu
+# promo. Dia tidak pernah mengklaim, mendaftar, login, atau membeli apa pun.
+# Lihat semuanya dengan `waifu offers`.
+# Sudah menyala tanpa ditulis; untuk mengubahnya, tulis bagian ini tanpa tanda # di depannya.
+# free_offers:
+#   enabled: true                       # false: tanpa tool dan tanpa pemberitahuan (`waifu offers` tetap jalan)
+#   games: true                         # false: tanpa game gratis
+#   game_platforms: [epic, steam, gog]  # dari epic, steam, gog, itchio, pc (semua toko PC)
+#   games_poll_hours: 6                 # cek game gratis tiap N jam selama `waifu run` (1-48)
+#   ai: true                            # false: tanpa pencarian promo AI
+#   ai_scan_days: 7                     # cari promo AI tiap N hari (1-30)
+#   ai_max_searches: 6                  # pencarian web paling banyak per permintaan ke Claude dalam pencarian promo AI (1-20)
+#   notices: true                       # false: tidak pernah bilang sendiri, dan pencarian promo AI mingguan juga berhenti (jalankan 'waifu offers ai --scan' sendiri)
+#   state_path: data/free_offers.json   # game yang sudah diberitahukan dan promo AI yang ditemukan, hanya di PC ini
 
 # Cyrene di HP (README, bagian "Cyrene di HP"): selama `waifu run` berjalan, HP Android Master
 # membuka halaman Cyrene (avatar, chat, dan tombol tahan-untuk-bicara) lewat Tailscale, di
