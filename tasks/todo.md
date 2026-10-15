@@ -885,3 +885,40 @@ named `tests/test_<package>_<module>.py`.
 - [x] `run`/`chat` add the tool when enabled; `run` starts and stops the watcher; `waifu pc`; check lines; README section "Kesehatan PC"; `config.example.yaml`
 
 **Dependencies:** 87, 88 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py`, `README.md`, `config.example.yaml` · **Scope:** M
+
+## Task 90a: Web search and offers config, offer values ✅
+
+**Acceptance criteria:**
+- [x] `AppConfig.web_search`, `AppConfig.free_offers`, `UsageConfig.web_search_per_1000_usd` with defaults and ranges per SPEC; `GameGiveaway` and `AiOffer` frozen dataclasses in `offers/values.py`
+
+**Dependencies:** none · **Files:** `src/waifu/config.py`, `tests/test_config.py`, `src/waifu/offers/__init__.py`, `src/waifu/offers/values.py`, `tests/test_offers_values.py` · **Scope:** S
+
+## Task 90: Web search in the brain
+
+**Acceptance criteria:**
+- [ ] The static `web_search_20260209` server tool when enabled with Claude; server-tool blocks kept as returned; `pause_turn` continued; the fallback echo rule for unpaired `server_tool_use`; the web-data section in the system prompt
+- [ ] `TokenUsage.web_searches` and their price in the ledger and `waifu usage`
+
+**Dependencies:** 90a · **Files:** `src/waifu/brain/claude.py`, `src/waifu/brain/factory.py`, `src/waifu/brain/persona.py`, `src/waifu/usage.py`, their tests · **Scope:** M
+
+## Task 91: Free games
+
+**Acceptance criteria:**
+- [ ] Epic free-now and free-soon games with exact times and store links; GamerPower games per platform with dates only, Epic duplicates skipped; one failing source never hides the other
+
+**Dependencies:** 90a · **Files:** `src/waifu/offers/games.py`, `tests/test_offers_games.py` · **Scope:** M
+
+## Task 92: AI offers scan and store
+
+**Acceptance criteria:**
+- [ ] One Claude conversation with only web search and the strict `report_offers` tool; pause_turn, validation, errors, usage reported; ids and dedupe
+- [ ] `OffersStore` (store file rules; announced games, AI offers with expiry, last scan)
+
+**Dependencies:** 90a · **Files:** `src/waifu/offers/ai_scan.py`, `src/waifu/offers/store.py`, `tests/test_offers_ai_scan.py`, `tests/test_offers_store.py` · **Scope:** M
+
+## Task 93: Tools, watcher, CLI, README
+
+**Acceptance criteria:**
+- [ ] `free_offers` and `send_offer_link` tools; `OffersWatcher`; the notifier's `click`; `run`/`chat` wiring; `waifu offers [games|ai] [--scan]`; check lines; README; `config.example.yaml`
+
+**Dependencies:** 90, 91, 92 · **Files:** `src/waifu/brain/offers_tools.py`, `src/waifu/offers/watcher.py`, `src/waifu/notify.py`, `src/waifu/cli.py`, their tests, `README.md`, `config.example.yaml` · **Scope:** L

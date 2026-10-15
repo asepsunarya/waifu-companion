@@ -341,6 +341,22 @@ or a GPU that stays hot. No CPU temperature (Windows has none without a kernel d
 - [x] `waifu pc` on the owner's PC matches Task Manager and nvidia-smi (2026-10-16: RAM 24.7/31.9 GB, C: 63.6 and E: 26.1 GB free, GPU 53°C 10% 5.1/15.9 GB 37 W, uptime 26 days 13 h since the 19 Sep boot, all equal to Windows' own figures and nvidia-smi; 2.3 s)
 - [ ] By voice or chat: "PC-ku gimana?", "GPU-ku panas nggak?"
 
+### Phase 23: web search and free offers (v1.18, see SPEC → web search and free offers)
+Decision: Claude's server-side web search in her conversation; free games from Epic's own feed
+and GamerPower (credited); AI programs from a weekly scan by Claude with web search in a request
+that has no other tools; new offers announced and their links pushed to the phone. No new
+dependency; nothing is ever claimed or applied for on the owner's behalf.
+- [x] Task 90a: `web_search`, `free_offers`, `usage.web_search_per_1000_usd` config and the offer values
+- [ ] Task 90: web search in the brain (server tool, system note, fallback echo rule, search fees)
+- [ ] Task 91: free games (Epic + GamerPower readers)
+- [ ] Task 92: AI offers scan and the offers store
+- [ ] Task 93: tools, watcher, notifier click links, `waifu offers`, check, README
+
+### Checkpoint: web search and free offers
+- [ ] Python suite and ruff clean; no test reached Epic, GamerPower, Claude, or ntfy
+- [ ] `waifu offers games` on the owner's PC matches the Epic store; one real `waifu offers ai --scan` with its cost
+- [ ] By voice or chat: a web question, "ada game gratis apa?", "ada promo AI gratis?"
+
 ## Risks and Mitigations
 
 | Risk | Impact | Mitigation |
