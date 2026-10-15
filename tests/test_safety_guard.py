@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import ctypes
 import os
+import socket
 import subprocess
 import sys
 import urllib.error
@@ -11,6 +12,7 @@ import urllib.request
 from pathlib import Path
 
 import aiohttp
+import httpx
 import pytest
 
 from waifu.gacha.games import GAMES
@@ -114,6 +116,30 @@ def test_aiohttp_requests_beyond_this_pc_are_refused():
 def test_aiohttp_requests_to_loopback_still_go_out():
     with pytest.raises(aiohttp.ClientConnectionError):
         asyncio.run(_aiohttp_get("http://127.0.0.1:9/"))
+
+
+@pytest.mark.parametrize(
+    "address",
+    [("store-site-backend-static-ipv4.ak.epicgames.com", 443), ("203.0.113.7", 443)],
+)
+def test_socket_connections_beyond_this_pc_are_refused(address):
+    # Every client (httpx, the anthropic SDK's httpx2, anything else) ends up here.
+    with pytest.raises(AssertionError, match="internet"):
+        socket.create_connection(address, timeout=1)
+
+
+def test_httpx_requests_beyond_this_pc_are_refused():
+    with pytest.raises(AssertionError, match="internet"):
+        httpx.get("https://www.gamerpower.com/api/giveaways", timeout=1)
+
+
+def test_socket_connections_to_loopback_still_go_out():
+    # Port 9 (discard) is closed: refused, or timed out (Windows retries a closed loopback port
+    # for about 2 s), proves the guard let it through, which would raise AssertionError.
+    with pytest.raises(OSError):
+        socket.create_connection(("127.0.0.1", 9), timeout=0.5)
+    with pytest.raises(OSError):
+        socket.create_connection(("localhost", 9), timeout=0.5)
 
 
 def test_reading_the_owners_game_caches_is_refused(real_game_cache_reads):

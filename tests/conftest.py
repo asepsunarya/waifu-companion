@@ -12,6 +12,7 @@ owner's music and volume), open real programs and URLs, or capture the owner's r
 import ctypes
 import ipaddress
 import os
+import socket
 import subprocess
 import urllib.parse
 import urllib.request
@@ -56,6 +57,9 @@ _REAL_POPEN = subprocess.Popen
 _REAL_WINDLL = getattr(ctypes, "WinDLL", None)
 _REAL_URLLIB_OPEN = urllib.request.OpenerDirector.open
 _REAL_AIOHTTP_REQUEST = aiohttp.ClientSession._request
+_REAL_GETADDRINFO = socket.getaddrinfo
+_REAL_SOCKET_CONNECT = socket.socket.connect
+_REAL_SOCKET_CONNECT_EX = socket.socket.connect_ex
 _REAL_DATA_FOLDER = history._data_folder
 _REAL_GAME_LOGS = Path.home() / "AppData" / "LocalLow"
 
@@ -170,6 +174,30 @@ async def _guarded_aiohttp_request(self, method, str_or_url, *args, **kwargs):
     return await _REAL_AIOHTTP_REQUEST(self, method, str_or_url, *args, **kwargs)
 
 
+# Below every client (httpx, the anthropic SDK's httpx2, anything else): a host name is looked
+# up first, and an address given as digits is connected to directly.
+_UNSPECIFIED_HOSTS = (None, "", "0.0.0.0", "::")  # a server binding, not a connection
+
+
+def _guarded_getaddrinfo(host, *args, **kwargs):
+    name = host.decode() if isinstance(host, bytes) else host
+    if name not in _UNSPECIFIED_HOSTS:
+        _refuse_beyond_this_pc(name)
+    return _REAL_GETADDRINFO(host, *args, **kwargs)
+
+
+def _guarded_socket_connect(self, address):
+    if self.family in (socket.AF_INET, socket.AF_INET6):
+        _refuse_beyond_this_pc(address[0])
+    return _REAL_SOCKET_CONNECT(self, address)
+
+
+def _guarded_socket_connect_ex(self, address):
+    if self.family in (socket.AF_INET, socket.AF_INET6):
+        _refuse_beyond_this_pc(address[0])
+    return _REAL_SOCKET_CONNECT_EX(self, address)
+
+
 _real_game_cache_reads: list[str] = []
 
 
@@ -213,6 +241,9 @@ def _refuse_real_registry_writes(monkeypatch):
 def _refuse_the_internet(monkeypatch):
     monkeypatch.setattr(urllib.request.OpenerDirector, "open", _guarded_urllib_open)
     monkeypatch.setattr(aiohttp.ClientSession, "_request", _guarded_aiohttp_request)
+    monkeypatch.setattr(socket, "getaddrinfo", _guarded_getaddrinfo)
+    monkeypatch.setattr(socket.socket, "connect", _guarded_socket_connect)
+    monkeypatch.setattr(socket.socket, "connect_ex", _guarded_socket_connect_ex)
 
 
 @pytest.fixture(autouse=True)
