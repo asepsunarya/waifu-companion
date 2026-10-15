@@ -314,7 +314,7 @@ schedule:
 #   games_poll_hours: 6                 # cek game gratis tiap N jam selama `waifu run` (1-48)
 #   ai: true                            # false: tanpa pencarian promo AI
 #   ai_scan_days: 7                     # cari promo AI tiap N hari (1-30)
-#   ai_max_searches: 6                  # pencarian web paling banyak per permintaan ke Claude dalam pencarian promo AI (1-20)
+#   ai_max_searches: 10                 # pencarian web paling banyak per permintaan ke Claude dalam pencarian promo AI (1-20)
 #   notices: true                       # false: tidak pernah bilang sendiri, dan pencarian promo AI mingguan juga berhenti (jalankan 'waifu offers ai --scan' sendiri)
 #   state_path: data/free_offers.json   # game yang sudah diberitahukan dan promo AI yang ditemukan, hanya di PC ini
 

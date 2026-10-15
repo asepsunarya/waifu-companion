@@ -31,6 +31,7 @@ OFFICIAL_DOMAINS = frozenset(
         "edu.google.com",
         "blog.google",
         "deepmind.google",
+        "gemini.google",  # Google's own .google site (shared chats are on gemini.google.com)
         # xAI
         "x.ai",
         # Meta (not all of meta.com, whose store sells other people's apps)
@@ -53,6 +54,7 @@ OFFICIAL_HOSTS = frozenset(
         # OpenAI (not community.openai.com, a forum, or chatgpt.com, with anyone's GPTs)
         "openai.com",
         "www.openai.com",
+        "help.openai.com",  # its help center, written by OpenAI
         # Google (not discuss.ai.google.dev, a forum, or shell.cloud.google.com, which runs
         # anyone's tutorial)
         "ai.google.dev",

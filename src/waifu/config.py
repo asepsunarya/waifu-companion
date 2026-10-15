@@ -622,7 +622,7 @@ class FreeOffersConfig(_Strict):
     games_poll_hours: int = Field(default=6, ge=1, le=48)
     ai: bool = True
     ai_scan_days: int = Field(default=7, ge=1, le=30)
-    ai_max_searches: int = Field(default=6, ge=1, le=20)
+    ai_max_searches: int = Field(default=10, ge=1, le=20)
     notices: bool = True
     state_path: Path = Path("data/free_offers.json")
 

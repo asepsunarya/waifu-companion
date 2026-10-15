@@ -406,6 +406,28 @@ def test_the_prompt_says_web_pages_are_data_and_asks_for_the_report():
     assert "still open" in system
 
 
+def test_the_prompt_names_the_program_families_to_search_one_by_one():
+    # One broad search finds one or two programs; naming the families gets each its own.
+    client = FakeAnthropic(reported(entry()))
+
+    scan(client)
+
+    system = client.requests[0]["system"]
+    for family in (
+        "Claude for Startups",
+        "OpenAI",
+        "Google for Startups",
+        "Gemini",
+        "AWS Activate",
+        "Microsoft for Startups",
+        "GitHub Student Developer Pack",
+        "xAI",
+        "Mistral",
+        "Hugging Face",
+    ):
+        assert family in system
+
+
 def test_the_known_offers_are_marked_as_data_from_earlier_scans():
     client = FakeAnthropic(reported())
 

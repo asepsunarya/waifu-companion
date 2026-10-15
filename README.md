@@ -2953,7 +2953,7 @@ permintaan, 18 per pertanyaan)`, `! Pencarian web: tidak tersedia dengan Ollama`
   key Claude; tanpa itu, tulis `ai: false`. Pencarian ini hanya punya pencarian web dan satu tool
   untuk melaporkan hasilnya: tidak ada perangkat, PC, ingatan, atau jadwal di dekatnya, dan yang
   dikirim tentang Master hanya negaranya (Indonesia).
-- **Biaya:** paling banyak `ai_max_searches` (bawaan 6) pencarian web per permintaan ke Claude,
+- **Biaya:** paling banyak `ai_max_searches` (bawaan 10) pencarian web per permintaan ke Claude,
   dan satu pencarian promo bisa sampai 6 permintaan kalau pencariannya dilanjutkan, ditambah
   token. Hasil pencarian yang panjang ikut dihitung sebagai token input (sebagian besar dibaca
   dari cache yang lebih murah), jadi satu pencarian promo bisa sampai beberapa puluh sen dolar. `waifu offers ai --scan` menampilkan perkiraannya. Dengan otak Claude
@@ -3047,7 +3047,7 @@ free_offers:
   games_poll_hours: 6                 # cek game gratis tiap N jam selama `waifu run` (1-48)
   ai: true                            # false: tanpa pencarian promo AI
   ai_scan_days: 7                     # cari promo AI tiap N hari (1-30)
-  ai_max_searches: 6                  # pencarian web paling banyak per permintaan ke Claude dalam pencarian promo AI (1-20)
+  ai_max_searches: 10                 # pencarian web paling banyak per permintaan ke Claude dalam pencarian promo AI (1-20)
   notices: true                       # false: tidak pernah bilang sendiri, dan pencarian promo AI mingguan juga berhenti
   state_path: data/free_offers.json
 ```

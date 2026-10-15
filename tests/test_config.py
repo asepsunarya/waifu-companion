@@ -690,7 +690,7 @@ def test_free_offers_default_to_games_and_a_weekly_ai_scan():
     offers = AppConfig().free_offers
     assert (offers.enabled, offers.games, offers.ai, offers.notices) == (True, True, True, True)
     assert offers.game_platforms == ["epic", "steam", "gog"]
-    assert (offers.games_poll_hours, offers.ai_scan_days, offers.ai_max_searches) == (6, 7, 6)
+    assert (offers.games_poll_hours, offers.ai_scan_days, offers.ai_max_searches) == (6, 7, 10)
     assert offers.state_path == Path("data/free_offers.json")
 
 

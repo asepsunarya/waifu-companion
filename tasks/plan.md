@@ -354,7 +354,7 @@ dependency; nothing is ever claimed or applied for on the owner's behalf.
 
 ### Checkpoint: web search and free offers
 - [x] Python suite and ruff clean; no test reached Epic, GamerPower, Claude, or ntfy (2026-10-16: 4885 pytest and 454 node tests on the committed tree plus tasks 90-93 and both review-fix rounds; ruff check and format clean on src, tests, and tools; the full suite run once more with a socket guard outside the repo that refuses and records every DNS lookup or connection beyond loopback: 0 attempts. Games are read through an injected httpx client on httpx's MockTransport, Claude through injected fake clients, ntfy through a fake poster; `test_cli.py` refuses `read_free_games` and a real `anthropic.Anthropic` for every test. `tests/conftest.py` still guards only urllib and aiohttp, not httpx)
-- [ ] `waifu offers games` on the owner's PC matches the Epic store; one real `waifu offers ai --scan` with its cost
+- [x] `waifu offers games` on the owner's PC matches the Epic store; one real `waifu offers ai --scan` with its cost (2026-10-16: Agent A and Bad Cheese free until Thu 22:00 WIB, Home and Sker Ritual from then, one Steam key via GamerPower, 4.7 s; scan 1 found 1 offer for $0.20 with 6 searches, so the prompt now names the program families and the default is 10 searches; scan 2 found 4 more (Claude for Startups, AI for Science, OpenAI Researcher Access, Google for Startups Cloud) for $0.26)
 - [ ] By voice or chat: a web question, "ada game gratis apa?", "ada promo AI gratis?"
 
 ## Risks and Mitigations

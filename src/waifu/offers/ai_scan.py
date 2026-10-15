@@ -81,6 +81,12 @@ example Anthropic's Claude, OpenAI, Google Gemini, xAI, Mistral, Meta, AWS, Micr
 Copilot, and Hugging Face, that give free credits, a free tier, a free trial, or a startup, \
 research, or student program, whether they are claimed right away or need an application, and \
 that someone in Indonesia can get.
+- Search the program families one by one, so none is missed: Anthropic (Claude for Startups, \
+education and research credits), OpenAI (startup and researcher credits, student offers), \
+Google (Google for Startups Cloud credits, the Gemini student plan, the Gemini API free tier), \
+Microsoft (Microsoft for Startups, Azure credits), AWS (AWS Activate credits), GitHub (the \
+GitHub Student Developer Pack and Copilot for students), xAI (API credits), Mistral (free \
+tier), Meta (Llama), and Hugging Face; then anything else notable you find.
 - Use only the provider's own pages or reputable reporting about them.
 - Leave out referral schemes, giveaways that need a payment, paid discounts, and offers that \
 have ended.
