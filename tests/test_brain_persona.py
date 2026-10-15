@@ -57,6 +57,18 @@ def test_committed_persona_uses_the_game_tools_and_never_pushes_spending():
     assert "top-up" in games
 
 
+def test_committed_persona_names_the_hsr_tools_and_brings_banners_up_only_when_asked():
+    persona = load_persona(ROOT / "config" / "persona.md")
+
+    games = persona.split("Game HoYoverse", 1)[1]
+
+    for tool in ("hsr_characters", "hsr_endgame", "hsr_events"):
+        assert tool in games
+    assert "bukan ajakan untuk pull" in games
+    assert "hanya kalau Master bertanya soal Honkai: Star Rail" in games
+    assert "jangan untuk sapaan atau briefing pagi" in games
+
+
 def test_committed_persona_leaves_the_question_to_the_code_that_holds_turning_the_pc_off():
     # control_device refuses the first call until Master's next words say yes, and the code
     # itself asks her; a model that also asked would ask twice, and one that retried instead

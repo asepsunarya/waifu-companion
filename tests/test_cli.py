@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import io
 import json
@@ -17,11 +18,12 @@ import urllib.parse
 import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta, timezone
 from importlib.machinery import ModuleSpec
 from pathlib import Path, PureWindowsPath
 
 import anthropic
+import genshin
 import httpx2
 import numpy as np
 import pytest
@@ -60,6 +62,18 @@ from waifu.gacha.hoyolab import (
     GameStatus,
     HoyolabClient,
     WeeklyTask,
+)
+from waifu.gacha.hsr_tools import HsrTools
+from waifu.gacha.starrail import (
+    ENDGAME_MODES,
+    HsrCalendar,
+    HsrChallengeWindow,
+    HsrCharacter,
+    HsrEndgame,
+    HsrEvent,
+    HsrFloor,
+    HsrLightCone,
+    HsrWarp,
 )
 from waifu.gacha.tools import GachaTools
 from waifu.memory import MemoryStore, memory_prompt_section
@@ -3783,6 +3797,11 @@ class FakeGameClient:
             Account("zzz", 1300000003, "Master", 50, "Asia"),
         ]
         self.failure: GachaError | None = None
+        self.hsr_roster: tuple[HsrCharacter, ...] = ()
+        self.hsr_modes: dict[str, HsrEndgame | GachaError] = {}
+        self.hsr_events = HsrCalendar(None, (), (), ())
+        self.hsr_failure: GachaError | None = None
+        self.hsr_asked: list[object] = []
 
     def accounts(self):
         if self.failure is not None:
@@ -3797,6 +3816,23 @@ class FakeGameClient:
         if isinstance(result, GachaError):
             raise result
         return result
+
+    def hsr_characters(self):
+        self.hsr_asked.append("characters")
+        if self.hsr_failure is not None:
+            raise self.hsr_failure
+        return self.hsr_roster
+
+    def hsr_endgame(self, modes):
+        modes = list(modes)
+        self.hsr_asked.append(("endgame", modes))
+        return {mode: self.hsr_modes[mode] for mode in modes}
+
+    def hsr_calendar(self):
+        self.hsr_asked.append("calendar")
+        if self.hsr_failure is not None:
+            raise self.hsr_failure
+        return self.hsr_events
 
 
 class FakeGameHistory:
@@ -4007,13 +4043,14 @@ def test_run_with_the_games_on_gives_the_brain_the_game_tools_and_watches_while_
 
     assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
 
-    [tools, memory_tools, schedule, briefing] = brains[0].providers
+    [tools, hsr_tools, memory_tools, schedule, briefing] = brains[0].providers
     assert (type(tools), type(memory_tools), type(schedule), type(briefing)) == (
         GachaTools,
         MemoryTools,
         ScheduleTools,
         BriefingTools,
     )
+    assert type(hsr_tools) is HsrTools
     assert [spec.name for spec in tools.specs()] == ["game_status", "gacha_history"]
     [watcher] = watchers
     assistant = RecordingAssistant.instances[0]
@@ -4055,6 +4092,7 @@ def test_run_without_a_cookie_has_the_game_tools_but_no_watcher(
 
     assert [type(tools) for tools in brains[0].providers] == [
         GachaTools,
+        HsrTools,
         MemoryTools,
         ScheduleTools,
         BriefingTools,
@@ -4081,10 +4119,84 @@ def test_chat_with_the_games_on_gives_the_brain_the_game_tools(home, brains, gam
 
     assert [type(tools) for tools in brains[0].providers] == [
         GachaTools,
+        HsrTools,
         MemoryTools,
         ScheduleTools,
         BriefingTools,
     ]
+
+
+@pytest.fixture
+def hsr_sources(monkeypatch) -> list[object]:
+    """Builds the real HsrTools, remembering where each one reads Master's HSR account."""
+    sources: list[object] = []
+
+    def build(source):
+        sources.append(source)
+        return HsrTools(source)
+
+    monkeypatch.setattr(cli, "HsrTools", build)
+    return sources
+
+
+def play_only(home: Path, games: str) -> None:
+    """The example config with `gacha.games` set to `games`."""
+    config = home / "config.yaml"
+    text = config.read_text(encoding="utf-8")
+    chosen = text.replace("  games: [hsr, genshin, zzz]\n", f"  games: {games}\n", 1)
+    assert chosen != text
+    config.write_text(chosen, encoding="utf-8")
+
+
+@pytest.mark.parametrize("argv", [["run", "--no-speaker-check"], ["chat"]])
+def test_with_hsr_among_the_games_the_hsr_tools_follow_the_game_tools_and_read_hoyolab(
+    argv, home, run_fakes, brains, games, watchers, hsr_sources, monkeypatch
+):
+    enable_gacha(home)
+    play_only(home, "[hsr]")
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main([*argv, "--dry-run"]) == 0
+
+    [tools, hsr_tools, *_] = brains[0].providers
+    assert (type(tools), type(hsr_tools)) == (GachaTools, HsrTools)
+    assert [spec.name for spec in hsr_tools.specs()] == [
+        "hsr_characters",
+        "hsr_endgame",
+        "hsr_events",
+    ]
+    assert hsr_sources == [games.hoyolab]
+
+
+@pytest.mark.parametrize("argv", [["run", "--no-speaker-check"], ["chat"]])
+def test_without_hsr_among_the_games_there_are_no_hsr_tools(
+    argv, home, run_fakes, brains, games, watchers, hsr_sources, monkeypatch
+):
+    enable_gacha(home)
+    play_only(home, "[genshin, zzz]")
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main([*argv, "--dry-run"]) == 0
+
+    assert [type(tools) for tools in brains[0].providers] == [
+        GachaTools,
+        MemoryTools,
+        ScheduleTools,
+        BriefingTools,
+    ]
+    assert hsr_sources == []
+
+
+@pytest.mark.parametrize("argv", [["run", "--no-speaker-check"], ["chat"]])
+def test_with_the_games_off_there_are_no_hsr_tools(
+    argv, home, run_fakes, brains, games, watchers, hsr_sources, monkeypatch
+):
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main([*argv, "--dry-run"]) == 0
+
+    assert not any(isinstance(tools, HsrTools) for tools in brains[0].providers)
+    assert (games.built, hsr_sources) == ([], [])
 
 
 def test_check_reports_the_games_off(home, nothing_installed, capsys):
@@ -4165,6 +4277,256 @@ def test_gacha_accounts_marks_the_account_she_uses_when_levels_tie(home, games, 
     lines = capsys.readouterr().out.splitlines()
     assert lines[0].startswith("→ HSR      800000001")
     assert lines[1].startswith("  HSR      800000002")
+
+
+def hsr_character(
+    name: str,
+    rarity: int,
+    level: int,
+    eidolon: int,
+    light_cone: HsrLightCone | None,
+    path: str = "Nihility",
+) -> HsrCharacter:
+    return HsrCharacter(name, rarity, level, eidolon, path, "Lightning", light_cone, (), (), None)
+
+
+def from_now(**delta: float) -> datetime:
+    """A moment that far from the wall clock: HoYoLAB's answers carry real times, and the
+    command counts the time left from the wall clock."""
+    return datetime.now(UTC) + timedelta(**delta)
+
+
+def local(moment: datetime) -> str:
+    return f"{moment.astimezone():%Y-%m-%d %H:%M}"
+
+
+def test_gacha_hsr_characters_prints_one_line_per_character_strongest_first(home, games, capsys):
+    games.hoyolab.hsr_roster = (
+        hsr_character("Pela", 4, 80, 6, HsrLightCone("Resolution Shines As Pearls", 80, 5, 4)),
+        hsr_character("Silver Wolf", 5, 70, 0, None),
+        hsr_character("Acheron", 5, 80, 2, HsrLightCone("Along the Passing Shore", 80, 1, 5)),
+    )
+
+    assert cli.main(["gacha", "hsr", "characters"]) == 0
+
+    assert games.hoyolab.hsr_asked == ["characters"]
+    assert capsys.readouterr().out.splitlines() == [
+        "Acheron ★5 Lv80 E2 (Nihility), Along the Passing Shore Lv80 S1",
+        "Silver Wolf ★5 Lv70 E0 (Nihility), tanpa Light Cone",
+        "Pela ★4 Lv80 E6 (Nihility), Resolution Shines As Pearls Lv80 S5",
+    ]
+
+
+def test_gacha_hsr_characters_tells_the_trailblazer_paths_apart(home, games, capsys):
+    # HoYoLAB names every Path of the Trailblazer "Trailblazer", each with its own Eidolon.
+    games.hoyolab.hsr_roster = (
+        hsr_character("Trailblazer", 5, 80, 6, None, path="Remembrance"),
+        hsr_character("Trailblazer", 5, 80, 2, None, path="Destruction"),
+    )
+
+    assert cli.main(["gacha", "hsr", "characters"]) == 0
+
+    assert capsys.readouterr().out.splitlines() == [
+        "Trailblazer ★5 Lv80 E2 (Destruction), tanpa Light Cone",
+        "Trailblazer ★5 Lv80 E6 (Remembrance), tanpa Light Cone",
+    ]
+
+
+def test_gacha_hsr_characters_without_any_character_says_so(home, games, capsys):
+    assert cli.main(["gacha", "hsr", "characters"]) == 1
+
+    assert capsys.readouterr().out.startswith("! ")
+
+
+def test_gacha_hsr_endgame_prints_one_line_per_mode(home, games, capsys):
+    moc_ends, pf_ends = from_now(days=4, hours=12, minutes=30), from_now(hours=5, minutes=30)
+    as_ends = from_now(days=2)
+    floor = HsrFloor("Stage 12", 3, 4, None)
+    games.hoyolab.hsr_modes = {
+        "memory_of_chaos": HsrEndgame(
+            "memory_of_chaos", "Lupine Moon", moc_ends, True, 30, 3, "Stage 12", 14, (floor,)
+        ),
+        "pure_fiction": HsrEndgame(
+            "pure_fiction", "Nameless", pf_ends, False, 0, 0, None, None, ()
+        ),
+        "apocalyptic_shadow": HsrEndgame(
+            "apocalyptic_shadow", "Dawn", as_ends, True, 9, 0, "Difficulty 4", 4, ()
+        ),
+        "anomaly_arbitration": HsrEndgame(
+            "anomaly_arbitration", None, None, True, 2, 0, "Lord of the Abyss", None, ()
+        ),
+    }
+
+    assert cli.main(["gacha", "hsr", "endgame"]) == 0
+
+    assert games.hoyolab.hsr_asked == [("endgame", list(ENDGAME_MODES))]
+    assert capsys.readouterr().out.splitlines() == [
+        "Memory of Chaos: 30 bintang (+3 ekstra), lantai terdalam Stage 12, "
+        f"berakhir {local(moc_ends)} (4 hari 12 jam lagi)",
+        f"Pure Fiction: belum dimainkan musim ini, berakhir {local(pf_ends)} (5 jam 30 menit lagi)",
+        "Apocalyptic Shadow: 9 bintang, lantai terdalam Difficulty 4, "
+        f"berakhir {local(as_ends)} (2 hari lagi)",
+        "Anomaly Arbitration: 2 bintang, lantai terdalam Lord of the Abyss",
+    ]
+
+
+def test_gacha_hsr_endgame_shows_the_other_modes_when_one_cannot_be_read(home, games, capsys):
+    played = HsrEndgame("memory_of_chaos", None, None, True, 12, 0, None, 5, ())
+    refused = GachaError("other", "HoYoLAB menolak permintaan HSR (kode -1).")
+    games.hoyolab.hsr_modes = {
+        mode: refused if mode == "pure_fiction" else played for mode in ENDGAME_MODES
+    }
+
+    assert cli.main(["gacha", "hsr", "endgame"]) == 1
+
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0] == "Memory of Chaos: 12 bintang"
+    assert lines[1] == "Pure Fiction: ✗ HoYoLAB menolak permintaan HSR (kode -1)."
+    assert len(lines) == 4
+
+
+def test_gacha_hsr_events_prints_the_warps_events_and_endgame_windows(home, games, capsys):
+    warp_ends, next_warp = from_now(days=4, hours=12, minutes=30), from_now(days=6, hours=2)
+    soon, later, season_ends = from_now(hours=5, minutes=30), from_now(days=9), from_now(days=20)
+    started = from_now(days=-2)
+    games.hoyolab.hsr_events = HsrCalendar(
+        "3.6",
+        (
+            HsrWarp(
+                "character",
+                "Butterfly on Swordtip",
+                ("Acheron",),
+                ("Pela", "Gallagher", "Lynx"),
+                from_now(days=-10),
+                warp_ends,
+            ),
+            HsrWarp(
+                "light_cone",
+                "Brilliant Fixation",
+                ("Along the Passing Shore",),
+                ("Resolution Shines As Pearls",),
+                next_warp,
+                from_now(days=27),
+            ),
+        ),
+        (
+            HsrEvent("Gift of Odyssey", started, later, 3, 7, False),
+            HsrEvent("Cosmic Hide and Seek", None, None, 5, 5, True),
+            HsrEvent("Planar Fissure", started, soon, None, None, False),
+        ),
+        (HsrChallengeWindow("memory_of_chaos", "Lupine Moon", started, season_ends, 30, 36),),
+    )
+
+    assert cli.main(["gacha", "hsr", "events"]) == 0
+
+    assert games.hoyolab.hsr_asked == ["calendar"]
+    assert capsys.readouterr().out.splitlines() == [
+        "Kalender HSR versi 3.6",
+        "Warp:",
+        "  Butterfly on Swordtip (karakter): 5★ Acheron; 4★ Pela, Gallagher, Lynx; "
+        f"berakhir {local(warp_ends)} (4 hari 12 jam lagi)",
+        "  Brilliant Fixation (Light Cone): 5★ Along the Passing Shore; "
+        f"4★ Resolution Shines As Pearls; mulai {local(next_warp)} (6 hari 2 jam lagi)",
+        "Event:",
+        f"  Planar Fissure: berakhir {local(soon)} (5 jam 30 menit lagi)",
+        f"  Gift of Odyssey: 3/7, berakhir {local(later)} (9 hari lagi)",
+        "  Cosmic Hide and Seek: selesai",
+        "Endgame:",
+        f"  Memory of Chaos (Lupine Moon): 30/36, berakhir {local(season_ends)} (20 hari lagi)",
+    ]
+
+
+def test_gacha_hsr_events_lists_only_the_events_and_endgame_windows_running_now(
+    home, games, capsys
+):
+    started, ends, ended = from_now(days=-1), from_now(days=9), from_now(hours=-1)
+    games.hoyolab.hsr_events = HsrCalendar(
+        None,
+        (),
+        (
+            HsrEvent("Gift of Odyssey", started, ends, None, None, False),
+            HsrEvent("Ember Festival", from_now(days=2), from_now(days=20), 0, 4, False),
+            HsrEvent("Planar Fissure", from_now(days=-9), ended, None, None, False),
+        ),
+        (
+            HsrChallengeWindow("memory_of_chaos", "Lupine Moon", started, ends, 30, 36),
+            HsrChallengeWindow("memory_of_chaos", "Next Season", ends, from_now(days=51), 0, 36),
+            HsrChallengeWindow("pure_fiction", "Ended Season", from_now(days=-42), ended, 8, 12),
+        ),
+    )
+
+    assert cli.main(["gacha", "hsr", "events"]) == 0
+
+    assert capsys.readouterr().out.splitlines() == [
+        "Kalender HSR",
+        "Warp: tidak ada",
+        "Event:",
+        f"  Gift of Odyssey: berakhir {local(ends)} (9 hari lagi)",
+        "Endgame:",
+        f"  Memory of Chaos (Lupine Moon): 30/36, berakhir {local(ends)} (9 hari lagi)",
+    ]
+
+
+def test_gacha_hsr_events_with_an_empty_calendar_says_there_is_nothing(home, games, capsys):
+    assert cli.main(["gacha", "hsr", "events"]) == 0
+
+    assert capsys.readouterr().out.splitlines() == [
+        "Kalender HSR",
+        "Warp: tidak ada",
+        "Event: tidak ada",
+        "Endgame: tidak ada",
+    ]
+
+
+@pytest.mark.parametrize(("view", "asked"), [("characters", "characters"), ("events", "calendar")])
+def test_gacha_hsr_that_hoyolab_refuses_prints_why_and_fails(view, asked, home, games, capsys):
+    games.hoyolab.hsr_failure = GachaError(
+        "chronicle_private", "Data HSR ini tidak bisa dibaca karena Battle Chronicle tidak publik."
+    )
+
+    assert cli.main(["gacha", "hsr", view]) == 1
+
+    assert games.hoyolab.hsr_asked == [asked]
+    assert capsys.readouterr().out == (
+        "✗ Data HSR ini tidak bisa dibaca karena Battle Chronicle tidak publik.\n"
+    )
+
+
+@pytest.mark.parametrize("view", ["characters", "endgame", "events"])
+def test_gacha_hsr_works_with_the_gacha_buddy_off(view, home, games):
+    games.hoyolab.hsr_roster = (hsr_character("Acheron", 5, 80, 2, None),)
+    games.hoyolab.hsr_modes = dict.fromkeys(
+        ENDGAME_MODES, HsrEndgame("memory_of_chaos", None, None, False, 0, 0, None, None, ())
+    )
+
+    assert cli.main(["gacha", "hsr", view]) == 0
+
+    [config] = games.built
+    assert config.gacha.enabled is False
+
+
+def test_verbose_logging_never_reveals_the_hsr_uid_genshin_puts_in_request_urls(
+    home, games, monkeypatch, caplog
+):
+    uid = "800000001"
+
+    def characters_through_genshin() -> tuple[HsrCharacter, ...]:
+        # HoyolabClient builds a fresh genshin.Client for every call, after the logging is set
+        # up, and its constructor sets the "genshin" logger back to NOTSET. Before each request
+        # genshin.py logs the URL with its query, the uid included, at DEBUG.
+        client = genshin.Client("ltuid_v2=1; ltoken_v2=v2_SAMPLECOOKIE", lang="en-us")
+        url = "https://bbs-api-os.hoyolab.com/game_record/hkrpg/api/avatar/info"
+        params = {"role_id": uid, "server": "prod_official_asia", "need_wiki": "true"}
+        asyncio.run(client._request_hook("GET", url, params=params))
+        return (hsr_character("Acheron", 5, 80, 2, None),)
+
+    monkeypatch.setattr(games.hoyolab, "hsr_characters", characters_through_genshin)
+    caplog.set_level(logging.DEBUG)
+
+    assert cli.main(["-v", "gacha", "hsr", "characters"]) == 0
+
+    assert uid not in caplog.text
+    assert "SAMPLECOOKIE" not in caplog.text
 
 
 # --- long-term memory --------------------------------------------------------------------------

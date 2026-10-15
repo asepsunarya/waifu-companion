@@ -1347,6 +1347,8 @@ Yang dia lakukan:
 - **Check-in harian HoYoLAB otomatis**, sekali sehari untuk tiap game.
 - **Riwayat pull.** Pity tiap banner, sisa ke hard pity, apakah 5★ berikutnya pasti
   limited, dan reaksi seperti teman: senang kalau menang 50/50, menghibur kalau kalah.
+- **Akun HSR.** Karakter, Eidolon, dan Light Cone milik Master, progres endgame musim
+  ini, serta banner dan event yang sedang jalan (lihat "Data akun HSR").
 - **Tidak pernah menyarankan top-up** atau membelanjakan uang.
 
 Semuanya hanya jalan selama PC menyala.
@@ -1446,6 +1448,72 @@ Perintah `waifu gacha` tetap jalan walau `gacha.enabled: false`; yang dinyalakan
   `gacha.off_banner.hsr`, supaya Cyrene tidak mengucapkan selamat saat kamu sebenarnya
   kalah.
 
+### Data akun HSR: karakter, endgame, dan event
+
+Selama `hsr` ada di `gacha.games`, Cyrene juga bisa membaca akun **Honkai: Star Rail**
+Master dari **Battle Chronicle** HoYoLAB, hanya saat ditanya:
+
+- **Karakter.** Semua karakter yang Master punya: rarity, level, Eidolon, Path, elemen,
+  dan Light Cone yang dipakai (level dan Superimposition). Untuk satu karakter juga stat
+  akhirnya, main stat relic, dan memosprite.
+- **Endgame musim ini.** Memory of Chaos, Pure Fiction, Apocalyptic Shadow, dan Anomaly
+  Arbitration: bintang, lantai terdalam, jumlah pertarungan, cycle atau skor lantai
+  terbaik, dan kapan musimnya berakhir.
+- **Kalender event.** Warp yang sedang jalan dan yang berikutnya dengan 5★ dan 4★
+  unggulannya, event yang berjalan beserta progres Master, dan jadwal endgame, masing-masing
+  dengan kapan mulai atau berakhir.
+
+```text
+Master : "Cyrene, Acheron-ku Eidolon berapa?"
+Cyrene : "Acheron-mu E2, Master, dan dia pakai Along the Passing Shore S1."
+Master : "Karakter Nihility-ku siapa aja?"
+Cyrene : "Ada Acheron, Silver Wolf, dan Pela, Master."
+Master : "Memory of Chaos-ku udah berapa bintang?"
+Cyrene : "Tiga puluh bintang, Master, sampai Stage 12. Musimnya berakhir empat hari lagi."
+Master : "Banner apa sekarang?"
+Cyrene : "Sekarang banner Acheron, Master, sampai hari Selasa."
+```
+
+- Dia menjawab dari data itu saja. Dia boleh berkomentar, tapi tidak ada saran build
+  atau tim dari kode, dan dia tidak pernah bilang berapa bintang lagi yang kurang (datanya
+  tidak memuat bintang maksimal). Karakter atau Light Cone yang baru rilis dia akui belum
+  dia kenal.
+- Trailblazer punya satu karakter per Path (begitu juga March 7th), semuanya dengan nama
+  yang sama. Sebut Path-nya untuk satu Path saja: "Trailblazer Harmony-ku pakai Light Cone
+  apa?"
+- Banner hanya disampaikan sebagai informasi. Dia tidak pernah menyuruh pull atau top-up,
+  dan tidak pernah mengingatkan banner atau musim endgame yang mau habis tanpa ditanya,
+  juga tidak di sapaan atau briefing pagi.
+- Belum ada: substat dan nama set relic, trace, tim dan musim endgame sebelumnya, detail
+  Simulated Universe (poin mingguannya sudah ada di status), serta data serupa untuk
+  Genshin dan ZZZ.
+- Jawaban disimpan sebentar di memori supaya pertanyaan beruntun tidak membebani HoYoLAB:
+  karakter 15 menit, endgame 10 menit, kalender 60 menit. Eidolon atau Light Cone yang
+  baru diganti bisa baru terlihat setelah itu; `waifu gacha hsr` selalu membaca ulang.
+
+Dari terminal (selalu langsung dari HoYoLAB, juga saat `gacha.enabled: false`):
+
+```powershell
+waifu gacha hsr characters   # satu baris per karakter: Acheron ★5 Lv80 E2 (Nihility), Along the Passing Shore Lv80 S1
+waifu gacha hsr endgame      # tiap mode: bintang, lantai terdalam, berakhir <jam> (<sisa waktu>)
+waifu gacha hsr events       # warp, event (progres Master), dan jadwal endgame
+```
+
+**Privasi.** Data ini dibaca dengan cookie HoYoLAB yang sama, hanya saat Master bertanya
+(tidak pernah dicek berkala), disimpan di memori beberapa menit, dan tidak pernah ditulis
+ke disk atau ke log, kecuali dengan `-v`: mode itu mencatat hasil setiap tool (termasuk
+data HSR ini) di level DEBUG, ke layar dan ke `--log-file` kalau dipakai. UID tidak pernah
+masuk log, juga dengan `-v`. Jawaban untuk otaknya tidak memuat UID, nickname, ID, ikon,
+atau deskripsi. Cyrene tidak menyimpannya ke ingatan kecuali Master yang minta.
+
+**Setelan Battle Chronicle.** HoYoLAB hanya memberikan data ini kalau Battle Chronicle HSR
+Master boleh dibaca. Setelannya ada di HoYoLAB: **Battle Chronicle** → ikon pengaturan
+(tempat yang sama dengan Real-Time Notes di langkah 2), yaitu *Show your Battle Chronicle
+on your profile* dan *Show your Character Details in the Battle Chronicle* untuk HSR.
+Kalau tertutup, Cyrene bilang "Data HSR ini tidak bisa dibaca karena Battle Chronicle di
+HoYoLAB tidak publik" dan di mana setelannya. **Dia tidak pernah mengubah setelan itu
+sendiri**: membukanya atau tidak, Master yang memutuskan.
+
 ### Pengingat
 
 | Pengingat | Kapan | Berapa kali | Mengatur |
@@ -1478,6 +1546,8 @@ tenang: dia juga bicara di malam hari selama `waifu run` jalan.
 
 - **"Cookie HoYoLAB tidak berlaku lagi".** Ambil ulang cookie (langkah 1).
 - **"Real-Time Notes ... belum aktif".** Langkah 2.
+- **"Data HSR ini tidak bisa dibaca karena Battle Chronicle di HoYoLAB tidak publik".**
+  Lihat "Setelan Battle Chronicle" di bagian Data akun HSR.
 - **"HoYoLAB minta verifikasi captcha".** Buka HoYoLAB di browser sekali; untuk
   check-in, ambil manual dulu di hari itu.
 - **"Buka riwayat warp di HSR sekali, lalu tanya lagi".** Buka halaman riwayat di game
@@ -2849,6 +2919,24 @@ mendengarkan"; jawaban pertama bisa lebih lama karena model Ollama baru dimuat)
       sama dengan di game.
 - [ ] Turunkan sementara `stamina_minutes` sampai di atas sisa waktu penuh: dalam 15
       menit dia mengingatkan lewat suara dan HP, sekali saja.
+
+**Data akun HSR** (lihat [Data akun HSR](#data-akun-hsr-karakter-endgame-dan-event))
+
+- [ ] `waifu gacha hsr events`: jam berakhir tiap warp dan 5★ unggulannya sama dengan
+      timer banner di game (sampai menitnya), begitu juga jam mulai warp berikutnya.
+- [ ] `waifu gacha hsr endgame`: bintang dan jam berakhir musim tiap mode sama dengan di
+      game.
+- [ ] `waifu gacha hsr characters`: Eidolon dan Superimposition Light Cone satu karakter
+      (dan tiap Path Trailblazer) sama dengan di game.
+- [ ] Di `waifu run` atau `waifu chat`: "Cyrene, Acheron-ku Eidolon berapa?" dan "Banner
+      apa sekarang?" dijawab sama dengan perintah di atas.
+- [ ] (Opsional) Sembunyikan sendiri sementara *Show your Character Details in the Battle
+      Chronicle* di HoYoLAB: `waifu gacha hsr characters` menampilkan `✗ Data HSR ini tidak
+      bisa dibaca karena Battle Chronicle di HoYoLAB tidak publik...`. Buka lagi setelahnya;
+      Cyrene tidak pernah mengubah setelan itu.
+- [ ] Sapaan pagi di `waifu run` (lihat **Sapaan pagi** di bawah) tidak menyebut banner,
+      event, atau musim endgame HSR, dan log tidak menampilkan `Tool hsr_` untuk giliran
+      itu.
 
 **Ingatan**
 

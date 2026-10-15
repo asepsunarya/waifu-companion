@@ -25,7 +25,7 @@ import threading
 import urllib.parse
 import urllib.request
 from collections import deque
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import AbstractContextManager, ExitStack, contextmanager, nullcontext
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -85,7 +85,18 @@ from waifu.gacha.history import (
     find_cached_gacha_url,
 )
 from waifu.gacha.hoyolab import GachaError, GameStatus, HoyolabClient, preferred_uids
+from waifu.gacha.hsr_tools import HsrTools
 from waifu.gacha.reminders import duration_text
+from waifu.gacha.starrail import (
+    ENDGAME_MODES,
+    HsrCalendar,
+    HsrChallengeWindow,
+    HsrCharacter,
+    HsrEndgame,
+    HsrEvent,
+    HsrWarp,
+    is_running,
+)
 from waifu.gacha.tools import GachaTools
 from waifu.gacha.watcher import GachaWatcher
 from waifu.gate import WakeGate
@@ -203,12 +214,15 @@ NOTIFY_OFF = (
 NOTIFY_TEST_MESSAGE = "Tes notifikasi dari {name}. Kalau ini muncul di HP, notifikasi sudah siap."
 NOTIFY_TAG = "video_game"  # ntfy shows it as a game controller emoji
 GACHA_DESCRIPTION = (
-    "Teman main game HoYoverse: status stamina dan daily, check-in harian HoYoLAB, dan "
-    "riwayat pull (pity, 50/50). Perintah ini jalan walau gacha.enabled: false; yang "
-    "dinyalakan gacha.enabled hanyalah tool game dan pengingat saat 'waifu run'."
+    "Teman main game HoYoverse: status stamina dan daily, check-in harian HoYoLAB, "
+    "riwayat pull (pity, 50/50), dan data akun HSR (karakter, endgame, kalender event). "
+    "Perintah ini jalan walau gacha.enabled: false; yang dinyalakan gacha.enabled hanyalah "
+    "tool game dan pengingat saat 'waifu run'."
 )
 # Where the games keep their logs, which lead to their history caches; tests point it elsewhere.
 GAME_LOGS_DIR = Path.home() / "AppData" / "LocalLow"
+HSR_VIEWS = ("characters", "endgame", "events")
+HSR_WARP_KINDS = {"character": "karakter", "light_cone": "Light Cone"}
 MEMORY_DESCRIPTION = (
     "Ingatan Cyrene tentang Master: catatan yang dia baca di awal setiap sesi obrolan. "
     "Perintah ini jalan walau memory.enabled: false; Cyrene yang sedang berjalan melihat "
@@ -440,7 +454,7 @@ def build_parser() -> argparse.ArgumentParser:
     gacha_command = commands.add_parser(
         "gacha",
         parents=[shared],
-        help="Teman main game HoYoverse: status, check-in, riwayat pull.",
+        help="Teman main game HoYoverse: status, check-in, riwayat pull, data HSR.",
         description=GACHA_DESCRIPTION,
     )
     gacha_actions = gacha_command.add_subparsers(dest="action", required=True, metavar="<aksi>")
@@ -466,6 +480,18 @@ def build_parser() -> argparse.ArgumentParser:
     history.add_argument("game", choices=list(GAMES))
     history.add_argument(
         "--full", action="store_true", help="baca semua halaman riwayat (impor pertama)"
+    )
+    hsr = command(
+        "hsr",
+        _gacha_hsr,
+        "Data akun HSR dari HoYoLAB: karakter, endgame musim ini, atau kalender event.",
+        gacha_actions,
+    )
+    hsr.add_argument(
+        "view",
+        choices=HSR_VIEWS,
+        help="characters: karakter dan Light Cone; endgame: bintang dan lantai musim ini; "
+        "events: warp, event, dan jadwal endgame",
     )
     memory_command = commands.add_parser(
         "memory",
@@ -632,6 +658,9 @@ def _configure_logging(verbose: bool) -> None:
     # The Anthropic SDK logs every request in full at DEBUG ("Request options"): the whole
     # conversation, and every screenshot of the session as base64. INFO, even with -v.
     logging.getLogger("anthropic").setLevel(logging.INFO)
+    # genshin.py logs every request's URL at DEBUG, the HoYoLAB uid in its query included.
+    # Not on "genshin" itself: every new genshin.Client sets that one back to NOTSET.
+    logging.getLogger("genshin.client").setLevel(logging.INFO)
     if not verbose:
         # httpx logs every Ollama request at INFO, which would bury the conversation.
         logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -1464,13 +1493,17 @@ def build_gacha(config: AppConfig) -> GachaParts:
 def _game_tools(config: AppConfig, gacha: GachaParts | None) -> list[ToolProvider]:
     if gacha is None:
         return []
-    tools = GachaTools(
-        gacha.hoyolab,
-        gacha.history,
-        config.gacha.games,
-        server_utc_offset=config.gacha.server_utc_offset,
-    )
-    return [tools]
+    tools: list[ToolProvider] = [
+        GachaTools(
+            gacha.hoyolab,
+            gacha.history,
+            config.gacha.games,
+            server_utc_offset=config.gacha.server_utc_offset,
+        )
+    ]
+    if "hsr" in config.gacha.games:
+        tools.append(HsrTools(gacha.hoyolab))
+    return tools
 
 
 def _gacha_watcher(
@@ -1598,6 +1631,139 @@ def _gacha_history(args: argparse.Namespace) -> int:
 def _top_pull_text(pull: TopPull) -> str:
     result = {True: ", menang 50/50", False: ", kalah 50/50", None: ""}[pull.won_5050]
     return f"{pull.name} ({pull.pulls} pull{result})"
+
+
+def _gacha_hsr(args: argparse.Namespace) -> int:
+    """Master's HSR account, read from HoYoLAB on every call (only the brain's tools cache it).
+    Times left are counted after the read, which may take a while."""
+    hoyolab = build_gacha(load_config(args.config)).hoyolab
+    try:
+        if args.view == "characters":
+            return _print_hsr_characters(hoyolab.hsr_characters())
+        if args.view == "endgame":
+            modes = hoyolab.hsr_endgame(list(ENDGAME_MODES))
+            return _print_hsr_endgame(modes, datetime.now().astimezone())
+        calendar = hoyolab.hsr_calendar()
+        _print_hsr_calendar(calendar, datetime.now().astimezone())
+        return 0
+    except GachaError as error:
+        print(f"{FAIL} {error.message}")
+        return 1
+
+
+def _print_hsr_characters(characters: Sequence[HsrCharacter]) -> int:
+    if not characters:
+        print(f"{WARN} Battle Chronicle HoYoLAB tidak memuat satu pun karakter HSR.")
+        return 1
+    # The Path tells apart the characters HoYoLAB names alike: the Trailblazer, March 7th.
+    for character in sorted(characters, key=lambda c: (-c.rarity, -c.level, c.name, c.path)):
+        cone = character.light_cone
+        equipped = (
+            f"{cone.name} Lv{cone.level} S{cone.superimposition}" if cone else "tanpa Light Cone"
+        )
+        print(
+            f"{character.name} ★{character.rarity} Lv{character.level} E{character.eidolon} "
+            f"({character.path}), {equipped}"
+        )
+    return 0
+
+
+def _print_hsr_endgame(results: Mapping[str, HsrEndgame | GachaError], now: datetime) -> int:
+    failed = False
+    for mode, name in ENDGAME_MODES.items():
+        result = results[mode]
+        if isinstance(result, GachaError):
+            print(f"{name}: {FAIL} {result.message}")
+            failed = True
+            continue
+        if result.has_data:
+            extra = f" (+{result.extra_stars} ekstra)" if result.extra_stars else ""
+            parts = [f"{result.stars} bintang{extra}"]
+            if result.deepest_floor:
+                parts.append(f"lantai terdalam {result.deepest_floor}")
+        else:
+            parts = ["belum dimainkan musim ini"]
+        print(_labelled(name, [*parts, *_hsr_end(result.ends_at, now)]))
+    return 1 if failed else 0
+
+
+def _print_hsr_calendar(calendar: HsrCalendar, now: datetime) -> None:
+    print(f"Kalender HSR versi {calendar.version}" if calendar.version else "Kalender HSR")
+    _print_section("Warp", [_hsr_warp_text(warp, now) for warp in calendar.warps])
+    # The calendar keeps upcoming events and endgame windows; only the running ones are
+    # listed, the soonest end first ("which event ends soon?"), events without an end last.
+    events = sorted(
+        (event for event in calendar.events if is_running(event.starts_at, event.ends_at, now)),
+        key=lambda e: (e.ends_at is None, e.ends_at or now),
+    )
+    _print_section("Event", [_hsr_event_text(event, now) for event in events])
+    windows = [
+        window
+        for window in calendar.challenges
+        if is_running(window.starts_at, window.ends_at, now)
+    ]
+    _print_section("Endgame", [_hsr_window_text(window, now) for window in windows])
+
+
+def _print_section(title: str, lines: list[str]) -> None:
+    if not lines:
+        print(f"{title}: tidak ada")
+        return
+    print(f"{title}:")
+    for line in lines:
+        print(f"  {line}")
+
+
+def _hsr_warp_text(warp: HsrWarp, now: datetime) -> str:
+    parts = []
+    if warp.featured:
+        parts.append(f"5★ {', '.join(warp.featured)}")
+    if warp.four_stars:
+        parts.append(f"4★ {', '.join(warp.four_stars)}")
+    if warp.starts_at is not None and warp.starts_at > now:
+        parts.append(_hsr_moment("mulai", warp.starts_at, now))
+    else:
+        parts.extend(_hsr_end(warp.ends_at, now))
+    # Semicolons: the names inside a part are already separated by commas.
+    return _labelled(f"{warp.name} ({HSR_WARP_KINDS[warp.kind]})", parts, separator="; ")
+
+
+def _hsr_event_text(event: HsrEvent, now: datetime) -> str:
+    progress = ["selesai"] if event.done else _hsr_progress(event.current, event.total)
+    return _labelled(event.name, [*progress, *_hsr_end(event.ends_at, now)])
+
+
+def _hsr_window_text(window: HsrChallengeWindow, now: datetime) -> str:
+    parts = [*_hsr_progress(window.current, window.total), *_hsr_end(window.ends_at, now)]
+    return _labelled(f"{ENDGAME_MODES[window.mode]} ({window.name})", parts)
+
+
+def _hsr_progress(current: int | None, total: int | None) -> list[str]:
+    return [f"{current}/{total}"] if total else []
+
+
+def _hsr_end(ends_at: datetime | None, now: datetime) -> list[str]:
+    return [] if ends_at is None else [_hsr_moment("berakhir", ends_at, now)]
+
+
+def _hsr_moment(word: str, moment: datetime, now: datetime) -> str:
+    """`berakhir 2026-10-20 03:59 (4 hari 12 jam lagi)`, in local time."""
+    return f"{word} {moment.astimezone():%Y-%m-%d %H:%M} ({_time_left(moment - now)})"
+
+
+def _time_left(left: timedelta) -> str:
+    minutes = math.ceil(left.total_seconds() / 60)
+    if minutes <= 0:
+        return "sudah lewat"
+    days, minutes = divmod(minutes, 24 * 60)
+    if not days:
+        return f"{duration_text(minutes)} lagi"
+    hours = minutes // 60
+    return f"{days} hari {hours} jam lagi" if hours else f"{days} hari lagi"
+
+
+def _labelled(label: str, parts: list[str], *, separator: str = ", ") -> str:
+    return f"{label}: {separator.join(parts)}" if parts else label
 
 
 # --- long-term memory ------------------------------------------------------------------------
