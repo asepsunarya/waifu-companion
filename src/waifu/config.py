@@ -590,7 +590,7 @@ class WebSearchConfig(_Strict):
     """Claude's server-side web search in her conversation (Claude backend only)."""
 
     enabled: bool = True
-    max_uses: int = Field(default=3, ge=1, le=10)  # searches per turn
+    max_uses: int = Field(default=3, ge=1, le=10)  # searches per request to Claude
     country: str = "ID"
     timezone: str = "Asia/Jakarta"
     # None: briefing.city.

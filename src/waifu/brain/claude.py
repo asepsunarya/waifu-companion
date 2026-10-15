@@ -37,20 +37,35 @@ one, and one holding 20 MiB ends even while a question awaits Master's yes.
 response, a refused or cut-off one too, since each is billed; after a server-side
 fallback, once for each model attempt, the declined one too. It only observes: the
 requests stay exactly as they are, and a failure to record is logged, never the turn's.
+
+`web_search` (from `web_search_tool`) is Claude's server-side web search, the last of the
+frozen tools when given; without it the requests are exactly what they were before. With it
+every request is streamed (the same request with `stream`), since a search turn may outlast
+the read timeout that a stream applies between its events. It runs on Anthropic's servers:
+its blocks (`server_tool_use`, `web_search_tool_result`, a
+search error too) stay in the history exactly as returned, and a server-side loop that
+paused (`pause_turn`, its last block a `server_tool_use`) is resumed by resending the
+history as it stands, with no message added, as one tool round. A turn that would end with
+a server tool call still unanswered (paused at the round limit, or cut off mid-search) is
+rolled back: the API refuses such a call in every later request unless it ends the history.
+The response's searches reach `on_usage` with its tokens.
 """
 
 from __future__ import annotations
 
 import base64
+import dataclasses
 import json
 import logging
 import os
 import time
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from datetime import datetime
+from itertools import groupby
 from typing import Any
 
 import anthropic
+import httpx2
 from anthropic.types.beta import (
     BetaContentBlock,
     BetaImageBlockParam,
@@ -58,6 +73,9 @@ from anthropic.types.beta import (
     BetaTextBlockParam,
     BetaToolResultBlockParam,
     BetaToolUseBlock,
+    BetaUserLocationParam,
+    BetaWebSearchTool20250305Param,
+    BetaWebSearchTool20260209Param,
 )
 
 from waifu.brain.attachments import TurnImages
@@ -80,14 +98,34 @@ from waifu.usage import TokenUsage
 logger = logging.getLogger(__name__)
 
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
-# A declining model's reasoning and tool calls before the hand-over are not echoed back.
+# The models whose web search filters its results with code (`web_search_20260209`), from the
+# claude-api reference; the others search with `web_search_20250305`.
+DYNAMIC_FILTERING_MODELS = frozenset(
+    {
+        "claude-fable-5-1",
+        "claude-fable-5",
+        "claude-opus-5-5",
+        "claude-opus-5",
+        "claude-opus-4-8",
+        "claude-opus-4-7",
+        "claude-opus-4-6",
+        "claude-sonnet-5-5",
+        "claude-sonnet-5",
+        "claude-sonnet-4-6",
+    }
+)
+WebSearchTool = BetaWebSearchTool20260209Param | BetaWebSearchTool20250305Param
+# A declining model's reasoning and tool calls before the hand-over are not echoed back, nor
+# its server tool calls that got no result.
 _DROPPED_BEFORE_FALLBACK = frozenset({"thinking", "redacted_thinking", "tool_use"})
 # The `usage.iterations` entries of the model attempts behind one response (her requests use
 # neither compaction nor the advisor tool, the other kinds).
 _ATTEMPT_ITERATIONS = frozenset({"message", "fallback_message"})
 _SESSION_DEFAULTS = AssistantConfig()
 # The voice loop is deaf while a request is open, so bound it far below the SDK's
-# 10-minute default; a timeout becomes the "cannot connect" apology.
+# 10-minute default; a timeout before the answer starts becomes the "cannot connect" apology.
+# With web search the requests are streamed, so the read timeout bounds each wait between the
+# stream's events instead of the server's whole search loop.
 _REQUEST_TIMEOUT = anthropic.Timeout(60.0, connect=5.0)
 _MAX_RETRIES = 1
 # Every request resends the session's images, screenshots and Master's photos alike, and the
@@ -114,6 +152,7 @@ _RATE_LIMITED = "Maaf {owner}, server Claude sedang sibuk. Coba lagi sebentar la
 _NO_CONNECTION = "Maaf {owner}, aku tidak bisa terhubung ke server Claude."
 _SERVER_ERROR = "Maaf {owner}, server Claude sedang bermasalah. Coba lagi nanti, ya."
 _REQUEST_FAILED = "Maaf {owner}, ada masalah saat menghubungi Claude."
+_TOO_SLOW = "Maaf {owner}, jawaban dari Claude terlalu lama, jadi aku berhenti dulu."
 _NEEDS_WORKSPACE = (
     "Maaf {owner}, API key Claude ini belum terikat ke workspace. Isi ANTHROPIC_WORKSPACE_ID "
     "dengan ID workspace-nya, atau buat API key di dalam sebuah workspace."
@@ -133,6 +172,14 @@ _CAMERA_NOTE = (
 )
 
 
+class _Unkept(Exception):
+    """A turn that cannot stay in the history, answered with `apology` (a canned reply)."""
+
+    def __init__(self, apology: str) -> None:
+        super().__init__(apology)
+        self.apology = apology
+
+
 class ClaudeBrain(Brain):
     def __init__(
         self,
@@ -149,6 +196,7 @@ class ClaudeBrain(Brain):
         owner_call: str = "Master",
         on_usage: Callable[[str, TokenUsage], None] | None = None,
         turn_images: TurnImages | None = None,
+        web_search: WebSearchTool | None = None,
     ) -> None:
         self._max_tool_rounds = config.max_tool_rounds
         self._registry = registry
@@ -159,7 +207,8 @@ class ClaudeBrain(Brain):
         self._turn_images = turn_images
         self._client = client
         self._session = SessionClock(session_idle_minutes, max_session_turns, clock)
-        self._request = _frozen_request(config.claude, registry, self._providers)
+        self._request = _frozen_request(config.claude, registry, self._providers, web_search)
+        self._streams = web_search is not None
         self._system_prompt = system_prompt
         self._session_system = ""
         self._history: list[dict[str, Any]] = []
@@ -194,6 +243,13 @@ class ClaudeBrain(Brain):
         tool_calls: list[ToolCallRecord] = []
         try:
             text = self._run_turn(tool_calls)
+        except _Unkept as unkept:
+            return self._roll_back(turn_start, unkept.apology, tool_calls)
+        except httpx2.TimeoutException:
+            # A streamed answer that stalled (the SDK wraps a timeout before an answer starts). The
+            # server may bill what it did already, so it is not asked again.
+            logger.warning("Claude's streamed answer stalled past the read timeout")
+            return self._roll_back(turn_start, _TOO_SLOW, tool_calls)
         except (anthropic.AuthenticationError, anthropic.CredentialsError) as exc:
             logger.error("Claude credentials missing or rejected (%s)", type(exc).__name__)
             return self._roll_back(turn_start, _BAD_CREDENTIALS, tool_calls)
@@ -250,13 +306,14 @@ class ClaudeBrain(Brain):
         return None
 
     def _run_turn(self, tool_calls: list[ToolCallRecord]) -> str | None:
-        """Call Claude until it stops asking for tools. Returns the reply, or None on a refusal."""
+        """Call Claude until it stops asking for tools. Returns the reply, or None on a refusal.
+
+        _Unkept when the turn would end with a server tool call left without its result.
+        """
         client = self._client_or_create()
         rounds = 0
         while True:
-            response = client.beta.messages.create(
-                **self._request, system=self._session_system, messages=self._history
-            )
+            response = self._send(client)
             self._report_usage(response)
             _log_cache_use(response)
             if response.stop_reason == "refusal":
@@ -269,6 +326,9 @@ class ClaudeBrain(Brain):
                 response.stop_reason == "tool_use" and bool(calls)
             )
             if not wants_more:
+                if _unanswered_server_call(content):
+                    logger.warning("Claude stopped (%s) mid server tool call", response.stop_reason)
+                    raise _Unkept(_CUT_OFF)
                 if calls:
                     logger.warning("Claude stopped (%s) mid tool call", response.stop_reason)
                     self._answer_without_running(calls, _NOT_RUN_CUT_OFF)
@@ -276,6 +336,9 @@ class ClaudeBrain(Brain):
                 return _final_text(content, tool_calls, self._owner_call)
             if rounds >= self._max_tool_rounds:
                 logger.warning("Claude hit the limit of %d tool rounds", self._max_tool_rounds)
+                if _unanswered_server_call(content):
+                    # A paused search: only resending this very response could answer it.
+                    raise _Unkept(_ROUND_LIMIT)
                 self._answer_without_running(calls, _NOT_RUN_ROUND_LIMIT)
                 return _ROUND_LIMIT.format(owner=self._owner_call)
             rounds += 1
@@ -283,12 +346,24 @@ class ClaudeBrain(Brain):
                 results = [self._run_tool(call, tool_calls) for call in calls]
                 self._history.append({"role": "user", "content": results})
 
+    def _send(self, client: anthropic.Anthropic) -> BetaMessage:
+        """One request with the session's history; streamed when she can search the web.
+
+        A search turn may outlast the read timeout: a stream applies it between its events, and
+        an answer that stalls after it began is never sent again (and billed twice) by the SDK.
+        """
+        request = {**self._request, "system": self._session_system, "messages": self._history}
+        if not self._streams:
+            return client.beta.messages.create(**request)
+        with client.beta.messages.stream(**request) as stream:
+            return stream.get_final_message()
+
     def _report_usage(self, response: BetaMessage) -> None:
         """Hand `on_usage` the model and the tokens of every attempt the response billed."""
         if self._on_usage is None:
             return
         try:
-            for model, tokens in _billed_attempts(response, self._request["model"]):
+            for model, tokens in billed_attempts(response, self._request["model"]):
                 self._on_usage(model, tokens)
         except Exception:
             logger.exception("Could not record the usage of a Claude response; the turn goes on")
@@ -355,6 +430,43 @@ class ClaudeBrain(Brain):
         return self._client
 
 
+def web_search_tool(
+    max_uses: int,
+    *,
+    model: str,
+    country: str,
+    timezone: str | None = None,
+    city: str | None = None,
+) -> WebSearchTool:
+    """Claude's server-side web search for `model`: at most `max_uses` searches per request,
+    with results for someone in `country` (two letters), and `timezone` (IANA) and `city`
+    when known.
+
+    A model with dynamic filtering gets `web_search_20260209`, which filters its results with
+    code execution of its own (so no `code_execution` tool goes beside it: a second one would
+    only confuse the model); any other model refuses that version, so it gets
+    `web_search_20250305`.
+    """
+    location: BetaUserLocationParam = {"type": "approximate", "country": country}
+    if timezone is not None:
+        location["timezone"] = timezone
+    if city is not None:
+        location["city"] = city
+    if model in DYNAMIC_FILTERING_MODELS:
+        return {
+            "type": "web_search_20260209",
+            "name": "web_search",
+            "max_uses": max_uses,
+            "user_location": location,
+        }
+    return {
+        "type": "web_search_20250305",
+        "name": "web_search",
+        "max_uses": max_uses,
+        "user_location": location,
+    }
+
+
 def _read_system_prompt(system_prompt: str | Callable[[], str]) -> str:
     return system_prompt() if callable(system_prompt) else system_prompt
 
@@ -363,16 +475,23 @@ def _frozen_request(
     claude: ClaudeConfig,
     registry: DeviceRegistry,
     providers: Sequence[ToolProvider],
+    web_search: WebSearchTool | None,
 ) -> dict[str, Any]:
     """Every request field except `system` and `messages`, fixed for the brain's whole lifetime.
 
     No `thinking` (adaptive by omission; disabling it is rejected on this model),
-    no sampling parameters, and no forced `tool_choice`.
+    no sampling parameters, and no forced `tool_choice`. The web search tool, when given,
+    comes after every tool of hers.
     """
+    tools: list[Mapping[str, Any]] = [
+        to_anthropic(spec) for spec in build_tool_specs(registry, providers)
+    ]
+    if web_search is not None:
+        tools.append(web_search)
     request: dict[str, Any] = {
         "model": claude.model,
         "max_tokens": claude.max_tokens,
-        "tools": [to_anthropic(spec) for spec in build_tool_specs(registry, providers)],
+        "tools": tools,
         "output_config": {"effort": claude.effort},
         "cache_control": {"type": "ephemeral"},
     }
@@ -383,17 +502,37 @@ def _frozen_request(
 
 
 def _echoable(content: Sequence[BetaContentBlock]) -> list[BetaContentBlock]:
-    """The response blocks to append to history, applying the fallback echo rule."""
+    """The response blocks to append to history, applying the fallback echo rule.
+
+    Before the last `fallback` block the declining model's thinking, tool calls, and server
+    tool calls without a result (no block names their id as its `tool_use_id`) are dropped;
+    paired server-tool blocks, text, and everything after the boundary are echoed.
+    """
     fallback_at = max(
         (index for index, block in enumerate(content) if block.type == "fallback"), default=None
     )
     if fallback_at is None:
         return list(content)
+    answered = {block.tool_use_id for block in content if hasattr(block, "tool_use_id")}
     return [
         block
         for index, block in enumerate(content)
-        if index >= fallback_at or block.type not in _DROPPED_BEFORE_FALLBACK
+        if index >= fallback_at or not _declined(block, answered)
     ]
+
+
+def _unanswered_server_call(content: Sequence[BetaContentBlock]) -> bool:
+    """Whether a server tool call in `content` has no result there (no block names its id as its
+    `tool_use_id`). Kept in the history, it would make every later request invalid."""
+    answered = {block.tool_use_id for block in content if hasattr(block, "tool_use_id")}
+    return any(block.type == "server_tool_use" and block.id not in answered for block in content)
+
+
+def _declined(block: BetaContentBlock, answered: Collection[str]) -> bool:
+    """Whether a block before the last `fallback` block is left out of the echo."""
+    if block.type == "server_tool_use":
+        return block.id not in answered
+    return block.type in _DROPPED_BEFORE_FALLBACK
 
 
 def _tool_result(
@@ -460,11 +599,17 @@ def _final_text(
 ) -> str:
     """The reply's text, or when it has none, what the tool calls did, said to `owner_call`.
 
-    Calls held for Master's yes are left out: the gate's question follows the reply, and is
-    the whole reply when every call was held.
+    Adjacent text blocks are one passage the API split at its citations, each piece keeping its
+    own spacing, so they join as they are; passages that other blocks (a search) separate join
+    with a space. Calls held for Master's yes are left out: the gate's question follows the
+    reply, and is the whole reply when every call was held.
     """
-    parts = [block.text.strip() for block in content if block.type == "text"]
-    text = " ".join(part for part in parts if part)
+    passages = (
+        "".join(block.text for block in blocks).strip()
+        for is_text, blocks in groupby(content, key=lambda block: block.type == "text")
+        if is_text
+    )
+    text = " ".join(passage for passage in passages if passage)
     if text:
         return text
     if not tool_calls:
@@ -476,22 +621,36 @@ def _final_text(
     return canned.format(owner=owner_call)
 
 
-def _billed_attempts(response: BetaMessage, requested_model: str) -> list[tuple[str, TokenUsage]]:
-    """The model and the tokens of each attempt behind `response`.
+def billed_attempts(response: BetaMessage, requested_model: str) -> list[tuple[str, TokenUsage]]:
+    """The model and the tokens of each model attempt behind `response`.
 
-    After a server-side fallback the top-level `usage` covers only the attempt that produced
-    the message, while `usage.iterations` lists every attempt, a declined one too (billed like
-    any other): `message` entries, and `fallback_message` for the fallback that answered. A
-    `message` entry may leave out its model: it ran on the requested one. Without such
-    entries, the top-level `usage` is the whole bill, from the model that answered.
+    `usage.iterations` lists every sampling iteration: each turn of a server-side tool loop
+    (a search), and after a server-side fallback every attempt, a declined one too (billed like
+    any other), where the top-level `usage` covers only the attempt that produced the message.
+    Its `message` entries, and `fallback_message` for the fallback that answered, are summed per
+    model attempt: the iterations in a row of one model are one attempt. A `message` entry may
+    leave out its model: it ran on the requested one. Without such entries, the top-level
+    `usage` is the whole bill, from the model that answered.
+
+    Only the top-level `usage` counts web searches, so they go once, with the last attempt
+    (the one that produced the message).
     """
     usage = response.usage
-    attempts = [
-        (entry.model or requested_model, TokenUsage.from_usage(entry))
-        for entry in getattr(usage, "iterations", None) or ()
-        if entry.type in _ATTEMPT_ITERATIONS
-    ]
-    return attempts or [(response.model, TokenUsage.from_usage(usage))]
+    whole = TokenUsage.from_usage(usage)
+    attempts: list[tuple[str, TokenUsage]] = []
+    for entry in getattr(usage, "iterations", None) or ():
+        if entry.type not in _ATTEMPT_ITERATIONS:
+            continue
+        model, tokens = entry.model or requested_model, TokenUsage.from_usage(entry)
+        if attempts and attempts[-1][0] == model:
+            attempts[-1] = (model, attempts[-1][1] + tokens)
+        else:
+            attempts.append((model, tokens))
+    if not attempts:
+        return [(response.model, whole)]
+    model, tokens = attempts[-1]
+    attempts[-1] = (model, dataclasses.replace(tokens, web_searches=whole.web_searches))
+    return attempts
 
 
 def _log_cache_use(response: BetaMessage) -> None:

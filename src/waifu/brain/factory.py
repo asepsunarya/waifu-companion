@@ -37,10 +37,19 @@ def build_brain(
     confirmation gate. `on_usage` hears what each Claude response used; Ollama is
     free, so its brain never calls it. `turn_images` brings Claude the photo a phone
     message carries; Ollama's model cannot see images, so its brain never gets it.
+    With `web_search.enabled`, Claude gets its server-side web search (near
+    `web_search.city`, else `briefing.city`) and the prompt its note on web data;
+    Ollama has no such tool.
     """
     persona = load_persona(config.assistant.persona_file) if persona_text is None else persona_text
+    uses_claude = config.brain.backend == "claude"
+    searching = uses_claude and config.web_search.enabled
     base_prompt = build_system_prompt(
-        persona, config.assistant.name, registry, owner_call=config.assistant.owner_call
+        persona,
+        config.assistant.name,
+        registry,
+        owner_call=config.assistant.owner_call,
+        web_search=searching,
     )
     system_prompt: str | Callable[[], str] = (
         base_prompt if memory_section is None else _with_memory(base_prompt, memory_section)
@@ -58,10 +67,22 @@ def build_brain(
         ),
         "owner_call": config.assistant.owner_call,
     }
-    if config.brain.backend == "claude":
+    if uses_claude:
         # Imported here so the Ollama path never loads the Anthropic SDK.
-        from waifu.brain.claude import ClaudeBrain
+        from waifu.brain.claude import ClaudeBrain, web_search_tool
 
+        search = config.web_search
+        web_search = (
+            web_search_tool(
+                search.max_uses,
+                model=config.brain.claude.model,
+                country=search.country,
+                timezone=search.timezone,
+                city=search.city or config.briefing.city,
+            )
+            if searching
+            else None
+        )
         return ClaudeBrain(
             config.brain,
             registry,
@@ -69,6 +90,7 @@ def build_brain(
             **options,
             on_usage=on_usage,
             turn_images=turn_images,
+            web_search=web_search,
         )
     return OllamaBrain(config.brain, registry, system_prompt, **options)
 

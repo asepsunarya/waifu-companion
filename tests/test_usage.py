@@ -6,10 +6,10 @@ from datetime import date, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
-from anthropic.types.beta import BetaUsage
+from anthropic.types.beta import BetaServerToolUsage, BetaUsage
 
 from waifu import usage
-from waifu.config import ConfigError, ModelPrices
+from waifu.config import ConfigError, ModelPrices, UsageConfig
 from waifu.usage import (
     BUILT_IN_PRICES,
     DayUsage,
@@ -122,7 +122,31 @@ def test_token_usage_reads_an_object_that_lacks_some_fields():
 
 
 def test_a_response_without_usage_counts_no_tokens():
-    assert TokenUsage.from_usage(None) == TokenUsage(0, 0, 0, 0)
+    assert TokenUsage.from_usage(None) == TokenUsage(0, 0, 0, 0, 0)
+
+
+def test_token_usage_reads_the_web_searches_of_an_sdk_usage():
+    sdk_usage = BetaUsage(
+        input_tokens=10,
+        output_tokens=5,
+        server_tool_use=BetaServerToolUsage(web_search_requests=2, web_fetch_requests=0),
+    )
+
+    assert TokenUsage.from_usage(sdk_usage) == TokenUsage(input=10, output=5, web_searches=2)
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        BetaUsage(input_tokens=10, output_tokens=5),  # server_tool_use defaults to None
+        {"input_tokens": 10, "output_tokens": 5},
+        {"input_tokens": 10, "output_tokens": 5, "server_tool_use": None},
+        {"input_tokens": 10, "output_tokens": 5, "server_tool_use": {"web_fetch_requests": 1}},
+    ],
+    ids=["sdk", "mapping", "none", "fetches_only"],
+)
+def test_a_usage_without_web_search_requests_counts_no_web_searches(raw):
+    assert TokenUsage.from_usage(raw) == TokenUsage(input=10, output=5, web_searches=0)
 
 
 def test_token_usage_is_frozen():
@@ -289,6 +313,29 @@ def test_a_record_is_saved_per_local_day_and_model_in_the_spec_file_shape(tmp_pa
     }
 
 
+def test_only_a_model_s_day_with_web_searches_gets_their_count(tmp_path):
+    # A day without searches keeps exactly the keys a `waifu run` from before v1.18 reads, so one
+    # still running is not made to set the whole file aside as broken.
+    clock = Clock()
+    ledger = UsageLedger(tmp_path / "usage.json", prices={}, default_model=OPUS, now=clock)
+    ledger.record(OPUS, TokenUsage(input=10, web_searches=2))
+    clock.advance(days=1)
+
+    ledger.record(OPUS, TokenUsage(input=10))
+
+    days = read_json(ledger.path)["days"]
+    assert days["2026-10-14"][OPUS]["web_searches"] == 2
+    assert days["2026-10-15"][OPUS].keys() == {
+        "requests",
+        "input",
+        "output",
+        "cache_write",
+        "cache_read",
+        "cost_usd",
+        "estimated",
+    }
+
+
 def test_records_of_one_model_on_one_day_add_up(tmp_path):
     ledger = make_ledger(tmp_path)
 
@@ -340,6 +387,59 @@ def test_a_configured_price_wins_over_the_built_in_one(tmp_path):
     ledger.record(OPUS, TokenUsage(1_000_000, 1_000_000, 1_000_000, 1_000_000))
 
     assert ledger.day(TODAY).cost_usd == pytest.approx(10.00)
+
+
+def test_each_web_search_costs_a_thousandth_of_the_configured_price_on_top_of_the_tokens(
+    tmp_path,
+):
+    ledger = UsageLedger(
+        tmp_path / "usage.json",
+        prices={},
+        default_model=OPUS,
+        web_search_per_1000_usd=25.0,
+        now=Clock(),
+    )
+
+    ledger.record(OPUS, TokenUsage(input=1_000_000, web_searches=4))  # 4.00 + 4 x 0.025
+
+    summary = ledger.day(TODAY)
+    assert summary.cost_usd == pytest.approx(4.10)
+    assert summary.tokens == TokenUsage(input=1_000_000, web_searches=4)
+    assert summary.estimated is False
+
+
+def test_web_searches_cost_what_the_config_says_by_default(tmp_path):
+    ledger = make_ledger(tmp_path)
+
+    ledger.record(OPUS, TokenUsage(web_searches=3))
+
+    per_search = UsageConfig().web_search_per_1000_usd / 1000  # 10 dollars per 1000
+    assert ledger.day(TODAY).cost_usd == pytest.approx(3 * per_search)
+
+
+def test_web_searches_add_up_per_day_and_month_whichever_model_searched(tmp_path):
+    ledger = make_ledger(tmp_path)
+
+    ledger.record(OPUS, TokenUsage(output=10, web_searches=2))
+    ledger.record(OPUS, TokenUsage(web_searches=1))
+    ledger.record("claude-opus-5", TokenUsage(web_searches=1))  # a server-side fallback
+
+    saved = read_json(ledger.path)["days"]["2026-10-14"]
+    assert (saved[OPUS]["web_searches"], saved["claude-opus-5"]["web_searches"]) == (3, 1)
+    assert ledger.day(TODAY).tokens == TokenUsage(output=10, web_searches=4)
+    assert ledger.month(2026, 10).by_day[0].tokens.web_searches == 4
+
+
+def test_a_day_recorded_before_web_searches_were_counted_reads_as_none(tmp_path):
+    ledger = make_ledger(tmp_path)
+    write_usage(ledger.path, {"2026-10-14": {OPUS: entry(requests=2, input=10, cost=0.5)}})
+
+    assert ledger.day(TODAY).tokens == TokenUsage(input=10, web_searches=0)
+
+    ledger.record(OPUS, TokenUsage(web_searches=2))
+
+    assert ledger.day(TODAY).tokens == TokenUsage(input=10, web_searches=2)
+    assert read_json(ledger.path)["days"]["2026-10-14"][OPUS]["web_searches"] == 2
 
 
 def test_a_fallback_model_is_priced_with_the_configured_default_model(tmp_path):
@@ -670,6 +770,10 @@ CORRUPT_CONTENTS = {
     "input a float": file_with(days=day_with(input=10.0)),
     "output text": file_with(days=day_with(output="5")),
     "cache_write null": file_with(days=day_with(cache_write=None)),
+    "web_searches negative": file_with(days=day_with(web_searches=-1)),
+    "web_searches a float": file_with(days=day_with(web_searches=1.0)),
+    "web_searches true": file_with(days=day_with(web_searches=True)),
+    "web_searches null": file_with(days=day_with(web_searches=None)),
     "cost text": file_with(days=day_with(cost_usd="0.1")),
     "cost negative": file_with(days=day_with(cost_usd=-0.1)),
     "cost true": file_with(days=day_with(cost_usd=True)),

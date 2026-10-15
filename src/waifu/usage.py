@@ -10,7 +10,9 @@ are not seen.
 
 Prices are US dollars per million tokens. A response from a model missing from the table
 (a server-side fallback) is priced with `usage.default_model`'s prices and counted as
-estimated; a default model without prices is a configuration error.
+estimated; a default model without prices is a configuration error. Claude's server-side web
+searches are billed per search on top of the tokens, at `usage.web_search_per_1000_usd` per
+thousand, whichever model searched.
 
 The file follows the rules of `memory.py`: every call re-reads it, so `waifu usage` sees
 what a running Cyrene recorded. One lock serialises the calls of every ledger in this
@@ -34,11 +36,12 @@ from datetime import date, datetime
 from pathlib import Path
 from types import MappingProxyType
 
-from waifu.config import ConfigError, ModelPrices, at_sentence_start
+from waifu.config import ConfigError, ModelPrices, UsageConfig, at_sentence_start
 from waifu.gacha.files import write_json_atomic
 
 logger = logging.getLogger(__name__)
 
+_CONFIG_DEFAULTS = UsageConfig()
 FILE_VERSION = 1
 # From the claude-api reference. The automatic prompt cache she uses keeps an entry for 5
 # minutes, and a 5-minute cache write costs 1.25 times the input price.
@@ -51,6 +54,9 @@ _TOKENS_PER_PRICE = 1_000_000  # prices are per million tokens
 _BUDGET_THRESHOLDS = (80, 100)
 _FILE_KEYS = {"version", "days", "notices"}
 _TOTALS_KEYS = {"requests", "input", "output", "cache_write", "cache_read", "cost_usd", "estimated"}
+# Counted since v1.18 and saved only when above 0: a day recorded before, or without searches,
+# has none.
+_WEB_SEARCHES_KEY = "web_searches"
 _COUNT_KEYS = ("requests", "input", "output", "cache_write", "cache_read")
 # date.fromisoformat also reads 20261014 and 2026-W42-3; the file holds only YYYY-MM-DD.
 _ISO_DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
@@ -68,18 +74,21 @@ class TokenUsage:
     output: int = 0
     cache_write: int = 0
     cache_read: int = 0
+    web_searches: int = 0  # Claude's server-side web searches, billed per search
 
     @classmethod
     def from_usage(cls, usage: object) -> TokenUsage:
-        """The tokens of a response's `usage`, an SDK object or a plain mapping.
+        """The tokens and web searches of a response's `usage`, an SDK object or a mapping.
 
-        A missing or None count is 0 (the SDK leaves the cache counts None when unused).
+        A missing or None count is 0 (the SDK leaves the cache counts None when unused, and
+        `server_tool_use` None when no server tool ran).
         """
         return cls(
             input=_count(usage, "input_tokens"),
             output=_count(usage, "output_tokens"),
             cache_write=_count(usage, "cache_creation_input_tokens"),
             cache_read=_count(usage, "cache_read_input_tokens"),
+            web_searches=_count(_field(usage, "server_tool_use"), "web_search_requests"),
         )
 
     def __add__(self, other: TokenUsage) -> TokenUsage:
@@ -88,6 +97,7 @@ class TokenUsage:
             self.output + other.output,
             self.cache_write + other.cache_write,
             self.cache_read + other.cache_read,
+            self.web_searches + other.web_searches,
         )
 
 
@@ -134,11 +144,12 @@ _Notices = dict[str, list[str]]  # "YYYY-MM" -> the thresholds told that month
 def cost_usd(
     model: str, tokens: TokenUsage, prices: Mapping[str, ModelPrices], default_model: str
 ) -> tuple[float, bool]:
-    """The cost of `tokens` in US dollars, and whether it is an estimate.
+    """The cost of the tokens in `tokens` in US dollars, and whether it is an estimate.
 
     `prices` is the whole table (config overrides merged over the built-in prices). A model
     missing from it is priced with `default_model`'s prices, an estimate; `default_model`
-    must be in the table (KeyError otherwise; `UsageLedger` refuses such a default).
+    must be in the table (KeyError otherwise; `UsageLedger` refuses such a default). Web
+    searches are not tokens: `UsageLedger` prices them per search.
     """
     rates = prices.get(model)
     if rates is not None:
@@ -153,9 +164,11 @@ class UsageLedger:
         *,
         prices: Mapping[str, ModelPrices],
         default_model: str,
+        web_search_per_1000_usd: float = _CONFIG_DEFAULTS.web_search_per_1000_usd,
         now: Callable[[], datetime] = datetime.now,
     ) -> None:
-        """`prices` are the configured ones (`usage.prices`), merged over BUILT_IN_PRICES.
+        """`prices` are the configured ones (`usage.prices`), merged over BUILT_IN_PRICES;
+        `web_search_per_1000_usd` is `usage.web_search_per_1000_usd`.
 
         ConfigError when `default_model` has no prices in them: every response of a model
         missing from the table would then cost nothing, and no budget notice would come.
@@ -169,11 +182,13 @@ class UsageLedger:
                 "usage.prices, or use a model that has them"
             )
         self.default_model = default_model
+        self._search_usd = web_search_per_1000_usd / 1000
         self._now = now
 
     def record(self, model: str, tokens: TokenUsage) -> None:
         """Add one response of `model` to the totals of the current local day."""
         cost, estimated = cost_usd(model, tokens, self.prices, self.default_model)
+        cost += tokens.web_searches * self._search_usd
         response = _Totals(1, tokens, cost, estimated)
         with _LOCK:
             days, notices = self._read()
@@ -268,8 +283,13 @@ class UsageLedger:
         )
 
 
+def _field(usage: object, name: str) -> object:
+    """A field of an SDK object or a plain mapping; None when missing (or `usage` is None)."""
+    return usage.get(name) if isinstance(usage, Mapping) else getattr(usage, name, None)
+
+
 def _count(usage: object, name: str) -> int:
-    value = usage.get(name) if isinstance(usage, Mapping) else getattr(usage, name, None)
+    value = _field(usage, name)
     return 0 if value is None else int(value)
 
 
@@ -315,12 +335,16 @@ def _dollars(amount: float) -> str:
 
 
 def _dump(totals: _Totals) -> dict[str, object]:
+    """The totals as saved; the web searches only when there are any, so a day without them
+    keeps exactly the keys a `waifu run` from before v1.18 (which may still be running) reads."""
+    searches = totals.tokens.web_searches
     return {
         "requests": totals.requests,
         "input": totals.tokens.input,
         "output": totals.tokens.output,
         "cache_write": totals.tokens.cache_write,
         "cache_read": totals.tokens.cache_read,
+        **({_WEB_SEARCHES_KEY: searches} if searches else {}),
         "cost_usd": totals.cost_usd,
         "estimated": totals.estimated,
     }
@@ -362,19 +386,29 @@ def _parse_models(value: object, where: str) -> dict[str, _Totals]:
 
 
 def _parse_totals(value: object, where: str) -> _Totals:
-    if not isinstance(value, dict) or value.keys() != _TOTALS_KEYS:
-        raise ValueError(f"{where} must be an object with exactly the keys {sorted(_TOTALS_KEYS)}")
-    for key in _COUNT_KEYS:
+    if not isinstance(value, dict) or value.keys() - {_WEB_SEARCHES_KEY} != _TOTALS_KEYS:
+        raise ValueError(
+            f"{where} must be an object with exactly the keys {sorted(_TOTALS_KEYS)} "
+            f"and maybe {_WEB_SEARCHES_KEY}"
+        )
+    counts = {key: value.get(key, 0) for key in (*_COUNT_KEYS, _WEB_SEARCHES_KEY)}
+    for key, count in counts.items():
         # True is an int to Python, but no count.
-        if type(value[key]) is not int or value[key] < 0:
+        if type(count) is not int or count < 0:
             raise ValueError(f"{where}.{key} must be a whole number of at least 0")
     cost, estimated = value["cost_usd"], value["estimated"]
     if type(cost) not in (int, float) or not math.isfinite(cost) or cost < 0:
         raise ValueError(f"{where}.cost_usd must be a number of at least 0")
     if type(estimated) is not bool:
         raise ValueError(f"{where}.estimated must be true or false")
-    tokens = TokenUsage(value["input"], value["output"], value["cache_write"], value["cache_read"])
-    return _Totals(value["requests"], tokens, float(cost), estimated)
+    tokens = TokenUsage(
+        counts["input"],
+        counts["output"],
+        counts["cache_write"],
+        counts["cache_read"],
+        counts[_WEB_SEARCHES_KEY],
+    )
+    return _Totals(counts["requests"], tokens, float(cost), estimated)
 
 
 def _parse_month(key: str) -> str:

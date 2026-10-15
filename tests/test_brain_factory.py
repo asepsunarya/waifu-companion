@@ -2,6 +2,8 @@ import base64
 import copy
 import logging
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime
 from types import SimpleNamespace
 
@@ -14,7 +16,16 @@ from waifu.brain.confirm import ConfirmationGate
 from waifu.brain.factory import build_brain
 from waifu.brain.ollama_brain import OllamaBrain
 from waifu.brain.persona import build_system_prompt
-from waifu.config import AppConfig, AssistantConfig, BrainConfig, ConfigError, OllamaConfig
+from waifu.config import (
+    AppConfig,
+    AssistantConfig,
+    BrainConfig,
+    BriefingConfig,
+    ClaudeConfig,
+    ConfigError,
+    OllamaConfig,
+    WebSearchConfig,
+)
 from waifu.devices.mock import MockDevice
 from waifu.devices.registry import DeviceRegistry
 from waifu.usage import TokenUsage
@@ -65,6 +76,7 @@ class FakeClaudeBrain(Brain):
         owner_call="Master",
         on_usage=None,
         turn_images=None,
+        web_search=None,
     ):
         self.config, self.registry, self.system_prompt = config, registry, system_prompt
         self.session_idle_minutes, self.max_session_turns = session_idle_minutes, max_session_turns
@@ -73,6 +85,7 @@ class FakeClaudeBrain(Brain):
         self.owner_call = owner_call
         self.on_usage = on_usage
         self.turn_images = turn_images
+        self.web_search = web_search
 
     def respond(self, user_text: str, *, now: datetime | None = None) -> BrainReply:
         return BrainReply(text="")
@@ -152,7 +165,8 @@ def test_claude_backend_builds_a_claude_brain_with_the_brain_config_and_prompt(m
     assert isinstance(brain, FakeClaudeBrain)
     assert brain.config is config.brain
     assert brain.registry is registry
-    assert brain.system_prompt == build_system_prompt(PERSONA, "Cyrene", registry)
+    # Web search is on by default, so the prompt ends with its note on web data.
+    assert brain.system_prompt == build_system_prompt(PERSONA, "Cyrene", registry, web_search=True)
 
 
 def test_claude_brain_uses_the_session_limits_from_the_assistant_config(monkeypatch):
@@ -240,8 +254,9 @@ PHOTO = b"\xff\xd8\xff\xc0 a photo from the phone camera"
 
 
 class RecordingAnthropic:
-    """Stands in for anthropic.Anthropic inside the real Claude brain: records the messages of
-    each request and answers it with a short text reply, never reaching the network."""
+    """Stands in for anthropic.Anthropic inside the real Claude brain: records the messages and
+    the tools of each request, and whether it was streamed (as it is with web search), and
+    answers it with a short text reply, never reaching the network."""
 
     api_key = "test-key"
     auth_token = None
@@ -249,12 +264,24 @@ class RecordingAnthropic:
 
     def __init__(self) -> None:
         self.sent: list[list[dict]] = []
-        self.beta = SimpleNamespace(messages=SimpleNamespace(create=self._create))
+        self.tools: list[list[dict]] = []
+        self.streamed: list[bool] = []
+        self.beta = SimpleNamespace(
+            messages=SimpleNamespace(create=self._create, stream=self._stream)
+        )
 
     def _create(self, **request: object) -> SimpleNamespace:
         self.sent.append(copy.deepcopy(request["messages"]))
+        self.tools.append(copy.deepcopy(request["tools"]))
+        self.streamed.append(False)
         answer = SimpleNamespace(type="text", text="Itu kucing, Master!")
         return SimpleNamespace(content=[answer], stop_reason="end_turn", stop_details=None)
+
+    @contextmanager
+    def _stream(self, **request: object) -> Iterator[SimpleNamespace]:
+        reply = self._create(**request)
+        self.streamed[-1] = True
+        yield SimpleNamespace(get_final_message=lambda: reply)
 
 
 def test_a_photo_in_the_turn_images_reaches_claude_inside_masters_message(monkeypatch):
@@ -332,7 +359,7 @@ def test_memory_section_follows_the_unchanged_base_prompt_after_a_blank_line(mon
         claude_config(), registry, persona_text=PERSONA, memory_section=MemorySection(ONE_NOTE)
     )
 
-    base = build_system_prompt(PERSONA, "Cyrene", registry)
+    base = build_system_prompt(PERSONA, "Cyrene", registry, web_search=True)
     assert brain.system_prompt() == f"{base}\n\n{ONE_NOTE}"
 
 
@@ -520,3 +547,110 @@ def test_the_claude_brain_and_its_gate_call_the_owner_what_she_calls_them(monkey
     assert brain.confirmations.with_question("") == (
         "Komputer mau kumatikan sekarang, Sayang? Jawab iya kalau jadi."
     )
+
+
+# Web search (Claude's server tool)
+
+
+def searching_config(
+    search: WebSearchConfig, briefing_city: str | None = None, *, model: str = "claude-opus-5-5"
+) -> AppConfig:
+    return AppConfig(
+        assistant=AssistantConfig(name="Cyrene"),
+        brain=BrainConfig(backend="claude", claude=ClaudeConfig(model=model)),
+        web_search=search,
+        briefing=BriefingConfig(city=briefing_city),
+    )
+
+
+@pytest.mark.parametrize(
+    ("search_city", "briefing_city", "location"),
+    [
+        ("Bandung", "Jakarta", {"city": "Bandung"}),
+        (None, "Jakarta", {"city": "Jakarta"}),
+        (None, None, {}),
+    ],
+    ids=["its_own_city", "the_briefing_city", "no_city"],
+)
+def test_the_claude_brain_gets_the_web_search_tool_near_the_owner(
+    search_city, briefing_city, location, monkeypatch
+):
+    monkeypatch.setattr("waifu.brain.claude.ClaudeBrain", FakeClaudeBrain)
+    search = WebSearchConfig(max_uses=5, country="ID", timezone="Asia/Makassar", city=search_city)
+
+    brain = build_brain(searching_config(search, briefing_city), house(), persona_text=PERSONA)
+
+    assert brain.web_search == {
+        "type": "web_search_20260209",
+        "name": "web_search",
+        "max_uses": 5,
+        "user_location": {
+            "type": "approximate",
+            "country": "ID",
+            "timezone": "Asia/Makassar",
+            **location,
+        },
+    }
+
+
+@pytest.mark.parametrize(
+    ("model", "version"),
+    [
+        ("claude-opus-5-5", "web_search_20260209"),
+        ("claude-sonnet-4-6", "web_search_20260209"),
+        ("claude-haiku-5-5", "web_search_20250305"),
+        ("claude-opus-4-5", "web_search_20250305"),
+    ],
+)
+def test_a_model_without_dynamic_filtering_gets_the_earlier_web_search(model, version, monkeypatch):
+    monkeypatch.setattr("waifu.brain.claude.ClaudeBrain", FakeClaudeBrain)
+
+    brain = build_brain(
+        searching_config(WebSearchConfig(), model=model), house(), persona_text=PERSONA
+    )
+
+    assert brain.web_search["type"] == version
+    assert brain.web_search["max_uses"] == 3
+
+
+def test_with_web_search_off_the_claude_brain_gets_neither_the_tool_nor_the_web_note(monkeypatch):
+    monkeypatch.setattr("waifu.brain.claude.ClaudeBrain", FakeClaudeBrain)
+    registry = house()
+
+    brain = build_brain(
+        searching_config(WebSearchConfig(enabled=False)), registry, persona_text=PERSONA
+    )
+
+    assert brain.web_search is None
+    assert brain.system_prompt == build_system_prompt(PERSONA, "Cyrene", registry)
+
+
+def test_the_real_claude_brain_sends_the_web_search_tool_after_her_own_tools(monkeypatch):
+    clients: list[RecordingAnthropic] = []
+
+    def build_client(**options: object) -> RecordingAnthropic:
+        clients.append(RecordingAnthropic())
+        return clients[-1]
+
+    monkeypatch.setattr("waifu.brain.claude.anthropic.Anthropic", build_client)
+    config = searching_config(WebSearchConfig(), briefing_city="Bandung")
+
+    build_brain(config, house(), persona_text=PERSONA).respond("harga RTX 5070?", now=NOW)
+
+    [tools] = clients[0].tools
+    assert [tool["name"] for tool in tools] == ["control_device", "list_devices", "web_search"]
+    assert tools[-1]["user_location"]["city"] == "Bandung"
+    assert clients[0].streamed == [True]
+
+
+def test_the_ollama_brain_never_searches_the_web_even_with_web_search_on(ollama_clients):
+    registry = house()
+
+    build_brain(AppConfig(), registry, persona_text=PERSONA).respond("halo", now=NOW)
+
+    request = ollama_clients[0].requests[0]
+    assert [tool["function"]["name"] for tool in request["tools"]] == [
+        "control_device",
+        "list_devices",
+    ]
+    assert request["messages"][0]["content"] == build_system_prompt(PERSONA, "Cyrene", registry)

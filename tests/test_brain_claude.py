@@ -16,7 +16,7 @@ from anthropic.types.beta import BetaUsage
 from waifu.brain import claude as claude_module
 from waifu.brain.attachments import TurnImages
 from waifu.brain.base import ToolCallRecord, ToolImage, ToolSpec
-from waifu.brain.claude import ClaudeBrain
+from waifu.brain.claude import ClaudeBrain, web_search_tool
 from waifu.brain.confirm import ConfirmationGate
 from waifu.brain.memory_tools import MemoryTools
 from waifu.brain.persona import format_user_turn
@@ -63,7 +63,8 @@ def message(content: list, stop_reason: str, **extra: object) -> SimpleNamespace
 
 
 class FakeAnthropic:
-    """Stands in for anthropic.Anthropic: records each beta.messages.create call."""
+    """Stands in for anthropic.Anthropic: records each beta.messages.create or .stream call,
+    and whether it was streamed."""
 
     api_key = "test-key"
     auth_token = None
@@ -71,16 +72,44 @@ class FakeAnthropic:
 
     def __init__(self, *outcomes: object) -> None:
         self.requests: list[dict] = []
+        self.streamed: list[bool] = []
         self._outcomes = list(outcomes)
-        self.beta = SimpleNamespace(messages=SimpleNamespace(create=self._create))
+        self.beta = SimpleNamespace(
+            messages=SimpleNamespace(create=self._create, stream=self._stream)
+        )
 
     def _create(self, **kwargs: object) -> object:
-        # Snapshot the list so later appends by the brain do not rewrite what was sent.
-        self.requests.append({**kwargs, "messages": list(kwargs["messages"])})
-        outcome = self._outcomes.pop(0)
+        outcome = self._next(kwargs, streamed=False)
         if isinstance(outcome, BaseException):
             raise outcome
         return outcome
+
+    def _stream(self, **kwargs: object) -> "FakeStream":
+        return FakeStream(self._next(kwargs, streamed=True))
+
+    def _next(self, kwargs: dict, *, streamed: bool) -> object:
+        # Snapshot the list so later appends by the brain do not rewrite what was sent.
+        self.requests.append({**kwargs, "messages": list(kwargs["messages"])})
+        self.streamed.append(streamed)
+        return self._outcomes.pop(0)
+
+
+class FakeStream:
+    """Stands in for the SDK's message stream manager: a failed request fails as it opens."""
+
+    def __init__(self, outcome: object) -> None:
+        self._outcome = outcome
+
+    def __enter__(self) -> "FakeStream":
+        if isinstance(self._outcome, BaseException):
+            raise self._outcome
+        return self
+
+    def __exit__(self, *exc_info: object) -> None:
+        return None
+
+    def get_final_message(self) -> object:
+        return self._outcome
 
 
 class FakeClock:
@@ -1824,12 +1853,43 @@ def test_real_sdk_responses_report_the_model_that_answered_and_all_four_token_co
     ]
 
 
+def sse_event(name: str, data: dict) -> bytes:
+    return f"event: {name}\ndata: {json.dumps(data)}\n\n".encode()
+
+
+def message_start(reply: dict) -> bytes:
+    started = {**reply, "content": [], "stop_reason": None}
+    return sse_event("message_start", {"type": "message_start", "message": started})
+
+
+def streamed(reply: dict) -> bytes:
+    """`reply` as the API streams it, each block whole in its content_block_start."""
+    events = [message_start(reply)]
+    for index, block in enumerate(reply["content"]):
+        start = {"type": "content_block_start", "index": index, "content_block": block}
+        stop = {"type": "content_block_stop", "index": index}
+        events += [sse_event("content_block_start", start), sse_event("content_block_stop", stop)]
+    delta = {"stop_reason": reply["stop_reason"], "stop_sequence": None}
+    finished = {"type": "message_delta", "delta": delta, "usage": reply["usage"]}
+    events += [sse_event("message_delta", finished), sse_event("message_stop", {})]
+    return b"".join(events)
+
+
+def answer(request: httpx2.Request, reply: dict) -> httpx2.Response:
+    """`reply` as the API sends it: streamed when the request asked for a stream."""
+    if json.loads(request.content).get("stream"):
+        return httpx2.Response(
+            200, headers={"content-type": "text/event-stream"}, content=streamed(reply)
+        )
+    return httpx2.Response(200, json=reply)
+
+
 def sdk_client(*replies: dict) -> anthropic.Anthropic:
     """The real SDK, answering each request with the next of `replies` (no network)."""
     waiting = list(replies)
 
     def handler(request: httpx2.Request) -> httpx2.Response:
-        return httpx2.Response(200, json=waiting.pop(0))
+        return answer(request, waiting.pop(0))
 
     return anthropic.Anthropic(
         api_key="test-key",
@@ -1890,6 +1950,54 @@ def test_a_fallback_served_response_reports_the_declined_attempt_too():
     assert recorder.calls == [
         (OPUS, TokenUsage(input=300, output=900, cache_read=20_000)),
         ("claude-opus-5", TokenUsage(input=300, output=120, cache_read=20_000)),
+    ]
+
+
+def iterated_reply(usage: dict, model: str = OPUS) -> dict:
+    """A finished reply from `model` whose usage is `usage`."""
+    reply = sdk_reply([{"type": "text", "text": "Sudah, Master!"}], "end_turn")
+    return {**reply, "model": model, "usage": usage}
+
+
+def test_the_iterations_of_a_server_side_tool_loop_are_one_request_of_their_model():
+    # Two searches: the model sampled three times in one response, all on the requested model.
+    recorder = UsageRecorder()
+    usage = {
+        "input_tokens": 300,
+        "output_tokens": 5,
+        "server_tool_use": {"web_search_requests": 2, "web_fetch_requests": 0},
+        "iterations": [
+            attempt("message", None, 5, 0),
+            attempt("message", None, 5, 300),
+            attempt("message", None, 5, 600),
+        ],
+    }
+    make_brain(sdk_client(iterated_reply(usage)), on_usage=recorder).respond("cari HSR", now=NOW)
+
+    assert recorder.calls == [
+        (OPUS, TokenUsage(input=900, output=15, cache_read=900, web_searches=2))
+    ]
+
+
+def test_a_fallback_that_looped_through_its_tools_is_one_request_besides_the_declined_one():
+    recorder = UsageRecorder()
+    usage = {
+        "input_tokens": 300,
+        "output_tokens": 120,
+        "server_tool_use": {"web_search_requests": 1, "web_fetch_requests": 0},
+        "iterations": [
+            attempt("message", OPUS, 900, 20_000),
+            attempt("message", "claude-opus-5", 5, 0),
+            attempt("fallback_message", "claude-opus-5", 120, 300),
+        ],
+    }
+    make_brain(sdk_client(iterated_reply(usage, "claude-opus-5")), on_usage=recorder).respond(
+        "cari HSR", now=NOW
+    )
+
+    assert recorder.calls == [
+        (OPUS, TokenUsage(input=300, output=900, cache_read=20_000)),
+        ("claude-opus-5", TokenUsage(input=600, output=125, cache_read=300, web_searches=1)),
     ]
 
 
@@ -1970,7 +2078,7 @@ def wire_bodies(replies: list[dict], turns: list[str], **kwargs: object) -> list
 
     def handler(request: httpx2.Request) -> httpx2.Response:
         sent.append(request.content)
-        return httpx2.Response(200, json=replies[len(sent) - 1])
+        return answer(request, replies[len(sent) - 1])
 
     client = anthropic.Anthropic(
         api_key="test-key",
@@ -2258,3 +2366,499 @@ def test_a_session_holding_20_mib_of_images_ends_before_the_answer_to_its_questi
         == [{"role": "user", "content": format_user_turn("iya", NOW)}]
     ) is new_session
     assert registry.get("colokan_pc").calls == ([] if new_session else [("off", None)])
+
+
+# Web search (Claude's server tool)
+
+WEB_SEARCH = {
+    "type": "web_search_20260209",
+    "name": "web_search",
+    "max_uses": 3,
+    "user_location": {
+        "type": "approximate",
+        "country": "ID",
+        "timezone": "Asia/Jakarta",
+        "city": "Bandung",
+    },
+}
+# What the real API returns for a search, then the answer that cites it.
+SEARCHED = [
+    {
+        "type": "server_tool_use",
+        "id": "srvtoolu_1",
+        "name": "web_search",
+        "input": {"query": "HSR 4.7 tanggal rilis"},
+        "caller": {"type": "direct"},
+    },
+    {
+        "type": "web_search_tool_result",
+        "tool_use_id": "srvtoolu_1",
+        "content": [
+            {
+                "type": "web_search_result",
+                "url": "https://example.com/hsr-47",
+                "title": "HSR 4.7",
+                "encrypted_content": "enc-1",
+                "page_age": "2 days ago",
+            }
+        ],
+    },
+    {"type": "text", "text": "[senang] Menurut example.com, HSR 4.7 rilis "},
+    {
+        "type": "text",
+        "text": "12 November",
+        "citations": [
+            {
+                "type": "web_search_result_location",
+                "url": "https://example.com/hsr-47",
+                "title": "HSR 4.7",
+                "encrypted_index": "idx-1",
+                "cited_text": "Version 4.7 arrives on November 12",
+            }
+        ],
+    },
+    {"type": "text", "text": ", Master."},
+]
+
+
+def server_tool_use(block_id: str, query: str) -> SimpleNamespace:
+    return SimpleNamespace(
+        type="server_tool_use", id=block_id, name="web_search", input={"query": query}
+    )
+
+
+def web_search_result(tool_use_id: str) -> SimpleNamespace:
+    page = SimpleNamespace(
+        type="web_search_result",
+        url="https://example.com/hsr-47",
+        title="HSR 4.7",
+        encrypted_content="enc-1",
+        page_age=None,
+    )
+    return SimpleNamespace(type="web_search_tool_result", tool_use_id=tool_use_id, content=[page])
+
+
+def test_the_web_search_tool_names_the_owner_s_country_time_zone_and_city_when_known():
+    assert (
+        web_search_tool(3, model=OPUS, country="ID", timezone="Asia/Jakarta", city="Bandung")
+        == WEB_SEARCH
+    )
+    assert web_search_tool(5, model=OPUS, country="JP", timezone="Asia/Tokyo") == {
+        "type": "web_search_20260209",
+        "name": "web_search",
+        "max_uses": 5,
+        "user_location": {"type": "approximate", "country": "JP", "timezone": "Asia/Tokyo"},
+    }
+    assert web_search_tool(5, model=OPUS, country="ID")["user_location"] == {
+        "type": "approximate",
+        "country": "ID",
+    }
+
+
+@pytest.mark.parametrize(
+    "model",
+    [
+        "claude-fable-5-1",
+        "claude-fable-5",
+        "claude-opus-5-5",
+        "claude-opus-5",
+        "claude-opus-4-8",
+        "claude-opus-4-7",
+        "claude-opus-4-6",
+        "claude-sonnet-5-5",
+        "claude-sonnet-5",
+        "claude-sonnet-4-6",
+    ],
+)
+def test_the_models_with_dynamic_filtering_get_the_20260209_web_search(model):
+    assert web_search_tool(3, model=model, country="ID")["type"] == "web_search_20260209"
+
+
+@pytest.mark.parametrize("model", ["claude-haiku-5-5", "claude-haiku-4-5", "claude-opus-4-5"])
+def test_any_other_model_gets_the_earlier_web_search_it_supports(model):
+    # The 20260209 version is refused by a model without dynamic filtering: every turn would fail.
+    assert web_search_tool(3, model=model, country="ID", timezone="Asia/Jakarta") == {
+        **WEB_SEARCH,
+        "type": "web_search_20250305",
+        "user_location": {"type": "approximate", "country": "ID", "timezone": "Asia/Jakarta"},
+    }
+
+
+def test_web_search_is_the_last_tool_of_every_request_with_no_code_execution_beside_it():
+    client = FakeAnthropic(
+        message([text("Halo!")], "end_turn"), message([text("Hai!")], "end_turn")
+    )
+    brain = make_brain(client, providers=[GameTools()], web_search=WEB_SEARCH)
+
+    brain.respond("halo", now=NOW)
+    brain.reset()
+    brain.respond("hai", now=NOW)
+
+    for request in client.requests:
+        assert [tool["name"] for tool in request["tools"]] == [
+            "control_device",
+            "list_devices",
+            "game_status",
+            "web_search",
+        ]
+        assert request["tools"][-1] == WEB_SEARCH
+        # The 20260209 version filters results with code execution of its own.
+        assert not any("code_execution" in tool.get("type", "") for tool in request["tools"])
+
+
+def test_without_web_search_the_requests_are_byte_identical_to_a_brain_without_it():
+    # Nothing changes with web search off, so the prompt cache stays warm.
+    replies = [
+        sdk_reply([{"type": "text", "text": "Halo, Master!"}], "end_turn"),
+        sdk_reply(
+            [{"type": "tool_use", "id": "toolu_1", "name": "control_device", "input": LAMP_ON}],
+            "tool_use",
+        ),
+        sdk_reply([{"type": "text", "text": "Sudah, Master!"}], "end_turn"),
+    ]
+    turns = ["halo", "nyalakan lampu"]
+
+    switched_off = wire_bodies(replies, turns, web_search=None)
+    without = wire_bodies(replies, turns)
+
+    assert len(switched_off) == 3
+    assert switched_off == without
+    tools = json.loads(without[0])["tools"]
+    assert [tool["name"] for tool in tools] == ["control_device", "list_devices"]
+
+
+def test_real_sdk_sends_the_web_search_tool_and_echoes_its_blocks_exactly_as_returned():
+    replies = [
+        sdk_reply(SEARCHED, "end_turn"),
+        sdk_reply([{"type": "text", "text": "Sama-sama, Master!"}], "end_turn"),
+    ]
+
+    first, second = wire_bodies(replies, ["kapan HSR 4.7 rilis?", "makasih"], web_search=WEB_SEARCH)
+
+    assert json.loads(first)["tools"][-1] == WEB_SEARCH
+    assert json.loads(first)["stream"] is True
+    assert json.loads(second)["messages"][1] == {"role": "assistant", "content": SEARCHED}
+
+
+@pytest.mark.parametrize(("web_search", "streams"), [(WEB_SEARCH, True), (None, False)])
+def test_with_web_search_every_request_is_streamed(web_search, streams):
+    # A search turn may outlast the read timeout, which a stream applies between its events.
+    client = FakeAnthropic(
+        message([tool_use("call_1", "control_device", LAMP_ON)], "tool_use"),
+        message([text("Sudah, Master.")], "end_turn"),
+    )
+
+    reply = make_brain(client, web_search=web_search).respond("nyalakan lampu", now=NOW)
+
+    assert reply.text == "Sudah, Master."
+    assert client.streamed == [streams, streams]
+
+
+class StallingStream(httpx2.SyncByteStream):
+    """An answer whose stream starts and then stalls past the read timeout."""
+
+    def __init__(self, first: bytes) -> None:
+        self._first = first
+
+    def __iter__(self):
+        yield self._first
+        raise httpx2.ReadTimeout("the search ran past the read timeout")
+
+
+def test_an_answer_that_stalls_mid_stream_is_given_up_without_a_billed_retry(monkeypatch):
+    attempts: list[httpx2.Request] = []
+    real_anthropic = anthropic.Anthropic
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        attempts.append(request)
+        if len(attempts) > 1:
+            return answer(request, sdk_reply([{"type": "text", "text": "Halo!"}], "end_turn"))
+        stalling = StallingStream(message_start(sdk_reply(SEARCHED, "end_turn")))
+        return httpx2.Response(200, headers={"content-type": "text/event-stream"}, stream=stalling)
+
+    def build(**kwargs: object) -> anthropic.Anthropic:
+        http_client = httpx2.Client(transport=httpx2.MockTransport(handler))
+        return real_anthropic(api_key="test-key", http_client=http_client, **kwargs)
+
+    monkeypatch.setattr(claude_module.anthropic, "Anthropic", build)
+    brain = ClaudeBrain(
+        BrainConfig(backend="claude"), house(), SYSTEM_PROMPT, web_search=WEB_SEARCH
+    )
+
+    stalled = brain.respond("kapan HSR 4.7 rilis?", now=NOW)
+    later = brain.respond("halo", now=NOW)
+
+    assert stalled.text == "Maaf Master, jawaban dari Claude terlalu lama, jadi aku berhenti dulu."
+    assert later.text == "Halo!"
+    assert len(attempts) == 2  # the stalled answer was not asked for again
+    assert json.loads(attempts[1].content)["messages"] == [
+        {"role": "user", "content": format_user_turn("halo", NOW)}
+    ]
+
+
+def test_server_tool_blocks_stay_in_the_history_as_returned_and_run_nothing_here():
+    registry = house()
+    searched = [
+        server_tool_use("srvtoolu_1", "HSR 4.7 tanggal rilis"),
+        web_search_result("srvtoolu_1"),
+        text("HSR 4.7 rilis 12 November, Master."),
+    ]
+    client = FakeAnthropic(message(searched, "end_turn"), message([text("Sama-sama!")], "end_turn"))
+    brain = make_brain(client, registry, web_search=WEB_SEARCH)
+
+    reply = brain.respond("kapan HSR 4.7 rilis?", now=NOW)
+    brain.respond("makasih", now=NOW)
+
+    assert reply.text == "HSR 4.7 rilis 12 November, Master."
+    assert reply.tool_calls == []
+    assert len(client.requests) == 2
+    echoed = client.requests[1]["messages"][1]["content"]
+    assert all(sent is original for sent, original in zip(echoed, searched, strict=True))
+
+
+def test_a_cited_answer_split_into_text_blocks_reads_as_one_sentence():
+    # The API splits a cited answer at each citation; every piece keeps its own spacing.
+    answer = [
+        server_tool_use("srvtoolu_1", "HSR 4.7 tanggal rilis"),
+        web_search_result("srvtoolu_1"),
+        text("[senang] Menurut example.com, HSR 4.7 rilis "),
+        text("12 November"),
+        text(", Master."),
+    ]
+    brain = make_brain(FakeAnthropic(message(answer, "end_turn")), web_search=WEB_SEARCH)
+
+    reply = brain.respond("kapan HSR 4.7 rilis?", now=NOW)
+
+    assert reply.text == "[senang] Menurut example.com, HSR 4.7 rilis 12 November, Master."
+
+
+def test_text_before_a_search_stays_one_space_apart_from_the_answer_after_it():
+    answer = [
+        text("Aku cari dulu ya, Master."),
+        server_tool_use("srvtoolu_1", "HSR 4.7 tanggal rilis"),
+        web_search_result("srvtoolu_1"),
+        text("Menurut example.com, HSR 4.7 rilis "),
+        text("12 November"),
+        text("."),
+    ]
+    brain = make_brain(FakeAnthropic(message(answer, "end_turn")), web_search=WEB_SEARCH)
+
+    reply = brain.respond("kapan HSR 4.7 rilis?", now=NOW)
+
+    assert reply.text == (
+        "Aku cari dulu ya, Master. Menurut example.com, HSR 4.7 rilis 12 November."
+    )
+
+
+def test_a_paused_search_resumes_with_the_history_ending_in_its_assistant_message():
+    paused = [thinking("sig-1"), server_tool_use("srvtoolu_1", "harga RTX 5070")]
+    resumed = [web_search_result("srvtoolu_1"), text("Sekitar sepuluh juta, Master.")]
+    client = FakeAnthropic(message(paused, "pause_turn"), message(resumed, "end_turn"))
+
+    reply = make_brain(client, web_search=WEB_SEARCH).respond("harga RTX 5070?", now=NOW)
+
+    assert reply.text == "Sekitar sepuluh juta, Master."
+    # No "continue" message: the API resumes at the trailing server_tool_use.
+    sent = client.requests[1]["messages"]
+    assert sent == [
+        {"role": "user", "content": format_user_turn("harga RTX 5070?", NOW)},
+        {"role": "assistant", "content": paused},
+    ]
+    assert all(
+        block is original for block, original in zip(sent[1]["content"], paused, strict=True)
+    )
+
+
+def test_paused_searches_count_against_the_tool_round_limit():
+    client = FakeAnthropic(
+        message([server_tool_use("srvtoolu_1", "HSR")], "pause_turn"),
+        message(
+            [web_search_result("srvtoolu_1"), server_tool_use("srvtoolu_2", "HSR 4.7")],
+            "pause_turn",
+        ),
+    )
+
+    reply = make_brain(client, max_tool_rounds=1, web_search=WEB_SEARCH).respond(
+        "kapan HSR 4.7 rilis?", now=NOW
+    )
+
+    assert reply.text == (
+        "Maaf Master, permintaannya butuh terlalu banyak langkah, jadi aku berhenti dulu."
+    )
+    assert len(client.requests) == 2
+
+
+def searches_are_answered(history: list[dict]) -> bool:
+    """Whether every server-side search in `history` has its result (the API refuses one
+    without, unless it ends the last message)."""
+    blocks = [
+        block for entry in history if entry["role"] == "assistant" for block in entry["content"]
+    ]
+    searched = {block.id for block in blocks if block.type == "server_tool_use"}
+    answered = {block.tool_use_id for block in blocks if block.type == "web_search_tool_result"}
+    return searched <= answered
+
+
+def test_a_search_paused_at_the_round_limit_is_rolled_back_so_the_next_turn_still_works():
+    client = FakeAnthropic(
+        message([server_tool_use("srvtoolu_1", "HSR")], "pause_turn"),
+        message(
+            [web_search_result("srvtoolu_1"), server_tool_use("srvtoolu_2", "HSR 4.7")],
+            "pause_turn",
+        ),
+        message([text("Halo, Master!")], "end_turn"),
+    )
+    brain = make_brain(client, max_tool_rounds=1, web_search=WEB_SEARCH)
+
+    first = brain.respond("kapan HSR 4.7 rilis?", now=NOW)
+    second = brain.respond("halo", now=NOW)
+
+    assert first.text == (
+        "Maaf Master, permintaannya butuh terlalu banyak langkah, jadi aku berhenti dulu."
+    )
+    assert second.text == "Halo, Master!"
+    sent = client.requests[2]["messages"]
+    assert sent == [{"role": "user", "content": format_user_turn("halo", NOW)}]
+    assert searches_are_answered(sent)
+
+
+def test_a_turn_that_ran_a_device_and_then_paused_at_the_limit_still_reports_the_device_call():
+    registry = house()
+    client = FakeAnthropic(
+        message([tool_use("call_1", "control_device", LAMP_ON)], "tool_use"),
+        message([server_tool_use("srvtoolu_1", "HSR")], "pause_turn"),
+        message([text("Halo, Master!")], "end_turn"),
+    )
+    brain = make_brain(client, registry, max_tool_rounds=1, web_search=WEB_SEARCH)
+
+    first = brain.respond("nyalakan lampu lalu cari HSR", now=NOW)
+    brain.respond("halo", now=NOW)
+
+    assert [call.name for call in first.tool_calls] == ["control_device"]
+    assert registry.get("lampu_kamar").calls == [("on", None)]
+    assert client.requests[2]["messages"] == [
+        {"role": "user", "content": format_user_turn("halo", NOW)}
+    ]
+
+
+def test_a_reply_cut_off_mid_search_is_rolled_back_so_the_next_turn_still_works():
+    client = FakeAnthropic(
+        message([text("Aku cari dulu ya."), server_tool_use("srvtoolu_1", "HSR")], "max_tokens"),
+        message([text("Halo, Master!")], "end_turn"),
+    )
+    brain = make_brain(client, web_search=WEB_SEARCH)
+
+    first = brain.respond("kapan HSR 4.7 rilis?", now=NOW)
+    second = brain.respond("halo", now=NOW)
+
+    assert first.text == "Maaf Master, jawabanku terpotong. Coba ulangi, ya."
+    assert second.text == "Halo, Master!"
+    assert client.requests[1]["messages"] == [
+        {"role": "user", "content": format_user_turn("halo", NOW)}
+    ]
+
+
+def test_fallback_echo_drops_an_unpaired_server_tool_use_before_the_last_fallback():
+    paired_use = server_tool_use("srvtoolu_1", "HSR 4.7")
+    paired_result = web_search_result("srvtoolu_1")
+    answer = text("HSR 4.7 rilis 12 November, Master.")
+    content = [
+        paired_use,
+        paired_result,
+        server_tool_use("srvtoolu_2", "HSR 4.8"),  # the declining model's search, never run
+        fallback(),
+        answer,
+    ]
+    client = FakeAnthropic(message(content, "end_turn"), message([text("Oke.")], "end_turn"))
+    brain = make_brain(client, web_search=WEB_SEARCH)
+
+    brain.respond("kapan HSR 4.7 rilis?", now=NOW)
+    brain.respond("oke", now=NOW)
+
+    echoed = client.requests[1]["messages"][1]["content"]
+    assert [block.type for block in echoed] == [
+        "server_tool_use",
+        "web_search_tool_result",
+        "fallback",
+        "text",
+    ]
+    assert echoed[0] is paired_use
+    assert echoed[1] is paired_result
+    assert echoed[3] is answer
+
+
+def test_a_server_tool_use_after_the_last_fallback_is_echoed_even_while_unanswered():
+    # The fallback model paused mid-search: the API resumes at its trailing server_tool_use.
+    paused_search = server_tool_use("srvtoolu_2", "HSR 4.7")
+    content = [server_tool_use("srvtoolu_1", "HSR"), fallback(), paused_search]
+    resumed = [web_search_result("srvtoolu_2"), text("Tanggal 12 November, Master.")]
+    client = FakeAnthropic(message(content, "pause_turn"), message(resumed, "end_turn"))
+
+    make_brain(client, web_search=WEB_SEARCH).respond("kapan HSR 4.7 rilis?", now=NOW)
+
+    echoed = client.requests[1]["messages"][-1]["content"]
+    assert [block.type for block in echoed] == ["fallback", "server_tool_use"]
+    assert echoed[1] is paused_search
+
+
+def test_a_web_search_error_is_left_to_the_model_and_nothing_raises():
+    limited = [
+        {
+            "type": "server_tool_use",
+            "id": "srvtoolu_1",
+            "name": "web_search",
+            "input": {"query": "HSR 4.7"},
+        },
+        {
+            "type": "web_search_tool_result",
+            "tool_use_id": "srvtoolu_1",
+            "content": {"type": "web_search_tool_result_error", "error_code": "max_uses_exceeded"},
+        },
+        {"type": "text", "text": "Maaf Master, aku belum bisa mencarinya sekarang."},
+    ]
+    brain = make_brain(sdk_client(sdk_reply(limited, "end_turn")), web_search=WEB_SEARCH)
+
+    reply = brain.respond("kapan HSR 4.7 rilis?", now=NOW)
+
+    assert reply.text == "Maaf Master, aku belum bisa mencarinya sekarang."
+
+
+def searching_reply(usage: dict) -> dict:
+    return {**sdk_reply(SEARCHED, "end_turn"), "usage": usage}
+
+
+def test_a_response_reports_its_web_searches_with_its_tokens():
+    recorder = UsageRecorder()
+    usage = {
+        "input_tokens": 10,
+        "output_tokens": 5,
+        "server_tool_use": {"web_search_requests": 2, "web_fetch_requests": 0},
+    }
+    brain = make_brain(sdk_client(searching_reply(usage)), on_usage=recorder, web_search=WEB_SEARCH)
+
+    brain.respond("kapan HSR 4.7 rilis?", now=NOW)
+
+    assert recorder.calls == [(OPUS, TokenUsage(input=10, output=5, web_searches=2))]
+
+
+def test_the_web_searches_of_a_response_with_iterations_go_with_the_attempt_that_answered():
+    # usage.iterations has no search counts: the response's go with its last attempt, once.
+    recorder = UsageRecorder()
+    usage = {
+        "input_tokens": 300,
+        "output_tokens": 120,
+        "cache_read_input_tokens": 20_000,
+        "server_tool_use": {"web_search_requests": 2, "web_fetch_requests": 0},
+        "iterations": [
+            attempt("message", OPUS, 900, 20_000),
+            attempt("fallback_message", "claude-opus-5", 120, 20_000),
+        ],
+    }
+    brain = make_brain(sdk_client(searching_reply(usage)), on_usage=recorder, web_search=WEB_SEARCH)
+
+    brain.respond("kapan HSR 4.7 rilis?", now=NOW)
+
+    assert recorder.calls == [
+        (OPUS, TokenUsage(input=300, output=900, cache_read=20_000)),
+        ("claude-opus-5", TokenUsage(input=300, output=120, cache_read=20_000, web_searches=2)),
+    ]
