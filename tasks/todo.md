@@ -864,24 +864,24 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** none · **Files:** `src/waifu/config.py`, `tests/test_config.py`, `src/waifu/pc_health.py` (values only) · **Scope:** XS
 
-## Task 87: PC health readers
+## Task 87: PC health readers ✅
 
 **Acceptance criteria:**
-- [ ] `CpuLoad`, `memory()`, `fixed_drives()`, `uptime_s()`, `gpu_status()`, `read_snapshot()` per SPEC through injected collaborators; unreadable parts are None and logged once; no new dependency
+- [x] `CpuLoad`, `memory()`, `fixed_drives()`, `uptime_s()`, `gpu_status()`, `read_snapshot()` per SPEC through injected collaborators; unreadable parts are None and logged once; no new dependency
 
 **Dependencies:** 87a · **Files:** `src/waifu/pc_health.py`, `tests/test_pc_health.py` · **Scope:** M
 
-## Task 88: The tool and the watcher
+## Task 88: The tool and the watcher ✅
 
 **Acceptance criteria:**
-- [ ] `PcTools` (strict static `pc_health {}`, rounded compact JSON, None parts left out)
-- [ ] `PcWatcher` (disk once per drive per day, GPU streak once per hour, announce + notifier, failures logged, prompt stop)
+- [x] `PcTools` (strict static `pc_health {}`, rounded compact JSON, None parts left out)
+- [x] `PcWatcher` (disk once per drive per day, GPU streak once per hour, announce + notifier, failures logged, prompt stop)
 
 **Dependencies:** 87a · **Files:** `src/waifu/brain/pc_tools.py`, `src/waifu/pc_watch.py`, `tests/test_pc_tools.py`, `tests/test_pc_watch.py` · **Scope:** M
 
-## Task 89: Wiring, `waifu pc`, check, README
+## Task 89: Wiring, `waifu pc`, check, README ✅
 
 **Acceptance criteria:**
-- [ ] `run`/`chat` add the tool when enabled; `run` starts and stops the watcher; `waifu pc`; check lines; README section "Kesehatan PC"; `config.example.yaml`
+- [x] `run`/`chat` add the tool when enabled; `run` starts and stops the watcher; `waifu pc`; check lines; README section "Kesehatan PC"; `config.example.yaml`
 
 **Dependencies:** 87, 88 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py`, `README.md`, `config.example.yaml` · **Scope:** M

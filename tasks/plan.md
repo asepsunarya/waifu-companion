@@ -332,13 +332,13 @@ Decision: no new dependency: Windows' own counters through ctypes and nvidia-smi
 read-only tool, a `waifu pc` report, and a small watcher that speaks up about a nearly full drive
 or a GPU that stays hot. No CPU temperature (Windows has none without a kernel driver).
 - [x] Task 87a: `pc_health` config and the snapshot values
-- [ ] Task 87: `pc_health.py` readers (CPU, RAM, drives, uptime, nvidia-smi)
-- [ ] Task 88: `brain/pc_tools.py` and `pc_watch.py`
-- [ ] Task 89: wiring (`run`/`chat`), `waifu pc`, check, README
+- [x] Task 87: `pc_health.py` readers (CPU, RAM, drives, uptime, nvidia-smi)
+- [x] Task 88: `brain/pc_tools.py` and `pc_watch.py`
+- [x] Task 89: wiring (`run`/`chat`), `waifu pc`, check, README
 
 ### Checkpoint: PC health
-- [ ] Python suite and ruff clean; no test touched the real counters, nvidia-smi, audio, or a push
-- [ ] `waifu pc` on the owner's PC matches Task Manager and nvidia-smi
+- [x] Python suite and ruff clean; no test touched the real counters, nvidia-smi, audio, or a push (2026-10-16: 4374 pytest and 454 node tests on the committed tree plus tasks 87-89 and both review-fix rounds; `test_pc_health.py` refuses `ctypes.WinDLL` and `subprocess.Popen` outright, `test_cli.py` fakes `CpuLoad`, `read_snapshot`, `gpu_status`, and `PcWatcher` for every test, the watcher tests use a fake notifier; task 87 ran the readers once outside pytest, read-only, and they matched Windows' own numbers)
+- [x] `waifu pc` on the owner's PC matches Task Manager and nvidia-smi (2026-10-16: RAM 24.7/31.9 GB, C: 63.6 and E: 26.1 GB free, GPU 53°C 10% 5.1/15.9 GB 37 W, uptime 26 days 13 h since the 19 Sep boot, all equal to Windows' own figures and nvidia-smi; 2.3 s)
 - [ ] By voice or chat: "PC-ku gimana?", "GPU-ku panas nggak?"
 
 ## Risks and Mitigations
