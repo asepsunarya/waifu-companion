@@ -357,6 +357,21 @@ dependency; nothing is ever claimed or applied for on the owner's behalf.
 - [x] `waifu offers games` on the owner's PC matches the Epic store; one real `waifu offers ai --scan` with its cost (2026-10-16: Agent A and Bad Cheese free until Thu 22:00 WIB, Home and Sker Ritual from then, one Steam key via GamerPower, 4.7 s; scan 1 found 1 offer for $0.20 with 6 searches, so the prompt now names the program families and the default is 10 searches; scan 2 found 4 more (Claude for Startups, AI for Science, OpenAI Researcher Access, Google for Startups Cloud) for $0.26)
 - [ ] By voice or chat: a web question, "ada game gratis apa?", "ada promo AI gratis?"
 
+### Phase 24: redeem codes (v1.19, see SPEC → redeem codes)
+Decision: codes from the community API behind Hoyo Buddy (checked against HoYoLAB with an Asia
+account), polled every few hours; she tells the owner and redeems through HoYoLAB with
+genshin.py only when asked, unless `auto_redeem` is on; one code at a time with HoYoLAB's
+cooldown respected.
+- [x] Task 97a: `redeem_codes` config and the code values
+- [ ] Task 97: the code source and the code store
+- [ ] Task 98: `HoyolabClient.redeem_codes`
+- [ ] Task 99: tools, watcher, `waifu gacha codes`, check, README
+
+### Checkpoint: redeem codes
+- [ ] Python suite and ruff clean; no test reached the source or HoYoLAB, nothing was redeemed
+- [ ] `waifu gacha codes hsr` on the owner's PC lists the codes the API has
+- [ ] The owner redeems once by voice or with `waifu gacha codes hsr --redeem`
+
 ## Risks and Mitigations
 
 | Risk | Impact | Mitigation |

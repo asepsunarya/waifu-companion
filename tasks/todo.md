@@ -922,3 +922,31 @@ named `tests/test_<package>_<module>.py`.
 - [x] `free_offers` and `send_offer_link` tools; `OffersWatcher`; the notifier's `click`; `run`/`chat` wiring; `waifu offers [games|ai] [--scan]`; check lines; README; `config.example.yaml`
 
 **Dependencies:** 90, 91, 92 · **Files:** `src/waifu/brain/offers_tools.py`, `src/waifu/offers/watcher.py`, `src/waifu/notify.py`, `src/waifu/cli.py`, their tests, `README.md`, `config.example.yaml` · **Scope:** L
+
+## Task 97a: Redeem codes config and values ✅
+
+**Acceptance criteria:**
+- [x] `AppConfig.redeem_codes` (`enabled`, `poll_hours`, `auto_redeem`, `notices`, `state_path`) with ranges; `RedeemCode`, `RedeemResult`, `REDEEM_OUTCOMES` in `gacha/codes.py`
+
+**Dependencies:** none · **Files:** `src/waifu/config.py`, `tests/test_config.py`, `src/waifu/gacha/codes.py` (values only), `tests/test_gacha_codes.py` · **Scope:** XS
+
+## Task 97: Code source and store
+
+**Acceptance criteria:**
+- [ ] `read_codes` per SPEC (game mapping, OK only, format check, per-game failures); `CodeStore` (file rules, new codes, unredeemed, outcomes, announced, forgetting)
+
+**Dependencies:** 97a · **Files:** `src/waifu/gacha/codes.py`, `src/waifu/gacha/code_store.py`, `tests/test_gacha_codes.py`, `tests/test_gacha_code_store.py` · **Scope:** M
+
+## Task 98: Redemption on HoYoLAB
+
+**Acceptance criteria:**
+- [ ] `HoyolabClient.redeem_codes` (one at a time, 6 s apart, cooldown retry, at most 10, per-attempt timeouts, error → outcome mapping, cookie stops the rest, no secrets in logs)
+
+**Dependencies:** 97a · **Files:** `src/waifu/gacha/hoyolab.py`, `tests/test_gacha_hoyolab.py` · **Scope:** M
+
+## Task 99: Tools, watcher, CLI, README
+
+**Acceptance criteria:**
+- [ ] `redeem_codes_list` and `redeem_codes` tools; `CodeWatcher` (announce or auto-redeem, never repeat); `run`/`chat` wiring; `waifu gacha codes [game] [--redeem]`; check line; README; `config.example.yaml`
+
+**Dependencies:** 97, 98 · **Files:** `src/waifu/gacha/code_tools.py`, `src/waifu/gacha/code_watcher.py`, `src/waifu/cli.py`, their tests, `README.md`, `config.example.yaml` · **Scope:** L
