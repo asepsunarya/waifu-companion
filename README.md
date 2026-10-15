@@ -1034,6 +1034,85 @@ melayani halamannya; buka `http://127.0.0.1:9882/` sendiri di browser.
   terputus dari Cyrene; tunggu sebentar atau jalankan ulang `waifu run`.
 - **Mematikan avatar:** `avatar.enabled: false`. Model dan Electron tidak perlu dihapus.
 
+#### Cyrene hilang saat main game
+
+Game dengan mode layar penuh eksklusif (*Fullscreen*, misalnya Genshin Impact, Honkai:
+Star Rail, dan Zenless Zone Zero) selalu tampil di atas semua jendela, jadi selama game
+itu tampil, maskot di monitor yang sama memang tertutup. Itu disengaja, karena tombol
+skill game ada di pojok kanan bawah. Yang dilakukan maskot supaya dia kembali sendiri:
+
+- **Dia terus menggambar dirinya** walaupun Chromium (mesin di dalam Electron) mengira
+  jendelanya tertutup: pelacakan jendela tertutup (*native window occlusion*) dan
+  pelambatan halaman di latar belakang dimatikan. Begitu tidak ada yang menutupinya (di
+  monitor lain, atau game diminimalkan lewat Alt+Tab atau ditutup), dia langsung
+  terlihat lagi tanpa menjalankan ulang Cyrene. Di mode maskot dia menggambar paling
+  banyak 30 kali per detik, jadi menggambar di balik game hampir tidak memakan GPU.
+- **Grafisnya hilang** (bisa terjadi saat game mengganti mode layar): halamannya dimuat
+  ulang sendiri begitu grafisnya pulih, atau 3 detik kemudian kalau tidak pulih. Chromium
+  tidak diizinkan memblokir WebGL untuk halaman Cyrene setelah GPU di-reset, jadi halaman
+  yang dimuat ulang bisa menggambar dia lagi.
+- **Halamannya tidak mendapat WebGL sama sekali** (maskot menampilkan "WebGL tidak
+  tersedia di jendela ini…"): selama Electron masih punya WebGL, halamannya dimuat ulang
+  (ikut batas 5 kali dalam 10 menit di bawah). Kalau Electron sudah menyerah pada GPU
+  (proses GPU-nya terlalu sering mati), program maskot keluar dengan kode 1 supaya Cyrene
+  membukanya lagi dengan Electron yang baru (lihat poin terakhir). Kalau WebGL memang
+  tidak pernah tersedia (driver GPU bermasalah), maskot dibuka ulang 3 kali lalu dibiarkan
+  tertutup: perbarui driver NVIDIA.
+- **Proses GPU atau proses halaman Electron mati:** halamannya dimuat ulang setelah
+  1 detik, paling banyak 5 kali dalam 10 menit (setelah itu hanya dicatat di log sebagai
+  `page-reload skipped`, dan dia baru muncul lagi setelah `waifu run` dijalankan ulang).
+- **Resolusi monitor berubah**, atau monitor ditambah atau dicabut: "selalu di atas"
+  dipasang lagi saat itu juga, sekali lagi 1,5 detik setelah perubahan terakhir, dan setiap
+  kali jendelanya ditampilkan atau dipulihkan dari minimize. (Di Windows, "selalu di atas"
+  maskot hanya berlaku selama taskbar juga di atas, dan Windows menurunkan taskbar selama
+  game layar penuh berjalan di monitor utama; karena itu dipasang lagi setelah semuanya
+  tenang.) Kalau maskot tidak lagi terlihat di layar mana pun, dia dipindah ke pojoknya
+  (`avatar.corner`) di monitor utama; begitu tempatnya semula terlihat lagi (game
+  mengembalikan resolusi monitor, atau monitor yang tidur menyala lagi) dan kamu belum
+  menggesernya, dia dikembalikan ke tempat semula. Dia tetap bersembunyi di balik game
+  layar penuh.
+- **Program maskot (Electron) keluar karena error:** Cyrene membukanya lagi setelah
+  3 detik, paling banyak 3 kali dalam 10 menit. Setelah itu maskot dibiarkan tertutup
+  dan log menulis `... so it stays closed. Restart Cyrene to bring it back.`: jalankan
+  ulang `waifu run`. Maskot yang kamu tutup sendiri (× atau Alt+F4) tidak dibuka lagi.
+
+Semua kejadian itu dicatat di jendela `waifu run` (dan di `logs\waifu.log` kalau Cyrene
+jalan lewat autostart atau dengan `--log-file`), satu baris per kejadian yang diawali
+`Cyrene mascot:`:
+
+| Baris | Artinya |
+|---|---|
+| `Cyrene mascot: page-hidden` / `page-visible` | Chromium mengira halamannya tersembunyi / terlihat lagi |
+| `Cyrene mascot: webgl-context-lost` / `webgl-context-restored` | grafis WebGL halamannya hilang / pulih |
+| `Cyrene mascot: webgl-unavailable` | halamannya tidak mendapat WebGL sama sekali ("WebGL tidak tersedia…") |
+| `Cyrene mascot: exiting webgl=...` | Electron sudah tidak punya WebGL; program maskot keluar supaya Cyrene membuka yang baru |
+| `Cyrene mascot: page-reload ...` | halamannya dimuat ulang (atau `skipped`: sudah 5 kali dalam 10 menit, dan dia tetap hilang sampai `waifu run` dijalankan ulang) |
+| `Cyrene mascot: render-process-gone reason=... exit-code=...` | proses halaman mati, dengan sebab dan kode keluarnya |
+| `Cyrene mascot: gpu-process-gone reason=... exit-code=...` | proses GPU Electron mati |
+| `Cyrene mascot: unresponsive` / `responsive` | halamannya macet / jalan lagi |
+| `Cyrene mascot: display-metrics-changed` / `display-added` / `display-removed` | monitor berubah (resolusi, ditambah, atau dicabut), dengan ukurannya |
+| `Cyrene mascot: placed-back ...` | maskot dipindah ke pojoknya di monitor utama, atau dikembalikan ke tempatnya semula (`where she was before`) |
+| `Cyrene mascot: re-pinned after ...` | "selalu di atas" dipasang lagi (setelah perubahan monitor selesai, atau saat jendelanya ditampilkan atau dipulihkan) |
+| `The avatar mascot (pid ...) exited with code ...; reopening it in 3 s` | program maskot keluar karena error dan dibuka lagi |
+
+Baris `Cyrene mascot:` yang melaporkan sesuatu mati, hilang, macet, tidak tersedia, atau
+dilewati (kata *gone*, *lost*, *unresponsive*, *crashed*, *unavailable*, atau *skipped*)
+tampil sebagai `WARNING`, yang lain sebagai `INFO`. Keluaran Chromium lainnya hanya tampil
+dengan `-v`.
+
+**Kalau dia tetap hilang:** untuk memunculkannya lagi sekarang, jalankan ulang Cyrene:
+hentikan dia (Ctrl+C di terminal `waifu run`, atau tutup jendela konsol "Cyrene"), lalu
+jalankan lagi. Itu juga yang harus dilakukan kalau maskot menampilkan "WebGL tidak
+tersedia di jendela ini…" atau log menulis `page-reload skipped` atau
+`... so it stays closed`. Menutup maskot dengan × atau Alt+F4 tidak membukanya lagi.
+Lalu salin baris `Cyrene mascot:` dan `The avatar mascot` dari sekitar waktu dia hilang,
+dan kirimkan saat melaporkan masalahnya, bersama nama game, monitor tempat game dan
+maskot berada, dan apa yang kamu lakukan (Alt+Tab, memindahkan maskot). Tanpa baris itu
+sebabnya tidak bisa diketahui. Sementara itu, pakai mode *Borderless* (*windowed
+fullscreen*) atau *Windowed* di pengaturan grafis game: dengan mode itu dia tetap
+terlihat di monitor lain tanpa semua hal di atas. Di monitor game dia tampil di atas
+game, jadi geser dia kalau menutupi tombol game.
+
 ## Avatar Live2D & interaksi
 
 Selain VRM 3D, avatar bisa memakai model **Live2D** (Cubism 5) dengan
@@ -1235,6 +1314,8 @@ satu kalimat.
   dia sedang sibuk (menjawab, bicara, atau mendengar Master) atau masih dalam jeda
   `reaction_cooldown_s`. Tidak ada perubahan wajah sama sekali: cek
   `avatar.interactions.enabled` dan sakelar `head_pat` / `body_touch`.
+- **Hilang saat main game dan tidak kembali.** Lihat
+  [Cyrene hilang saat main game](#cyrene-hilang-saat-main-game).
 - **Tidak menatap kursor.** Cek `cursor_follow: true`; di jendela app atau browser dia
   hanya menatap kursor yang ada di atas halaman.
 

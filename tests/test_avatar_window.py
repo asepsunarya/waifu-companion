@@ -1,5 +1,9 @@
+import inspect
+import io
 import logging
 import subprocess
+import threading
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -16,10 +20,18 @@ from waifu.config import AvatarConfig
 URL = "http://127.0.0.1:9882/"
 ELECTRON_EXE = Path("node_modules") / "electron" / "dist" / "electron.exe"
 EDGE_EXE = Path("Microsoft") / "Edge" / "Application" / "msedge.exe"
+OUTPUT = "avatar-mascot-output"
+SUPERVISOR = "avatar-mascot-supervisor"
+# How long a test waits for a real thread before it fails instead of hanging.
+THREAD_TIMEOUT_S = 5.0
 
 
 class FakeProcess:
-    """The parts of subprocess.Popen the window uses, recording what it is asked to do."""
+    """The parts of subprocess.Popen the window uses, recording what it is asked to do.
+
+    `exit_code` set means the process has already ended with it, so `wait()` returns
+    it at once: a non-zero one is a crashed mascot, 0 one the owner closed.
+    """
 
     def __init__(
         self,
@@ -27,11 +39,13 @@ class FakeProcess:
         exit_code: int | None = None,
         ignores_terminate: bool = False,
         terminate_error: OSError | None = None,
+        output: str = "",
     ) -> None:
         self.pid = 5151
         self.returncode = exit_code
         self.ignores_terminate = ignores_terminate
         self.terminate_error = terminate_error
+        self.stdout = io.StringIO(output)
         self.calls: list[Any] = []
 
     def poll(self) -> int | None:
@@ -55,10 +69,36 @@ class FakeProcess:
         self.returncode = -9
 
 
-class FakePopen:
-    """Records each spawn and hands out the next scripted process."""
+class BlockingProcess(FakeProcess):
+    """A running mascot whose `wait()` blocks, like Popen's, until the process ends."""
 
-    def __init__(self, *processes: FakeProcess, error: OSError | None = None) -> None:
+    def __init__(self) -> None:
+        super().__init__()
+        self.waiting = threading.Event()
+        self._ended = threading.Event()
+
+    def terminate(self) -> None:
+        self.calls.append("terminate")
+        self.end(1)
+
+    def wait(self, timeout: float | None = None) -> int:
+        self.calls.append(("wait", timeout))
+        if timeout is None:
+            self.waiting.set()
+        if not self._ended.wait(THREAD_TIMEOUT_S if timeout is None else timeout):
+            raise subprocess.TimeoutExpired("electron", timeout or THREAD_TIMEOUT_S)
+        assert self.returncode is not None
+        return self.returncode
+
+    def end(self, exit_code: int) -> None:
+        self.returncode = exit_code
+        self._ended.set()
+
+
+class FakePopen:
+    """Records each spawn and hands out the next scripted process, or raises a scripted error."""
+
+    def __init__(self, *processes: FakeProcess | OSError, error: OSError | None = None) -> None:
         self.processes = list(processes) or [FakeProcess()]
         self.error = error
         self.calls: list[tuple[list[str], dict[str, Any]]] = []
@@ -67,7 +107,10 @@ class FakePopen:
         self.calls.append((list(args), kwargs))
         if self.error is not None:
             raise self.error
-        return self.processes[len(self.calls) - 1]
+        outcome = self.processes[len(self.calls) - 1]
+        if isinstance(outcome, OSError):
+            raise outcome
+        return outcome
 
     @property
     def process(self) -> FakeProcess:
@@ -121,6 +164,76 @@ class FakeJobs:
         return self.made[-1]
 
 
+class ManualThread:
+    """A thread that only records it was started; the test runs its target by hand."""
+
+    def __init__(self, target: Callable[[], None], name: str) -> None:
+        self.target = target
+        self.name = name
+        self.started = False
+        self.ran = False
+
+    def start(self) -> None:
+        self.started = True
+
+
+class ManualThreads:
+    """The thread factory: keeps every thread, so a test decides when (and whether) each runs."""
+
+    def __init__(self) -> None:
+        self.made: list[ManualThread] = []
+
+    def __call__(self, target: Callable[[], None], name: str) -> ManualThread:
+        self.made.append(ManualThread(target, name))
+        return self.made[-1]
+
+    def started(self, name: str) -> int:
+        return sum(1 for thread in self.made if thread.name == name and thread.started)
+
+    def run(self, name: str) -> None:
+        """Run the oldest started thread called `name` that has not run yet, on this thread."""
+        thread = next(t for t in self.made if t.name == name and t.started and not t.ran)
+        thread.ran = True
+        thread.target()
+
+
+class RealThreads:
+    """The thread factory for race tests: real daemon threads, kept so the test can join them."""
+
+    def __init__(self) -> None:
+        self.made: list[threading.Thread] = []
+
+    def __call__(self, target: Callable[[], None], name: str) -> threading.Thread:
+        self.made.append(threading.Thread(target=target, name=name, daemon=True))
+        return self.made[-1]
+
+    def join_all(self) -> None:
+        for thread in list(self.made):
+            thread.join(THREAD_TIMEOUT_S)
+            assert not thread.is_alive(), f"{thread.name} is still running"
+
+
+class FakeClock:
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+class FakeSleep:
+    """Records each pause; `during` runs inside it, as if it happened while the thread slept."""
+
+    def __init__(self, during: Callable[[], None] | None = None) -> None:
+        self.pauses: list[float] = []
+        self.during = during
+
+    def __call__(self, seconds: float) -> None:
+        self.pauses.append(seconds)
+        if self.during is not None:
+            self.during()
+
+
 def make_file(path: Path) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(b"")
@@ -142,6 +255,9 @@ def make_window(
     jobs: FakeJobs | None = None,
     edge_path: Path | None = None,
     environ: dict[str, str] | None = None,
+    threads: ManualThreads | RealThreads | None = None,
+    clock: FakeClock | None = None,
+    sleep: FakeSleep | None = None,
     **settings: Any,
 ) -> AvatarWindow:
     return AvatarWindow(
@@ -152,6 +268,9 @@ def make_window(
         job_factory=jobs or FakeJobs(),
         project_root=project,
         environ=environ if environ is not None else {},
+        clock=clock or FakeClock(),
+        sleep=sleep or FakeSleep(),
+        thread_factory=threads or ManualThreads(),
     )
 
 
@@ -229,7 +348,7 @@ def test_a_missing_electron_tells_the_owner_how_to_install_it(tmp_path):
     assert jobs.made == []
 
 
-def test_the_window_output_is_discarded_and_no_console_flags_are_passed(project):
+def test_the_mascot_output_is_piped_as_utf8_text_and_no_console_flags_are_passed(project):
     popen = FakePopen()
 
     make_window(project, popen=popen).open()
@@ -237,8 +356,11 @@ def test_the_window_output_is_discarded_and_no_console_flags_are_passed(project)
     [(_, kwargs)] = popen.calls
     assert kwargs == {
         "stdin": subprocess.DEVNULL,
-        "stdout": subprocess.DEVNULL,
-        "stderr": subprocess.DEVNULL,
+        "stdout": subprocess.PIPE,
+        "stderr": subprocess.STDOUT,
+        "encoding": "utf-8",
+        "errors": "replace",
+        "bufsize": 1,
     }
 
 
@@ -259,6 +381,30 @@ def test_the_app_window_runs_edge_with_its_own_profile(project, tmp_path):
         "--no-first-run",
         "--no-default-browser-check",
     ]
+
+
+def test_the_app_window_output_is_discarded(project, tmp_path):
+    edge = make_file(tmp_path / "Edge" / "msedge.exe")
+    popen = FakePopen()
+
+    make_window(project, popen=popen, edge_path=edge, window="app").open()
+
+    [(_, kwargs)] = popen.calls
+    assert kwargs == {
+        "stdin": subprocess.DEVNULL,
+        "stdout": subprocess.DEVNULL,
+        "stderr": subprocess.DEVNULL,
+    }
+
+
+def test_the_app_window_is_neither_read_nor_reopened(project, tmp_path):
+    # Edge's app window is the owner's to close: no output reader, no supervision.
+    edge = make_file(tmp_path / "Edge" / "msedge.exe")
+    threads = ManualThreads()
+
+    make_window(project, edge_path=edge, threads=threads, window="app").open()
+
+    assert threads.made == []
 
 
 def test_edge_is_looked_up_in_program_files_x86_first(project, tmp_path):
@@ -526,12 +672,315 @@ def test_open_after_the_owner_closed_the_window_starts_a_new_one(project):
     assert second.calls == ["terminate", ("wait", 5.0)]
 
 
+# --- the mascot's output -----------------------------------------------------------------
+
+
+def logged_output(project: Path, caplog: pytest.LogCaptureFixture, output: str) -> list:
+    """What the window logs, as (level, message), while it reads the mascot's `output`."""
+    threads = ManualThreads()
+    make_window(project, popen=FakePopen(FakeProcess(output=output)), threads=threads).open()
+    caplog.clear()
+    with caplog.at_level(logging.DEBUG, logger="waifu.avatar.window"):
+        threads.run(OUTPUT)
+    return [(record.levelno, record.getMessage()) for record in caplog.records]
+
+
+def test_the_mascot_output_is_read_by_a_thread_of_its_own(project):
+    threads = ManualThreads()
+
+    make_window(project, threads=threads).open()
+
+    assert threads.started(OUTPUT) == 1
+
+
+def test_mascot_diagnostics_are_logged_at_info_and_chromium_noise_at_debug(project, caplog):
+    output = (
+        "Cyrene mascot: page-hidden\n"
+        "[11064:1015/201500.123:ERROR:gpu_init.cc(523)] Passthrough off\n"
+        "\n"
+        "Cyrene mascot: display-metrics-changed scale=1.25\r\n"
+    )
+
+    assert logged_output(project, caplog, output) == [
+        (logging.INFO, "Cyrene mascot: page-hidden"),
+        (logging.DEBUG, "[11064:1015/201500.123:ERROR:gpu_init.cc(523)] Passthrough off"),
+        (logging.INFO, "Cyrene mascot: display-metrics-changed scale=1.25"),
+    ]
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "Cyrene mascot: render-process-gone reason=crashed exit-code=-1073741819",
+        "Cyrene mascot: gpu-process-gone reason=oom exit-code=1",
+        "Cyrene mascot: webgl-context-lost",
+        "Cyrene mascot: webglcontextlost",
+        "Cyrene mascot: unresponsive",
+        "Cyrene mascot: GPU process CRASHED",
+        "Cyrene mascot: webgl-unavailable",
+        "Cyrene mascot: page-reload skipped: too many in the last 10 minutes",
+    ],
+)
+def test_a_diagnostic_that_says_gone_lost_unresponsive_crashed_unavailable_or_skipped_is_a_warning(
+    project, caplog, line
+):
+    # The rule: one of those six ends a word (followed by no letter), in any case. A
+    # skipped reload and a page without WebGL leave her gone until something is done.
+    assert logged_output(project, caplog, line + "\n") == [(logging.WARNING, line)]
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "Cyrene mascot: responsive",
+        "Cyrene mascot: webgl-context-restored",
+        "Cyrene mascot: page-reload in 1 s",
+        "Cyrene mascot: re-pinned after the displays settled",
+        "Cyrene mascot: page-hidden",
+        "Cyrene mascot: display-removed id=2528732444",
+        "Cyrene mascot: placed-back bottom-right of the primary display at 1544,384",
+        "Cyrene mascot: lostpointercapture",
+    ],
+)
+def test_other_diagnostics_stay_at_info(project, caplog, line):
+    assert logged_output(project, caplog, line + "\n") == [(logging.INFO, line)]
+
+
+def test_chromium_noise_saying_lost_stays_at_debug(project, caplog):
+    line = "[2440:1015/201501.456:ERROR:shared_context_state.cc] GPU context lost"
+
+    assert logged_output(project, caplog, line + "\n") == [(logging.DEBUG, line)]
+
+
+def test_the_output_is_read_to_its_end_and_the_pipe_closed(project, caplog):
+    # Reading must never stop early: Electron writes to its pipe synchronously on
+    # Windows, so a full pipe that nobody empties would stall the mascot.
+    threads = ManualThreads()
+    process = FakeProcess(output="Cyrene mascot: page-reload\n" * 500)
+    make_window(project, popen=FakePopen(process), threads=threads).open()
+
+    with caplog.at_level(logging.INFO, logger="waifu.avatar.window"):
+        threads.run(OUTPUT)
+
+    assert caplog.text.count("Cyrene mascot: page-reload") == 500
+    assert process.stdout.closed
+
+
+# --- supervision -------------------------------------------------------------------------
+
+
+def test_a_crashed_mascot_is_reopened_after_3_seconds(project, caplog):
+    first, second = FakeProcess(exit_code=3), FakeProcess()
+    popen = FakePopen(first, second)
+    jobs = FakeJobs()
+    threads = ManualThreads()
+    sleep = FakeSleep()
+    avatar_window = make_window(project, popen=popen, jobs=jobs, threads=threads, sleep=sleep)
+    avatar_window.open()
+
+    with caplog.at_level(logging.WARNING, logger="waifu.avatar.window"):
+        threads.run(SUPERVISOR)
+
+    assert sleep.pauses == [3.0]
+    assert [args for args, _ in popen.calls] == [popen.calls[0][0]] * 2
+    assert "exited with code 3" in caplog.text
+    first_job, second_job = jobs.made
+    assert first_job.closed  # whatever the crashed mascot left running ends with it
+    assert second_job.processes == [second]
+    avatar_window.close()
+    assert second.calls == ["terminate", ("wait", 5.0)]
+
+
+def test_the_reopened_mascot_is_read_and_supervised_like_the_first(project):
+    popen = FakePopen(FakeProcess(exit_code=3), FakeProcess(exit_code=3), FakeProcess())
+    threads = ManualThreads()
+    make_window(project, popen=popen, threads=threads).open()
+
+    threads.run(SUPERVISOR)
+    threads.run(SUPERVISOR)
+
+    assert len(popen.calls) == 3
+    assert threads.started(OUTPUT) == 3
+    assert threads.started(SUPERVISOR) == 3
+
+
+def test_a_mascot_the_owner_closed_with_exit_code_0_stays_closed(project, caplog):
+    popen = FakePopen(FakeProcess(exit_code=0))
+    jobs = FakeJobs()
+    threads = ManualThreads()
+    sleep = FakeSleep()
+    make_window(project, popen=popen, jobs=jobs, threads=threads, sleep=sleep).open()
+
+    with caplog.at_level(logging.INFO, logger="waifu.avatar.window"):
+        threads.run(SUPERVISOR)
+
+    assert len(popen.calls) == 1
+    assert sleep.pauses == []
+    assert "was closed" in caplog.text
+    assert not [record for record in caplog.records if record.levelno >= logging.WARNING]
+
+
+def test_the_mascot_is_reopened_at_most_3_times_in_10_minutes(project, caplog):
+    popen = FakePopen(*(FakeProcess(exit_code=3) for _ in range(4)))
+    threads = ManualThreads()
+    clock = FakeClock()
+    make_window(project, popen=popen, threads=threads, clock=clock).open()
+
+    for minute in (0, 1, 2):
+        clock.now = minute * 60.0
+        threads.run(SUPERVISOR)
+    clock.now = 599.0
+    with caplog.at_level(logging.WARNING, logger="waifu.avatar.window"):
+        threads.run(SUPERVISOR)
+
+    assert len(popen.calls) == 4
+    [restart] = [record for record in caplog.records if "Restart Cyrene" in record.getMessage()]
+    assert restart.levelno == logging.WARNING
+    assert threads.started(SUPERVISOR) == 4  # the fourth crash ended supervision
+
+
+def test_reopens_older_than_10_minutes_no_longer_count(project):
+    popen = FakePopen(*(FakeProcess(exit_code=3) for _ in range(4)), FakeProcess())
+    threads = ManualThreads()
+    clock = FakeClock()
+    make_window(project, popen=popen, threads=threads, clock=clock).open()
+
+    for now in (0.0, 60.0, 120.0, 600.0):
+        clock.now = now
+        threads.run(SUPERVISOR)
+
+    assert len(popen.calls) == 5
+
+
+def test_close_stops_supervision_so_the_mascot_it_ended_is_not_reopened(project):
+    popen = FakePopen(FakeProcess(), FakeProcess())
+    threads = ManualThreads()
+    sleep = FakeSleep()
+    avatar_window = make_window(project, popen=popen, threads=threads, sleep=sleep)
+    avatar_window.open()
+
+    avatar_window.close()  # terminate leaves exit code 1, like a crash
+    threads.run(SUPERVISOR)
+
+    assert len(popen.calls) == 1
+    assert sleep.pauses == []
+
+
+def test_close_during_the_reopen_delay_cancels_the_reopen(project):
+    popen = FakePopen(FakeProcess(exit_code=3), FakeProcess())
+    jobs = FakeJobs()
+    threads = ManualThreads()
+    avatar_window: AvatarWindow | None = None
+
+    def close_now() -> None:
+        assert avatar_window is not None
+        avatar_window.close()
+
+    avatar_window = make_window(
+        project, popen=popen, jobs=jobs, threads=threads, sleep=FakeSleep(during=close_now)
+    )
+    avatar_window.open()
+
+    threads.run(SUPERVISOR)
+
+    assert len(popen.calls) == 1
+    assert [job.closed for job in jobs.made] == [True]
+
+
+def test_open_again_after_close_starts_a_new_supervision(project):
+    # A supervisor of the window that was closed must not reopen it next to the new one.
+    popen = FakePopen(FakeProcess(), FakeProcess(exit_code=3), FakeProcess())
+    threads = ManualThreads()
+    avatar_window = make_window(project, popen=popen, threads=threads)
+    avatar_window.open()
+    avatar_window.close()
+    avatar_window.open()
+
+    threads.run(SUPERVISOR)  # the closed window's: nothing to do
+    threads.run(SUPERVISOR)  # the new window's: it crashed, reopen
+
+    assert len(popen.calls) == 3
+
+
+def test_a_mascot_that_cannot_be_reopened_is_only_logged(project, caplog):
+    missing = FileNotFoundError(2, "The system cannot find the file specified")
+    popen = FakePopen(FakeProcess(exit_code=3), missing)
+    threads = ManualThreads()
+    make_window(project, popen=popen, threads=threads).open()
+
+    with caplog.at_level(logging.WARNING, logger="waifu.avatar.window"):
+        threads.run(SUPERVISOR)
+
+    assert "cannot find the file" in caplog.text
+    assert threads.started(SUPERVISOR) == 1
+
+
+def test_close_while_the_supervisor_waits_on_the_mascot_never_reopens_it(project):
+    mascot = BlockingProcess()
+    popen = FakePopen(mascot, FakeProcess())
+    threads = RealThreads()
+    avatar_window = make_window(project, popen=popen, threads=threads)
+    avatar_window.open()
+    assert mascot.waiting.wait(THREAD_TIMEOUT_S)
+
+    avatar_window.close()  # its terminate releases the supervisor's wait with exit code 1
+    threads.join_all()
+
+    assert len(popen.calls) == 1
+    assert "terminate" in mascot.calls
+
+
+def test_close_during_a_reopen_ends_the_reopened_mascot(project):
+    reopened = BlockingProcess()
+    entered, release = threading.Event(), threading.Event()
+
+    class SlowSecondPopen(FakePopen):
+        def __call__(self, args: list[str], **kwargs: Any) -> FakeProcess:
+            if self.calls:  # the reopen, on the supervisor's thread
+                entered.set()
+                assert release.wait(THREAD_TIMEOUT_S)
+            return super().__call__(args, **kwargs)
+
+    popen = SlowSecondPopen(FakeProcess(exit_code=3), reopened)
+    jobs = FakeJobs()
+    threads = RealThreads()
+    avatar_window = make_window(project, popen=popen, jobs=jobs, threads=threads)
+    avatar_window.open()
+    assert entered.wait(THREAD_TIMEOUT_S)
+
+    closer = threading.Thread(target=avatar_window.close, daemon=True)
+    closer.start()
+    release.set()
+    closer.join(THREAD_TIMEOUT_S)
+    threads.join_all()
+
+    assert not closer.is_alive()
+    assert len(popen.calls) == 2
+    assert "terminate" in reopened.calls
+    assert jobs.made[-1].closed
+
+
 # --- defaults ------------------------------------------------------------------------------
 
 
 def test_the_default_project_root_is_this_repository():
     assert (window.PROJECT_ROOT / "avatar-app" / "package.json").is_file()
     assert (window.PROJECT_ROOT / "src" / "waifu" / "avatar" / "window.py").is_file()
+
+
+def test_the_mascot_threads_never_keep_cyrene_from_exiting():
+    # The reader may block on a pipe a Chromium child still holds, the supervisor in
+    # wait(): as daemon threads they never stop `waifu run` from ending. Only the
+    # factory is called; no thread is started and no window opened.
+    default = inspect.signature(AvatarWindow).parameters["thread_factory"].default
+
+    thread = window._daemon_thread(lambda: None, OUTPUT)
+
+    assert default is window._daemon_thread
+    assert isinstance(thread, threading.Thread)
+    assert thread.daemon is True
+    assert thread.name == OUTPUT
+    assert not thread.is_alive()
 
 
 def test_without_a_fake_popen_the_suite_guard_refuses_to_open_electron(project):
