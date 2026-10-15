@@ -1725,7 +1725,10 @@ def _hsr_warp_text(warp: HsrWarp, now: datetime) -> str:
     else:
         parts.extend(_hsr_end(warp.ends_at, now))
     # Semicolons: the names inside a part are already separated by commas.
-    return _labelled(f"{warp.name} ({HSR_WARP_KINDS[warp.kind]})", parts, separator="; ")
+    kind = HSR_WARP_KINDS[warp.kind]
+    # HoYoLAB's calendar often names no warp; the featured names say which one it is.
+    label = f"{warp.name} ({kind})" if warp.name else f"Warp {kind}"
+    return _labelled(label, parts, separator="; ")
 
 
 def _hsr_event_text(event: HsrEvent, now: datetime) -> str:

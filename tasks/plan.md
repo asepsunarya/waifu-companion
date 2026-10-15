@@ -324,7 +324,7 @@ anchored on its own `now` to undo genshin.py 1.7.31's relabelled timezone.
 
 ### Checkpoint: HSR data
 - [x] Python suite and ruff clean; no test reached HoYoLAB; `update_settings` never called (2026-10-15: 4231 pytest and 454 node tests on the committed tree plus tasks 81-84 and both review-fix rounds; genshin.py faked with real models from deep-copied sample dicts, tests assert `update_settings` is never called, and `src` has no `update_settings` call)
-- [ ] One real read-only run of `waifu gacha hsr characters|endgame|events` on the owner's account: privacy behaviour, latency, calendar times vs the game
+- [x] One real read-only run of `waifu gacha hsr characters|endgame|events` on the owner's account: privacy behaviour, latency, calendar times vs the game (2026-10-15: no chronicle_private with the owner's settings; the full roster in 3.2 s; endgame ends at 03:00 WIB = the 04:00 server reset; warps end 10:59 WIB = 11:59 server time, so the calendar anchoring holds; HoYoLAB gives warps no name, now left out; genshin.py warns once about an unknown event status 'DoubleRewardActStatusFinish')
 - [ ] By voice or chat: "Acheron-ku Eidolon berapa?", "Memory of Chaos-ku berapa bintang?", "banner apa sekarang?"
 
 ## Risks and Mitigations

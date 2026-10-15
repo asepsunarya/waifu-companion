@@ -1218,6 +1218,17 @@ def test_a_warp_gives_its_start_only_until_it_starts():
     assert after["ends"] == "2026-11-05 20:00"
 
 
+def test_a_warp_hoyolab_gives_no_name_leaves_the_name_out():
+    # HoYoLAB's calendar often names no warp; the featured names say which one it is.
+    warp = HsrWarp("character", "", ("Firefly",), ("Lynx",), None, NOW + timedelta(days=5))
+    tools = make_tools(source_with(hsr_calendar=HsrCalendar("3.7", (warp,), (), ())))
+
+    shown = answer(tools, HSR_EVENTS, {})["warps"][0]
+
+    assert "name" not in shown
+    assert shown["featured"] == ["Firefly"]
+
+
 def test_a_calendar_without_a_version_leaves_it_out():
     data = answer(make_tools(source_with()), HSR_EVENTS, {})
 

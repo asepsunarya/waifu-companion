@@ -4385,6 +4385,24 @@ def test_gacha_hsr_endgame_shows_the_other_modes_when_one_cannot_be_read(home, g
     assert len(lines) == 4
 
 
+def test_gacha_hsr_events_names_a_warp_hoyolab_leaves_unnamed_by_its_kind(home, games, capsys):
+    ends = from_now(days=5, hours=11)
+    games.hoyolab.hsr_events = HsrCalendar(
+        "4.6",
+        (HsrWarp("character", "", ("Evanescia",), ("Qingque",), from_now(days=-9), ends),),
+        (),
+        (),
+    )
+
+    assert cli.main(["gacha", "hsr", "events"]) == 0
+
+    warp_line = capsys.readouterr().out.splitlines()[2]
+    assert (
+        warp_line
+        == f"  Warp karakter: 5★ Evanescia; 4★ Qingque; berakhir {local(ends)} (5 hari 11 jam lagi)"
+    )
+
+
 def test_gacha_hsr_events_prints_the_warps_events_and_endgame_windows(home, games, capsys):
     warp_ends, next_warp = from_now(days=4, hours=12, minutes=30), from_now(days=6, hours=2)
     soon, later, season_ends = from_now(hours=5, minutes=30), from_now(days=9), from_now(days=20)

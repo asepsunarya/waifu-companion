@@ -435,11 +435,12 @@ def _end_order(event: HsrEvent) -> tuple[bool, float]:
 
 
 def _warp_json(warp: HsrWarp, now: datetime) -> dict[str, Any]:
-    """A warp with its end, and with its start only until it starts."""
+    """A warp with its end, and with its start only until it starts; its name only when
+    HoYoLAB gives one (its calendar often does not)."""
     upcoming = warp.starts_at is not None and warp.starts_at > now
     return {
         "type": warp.kind,
-        "name": warp.name,
+        **({"name": warp.name} if warp.name else {}),
         "featured": list(warp.featured),
         "four_stars": list(warp.four_stars),
         **(_moment("starts", warp.starts_at, now) if upcoming else {}),
