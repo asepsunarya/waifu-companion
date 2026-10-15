@@ -634,6 +634,33 @@ CLI: `check` adds `✓ Kamera HP: aktif`, `! Kamera HP: tidak tersedia dengan Ol
 
 Safety: tests never open a camera: the page's browser check stubs `getUserMedia` with a canvas `captureStream()` showing a synthetic pattern; Python tests build tiny JPEG byte fixtures by hand (marker segments only; no image library); nothing reaches Claude.
 
+### keeping her through fullscreen games (v1.15.1)
+
+Bug report (2026-10-15): the owner plays Genshin Impact, Honkai: Star Rail, and Zenless Zone Zero in the games' Fullscreen mode on one of two monitors. With the mascot on the game's monitor, clicking the game puts her behind it (expected: nothing draws over an exclusive-fullscreen game). But she does not come back: not after Alt+Tab, not after being moved to the other monitor; only once the game is switched to windowed at a lower resolution does she appear again (then she is fine in front of the game or on the other monitor).
+
+The owner's choice: she may stay hidden while a game covers her (the games' skill buttons sit in the bottom-right corner), but she must be visible again wherever nothing covers her (the other monitor, the game minimized or closed) without restarting Cyrene, and she comes back by herself if her window or its GPU process crashes.
+
+Likely causes (the diagnostics below confirm which on the owner's next game session): Chromium's native window occlusion tracking (`CalculateNativeWinOcclusion`) and background throttling stop painting a window Chromium believes is covered, and a fullscreen game's display-mode switch can make it believe so on every monitor; the display-mode switch can also lose the page's WebGL context, after which the Live2D/VRM canvas stays empty (nothing handles `webglcontextlost`); a crash of Electron's GPU or renderer process leaves the transparent window with nothing in it; nothing restarts Electron if it exits.
+
+Electron shell (`avatar-app/main.js`, pure helpers in `lib.js` with `node --test` coverage):
+- Before `ready`: `app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion')`; the window's `webPreferences.backgroundThrottling: false`. So her page keeps painting whatever Chromium thinks covers her.
+- Recovery: on `webContents` `render-process-gone` and on `app` `child-process-gone` with `type === 'GPU'`, the page is reloaded after 1 s; at most 5 reloads in 10 minutes (`lib.reloadAllowed(history, now)`, pure), after which it only logs. `unresponsive`/`responsive` are logged.
+- Displays: on `screen` `display-metrics-changed`, `display-added`, and `display-removed` (a fullscreen game changing the monitor's resolution moves windows), when her bounds are no longer inside any display's work area she is placed back in her corner of the primary display (`lib.cornerPosition`/`clampToWorkArea`), and always-on-top is applied again at the same `'floating'` level (she still hides behind a fullscreen game, by the owner's choice).
+- Diagnostics: one line per event on stdout, `Cyrene mascot: <event> <details>`, for page visibility changes, WebGL context lost/restored, page reloads, GPU/renderer process gone (reason, exit code), unresponsive/responsive, and display changes. The page sends its events through the preload's `diagnostic(kind)` (a fixed list of kinds; anything else is ignored).
+
+Page (`avatar/web`, both renderers):
+- On the canvas's `webglcontextlost`: `preventDefault()`, report it; on `webglcontextrestored`, or 3 s after a loss without one, reload the page (a fresh renderer; the SSE stream reconnects by itself). At most one pending reload.
+- `visibilitychange` is reported (diagnostics only).
+- In `mode=mascot` the renderers draw at most 30 frames per second (Live2D motions are authored at 30 fps), so painting while a game covers her costs little.
+
+`avatar/window.py`:
+- The mascot's stdout and stderr are piped and read by a daemon thread: lines starting with `Cyrene mascot:` are logged at INFO (WARNING for gone/lost/unresponsive), other lines (Chromium's own noise) at DEBUG; the thread ends when the pipe closes.
+- Supervision (mascot only; Edge's app window is left alone): a daemon thread waits on the process; when it exits while not being closed by `close()` with a non-zero exit code, it is opened again after 3 s, at most 3 times in 10 minutes (then a warning: restart Cyrene); exit code 0 (the owner closed her with × or from the taskbar) is respected. `close()` stops the supervision before ending the process. Tests use fake popen/processes and an injected clock and sleep; no real Electron.
+
+README (Indonesian) troubleshooting "Cyrene hilang saat main game": she hides while a fullscreen game covers her and comes back by herself; if she does not, the `Cyrene mascot:` lines in the `waifu run` window say why (send them); windowed/borderless game modes let her stay visible on another monitor without any of this.
+
+Safety: tests never spawn Electron (tests/conftest.py refuses it); JS tests cover `lib.js` and the page helpers with fakes.
+
 ### HSR data (v1.16)
 
 User stories (the owner plays Honkai: Star Rail on the Asia server; the gacha buddy's cookie is set):

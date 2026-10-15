@@ -299,6 +299,19 @@ the `Brain` contract stays as it is; the PC webcam and presence detection wait f
 - [x] In a browser at phone size with a stubbed camera: viewfinder, flip, a photo with a chat and with a talk, the thumbnail, the camera off after close/hide/2 minutes (2026-10-14 after both fix rounds, against the real PhoneServer with the camera on and a fake backend: a 1280x720 JPEG reached it with camera:true for a chat and a talk, flip asked for the user camera and ended the old track, close and a hidden page ended the track, a message after close went without photo or camera flag; the 2-minute timer is covered by mock-timer node tests)
 - [ ] On the owner's Android: "ini apa?" with the camera open is answered about what it shows
 
+### Phase 20.1: keeping her through fullscreen games (v1.15.1, bug fix, see SPEC)
+Decision: keep painting regardless of Chromium's occlusion guess, recover a lost WebGL context or a
+crashed GPU/renderer process by reloading the page, restart a crashed Electron, re-place her after
+display changes, and log every such event so the owner's next game session shows the real cause.
+She still hides behind a fullscreen game (the owner's choice).
+- [ ] Task 85: Electron shell and page (occlusion, throttling, reloads, display changes, diagnostics, 30 fps)
+- [ ] Task 86: `avatar/window.py` (piped diagnostics, supervision) and README troubleshooting
+
+### Checkpoint: fullscreen games
+- [ ] Python and JS suites, ruff clean; no test spawned Electron
+- [ ] A lost WebGL context recovers in a browser; Electron's stdout reaches Python (windowless probe)
+- [ ] On the owner's PC: a Fullscreen game session; she is back after Alt+Tab or on the other monitor, and the `Cyrene mascot:` lines are recorded
+
 ### Phase 21: HSR data (v1.16, see SPEC → HSR data)
 Decision: three read-only tools in a sibling provider (`HsrTools`) over three new HoyolabClient
 methods, with compact capped JSON for voice and a short in-memory cache; data only, no advice

@@ -839,3 +839,19 @@ named `tests/test_<package>_<module>.py`.
 - [ ] `config/persona.md` names the three tools; README section (Indonesian)
 
 **Dependencies:** 81 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py`, `config/persona.md`, `README.md` · **Scope:** M
+
+## Task 85: Mascot shell and page through fullscreen games
+
+**Acceptance criteria:**
+- [ ] Occlusion tracking off, background throttling off; page reloads after a GPU/renderer process is gone (rate-limited); re-placed and re-pinned after display changes; `Cyrene mascot:` diagnostics on stdout
+- [ ] Page: WebGL context loss recovered by a reload; visibility reported; 30 fps cap in mascot mode; `node --test` coverage of the pure helpers
+
+**Dependencies:** none · **Files:** `avatar-app/main.js`, `avatar-app/lib.js`, `avatar-app/preload.js`, `avatar-app/test/*`, `src/waifu/avatar/web/*.js`, `src/waifu/avatar/web/index.html`, `tests/js/*` · **Scope:** M
+
+## Task 86: Mascot supervision and diagnostics in Python
+
+**Acceptance criteria:**
+- [ ] Electron's output piped and logged (`Cyrene mascot:` at INFO/WARNING, the rest at DEBUG); a crashed mascot reopened after 3 s, at most 3 times in 10 minutes; exit code 0 and `close()` respected
+- [ ] README troubleshooting "Cyrene hilang saat main game"
+
+**Dependencies:** none · **Files:** `src/waifu/avatar/window.py`, `tests/test_avatar_window.py`, `README.md` · **Scope:** M
