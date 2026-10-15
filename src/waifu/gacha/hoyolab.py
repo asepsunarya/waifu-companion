@@ -1,4 +1,4 @@
-"""HoYoLAB for the owner's games through genshin.py: accounts, notes, check-in, HSR data.
+"""HoYoLAB for the owner's games via genshin.py: accounts, notes, check-in, HSR data, redeem codes.
 
 genshin.py is async (aiohttp). Each public call here is one `asyncio.run` with a new
 `genshin.Client`, so the voice loop (the brain's tool calls) and the watcher thread
@@ -13,12 +13,13 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
-from collections.abc import Awaitable, Callable, Iterable, Mapping
+from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Literal, TypeVar
 
 from waifu.config import cookie_names
+from waifu.gacha.codes import RedeemResult
 from waifu.gacha.games import GAMES, Game
 from waifu.gacha.starrail import (
     HsrCalendar,
@@ -46,6 +47,7 @@ ErrorKind = Literal[
     "other",
 ]
 ClientFactory = Callable[[str], Any]
+Sleep = Callable[[float], Awaitable[None]]
 
 # 10102: Real-Time Notes are off for the account; 10104: the notes are not readable.
 NOTES_OFF_RETCODES = frozenset({10102, 10104})
@@ -64,6 +66,32 @@ _ENDGAME_REQUESTS: dict[str, Callable[[Any, int], Awaitable[Any]]] = {
     "pure_fiction": lambda client, uid: client.get_starrail_pure_fiction(uid),
     "apocalyptic_shadow": lambda client, uid: client.get_starrail_apc_shadow(uid),
     "anomaly_arbitration": lambda client, uid: client.get_anomaly_arbitration(uid, schedule_type=1),
+}
+# Codes tried per redeem_codes call; the rest are left out of its results for a later call.
+REDEEM_CODES_AT_MOST = 10
+# Between two redemption attempts: HoYoLAB refuses one about 5 s after the last (cooldown).
+REDEEM_GAP_S = 6.0
+EXPIRED_RETCODE = -2001  # genshin.py raises RedemptionInvalid for it as for an unknown code
+# What fails every later code of a redemption run the same way: the run stops there, and each
+# remaining code gets the same outcome, untried.
+STOPS_REDEEMING: frozenset[ErrorKind] = frozenset({"cookie", "network", "rate_limit", "captcha"})
+# How the message of a code left to redeem again (cooldown, error) begins; what kept it follows.
+NOT_REDEEMED = "Kode {code} belum bisa ditukarkan: "
+# What she says about each outcome; `problem` is the GachaError message of an error.
+REDEEM_MESSAGES = {
+    "redeemed": "Kode {code} berhasil ditukarkan. Hadiahnya ada di surat dalam game {game}.",
+    "claimed": "Kode {code} sudah pernah ditukarkan di akun {game} ini.",
+    "expired": "Kode {code} sudah kedaluwarsa.",
+    "invalid": "Kode {code} tidak valid menurut HoYoLAB.",
+    "region": "Kode {code} tidak berlaku di server akun {game} ini.",
+    "level": "Level akun {game} belum cukup untuk kode {code}.",
+    "cooldown": NOT_REDEEMED + "HoYoLAB sedang membatasi penukaran kode. Coba lagi sebentar lagi.",
+    "cookie": (
+        "Cookie HoYoLAB tidak bisa dipakai untuk menukarkan kode. Penukaran butuh "
+        "cookie_token_v2, dan cookie-nya mungkin sudah kedaluwarsa: salin ulang dari HoYoLAB "
+        "lalu isi gacha.cookie di config.yaml."
+    ),
+    "error": NOT_REDEEMED + "{problem}",
 }
 
 
@@ -137,12 +165,14 @@ class HoyolabClient:
         client_factory: ClientFactory | None = None,
         timeout_s: float = 20.0,
         now: Callable[[], datetime] = _utc_now,
+        sleep: Sleep = asyncio.sleep,
     ) -> None:
         self._cookie = cookie
         self._uids = dict(uids or {})
         self._client_factory = client_factory or _default_client_factory
         self._timeout_s = timeout_s
         self._now = now  # the anchor for the HSR calendar's times
+        self._sleep = sleep  # the waits between redemption attempts
         self._uids_lock = threading.Lock()
 
     @property
@@ -204,7 +234,7 @@ class HoyolabClient:
         """Every owned HSR character in detail, from the HoYoLAB Battle Chronicle."""
 
         async def characters(client: Any) -> tuple[HsrCharacter, ...]:
-            uid = await self._hsr_uid(client)
+            uid = await self._game_uid(client, HSR)
             response = await _chronicle(client.get_starrail_characters(uid))
             return tuple(read_character(character) for character in response.avatar_list)
 
@@ -215,7 +245,7 @@ class HoyolabClient:
         modes = list(modes)
 
         async def all_modes(client: Any) -> list[HsrEndgame | BaseException]:
-            uid = await self._hsr_uid(client)
+            uid = await self._game_uid(client, HSR)
             at_once = asyncio.Semaphore(ENDGAME_REQUESTS_AT_ONCE)
 
             async def one(mode: str) -> HsrEndgame:
@@ -238,20 +268,101 @@ class HoyolabClient:
         """The HSR event calendar: warps, events, and endgame windows, in absolute times."""
 
         async def calendar(client: Any) -> HsrCalendar:
-            uid = await self._hsr_uid(client)
+            uid = await self._game_uid(client, HSR)
             fetched_at = self._now()
             model = await _chronicle(client.get_starrail_event_calendar(uid))
             return read_calendar(model, fetched_at)
 
         return self._run(calendar, HSR)
 
-    def _run(self, work: Callable[[Any], Awaitable[T]], game: Game | None) -> T:
+    def redeem_codes(
+        self,
+        game_id: str,
+        codes: Sequence[str],
+        *,
+        on_result: Callable[[RedeemResult], None] | None = None,
+        should_stop: Callable[[], bool] | None = None,
+    ) -> list[RedeemResult]:
+        """Redeem codes on HoYoLAB for the owner's account of one game, one at a time.
+
+        Only the first REDEEM_CODES_AT_MOST codes are tried and answered; the caller keeps
+        the rest for a later call. Attempts are REDEEM_GAP_S apart, each with its own
+        timeout, and a cooldown answer is tried once more. A refused cookie, or HoYoLAB
+        unreachable (a timeout or connection failure), rate-limiting, or asking for a
+        captcha, stops there: that code and every remaining one get the cookie or the error
+        outcome, the remaining ones untried. A failure of the call as a whole (the account
+        lookup, the overall bound) does the same for each code without an outcome yet,
+        keeping the outcomes already known. `on_result` (which must not raise) gets each
+        result as soon as it is known, in order, so a run cut short keeps them.
+        `should_stop`, asked before each attempt and each gap, ends the run once it says
+        so: an attempt HoYoLAB is answering is kept, a cooldown answer is not tried again,
+        and the codes not tried yet are left out of the results for a later call. Without a
+        cookie it raises GachaError no_cookie before asking HoYoLAB.
+        """
+        game = GAMES[game_id]
+        if len(codes) > REDEEM_CODES_AT_MOST:
+            logger.info(
+                "Redeeming %d of %d %s codes; the rest wait for a later call",
+                REDEEM_CODES_AT_MOST,
+                len(codes),
+                game.short,
+            )
+        codes = list(codes[:REDEEM_CODES_AT_MOST])
+        results: list[RedeemResult] = []
+
+        def keep(result: RedeemResult) -> None:
+            results.append(result)
+            if on_result is not None:
+                on_result(result)
+
+        def stopped() -> bool:
+            return should_stop is not None and should_stop()
+
+        async def redeem(client: Any) -> None:
+            uid = await asyncio.wait_for(self._game_uid(client, game), self._timeout_s)
+            for index, code in enumerate(codes):
+                go_on = await self._next_attempt(stopped) if index else not stopped()
+                if not go_on:
+                    return
+                keep(await self._redeem(client, game, uid, code, stopped))
+
+        # Ten attempts that all time out, with the gaps between them, fit in this bound.
+        bound_s = REDEEM_CODES_AT_MOST * (self._timeout_s + REDEEM_GAP_S)
+        try:
+            self._run(redeem, game, timeout_s=bound_s)
+        except GachaError as error:
+            if error.kind == "no_cookie":
+                raise
+            outcome = "cookie" if error.kind == "cookie" else "error"
+            for code in codes[len(results) :]:
+                keep(_redeem_result(game, code, outcome, error.message))
+        if len(results) < len(codes):
+            logger.info(
+                "Stopped redeeming %s codes; %d left untried for later",
+                game.short,
+                len(codes) - len(results),
+            )
+        logger.info(
+            "Redeeming %s codes: %s",
+            game.short,
+            ", ".join(f"{result.code} {result.outcome}" for result in results),
+        )
+        return results
+
+    def _run(
+        self,
+        work: Callable[[Any], Awaitable[T]],
+        game: Game | None,
+        *,
+        timeout_s: float | None = None,
+    ) -> T:
         if self._cookie is None:
             raise GachaError("no_cookie", NO_COOKIE)
         cookie = self._cookie
+        bound_s = self._timeout_s if timeout_s is None else timeout_s
 
         async def main() -> T:
-            return await asyncio.wait_for(work(self._client_factory(cookie)), self._timeout_s)
+            return await asyncio.wait_for(work(self._client_factory(cookie)), bound_s)
 
         try:
             return asyncio.run(main())
@@ -280,16 +391,46 @@ class HoyolabClient:
                     self._uids.setdefault(game, uid)
         return dict(self._uids)
 
-    async def _hsr_uid(self, client: Any) -> int:
-        """The HSR uid, passed to every request.
+    async def _game_uid(self, client: Any, game: Game) -> int:
+        """The uid of one game, passed to every request.
 
         genshin.py then never looks one up itself, and it knows the server offset that
-        makes the endgame times aware.
+        makes the HSR endgame times aware and the server a code is redeemed on.
         """
-        uid = (await self._resolve_uids(client, [HSR.id])).get(HSR.id)
+        uid = (await self._resolve_uids(client, [game.id])).get(game.id)
         if uid is None:
-            raise GachaError("account", f"Akun {HSR.short} tidak ditemukan di HoYoLAB ini.")
+            raise GachaError("account", f"Akun {game.short} tidak ditemukan di HoYoLAB ini.")
         return uid
+
+    async def _redeem(
+        self, client: Any, game: Game, uid: int, code: str, stopped: Callable[[], bool]
+    ) -> RedeemResult:
+        """One code: a cooldown answer waits REDEEM_GAP_S and tries once more, unless the run
+        is stopped. A failure that would fail every later code too (STOPS_REDEEMING) is
+        raised as its GachaError."""
+        from genshin import errors
+
+        for attempt in range(2):
+            if attempt and not await self._next_attempt(stopped):
+                break
+            try:
+                await asyncio.wait_for(
+                    client.redeem_code(code, uid, game=_hoyolab_game(game)), self._timeout_s
+                )
+            except errors.RedemptionCooldown:
+                continue
+            except Exception as exc:
+                return _redemption_failure(game, code, exc)
+            return _redeem_result(game, code, "redeemed")
+        return _redeem_result(game, code, "cooldown")
+
+    async def _next_attempt(self, stopped: Callable[[], bool]) -> bool:
+        """Wait REDEEM_GAP_S for the next redemption attempt; False, without waiting or after
+        it, once the run is stopped."""
+        if stopped():
+            return False
+        await self._sleep(REDEEM_GAP_S)
+        return not stopped()
 
     async def _status(self, client: Any, game: Game) -> GameStatus:
         uid = self._uids.get(game.id)
@@ -342,6 +483,32 @@ async def _chronicle(request: Awaitable[T]) -> T:
         return await request
     except errors.DataNotPublic:
         raise GachaError("chronicle_private", CHRONICLE_PRIVATE) from None
+
+
+def _redeem_result(game: Game, code: str, outcome: str, problem: str = "") -> RedeemResult:
+    message = REDEEM_MESSAGES[outcome].format(code=code, game=game.short, problem=problem)
+    return RedeemResult(game.id, code, outcome, message)
+
+
+def _redemption_failure(game: Game, code: str, exc: Exception) -> RedeemResult:
+    """The outcome of a redemption HoYoLAB refused or that failed on the way; a failure that
+    would fail every later code too (STOPS_REDEEMING) is raised as its GachaError instead."""
+    from genshin import errors
+
+    if isinstance(exc, errors.RedemptionClaimed):
+        return _redeem_result(game, code, "claimed")
+    if isinstance(exc, errors.RedemptionInvalid):
+        return _redeem_result(
+            game, code, "expired" if exc.retcode == EXPIRED_RETCODE else "invalid"
+        )
+    if isinstance(exc, errors.RedemptionRegionLock):
+        return _redeem_result(game, code, "region")
+    if isinstance(exc, errors.RedeemGameLevelTooLow):
+        return _redeem_result(game, code, "level")
+    error = _to_error(exc, game)
+    if error.kind in STOPS_REDEEMING:
+        raise error from None
+    return _redeem_result(game, code, "error", error.message)
 
 
 def _game_of(game_biz: str) -> str | None:

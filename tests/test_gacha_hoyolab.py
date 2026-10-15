@@ -1,6 +1,7 @@
 import asyncio
 import copy
 import logging
+import time
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
@@ -23,6 +24,8 @@ from genshin.models import (
 from genshin.models.genshin.daily import DailyReward, DailyRewardInfo
 from genshin.models.hoyolab.record import GenshinAccount
 
+from waifu.gacha import hoyolab
+from waifu.gacha.codes import RedeemResult
 from waifu.gacha.hoyolab import (
     Account,
     CheckinResult,
@@ -258,11 +261,15 @@ ACCOUNTS = [
 class FakeHoyolab:
     """genshin.Client's async surface for these calls, answering with real genshin.py models."""
 
-    def __init__(self, *, failures=None, answers=None, accounts=ACCOUNTS, delay_s=0.0):
+    def __init__(
+        self, *, failures=None, answers=None, accounts=ACCOUNTS, delay_s=0.0, redemptions=None
+    ):
         self.failures = failures or {}
         self.answers = answers or {}
         self.accounts = accounts
         self.delay_s = delay_s
+        # Per code, what HoYoLAB refuses its attempts with, in turn; once used up it is redeemed.
+        self.redemptions = redemptions or {}
         self.calls: list[tuple] = []
         self.in_flight = 0
         self.most_in_flight = 0
@@ -338,6 +345,12 @@ class FakeHoyolab:
         model = HSREventCalendar(**copy.deepcopy(HSR_CALENDAR))
         return await self._answer(("calendar", uid, {"lang": lang}), model)
 
+    async def redeem_code(self, code, uid=None, *, game=None, lang=None, region=None):
+        await self._answer(("redeem", code, uid, game), None)
+        refusals = self.redemptions.get(code)
+        if refusals:
+            raise refusals.pop(0)
+
     async def update_settings(self, *args, **kwargs):
         return await self._answer(("update_settings",), None)
 
@@ -349,7 +362,10 @@ def make_client(fake: FakeHoyolab, *, cookie=COOKIE, uids=UIDS, **kwargs) -> Hoy
         cookies.append(given)
         return fake
 
-    client = HoyolabClient(cookie, uids=uids, client_factory=factory, **kwargs)
+    async def sleep(seconds: float) -> None:
+        fake.calls.append(("sleep", seconds))  # recorded in order with the requests, never waited
+
+    client = HoyolabClient(cookie, uids=uids, client_factory=factory, sleep=sleep, **kwargs)
     fake.cookies = cookies
     return client
 
@@ -809,3 +825,440 @@ def test_hsr_results_errors_and_logs_never_hold_the_cookie_uid_or_nickname(caplo
     for secret in ("SECRETCOOKIE", "SECRETTOKEN", "800000001", "Master"):
         assert all(secret not in text for text in texts)
         assert secret not in caplog.text
+
+
+# ---- redeem codes (v1.19) -----------------------------------------------------------------------
+
+CODES = ["JADE2026AAA", "JADE2026BBB", "JADE2026CCC"]
+STAR_RAIL = genshin.Game.STARRAIL
+COOKIE_REFUSED = (
+    "Cookie HoYoLAB tidak bisa dipakai untuk menukarkan kode. Penukaran butuh cookie_token_v2, "
+    "dan cookie-nya mungkin sudah kedaluwarsa: salin ulang dari HoYoLAB lalu isi gacha.cookie "
+    "di config.yaml."
+)
+UNREACHABLE = "HoYoLAB tidak bisa dihubungi. Cek koneksi internet."
+
+
+def refusal(retcode: int) -> errors.GenshinException:
+    """What genshin.py raises when HoYoLAB answers a redemption with this retcode."""
+    with pytest.raises(errors.GenshinException) as caught:
+        errors.raise_for_retcode({"retcode": retcode, "message": ""})
+    return caught.value
+
+
+def redeemed_codes(fake: FakeHoyolab) -> list[str]:
+    return [call[1] for call in fake.calls if call[0] == "redeem"]
+
+
+def test_codes_are_redeemed_one_at_a_time_for_the_game_uid_six_seconds_apart():
+    fake = FakeHoyolab()
+
+    results = make_client(fake).redeem_codes("hsr", CODES)
+
+    assert [(r.game, r.code, r.outcome) for r in results] == [
+        ("hsr", "JADE2026AAA", "redeemed"),
+        ("hsr", "JADE2026BBB", "redeemed"),
+        ("hsr", "JADE2026CCC", "redeemed"),
+    ]
+    assert fake.calls == [
+        ("redeem", "JADE2026AAA", 800000001, STAR_RAIL),
+        ("sleep", 6.0),
+        ("redeem", "JADE2026BBB", 800000001, STAR_RAIL),
+        ("sleep", 6.0),
+        ("redeem", "JADE2026CCC", 800000001, STAR_RAIL),
+    ]
+
+
+def test_a_redeemed_code_says_the_rewards_are_in_the_in_game_mail():
+    results = make_client(FakeHoyolab()).redeem_codes("zzz", ["NAPGIFT2026"])
+
+    assert results == [
+        RedeemResult(
+            "zzz",
+            "NAPGIFT2026",
+            "redeemed",
+            "Kode NAPGIFT2026 berhasil ditukarkan. Hadiahnya ada di surat dalam game ZZZ.",
+        )
+    ]
+
+
+@pytest.mark.parametrize(
+    ("game", "uid", "hoyolab_game"),
+    [("genshin", 800000002, genshin.Game.GENSHIN), ("zzz", 1300000003, genshin.Game.ZZZ)],
+)
+def test_codes_are_redeemed_for_the_uid_and_genshin_game_of_their_game(game, uid, hoyolab_game):
+    fake = FakeHoyolab()
+
+    make_client(fake).redeem_codes(game, ["GIFT2026AAA"])
+
+    assert fake.calls == [("redeem", "GIFT2026AAA", uid, hoyolab_game)]
+
+
+def test_without_configured_uids_codes_go_to_the_highest_level_account():
+    fake = FakeHoyolab()
+
+    make_client(fake, uids={}).redeem_codes("hsr", ["GIFT2026AAA"])
+
+    assert fake.calls == [("accounts",), ("redeem", "GIFT2026AAA", 800000001, STAR_RAIL)]
+
+
+def test_a_cooldown_waits_six_seconds_and_tries_the_code_once_more():
+    fake = FakeHoyolab(redemptions={"JADE2026AAA": [refusal(-2016)]})
+
+    results = make_client(fake).redeem_codes("hsr", CODES[:2])
+
+    assert [r.outcome for r in results] == ["redeemed", "redeemed"]
+    assert [call[:2] for call in fake.calls] == [
+        ("redeem", "JADE2026AAA"),
+        ("sleep", 6.0),
+        ("redeem", "JADE2026AAA"),
+        ("sleep", 6.0),
+        ("redeem", "JADE2026BBB"),
+    ]
+
+
+def test_a_second_cooldown_leaves_that_code_and_goes_on_with_the_next():
+    fake = FakeHoyolab(redemptions={"JADE2026AAA": [refusal(-2016), refusal(-2016)]})
+
+    results = make_client(fake).redeem_codes("hsr", CODES[:2])
+
+    assert results[0] == RedeemResult(
+        "hsr",
+        "JADE2026AAA",
+        "cooldown",
+        "Kode JADE2026AAA belum bisa ditukarkan: HoYoLAB sedang membatasi penukaran kode. "
+        "Coba lagi sebentar lagi.",
+    )
+    assert results[1].outcome == "redeemed"
+    assert [call[:2] for call in fake.calls] == [
+        ("redeem", "JADE2026AAA"),
+        ("sleep", 6.0),
+        ("redeem", "JADE2026AAA"),
+        ("sleep", 6.0),
+        ("redeem", "JADE2026BBB"),
+    ]
+
+
+def test_a_refusal_after_a_cooldown_is_that_codes_outcome():
+    fake = FakeHoyolab(redemptions={"JADE2026AAA": [refusal(-2016), refusal(-2017)]})
+
+    [result] = make_client(fake).redeem_codes("hsr", ["JADE2026AAA"])
+
+    assert result.outcome == "claimed"
+
+
+@pytest.mark.parametrize(
+    ("retcode", "outcome", "message"),
+    [
+        (-2017, "claimed", "Kode JADE2026AAA sudah pernah ditukarkan di akun HSR ini."),
+        (-2018, "claimed", "Kode JADE2026AAA sudah pernah ditukarkan di akun HSR ini."),
+        (-2001, "expired", "Kode JADE2026AAA sudah kedaluwarsa."),
+        (-2003, "invalid", "Kode JADE2026AAA tidak valid menurut HoYoLAB."),  # malformed
+        (-2004, "invalid", "Kode JADE2026AAA tidak valid menurut HoYoLAB."),
+        (-2006, "invalid", "Kode JADE2026AAA tidak valid menurut HoYoLAB."),  # used up
+        (-2008, "region", "Kode JADE2026AAA tidak berlaku di server akun HSR ini."),
+        (-2011, "level", "Level akun HSR belum cukup untuk kode JADE2026AAA."),
+        (-2021, "level", "Level akun HSR belum cukup untuk kode JADE2026AAA."),
+    ],
+)
+def test_hoyolab_refusals_become_outcomes_with_a_sentence_for_her(retcode, outcome, message):
+    fake = FakeHoyolab(redemptions={"JADE2026AAA": [refusal(retcode)]})
+
+    results = make_client(fake).redeem_codes("hsr", ["JADE2026AAA"])
+
+    assert results == [RedeemResult("hsr", "JADE2026AAA", outcome, message)]
+
+
+@pytest.mark.parametrize(
+    ("failure", "problem"),
+    [
+        (
+            errors.GenshinException({"retcode": -9999}),
+            "HoYoLAB menolak permintaan HSR (kode -9999).",
+        ),
+        (
+            errors.RedemptionException({"retcode": -2099, "message": "redemption failed"}),
+            "HoYoLAB menolak permintaan HSR (kode -2099).",
+        ),
+        (ValueError("odd answer"), "Data HoYoLAB HSR tidak bisa dibaca saat ini."),
+    ],
+)
+def test_any_other_failure_is_an_error_and_the_next_code_is_still_tried(failure, problem):
+    fake = FakeHoyolab(redemptions={"JADE2026AAA": [failure]})
+
+    results = make_client(fake).redeem_codes("hsr", CODES[:2])
+
+    assert results[0] == RedeemResult(
+        "hsr", "JADE2026AAA", "error", f"Kode JADE2026AAA belum bisa ditukarkan: {problem}"
+    )
+    assert results[1].outcome == "redeemed"
+
+
+RATE_LIMITED = "HoYoLAB sedang membatasi permintaan. Coba lagi beberapa menit lagi."
+CAPTCHA = (
+    "HoYoLAB minta verifikasi captcha HSR. Buka HoYoLAB di browser sekali (untuk check-in, ambil "
+    "manual dulu), lalu coba lagi."
+)
+
+
+@pytest.mark.parametrize(
+    ("failure", "problem"),
+    [
+        (aiohttp.ClientConnectionError("down"), UNREACHABLE),
+        (OSError("network is unreachable"), UNREACHABLE),
+        (errors.TooManyRequests(), RATE_LIMITED),
+        (refusal(-110), RATE_LIMITED),  # VisitsTooFrequently
+        (errors.GeetestError({"retcode": 1034}), CAPTCHA),
+    ],
+    ids=["connection", "os-error", "too-many-requests", "visits-too-frequently", "captcha"],
+)
+def test_hoyolab_unreachable_rate_limiting_or_asking_for_a_captcha_stops_the_rest_untried(
+    failure, problem
+):
+    fake = FakeHoyolab(redemptions={"JADE2026BBB": [failure]})
+
+    results = make_client(fake).redeem_codes("hsr", [*CODES, "JADE2026DDD"])
+
+    assert [(r.code, r.outcome, r.message) for r in results] == [
+        (
+            "JADE2026AAA",
+            "redeemed",
+            "Kode JADE2026AAA berhasil ditukarkan. Hadiahnya ada di surat dalam game HSR.",
+        ),
+        ("JADE2026BBB", "error", f"Kode JADE2026BBB belum bisa ditukarkan: {problem}"),
+        ("JADE2026CCC", "error", f"Kode JADE2026CCC belum bisa ditukarkan: {problem}"),
+        ("JADE2026DDD", "error", f"Kode JADE2026DDD belum bisa ditukarkan: {problem}"),
+    ]
+    assert [call[:2] for call in fake.calls] == [
+        ("redeem", "JADE2026AAA"),
+        ("sleep", 6.0),
+        ("redeem", "JADE2026BBB"),
+    ]
+
+
+@pytest.mark.parametrize("failure", [refusal(-1071), errors.InvalidCookies()])
+def test_a_refused_cookie_gives_this_and_every_remaining_code_the_cookie_outcome_untried(failure):
+    fake = FakeHoyolab(redemptions={"JADE2026BBB": [failure]})
+
+    results = make_client(fake).redeem_codes("hsr", [*CODES, "JADE2026DDD"])
+
+    assert results == [
+        RedeemResult(
+            "hsr",
+            "JADE2026AAA",
+            "redeemed",
+            "Kode JADE2026AAA berhasil ditukarkan. Hadiahnya ada di surat dalam game HSR.",
+        ),
+        RedeemResult("hsr", "JADE2026BBB", "cookie", COOKIE_REFUSED),
+        RedeemResult("hsr", "JADE2026CCC", "cookie", COOKIE_REFUSED),
+        RedeemResult("hsr", "JADE2026DDD", "cookie", COOKIE_REFUSED),
+    ]
+    assert redeemed_codes(fake) == ["JADE2026AAA", "JADE2026BBB"]
+
+
+def test_a_cookie_refused_while_finding_the_account_gives_every_code_the_cookie_outcome():
+    fake = FakeHoyolab(failures={"accounts": errors.InvalidCookies()})
+
+    results = make_client(fake, uids={}).redeem_codes("hsr", CODES[:2])
+
+    assert [(r.code, r.outcome, r.message) for r in results] == [
+        ("JADE2026AAA", "cookie", COOKIE_REFUSED),
+        ("JADE2026BBB", "cookie", COOKIE_REFUSED),
+    ]
+    assert fake.calls == [("accounts",)]
+
+
+def test_a_game_without_an_account_gives_every_code_an_error_untried():
+    fake = FakeHoyolab(accounts=[account("hkrpg_global", 800000001, 70)])
+
+    results = make_client(fake, uids={}).redeem_codes("zzz", ["NAPGIFT2026"])
+
+    assert results == [
+        RedeemResult(
+            "zzz",
+            "NAPGIFT2026",
+            "error",
+            "Kode NAPGIFT2026 belum bisa ditukarkan: Akun ZZZ tidak ditemukan di HoYoLAB ini.",
+        )
+    ]
+    assert fake.calls == [("accounts",)]
+
+
+def test_redeeming_without_a_cookie_raises_no_cookie_before_asking_hoyolab():
+    fake = FakeHoyolab()
+    client = make_client(fake, cookie=None)
+
+    with pytest.raises(GachaError) as caught:
+        client.redeem_codes("hsr", CODES)
+
+    assert caught.value.kind == "no_cookie"
+    assert "gacha.cookie" in caught.value.message
+    assert (fake.calls, fake.cookies) == ([], [])
+
+
+def test_at_most_ten_codes_are_redeemed_per_call_and_the_rest_are_left_for_a_later_one():
+    codes = [f"JADE2026{n:03d}" for n in range(12)]
+    fake = FakeHoyolab()
+
+    results = make_client(fake).redeem_codes("hsr", codes)
+
+    assert [r.code for r in results] == codes[:10]
+    assert redeemed_codes(fake) == codes[:10]
+
+
+def test_each_attempt_has_its_own_timeout_and_a_slow_one_leaves_the_rest_untried():
+    # Without its own timeout the attempt would answer after 1 s, within the call's bound.
+    fake = FakeHoyolab(delay_s=1.0)
+
+    results = make_client(fake, timeout_s=0.05).redeem_codes("hsr", CODES[:2])
+
+    assert [(r.outcome, r.message) for r in results] == [
+        ("error", f"Kode JADE2026AAA belum bisa ditukarkan: {UNREACHABLE}"),
+        ("error", f"Kode JADE2026BBB belum bisa ditukarkan: {UNREACHABLE}"),
+    ]
+    assert [call[:2] for call in fake.calls] == [("redeem", "JADE2026AAA")]
+
+
+def test_a_slow_account_lookup_is_an_error_for_every_code_and_redeems_none():
+    # The gaps are not waited here, so the call's bound is a minute: only the lookup's own
+    # timeout can end it this soon.
+    fake = FakeHoyolab(delay_s=1.5)
+    started = time.monotonic()
+
+    results = make_client(fake, uids={}, timeout_s=0.05).redeem_codes("hsr", CODES[:2])
+
+    assert [(r.code, r.outcome, r.message) for r in results] == [
+        ("JADE2026AAA", "error", f"Kode JADE2026AAA belum bisa ditukarkan: {UNREACHABLE}"),
+        ("JADE2026BBB", "error", f"Kode JADE2026BBB belum bisa ditukarkan: {UNREACHABLE}"),
+    ]
+    assert fake.calls == [("accounts",)]
+    assert time.monotonic() - started < 1.0
+
+
+def test_each_result_is_handed_over_as_soon_as_it_is_known():
+    fake = FakeHoyolab(redemptions={"JADE2026BBB": [refusal(-2017)]})
+
+    def handed_over(result: RedeemResult) -> None:
+        fake.calls.append(("result", result.code, result.outcome))
+
+    results = make_client(fake).redeem_codes("hsr", CODES[:2], on_result=handed_over)
+
+    assert [r.outcome for r in results] == ["redeemed", "claimed"]
+    assert [call[:3] for call in fake.calls] == [
+        ("redeem", "JADE2026AAA", 800000001),
+        ("result", "JADE2026AAA", "redeemed"),
+        ("sleep", 6.0),
+        ("redeem", "JADE2026BBB", 800000001),
+        ("result", "JADE2026BBB", "claimed"),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("redemption_failure", "lookup_failure"),
+    [
+        (errors.InvalidCookies(), None),
+        (aiohttp.ClientConnectionError("down"), None),
+        (None, aiohttp.ClientConnectionError("down")),
+    ],
+    ids=["cookie", "unreachable", "account-lookup"],
+)
+def test_codes_left_untried_are_handed_over_too(redemption_failure, lookup_failure):
+    fake = FakeHoyolab(
+        redemptions={"JADE2026BBB": [redemption_failure]} if redemption_failure else None,
+        failures={"accounts": lookup_failure} if lookup_failure else None,
+    )
+    handed_over: list[RedeemResult] = []
+
+    results = make_client(fake, uids={}).redeem_codes("hsr", CODES, on_result=handed_over.append)
+
+    assert handed_over == results
+    assert len(results) == 3
+
+
+def test_the_whole_call_is_bounded_and_keeps_the_outcomes_it_already_has(monkeypatch):
+    # Without the gaps the bound is ten attempt timeouts (2 s), while every code here takes two
+    # 0.12 s attempts (a cooldown, then another): the bound ends the call before the last code.
+    monkeypatch.setattr(hoyolab, "REDEEM_GAP_S", 0.0)
+    codes = [f"JADE2026{n:03d}" for n in range(10)]
+    fake = FakeHoyolab(delay_s=0.12, failures={"redeem": refusal(-2016)})
+
+    results = make_client(fake, timeout_s=0.2).redeem_codes("hsr", codes)
+
+    assert [r.code for r in results] == codes
+    assert results[0].outcome == "cooldown"
+    assert codes[-1] not in redeemed_codes(fake)
+    assert results[-1] == RedeemResult(
+        "hsr", codes[-1], "error", f"Kode {codes[-1]} belum bisa ditukarkan: {UNREACHABLE}"
+    )
+
+
+@pytest.mark.parametrize(
+    ("stopped_after", "calls"),
+    [
+        ("redeem", [("redeem", "JADE2026AAA")]),  # the gap to the next code is not waited either
+        ("sleep", [("redeem", "JADE2026AAA"), ("sleep", 6.0)]),
+    ],
+    ids=["while-a-code-is-answered", "during-the-gap"],
+)
+def test_a_run_told_to_stop_tries_no_more_codes_and_leaves_them_out(stopped_after, calls):
+    # As when Cyrene stops while her watcher redeems: no code is tried once it is told to stop.
+    fake = FakeHoyolab()
+    handed_over: list[RedeemResult] = []
+
+    def should_stop() -> bool:
+        return any(call[0] == stopped_after for call in fake.calls)
+
+    results = make_client(fake).redeem_codes(
+        "hsr", CODES, on_result=handed_over.append, should_stop=should_stop
+    )
+
+    assert [(r.code, r.outcome) for r in results] == [("JADE2026AAA", "redeemed")]
+    assert handed_over == results
+    assert [call[:2] for call in fake.calls] == calls
+
+
+def test_a_run_told_to_stop_while_finding_the_account_tries_no_code():
+    fake = FakeHoyolab()
+
+    results = make_client(fake, uids={}).redeem_codes(
+        "hsr", CODES, should_stop=lambda: ("accounts",) in fake.calls
+    )
+
+    assert results == []
+    assert fake.calls == [("accounts",)]
+
+
+def test_a_cooldown_answered_to_a_run_told_to_stop_is_not_tried_again():
+    fake = FakeHoyolab(redemptions={"JADE2026AAA": [refusal(-2016)]})
+
+    results = make_client(fake).redeem_codes(
+        "hsr", CODES, should_stop=lambda: bool(redeemed_codes(fake))
+    )
+
+    assert [(r.code, r.outcome) for r in results] == [("JADE2026AAA", "cooldown")]
+    assert redeemed_codes(fake) == ["JADE2026AAA"]
+
+
+def test_redemption_results_and_logs_never_hold_the_cookie_or_the_uid(caplog):
+    redemptions = {
+        "JADE2026AAA": [refusal(-2001)],
+        "JADE2026BBB": [errors.GenshinException({"retcode": -9999})],
+        "JADE2026CCC": [refusal(-1071)],
+    }
+    fake = FakeHoyolab(redemptions=redemptions)
+
+    with caplog.at_level(logging.DEBUG):
+        results = make_client(fake).redeem_codes("hsr", [*CODES, "JADE2026DDD"])
+
+    for secret in ("SECRETCOOKIE", "SECRETTOKEN", "800000001"):
+        assert secret not in repr(results)
+        assert secret not in caplog.text
+
+
+def test_redeeming_is_one_fresh_client_and_never_changes_a_hoyolab_setting():
+    fake = FakeHoyolab()
+
+    make_client(fake).redeem_codes("hsr", CODES)
+
+    assert fake.cookies == [COOKIE]
+    assert ("update_settings",) not in fake.calls
