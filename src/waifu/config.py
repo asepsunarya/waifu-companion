@@ -666,6 +666,17 @@ class PcHealthConfig(_Strict):
     gpu_warn_minutes: int = Field(default=3, ge=1, le=60)
 
 
+class TodoConfig(_Strict):
+    """Master's to-do list: tasks with an optional due date, never a time of day."""
+
+    enabled: bool = True
+    path: Path = Path("data/todo.json")
+    max_tasks: int = Field(default=100, ge=1, le=500)  # open tasks
+    max_chars: int = Field(default=200, ge=20, le=1000)
+    # Done tasks are kept this long ("what did I finish?"), then forgotten.
+    keep_done_days: int = Field(default=7, ge=0, le=90)
+
+
 class MemoryConfig(_Strict):
     """Cyrene's long-term memory: facts about the owner kept between sessions."""
 
@@ -748,6 +759,7 @@ class AppConfig(_Strict):
     redeem_codes: RedeemCodesConfig = Field(default_factory=RedeemCodesConfig)
     notify: NotifyConfig = Field(default_factory=NotifyConfig)
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
+    todo: TodoConfig = Field(default_factory=TodoConfig)
     pc_health: PcHealthConfig = Field(default_factory=PcHealthConfig)
     web_search: WebSearchConfig = Field(default_factory=WebSearchConfig)
     free_offers: FreeOffersConfig = Field(default_factory=FreeOffersConfig)

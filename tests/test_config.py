@@ -762,3 +762,26 @@ def test_redeem_codes_settings_load_from_yaml(tmp_path):
 def test_bad_redeem_codes_settings_are_refused(tmp_path, lines):
     with pytest.raises(ConfigError, match="redeem_codes"):
         load_config(write_yaml(tmp_path, "redeem_codes:\n" + lines))
+
+
+def test_the_todo_list_is_on_with_room_for_a_hundred_tasks_by_default():
+    todo = AppConfig().todo
+    assert (todo.enabled, todo.path) == (True, Path("data/todo.json"))
+    assert (todo.max_tasks, todo.max_chars, todo.keep_done_days) == (100, 200, 7)
+
+
+@pytest.mark.parametrize(
+    "lines",
+    [
+        "  max_tasks: 0\n",
+        "  max_tasks: 501\n",
+        "  max_chars: 19\n",
+        "  max_chars: 1001\n",
+        "  keep_done_days: -1\n",
+        "  keep_done_days: 91\n",
+        "  reminders: true\n",
+    ],
+)
+def test_bad_todo_settings_are_refused(tmp_path, lines):
+    with pytest.raises(ConfigError, match="todo"):
+        load_config(write_yaml(tmp_path, "todo:\n" + lines))
