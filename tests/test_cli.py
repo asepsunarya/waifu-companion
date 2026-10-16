@@ -940,7 +940,9 @@ class FakeRvcClient:
         self._fakes.events.append("rvc health")
         return self._fakes.served_model
 
-    def convert(self, audio: np.ndarray, sample_rate: int) -> tuple[np.ndarray, int]:
+    def convert(
+        self, audio: np.ndarray, sample_rate: int, *, pitch: int | None = None
+    ) -> tuple[np.ndarray, int]:
         return audio, sample_rate
 
 

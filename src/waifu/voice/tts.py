@@ -20,10 +20,10 @@ import time
 import unicodedata
 import urllib.parse
 import urllib.request
-from collections.abc import Callable, Coroutine
+from collections.abc import Callable, Coroutine, Iterable, Mapping
 from http import HTTPStatus
 from itertools import groupby
-from typing import Any, Protocol
+from typing import Any, NamedTuple, Protocol
 
 import numpy as np
 import soundfile as sf
@@ -42,6 +42,7 @@ from waifu.voice.windows_voices import (
     WindowsVoice,
     WindowsVoiceError,
     choose_voice,
+    language_name,
     list_windows_voices,
     missing_voice_hint,
     speak_wav,
@@ -53,6 +54,8 @@ JAPANESE = "ja"
 RUN_GAP_S = 0.12
 GPT_SOVITS_TIMEOUT_S = 60.0
 CONVERSION_RETRY_S = 60.0
+# After her voice fails, a language stays on its offline fallback this long before a retry.
+FALLBACK_RETRY_S = 600.0
 # Microsoft refuses outdated edge-tts releases at the websocket handshake (HTTP 403)
 # whenever it changes its request token, as in Oct 2026 for every edge-tts <= 7.2.8.
 EDGE_TTS_UPDATE_COMMAND = r".venv\Scripts\python -m pip install -U edge-tts"
@@ -85,7 +88,11 @@ class TtsError(Exception):
 class VoiceConverter(Protocol):
     """Turns a finished clip into another voice; `RvcClient` is the real one."""
 
-    def convert(self, audio: np.ndarray, sample_rate: int) -> tuple[np.ndarray, int]: ...
+    def convert(
+        self, audio: np.ndarray, sample_rate: int, *, pitch: int | None = None
+    ) -> tuple[np.ndarray, int]:
+        """`pitch` shifts this clip by that many semitones instead of the configured pitch."""
+        ...
 
 
 def split_by_language(text: str, default: str = "id") -> list[tuple[str, str]]:
@@ -261,14 +268,39 @@ class WindowsTts(TextToSpeech):
         raise TtsError(f"{at_sentence_start(missing_voice_hint(self._language))}.")
 
 
+class FallbackVoice(Protocol):
+    """Stands in when a language's voice fails; `WindowsTts` is the real one."""
+
+    @property
+    def rvc_pitch(self) -> int | None:
+        """Semitones RVC shifts this voice by; None for `tts.rvc.pitch`."""
+        ...
+
+    def synthesize(self, text: str, language: str) -> tuple[np.ndarray, int]: ...
+
+
+class _Piece(NamedTuple):
+    """One spoken run and the pitch RVC shifts it by (None: `tts.rvc.pitch`)."""
+
+    audio: np.ndarray
+    sample_rate: int
+    rvc_pitch: int | None = None
+
+
 class SpeechRouter:
     """Voices mixed-language text by sending each language run to that language's engine.
+
+    When a language's engine fails and that language has a fallback (a Windows voice,
+    which works offline), the fallback speaks the run instead, and the engine is then
+    skipped for `fallback_retry_s` before it is tried again: edge-tts may take its whole
+    10 s connect timeout to fail, on every run of every reply.
 
     With a `converter`, the joined clip is then converted into one voice (the RVC
     anime voice); when conversion fails the plain clip is spoken instead, so a
     broken converter never silences her. After the converter could not be reached,
     replies skip it for CONVERSION_RETRY_S before it is tried again: each attempt at
-    a dead server costs ~2 s on Windows, and at a stuck one its whole timeout.
+    a dead server costs ~2 s on Windows, and at a stuck one its whole timeout. Runs
+    that need another pitch (a fallback voice) are converted apart from the rest.
     """
 
     def __init__(
@@ -276,6 +308,9 @@ class SpeechRouter:
         engines: dict[str, TextToSpeech],
         default_language: str,
         *,
+        fallbacks: Mapping[str, FallbackVoice] | None = None,
+        fallback_retry_s: float = FALLBACK_RETRY_S,
+        fallback_only: bool = False,
         converter: VoiceConverter | None = None,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
@@ -283,8 +318,14 @@ class SpeechRouter:
             raise ValueError(f"no TTS engine for the default language '{default_language}'")
         self.engines = dict(engines)
         self.default_language = default_language
+        self.fallbacks = dict(fallbacks or {})
+        self.fallback_only = fallback_only
         self.converter = converter
+        self._fallback_retry_s = fallback_retry_s
         self._clock = clock
+        # A language whose engine is failing -> its last error, until the engine works again.
+        self._engine_errors: dict[str, TtsError] = {}
+        self._skip_engine_until: dict[str, float] = {}
         self._conversion_failing = False
         self._skip_conversion_until = -math.inf
 
@@ -293,13 +334,11 @@ class SpeechRouter:
         runs = split_by_language(clean_for_speech(text), self.default_language)
         if not runs:
             raise TtsError("Tidak ada teks yang bisa diucapkan.")
-        default_engine = self.engines[self.default_language]
-        pieces: list[tuple[np.ndarray, int]] = []
+        pieces: list[_Piece] = []
         failures: list[TtsError] = []
         for language, run_text in runs:
-            engine = self.engines.get(language, default_engine)
             try:
-                pieces.append(engine.synthesize(run_text, language))
+                pieces.append(self._speak_run(language, run_text))
             except TtsError as exc:
                 # Never her words: a reply may hold Master's money, and this reaches the log file.
                 logger.warning(
@@ -308,20 +347,78 @@ class SpeechRouter:
                 failures.append(exc)
         if not pieces:
             raise TtsError(f"Semua bagian teks gagal diucapkan: {failures[-1]}") from failures[-1]
-        audio, sample_rate = _join(pieces)
         if self.converter is None:
-            return audio, sample_rate
-        return self._convert(self.converter, audio, sample_rate)
+            return _join_pieces(pieces)
+        converted = [
+            self._convert(self.converter, *_join_pieces(group), pitch)
+            for pitch, group in groupby(pieces, key=lambda piece: piece.rvc_pitch)
+        ]
+        return _join(converted)
+
+    def _speak_run(self, language: str, text: str) -> _Piece:
+        fallback = self.fallbacks.get(language)
+        if self.fallback_only:
+            if fallback is None:
+                raise TtsError(
+                    f"Belum ada suara cadangan untuk bahasa {language_name(language)} "
+                    "(tts.fallback.voices)."
+                )
+            return _fallback_piece(fallback, text, language)
+        engine = self.engines.get(language, self.engines[self.default_language])
+        if fallback is None:
+            return _Piece(*engine.synthesize(text, language))
+        if self._clock() < self._skip_engine_until.get(language, -math.inf):
+            logger.debug("The %s voice failed a moment ago; speaking with its fallback", language)
+            return self._stand_in(fallback, text, language)
+        try:
+            piece = _Piece(*engine.synthesize(text, language))
+        except TtsError as exc:
+            self._engine_failed(language, exc)
+            piece = self._stand_in(fallback, text, language)
+            self._skip_engine_until[language] = self._clock() + self._fallback_retry_s
+            return piece
+        if self._engine_errors.pop(language, None) is not None:
+            logger.info("The %s voice works again", language)
+        return piece
+
+    def _engine_failed(self, language: str, exc: TtsError) -> None:
+        """Remember the failure; an outage warns only once."""
+        if language in self._engine_errors:
+            logger.debug("The %s voice still fails: %s", language, exc)
+        else:
+            logger.warning(
+                "The %s voice failed; trying its offline fallback until it works again: %s",
+                language,
+                exc,
+            )
+        self._engine_errors[language] = exc
+
+    def _stand_in(self, fallback: FallbackVoice, text: str, language: str) -> _Piece:
+        """The fallback's piece. A fallback that cannot speak ends the pause, so a missing
+        Windows voice never keeps a recovered engine away."""
+        try:
+            return _fallback_piece(fallback, text, language)
+        except TtsError as exc:
+            self._skip_engine_until.pop(language, None)
+            engine_error = self._engine_errors.get(language)
+            if engine_error is None:
+                raise
+            reason = str(engine_error).rstrip(".")
+            raise TtsError(f"{reason}. Suara cadangan Windows juga gagal: {exc}") from exc
 
     def _convert(
-        self, converter: VoiceConverter, audio: np.ndarray, sample_rate: int
+        self,
+        converter: VoiceConverter,
+        audio: np.ndarray,
+        sample_rate: int,
+        pitch: int | None,
     ) -> tuple[np.ndarray, int]:
         """The converted clip, else the plain one; a failure streak warns only once."""
         if self._clock() < self._skip_conversion_until:
             logger.debug("Voice converter unreachable a moment ago; speaking the plain voice")
             return audio, sample_rate
         try:
-            converted = converter.convert(audio, sample_rate)
+            converted = converter.convert(audio, sample_rate, pitch=pitch)
         except _CONVERSION_ERRORS as exc:
             if isinstance(exc, _UNREACHABLE_ERRORS):
                 self._skip_conversion_until = self._clock() + CONVERSION_RETRY_S
@@ -348,6 +445,11 @@ def build_speech_router(
         for language, voice in config.voices.items()
     }
     return SpeechRouter(engines, config.default_language, converter=converter)
+
+
+def _fallback_piece(fallback: FallbackVoice, text: str, language: str) -> _Piece:
+    audio, sample_rate = fallback.synthesize(text, language)
+    return _Piece(audio, sample_rate, fallback.rvc_pitch)  # its voice is known once it spoke
 
 
 def _language_of(char: str, default: str) -> str | None:
@@ -414,6 +516,10 @@ def _resample(audio: np.ndarray, src_rate: int, dst_rate: int) -> np.ndarray:
     length = round(audio.size * dst_rate / src_rate)
     positions = np.arange(length) * (src_rate / dst_rate)
     return np.interp(positions, np.arange(audio.size), audio).astype(np.float32)
+
+
+def _join_pieces(pieces: Iterable[_Piece]) -> tuple[np.ndarray, int]:
+    return _join([(piece.audio, piece.sample_rate) for piece in pieces])
 
 
 def _join(pieces: list[tuple[np.ndarray, int]]) -> tuple[np.ndarray, int]:

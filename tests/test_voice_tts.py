@@ -499,16 +499,23 @@ def test_windows_tts_shifts_rvc_by_the_pitch_of_its_voice_s_gender(voice, pitch)
 
 
 class FakeEngine(TextToSpeech):
-    def __init__(self, samples: int = 100, sample_rate: int = 1000, fail: bool = False):
+    def __init__(
+        self,
+        samples: int = 100,
+        sample_rate: int = 1000,
+        fail: bool = False,
+        error: str = "engine down",
+    ):
         self.samples = samples
         self.sample_rate = sample_rate
         self.fail = fail
+        self.error = error
         self.calls: list[tuple[str, str]] = []
 
     def synthesize(self, text: str, language: str) -> tuple[np.ndarray, int]:
         self.calls.append((text, language))
         if self.fail:
-            raise TtsError("engine down")
+            raise TtsError(self.error)
         return np.ones(self.samples, dtype=np.float32), self.sample_rate
 
 
@@ -618,9 +625,13 @@ class FakeConverter:
     def __init__(self, *replies: tuple[np.ndarray, int] | Exception) -> None:
         self.replies = list(replies)
         self.calls: list[tuple[np.ndarray, int]] = []
+        self.pitches: list[int | None] = []
 
-    def convert(self, audio: np.ndarray, sample_rate: int) -> tuple[np.ndarray, int]:
+    def convert(
+        self, audio: np.ndarray, sample_rate: int, *, pitch: int | None = None
+    ) -> tuple[np.ndarray, int]:
         self.calls.append((audio.copy(), sample_rate))
+        self.pitches.append(pitch)
         reply = self.replies.pop(0) if len(self.replies) > 1 else self.replies[0]
         if isinstance(reply, Exception):
             raise reply
@@ -827,6 +838,297 @@ def test_router_speaks_the_plain_voice_when_the_rvc_server_is_unreachable():
     audio, _ = converting_router(client).synthesize(MIXED_TEXT)
 
     assert np.array_equal(audio, plain_audio)
+
+
+# --- SpeechRouter offline fallback -------------------------------------------
+
+REFUSED = "Microsoft menolak suara id-ID-GadisNeural (403); perbarui edge-tts."
+NO_WINDOWS_VOICE = "Belum ada suara Windows bahasa Indonesia."
+
+
+class FakeFallback(TextToSpeech):
+    """Stands in for WindowsTts: speaks 50 samples of 0.25 at 1 kHz with the RVC pitch of its
+    voice, or fails with NO_WINDOWS_VOICE."""
+
+    def __init__(self, rvc_pitch: int | None = None, fail: bool = False) -> None:
+        self.rvc_pitch = rvc_pitch
+        self.fail = fail
+        self.calls: list[tuple[str, str]] = []
+
+    def synthesize(self, text: str, language: str) -> tuple[np.ndarray, int]:
+        self.calls.append((text, language))
+        if self.fail:
+            raise TtsError(NO_WINDOWS_VOICE)
+        return np.full(50, 0.25, dtype=np.float32), 1000
+
+
+@dataclasses.dataclass
+class FallbackSetup:
+    router: SpeechRouter
+    primary: FakeEngine
+    fallback: FakeFallback
+    clock: FakeClock
+
+
+def falling_back(
+    *,
+    fallback: FakeFallback | None = None,
+    converter: VoiceConverter | None = None,
+    **router_options,
+) -> FallbackSetup:
+    """A router whose Indonesian voice is down (Japanese works) with an Indonesian fallback."""
+    primary = FakeEngine(fail=True, error=REFUSED)
+    fallback = fallback or FakeFallback()
+    clock = FakeClock()
+    router = SpeechRouter(
+        {"id": primary, "ja": FakeEngine()},
+        default_language="id",
+        fallbacks={"id": fallback},
+        converter=converter,
+        clock=clock,
+        **router_options,
+    )
+    return FallbackSetup(router, primary, fallback, clock)
+
+
+def test_a_run_whose_voice_fails_is_spoken_by_its_fallback():
+    setup = falling_back()
+
+    audio, sample_rate = setup.router.synthesize("Halo, はい")
+
+    assert setup.primary.calls == [("Halo,", "id")]
+    assert setup.fallback.calls == [("Halo,", "id")]
+    assert sample_rate == 1000
+    assert len(audio) == 50 + 120 + 100
+    assert np.all(audio[:50] == 0.25)
+
+
+def test_a_failing_language_without_a_fallback_is_skipped_as_before():
+    japanese = FakeEngine(fail=True)
+    router = SpeechRouter(
+        {"id": FakeEngine(), "ja": japanese},
+        default_language="id",
+        fallbacks={"id": FakeFallback()},
+        clock=FakeClock(),
+    )
+
+    audio, _ = router.synthesize("Halo, はい")
+
+    assert japanese.calls == [("はい", "ja")]
+    assert len(audio) == 100
+
+
+def test_a_working_voice_never_wakes_its_fallback():
+    fallback = FakeFallback()
+    router = SpeechRouter(
+        {"id": FakeEngine()}, default_language="id", fallbacks={"id": fallback}, clock=FakeClock()
+    )
+
+    router.synthesize("Halo Master")
+
+    assert fallback.calls == []
+
+
+def test_after_a_failure_the_fallback_speaks_for_ten_minutes_without_trying_the_voice():
+    # edge-tts may take its 10 s connect timeout to fail on a flaky network, on every run.
+    setup = falling_back()
+
+    setup.router.synthesize("Halo")
+    setup.clock.now += 599.9
+    setup.router.synthesize("Master")
+
+    assert setup.primary.calls == [("Halo", "id")]
+    assert setup.fallback.calls == [("Halo", "id"), ("Master", "id")]
+
+
+def test_the_voice_is_tried_again_after_the_pause():
+    setup = falling_back()
+
+    setup.router.synthesize("Halo")
+    setup.clock.now += 600
+    setup.primary.fail = False
+    audio, _ = setup.router.synthesize("Master")
+
+    assert len(setup.primary.calls) == 2
+    assert setup.fallback.calls == [("Halo", "id")]
+    assert np.all(audio == 1)
+
+
+def test_the_pause_starts_again_when_the_retried_voice_still_fails():
+    setup = falling_back()
+
+    setup.router.synthesize("Halo")
+    setup.clock.now += 600
+    setup.router.synthesize("Halo")
+    setup.clock.now += 300
+    setup.router.synthesize("Halo")
+
+    assert len(setup.primary.calls) == 2
+    assert len(setup.fallback.calls) == 3
+
+
+def test_the_pause_is_configurable():
+    setup = falling_back(fallback_retry_s=60)
+
+    setup.router.synthesize("Halo")
+    setup.clock.now += 60
+    setup.router.synthesize("Halo")
+
+    assert len(setup.primary.calls) == 2
+
+
+def test_when_the_fallback_fails_too_the_error_keeps_the_voice_s_hint():
+    setup = falling_back(fallback=FakeFallback(fail=True))
+
+    with pytest.raises(TtsError) as caught:
+        setup.router.synthesize("Halo")
+
+    assert str(caught.value) == (
+        "Semua bagian teks gagal diucapkan: Microsoft menolak suara id-ID-GadisNeural (403); "
+        "perbarui edge-tts. Suara cadangan Windows juga gagal: Belum ada suara Windows bahasa "
+        "Indonesia."
+    )
+
+
+def test_a_fallback_that_cannot_speak_leaves_the_voice_tried_on_every_reply():
+    # A missing Windows voice must never keep a recovered edge-tts away for ten minutes.
+    setup = falling_back(fallback=FakeFallback(fail=True))
+
+    for _ in range(2):
+        with pytest.raises(TtsError):
+            setup.router.synthesize("Halo")
+
+    assert len(setup.primary.calls) == 2
+
+
+def test_a_fallback_failing_during_the_pause_ends_the_pause():
+    setup = falling_back()
+    setup.router.synthesize("Halo")
+    setup.fallback.fail = True
+
+    with pytest.raises(TtsError, match="403.*Suara cadangan Windows juga gagal"):
+        setup.router.synthesize("Halo")
+    setup.primary.fail = False
+    audio, _ = setup.router.synthesize("Halo")
+
+    assert len(setup.primary.calls) == 2
+    assert np.all(audio == 1)
+
+
+def router_logs(caplog: pytest.LogCaptureFixture, level: int) -> list[str]:
+    return [
+        record.getMessage()
+        for record in caplog.records
+        if record.name == "waifu.voice.tts" and record.levelno == level
+    ]
+
+
+def test_the_fallback_warns_once_per_outage_without_her_words(caplog):
+    setup = falling_back()
+
+    with caplog.at_level(logging.DEBUG, logger="waifu.voice.tts"):
+        setup.router.synthesize("Saldo GoPay-mu dua ratus lima puluh ribu")
+        setup.router.synthesize("Halo")
+        setup.clock.now += 600
+        setup.router.synthesize("Halo")
+
+    [warning] = router_logs(caplog, logging.WARNING)
+    assert "id" in warning and REFUSED in warning
+    assert "GoPay" not in caplog.text
+
+
+def test_the_fallback_says_once_when_the_voice_works_again_and_warns_on_a_new_outage(caplog):
+    setup = falling_back()
+
+    with caplog.at_level(logging.INFO, logger="waifu.voice.tts"):
+        setup.router.synthesize("Halo")
+        setup.clock.now += 600
+        setup.primary.fail = False
+        setup.router.synthesize("Halo")
+        setup.router.synthesize("Halo")
+        recovered = router_logs(caplog, logging.INFO)
+        setup.primary.fail = True
+        setup.router.synthesize("Halo")
+
+    assert len(recovered) == 1 and "id" in recovered[0]
+    assert len(router_logs(caplog, logging.WARNING)) == 2
+
+
+def test_a_fallback_clip_is_converted_with_its_voice_s_pitch():
+    converter = FakeConverter(CONVERTED)
+
+    falling_back(fallback=FakeFallback(rvc_pitch=18), converter=converter).router.synthesize("Halo")
+
+    assert converter.pitches == [18]
+
+
+def test_a_reply_in_one_voice_is_converted_once_with_the_configured_pitch():
+    converter = FakeConverter(CONVERTED)
+
+    converting_router(converter).synthesize(MIXED_TEXT)
+
+    assert converter.pitches == [None]
+
+
+def test_runs_of_different_pitches_are_converted_apart_and_joined_with_the_gap():
+    converter = FakeConverter(CONVERTED)
+    setup = falling_back(fallback=FakeFallback(rvc_pitch=18), converter=converter)
+
+    audio, sample_rate = setup.router.synthesize(MIXED_TEXT)  # id (fallback), ja, id (fallback)
+
+    assert converter.pitches == [18, None, 18]
+    assert [len(sent) for sent, _ in converter.calls] == [50, 100, 50]
+    gap = round(40000 * 0.12)
+    assert sample_rate == 40000
+    assert len(audio) == 3 * 500 + 2 * gap
+    assert np.all(audio[500 : 500 + gap] == 0)
+
+
+def test_neighbouring_runs_of_one_pitch_are_converted_together():
+    converter = FakeConverter(CONVERTED)
+    router = SpeechRouter(
+        {"id": FakeEngine(fail=True), "ja": FakeEngine(fail=True)},
+        default_language="id",
+        fallbacks={"id": FakeFallback(rvc_pitch=11), "ja": FakeFallback(rvc_pitch=11)},
+        converter=converter,
+        clock=FakeClock(),
+    )
+
+    router.synthesize("Halo, はい")
+
+    [(sent, _)] = converter.calls
+    assert len(sent) == 50 + 120 + 50
+    assert converter.pitches == [11]
+
+
+def test_fallback_only_speaks_every_run_with_its_fallback_without_trying_the_voice():
+    indonesian, japanese = FakeEngine(), FakeEngine()
+    id_fallback, ja_fallback = FakeFallback(), FakeFallback()
+    router = SpeechRouter(
+        {"id": indonesian, "ja": japanese},
+        default_language="id",
+        fallbacks={"id": id_fallback, "ja": ja_fallback},
+        fallback_only=True,
+        clock=FakeClock(),
+    )
+
+    router.synthesize("Halo, はい")
+
+    assert (indonesian.calls, japanese.calls) == ([], [])
+    assert id_fallback.calls == [("Halo,", "id")] and ja_fallback.calls == [("はい", "ja")]
+
+
+def test_fallback_only_has_nothing_for_a_language_without_a_fallback():
+    router = SpeechRouter(
+        {"id": FakeEngine(), "ja": FakeEngine()},
+        default_language="id",
+        fallbacks={"id": FakeFallback()},
+        fallback_only=True,
+        clock=FakeClock(),
+    )
+
+    with pytest.raises(TtsError, match="Belum ada suara cadangan untuk bahasa Jepang"):
+        router.synthesize("はい")
 
 
 # --- build_speech_router -----------------------------------------------------
