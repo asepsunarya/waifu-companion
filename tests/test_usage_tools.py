@@ -78,6 +78,21 @@ def test_the_description_says_these_are_her_own_estimates_from_this_pc(tmp_path)
         assert guidance in spec.description
 
 
+def test_the_description_says_the_cost_already_includes_the_web_search_fees(tmp_path):
+    clock = Clock()
+
+    [spec] = UsageTools(make_ledger(tmp_path, clock), now=clock).specs()
+
+    for guidance in [
+        "web_searches",
+        "web_search_cost_usd",
+        "web_search_cost_idr",
+        "cost_usd already includes",
+        "absent",
+    ]:
+        assert guidance in spec.description
+
+
 def test_the_spec_stays_identical_as_the_costs_grow_for_prompt_caching(tmp_path):
     clock = Clock()
     ledger = make_ledger(tmp_path, clock)
@@ -213,6 +228,115 @@ def test_a_response_from_a_fallback_model_makes_the_cost_an_estimate(tmp_path):
 
     assert data["estimated"] is True
     assert data["cost_usd"] == 0.0816
+
+
+# --- web searches --------------------------------------------------------------------------
+
+
+def test_web_searches_give_their_count_and_fees_which_the_cost_already_includes(tmp_path):
+    clock = Clock()
+    ledger = make_ledger(tmp_path, clock)
+    ledger.record(OPUS, TURN)
+    # 100 output tokens (0.002 USD) and 3 searches at 10 USD per 1000 (0.03 USD).
+    ledger.record(OPUS, TokenUsage(output=100, web_searches=3))
+
+    data, is_error = ask(UsageTools(ledger, idr_per_usd=16_000, now=clock), {"period": "today"})
+
+    assert is_error is False
+    assert data == {
+        "period": "today",
+        "requests": 2,
+        "input_tokens": 1200,
+        "output_tokens": 450,
+        "cache_read_tokens": 20000,
+        "cache_write_tokens": 5000,
+        "cost_usd": 0.0728,
+        "cost_idr": 1165,
+        "web_searches": 3,
+        "web_search_cost_usd": 0.03,
+        "web_search_cost_idr": 480,
+        "estimated": False,
+    }
+
+
+def test_the_web_searches_are_those_of_the_period_asked_for(tmp_path):
+    clock = Clock(datetime(2026, 9, 30, 23, 50))
+    ledger = make_ledger(tmp_path, clock)
+    ledger.record(OPUS, TokenUsage(web_searches=5))  # last month
+    clock.current = datetime(2026, 10, 1, 8, 0)
+    ledger.record(OPUS, TokenUsage(web_searches=2))
+    clock.current = NOW
+    ledger.record(OPUS, TokenUsage(web_searches=1))
+    tools = UsageTools(ledger, now=clock)
+
+    month, _ = ask(tools, {"period": "month"})
+    today, _ = ask(tools, {"period": "today"})
+
+    assert (month["web_searches"], month["web_search_cost_usd"], month["cost_usd"]) == (
+        3,
+        0.03,
+        0.03,
+    )
+    assert (today["web_searches"], today["web_search_cost_usd"], today["cost_usd"]) == (
+        1,
+        0.01,
+        0.01,
+    )
+
+
+def test_a_period_without_web_searches_leaves_them_out_even_when_the_month_has_some(tmp_path):
+    clock = Clock(datetime(2026, 10, 1, 8, 0))
+    ledger = make_ledger(tmp_path, clock)
+    ledger.record(OPUS, TokenUsage(web_searches=2))
+    clock.current = NOW
+    ledger.record(OPUS, TURN)
+
+    today, _ = ask(UsageTools(ledger, idr_per_usd=16_000, now=clock), {"period": "today"})
+
+    assert today.keys().isdisjoint({"web_searches", "web_search_cost_usd", "web_search_cost_idr"})
+    assert today["cost_usd"] == 0.0408
+
+
+def test_the_search_fees_use_the_ledgers_configured_price_and_no_rate_gives_no_rupiah(tmp_path):
+    clock = Clock()
+    ledger = UsageLedger(
+        tmp_path / "usage.json",
+        prices={},
+        default_model=OPUS,
+        web_search_per_1000_usd=25.0,
+        now=clock,
+    )
+    ledger.record(OPUS, TokenUsage(web_searches=4))  # 4 x 0.025 USD
+
+    data, _ = ask(UsageTools(ledger, now=clock), {"period": "today"})
+
+    assert (data["web_search_cost_usd"], data["web_search_cost_idr"]) == (0.1, None)
+    assert (data["cost_usd"], data["cost_idr"]) == (0.1, None)
+
+
+@pytest.mark.parametrize(
+    ("per_1000_usd", "fees_usd", "fees_idr"), [(25.0, 0.032, 512), (5.0, 0.015, 240)]
+)
+def test_after_the_search_price_changes_the_fees_use_it_but_never_exceed_the_cost(
+    tmp_path, per_1000_usd, fees_usd, fees_idr
+):
+    clock = Clock()
+    # 100 output tokens (0.002 USD) and 3 searches at 10 USD per 1000 (0.03 USD).
+    make_ledger(tmp_path, clock).record(OPUS, TokenUsage(output=100, web_searches=3))
+    repriced = UsageLedger(
+        tmp_path / "usage.json",
+        prices={},
+        default_model=OPUS,
+        web_search_per_1000_usd=per_1000_usd,
+        now=clock,
+    )
+
+    data, _ = ask(UsageTools(repriced, idr_per_usd=16_000, now=clock), {"period": "today"})
+
+    # The ledger keeps the count, not the price paid: 3 searches at today's price, and never
+    # more than the cost that already includes them.
+    assert (data["web_search_cost_usd"], data["web_search_cost_idr"]) == (fees_usd, fees_idr)
+    assert (data["cost_usd"], data["cost_idr"]) == (0.032, 512)
 
 
 # --- bad calls -----------------------------------------------------------------------------

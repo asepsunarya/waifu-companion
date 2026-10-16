@@ -264,6 +264,20 @@ def test_the_ledger_exposes_its_path_merged_prices_and_default_model(tmp_path):
     assert ledger.default_model == SONNET
 
 
+def test_the_ledger_exposes_what_one_web_search_costs(tmp_path):
+    configured = UsageLedger(
+        tmp_path / "usage.json",
+        prices={},
+        default_model=OPUS,
+        web_search_per_1000_usd=25.0,
+        now=Clock(),
+    )
+
+    assert configured.web_search_usd == pytest.approx(0.025)
+    default = UsageConfig().web_search_per_1000_usd / 1000  # 10 dollars per 1000
+    assert make_ledger(tmp_path).web_search_usd == pytest.approx(default)
+
+
 def test_every_call_rereads_the_file_so_another_process_sees_new_records(tmp_path):
     cyrene, terminal = make_ledger(tmp_path), make_ledger(tmp_path)
 

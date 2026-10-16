@@ -1,10 +1,11 @@
 """The tool that tells Cyrene what her Claude requests cost: `api_usage`.
 
 "Biaya API bulan ini berapa?" or "hari ini sudah habis berapa?": the tool sums the ledger
-(`usage.py`) for today or this calendar month, local time. The figures are her own
-estimates from the `usage` the API reported for her own requests on this PC, not the
-Anthropic console's bill. The spec carries no figures, so it stays byte-identical for the
-brain's lifetime and keeps the prompt cache warm.
+(`usage.py`) for today or this calendar month, local time: the tokens, the web searches and
+their fees (already in the cost), and the cost. The figures are her own estimates from the
+`usage` the API reported for her own requests on this PC, not the Anthropic console's bill.
+The spec carries no figures, so it stays byte-identical for the brain's lifetime and keeps
+the prompt cache warm.
 """
 
 from __future__ import annotations
@@ -55,9 +56,13 @@ class UsageTools:
                     "your requests and their tokens (input, output, prompt-cache reads and "
                     "writes) and gives the cost in US dollars, and in rupiah when Master has "
                     "set an exchange rate (cost_idr is null otherwise: then give the cost in "
-                    "dollars only). These are your own estimates, from the usage the API "
-                    "reported for your own requests on this PC, priced per model: not the "
-                    "Anthropic bill, and other apps using the same API key are not counted. "
+                    "dollars only). When you searched the web in that period, it also gives "
+                    "the number of searches (web_searches) and their fees (web_search_cost_usd, "
+                    "and web_search_cost_idr like cost_idr): cost_usd already includes them, so "
+                    "never add them again; these keys are absent when you did not search. These "
+                    "are your own estimates, from the usage the API reported for your own "
+                    "requests on this PC, priced per model: not the Anthropic bill, and other "
+                    "apps using the same API key are not counted. "
                     "`estimated` is true when a fallback model answered part of it and was "
                     "priced with your usual model's prices. Use it when Master asks what the "
                     "API cost; say the cost rounded and that it is an estimate, without "
@@ -93,9 +98,6 @@ class UsageTools:
         return _to_json(self._result(period, summary)), False
 
     def _result(self, period: str, summary: UsageSummary) -> dict[str, object]:
-        cost_idr = None
-        if self._idr_per_usd is not None:
-            cost_idr = round(summary.cost_usd * self._idr_per_usd)  # whole rupiah
         return {
             "period": period,
             "requests": summary.requests,
@@ -104,9 +106,34 @@ class UsageTools:
             "cache_read_tokens": summary.tokens.cache_read,
             "cache_write_tokens": summary.tokens.cache_write,
             "cost_usd": round(summary.cost_usd, _USD_DECIMALS),
-            "cost_idr": cost_idr,
+            "cost_idr": self._rupiah(summary.cost_usd),
+            **self._web_searches(summary),
             "estimated": summary.estimated,
         }
+
+    def _web_searches(self, summary: UsageSummary) -> dict[str, object]:
+        """The searches and their fees (part of the cost already), only when there are any:
+        like the column of `waifu usage`.
+
+        The ledger keeps how many searches there were, not what each cost, so the fees are at
+        the current price; after a price rise they are still never more than the cost that
+        holds them at the price of their day.
+        """
+        searches = summary.tokens.web_searches
+        if not searches:
+            return {}
+        fees_usd = min(searches * self._ledger.web_search_usd, summary.cost_usd)
+        return {
+            "web_searches": searches,
+            "web_search_cost_usd": round(fees_usd, _USD_DECIMALS),
+            "web_search_cost_idr": self._rupiah(fees_usd),
+        }
+
+    def _rupiah(self, usd: float) -> int | None:
+        """`usd` in whole rupiah at Master's rate; None without one."""
+        if self._idr_per_usd is None:
+            return None
+        return round(usd * self._idr_per_usd)
 
 
 def _period(arguments: Mapping[str, object]) -> str:

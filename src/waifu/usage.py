@@ -182,13 +182,13 @@ class UsageLedger:
                 "usage.prices, or use a model that has them"
             )
         self.default_model = default_model
-        self._search_usd = web_search_per_1000_usd / 1000
+        self.web_search_usd = web_search_per_1000_usd / 1000  # what one web search costs
         self._now = now
 
     def record(self, model: str, tokens: TokenUsage) -> None:
         """Add one response of `model` to the totals of the current local day."""
         cost, estimated = cost_usd(model, tokens, self.prices, self.default_model)
-        cost += tokens.web_searches * self._search_usd
+        cost += tokens.web_searches * self.web_search_usd
         response = _Totals(1, tokens, cost, estimated)
         with _LOCK:
             days, notices = self._read()
