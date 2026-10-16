@@ -25,6 +25,8 @@ from pydantic import (
 
 DEVICE_ID_PATTERN = re.compile(r"^[a-z0-9_]+$")
 GameId = Literal["hsr", "genshin", "zzz"]
+# In `datetime.weekday()` order: Monday is 0.
+Weekday = Literal["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
 # Either pair logs in to HoYoLAB; hoyolab.com sets the v2 pair today.
 HOYOLAB_LOGIN_COOKIES = (("ltuid_v2", "ltoken_v2"), ("ltuid", "ltoken"))
 # Anyone who knows a topic on the public ntfy server can read it, so it must be hard to guess.
@@ -602,6 +604,22 @@ class VersionNoticeConfig(_Strict):
         return self
 
 
+class WeeklyReportConfig(_Strict):
+    """Her own round-up of the gacha buddy's games once a week; only with `gacha.enabled`."""
+
+    enabled: bool = True
+    day: Weekday = "sunday"
+    # In WIB, 20:00 on the Asia server (UTC+8): before its Monday 04:00 weekly reset.
+    time: _Clock = _Clock(19, 0)
+    push: bool = True
+    state_path: Path = Path("data/weekly_report.json")
+
+    @field_validator("time", mode="before")
+    @classmethod
+    def _yaml_sexagesimal_is_hh_mm(cls, value: object) -> object:
+        return _clock_from_yaml(value)
+
+
 class PhoneConfig(_Strict):
     """Cyrene on the owner's phone: a page served on 127.0.0.1 and shared through Tailscale."""
 
@@ -879,6 +897,7 @@ class AppConfig(_Strict):
     avatar: AvatarConfig = Field(default_factory=AvatarConfig)
     gacha: GachaConfig = Field(default_factory=GachaConfig)
     redeem_codes: RedeemCodesConfig = Field(default_factory=RedeemCodesConfig)
+    weekly_report: WeeklyReportConfig = Field(default_factory=WeeklyReportConfig)
     notify: NotifyConfig = Field(default_factory=NotifyConfig)
     tepira: TepiraConfig = Field(default_factory=TepiraConfig)
     memory: MemoryConfig = Field(default_factory=MemoryConfig)

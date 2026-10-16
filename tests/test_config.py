@@ -863,6 +863,56 @@ def test_bad_redeem_codes_settings_are_refused(tmp_path, lines):
         load_config(write_yaml(tmp_path, "redeem_codes:\n" + lines))
 
 
+def test_the_weekly_game_report_is_on_sunday_at_seven_in_the_evening_and_pushed():
+    weekly = AppConfig().weekly_report
+    assert (weekly.enabled, weekly.day, weekly.time, weekly.push) == (
+        True,
+        "sunday",
+        time(19, 0),
+        True,
+    )
+    assert weekly.state_path == Path("data/weekly_report.json")
+
+
+def test_weekly_report_settings_are_read_including_a_bare_yaml_time(tmp_path):
+    text = (
+        "weekly_report:\n  enabled: false\n  day: saturday\n  time: 20:30\n  push: false\n"
+        "  state_path: laporan/minggu.json\n"
+    )
+    weekly = load_config(write_yaml(tmp_path, text)).weekly_report
+    assert (weekly.enabled, weekly.day, weekly.time, weekly.push) == (
+        False,
+        "saturday",
+        time(20, 30),
+        False,
+    )
+    assert weekly.state_path == Path("laporan/minggu.json")
+
+
+@pytest.mark.parametrize(
+    "day", ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+)
+def test_every_english_weekday_name_is_a_report_day(tmp_path, day):
+    text = f"weekly_report:\n  day: {day}\n"
+    assert load_config(write_yaml(tmp_path, text)).weekly_report.day == day
+
+
+@pytest.mark.parametrize(
+    ("lines", "named"),
+    [
+        ("  day: minggu\n", "weekly_report.day"),  # config values are English identifiers
+        ("  day: Sunday\n", "weekly_report.day"),
+        ("  day: 6\n", "weekly_report.day"),
+        ("  time: '25:00'\n", "weekly_report.time"),
+        ("  time: sore\n", "weekly_report.time"),
+        ("  games: [hsr]\n", "weekly_report.games"),  # the games are gacha.games
+    ],
+)
+def test_bad_weekly_report_settings_are_refused_naming_the_setting(tmp_path, lines, named):
+    with pytest.raises(ConfigError, match=re.escape(named)):
+        load_config(write_yaml(tmp_path, "weekly_report:\n" + lines))
+
+
 def test_the_todo_list_is_on_with_room_for_a_hundred_tasks_by_default():
     todo = AppConfig().todo
     assert (todo.enabled, todo.path) == (True, Path("data/todo.json"))
