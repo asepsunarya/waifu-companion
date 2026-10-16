@@ -4199,15 +4199,21 @@ def _briefing_check(briefing: BriefingConfig) -> Check:
     which still names the place); Open-Meteo is never asked."""
     if not briefing.enabled:
         return WARN, "Sapaan pagi mati"
-    if briefing.latitude is not None:
-        coordinates = f"{briefing.latitude}, {briefing.longitude}"
-        place = coordinates if briefing.city is None else f"{briefing.city} ({coordinates})"
-    elif briefing.city is not None:
-        place = briefing.city
-    else:
+    place = _weather_place(briefing)
+    if place is None:
         return WARN, "Sapaan pagi: cuaca belum diatur (isi briefing.city)"
     hours = f"{briefing.time:%H:%M}-{briefing.until:%H:%M}"
     return OK, f"Sapaan pagi: jam {hours}, cuaca untuk {place}"
+
+
+def _weather_place(briefing: BriefingConfig) -> str | None:
+    """Where the weather is for, as the check lines write it: `<city>`, `<lat>, <lon>`, or
+    `<city> (<lat>, <lon>)` (the coordinates win; the city still names the place); None when
+    `briefing` names no place."""
+    if briefing.latitude is not None:
+        coordinates = f"{briefing.latitude}, {briefing.longitude}"
+        return coordinates if briefing.city is None else f"{briefing.city} ({coordinates})"
+    return briefing.city
 
 
 def _usage_check(config: AppConfig) -> Check:
