@@ -4,6 +4,13 @@ Ringkasan per versi, yang terbaru di atas. Rinciannya ada di README (bagian yang
 setiap versi) dan di SPEC.md. Setelah memperbarui, **mulai ulang `waifu run`** supaya semuanya
 aktif, lalu jalankan `waifu check`.
 
+## v1.27.1: jam HSR
+
+- Jam warp, event, dan jendela endgame HSR kini sama dengan timer di game: warp yang berakhir
+  jam 11.00 WIB tidak lagi tertulis `berakhir 10:59`, di `waifu gacha hsr events`, jawaban
+  Cyrene, maupun laporan mingguan. Genshin dan ZZZ sudah begitu sejak v1.23; jam berakhir
+  musim endgame HSR memang sudah tepat.
+
 ## v1.27: laporan game mingguan
 
 - Seminggu sekali, bawaannya Minggu jam 19.00, Cyrene bercerita sendiri tentang minggu Master
