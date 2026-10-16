@@ -302,10 +302,19 @@ class FinanceTools:
         if refusal is not None:
             # An error result, so an empty final reply never tells Master it is recorded.
             return _to_json({"ok": False, "needs_confirmation": True, "message": refusal}), True
-        expense = self._source.record(amount, category, description, wallet)
-        if not expense.deduped:
-            with self._lock:
+        try:
+            expense = self._source.record(amount, category, description, wallet)
+        except FinanceError as error:
+            if error.kind == "unconfirmed":
+                # tepira may have written it, so "the one just now" is no longer known.
+                self._forget_last()
+            raise
+        with self._lock:
+            if not expense.deduped:
                 self._last = _Recorded(expense, self._clock())
+            elif self._last is not None and self._last.expense.id != expense.id:
+                # tepira's earlier copy of this entry, which she did not record herself.
+                self._last = None
         self._forget_reads()
         recorded = {
             "id": expense.id,
@@ -357,6 +366,10 @@ class FinanceTools:
         with self._lock:
             if self._last is last:
                 self._last = None
+
+    def _forget_last(self) -> None:
+        with self._lock:
+            self._last = None
 
     def _read(self, key: tuple[object, ...], fetch: Callable[[], FinanceData]) -> FinanceData:
         """What tepira answered for `key` less than CACHE_TTL_S ago, else a new read, kept

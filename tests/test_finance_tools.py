@@ -10,6 +10,7 @@ import dataclasses
 import json
 import logging
 import threading
+from collections.abc import Callable
 from datetime import UTC, datetime
 
 import ollama
@@ -163,7 +164,9 @@ class FakeSource:
     """Stands in for TepiraClient: answers from the data above, never reaching tepira.
 
     `fail(method, *errors)` makes the next calls of `method` raise those errors in turn;
-    `during[method]` runs inside that method's next call, while its read is in flight.
+    `during[method]` runs inside that method's next call, while its read is in flight. With
+    `duplicate_of` set to an id in `recorded`, a record answers with that entry, deduplicated,
+    as tepira answers a repeat of the last two minutes.
     """
 
     def __init__(self, *, wallets: dict | None = None, deduped: bool = False) -> None:
@@ -172,6 +175,7 @@ class FakeSource:
         self.deduped = deduped
         self.next_id = 101
         self.recorded: dict[int, RecordedExpense] = {}
+        self.duplicate_of: int | None = None
         self.failures: dict[str, list[BaseException]] = {}
         self.during: dict[str, object] = {}
 
@@ -196,6 +200,8 @@ class FakeSource:
 
     def record(self, amount, category, note, wallet, source="gaji") -> RecordedExpense:
         self._call("record", amount, category, note, wallet, source)
+        if self.duplicate_of is not None:
+            return dataclasses.replace(self.recorded[self.duplicate_of], deduped=True)
         expense = RecordedExpense(
             id=self.next_id,
             amount=amount,
@@ -1295,6 +1301,84 @@ def test_undo_reverses_only_her_last_entry_never_an_earlier_one():
     assert first["undone"]["note"] == "teh manis"
     assert second == {"ok": False, "message": NOTHING_TO_UNDO}
     assert source.calls_of("undo") == [("undo", 102)]
+
+
+TEA = {"amount": 5000, "description": "teh manis"}
+
+
+def record_tea_after_coffee(
+    source: FakeSource, before_tea: Callable[[], None]
+) -> tuple[FinanceTools, dict]:
+    """Tools that recorded jajan kopi, then five minutes later (after `before_tea`) asked tepira
+    to record teh manis on Master's yes, and that call's result."""
+    clock = FakeClock()
+    tools, gate, _ = recorded_coffee(source, clock=clock)
+    before_tea()
+    clock.now += 5 * 60
+    turn(tools, gate, "catat teh manis 5 ribu")
+    run(tools, RECORD_EXPENSE, TEA)
+    turn(tools, gate, "iya")
+    result, _ = run(tools, RECORD_EXPENSE, TEA)
+    return tools, result
+
+
+def test_after_a_recording_whose_outcome_is_unknown_undo_deletes_no_earlier_entry():
+    # tepira may have written the teh manis: "the one just now" is no longer known, and the
+    # kopi is not what Master means.
+    source = FakeSource()
+
+    tools, recorded = record_tea_after_coffee(
+        source, lambda: source.fail("record", FinanceError("unconfirmed", RECORD_UNCONFIRMED))
+    )
+    result, is_error = run(tools, UNDO_EXPENSE)
+
+    assert recorded == {"ok": False, "message": RECORD_UNCONFIRMED}
+    assert (result, is_error) == ({"ok": False, "message": NOTHING_TO_UNDO}, True)
+    assert source.calls_of("undo") == []
+
+
+def test_after_a_deduplicated_answer_naming_another_entry_undo_deletes_no_earlier_entry():
+    # The retry RECORD_UNCONFIRMED suggests comes back as tepira's earlier copy, not as hers.
+    source = FakeSource()
+    source.recorded[205] = RecordedExpense(
+        205, 5000, None, "teh manis", "2026-10-16 09:16", "GoPay", False
+    )
+
+    tools, recorded = record_tea_after_coffee(source, lambda: setattr(source, "duplicate_of", 205))
+    result, is_error = run(tools, UNDO_EXPENSE)
+
+    assert recorded["deduped"] is True and recorded["recorded"]["id"] == 205
+    assert (result, is_error) == ({"ok": False, "message": NOTHING_TO_UNDO}, True)
+    assert source.calls_of("undo") == []
+
+
+def test_recording_the_same_entry_again_keeps_it_hers_to_undo():
+    source = FakeSource()
+    tools, gate, _ = recorded_coffee(source)
+    source.duplicate_of = 101
+    turn(tools, gate, "catat jajan kopi 18 ribu")
+    run(tools, RECORD_EXPENSE, COFFEE)
+    turn(tools, gate, "iya")
+    run(tools, RECORD_EXPENSE, COFFEE)
+
+    result, is_error = run(tools, UNDO_EXPENSE)
+
+    assert not is_error and result["undone"]["id"] == 101
+    assert source.calls_of("undo") == [("undo", 101)]
+
+
+def test_a_recording_refused_before_tepira_wrote_anything_keeps_her_last_entry():
+    source = FakeSource()
+    tools, gate, _ = recorded_coffee(source)
+    source.fail("record", FinanceError("busy", RATE_LIMITED))
+    turn(tools, gate, "catat teh manis 5 ribu")
+    run(tools, RECORD_EXPENSE, TEA)
+    turn(tools, gate, "iya")
+    run(tools, RECORD_EXPENSE, TEA)
+
+    result, is_error = run(tools, UNDO_EXPENSE)
+
+    assert not is_error and result["undone"]["note"] == "jajan kopi"
 
 
 def test_an_expired_undo_is_its_message_and_forgets_the_entry():
