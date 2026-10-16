@@ -9,7 +9,8 @@ recorded last, within 15 minutes. The specs are static English built once, so th
 byte-identical for the brain's lifetime and keep the prompt cache warm. A successful read is
 kept in memory for 60 seconds, never on disk, and so is her last recorded expense: a restart
 forgets it. In the morning greeting she starts herself every tool refuses without asking
-tepira, so no figure reaches the greeting or its push. `run` never raises.
+tepira, and `waifu run` starts that greeting in a new session, so no figure reaches the
+greeting or its push. `run` never raises.
 """
 
 from __future__ import annotations

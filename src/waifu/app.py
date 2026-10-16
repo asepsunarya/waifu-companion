@@ -190,6 +190,7 @@ class _Request:
     prompt: str
     on_reply: ReplyHandler | None
     required_tool: str | None
+    new_session: bool
 
 
 class Assistant:
@@ -382,6 +383,7 @@ class Assistant:
         *,
         on_reply: ReplyHandler | None = None,
         required_tool: str | None = None,
+        new_session: bool = False,
     ) -> None:
         """Queue a prompt for the brain whose reply she says by herself; safe from any thread.
 
@@ -395,8 +397,10 @@ class Assistant:
         A brain answers a failure (no connection, a refusal) with an apology, never an
         exception. With `required_tool`, a reply whose turn has no successful call of that
         tool counts as such a failure: nobody asked, so it is logged, not said or passed on.
+        With `new_session` the brain forgets the conversation first, so the reply sees nothing
+        said before it: the morning greeting never repeats an earlier finance answer's figures.
         """
-        self._requests.put(_Request(prompt, on_reply, required_tool))
+        self._requests.put(_Request(prompt, on_reply, required_tool, new_session))
 
     def speak(self, text: str, emotion: str = NEUTRAL, *, followup: bool = True) -> None:
         """Say `text` with the microphone paused and the avatar mouthing it with `emotion`.
@@ -540,7 +544,7 @@ class Assistant:
         try:
             with self._engaged():
                 self._show(lambda avatar: avatar.state("thinking"))
-                emotion, reply = self._think(request.prompt)
+                emotion, reply = self._think(request.prompt, new_session=request.new_session)
                 tool = request.required_tool
                 if tool is not None and not _called_successfully(reply, tool):
                     logger.warning(
@@ -562,15 +566,24 @@ class Assistant:
             ).start()
 
     def _think(
-        self, text: str, *, photo: bytes | None = None, camera: bool = False
+        self,
+        text: str,
+        *,
+        photo: bytes | None = None,
+        camera: bool = False,
+        new_session: bool = False,
     ) -> tuple[str, BrainReply]:
         """The brain's reply to `text`, split into its emotion and the reply without the tag.
 
         Waits while another thread's turn is thought up: the history takes one turn at a time.
         `photo` (a JPEG from the phone camera) goes with this turn only (`_showing`), and with
-        `camera` only this turn is a camera turn (`_through_camera`).
+        `camera` only this turn is a camera turn (`_through_camera`). With `new_session` the
+        brain forgets the conversation first, under the same lock.
         """
         with self._turn, self._through_camera(camera), self._showing(photo):
+            if new_session:
+                logger.info("Starting a new conversation for a request she answers by herself")
+                self._brain.reset()
             reply = self._brain.respond(text, now=self._now())
         for call in reply.tool_calls:
             # The result itself only at DEBUG: the INFO log (logs\waifu.log under autostart)

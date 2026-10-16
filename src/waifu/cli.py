@@ -2685,7 +2685,8 @@ def _briefing_timer(
     """Her morning greeting, asked of her once a day while the block runs and also pushed to
     the phone when `briefing.push` and notifications are on; none with the briefing off.
     A greeting whose turn never read the day (`daily_briefing`) is the brain's apology for a
-    failure, so it is neither said nor pushed."""
+    failure, so it is neither said nor pushed. It starts a new session: the greeting needs no
+    earlier words, and must not repeat figures from a finance answer given moments before."""
     briefing = config.briefing
     if not briefing.enabled:
         return nullcontext()
@@ -2697,7 +2698,7 @@ def _briefing_timer(
     return BriefingTimer(
         briefing,
         request=lambda prompt: assistant.ask_aloud(
-            prompt, on_reply=on_reply, required_tool=DAILY_BRIEFING
+            prompt, on_reply=on_reply, required_tool=DAILY_BRIEFING, new_session=True
         ),
     )
 

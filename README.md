@@ -3615,7 +3615,8 @@ aktif."
 
 **Hanya kalau Master bertanya.** tepira tidak pernah dibaca sendiri: tidak di sapaan pagi, tidak
 di pemberitahuan atau notifikasi HP, dan angkanya tidak disimpan dengan `remember` kecuali Master
-minta.
+minta. Sapaan pagi selalu dimulai di sesi baru, jadi angka dari pertanyaan beberapa menit
+sebelumnya tidak ikut ke sapaan atau notifikasinya.
 
 ```text
 Master : "Cyrene, pengeluaran bulan ini berapa?"

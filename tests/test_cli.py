@@ -1908,8 +1908,9 @@ class RecordingAssistant:
     check (then False), and `cut_answers` what `interrupt` says, one per call (then False:
     nothing was playing); `cuts` counts those calls; `reacted` counts each reaction
     (`speak_reaction` or `listen_now`); `asked` holds each `ask_aloud` with its `on_reply` and
-    `required_tool`; `waiting_for_followup` the texts of announcements that wait while the
-    follow-up window is open; `phone_messages`, `phone_photos` (None for a message without
+    `required_tool`, and `new_sessions` whether each starts a new session;
+    `waiting_for_followup` the texts of announcements that wait while the follow-up window is
+    open; `phone_messages`, `phone_photos` (None for a message without
     one), `phone_cameras` (whether each was sent through the camera), and `phone_recordings`
     what the phone asked."""
 
@@ -1921,6 +1922,7 @@ class RecordingAssistant:
         self.announced: list[tuple[str, str]] = []
         self.waiting_for_followup: list[str] = []
         self.asked: list[tuple[str, Callable[[str], None] | None, str | None]] = []
+        self.new_sessions: list[bool] = []
         self.busy_answers: list[bool] = []
         self.cut_answers: list[bool] = []
         self.cuts = 0
@@ -1960,8 +1962,9 @@ class RecordingAssistant:
         if wait_for_followup:
             self.waiting_for_followup.append(text)
 
-    def ask_aloud(self, prompt: str, *, on_reply=None, required_tool=None) -> None:
+    def ask_aloud(self, prompt: str, *, on_reply=None, required_tool=None, new_session=False):
         self.asked.append((prompt, on_reply, required_tool))
+        self.new_sessions.append(new_session)
 
     def reply_for_phone(
         self, text: str, image: bytes | None = None, *, camera: bool = False
@@ -6712,6 +6715,9 @@ def test_run_greets_once_a_day_while_she_listens_and_pushes_the_greeting_to_the_
     [(prompt, on_reply, required_tool)] = RecordingAssistant.instances[0].asked
     assert prompt == BRIEFING_PROMPT
     assert required_tool == DAILY_BRIEFING  # a failed turn (an apology) is never said
+    # In a new session, so no figure from an earlier finance answer reaches the greeting or its
+    # push.
+    assert RecordingAssistant.instances[0].new_sessions == [True]
     on_reply("Selamat pagi, Master! Hari ini cerah.")
     assert notifier.sent == [("Cyrene", "Selamat pagi, Master! Hari ini cerah.", ("sunrise",))]
 

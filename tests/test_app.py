@@ -1358,6 +1358,44 @@ def test_a_request_waits_while_master_is_still_speaking():
     assert rig.speech.texts == [REPLY]
 
 
+class ForgetfulBrain(FakeBrain):
+    """A FakeBrain that also notes each reset among its turns."""
+
+    def __init__(self, reply: str = REPLY) -> None:
+        super().__init__(reply)
+        self.calls: list[str] = []
+
+    def respond(self, user_text: str, *, now: datetime | None = None) -> BrainReply:
+        self.calls.append(user_text)
+        return super().respond(user_text, now=now)
+
+    def reset(self) -> None:
+        self.calls.append("<reset>")
+        super().reset()
+
+
+@pytest.mark.parametrize(
+    ("new_session", "calls"),
+    [
+        (True, ["saldo GoPay berapa?", "<reset>", GREETING_PROMPT]),
+        (False, ["saldo GoPay berapa?", GREETING_PROMPT]),
+    ],
+    ids=["new_session", "same_session"],
+)
+def test_a_request_may_start_a_new_session_so_its_reply_sees_nothing_said_before(
+    new_session, calls
+):
+    # The morning greeting must not repeat figures from a finance answer moments earlier.
+    rig = Rig(brain=ForgetfulBrain)
+    rig.assistant.handle_text("saldo GoPay berapa?")
+    rig.assistant.ask_aloud(GREETING_PROMPT, new_session=new_session)
+
+    rig.assistant.run(FakeMic(rig.events, [SILENT_FRAME]), FakeSegmenter(rig.events, [None]))
+
+    assert rig.brain.calls == calls
+    assert rig.speech.texts[-1] == REPLY
+
+
 def test_a_second_request_waits_until_master_has_had_the_chance_to_answer_the_first():
     rig = Rig()
     rig.assistant.ask_aloud(GREETING_PROMPT)
