@@ -953,7 +953,7 @@ CALENDAR = {
     ],
     "fixed_act_list": [
         event(
-            "Spiral Abyss",
+            "Abyssal Moon Spire",
             ABYSS_START,
             ABYSS_END,
             abyss={"is_unlock": True, "max_star": 36, "total_star": 30, "has_data": True},
@@ -1066,11 +1066,19 @@ def test_endgame_windows_come_from_the_abyss_and_theater_challenges_and_skip_the
     challenges = read_calendar(calendar_model(), FETCHED_AT).challenges
 
     assert challenges == (
-        ChallengeWindow("spiral_abyss", "Spiral Abyss", ABYSS_START, ABYSS_ENDS_AT, 30, 36),
-        ChallengeWindow(
-            "imaginarium_theater", "Imaginarium Theater", OCTOBER[0], OCTOBER_ENDS_AT, 8, None
-        ),
+        ChallengeWindow("spiral_abyss", "Abyssal Moon Spire", ABYSS_START, ABYSS_ENDS_AT, 30, 36),
+        ChallengeWindow("imaginarium_theater", None, OCTOBER[0], OCTOBER_ENDS_AT, 8, None),
     )
+
+
+@pytest.mark.parametrize("name", ["Spiral Abyss", ""])
+def test_a_window_named_after_its_mode_or_not_named_has_no_name_of_its_own(name):
+    abyss = {"is_unlock": True, "max_star": 36, "total_star": 30, "has_data": True}
+    payload = {**CALENDAR, "fixed_act_list": [event(name, ABYSS_START, ABYSS_END, abyss=abyss)]}
+
+    (window,) = read_calendar(calendar_model(payload), FETCHED_AT).challenges
+
+    assert (window.mode, window.name) == ("spiral_abyss", None)
 
 
 def test_the_calendar_names_the_version_of_its_first_banner_still_running():

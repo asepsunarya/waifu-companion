@@ -900,9 +900,11 @@ def _event_json(event: HsrEvent | GameEvent, now: datetime) -> dict[str, Any]:
 
 
 def _window_json(window: HsrChallengeWindow | ChallengeWindow, now: datetime) -> dict[str, Any]:
+    """An endgame window with its own name, which a Genshin window named after its mode has
+    not (HSR's windows always have one)."""
     return {
         "mode": window.mode,
-        "name": window.name,
+        **_present(name=window.name),
         **_moment("ends", window.ends_at, now),
         **_present(current=window.current, total=window.total),
     }

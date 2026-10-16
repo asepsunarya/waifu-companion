@@ -2140,7 +2140,7 @@ def _event_text(event: HsrEvent | GameEvent, now: datetime) -> str:
 def _window_text(window: HsrChallengeWindow | ChallengeWindow, now: datetime) -> str:
     parts = [*_progress(window.current, window.total), *_ends(window.ends_at, now)]
     mode = GAME_MODES[MODE_GAMES[window.mode]][window.mode]
-    return _labelled(f"{mode} ({window.name})", parts)
+    return _labelled(f"{mode} ({window.name})" if window.name else mode, parts)
 
 
 def _progress(current: int | None, total: int | None) -> list[str]:

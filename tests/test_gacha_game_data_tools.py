@@ -2962,7 +2962,7 @@ GENSHIN_CALENDAR = GameCalendar(
     challenges=(
         ChallengeWindow(
             "spiral_abyss",
-            "Spiral Abyss",
+            "Abyssal Moon Spire",
             datetime(2026, 9, 30, 20, 0, tzinfo=UTC),
             datetime(2026, 10, 31, 20, 0, tzinfo=UTC),
             33,
@@ -2970,7 +2970,7 @@ GENSHIN_CALENDAR = GameCalendar(
         ),
         ChallengeWindow(
             "imaginarium_theater",
-            "Imaginarium Theater",
+            None,  # HoYoLAB named it after its mode
             datetime(2026, 9, 30, 20, 0, tzinfo=UTC),
             datetime(2026, 10, 31, 20, 0, tzinfo=UTC),
             8,
@@ -3060,7 +3060,7 @@ def test_the_genshin_calendar_gives_banners_events_and_endgame_windows_in_local_
         "endgame": [
             {
                 "mode": "spiral_abyss",
-                "name": "Spiral Abyss",
+                "name": "Abyssal Moon Spire",
                 "ends": "2026-11-01 03:00",
                 "ends_in_hours": 391,
                 "current": 33,
@@ -3068,7 +3068,6 @@ def test_the_genshin_calendar_gives_banners_events_and_endgame_windows_in_local_
             },
             {
                 "mode": "imaginarium_theater",
-                "name": "Imaginarium Theater",
                 "ends": "2026-11-01 03:00",
                 "ends_in_hours": 391,
                 "current": 8,

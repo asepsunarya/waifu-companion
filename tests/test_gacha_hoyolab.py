@@ -2437,10 +2437,10 @@ def test_game_events_tells_the_genshin_calendar_in_masters_local_time():
     calendar = json.loads(result)
     # The banner ends at 21:00 server time (UTC+8), which is 20:00 for Master (UTC+7).
     assert calendar["banners"][0]["ends"] == "2026-10-20 20:00"
+    # HoYoLAB named the window after its mode, so it has no name of its own.
     assert calendar["endgame"] == [
         {
             "mode": "spiral_abyss",
-            "name": "Spiral Abyss",
             "ends": "2026-10-16 20:00",
             "ends_in_hours": 24,
             "current": 36,

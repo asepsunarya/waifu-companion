@@ -99,7 +99,7 @@ class GameEvent:
 @dataclass(frozen=True)
 class ChallengeWindow:
     mode: str  # a key of GAME_MODES["genshin"]
-    name: str
+    name: str | None  # the window's own name; None when HoYoLAB names it after its mode
     starts_at: datetime | None
     ends_at: datetime | None
     current: int | None

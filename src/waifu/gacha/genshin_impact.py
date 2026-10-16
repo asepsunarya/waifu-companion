@@ -17,6 +17,7 @@ from datetime import UTC, datetime
 from typing import Any, TypeVar
 
 from waifu.gacha.game_data import (
+    GAME_MODES,
     Banner,
     ChallengeWindow,
     Endgame,
@@ -286,14 +287,19 @@ def _challenge_window(challenge: Any) -> ChallengeWindow | None:
     starts_at, ends_at = _window(challenge)
     abyss, theater = challenge.abyss_detail, challenge.theater_detail
     if abyss is not None:
-        return ChallengeWindow(
-            "spiral_abyss", challenge.name, starts_at, ends_at, abyss.total_star, abyss.max_star
-        )
-    if theater is not None:
-        return ChallengeWindow(
-            "imaginarium_theater", challenge.name, starts_at, ends_at, theater.max_round, None
-        )
-    return None
+        mode, current, total = "spiral_abyss", abyss.total_star, abyss.max_star
+    elif theater is not None:
+        mode, current, total = "imaginarium_theater", theater.max_round, None
+    else:
+        return None
+    name = _own_name(challenge.name, mode)
+    return ChallengeWindow(mode, name, starts_at, ends_at, current, total)
+
+
+def _own_name(name: str, mode: str) -> str | None:
+    """A window's own name, such as "Abyssal Moon Spire": none when HoYoLAB gives the window
+    no name or only its mode's ("Imaginarium Theater"), which would be said twice."""
+    return None if name in ("", GAME_MODES["genshin"][mode]) else name
 
 
 def _window(item: Any) -> tuple[datetime | None, datetime | None]:

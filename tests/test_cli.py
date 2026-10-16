@@ -5181,8 +5181,9 @@ def test_gacha_genshin_events_prints_the_banners_running_events_and_endgame_wind
             GameEvent("Windblume Fest", from_now(days=2), from_now(days=20), None, None, False),
         ),
         (
-            ChallengeWindow("spiral_abyss", "Spiral Abyss", started, season_ends, 30, 36),
-            ChallengeWindow("imaginarium_theater", "Theater Season", started, later, 8, None),
+            ChallengeWindow("spiral_abyss", "Abyssal Moon Spire", started, season_ends, 30, 36),
+            # HoYoLAB names this window after its mode: the reader gives it no name.
+            ChallengeWindow("imaginarium_theater", None, started, later, 8, None),
             ChallengeWindow(
                 "imaginarium_theater", "Ended Season", from_now(days=-30), ended, 10, None
             ),
@@ -5205,8 +5206,8 @@ def test_gacha_genshin_events_prints_the_banners_running_events_and_endgame_wind
         f"  Lantern Rite: berakhir {local(later)} (9 hari lagi)",
         "  Login Gift: selesai",
         "Endgame:",
-        f"  Spiral Abyss (Spiral Abyss): 30/36, berakhir {local(season_ends)} (20 hari lagi)",
-        f"  Imaginarium Theater (Theater Season): berakhir {local(later)} (9 hari lagi)",
+        f"  Spiral Abyss (Abyssal Moon Spire): 30/36, berakhir {local(season_ends)} (20 hari lagi)",
+        f"  Imaginarium Theater: berakhir {local(later)} (9 hari lagi)",
     ]
 
 
