@@ -13,6 +13,7 @@ from waifu.brain.tools import (
     describe_commands,
     device_lines,
     held_for_yes,
+    logged_arguments,
     run_tool,
     to_anthropic,
     to_ollama,
@@ -23,6 +24,7 @@ from waifu.devices.ir_device import IrDevice
 from waifu.devices.media import MediaKeys
 from waifu.devices.mock import MockDevice
 from waifu.devices.registry import DeviceRegistry
+from waifu.finance.values import FINANCE_TOOLS
 
 AC_COMMANDS = ["on", "off", *[f"temp_{t}" for t in range(16, 31)]]
 UNSUPPORTED_STRICT_KEYWORDS = {
@@ -672,6 +674,20 @@ def test_held_for_yes_tells_any_tool_held_for_masters_yes():
         False,
         False,
     ]
+
+
+@pytest.mark.parametrize("name", FINANCE_TOOLS)
+def test_a_finance_tool_call_shows_no_arguments_in_the_info_log(name):
+    # Master's amounts, notes, wallets, and goals stay out of logs\waifu.log (v1.24).
+    arguments = {"amount": 987654, "description": "SECRETNOTE", "wallet": "SECRETWALLET"}
+
+    assert logged_arguments(name, arguments) == "…"
+
+
+def test_any_other_tool_call_shows_its_arguments_in_the_info_log():
+    arguments = {"device": "lampu", "command": "on"}
+
+    assert logged_arguments("control_device", arguments) is arguments
 
 
 def test_list_devices_is_not_gated():

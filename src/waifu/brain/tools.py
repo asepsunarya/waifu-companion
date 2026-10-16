@@ -20,12 +20,16 @@ from waifu.brain.base import ToolCallRecord, ToolSpec
 from waifu.brain.confirm import ConfirmationGate
 from waifu.devices.base import Device
 from waifu.devices.registry import KIND_VALUE_RANGES, DeviceRegistry
+from waifu.finance.values import FINANCE_TOOLS
 
 logger = logging.getLogger(__name__)
 
 CONTROL_DEVICE = "control_device"
 LIST_DEVICES = "list_devices"
 TOOL_NAMES = (CONTROL_DEVICE, LIST_DEVICES)
+# Tools whose arguments are Master's money (an amount, what it was for, a wallet, a goal): the
+# INFO log, logs\waifu.log under autostart, shows them as "…".
+PRIVATE_ARGUMENT_TOOLS = frozenset(FINANCE_TOOLS)
 
 # A trailing number without leading zeros, so command `temp` + value 24 selects `temp_24`.
 _NUMBERED_COMMAND = re.compile(r"^(?P<base>.+)_(?P<value>0|[1-9][0-9]*)$")
@@ -115,6 +119,12 @@ def run_tool(
     logger.warning("Model called unknown tool '%s'", name)
     available = [*TOOL_NAMES, *(spec.name for p in providers for spec in p.specs())]
     return _error(f"Tool '{name}' tidak dikenal. Tool yang tersedia: {', '.join(available)}.")
+
+
+def logged_arguments(name: str, arguments: object) -> object:
+    """What the INFO line of a tool call shows of its arguments: "…" for a tool in
+    PRIVATE_ARGUMENT_TOOLS, else the arguments themselves. Results are logged only at DEBUG."""
+    return "…" if name in PRIVATE_ARGUMENT_TOOLS else arguments
 
 
 def held_for_yes(record: ToolCallRecord) -> bool:

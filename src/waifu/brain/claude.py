@@ -88,6 +88,7 @@ from waifu.brain.tools import (
     ToolProvider,
     build_tool_specs,
     held_for_yes,
+    logged_arguments,
     run_tool,
     to_anthropic,
 )
@@ -378,7 +379,12 @@ class ClaudeBrain(Brain):
             self._providers,
             confirmations=self._confirmations,
         )
-        logger.info("Tool %s %s -> %s", call.name, call.input, "error" if is_error else "ok")
+        logger.info(
+            "Tool %s %s -> %s",
+            call.name,
+            logged_arguments(call.name, call.input),
+            "error" if is_error else "ok",
+        )
         arguments = dict(call.input) if isinstance(call.input, Mapping) else {}
         tool_calls.append(ToolCallRecord(call.name, arguments, result, is_error))
         return _tool_result(call.id, result, is_error, self._take_images())

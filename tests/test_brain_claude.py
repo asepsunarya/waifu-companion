@@ -944,6 +944,47 @@ def test_provider_tools_are_offered_and_their_calls_answered():
     assert [(call.name, call.is_error) for call in reply.tool_calls] == [("game_status", False)]
 
 
+class SavingsTools:
+    """Offers savings_goals, a finance tool (v1.24), answering with a goal's title."""
+
+    def specs(self) -> list[ToolSpec]:
+        schema = {
+            "type": "object",
+            "properties": {"goal": {"type": "string"}},
+            "additionalProperties": False,
+        }
+        return [ToolSpec("savings_goals", "Master's savings goals in tepira.", schema)]
+
+    def run(self, name: str, arguments: object) -> tuple[str, bool]:
+        return json.dumps({"goals": [{"title": "SECRETGOAL", "saved": 6200000}]}), False
+
+
+def test_a_finance_tool_call_reaches_the_info_log_without_its_arguments(caplog):
+    # logs\waifu.log is written at INFO: Master's goals and amounts stay out of it.
+    first = message([tool_use("call_1", "savings_goals", {"goal": "SECRETQUERY"})], "tool_use")
+    client = FakeAnthropic(first, message([text("Sudah enam juta, Master.")], "end_turn"))
+
+    with caplog.at_level(logging.INFO, logger=claude_module.__name__):
+        make_brain(client, providers=[SavingsTools()]).respond("tabungan laptop?", now=NOW)
+
+    lines = [record.getMessage() for record in caplog.records]
+    assert "Tool savings_goals … -> ok" in lines
+    assert "SECRETQUERY" not in caplog.text
+    assert "SECRETGOAL" not in caplog.text
+
+
+def test_a_device_call_reaches_the_info_log_with_its_arguments(caplog):
+    call = tool_use("call_1", "control_device", {"device": "lampu_kamar", "command": "on"})
+    client = FakeAnthropic(message([call], "tool_use"), message([text("Sudah.")], "end_turn"))
+
+    with caplog.at_level(logging.INFO, logger=claude_module.__name__):
+        make_brain(client).respond("nyalakan lampu", now=NOW)
+
+    assert "Tool control_device {'device': 'lampu_kamar', 'command': 'on'} -> ok" in [
+        record.getMessage() for record in caplog.records
+    ]
+
+
 # Per-session system prompt
 
 

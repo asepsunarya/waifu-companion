@@ -759,6 +759,38 @@ def test_tool_results_are_logged_for_debugging(caplog):
     assert "Yunli" in caplog.text
 
 
+class ExpenseBrain(FakeBrain):
+    """Answers with one record_expense call (v1.24) whose amount and note are sentinels."""
+
+    def respond(self, user_text: str, *, now: datetime | None = None) -> BrainReply:
+        arguments = {"amount": 987654, "description": "SECRETNOTE", "wallet": "SECRETWALLET"}
+        result = '{"recorded":{"id":812,"amount":987654,"note":"SECRETNOTE"},"deduped":false}'
+        call = ToolCallRecord("record_expense", arguments, result, False)
+        return BrainReply("[senang] Sudah kucatat, Master.", [call])
+
+
+def test_a_finance_tool_call_reaches_the_info_log_without_its_arguments(caplog):
+    # logs\waifu.log is written at INFO: Master's amounts and notes stay out of it.
+    rig = Rig(brain=ExpenseBrain)
+
+    with caplog.at_level(logging.INFO, logger="waifu.app"):
+        rig.assistant.handle_text("yang tadi jadi")
+
+    assert "Tool record_expense(…) -> ok" in [record.getMessage() for record in caplog.records]
+    for sentinel in ("987654", "SECRETNOTE", "SECRETWALLET"):
+        assert sentinel not in caplog.text
+
+
+def test_a_finance_tool_result_is_logged_only_for_debugging(caplog):
+    rig = Rig(brain=ExpenseBrain)
+
+    with caplog.at_level(logging.DEBUG, logger="waifu.app"):
+        rig.assistant.handle_text("yang tadi jadi")
+
+    debug = [record for record in caplog.records if "SECRETNOTE" in record.getMessage()]
+    assert [record.levelno for record in debug] == [logging.DEBUG]
+
+
 # The avatar's interactions: busy, spoken reactions, and listening on a double-click
 
 

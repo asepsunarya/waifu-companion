@@ -45,6 +45,7 @@ from waifu.avatar.emotion import NEUTRAL, split_emotion
 from waifu.avatar.lipsync import viseme_track
 from waifu.brain.attachments import CameraTurn, TurnImages
 from waifu.brain.base import Brain, BrainReply, ToolCallRecord, ToolImage
+from waifu.brain.tools import logged_arguments
 from waifu.config import AppConfig
 from waifu.gate import WakeGate
 from waifu.phone.server import PhoneReply
@@ -573,9 +574,10 @@ class Assistant:
             reply = self._brain.respond(text, now=self._now())
         for call in reply.tool_calls:
             # The result itself only at DEBUG: the INFO log (logs\waifu.log under autostart)
-            # must not collect the owner's pull history.
+            # must not collect the owner's pull history, nor a finance call's arguments.
             outcome = "error" if call.is_error else "ok"
-            logger.info("Tool %s(%s) -> %s", call.name, call.arguments, outcome)
+            arguments = logged_arguments(call.name, call.arguments)
+            logger.info("Tool %s(%s) -> %s", call.name, arguments, outcome)
             logger.debug("Tool %s result: %s", call.name, call.result)
         return split_reply(reply, owner_call=self._owner_call)
 
