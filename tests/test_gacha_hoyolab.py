@@ -1,6 +1,5 @@
 import asyncio
 import copy
-import inspect
 import logging
 import time
 from collections.abc import Callable
@@ -35,7 +34,7 @@ from genshin.models.hoyolab.record import GenshinAccount
 
 from waifu.gacha import hoyolab
 from waifu.gacha.codes import RedeemResult
-from waifu.gacha.game_data import GAME_MODES, Endgame, GameCalendar, GameDataSource
+from waifu.gacha.game_data import GAME_MODES, Endgame, GameCalendar
 from waifu.gacha.games import GAMES
 from waifu.gacha.hoyolab import (
     Account,
@@ -1234,17 +1233,6 @@ def genshin_data_calls(client: HoyolabClient) -> tuple:
         lambda: client.genshin_character_details([FURINA_ID]),
         client.genshin_calendar,
     )
-
-
-def test_hoyolab_client_takes_the_genshin_methods_of_the_source_as_they_are():
-    for name in (
-        "genshin_characters",
-        "genshin_character_details",
-        "genshin_endgame",
-        "genshin_calendar",
-    ):
-        expected = inspect.signature(getattr(GameDataSource, name))
-        assert inspect.signature(getattr(HoyolabClient, name)) == expected
 
 
 def test_genshin_characters_reads_the_roster_of_the_genshin_uid():

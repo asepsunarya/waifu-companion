@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import inspect
 import io
 import json
 import logging
@@ -4956,6 +4957,18 @@ class FakeGameDataClient(FakeGameClient):
 def game_data(games) -> FakeGameDataClient:
     games.hoyolab = FakeGameDataClient()
     return games.hoyolab
+
+
+def test_the_views_fake_offers_only_what_hoyolab_client_offers():
+    """The gacha views are tested against FakeGameDataClient, so each method it offers must
+    be one HoyolabClient has, with the same parameters first; otherwise a view could pass
+    here and fail on Master's real account."""
+    for name, method in inspect.getmembers(FakeGameDataClient, inspect.isfunction):
+        if name.startswith("_"):
+            continue
+        given = list(inspect.signature(method).parameters)
+        real = list(inspect.signature(getattr(HoyolabClient, name)).parameters)
+        assert real[: len(given)] == given, name
 
 
 def genshin_character(

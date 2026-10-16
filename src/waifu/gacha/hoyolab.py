@@ -32,6 +32,7 @@ from waifu.gacha.starrail import (
     read_character,
     read_endgame,
 )
+from waifu.gacha.zenless import ZzzAgent, ZzzAgentDetail
 
 logger = logging.getLogger(__name__)
 
@@ -393,17 +394,17 @@ class HoyolabClient:
         )
         return results
 
-    def zzz_characters(self) -> tuple[zenless.ZzzAgent, ...]:
+    def zzz_characters(self) -> tuple[ZzzAgent, ...]:
         """Every owned ZZZ agent, without her W-Engine, from the HoYoLAB Battle Chronicle."""
 
-        async def agents(client: Any) -> tuple[zenless.ZzzAgent, ...]:
+        async def agents(client: Any) -> tuple[ZzzAgent, ...]:
             uid = await self._game_uid(client, ZZZ)
             models = await _chronicle(client.get_zzz_agents(uid), ZZZ)
             return tuple(zenless.read_agent(model) for model in models)
 
         return self._run(agents, ZZZ)
 
-    def zzz_character_details(self, refs: Sequence[int]) -> tuple[zenless.ZzzAgentDetail, ...]:
+    def zzz_character_details(self, refs: Sequence[int]) -> tuple[ZzzAgentDetail, ...]:
         """The detail of each agent in `refs`, in that order: one request per agent, at most
         AGENT_DETAILS_AT_ONCE in flight, and one failing fails the call. No refs ask HoYoLAB
         nothing."""
@@ -411,11 +412,11 @@ class HoyolabClient:
         if not refs:
             return ()
 
-        async def details(client: Any) -> tuple[zenless.ZzzAgentDetail, ...]:
+        async def details(client: Any) -> tuple[ZzzAgentDetail, ...]:
             uid = await self._game_uid(client, ZZZ)
             at_once = asyncio.Semaphore(AGENT_DETAILS_AT_ONCE)
 
-            async def one(ref: int) -> zenless.ZzzAgentDetail:
+            async def one(ref: int) -> ZzzAgentDetail:
                 async with at_once:
                     model = await _chronicle(client.get_zzz_agent_info(ref, uid=uid), ZZZ)
                 return zenless.read_detail(model)

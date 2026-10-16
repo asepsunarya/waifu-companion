@@ -149,7 +149,9 @@ def test_the_source_names_every_method_the_game_tools_call():
     } | {"genshin_character_details", "zzz_character_details"}
 
 
-def test_the_source_takes_the_hsr_methods_of_hoyolab_client_as_they_are():
-    for name in ("hsr_characters", "hsr_endgame", "hsr_calendar"):
-        expected = inspect.signature(getattr(HoyolabClient, name))
-        assert inspect.signature(getattr(GameDataSource, name)) == expected
+def test_hoyolab_client_offers_every_method_of_the_source_as_it_is():
+    """The game data tools and the `waifu gacha <game>` views read HoyolabClient through
+    GameDataSource, so each method takes the same parameters and names the same types."""
+    for name in (name for name in vars(GameDataSource) if not name.startswith("_")):
+        expected = inspect.signature(getattr(GameDataSource, name))
+        assert inspect.signature(getattr(HoyolabClient, name)) == expected, name
