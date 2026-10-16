@@ -8,9 +8,9 @@ with the PC, so one question per turn covers both), and `undo_expense` deletes t
 recorded last, within 15 minutes. The specs are static English built once, so they stay
 byte-identical for the brain's lifetime and keep the prompt cache warm. A successful read is
 kept in memory for 60 seconds, never on disk, and so is her last recorded expense: a restart
-forgets it. In the morning greeting she starts herself every tool refuses without asking
-tepira, and `waifu run` starts that greeting in a new session, so no figure reaches the
-greeting or its push. `run` never raises.
+forgets it. In the morning greeting and the weekly game report she starts herself every tool
+refuses without asking tepira, and `waifu run` starts both in a new session, so no figure
+reaches them or their push. `run` never raises.
 """
 
 from __future__ import annotations
@@ -57,6 +57,7 @@ from waifu.finance.values import (
     spoken_rupiah,
     spoken_text,
 )
+from waifu.gacha.weekly import WEEKLY_REPORT_PROMPT
 from waifu.memory import looks_secret
 
 logger = logging.getLogger(__name__)
@@ -70,7 +71,13 @@ _TRANSACTIONS_KEYS = frozenset({"limit", "category"})
 _RECORD_KEYS = frozenset({"amount", "description", "category", "wallet"})
 _NO_KEYS: frozenset[str] = frozenset()
 
-_BRIEFING_REFUSAL = "Data keuangan hanya untuk pertanyaan Master, bukan untuk sapaan pagi."
+# The turns she starts herself, each with what every finance tool answers in it.
+_OWN_TURN_REFUSALS = {
+    BRIEFING_PROMPT: "Data keuangan hanya untuk pertanyaan Master, bukan untuk sapaan pagi.",
+    WEEKLY_REPORT_PROMPT: (
+        "Data keuangan hanya untuk pertanyaan Master, bukan untuk laporan game mingguan."
+    ),
+}
 _FAILED = "Tool keuangan gagal dijalankan."
 _LOOKS_SECRET = "Keterangan itu terlihat seperti rahasia, jadi tidak kucatat."
 _NOTHING_TO_UNDO = (
@@ -230,21 +237,22 @@ class FinanceTools:
         self._cache: dict[tuple[object, ...], _Kept] = {}
         self._generation = 0  # moves on whenever the cache is emptied
         self._last: _Recorded | None = None
-        self._briefing = False
+        self._refusal: str | None = None
 
     def specs(self) -> list[ToolSpec]:
         return list(self._specs)
 
     def begin_turn(self, user_text: str) -> None:
-        """Start a turn with its words as heard: the morning greeting she starts herself
-        (`BRIEFING_PROMPT`) gets no finance tool."""
-        self._briefing = user_text == BRIEFING_PROMPT
+        """Start a turn with its words as heard: a turn she starts herself, the morning
+        greeting (`BRIEFING_PROMPT`) or the weekly game report (`WEEKLY_REPORT_PROMPT`), gets
+        no finance tool."""
+        self._refusal = _OWN_TURN_REFUSALS.get(user_text)
 
     def run(self, name: str, arguments: object) -> tuple[str, bool]:
         if name not in self._names:
             return _error(f"Tool '{name}' bukan tool keuangan.")
-        if self._briefing:
-            return _error(_BRIEFING_REFUSAL)
+        if self._refusal is not None:
+            return _error(self._refusal)
         try:
             return self._run(name, arguments)
         except _InvalidArguments as exc:
