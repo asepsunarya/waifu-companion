@@ -213,12 +213,18 @@ class RainWatcher:
         if self._failing:
             self._failing = False
             logger.info("The rain forecast can be read again")
-        state = follow_rain(
-            forecast,
-            threshold=self._config.threshold,
-            lead=timedelta(minutes=self._config.lead_minutes),
-            episode_last=self._episode_last,
-        )
+        try:
+            state = follow_rain(
+                forecast,
+                threshold=self._config.threshold,
+                lead=timedelta(minutes=self._config.lead_minutes),
+                episode_last=self._episode_last,
+            )
+        except Exception:
+            # An odd reply (mixed time zones, say) must not end the thread: the next poll
+            # reads a fresh forecast, and the episode stays as it was.
+            logger.exception("Could not decide on a rain alert")
+            return []
         self._episode_last = state.episode_last
         if state.tell is None:
             return []

@@ -7,12 +7,13 @@ a fake read, a fake local time, a fake announce, and a fake notifier; the thread
 real thread whose waits are real or last a few milliseconds.
 """
 
+import dataclasses
 import logging
 import threading
 import time
 import urllib.error
 from collections.abc import Iterable
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -610,6 +611,20 @@ def test_a_push_that_fails_is_logged_and_the_alert_still_said(caplog):
 
     assert rig.announced == [(THREE_PM, "neutral")]
     assert "no internet" in caplog.text
+
+
+def test_a_forecast_that_breaks_the_rain_decision_is_logged_and_the_next_poll_still_works(caplog):
+    # Mixed naive and aware times make the comparison itself raise: the thread must survive it.
+    broken = dataclasses.replace(
+        forecast(14.0, rain=[16]), now=forecast(14.0).now.replace(tzinfo=UTC)
+    )
+    rig = Rig(broken)
+
+    with caplog.at_level(logging.ERROR, logger="waifu.rain_watch"):
+        assert rig.poll() == []
+
+    assert "Could not decide on a rain alert" in caplog.text
+    assert rig.poll(forecast(14.0, rain=[16])) == [THREE_PM]
 
 
 def test_without_a_voice_or_a_notifier_it_still_keeps_track():
