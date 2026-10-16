@@ -10,17 +10,22 @@ aktif, lalu jalankan `waifu check`.
   di folder proyek: "Sayang, ada versi baru Cyrene: v1.27, kamera HP, dan satu versi lain. Mulai
   ulang aku kalau sempat ya." Kalimat yang sama dikirim ke HP kalau notifikasi menyala
   (`version_notice.push: true`).
-- Dia membandingkan `CHANGELOG.md` dan `pyproject.toml` setiap 30 menit, hanya jam 08.00-22.00,
-  dan memberi tahu sekali untuk setiap versi, tanpa memotong obrolan. Perbaikan kecil tanpa
-  versi baru di CHANGELOG tidak diberitahukan. Semuanya bisa diatur di bagian `version_notice`
-  baru.
-- Kalau paket Python-nya berubah, dia minta `pip install` dulu, dan notifikasi HP-nya berisi
-  perintahnya: tutup Cyrene, jalankan `.venv\Scripts\python -m pip install -e .` di folder
-  proyek, lalu jalankan lagi `waifu run`.
-- `waifu version` baru menampilkan versi di disk dan versi `waifu run` yang sedang berjalan;
-  `waifu check` menampilkannya tepat di bawah "Konfigurasi valid" (`✓ waifu run: v1.26, terbaru`
-  atau `! waifu run yang sedang jalan masih v1.25 ...; mulai ulang supaya v1.26 aktif`).
-  Versinya dicatat di `data\running.json` setiap `waifu run` dimulai.
+- Dia membandingkan `CHANGELOG.md` dan `pyproject.toml` setiap 30 menit, hanya jam 08.00-22.00
+  (versi yang masuk malam hari diberitahukan begitu jam aktif mulai), dan memberi tahu sekali
+  untuk setiap versi, tanpa memotong obrolan; judul versi yang diganti tidak diberitahukan
+  lagi. Perbaikan kecil, juga paket yang berubah, tanpa versi baru di CHANGELOG tidak
+  diberitahukan sendiri: versinya mungkin masih dikerjakan. Semuanya bisa diatur di bagian
+  `version_notice` baru.
+- Kalau paket Python-nya berubah, kabar versi barunya minta `pip install` dulu, dan notifikasi
+  HP-nya berisi perintahnya: tutup Cyrene, jalankan `.venv\Scripts\python -m pip install -e .`
+  di folder proyek, lalu jalankan lagi `waifu run`. Dia baru memberi tahu sesudah kedua file
+  terbaca utuh, supaya langkah itu tidak tertinggal, dan `waifu check` serta `waifu version`
+  tetap menampilkan perintahnya sesudah dia ditutup.
+- `waifu version` baru menampilkan versi di disk dan versi `waifu run` yang sedang berjalan,
+  dari folder mana pun; `waifu check` menampilkannya tepat di bawah "Konfigurasi valid"
+  (`✓ waifu run: v1.26, terbaru` atau `! waifu run yang sedang jalan masih v1.25 ...; mulai
+  ulang supaya v1.26 aktif`). Versinya dicatat di `data\running.json` setiap `waifu run`
+  dimulai.
 - Dia tidak pernah memulai ulang dirinya sendiri: jendela konsol baru bisa muncul di atas game
   layar penuh dan berebut kunci dengan yang lama.
 - **Sekali ini mulai ulang manual:** `waifu run` dari versi lama belum mencatat versinya. Tutup
