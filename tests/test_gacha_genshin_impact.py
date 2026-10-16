@@ -532,9 +532,14 @@ OCTOBER = (
     datetime(2026, 10, 1, 4, 0, tzinfo=SERVER_TZ),
     datetime(2026, 11, 1, 3, 59, 59, tzinfo=SERVER_TZ),
 )
+NOVEMBER = (
+    datetime(2026, 11, 1, 4, 0, tzinfo=SERVER_TZ),
+    datetime(2026, 12, 1, 3, 59, 59, tzinfo=SERVER_TZ),
+)
 # The season ends as Cyrene reads them: HoYoLAB's 03:59:59 is the 04:00 reset.
 SEPTEMBER_ENDS_AT = datetime(2026, 10, 1, 4, 0, tzinfo=SERVER_TZ)
 OCTOBER_ENDS_AT = datetime(2026, 11, 1, 4, 0, tzinfo=SERVER_TZ)
+NOVEMBER_ENDS_AT = datetime(2026, 12, 1, 4, 0, tzinfo=SERVER_TZ)
 
 
 def theater_season(
@@ -965,6 +970,11 @@ CALENDAR = {
         ),
         event("Stygian Onslaught", *SEASON_7),
         event(
+            "Imaginarium Theater",
+            *NOVEMBER,
+            theater_detail={"is_unlock": False, "max_round_id": 0, "has_data": False},
+        ),
+        event(
             "Spiral Abyss",
             days(-31),
             days(-0.5),
@@ -1063,11 +1073,14 @@ def test_events_keep_their_start_whether_they_are_finished_and_upcoming_ones():
 
 
 def test_endgame_windows_come_from_the_abyss_and_theater_challenges_and_skip_the_rest():
+    # The upcoming Theater season is kept with its start: a calendar kept across the reset
+    # still has the new window.
     challenges = read_calendar(calendar_model(), FETCHED_AT).challenges
 
     assert challenges == (
         ChallengeWindow("spiral_abyss", "Abyssal Moon Spire", ABYSS_START, ABYSS_ENDS_AT, 30, 36),
         ChallengeWindow("imaginarium_theater", None, OCTOBER[0], OCTOBER_ENDS_AT, None, None),
+        ChallengeWindow("imaginarium_theater", None, NOVEMBER[0], NOVEMBER_ENDS_AT, None, None),
     )
 
 
@@ -1131,7 +1144,7 @@ def test_calendar_times_are_aware():
     moments = [
         moment for item in items for moment in (item.starts_at, item.ends_at) if moment is not None
     ]
-    assert len(moments) == 18
+    assert len(moments) == 20
     assert all(moment.utcoffset() is not None for moment in moments)
 
 
