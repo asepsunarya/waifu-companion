@@ -146,7 +146,10 @@ _TRANSACTIONS_DESCRIPTION = (
 _RECORD_DESCRIPTION = (
     "Record one expense Master just made in tepira, dated now and paid from salary. "
     + _WHEN_ASKED.format(request="to record an expense")
-    + "Call it at once when Master asks to record an expense, without asking first: the code "
+    + "When Master names another day, such as kemarin, or says it was paid from the bonus, do "
+    "not call it: say you can record only today's spending from salary, and that Master can "
+    "record that one in tepira. "
+    "Call it at once when Master asks to record an expense, without asking first: the code "
     "asks the question naming the amount, what for, and the wallet after your reply, so never "
     "ask it yourself or repeat it, and call again with exactly the same arguments only after "
     "Master's next words say yes. `amount` is whole rupiah as Master said it: 18 ribu is "

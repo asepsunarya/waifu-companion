@@ -452,6 +452,12 @@ def test_every_description_carries_the_voice_and_safety_rules(name, guidance):
         (RECENT_TRANSACTIONS, "WIB"),
         (RECENT_TRANSACTIONS, "A null `category` means none"),
         (RECORD_EXPENSE, "Call it at once when Master asks to record an expense"),
+        (
+            RECORD_EXPENSE,
+            "When Master names another day, such as kemarin, or says it was paid from the bonus, "
+            "do not call it: say you can record only today's spending from salary, and that "
+            "Master can record that one in tepira",
+        ),
         (RECORD_EXPENSE, "without asking first"),
         (RECORD_EXPENSE, "never ask it yourself or repeat it"),
         (RECORD_EXPENSE, "exactly the same arguments only after Master's next words say yes"),

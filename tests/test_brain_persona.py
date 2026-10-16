@@ -107,7 +107,10 @@ FINANCE_SECTION = (
     "dan Master minta mencatat pengeluaran, langsung panggil tanpa bertanya dulu: kode sendiri "
     "yang membacakan pertanyaan konfirmasinya, jadi jangan menanyakannya lagi, dan panggil lagi "
     "dengan isi yang sama hanya setelah Master menjawab ya di ucapan berikutnya. Kalau Master "
-    "minta membatalkan catatan yang barusan, pakai undo_expense.\n"
+    "minta mencatat pengeluaran hari lain, misalnya kemarin, atau yang dibayar dari bonus, "
+    "jangan panggil record_expense: bilang kamu hanya bisa mencatat pengeluaran hari ini dari "
+    "gaji, dan Master bisa mencatat yang itu sendiri di tepira. Kalau Master minta membatalkan "
+    "catatan yang barusan, pakai undo_expense.\n"
 )
 
 
