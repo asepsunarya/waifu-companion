@@ -16,12 +16,17 @@ aktif, lalu jalankan `waifu check`.
   menolak di giliran itu, jadi tidak ada angka uang yang terucap atau terkirim.
 - Sekali seminggu: restart di malam yang sama tidak mengulangnya, `waifu run` yang baru menyala
   sesudah jamnya tetap melapor hari itu, dan hari yang terlewat seluruhnya tidak disusulkan.
-  Riwayat pull diperbarui dulu untuk game yang sudah punya riwayat tersimpan; bagian yang tidak
-  terbaca (HoYoLAB, cookie, riwayat yang belum diimpor) disebut singkat dan sisanya tetap
-  diceritakan, dengan semua bacaan dibatasi 30 detik.
+  Minggunya dihitung dari satu jam sebelum jam laporan minggu lalu, jadi pull yang baru dicatat
+  HoYoverse sesudah laporan (sekitar satu jam kemudian) masuk laporan berikutnya, seberapa pun
+  telatnya laporan diucapkan. Riwayat pull diperbarui dulu untuk game yang sudah punya riwayat
+  tersimpan, dan angkanya dari akun yang sedang dipakai di game; bagian yang tidak terbaca
+  (HoYoLAB, cookie, riwayat yang belum diimpor) disebut singkat dan sisanya tetap diceritakan,
+  dengan semua bacaan dibatasi 30 detik. Bacaan yang terlambat tidak menahan `waifu gacha
+  report` atau penutupan `waifu run`.
 - "Cyrene, gimana minggu ini di game-ku?" memakai data yang sama, juga di `waifu chat`.
 - `waifu gacha report` baru menampilkan laporannya tanpa otak, juga saat `gacha.enabled:
-  false`; `waifu check` menampilkan hari dan jamnya.
+  false` (kode redeem-nya lalu disebut sebagai daftar tersimpan, karena hanya `waifu gacha
+  codes` yang memperbaruinya); `waifu check` menampilkan hari dan jamnya.
 - README: "Laporan game mingguan".
 
 ## v1.26: versi baru
