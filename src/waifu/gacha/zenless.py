@@ -4,7 +4,8 @@ The readers at the bottom turn genshin.py's models (taken as `Any`) into these f
 dataclasses for the HoYoLAB side, and the brain's game data tools turn them into compact
 JSON. Nothing here imports genshin.py, and nothing holds the uid, the nickname, the avatar,
 icons, or descriptions; an agent's `ref`, the game's id for it, is kept only to ask HoYoLAB
-for its detail and never reaches a result. Every datetime is aware.
+for its detail and never reaches a result. Every datetime is aware, and a time on a minute's
+last second (HoYoLAB's 03:59:59 season end) is read as the next whole minute.
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ from waifu.gacha.game_data import (
     GameCalendar,
     GameEvent,
     is_over,
+    on_the_minute,
     worn_sets,
 )
 
@@ -253,11 +255,11 @@ def _names(agents: Iterable[Any], rarity: str) -> tuple[str, ...]:
 
 
 def _aware(moment: datetime | None) -> datetime | None:
-    return moment if moment is not None and moment.utcoffset() is not None else None
+    return on_the_minute(moment) if moment is not None and moment.utcoffset() is not None else None
 
 
 def _calendar_time(moment: datetime) -> datetime | None:
-    return None if moment == NO_TIME else moment
+    return None if moment == NO_TIME else on_the_minute(moment)
 
 
 def _positive(value: int) -> int | None:

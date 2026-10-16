@@ -269,7 +269,7 @@ def server_time(month: int, day: int, hour: int, minute: int = 0, second: int = 
 
 
 SHIYU_END = server_time(10, 31, 3, 59, 59)
-SHIYU_END_AT = datetime(2026, 10, 31, 3, 59, 59, tzinfo=SERVER_TZ)
+SHIYU_END_AT = datetime(2026, 10, 31, 4, 0, tzinfo=SERVER_TZ)  # HoYoLAB's 03:59:59: the reset
 BUFF = {"title": "A buff", "text": "A buff description"}
 SHIYU_AGENT = {
     "id": 1191,
@@ -416,7 +416,7 @@ def boss_challenge(boss: str, score: int, star: int) -> dict:
     }
 
 
-DEADLY_ASSAULT_END_AT = datetime(2026, 11, 3, 3, 59, 59, tzinfo=SERVER_TZ)
+DEADLY_ASSAULT_END_AT = datetime(2026, 11, 3, 4, 0, tzinfo=SERVER_TZ)
 DEADLY_ASSAULT = {
     "zone_id": 30014,
     "start_time": server_time(10, 20, 4),
@@ -797,6 +797,27 @@ def test_the_calendar_names_the_version_of_its_first_banner_still_on():
 
 def test_the_zzz_calendar_has_no_endgame_windows():
     assert calendar().challenges == ()
+
+
+def test_calendar_times_on_the_last_second_of_a_minute_read_as_the_next_minute():
+    """A banner ends at 14:59:59 server time; the next phase starts at a whole minute."""
+    ends = int(datetime(2026, 10, 20, 14, 59, 59, tzinfo=SERVER_TZ).timestamp())
+    starts = int(datetime(2026, 9, 30, 11, 59, 59, tzinfo=SERVER_TZ).timestamp())
+    gacha = {
+        "avatar_gacha_schedule_list": [
+            agent_banner("GACHA_TYPE_CHARACTER_UP", starts, ends, banner_agent("Ellen", "S"))
+        ],
+        "weapon_gacha_schedule_list": [],
+    }
+
+    read = calendar([zzz_event("Ridu Rush", starts, ends)], gacha)
+
+    assert [(item.starts_at, item.ends_at) for item in (read.banners[0], read.events[0])] == [
+        (
+            datetime(2026, 9, 30, 12, 0, tzinfo=SERVER_TZ),
+            datetime(2026, 10, 20, 15, 0, tzinfo=SERVER_TZ),
+        )
+    ] * 2
 
 
 def test_calendar_times_are_aware_utc():

@@ -1,6 +1,6 @@
 import inspect
 from dataclasses import FrozenInstanceError, fields
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
 
@@ -16,6 +16,7 @@ from waifu.gacha.game_data import (
     GameEvent,
     is_over,
     is_running,
+    on_the_minute,
     worn_sets,
 )
 from waifu.gacha.games import GAMES
@@ -136,6 +137,20 @@ def test_something_runs_from_its_start_until_its_end():
     assert is_running(None, None, NOW)
     assert not is_running(NOW + HOUR, None, NOW)
     assert not is_running(None, NOW, NOW)
+
+
+def test_a_time_on_the_last_second_of_a_minute_is_the_next_whole_minute():
+    """HoYoLAB ends a season at 03:59:59 for the game's 04:00 reset."""
+    last_second = datetime(2026, 11, 16, 3, 59, 59, 500, tzinfo=timezone(timedelta(hours=8)))
+
+    assert on_the_minute(last_second) == datetime(2026, 11, 16, 4, 0, tzinfo=last_second.tzinfo)
+    assert on_the_minute(last_second).utcoffset() == timedelta(hours=8)
+
+
+def test_any_other_time_and_none_stay_as_they_are():
+    for moment in (NOW, NOW + timedelta(minutes=59, seconds=58), NOW - timedelta(seconds=59)):
+        assert on_the_minute(moment) == moment
+    assert on_the_minute(None) is None
 
 
 # ---- the source -----------------------------------------------------------------------------

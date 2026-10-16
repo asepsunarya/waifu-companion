@@ -5,7 +5,8 @@ dataclasses for the HoYoLAB side, and the brain's game data tools turn them into
 JSON. Nothing here imports genshin.py (the module is not called `genshin` for that
 reason), and nothing holds the uid, the nickname, icons, or descriptions; a character's
 `ref`, the game's id for it, is kept only to ask HoYoLAB for its detail and never reaches
-a result. Every datetime is aware.
+a result. Every datetime is aware, and a time on a minute's last second (HoYoLAB's 03:59:59
+season end) is read as the next whole minute.
 """
 
 from __future__ import annotations
@@ -24,6 +25,7 @@ from waifu.gacha.game_data import (
     GameEvent,
     is_over,
     is_running,
+    on_the_minute,
     worn_sets,
 )
 
@@ -171,7 +173,7 @@ def _spiral_abyss(model: Any) -> Endgame:
     floors = sorted(model.floors, key=lambda floor: floor.floor, reverse=True)[:STAGES_MAX]
     return _endgame(
         "spiral_abyss",
-        ends_at=model.end_time,
+        ends_at=on_the_minute(model.end_time),
         has_data=model.total_battles > 0,
         stars=model.total_stars,
         deepest=None if model.max_floor == NO_FLOOR else model.max_floor,
@@ -210,12 +212,7 @@ def _imaginarium_theater(model: Any, fetched_at: datetime) -> Endgame:
 def _stygian_onslaught(model: Any, fetched_at: datetime) -> Endgame:
     """The single-player record of a season. genshin.py names no difficulty, so it is the
     number as text."""
-    challenge = _running(
-        model,
-        fetched_at,
-        lambda item: (item.season.start_at, item.season.end_at),
-        lambda item: item.season.id,
-    )
+    challenge = _running(model, fetched_at, _season_window, lambda item: item.season.id)
     if challenge is None:
         return _endgame("stygian_onslaught", has_data=False)
     single = challenge.single_player
@@ -223,7 +220,7 @@ def _stygian_onslaught(model: Any, fetched_at: datetime) -> Endgame:
     return _endgame(
         "stygian_onslaught",
         season=challenge.season.name,
-        ends_at=challenge.season.end_at,
+        ends_at=_season_window(challenge)[1],
         has_data=single.has_data,
         difficulty=None if best is None else str(best.difficulty),
         seconds=None if best is None else best.time_used,
@@ -278,6 +275,12 @@ def _running(
     return max(items, key=newest, default=None)
 
 
+def _season_window(challenge: Any) -> tuple[datetime | None, datetime | None]:
+    """A Stygian Onslaught season's start and end, already aware."""
+    season = challenge.season
+    return on_the_minute(season.start_at), on_the_minute(season.end_at)
+
+
 def _challenge_window(challenge: Any) -> ChallengeWindow | None:
     """A calendar challenge's Spiral Abyss or Imaginarium Theater window (None: another)."""
     starts_at, ends_at = _window(challenge)
@@ -298,8 +301,8 @@ def _window(item: Any) -> tuple[datetime | None, datetime | None]:
 
 
 def _from_unix(seconds: int) -> datetime | None:
-    """A unix time as an aware UTC datetime; 0 is none given."""
-    return datetime.fromtimestamp(seconds, UTC) if seconds > 0 else None
+    """A unix time as an aware UTC datetime, on the minute; 0 is none given."""
+    return on_the_minute(datetime.fromtimestamp(seconds, UTC)) if seconds > 0 else None
 
 
 def _names(items: Iterable[Any], rarity: int) -> tuple[str, ...]:

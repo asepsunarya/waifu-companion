@@ -406,7 +406,8 @@ def test_a_detail_keeps_no_icon_description_constellation_skill_or_substat():
 # ---- Spiral Abyss -----------------------------------------------------------------------------
 
 ABYSS_START = datetime(2026, 10, 16, 4, 0, tzinfo=SERVER_TZ)
-ABYSS_END = datetime(2026, 11, 16, 3, 59, 59, tzinfo=SERVER_TZ)
+ABYSS_END = datetime(2026, 11, 16, 3, 59, 59, tzinfo=SERVER_TZ)  # as HoYoLAB gives it
+ABYSS_ENDS_AT = datetime(2026, 11, 16, 4, 0, tzinfo=SERVER_TZ)  # the reset, as Cyrene reads it
 
 
 def abyss_battle(half: int) -> dict:
@@ -472,7 +473,7 @@ def test_spiral_abyss_reads_this_season_with_its_four_highest_floors_highest_fir
     assert endgame == Endgame(
         mode="spiral_abyss",
         season=None,
-        ends_at=ABYSS_END,
+        ends_at=ABYSS_ENDS_AT,
         has_data=True,
         stars=33,
         deepest="12-3",
@@ -511,7 +512,7 @@ def test_spiral_abyss_not_played_this_season_has_no_data_deepest_floor_or_stages
         None,
         0,
     )
-    assert (endgame.stages, endgame.ends_at) == ((), ABYSS_END)
+    assert (endgame.stages, endgame.ends_at) == ((), ABYSS_ENDS_AT)
 
 
 def test_spiral_abyss_keeps_no_character_name():
@@ -531,6 +532,9 @@ OCTOBER = (
     datetime(2026, 10, 1, 4, 0, tzinfo=SERVER_TZ),
     datetime(2026, 11, 1, 3, 59, 59, tzinfo=SERVER_TZ),
 )
+# The season ends as Cyrene reads them: HoYoLAB's 03:59:59 is the 04:00 reset.
+SEPTEMBER_ENDS_AT = datetime(2026, 10, 1, 4, 0, tzinfo=SERVER_TZ)
+OCTOBER_ENDS_AT = datetime(2026, 11, 1, 4, 0, tzinfo=SERVER_TZ)
 
 
 def theater_season(
@@ -585,7 +589,7 @@ def test_imaginarium_theater_reads_the_season_running_at_the_fetch_time():
     assert endgame == Endgame(
         mode="imaginarium_theater",
         season=None,
-        ends_at=OCTOBER[1],
+        ends_at=OCTOBER_ENDS_AT,
         has_data=True,
         stars=9,
         deepest="Act 10",
@@ -605,7 +609,11 @@ def test_the_running_theater_season_wins_over_a_newer_one():
 
     endgame = read_endgame("imaginarium_theater", theater(*TWO_SEASONS), in_september)
 
-    assert (endgame.ends_at, endgame.difficulty, endgame.deepest) == (SEPTEMBER[1], "Hard", "Act 8")
+    assert (endgame.ends_at, endgame.difficulty, endgame.deepest) == (
+        SEPTEMBER_ENDS_AT,
+        "Hard",
+        "Act 8",
+    )
 
 
 def test_without_a_running_theater_season_the_newest_one_is_read():
@@ -613,7 +621,7 @@ def test_without_a_running_theater_season_the_newest_one_is_read():
 
     endgame = read_endgame("imaginarium_theater", theater(*TWO_SEASONS), after_both)
 
-    assert endgame.ends_at == OCTOBER[1]
+    assert endgame.ends_at == OCTOBER_ENDS_AT
 
 
 @pytest.mark.parametrize(
@@ -632,7 +640,7 @@ def test_a_theater_season_not_played_has_no_data_or_deepest_act():
     endgame = read_endgame("imaginarium_theater", model, FETCHED_AT)
 
     assert (endgame.has_data, endgame.deepest, endgame.stars) == (False, None, 0)
-    assert endgame.ends_at == OCTOBER[1]
+    assert endgame.ends_at == OCTOBER_ENDS_AT
 
 
 def test_a_theater_without_seasons_has_no_data():
@@ -663,6 +671,7 @@ SEASON_6 = (
     datetime(2026, 9, 1, 12, 0, tzinfo=SERVER_TZ),
     datetime(2026, 9, 29, 3, 59, 59, tzinfo=SERVER_TZ),
 )
+SEASON_7_ENDS_AT = datetime(2026, 11, 3, 4, 0, tzinfo=SERVER_TZ)
 
 
 def stygian_challenge(name: str, seconds: int) -> dict:
@@ -743,7 +752,7 @@ def test_stygian_onslaught_reads_the_season_running_at_the_fetch_time():
     assert endgame == Endgame(
         mode="stygian_onslaught",
         season="Season of Tides",
-        ends_at=SEASON_7[1],
+        ends_at=SEASON_7_ENDS_AT,
         has_data=True,
         stars=None,
         deepest=None,
@@ -783,7 +792,11 @@ def test_a_stygian_season_without_a_best_record_has_no_difficulty_or_time():
     endgame = read_endgame("stygian_onslaught", model, FETCHED_AT)
 
     assert (endgame.has_data, endgame.difficulty, endgame.seconds) == (False, None, None)
-    assert (endgame.season, endgame.ends_at, endgame.stages) == ("Season of Tides", SEASON_7[1], ())
+    assert (endgame.season, endgame.ends_at, endgame.stages) == (
+        "Season of Tides",
+        SEASON_7_ENDS_AT,
+        (),
+    )
 
 
 def test_stygian_onslaught_shows_at_most_four_challenges():
@@ -800,6 +813,21 @@ def test_stygian_onslaught_without_a_season_has_no_data():
 
     assert (endgame.has_data, endgame.season, endgame.ends_at) == (False, None, None)
     assert (endgame.difficulty, endgame.seconds, endgame.stages) == (None, None, ())
+
+
+def test_a_season_end_on_the_last_second_of_a_minute_reads_as_the_next_minute():
+    """HoYoLAB ends every Genshin season at 03:59:59 server time: the game resets at 04:00."""
+    ends = [
+        read_endgame("spiral_abyss", build(SpiralAbyss, SPIRAL_ABYSS), FETCHED_AT).ends_at,
+        read_endgame("imaginarium_theater", theater(*TWO_SEASONS), FETCHED_AT).ends_at,
+        read_endgame("stygian_onslaught", stygian(*TWO_STYGIAN_SEASONS), FETCHED_AT).ends_at,
+    ]
+
+    assert [end.astimezone(SERVER_TZ).strftime("%m-%d %H:%M:%S") for end in ends] == [
+        "11-16 04:00:00",
+        "11-01 04:00:00",
+        "11-03 04:00:00",
+    ]
 
 
 def test_stygian_onslaught_keeps_no_team_enemy_or_description():
@@ -993,6 +1021,27 @@ def test_calendar_times_come_from_the_unix_timestamps_never_the_naive_wall_clock
     assert current.ends_at.utcoffset() == timedelta(0)
 
 
+def test_calendar_times_on_the_last_second_of_a_minute_read_as_the_next_minute():
+    """A banner ends at 14:59:59 server time, and the next phase starts at 15:00 or later."""
+    ends = datetime(2026, 11, 3, 14, 59, 59, tzinfo=SERVER_TZ)
+    starts = datetime(2026, 10, 14, 17, 59, 59, tzinfo=SERVER_TZ)
+    payload = {
+        **CALENDAR,
+        "avatar_card_pool_list": [banner("Wish", "6.1", starts, ends)],
+        "act_list": [event("An Event", starts, ends)],
+    }
+
+    calendar = read_calendar(calendar_model(payload), FETCHED_AT)
+
+    read = (calendar.banners[0], calendar.events[0])
+    assert [(item.starts_at, item.ends_at) for item in read] == [
+        (
+            datetime(2026, 10, 14, 18, 0, tzinfo=SERVER_TZ),
+            datetime(2026, 11, 3, 15, 0, tzinfo=SERVER_TZ),
+        )
+    ] * 2
+
+
 def test_a_banner_without_a_pool_name_has_no_name():
     payload = {
         **CALENDAR,
@@ -1017,8 +1066,10 @@ def test_endgame_windows_come_from_the_abyss_and_theater_challenges_and_skip_the
     challenges = read_calendar(calendar_model(), FETCHED_AT).challenges
 
     assert challenges == (
-        ChallengeWindow("spiral_abyss", "Spiral Abyss", ABYSS_START, ABYSS_END, 30, 36),
-        ChallengeWindow("imaginarium_theater", "Imaginarium Theater", *OCTOBER, 8, None),
+        ChallengeWindow("spiral_abyss", "Spiral Abyss", ABYSS_START, ABYSS_ENDS_AT, 30, 36),
+        ChallengeWindow(
+            "imaginarium_theater", "Imaginarium Theater", OCTOBER[0], OCTOBER_ENDS_AT, 8, None
+        ),
     )
 
 

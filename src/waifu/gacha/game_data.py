@@ -3,7 +3,8 @@
 The endgame modes of each game, the Genshin and ZZZ endgame and calendar values (HSR
 keeps its own in `starrail.py`), and `GameDataSource`, the HoYoLAB side the brain's game
 data tools read from. Nothing here imports genshin.py, and nothing holds the uid, a
-nickname, ids, icons, or descriptions. Every datetime is aware.
+nickname, ids, icons, or descriptions. Every datetime is aware, and the Genshin and ZZZ readers
+read every time through `on_the_minute`.
 """
 
 from __future__ import annotations
@@ -11,7 +12,7 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
@@ -41,6 +42,7 @@ GAME_MODES: dict[str, dict[str, str]] = {
 # The game of each mode: no two games share a mode key.
 MODE_GAMES: dict[str, str] = {mode: game for game, modes in GAME_MODES.items() for mode in modes}
 WORN_SET_PIECES = 2  # the fewest pieces of one set that give a set bonus
+LAST_SECOND = 59  # HoYoLAB ends a season, banner, or event on a minute's last second
 
 
 @dataclass(frozen=True)
@@ -157,3 +159,12 @@ def is_over(ends_at: datetime | None, now: datetime) -> bool:
 def is_running(starts_at: datetime | None, ends_at: datetime | None, now: datetime) -> bool:
     """Whether something has started (None: no start given) and is not over at `now`."""
     return (starts_at is None or starts_at <= now) and not is_over(ends_at, now)
+
+
+def on_the_minute(moment: datetime | None) -> datetime | None:
+    """`moment` as the game tells it: HoYoLAB gives an end as the last second before the change
+    (03:59:59 for the 04:00 reset, 14:59:59 for a banner ending at 15:00), so a time on a
+    minute's last second is the next whole minute. Any other time, and None, stay as given."""
+    if moment is None or moment.second != LAST_SECOND:
+        return moment
+    return moment.replace(second=0, microsecond=0) + timedelta(minutes=1)
