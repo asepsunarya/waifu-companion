@@ -17,6 +17,7 @@ import pytest
 from anthropic.types.beta import BetaToolParam
 
 from waifu.brain.confirm import is_yes
+from waifu.brain.music_tools import MusicTools
 from waifu.brain.screen_tools import ScreenTools
 from waifu.brain.tools import to_anthropic, to_ollama
 from waifu.briefing import BRIEFING_PROMPT, BriefingTimer, BriefingTools
@@ -472,6 +473,26 @@ def test_the_prompt_never_lets_her_look_at_the_screen():
     screen.begin_turn("Cyrene, lihat layarku")
     assert screen.run("look_at_screen", {})[1] is False
     assert captured == [1280]
+
+
+def test_the_prompt_never_lets_her_open_a_song():
+    # The greeting starts by itself, maybe while Master plays a fullscreen game: a browser
+    # opening would take the focus from it. The opener only records (conftest also refuses
+    # the real os.startfile).
+    opened: list[str] = []
+    music = MusicTools(service="youtube", names=HER_NAMES, links=True, startfile=opened.append)
+
+    music.begin_turn(BRIEFING_PROMPT)
+    result, is_error = music.run("play_youtube", {"query": "lofi"})
+    assert is_error is True
+    assert "tidak meminta lagu" in json.loads(result)["message"]
+    assert opened == []
+
+    # The same tools do open a song when Master's own words ask, so the check above is not
+    # vacuous.
+    music.begin_turn("Cyrene, putar lagu lofi")
+    assert music.run("play_youtube", {"query": "lofi"})[1] is False
+    assert opened == ["https://www.youtube.com/results?search_query=lofi"]
 
 
 # --- the timer -----------------------------------------------------------------------------------

@@ -40,8 +40,9 @@ logger = logging.getLogger(__name__)
 DAILY_BRIEFING = "daily_briefing"
 FILE_VERSION = 1
 STOP_TIMEOUT_S = 5.0
-# Her own turn, not Master's words: it holds no look word (the screen tool stays shut) and
-# does not start with a yes (the confirmation gate stays shut).
+# Her own turn, not Master's words: it holds no look word (the screen tool stays shut), no
+# play verb or music word (the music tool stays shut), and does not start with a yes (the
+# confirmation gate stays shut).
 BRIEFING_PROMPT = (
     "Ini bukan ucapan Master: ini sapaan pagimu sendiri, yang kamu mulai sendiri sekali "
     "sehari. Sapa Master dengan hangat sesuai waktunya. Panggil daily_briefing, dan "
