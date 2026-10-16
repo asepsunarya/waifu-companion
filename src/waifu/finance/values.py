@@ -9,6 +9,7 @@ Nothing here does any I/O.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import timedelta, timezone
 from typing import Any, Literal, Protocol
@@ -171,6 +172,9 @@ class FinanceSource(Protocol):
         ...
 
 
+# Her voice drops "(...)" and "*...*" as asides (voice/tts.py's clean_for_speech), so the
+# question says these as plain spaces: Master hears the whole wallet and what it was for.
+_DROPPED_ASIDE_MARKS = re.compile(r"[()（）*]")
 _DIGITS = ("", "satu", "dua", "tiga", "empat", "lima", "enam", "tujuh", "delapan", "sembilan")
 _TEENS = ("sepuluh", "sebelas", *(f"{digit} belas" for digit in _DIGITS[2:]))
 _SCALES = ("", "ribu", "juta", "miliar")
@@ -197,11 +201,17 @@ def spoken_rupiah(amount: int) -> str:
 
 
 def expense_question(amount: int, description: str, wallet: str, owner_call: str = "Master") -> str:
-    """The question the code asks before recording an expense: the amount, what for, the wallet."""
+    """The question the code asks before recording an expense: the amount, what for, the wallet,
+    each heard whole although her voice drops asides."""
     return (
-        f"Catat {spoken_rupiah(amount)} untuk {description} di {wallet}, {owner_call}? "
-        "Jawab iya kalau jadi."
+        f"Catat {spoken_rupiah(amount)} untuk {spoken_text(description)} di "
+        f"{spoken_text(wallet)}, {owner_call}? Jawab iya kalau jadi."
     )
+
+
+def spoken_text(text: str) -> str:
+    """`text` without the marks of an aside her voice would drop, so all of it is heard."""
+    return " ".join(_DROPPED_ASIDE_MARKS.sub(" ", text).split())
 
 
 def _below_a_thousand(number: int) -> list[str]:

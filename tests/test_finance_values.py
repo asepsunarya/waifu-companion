@@ -16,6 +16,7 @@ from waifu.finance.values import (
     expense_question,
     spoken_rupiah,
 )
+from waifu.voice.tts import clean_for_speech
 
 
 @pytest.mark.parametrize(
@@ -109,3 +110,21 @@ def test_the_question_names_the_amount_what_it_was_for_and_the_wallet():
 
 def test_the_question_calls_the_owner_master_by_default():
     assert expense_question(1500, "parkir", "Tunai").endswith(", Master? Jawab iya kalau jadi.")
+
+
+@pytest.mark.parametrize(
+    ("description", "wallet", "spoken"),
+    [
+        ("kopi", "Jago (Tabungan)", "untuk kopi di Jago Tabungan,"),
+        ("langganan (Spotify)", "GoPay", "untuk langganan Spotify di GoPay,"),
+        ("kopi *susu*", "Dana（harian）", "untuk kopi susu di Dana harian,"),
+    ],
+    ids=["wallet_in_parentheses", "description_in_parentheses", "asterisks_and_wide_parentheses"],
+)
+def test_the_question_is_heard_whole_although_her_voice_drops_asides(description, wallet, spoken):
+    # The voice drops "(...)" and "*...*" as asides: Master must hear the whole wallet and what
+    # it was for before saying yes, so "Jago (Harian)" never sounds like "Jago (Tabungan)".
+    question = expense_question(18000, description, wallet)
+
+    assert spoken in clean_for_speech(question)
+    assert spoken in question
