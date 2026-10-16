@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import hashlib
 import inspect
 import io
 import json
@@ -74,6 +75,9 @@ from waifu.finance.tepira import TepiraClient
 from waifu.finance.values import (
     FINANCE_TOOLS,
     READ_TOOLS,
+    TOKEN_REJECTED,
+    WIB,
+    FinanceError,
     RecordedExpense,
     UndoneExpense,
 )
@@ -10774,3 +10778,274 @@ def test_chat_records_an_expense_only_after_master_s_yes_in_the_next_turn(
     assert "Cyrene: Sudah kucatat, Master." in out
     records = [asked for asked in tepira.asked if asked[0] == "record"]
     assert records == [("record", 18000, None, "jajan kopi", "GoPay", "gaji")]
+
+
+def test_tepira_summary_prints_this_month_in_wib(home, tepira, capsys):
+    enable_tepira(home)
+
+    assert cli.main(["tepira", "ringkasan"]) == 0
+
+    today = datetime.now(WIB)
+    assert tepira.asked == [("summary", today.month, today.year)]
+    assert capsys.readouterr().out.splitlines() == [
+        f"Keuangan {MONTHS_ID[today.month - 1]} {today.year} (per 2026-10-16 09:12 WIB)",
+        "Pengeluaran: Rp2.350.000 dari 41 transaksi (gaji Rp2.100.000, bonus Rp250.000); "
+        "hari ini Rp45.000, kemarin Rp120.000, minggu ini Rp310.000",
+        "Pemasukan: gaji Rp5.000.000, bonus Rp500.000, saldo awal Rp1.000.000; "
+        "sisa Rp3.150.000, perkiraan saldo akhir Rp4.150.000",
+        "Budget (gaji+bonus): Rp3.000.000, terpakai Rp2.350.000 (78,3%), sisa Rp650.000",
+        "- Makan harian: sisa Rp220.000 dari Rp1.200.000 (81,7%)",
+        "- Nongkrong / jajan: lewat Rp42.000 dari Rp300.000 (114%)",
+        "Tanpa kategori Rp35.000; di luar budget Rp0",
+        "Skor mingguan: 72 (SEHAT), minggu mulai 2026-10-12",
+    ]
+    # One connection for the command, closed when it ends.
+    [(http, url, token)] = tepira.built
+    assert http.is_closed
+    assert (url, token.get_secret_value()) == ("https://tepira.asepsunarya.com", TEPIRA_TOKEN)
+
+
+def test_tepira_without_an_action_prints_the_summary(home, tepira, capsys):
+    enable_tepira(home)
+
+    assert cli.main(["tepira"]) == 0
+
+    assert [asked[0] for asked in tepira.asked] == ["summary"]
+    assert capsys.readouterr().out.startswith("Keuangan ")
+
+
+def test_tepira_summary_leaves_out_what_tepira_left_out(home, tepira, capsys):
+    # A month without salary, bonus, or starting balance rows, and no weekly score yet.
+    enable_tepira(home)
+    spent = {"total": 120000, "count": 3, "gaji": 120000, "bonus": 0}
+    tepira.answers["summary"] = {
+        **TEPIRA_SUMMARY,
+        "spent": spent,
+        "income": {"net": -120000, "ending_estimate": -120000},
+        "budget": {
+            "basis": "gaji+bonus",
+            "allocated": 100000,
+            "spent": 120000,
+            "remaining": -20000,
+            "used_percent": 120,
+            "status": "OVER_BUDGET",
+        },
+        "categories": [],
+    }
+    del tepira.answers["summary"]["insight"]
+
+    assert cli.main(["tepira", "ringkasan"]) == 0
+
+    assert capsys.readouterr().out.splitlines()[1:] == [
+        "Pengeluaran: Rp120.000 dari 3 transaksi (gaji Rp120.000, bonus Rp0)",
+        "Pemasukan: sisa -Rp120.000, perkiraan saldo akhir -Rp120.000",
+        "Budget (gaji+bonus): Rp100.000, terpakai Rp120.000 (120%), lewat Rp20.000",
+        "Tanpa kategori Rp35.000; di luar budget Rp0",
+    ]
+
+
+def test_tepira_summary_of_a_month_without_a_budget_says_so(home, tepira, capsys):
+    enable_tepira(home)
+    budget = {**TEPIRA_SUMMARY["budget"], "allocated": 0, "status": "NO_BUDGET"}
+    tepira.answers["summary"] = {**TEPIRA_SUMMARY, "budget": budget, "categories": []}
+
+    assert cli.main(["tepira"]) == 0
+
+    assert "Budget (gaji+bonus): belum diatur" in capsys.readouterr().out.splitlines()
+
+
+def test_tepira_wallets_lists_each_balance_then_the_totals(home, tepira, capsys):
+    enable_tepira(home)
+    tepira.answers["wallets"] = {**TEPIRA_WALLETS, "more": 2}
+
+    assert cli.main(["tepira", "dompet"]) == 0
+
+    assert tepira.asked == [("wallets",)]
+    assert capsys.readouterr().out.splitlines() == [
+        "- GoPay (e-wallet): Rp250.000",
+        "- BCA (bank): Rp5.000.000",
+        "- Kartu kredit (credit): -Rp1.200.000",
+        "dan 2 dompet lagi",
+        "Aset Rp5.250.000, kewajiban Rp1.200.000, kekayaan bersih Rp4.050.000",
+    ]
+
+
+def test_tepira_goals_shows_each_goal_s_progress(home, tepira, capsys):
+    enable_tepira(home)
+
+    assert cli.main(["tepira", "tujuan"]) == 0
+
+    assert tepira.asked == [("goals", None)]
+    assert capsys.readouterr().out.splitlines() == [
+        "- Laptop baru: Rp6.200.000 dari Rp15.000.000 (41,3%), kurang Rp8.800.000, "
+        "tenggat 2027-03-31 (166 hari lagi), perlu Rp1.600.000 per bulan",
+        "- Dana darurat: Rp5.000.000 dari Rp5.000.000 (100%), tercapai",
+    ]
+
+
+def test_tepira_goals_with_a_name_asks_for_that_name(home, tepira, capsys):
+    enable_tepira(home)
+    tepira.answers["goals"] = {**TEPIRA_GOALS, "goals": TEPIRA_GOALS["goals"][:1]}
+
+    assert cli.main(["tepira", "tujuan", "laptop", " ", "baru"]) == 0
+
+    assert tepira.asked == [("goals", "laptop baru")]
+    assert capsys.readouterr().out.startswith("- Laptop baru: Rp6.200.000")
+
+
+def test_tepira_goals_says_when_no_goal_matches(home, tepira, capsys):
+    enable_tepira(home)
+    tepira.answers["goals"] = {**TEPIRA_GOALS, "goals": []}
+
+    assert cli.main(["tepira", "tujuan", "motor"]) == 0
+
+    assert capsys.readouterr().out == "Tidak ada tujuan tabungan yang cocok.\n"
+
+
+def test_tepira_goals_refuses_a_name_tepira_would_refuse(home, tepira, capsys):
+    # tepira counts the name in UTF-16 units, as JavaScript does: an emoji counts twice.
+    enable_tepira(home)
+
+    assert cli.main(["tepira", "tujuan", "🎮" * 25 + "x"]) == 2
+
+    assert capsys.readouterr().out == "✗ Nama tujuan paling banyak 50 karakter.\n"
+    assert tepira.built == []
+
+
+def test_tepira_transactions_shows_the_newest_first(home, tepira, capsys):
+    enable_tepira(home)
+
+    assert cli.main(["tepira", "transaksi"]) == 0
+
+    assert tepira.asked == [("transactions", 5, None)]
+    assert capsys.readouterr().out.splitlines() == [
+        "- 2026-10-16 08:41 Rp18.000 Nongkrong / jajan: kopi susu (GoPay)",
+        "- 2026-10-15 19:02 Rp35.000 tanpa kategori (BCA)",
+    ]
+
+
+def test_tepira_transactions_shows_n_of_them(home, tepira, capsys):
+    enable_tepira(home)
+
+    assert cli.main(["tepira", "transaksi", "-n", "10"]) == 0
+
+    assert tepira.asked == [("transactions", 10, None)]
+
+
+def test_tepira_transactions_says_when_there_are_none(home, tepira, capsys):
+    enable_tepira(home)
+    tepira.answers["transactions"] = {**TEPIRA_TRANSACTIONS, "transactions": []}
+
+    assert cli.main(["tepira", "transaksi"]) == 0
+
+    assert capsys.readouterr().out == "Belum ada transaksi.\n"
+
+
+@pytest.mark.parametrize("count", ["0", "11", "lima"])
+def test_tepira_transactions_takes_1_to_10(count, capsys):
+    with pytest.raises(SystemExit) as exited:
+        cli.build_parser().parse_args(["tepira", "transaksi", "-n", count])
+
+    assert exited.value.code == 2
+    assert "1 sampai 10" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("action", [[], ["ringkasan"], ["dompet"], ["tujuan"], ["transaksi"]])
+def test_tepira_off_says_how_to_turn_it_on(action, home, tepira, capsys):
+    assert cli.main(["tepira", *action]) == 2
+
+    assert capsys.readouterr().out == (
+        "Keuangan tepira mati (tepira.enabled: false). Buat token dengan: waifu tepira token, "
+        "lalu isi bagian tepira di config.yaml.\n"
+    )
+    assert tepira.built == []
+
+
+def test_tepira_says_what_went_wrong_and_exits_1(home, tepira, capsys):
+    enable_tepira(home)
+    tepira.answers["wallets"] = FinanceError("token", TOKEN_REJECTED)
+
+    assert cli.main(["tepira", "dompet"]) == 1
+
+    assert capsys.readouterr().out == f"✗ {TOKEN_REJECTED}\n"
+
+
+def test_tepira_calls_an_answer_without_a_field_it_shows_unreadable(home, tepira, capsys):
+    enable_tepira(home)
+    wallets = [{"name": "GoPay", "balance": 250000}]  # tepira always sends the type
+    tepira.answers["wallets"] = {**TEPIRA_WALLETS, "totals": {}, "wallets": wallets}
+
+    assert cli.main(["tepira", "dompet"]) == 1
+
+    assert capsys.readouterr().out == "✗ Balasan tepira tidak bisa dibaca.\n"
+
+
+def test_tepira_token_prints_a_new_token_and_its_sha256_once(tmp_path, monkeypatch, capsys, caplog):
+    # No config.yaml and no network: a new token works before tepira is set up at all.
+    monkeypatch.chdir(tmp_path)
+    caplog.set_level(logging.DEBUG)
+
+    assert cli.main(["-v", "tepira", "token"]) == 0
+
+    token_line, sha_line, how = capsys.readouterr().out.splitlines()
+    token = token_line.removeprefix("token : ")
+    assert re.fullmatch(r"tpcy_[A-Za-z0-9_-]{43}", token)
+    assert sha_line == f"sha256: {hashlib.sha256(token.encode()).hexdigest()}"
+    assert "tepira.token" in how and "TEPIRA_CYRENE_TOKEN_SHA256" in how
+    assert token not in caplog.text
+
+
+def test_tepira_token_makes_a_different_token_every_time(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+
+    cli.main(["tepira", "token"])
+    cli.main(["tepira", "token"])
+
+    tokens = [line for line in capsys.readouterr().out.splitlines() if line.startswith("token")]
+    assert len(set(tokens)) == 2
+
+
+def use_tepira_transport(monkeypatch, handler) -> None:
+    """The real TepiraClient over an httpx MockTransport instead of the network."""
+    real_client = httpx.Client
+    monkeypatch.setattr(cli, "TepiraClient", TepiraClient)
+    monkeypatch.setattr(
+        cli.httpx, "Client", lambda **options: real_client(transport=httpx.MockTransport(handler))
+    )
+
+
+def test_tepira_through_the_real_client_sends_the_token_only_in_its_header(
+    home, monkeypatch, capsys, caplog
+):
+    enable_tepira(home)
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json={"ok": True, **TEPIRA_WALLETS})
+
+    use_tepira_transport(monkeypatch, handler)
+    caplog.set_level(logging.DEBUG)
+
+    assert cli.main(["-v", "tepira", "dompet"]) == 0
+
+    [request] = requests
+    assert str(request.url) == "https://tepira.asepsunarya.com/api/cyrene/wallets"
+    assert request.headers["Authorization"] == f"Bearer {TEPIRA_TOKEN}"
+    assert capsys.readouterr().out.startswith("- GoPay (e-wallet): Rp250.000\n")
+    assert "SECRETTEPIRA" not in caplog.text
+
+
+def test_tepira_with_its_token_refused_names_the_fix_and_never_the_token(
+    home, monkeypatch, capsys, caplog
+):
+    enable_tepira(home)
+    refused = httpx.Response(401, json={"ok": False, "error": "unauthorized"})
+    use_tepira_transport(monkeypatch, lambda request: refused)
+    caplog.set_level(logging.DEBUG)
+
+    assert cli.main(["-v", "tepira"]) == 1
+
+    out = capsys.readouterr().out
+    assert out == f"✗ {TOKEN_REJECTED}\n"
+    assert "SECRETTEPIRA" not in out + caplog.text

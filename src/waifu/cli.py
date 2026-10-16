@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import configparser
+import hashlib
 import http.client
 import io
 import json
@@ -16,6 +17,7 @@ import logging
 import math
 import os
 import re
+import secrets
 import shutil
 import socket
 import subprocess
@@ -35,7 +37,7 @@ from itertools import count
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from time import sleep
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import httpx
 import numpy as np
@@ -86,6 +88,16 @@ from waifu.devices.ir_codes import COMMAND_PATTERN, IrCodeStoreError
 from waifu.devices.ir_device import IrDevice
 from waifu.devices.registry import DeviceRegistry, build_registry
 from waifu.finance.tepira import TepiraClient
+from waifu.finance.values import (
+    DEFAULT_TRANSACTIONS,
+    MAX_GOAL_QUERY_CHARS,
+    MAX_TRANSACTIONS,
+    UNREADABLE,
+    WIB,
+    FinanceData,
+    FinanceError,
+    FinanceSource,
+)
 from waifu.gacha.code_store import CodeStore
 from waifu.gacha.code_tools import RECENT_CODES, CodeTools
 from waifu.gacha.code_watcher import OUTCOME_TEXT, CodeWatcher, ReadCodes
@@ -317,6 +329,22 @@ TODO_DESCRIPTION = (
     "tugas yang belum selesai. Perintah ini jalan walau todo.enabled: false; Cyrene yang sedang "
     "berjalan langsung melihat perubahannya."
 )
+TEPIRA_DESCRIPTION = (
+    "Keuangan Master dari tepira (aplikasi keuangan Master) lewat API khusus Cyrene: ringkasan "
+    "bulan ini, saldo dompet, tujuan tabungan, dan transaksi terbaru. Tanpa aksi, 'waifu tepira' "
+    "menampilkan ringkasan. 'waifu tepira token' membuat token API baru tanpa internet, juga "
+    "sebelum tepira dinyalakan. Mencatat pengeluaran hanya lewat suara."
+)
+TEPIRA_OFF = (
+    "Keuangan tepira mati (tepira.enabled: false). Buat token dengan: waifu tepira token, lalu "
+    "isi bagian tepira di config.yaml."
+)
+TEPIRA_TOKEN_USE = (
+    "Isi tepira.token di config.yaml dengan baris token (rahasia seperti kata sandi, jangan "
+    "dibagikan), lalu tempel baris sha256 ke TEPIRA_CYRENE_TOKEN_SHA256 di Vercel (Production, "
+    "Sensitive) dan simpan juga untuk rotasi nanti."
+)
+TEPIRA_TOKEN_BYTES = 32  # tepira's README makes its tokens from 32 random bytes too
 BRIEFING_TAG = "sunrise"  # ntfy shows it as a sunrise emoji
 BUDGET_TAG = "money_with_wings"  # ntfy shows it as an emoji of money flying away
 PHONE_DESCRIPTION = (
@@ -721,6 +749,40 @@ def build_parser() -> argparse.ArgumentParser:
     todo_done.add_argument("task_id", metavar="id", help="id dari 'waifu todo', misalnya t3")
     todo_remove = command("remove", _todo_remove, "Hapus satu tugas.", todo_actions)
     todo_remove.add_argument("task_id", metavar="id", help="id dari 'waifu todo', misalnya t3")
+    tepira_command = commands.add_parser(
+        "tepira",
+        parents=[shared],
+        help="Keuangan Master dari tepira: ringkasan, dompet, tujuan tabungan, transaksi, token.",
+        description=TEPIRA_DESCRIPTION,
+    )
+    tepira_command.set_defaults(handler=_tepira_summary)
+    tepira_actions = tepira_command.add_subparsers(dest="action", metavar="<aksi>")
+    command(
+        "ringkasan",
+        _tepira_summary,
+        "Pengeluaran, pemasukan, dan budget bulan ini (WIB).",
+        tepira_actions,
+    )
+    command("dompet", _tepira_wallets, "Saldo tiap dompet dan kekayaan bersih.", tepira_actions)
+    goals = command("tujuan", _tepira_goals, "Tujuan tabungan dan progresnya.", tepira_actions)
+    goals.add_argument(
+        "goal_name", nargs="*", metavar="nama", help="sebagian nama tujuan, misalnya laptop"
+    )
+    transactions = command("transaksi", _tepira_transactions, "Transaksi terbaru.", tepira_actions)
+    transactions.add_argument(
+        "-n",
+        dest="count",
+        type=_transaction_count,
+        default=DEFAULT_TRANSACTIONS,
+        metavar="N",
+        help=f"jumlah transaksi, 1 sampai {MAX_TRANSACTIONS} (default {DEFAULT_TRANSACTIONS})",
+    )
+    command(
+        "token",
+        _tepira_token,
+        "Buat token API Cyrene baru dan hash-nya untuk Vercel (tanpa internet).",
+        tepira_actions,
+    )
     phone_command = commands.add_parser(
         "phone",
         parents=[shared],
@@ -810,6 +872,15 @@ def _due_date(text: str) -> date:
     raise argparse.ArgumentTypeError(
         f"tulis tanggalnya YYYY-MM-DD, misalnya 2026-10-23, bukan {text!r}"
     )
+
+
+def _transaction_count(text: str) -> int:
+    """How many of tepira's newest transactions to show: a whole number it serves at once."""
+    if not (text.isascii() and text.isdigit() and 1 <= int(text) <= MAX_TRANSACTIONS):
+        raise argparse.ArgumentTypeError(
+            f"harus bilangan bulat 1 sampai {MAX_TRANSACTIONS}, bukan {text!r}"
+        )
+    return int(text)
 
 
 def _config_problem(exc: ConfigError) -> str:
@@ -2823,8 +2894,10 @@ def _usage_row(
 
 
 def _rupiah(amount: float) -> str:
-    """`Rp3.808`: whole rupiah, thousands separated by dots as written in Indonesia."""
-    return f"Rp{round(amount):,}".replace(",", ".")
+    """`Rp3.808`: whole rupiah, thousands separated by dots as written in Indonesia; a debt is
+    `-Rp1.200.000`."""
+    sign = "-" if round(amount) < 0 else ""
+    return f"{sign}Rp{abs(round(amount)):,}".replace(",", ".")
 
 
 # --- Cyrene on the phone ---------------------------------------------------------------------
@@ -3620,6 +3693,209 @@ def _tepira_client(config: AppConfig, http: httpx.Client) -> TepiraClient:
     token = config.tepira.token
     assert token is not None  # tepira.enabled needs the token (TepiraConfig)
     return TepiraClient(http, config.tepira.url, token)
+
+
+def _tepira_summary(args: argparse.Namespace) -> int:
+    """This month's spending, income, and budget, the month in WIB as she counts it."""
+    today = datetime.now(WIB)
+    return _tepira_view(
+        args,
+        lambda source: source.summary(today.month, today.year),
+        lambda summary: _summary_lines(summary, today.month, today.year),
+    )
+
+
+def _tepira_wallets(args: argparse.Namespace) -> int:
+    return _tepira_view(args, lambda source: source.wallets(), _wallet_lines)
+
+
+def _tepira_goals(args: argparse.Namespace) -> int:
+    query = " ".join(" ".join(args.goal_name).split()) or None
+    # tepira measures the name as JavaScript does, in UTF-16 units: an emoji counts twice.
+    if query is not None and len(query.encode("utf-16-le")) // 2 > MAX_GOAL_QUERY_CHARS:
+        print(f"{FAIL} Nama tujuan paling banyak {MAX_GOAL_QUERY_CHARS} karakter.")
+        return 2
+    return _tepira_view(
+        args, lambda source: source.goals(query), lambda goals: _goal_lines(goals, query)
+    )
+
+
+def _tepira_transactions(args: argparse.Namespace) -> int:
+    return _tepira_view(
+        args, lambda source: source.transactions(args.count, None), _transaction_lines
+    )
+
+
+def _tepira_token(args: argparse.Namespace) -> int:
+    """A new Cyrene API token and its SHA-256, printed once and never logged: the token goes
+    into config.yaml, the hash into Vercel. Needs neither the config nor the network."""
+    token = f"tpcy_{secrets.token_urlsafe(TEPIRA_TOKEN_BYTES)}"
+    print(f"token : {token}")
+    print(f"sha256: {hashlib.sha256(token.encode('ascii')).hexdigest()}")
+    print(TEPIRA_TOKEN_USE)
+    return 0
+
+
+def _tepira_view(
+    args: argparse.Namespace,
+    read: Callable[[FinanceSource], FinanceData],
+    lines: Callable[[FinanceData], list[str]],
+) -> int:
+    """Print what `read` gets from tepira as `lines`, over a connection for this command only:
+    exit 2 with tepira off, 1 when tepira gave no answer or one without a field the lines show."""
+    config = load_config(args.config)
+    if not config.tepira.enabled:
+        print(TEPIRA_OFF)
+        return 2
+    try:
+        with httpx.Client() as http:
+            data = read(_tepira_client(config, http))
+    except FinanceError as error:
+        print(f"{FAIL} {error.message}")
+        return 1
+    try:
+        shown = lines(data)
+    except (AttributeError, KeyError, TypeError, ValueError):
+        # The client checks only the fields every answer needs; these lines show a few more.
+        logger.warning("tepira's answer lacks a field 'waifu tepira' shows")
+        print(f"{FAIL} {UNREADABLE}")
+        return 1
+    print("\n".join(shown))
+    return 0
+
+
+def _summary_lines(summary: FinanceData, month: int, year: int) -> list[str]:
+    """`Keuangan Oktober 2026 (per 2026-10-16 09:12 WIB)`, then spending, income, the budget
+    and its categories, what fell outside them, and the weekly score; what tepira left out (a
+    month without a salary row, no score yet) is left out of the lines."""
+    spent, income = summary["spent"], summary["income"]
+    spending = f"Pengeluaran: {_rupiah(spent['total'])} dari {spent['count']} transaksi"
+    sources = _amounts(spent, ("gaji", "gaji"), ("bonus", "bonus"))
+    if sources:
+        spending += f" ({sources})"
+    recent = _amounts(
+        spent, ("today", "hari ini"), ("yesterday", "kemarin"), ("this_week", "minggu ini")
+    )
+    if recent:
+        spending += f"; {recent}"
+    lines = [
+        f"Keuangan {MONTHS_ID[month - 1]} {year} (per {_wib_stamp(summary['as_of'])})",
+        spending,
+    ]
+    earned = _amounts(
+        income, ("salary", "gaji"), ("bonus", "bonus"), ("starting_balance", "saldo awal")
+    )
+    left = _amounts(income, ("net", "sisa"), ("ending_estimate", "perkiraan saldo akhir"))
+    if earned or left:
+        lines.append(f"Pemasukan: {'; '.join(part for part in (earned, left) if part)}")
+    lines.append(_budget_line(summary["budget"]))
+    lines += [_category_line(row) for row in summary["categories"]]
+    other = summary["other_spent"]
+    lines.append(
+        f"Tanpa kategori {_rupiah(other['uncategorized'])}; "
+        f"di luar budget {_rupiah(other['unbudgeted'])}"
+    )
+    insight = summary.get("insight")
+    if insight is not None:
+        lines.append(
+            f"Skor mingguan: {insight['health_score']} ({insight['status']}), "
+            f"minggu mulai {insight['week_start']}"
+        )
+    return lines
+
+
+def _budget_line(budget: Mapping[str, Any]) -> str:
+    """`Budget (gaji+bonus): Rp3.000.000, terpakai Rp2.350.000 (78,3%), sisa Rp650.000`."""
+    title = f"Budget ({budget['basis']})"
+    if budget["status"] == "NO_BUDGET":
+        return f"{title}: belum diatur"
+    used = f"terpakai {_rupiah(budget['spent'])} ({_percent(budget['used_percent'])})"
+    return f"{title}: {_rupiah(budget['allocated'])}, {used}, {_left(budget['remaining'])}"
+
+
+def _category_line(row: Mapping[str, Any]) -> str:
+    """`- Makan harian: sisa Rp220.000 dari Rp1.200.000 (81,7%)`, `lewat` when it is over."""
+    return (
+        f"- {row['category']}: {_left(row['remaining'])} dari {_rupiah(row['allocated'])} "
+        f"({_percent(row['used_percent'])})"
+    )
+
+
+def _wallet_lines(answer: FinanceData) -> list[str]:
+    """`- GoPay (e-wallet): Rp250.000` per wallet, a debt below zero, then the totals."""
+    lines = [
+        f"- {wallet['name']} ({wallet['type']}): {_rupiah(wallet['balance'])}"
+        for wallet in answer["wallets"]
+    ]
+    if answer["more"]:
+        lines.append(f"dan {answer['more']} dompet lagi")
+    totals = answer["totals"]
+    lines.append(
+        f"Aset {_rupiah(totals['assets'])}, kewajiban {_rupiah(totals['debts'])}, "
+        f"kekayaan bersih {_rupiah(totals['net_worth'])}"
+    )
+    return lines
+
+
+def _goal_lines(answer: FinanceData, query: str | None) -> list[str]:
+    """One line per goal, unfinished first as tepira orders them."""
+    if not answer["goals"]:
+        return ["Tidak ada tujuan tabungan yang cocok." if query else "Belum ada tujuan tabungan."]
+    lines = [_goal_line(goal) for goal in answer["goals"]]
+    if answer["more"]:
+        lines.append(f"dan {answer['more']} tujuan lagi")
+    return lines
+
+
+def _goal_line(goal: Mapping[str, Any]) -> str:
+    """`- Laptop baru: Rp6.200.000 dari Rp15.000.000 (41,3%), kurang Rp8.800.000, tenggat
+    2027-03-31 (166 hari lagi), perlu Rp1.600.000 per bulan`; a goal without a deadline has
+    neither of the last two."""
+    parts = [
+        f"{_rupiah(goal['saved'])} dari {_rupiah(goal['target'])} ({_percent(goal['percent'])})",
+        f"kurang {_rupiah(goal['remaining'])}" if goal["remaining"] > 0 else "tercapai",
+    ]
+    if "deadline" in goal:
+        days = f" ({goal['days_left']} hari lagi)" if "days_left" in goal else ""
+        parts.append(f"tenggat {goal['deadline']}{days}")
+    if "per_month_needed" in goal:
+        parts.append(f"perlu {_rupiah(goal['per_month_needed'])} per bulan")
+    return f"- {goal['title']}: {', '.join(parts)}"
+
+
+def _transaction_lines(answer: FinanceData) -> list[str]:
+    """`- 2026-10-16 08:41 Rp18.000 Nongkrong / jajan: kopi susu (GoPay)`, newest first."""
+    if not answer["transactions"]:
+        return ["Belum ada transaksi."]
+    lines = []
+    for row in answer["transactions"]:
+        line = f"- {row['date']} {_rupiah(row['amount'])} {row['category'] or 'tanpa kategori'}"
+        if row["note"]:
+            line += f": {row['note']}"
+        if row["wallet"]:
+            line += f" ({row['wallet']})"
+        lines.append(line)
+    return lines
+
+
+def _amounts(values: Mapping[str, Any], *labelled: tuple[str, str]) -> str:
+    """`gaji Rp5.000.000, bonus Rp500.000`: each (key, label) whose amount `values` holds."""
+    return ", ".join(f"{label} {_rupiah(values[key])}" for key, label in labelled if key in values)
+
+
+def _left(remaining: int) -> str:
+    """`sisa Rp650.000`, or `lewat Rp42.000` when more was spent than allocated."""
+    return f"sisa {_rupiah(remaining)}" if remaining >= 0 else f"lewat {_rupiah(-remaining)}"
+
+
+def _percent(value: float) -> str:
+    """`78,3%` with the Indonesian decimal comma; tepira sends a whole percent as an integer."""
+    return f"{value}%" if isinstance(value, int) else f"{_decimal_comma(value)}%"
+
+
+def _wib_stamp(as_of: str) -> str:
+    """`2026-10-16 09:12 WIB` for tepira's `2026-10-16T09:12:00+07:00`."""
+    return f"{datetime.fromisoformat(as_of).astimezone(WIB):%Y-%m-%d %H:%M} WIB"
 
 
 # --- songs on YouTube ------------------------------------------------------------------------
