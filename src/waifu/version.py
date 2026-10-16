@@ -132,6 +132,16 @@ def newer_releases(running: CodeVersion, disk: CodeVersion) -> tuple[Release, ..
     return tuple(release for release in disk.releases if release.number > newest)
 
 
+def dependencies_changed(running: CodeVersion, disk: CodeVersion) -> bool:
+    """Whether the core dependencies on disk differ from the running ones; never when either
+    hash is unknown."""
+    return (
+        running.dependencies is not None
+        and disk.dependencies is not None
+        and running.dependencies != disk.dependencies
+    )
+
+
 def read_code_version(root: Path = REPO_ROOT, *, run: Run | None = subprocess.run) -> CodeVersion:
     """The code in `root` now: its releases and dependency hash, and with `run` its commit, or
     the newest source file's time when git cannot tell. `run=None` reads neither. Never raises."""

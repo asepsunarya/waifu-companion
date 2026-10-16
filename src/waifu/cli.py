@@ -179,12 +179,14 @@ from waifu.version import (
     CodeVersion,
     Release,
     RunningVersion,
+    dependencies_changed,
+    newer_releases,
     process_alive,
     read_code_version,
     read_running,
     write_running,
 )
-from waifu.version_watch import VersionWatcher, version_news
+from waifu.version_watch import VersionWatcher
 from waifu.voice.audio import MicStream, Player, list_devices
 from waifu.voice.rvc import (
     SERVER_SCRIPT,
@@ -2956,8 +2958,9 @@ def _running_version_check(disk: CodeVersion, held: bool, running: RunningVersio
             f"mulai ulang supaya {newest} aktif"
         )
     version = running.code.release.version
-    news = version_news(running.code, disk)
-    if news is None:
+    newer = newer_releases(running.code, disk)
+    packages = dependencies_changed(running.code, disk)
+    if not newer and not packages:
         if _changed_since(running.code, disk):
             return OK, (
                 f"waifu run: {version}, terbaru; ada perubahan kecil sejak dimulai, "
@@ -2965,8 +2968,8 @@ def _running_version_check(disk: CodeVersion, held: bool, running: RunningVersio
             )
         return OK, f"waifu run: {version}, terbaru"
     old = f"waifu run yang sedang jalan masih {version} ({started})"
-    active = f" supaya {newest} aktif" if news.releases else ""
-    if news.dependencies_changed:
+    active = f" supaya {newest} aktif" if newer else ""
+    if packages:
         return WARN, (
             f"{old} dan paket Python-nya berubah: tutup Cyrene, jalankan {INSTALL_COMMAND} di "
             f"folder proyek, lalu mulai ulang{active}"

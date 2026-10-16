@@ -23,6 +23,7 @@ from waifu.version import (
     CodeVersion,
     Release,
     RunningVersion,
+    dependencies_changed,
     dependency_hash,
     newer_releases,
     parse_releases,
@@ -181,6 +182,28 @@ def test_a_running_release_missing_from_the_disk_s_changelog_still_counts_by_its
 )
 def test_nothing_is_newer_when_either_side_has_no_release(running, disk):
     assert newer_releases(running, disk) == ()
+
+
+# --- changed dependencies ----------------------------------------------------------------------
+
+OTHER_HASH = "b" * 64
+
+
+def test_the_dependencies_changed_when_both_hashes_are_known_and_differ():
+    assert dependencies_changed(code("v1.25"), code("v1.25", dependencies=OTHER_HASH)) is True
+
+
+def test_the_same_dependency_hash_is_no_change():
+    assert dependencies_changed(code("v1.25"), code("v1.26", "v1.25")) is False
+
+
+@pytest.mark.parametrize(
+    ("running", "disk"),
+    [(code("v1.25", dependencies=None), code("v1.25")), (code("v1.25"), code(dependencies=None))],
+    ids=["running", "disk"],
+)
+def test_an_unknown_dependency_hash_is_never_a_change(running, disk):
+    assert dependencies_changed(running, disk) is False
 
 
 # --- reading a project folder ------------------------------------------------------------------

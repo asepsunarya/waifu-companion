@@ -25,7 +25,13 @@ from datetime import datetime
 from waifu.config import VersionNoticeConfig, at_sentence_start
 from waifu.finance.values import spoken_rupiah as spoken_number
 from waifu.notify import Notifier
-from waifu.version import INSTALL_COMMAND, CodeVersion, Release, newer_releases
+from waifu.version import (
+    INSTALL_COMMAND,
+    CodeVersion,
+    Release,
+    dependencies_changed,
+    newer_releases,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -50,11 +56,7 @@ def version_news(running: CodeVersion, disk: CodeVersion) -> VersionNews | None:
     """The news of the code on `disk` for a run that started with `running`; None when there is
     no newer release and the dependencies are not known on both sides to differ."""
     releases = newer_releases(running, disk)
-    changed = (
-        running.dependencies is not None
-        and disk.dependencies is not None
-        and running.dependencies != disk.dependencies
-    )
+    changed = dependencies_changed(running, disk)
     if not releases and not changed:
         return None
     return VersionNews(releases, changed)
