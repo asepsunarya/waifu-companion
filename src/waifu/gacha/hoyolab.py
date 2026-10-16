@@ -19,7 +19,9 @@ from datetime import UTC, datetime
 from typing import Any, Literal, TypeVar
 
 from waifu.config import cookie_names
+from waifu.gacha import zenless
 from waifu.gacha.codes import RedeemResult
+from waifu.gacha.game_data import Endgame, GameCalendar
 from waifu.gacha.games import GAMES, Game
 from waifu.gacha.starrail import (
     HsrCalendar,
@@ -77,6 +79,9 @@ _ENDGAME_REQUESTS: dict[str, Callable[[Any, int], Awaitable[Any]]] = {
     "shiyu_defense": lambda client, uid: client.get_shiyu_defense(uid),
     "deadly_assault": lambda client, uid: client.get_deadly_assault(uid),
 }
+ZZZ = GAMES["zzz"]
+# A ZZZ agent's detail is one request: given a list, genshin.py gathers them without a limit.
+AGENT_DETAILS_AT_ONCE = 2
 # Codes tried per redeem_codes call; the rest are left out of its results for a later call.
 REDEEM_CODES_AT_MOST = 10
 # Between two redemption attempts: HoYoLAB refuses one about 5 s after the last (cooldown).
@@ -338,6 +343,56 @@ class HoyolabClient:
             ", ".join(f"{result.code} {result.outcome}" for result in results),
         )
         return results
+
+    def zzz_characters(self) -> tuple[zenless.ZzzAgent, ...]:
+        """Every owned ZZZ agent, without her W-Engine, from the HoYoLAB Battle Chronicle."""
+
+        async def agents(client: Any) -> tuple[zenless.ZzzAgent, ...]:
+            uid = await self._game_uid(client, ZZZ)
+            models = await _chronicle(client.get_zzz_agents(uid), ZZZ)
+            return tuple(zenless.read_agent(model) for model in models)
+
+        return self._run(agents, ZZZ)
+
+    def zzz_character_details(self, refs: Sequence[int]) -> tuple[zenless.ZzzAgentDetail, ...]:
+        """The detail of each agent in `refs`, in that order: one request per agent, at most
+        AGENT_DETAILS_AT_ONCE in flight, and one failing fails the call. No refs ask HoYoLAB
+        nothing."""
+        refs = list(refs)
+        if not refs:
+            return ()
+
+        async def details(client: Any) -> tuple[zenless.ZzzAgentDetail, ...]:
+            uid = await self._game_uid(client, ZZZ)
+            at_once = asyncio.Semaphore(AGENT_DETAILS_AT_ONCE)
+
+            async def one(ref: int) -> zenless.ZzzAgentDetail:
+                async with at_once:
+                    model = await _chronicle(client.get_zzz_agent_info(ref, uid=uid), ZZZ)
+                return zenless.read_detail(model)
+
+            return tuple(await asyncio.gather(*(one(ref) for ref in refs)))
+
+        return self._run(details, ZZZ)
+
+    def zzz_endgame(self, modes: Iterable[str]) -> dict[str, Endgame | GachaError]:
+        """This season of each ZZZ endgame mode; a failing mode does not hide the others."""
+        return self._endgame(ZZZ, modes, zenless.read_endgame)
+
+    def zzz_calendar(self) -> GameCalendar:
+        """The ZZZ event calendar, events and banners, from its two requests; either failing
+        fails the call. Whatever is over at the fetch time is left out."""
+
+        async def calendar(client: Any) -> GameCalendar:
+            uid = await self._game_uid(client, ZZZ)
+            fetched_at = self._now()
+            events, gacha = await asyncio.gather(
+                _chronicle(client.get_zzz_event_calendar(uid), ZZZ),
+                _chronicle(client.get_zzz_gacha_calendar(uid), ZZZ),
+            )
+            return zenless.read_calendar(events, gacha, fetched_at)
+
+        return self._run(calendar, ZZZ)
 
     def _run(
         self,
