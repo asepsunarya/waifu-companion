@@ -336,6 +336,21 @@ schedule:
 #   active_until: "21:00"  # dan sebelum jam ini; malam hari dia diam
 #   push: true             # kirim peringatannya juga ke HP (kalau notify menyala)
 
+# Kabar versi baru (README, bagian "Versi baru"): `waifu run` yang menyala berhari-hari tetap
+# menjalankan kode saat dia dimulai. Selama itu Cyrene membandingkannya dengan kode di folder ini,
+# dan sekali untuk setiap versi baru di CHANGELOG.md dia bilang, misalnya "Master, ada versi baru
+# Cyrene: v1.26, versi baru. Mulai ulang aku kalau sempat ya." Kalau paket Python-nya berubah, dia
+# minta pip install dulu dan perintahnya dikirim ke HP. Dia tidak pernah memulai ulang dirinya
+# sendiri. Cek dengan `waifu version` atau `waifu check`.
+# Sudah menyala tanpa ditulis; untuk mengubahnya, tulis bagian ini tanpa tanda # di depannya
+# (atau enabled: false untuk mematikannya).
+# version_notice:
+#   enabled: true
+#   check_minutes: 30      # bandingkan dengan kode di disk setiap sekian menit (5-1440)
+#   active_from: "08:00"   # hanya mulai jam ini (jam PC)
+#   active_until: "22:00"  # dan sebelum jam ini; malam hari dia diam
+#   push: true             # kirim kabarnya juga ke HP (kalau notify menyala)
+
 # Biaya API Claude (README, bagian "Biaya API Claude"): dengan otak Claude, Cyrene mencatat token
 # setiap jawabannya dan menghitung biayanya dari harga per model. Tanyakan "Cyrene, biaya API
 # bulan ini berapa?" atau lihat `waifu usage`. Ini perkiraan dari catatannya sendiri, bukan

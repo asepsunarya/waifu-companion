@@ -7,6 +7,8 @@ reach beyond this PC either: a forgotten fake must not push to the owner's phone
 or check in on their HoYoLAB account. Nor may a test read the owner's game logs and
 caches, which hold their history authkeys, press real keys (media keys would change the
 owner's music and volume), open real programs and URLs, or capture the owner's real screen.
+Nor may a test run git: the version reader finds the repository from its own file, so a
+forgotten fake would ask the real repository, which the builder commits to.
 """
 
 import ctypes
@@ -99,10 +101,17 @@ def _is_system_change_command(args: object) -> bool:
     return False
 
 
+def _is_git_command(args: object) -> bool:
+    words = _words(args)
+    return bool(words) and _program(words[0]) == "git"
+
+
 class _GuardedPopen(_REAL_POPEN):  # type: ignore[misc, valid-type]
     def __init__(self, args, *pargs, **kwargs):
         if _is_power_command(args):
             raise AssertionError(f"a test tried to run a real power command: {args!r}")
+        if _is_git_command(args):
+            raise AssertionError(f"a test tried to run git: {args!r}")
         if _is_system_change_command(args):
             raise AssertionError(f"a test tried to run a real system-change command: {args!r}")
         super().__init__(args, *pargs, **kwargs)

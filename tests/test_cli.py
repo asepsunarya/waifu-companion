@@ -66,6 +66,7 @@ from waifu.config import (
     RedeemCodesConfig,
     RvcConfig,
     TodoConfig,
+    VersionNoticeConfig,
 )
 from waifu.devices.base import DeviceError
 from waifu.devices.ir_codes import IrCodeStore
@@ -133,6 +134,7 @@ from waifu.screen import ScreenImage
 from waifu.single_instance import InstanceLock
 from waifu.todo import TodoStore
 from waifu.usage import TokenUsage, UsageLedger, UsageSummary
+from waifu.version import CodeVersion, Release, RunningVersion, read_running, write_running
 from waifu.voice.base import SpeakerEmbedder, SpeechToText, Transcript
 from waifu.voice.rvc import RvcError
 from waifu.voice.speaker import SpeakerVerifier
@@ -426,6 +428,92 @@ def rain_watchers(events, monkeypatch) -> list[FakeRainWatcher]:
         return built[-1]
 
     monkeypatch.setattr(cli, "RainWatcher", build)
+    return built
+
+
+V124 = Release("v1.24", "keuangan dari tepira")
+V125 = Release("v1.25", "peringatan hujan")
+DISK_COMMIT = "ec4aadf" + "1" * 33
+DISK_HASH = "d" * 64
+DISK_CODE = CodeVersion((V125, V124), DISK_HASH, DISK_COMMIT)
+
+
+class FakeCodeReader:
+    """Stands in for read_code_version, which would read this repository and run git: hands
+    out `disk` and remembers each read's `run` (None: neither git nor the source files)."""
+
+    def __init__(self) -> None:
+        self.disk = DISK_CODE
+        self.runs: list[object] = []
+
+    def __call__(self, *, run=subprocess.run) -> CodeVersion:
+        self.runs.append(run)
+        return self.disk
+
+
+@pytest.fixture(autouse=True)
+def code_on_disk(monkeypatch) -> FakeCodeReader:
+    """`run`, `check`, and `version` read the version of this repository's code, with git:
+    every test gets the fake (tests/conftest.py refuses git too)."""
+    reader = FakeCodeReader()
+    monkeypatch.setattr(cli, "read_code_version", reader)
+    return reader
+
+
+@pytest.fixture(autouse=True)
+def alive_processes(monkeypatch) -> set[int]:
+    """The process ids that run: only this test's own unless a test adds one, so a record
+    that `run` wrote here names a live process and no real process is ever asked about."""
+    alive = {os.getpid()}
+    monkeypatch.setattr(cli, "process_alive", lambda pid: pid in alive)
+    return alive
+
+
+@pytest.fixture(autouse=True)
+def running_records_under_tmp_path(tmp_path, monkeypatch):
+    """A test that leaves the working directory at the repository fails instead of writing
+    over the owner's data/running.json."""
+
+    def write_under_tmp_path(path, running) -> None:
+        if not Path(path).resolve().is_relative_to(tmp_path.resolve()):
+            raise AssertionError(f"a test wrote a running record outside tmp_path: {path}")
+        write_running(path, running)
+
+    monkeypatch.setattr(cli, "write_running", write_under_tmp_path)
+
+
+class FakeVersionWatcher:
+    """Stands in for VersionWatcher without a thread, remembering what it was given, whether
+    `waifu run` listened when it started and stopped, and the test's `events` up to then."""
+
+    def __init__(
+        self, read, running, config, *, announce, notifier, owner_call, name, events: list[str]
+    ) -> None:
+        self.read, self.running, self.config, self.announce = read, running, config, announce
+        self.notifier, self.owner_call, self.name = notifier, owner_call, name
+        self._events = events
+        self.listening: list[bool] = []
+        self.events_when_started: list[str] | None = None
+
+    def start(self) -> None:
+        self.listening.append(listening())
+        self.events_when_started = list(self._events)
+
+    def stop(self) -> None:
+        self.listening.append(listening())
+
+
+@pytest.fixture(autouse=True)
+def version_watchers(events, monkeypatch) -> list[FakeVersionWatcher]:
+    """The real watcher would read this repository's files in a thread through every `run`
+    (the notice is on by default), so every test gets the fake."""
+    built: list[FakeVersionWatcher] = []
+
+    def build(read, running, config, **arguments) -> FakeVersionWatcher:
+        built.append(FakeVersionWatcher(read, running, config, **arguments, events=events))
+        return built[-1]
+
+    monkeypatch.setattr(cli, "VersionWatcher", build)
     return built
 
 
@@ -7329,6 +7417,408 @@ def test_check_reports_the_rain_alerts_right_after_the_morning_greeting(
     lines = capsys.readouterr().out.splitlines()
     greeting = next(index for index, line in enumerate(lines) if "Sapaan pagi" in line)
     assert "Peringatan hujan" in lines[greeting + 1]
+
+
+# --- versi baru --------------------------------------------------------------------------------
+
+V111 = Release("v1.11", "memotong bicaranya")
+V126 = Release("v1.26", "versi baru")
+OLD_COMMIT = "1a2b3c4" + "5" * 33
+OLD_HASH = "e" * 64
+STARTED = datetime(2026, 10, 13, 8, 15, 4)
+INSTALL = ".venv\\Scripts\\python -m pip install -e ."
+
+
+def running_file(home: Path) -> Path:
+    return home / "data" / "running.json"
+
+
+def test_run_records_what_it_runs_before_its_startup_delay(run_fakes, code_on_disk, monkeypatch):
+    path = running_file(run_fakes.lock.parent.parent)
+    recorded_before_waiting: list[RunningVersion | None] = []
+    monkeypatch.setattr(
+        cli, "sleep", lambda seconds: recorded_before_waiting.append(read_running(path))
+    )
+    before = datetime.now().replace(microsecond=0)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check", "--startup-delay", "15"]) == 0
+
+    [record] = recorded_before_waiting
+    assert record == read_running(path)
+    assert record.code == CodeVersion((V125,), DISK_HASH, DISK_COMMIT)  # the newest release
+    assert record.pid == os.getpid()
+    assert before <= record.started <= datetime.now()
+    assert code_on_disk.runs == [subprocess.run]  # with git, once, before anything else
+
+
+def test_run_logs_what_it_runs_and_each_part_it_could_not_read(run_fakes, code_on_disk, caplog):
+    code_on_disk.disk = CodeVersion(
+        (V125,), DISK_HASH, None, datetime(2026, 10, 17, 9, 12), ("Could not read the git commit",)
+    )
+    caplog.set_level(logging.INFO, logger="waifu.cli")
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    records = [(r.levelno, r.getMessage()) for r in caplog.records if r.name == "waifu.cli"]
+    assert (logging.WARNING, "Could not read the git commit") in records
+    assert (
+        logging.INFO,
+        "Running v1.25 (peringatan hujan), source files of 2026-10-17 09:12:00",
+    ) in records
+
+
+def test_run_that_cannot_record_its_version_still_runs(run_fakes, monkeypatch, caplog):
+    def refuse(path, running) -> None:
+        raise PermissionError("another process has it open")
+
+    monkeypatch.setattr(cli, "write_running", refuse)
+
+    with caplog.at_level(logging.WARNING, logger="waifu.cli"):
+        assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    assert RecordingAssistant.instances[0].ran_with is not None
+    assert "Could not record the running version" in caplog.text
+
+
+def test_enroll_and_chat_never_record_a_running_version(home, recording_mics, brains, monkeypatch):
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main(["enroll", "--samples", "3", "--seconds", "0.5"]) == 0
+    assert cli.main(["chat", "--dry-run"]) == 0
+
+    assert not running_file(home).exists()
+
+
+def test_run_watches_for_a_newer_version_while_she_listens_and_pushes_it(
+    home, run_fakes, brains, version_watchers, code_on_disk, monkeypatch
+):
+    enable_notify(home)
+    notifier = FakeNotifier()
+    use_notifier(monkeypatch, notifier)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    [watcher] = version_watchers
+    assert watcher.running == DISK_CODE  # what it read at the start, every release
+    assert watcher.config == VersionNoticeConfig()  # the example config's settings
+    assert (watcher.owner_call, watcher.name, watcher.notifier) == ("Master", "Cyrene", notifier)
+    assert watcher.listening == [False, True]
+    assert "mic opened" in watcher.events_when_started  # once she is ready to listen
+    code_on_disk.disk = CodeVersion((V126, V125), DISK_HASH)
+    assert watcher.read() == code_on_disk.disk
+    assert code_on_disk.runs[-1] is None  # neither git nor the source files at every check
+    text = "Master, ada versi baru Cyrene: v1.26, versi baru. Mulai ulang aku kalau sempat ya."
+    watcher.announce(text, "happy")
+    assistant = RecordingAssistant.instances[0]
+    assert assistant.announced == [(text, "happy")]
+    # Never inside a conversation: she says it once the follow-up window has closed.
+    assert assistant.waiting_for_followup == [text]
+
+
+def test_run_watches_for_a_newer_version_as_configured(home, run_fakes, brains, version_watchers):
+    call_the_owner(home, "Sayang")
+    append_config(home, "version_notice:\n  check_minutes: 60\n  active_from: '09:00'\n")
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    [watcher] = version_watchers
+    assert watcher.config == VersionNoticeConfig(check_minutes=60, active_from="09:00")
+    assert (watcher.owner_call, watcher.notifier) == ("Sayang", None)  # notify is off
+
+
+def test_run_tells_a_newer_version_without_a_push_when_push_is_off(
+    home, run_fakes, brains, version_watchers, monkeypatch
+):
+    enable_notify(home)
+    append_config(home, "version_notice:\n  push: false\n")
+    use_notifier(monkeypatch, FakeNotifier())
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    [watcher] = version_watchers
+    assert watcher.notifier is None
+
+
+def test_run_with_the_notice_off_watches_nothing_but_still_records_its_version(
+    home, run_fakes, brains, version_watchers
+):
+    append_config(home, "version_notice:\n  enabled: false\n")
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    assert version_watchers == []
+    assert read_running(running_file(home)).code.release == V125
+
+
+@pytest.mark.parametrize(
+    ("failure", "exit_code"),
+    [(SttError("Whisper berhenti."), 1), (KeyboardInterrupt(), 130)],
+    ids=["whisper-fails", "ctrl-c"],
+)
+def test_run_stops_watching_for_a_newer_version_however_listening_ends(
+    failure, exit_code, home, run_fakes, brains, version_watchers, monkeypatch
+):
+    def listen_until_it_fails(self, mic, segmenter) -> None:
+        self.ran_with = (mic, segmenter)
+        raise failure
+
+    monkeypatch.setattr(RecordingAssistant, "run", listen_until_it_fails)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == exit_code
+
+    [watcher] = version_watchers
+    assert watcher.listening == [False, True]
+
+
+def test_chat_never_watches_for_a_newer_version(home, brains, version_watchers, monkeypatch):
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main(["chat", "--dry-run"]) == 0
+
+    assert version_watchers == []
+
+
+def record_a_run(home: Path, code: CodeVersion, *, pid: int | None = None) -> None:
+    """data/running.json as a `waifu run` started at STARTED with `code` would write it."""
+    write_running(running_file(home), RunningVersion(code, STARTED, pid or os.getpid()))
+
+
+def version_line(out: str) -> str:
+    [line] = [line for line in out.splitlines() if line[2:].startswith("waifu run")]
+    return line
+
+
+def check_while_running(home: Path, capsys) -> str:
+    """The version line of `waifu check` while a `waifu run` holds the run lock."""
+    with InstanceLock(home / "data" / "run.lock"):
+        cli.main(["check"])
+    return version_line(capsys.readouterr().out)
+
+
+def test_check_without_a_running_cyrene_says_so_and_names_the_version_on_disk(
+    home, nothing_installed, capsys
+):
+    record_a_run(home, CodeVersion((V111,), DISK_HASH))  # a run that has ended
+
+    cli.main(["check"])
+
+    assert version_line(capsys.readouterr().out) == (
+        "✓ waifu run tidak berjalan; versi di disk v1.25, peringatan hujan"
+    )
+
+
+def test_check_with_a_free_run_lock_says_she_is_not_running(home, nothing_installed, capsys):
+    with InstanceLock(home / "data" / "run.lock"):  # taken and dropped by a run that ended
+        pass
+    record_a_run(home, DISK_CODE)
+
+    cli.main(["check"])
+
+    assert version_line(capsys.readouterr().out).startswith("✓ waifu run tidak berjalan")
+
+
+def test_check_says_a_running_cyrene_runs_the_newest_version(home, nothing_installed, capsys):
+    record_a_run(home, CodeVersion((V125,), DISK_HASH, DISK_COMMIT))
+
+    assert check_while_running(home, capsys) == "✓ waifu run: v1.25, terbaru"
+
+
+@pytest.mark.parametrize(
+    ("running", "disk"),
+    [
+        (CodeVersion((V125,), DISK_HASH, OLD_COMMIT), DISK_CODE),
+        (
+            CodeVersion((V125,), DISK_HASH, None, datetime(2026, 10, 17, 9, 0)),
+            CodeVersion((V125,), DISK_HASH, None, datetime(2026, 10, 17, 9, 30)),
+        ),
+    ],
+    ids=["another_commit", "a_newer_source_file"],
+)
+def test_check_mentions_a_small_change_since_the_running_cyrene_started(
+    running, disk, home, nothing_installed, code_on_disk, capsys
+):
+    record_a_run(home, running)
+    code_on_disk.disk = disk
+
+    assert check_while_running(home, capsys) == (
+        "✓ waifu run: v1.25, terbaru; ada perubahan kecil sejak dimulai, mulai ulang kalau sempat"
+    )
+
+
+def test_check_asks_for_a_restart_while_an_older_version_runs(home, nothing_installed, capsys):
+    record_a_run(home, CodeVersion((V111,), DISK_HASH, OLD_COMMIT))
+
+    assert check_while_running(home, capsys) == (
+        "! waifu run yang sedang jalan masih v1.11 (dimulai 2026-10-13); "
+        "mulai ulang supaya v1.25 aktif"
+    )
+
+
+def test_check_gives_the_pip_command_when_the_packages_changed(
+    home, nothing_installed, code_on_disk, capsys
+):
+    record_a_run(home, CodeVersion((V125,), OLD_HASH, OLD_COMMIT))
+    code_on_disk.disk = CodeVersion((V126, V125), DISK_HASH, DISK_COMMIT)
+
+    assert check_while_running(home, capsys) == (
+        "! waifu run yang sedang jalan masih v1.25 (dimulai 2026-10-13) dan paket Python-nya "
+        f"berubah: tutup Cyrene, jalankan {INSTALL} di folder proyek, lalu mulai ulang supaya "
+        "v1.26 aktif"
+    )
+
+
+def test_check_gives_the_pip_command_when_only_the_packages_changed(
+    home, nothing_installed, capsys
+):
+    record_a_run(home, CodeVersion((V125,), OLD_HASH, DISK_COMMIT))
+
+    assert check_while_running(home, capsys).endswith(
+        f"tutup Cyrene, jalankan {INSTALL} di folder proyek, lalu mulai ulang"
+    )
+
+
+NOT_RECORDED = (
+    "! waifu run yang sedang jalan versinya tidak tercatat (lebih lama dari v1.26); "
+    "mulai ulang supaya v1.25 aktif"
+)
+
+
+def test_check_says_a_run_from_before_v126_has_no_recorded_version(home, nothing_installed, capsys):
+    assert check_while_running(home, capsys) == NOT_RECORDED
+
+
+def test_check_never_trusts_a_record_of_a_process_that_ended(
+    home, nothing_installed, alive_processes, capsys
+):
+    # The lock is held by a run that recorded nothing; the record is an earlier run's.
+    record_a_run(home, DISK_CODE, pid=4321)
+
+    assert check_while_running(home, capsys) == NOT_RECORDED
+
+
+def test_check_ignores_a_record_it_cannot_read(home, nothing_installed, capsys):
+    running_file(home).parent.mkdir(exist_ok=True)
+    running_file(home).write_text("{rusak", encoding="utf-8")
+
+    assert check_while_running(home, capsys) == NOT_RECORDED
+    assert running_file(home).read_text(encoding="utf-8") == "{rusak"
+
+
+def test_check_says_when_the_running_cyrene_could_not_read_its_version(
+    home, nothing_installed, capsys
+):
+    record_a_run(home, CodeVersion((), DISK_HASH, DISK_COMMIT))
+
+    assert check_while_running(home, capsys) == (
+        "! waifu run yang sedang jalan versinya tidak terbaca (dimulai 2026-10-13); "
+        "mulai ulang supaya v1.25 aktif"
+    )
+
+
+def test_check_says_when_the_version_on_disk_cannot_be_read(
+    home, nothing_installed, code_on_disk, capsys
+):
+    code_on_disk.disk = CodeVersion((), DISK_HASH, DISK_COMMIT, None, ("no heading",))
+
+    cli.main(["check"])
+
+    assert version_line(capsys.readouterr().out) == (
+        "! waifu run: versi kode di disk tidak terbaca (lihat CHANGELOG.md)"
+    )
+
+
+def notice_line(out: str) -> str:
+    [line] = [line for line in out.splitlines() if "Kabar versi baru" in line]
+    return line
+
+
+@pytest.mark.parametrize(
+    ("settings", "expected"),
+    [
+        ("", "✓ Kabar versi baru: dicek tiap 30 menit, jam 08:00-22:00"),
+        (
+            "version_notice:\n  check_minutes: 60\n  active_from: '09:00'\n"
+            "  active_until: '21:00'\n",
+            "✓ Kabar versi baru: dicek tiap 60 menit, jam 09:00-21:00",
+        ),
+        ("version_notice:\n  enabled: false\n", "! Kabar versi baru mati"),
+    ],
+    ids=["example", "settings", "off"],
+)
+def test_check_reports_how_she_watches_for_a_newer_version(
+    settings, expected, home, nothing_installed, capsys
+):
+    append_config(home, settings)
+
+    cli.main(["check"])
+
+    assert notice_line(capsys.readouterr().out) == expected
+
+
+def test_check_reports_the_version_right_after_the_config(
+    home, nothing_installed, code_on_disk, capsys
+):
+    cli.main(["check"])
+
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0].startswith("✓ Konfigurasi valid")
+    assert lines[1] == version_line("\n".join(lines))
+    assert lines[2] == notice_line("\n".join(lines))
+    assert code_on_disk.runs == [subprocess.run]  # with the commit, for a small change
+
+
+def test_version_prints_the_version_on_disk_and_that_nothing_runs(home, capsys):
+    assert cli.main(["version"]) == 0
+
+    assert capsys.readouterr().out.splitlines() == [
+        "Kode di disk: v1.25, peringatan hujan (commit ec4aadf)",
+        "✓ waifu run tidak berjalan; versi di disk v1.25, peringatan hujan",
+    ]
+
+
+def test_version_prints_the_running_version_beside_the_one_on_disk(home, capsys):
+    record_a_run(home, CodeVersion((V111,), OLD_HASH, OLD_COMMIT))
+
+    with InstanceLock(home / "data" / "run.lock"):
+        assert cli.main(["version"]) == 0
+
+    assert capsys.readouterr().out.splitlines() == [
+        "Kode di disk: v1.25, peringatan hujan (commit ec4aadf)",
+        "Yang berjalan: v1.11, memotong bicaranya (commit 1a2b3c4), dimulai 2026-10-13 08:15",
+        "! waifu run yang sedang jalan masih v1.11 (dimulai 2026-10-13) dan paket Python-nya "
+        f"berubah: tutup Cyrene, jalankan {INSTALL} di folder proyek, lalu mulai ulang supaya "
+        "v1.25 aktif",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("disk", "expected"),
+    [
+        (
+            CodeVersion((V125,), DISK_HASH, None, datetime(2026, 10, 17, 9, 12, 30)),
+            "Kode di disk: v1.25, peringatan hujan (file terbaru 2026-10-17 09:12)",
+        ),
+        (CodeVersion((), None, DISK_COMMIT), "Kode di disk: versi tidak terbaca (commit ec4aadf)"),
+        (CodeVersion((V125,), None), "Kode di disk: v1.25, peringatan hujan"),
+    ],
+    ids=["without_git", "without_a_release", "neither"],
+)
+def test_version_shows_what_it_could_read_of_the_code_on_disk(
+    disk, expected, home, code_on_disk, capsys
+):
+    code_on_disk.disk = disk
+
+    assert cli.main(["version"]) == 0
+
+    assert capsys.readouterr().out.splitlines()[0] == expected
+
+
+def test_version_needs_no_config(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)  # no config.yaml here
+
+    assert cli.main(["version"]) == 0
+
+    assert capsys.readouterr().out.startswith("Kode di disk: v1.25")
 
 
 # --- API cost monitor --------------------------------------------------------------------------

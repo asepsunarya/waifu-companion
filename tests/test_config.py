@@ -4,7 +4,14 @@ from pathlib import Path
 
 import pytest
 
-from waifu.config import AppConfig, ConfigError, RainAlertConfig, TepiraConfig, load_config
+from waifu.config import (
+    AppConfig,
+    ConfigError,
+    RainAlertConfig,
+    TepiraConfig,
+    VersionNoticeConfig,
+    load_config,
+)
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -643,6 +650,15 @@ NOTICE_HOURS_REVERSED = "version_notice.active_from must be before version_notic
 def test_bad_version_notice_settings_are_refused_naming_the_setting(tmp_path, lines, named):
     with pytest.raises(ConfigError, match=re.escape(named)):
         load_config(write_yaml(tmp_path, "version_notice:\n" + lines))
+
+
+def test_the_example_version_notice_block_written_out_holds_the_defaults(tmp_path):
+    example = (ROOT / "config.example.yaml").read_text(encoding="utf-8")
+    commented = example[example.index("\n# version_notice:\n") + 1 :].split("\n\n", 1)[0]
+    written_out = "\n".join(line.removeprefix("# ") for line in commented.splitlines())
+
+    notice = load_config(write_yaml(tmp_path, written_out)).version_notice
+    assert notice == VersionNoticeConfig()
 
 
 def test_she_calls_the_owner_master_unless_told_otherwise(tmp_path):

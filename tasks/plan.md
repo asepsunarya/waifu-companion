@@ -471,7 +471,7 @@ No new dependency; `waifu version` and a `check` line show the running version.
 - [x] Task 122a: contract: SPEC, tasks, `VersionNoticeConfig`
 - [x] Task 122: `version.py`: releases, dependency hash, commit or source time, `read_code_version`, `newer_releases`, the running record, `process_alive`
 - [x] Task 123: `version_watch.py`: `version_news`, the notice and push texts, `VersionWatcher`
-- [ ] Task 124: wiring in `run`, the git guard, `check` lines, `waifu version`, example config
+- [x] Task 124: wiring in `run`, the git guard, `check` lines, `waifu version`, example config
 - [ ] Task 125: README, CHANGELOG
 
 ### Checkpoint: Versi baru

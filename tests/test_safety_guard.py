@@ -76,6 +76,21 @@ def test_spawning_the_real_rvc_server_is_refused():
         subprocess.run(args, capture_output=True, check=False)
 
 
+# The version reader finds the repository from its own file, so a forgotten fake would ask the
+# real repository the builder commits to; "--version" only prints, so a broken guard does no harm.
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["git", "--version"],
+        [r"C:\Program Files\Git\cmd\git.exe", "--version"],
+        "git --version",
+    ],
+)
+def test_running_git_is_refused(args):
+    with pytest.raises(AssertionError, match="a test tried to run git"):
+        subprocess.run(args, capture_output=True, check=False)
+
+
 @pytest.mark.parametrize(
     "program",
     [

@@ -80,6 +80,7 @@ from waifu.config import (
     OllamaConfig,
     PhoneConfig,
     RvcConfig,
+    VersionNoticeConfig,
     cookie_names,
     load_config,
 )
@@ -173,6 +174,17 @@ from waifu.screen import capture_screen
 from waifu.single_instance import InstanceLock
 from waifu.todo import Task, TodoError, TodoStore
 from waifu.usage import DayUsage, TokenUsage, UsageLedger, UsageSummary, cost_usd
+from waifu.version import (
+    INSTALL_COMMAND,
+    CodeVersion,
+    Release,
+    RunningVersion,
+    process_alive,
+    read_code_version,
+    read_running,
+    write_running,
+)
+from waifu.version_watch import VersionWatcher, version_news
 from waifu.voice.audio import MicStream, Player, list_devices
 from waifu.voice.rvc import (
     SERVER_SCRIPT,
@@ -227,6 +239,8 @@ MIN_SUGGESTED_THRESHOLD = 0.25
 
 DEFAULT_CONFIG = Path("config.yaml")
 RUN_LOCK = Path("data") / "run.lock"
+# What the running `waifu run` started with, for `check` and `waifu version`; next to the lock.
+RUNNING_FILE = Path("data") / "running.json"
 ALREADY_RUNNING = (
     "Cyrene sudah berjalan (mungkin dari autostart). Tutup jendelanya dulu, "
     "atau jalankan 'waifu autostart status'."
@@ -589,6 +603,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="cari sekarang dengan Claude dan pencarian web (berbayar, bisa beberapa menit)",
     )
     command("check", _check, "Periksa konfigurasi, perangkat, dan dependensi.")
+    command(
+        "version",
+        _version,
+        "Tampilkan versi Cyrene di disk dan versi 'waifu run' yang sedang berjalan.",
+    )
     command("notify-test", _notify_test, "Kirim notifikasi tes ke HP lewat ntfy.")
     avatar = command(
         "avatar",
@@ -1006,6 +1025,8 @@ def _holding_run_lock(
 
 
 def _listen(args: argparse.Namespace) -> int:
+    # Before the delay: the code this process runs was imported when it started.
+    running = _record_running_version()
     if args.startup_delay > 0:
         logger.info("Waiting %g s before starting (--startup-delay)", args.startup_delay)
         sleep(args.startup_delay)
@@ -1100,6 +1121,7 @@ def _listen(args: argparse.Namespace) -> int:
                         _code_watcher(config, gacha, assistant, notifier),
                         _pc_watcher(config, pc, assistant, notifier),
                         _rain_watcher(config, assistant, notifier),
+                        _version_watcher(config, running, assistant, notifier),
                         _offers_watcher(config, assistant, notifier, usage),
                         _scheduler(
                             config,
@@ -2846,6 +2868,165 @@ def _rain_window_text(window: RainWindow, now: datetime) -> str:
     return f"sekitar {spoken_hour(window.start.hour)} ({clock}{chance})"
 
 
+# --- the running version -----------------------------------------------------------------------
+
+
+def _record_running_version() -> CodeVersion:
+    """What this process runs, read with git and recorded in RUNNING_FILE for `check` and
+    `waifu version`; a part it could not read is logged, and so is a failed write, never
+    raised: a missing git or a locked file must not stop her."""
+    code = read_code_version()
+    for problem in code.problems:
+        logger.warning("%s", problem)
+    logger.info("Running %s", _logged_code(code))
+    try:
+        write_running(RUNNING_FILE, RunningVersion(code, datetime.now(), os.getpid()))
+    except OSError as exc:
+        logger.warning("Could not record the running version in %s: %s", RUNNING_FILE, exc)
+    return code
+
+
+def _logged_code(code: CodeVersion) -> str:
+    """`v1.25 (peringatan hujan), commit ec4aadf...`, for the log."""
+    release = f"{code.release.version} ({code.release.title})" if code.release else "no release"
+    if code.commit is not None:
+        return f"{release}, commit {code.commit}"
+    if code.source_time is not None:
+        return f"{release}, source files of {code.source_time:%Y-%m-%d %H:%M:%S}"
+    return release
+
+
+@contextmanager
+def _version_watcher(
+    config: AppConfig, running: CodeVersion, assistant: Assistant, notifier: Notifier | None
+) -> Iterator[None]:
+    """Her notice that newer code is on disk than `running`, the code this run started with,
+    while the block runs, also pushed to the phone when `version_notice.push` and notifications
+    are on; none with the notice off. She says it once the follow-up window has closed, so a
+    conversation is never interrupted. It reads only the CHANGELOG and pyproject, never git."""
+    notice = config.version_notice
+    if not notice.enabled:
+        yield
+        return
+    watcher = VersionWatcher(
+        lambda: read_code_version(run=None),
+        running,
+        notice,
+        announce=lambda text, emotion: assistant.announce(text, emotion, wait_for_followup=True),
+        notifier=notifier if notice.push else None,
+        owner_call=config.assistant.owner_call,
+        name=config.assistant.name,
+    )
+    watcher.start()
+    try:
+        yield
+    finally:
+        watcher.stop()
+
+
+def _running_status() -> tuple[bool, RunningVersion | None]:
+    """Whether the run lock is held, and the record of the `waifu run` holding it: None when
+    it recorded nothing (a run from before v1.26, or `enroll`/`speaker-test` holds the lock)
+    or its record names a process that ended. Only the lock tells that something runs: a
+    console closed by hand never removes the record."""
+    if not _instance_running(RUN_LOCK):
+        return False, None
+    record = read_running(RUNNING_FILE)
+    if record is None or not process_alive(record.pid):
+        return True, None
+    return True, record
+
+
+def _running_version_check(disk: CodeVersion, held: bool, running: RunningVersion | None) -> Check:
+    """Whether the running `waifu run` runs the code on `disk`, and what to do when not."""
+    if disk.release is None:
+        return WARN, "waifu run: versi kode di disk tidak terbaca (lihat CHANGELOG.md)"
+    newest = disk.release.version
+    if not held:
+        return OK, f"waifu run tidak berjalan; versi di disk {_release_text(disk.release)}"
+    if running is None:
+        return WARN, (
+            "waifu run yang sedang jalan versinya tidak tercatat (lebih lama dari v1.26); "
+            f"mulai ulang supaya {newest} aktif"
+        )
+    started = f"dimulai {running.started:%Y-%m-%d}"
+    if running.code.release is None:
+        return WARN, (
+            f"waifu run yang sedang jalan versinya tidak terbaca ({started}); "
+            f"mulai ulang supaya {newest} aktif"
+        )
+    version = running.code.release.version
+    news = version_news(running.code, disk)
+    if news is None:
+        if _changed_since(running.code, disk):
+            return OK, (
+                f"waifu run: {version}, terbaru; ada perubahan kecil sejak dimulai, "
+                "mulai ulang kalau sempat"
+            )
+        return OK, f"waifu run: {version}, terbaru"
+    old = f"waifu run yang sedang jalan masih {version} ({started})"
+    active = f" supaya {newest} aktif" if news.releases else ""
+    if news.dependencies_changed:
+        return WARN, (
+            f"{old} dan paket Python-nya berubah: tutup Cyrene, jalankan {INSTALL_COMMAND} di "
+            f"folder proyek, lalu mulai ulang{active}"
+        )
+    return WARN, f"{old}; mulai ulang{active}"
+
+
+def _changed_since(running: CodeVersion, disk: CodeVersion) -> bool:
+    """Whether the code on disk changed since the run started without a new release: another
+    commit, or without commits on both sides a newer source file."""
+    if running.commit is not None and disk.commit is not None:
+        return running.commit != disk.commit
+    if running.commit is None and disk.commit is None:
+        return (
+            running.source_time is not None
+            and disk.source_time is not None
+            and disk.source_time > running.source_time
+        )
+    return False
+
+
+def _version_notice_check(notice: VersionNoticeConfig) -> Check:
+    """How often and in which hours she compares the code on disk; nothing is read."""
+    if not notice.enabled:
+        return WARN, "Kabar versi baru mati"
+    hours = f"{notice.active_from:%H:%M}-{notice.active_until:%H:%M}"
+    return OK, f"Kabar versi baru: dicek tiap {notice.check_minutes} menit, jam {hours}"
+
+
+def _version(args: argparse.Namespace) -> int:
+    """Print the version on disk, the running one while a recorded `waifu run` runs, and the
+    check line comparing them; no config needed."""
+    disk = read_code_version()
+    held, running = _running_status()
+    print(f"Kode di disk: {_code_text(disk)}")
+    if running is not None:
+        print(
+            f"Yang berjalan: {_code_text(running.code)}, dimulai {running.started:%Y-%m-%d %H:%M}"
+        )
+    mark, text = _running_version_check(disk, held, running)
+    print(f"{mark} {text}")
+    return 0
+
+
+def _code_text(code: CodeVersion) -> str:
+    """`v1.25, peringatan hujan (commit ec4aadf)`, or `(file terbaru 2026-10-17 09:12)`
+    without a commit."""
+    if code.commit is not None:
+        detail = f" (commit {code.commit[:7]})"
+    elif code.source_time is not None:
+        detail = f" (file terbaru {code.source_time:%Y-%m-%d %H:%M})"
+    else:
+        detail = ""
+    return f"{_release_text(code.release)}{detail}"
+
+
+def _release_text(release: Release | None) -> str:
+    return "versi tidak terbaca" if release is None else f"{release.version}, {release.title}"
+
+
 # --- API cost monitor ------------------------------------------------------------------------
 
 
@@ -4035,6 +4216,8 @@ def _checks(config_path: Path) -> Iterator[Check]:
         yield FAIL, f"Konfigurasi tidak valid: {_config_problem(exc)}"
         return
     yield OK, f"Konfigurasi valid ({config_path})"
+    yield _running_version_check(read_code_version(), *_running_status())
+    yield _version_notice_check(config.version_notice)
     yield from _device_checks(config, config_path)
     yield from _routine_checks(config)
     yield _voiceprint_check(config)

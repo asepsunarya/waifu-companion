@@ -1167,12 +1167,12 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 122a, 122 · **Files:** `src/waifu/version_watch.py`, `tests/test_version_watch.py` · **Scope:** M
 
-## Task 124: Wiring, `check`, `waifu version`
+## Task 124: Wiring, `check`, `waifu version` ✅
 
 **Acceptance criteria:**
-- [ ] `run` records its version before `--startup-delay` (a failed write logged, never raised; `enroll`, `speaker-test`, and `chat` never record) and starts the watcher after "ready" when `version_notice.enabled`, announcing once the follow-up window has closed and pushing only with `version_notice.push` and `notify`; an autouse fake watcher and reader in `test_cli.py`; `tests/conftest.py` refuses git
-- [ ] The `check` lines right after `Konfigurasi valid` per SPEC (lock free, current, a later commit, older, changed packages, no record, a dead process id, no release on disk; the settings line); `waifu version` lines
-- [ ] `config.example.yaml` block, valid when written out
+- [x] `run` records its version before `--startup-delay` (a failed write logged, never raised; `enroll`, `speaker-test`, and `chat` never record) and starts the watcher after "ready" when `version_notice.enabled`, announcing once the follow-up window has closed and pushing only with `version_notice.push` and `notify`; an autouse fake watcher and reader in `test_cli.py`; `tests/conftest.py` refuses git
+- [x] The `check` lines right after `Konfigurasi valid` per SPEC (lock free, current, a later commit, older, changed packages, no record, a dead process id, no release on disk; the settings line); `waifu version` lines
+- [x] `config.example.yaml` block, valid when written out
 
 **Dependencies:** 122, 123 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py`, `tests/conftest.py`, `config.example.yaml`, `tests/test_config.py` · **Scope:** M
 
