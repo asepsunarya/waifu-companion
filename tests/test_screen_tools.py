@@ -66,13 +66,13 @@ def look(tools: ScreenTools) -> tuple[dict, bool]:
 # --- spec ----------------------------------------------------------------------------------
 
 
-def test_one_strict_tool_that_takes_no_arguments():
+def test_one_tool_that_takes_no_arguments_so_it_needs_no_strict():
     [spec] = ScreenTools(capture=FakeCapture()).specs()
 
     assert spec.name == "look_at_screen"
     assert spec.input_schema == {"type": "object", "properties": {}, "additionalProperties": False}
     claude_tool = to_anthropic(spec)
-    assert claude_tool["strict"] is True
+    assert claude_tool["strict"] is False
     assert claude_tool.keys() <= BetaToolParam.__optional_keys__ | BetaToolParam.__required_keys__
     assert ollama.Tool.model_validate(to_ollama(spec)).function.name == "look_at_screen"
 

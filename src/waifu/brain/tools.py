@@ -127,12 +127,18 @@ def held_for_yes(record: ToolCallRecord) -> bool:
 
 
 def to_anthropic(spec: ToolSpec) -> dict[str, Any]:
-    """Claude tool definition; `strict` makes the API guarantee schema-valid arguments."""
+    """Claude tool definition; `strict` makes the API guarantee schema-valid arguments.
+
+    Only a tool that requires an argument is strict, as every tool that acts on something (a
+    device, a list, an account) does. One request takes at most 20 strict tools (and 24
+    optional and 16 union-typed parameters across their schemas), and every tool checks its
+    own arguments anyway, so the reads whose arguments may all be left out go without it.
+    """
     return {
         "name": spec.name,
         "description": spec.description,
         "input_schema": spec.input_schema,
-        "strict": True,
+        "strict": bool(spec.input_schema.get("required")),
     }
 
 

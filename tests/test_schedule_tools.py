@@ -307,12 +307,13 @@ def test_specs_stay_identical_while_entries_change_for_prompt_caching(tmp_path):
     assert tools.specs() == first
 
 
-def test_schedule_tools_convert_to_strict_claude_tools_and_ollama_tools(tmp_path):
+def test_schedule_tools_convert_to_claude_tools_and_ollama_tools(tmp_path):
     tools, _, _ = make_tools(tmp_path)
 
     for tool_spec in tools.specs():
         claude_tool = to_anthropic(tool_spec)
-        assert claude_tool["strict"] is True
+        # Strict, except the list that takes no arguments.
+        assert claude_tool["strict"] is (tool_spec.name != "list_schedules")
         assert (
             claude_tool.keys() <= BetaToolParam.__optional_keys__ | BetaToolParam.__required_keys__
         )

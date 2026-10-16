@@ -1,10 +1,11 @@
 """Cyrene's morning briefing: the day's data on request, and her own greeting once a day.
 
-`daily_briefing` gives the model today's date, the weather where Master lives, and today's
-schedule entries, at any hour ("cuaca hari ini gimana?", "hari ini ada jadwal apa?"). A
-weather or schedule failure fills its problem field instead of failing the tool, so she can
-still tell the rest. The spec carries no data, so it stays byte-identical for the brain's
-lifetime and keeps the prompt cache warm.
+`daily_briefing` gives the model today's date, the weather where Master lives, today's
+schedule entries, and, when the to-do list is on, the tasks due today and overdue, at any hour
+("cuaca hari ini gimana?", "hari ini ada jadwal apa?"). A weather, schedule, or to-do failure
+fills its problem field instead of failing the tool, so she can still tell the rest. The spec
+carries no data, so it stays byte-identical for the brain's lifetime and keeps the prompt
+cache warm.
 
 `BriefingTimer` asks for her greeting once a day, the first time `waifu run` is on between
 `briefing.time` and `briefing.until`: it hands `BRIEFING_PROMPT` to `request`, which has the
@@ -31,6 +32,7 @@ from waifu.brain.persona import WEEKDAYS_ID
 from waifu.config import BriefingConfig
 from waifu.gacha.files import write_json_atomic
 from waifu.schedule import Action, DeviceAction, Entry, Reminder, ScheduleStore
+from waifu.todo import Task, TodoStore
 from waifu.weather import Weather, WeatherClient, WeatherError
 
 logger = logging.getLogger(__name__)
@@ -44,14 +46,15 @@ BRIEFING_PROMPT = (
     "Ini bukan ucapan Master: ini sapaan pagimu sendiri, yang kamu mulai sendiri sekali "
     "sehari. Sapa Master dengan hangat sesuai waktunya. Panggil daily_briefing, dan "
     "game_status kalau tool itu ada, lalu rangkum hari Master dalam 2-4 kalimat pendek: "
-    "cuaca, jadwal dan pengingat hari ini, game kalau ada, dan hal dari ingatanmu yang "
-    "penting untuk hari ini, misalnya ulang tahun atau ujian. Jangan membacakan datanya satu "
-    "per satu."
+    "cuaca, jadwal dan pengingat hari ini, tugas yang tenggatnya hari ini atau sudah "
+    "terlewat, game kalau ada, dan hal dari ingatanmu yang penting untuk hari ini, misalnya "
+    "ulang tahun atau ujian. Jangan membacakan datanya satu per satu."
 )
 
 _NO_WEATHER = "cuaca belum diatur (isi briefing.city di config.yaml)"
 _WEATHER_FAILED = "Cuaca tidak bisa dibaca saat ini."
 _SCHEDULE_FAILED = "Jadwal tidak bisa dibaca saat ini."
+_TASKS_FAILED = "Daftar tugas tidak bisa dibaca saat ini."
 _FAILED = "Ringkasan hari ini tidak bisa dibuat saat ini."
 _STATE_KEYS = {"version", "last_date"}
 # date.fromisoformat also reads 20261013 and 2026-W42-2; the file holds only YYYY-MM-DD.
@@ -63,17 +66,20 @@ class _InvalidArguments(Exception):
 
 
 class BriefingTools:
-    """A `ToolProvider` for the brain: today's date, weather, and schedule in one call."""
+    """A `ToolProvider` for the brain: today's date, weather, schedule, and tasks in one call."""
 
     def __init__(
         self,
         *,
         weather: WeatherClient | None,
         schedule: ScheduleStore | None,
+        todo: TodoStore | None = None,
         now: Callable[[], datetime] = datetime.now,
     ) -> None:
+        """Without `todo` (the to-do list is off) the result has no `tasks` field."""
         self._weather = weather
         self._schedule = schedule
+        self._todo = todo
         self._now = now
 
     def specs(self) -> list[ToolSpec]:
@@ -83,13 +89,15 @@ class BriefingTools:
                 description=(
                     "Get today's date and weekday, the weather where Master lives (now, "
                     "today's low and high in °C, today's highest chance of rain in percent, "
-                    "and tomorrow morning), and today's schedule entries (reminders, device "
-                    "commands, routines) with their times. Use it for greetings and whenever "
-                    "Master asks how the weather is, what is on today, or for a summary of the "
-                    "day. For the games, call game_status too when you have it. Also mention "
-                    "what your memory holds for today (a birthday, an exam). When "
-                    "weather_problem or schedule_problem is set, say briefly that this part "
-                    "is unavailable and tell the rest."
+                    "and tomorrow morning), today's schedule entries (reminders, device "
+                    "commands, routines) with their times, and, when Master keeps a to-do "
+                    "list, Master's to-do tasks due today, the overdue ones, and how many tasks "
+                    "are open. Use it for greetings and whenever Master asks how the weather "
+                    "is, what is on today, or for a summary of the day. For the games, call "
+                    "game_status too when you have it. Also mention what your memory holds for "
+                    "today (a birthday, an exam). When weather_problem, schedule_problem, or "
+                    "tasks_problem is set, say briefly that this part is unavailable and tell "
+                    "the rest."
                 ),
                 input_schema={"type": "object", "properties": {}, "additionalProperties": False},
             )
@@ -119,6 +127,8 @@ class BriefingTools:
             "schedule_today": schedule_today,
             "schedule_problem": schedule_problem,
         }
+        if self._todo is not None:
+            briefing["tasks"], briefing["tasks_problem"] = _tasks_today(self._todo, now.date())
         return _to_json(briefing), False
 
     def _weather_today(self) -> tuple[dict[str, object] | None, str | None]:
@@ -296,6 +306,31 @@ def _describe(action: Action) -> str:
         value = "" if action.value is None else f" {action.value}"
         return f"{action.device} {action.command}{value}"
     return f"rutinitas {action.name}"
+
+
+def _tasks_today(todo: TodoStore, today: date) -> tuple[dict[str, object] | None, str | None]:
+    """(the tasks due today, the overdue ones, and how many are open; None), or (None, why
+    they could not be read)."""
+    try:
+        due_or_overdue = todo.due_or_overdue(today)
+        open_count = len(todo.open_tasks())
+    except Exception:
+        logger.exception("Could not read the to-do list for the briefing")
+        return None, _TASKS_FAILED
+    tasks = {
+        "due_today": [_task_json(task) for task in due_or_overdue if task.due == today],
+        "overdue": [
+            {**_task_json(task), "due": f"{task.due:%Y-%m-%d}"}
+            for task in due_or_overdue
+            if task.due != today
+        ],
+        "open_count": open_count,
+    }
+    return tasks, None
+
+
+def _task_json(task: Task) -> dict[str, str]:
+    return {"id": task.id, "text": task.text}
 
 
 def _error(message: str) -> tuple[str, bool]:

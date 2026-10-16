@@ -420,6 +420,22 @@ def test_to_anthropic_marks_the_tool_strict():
     assert tool.keys() <= BetaToolParam.__optional_keys__ | BetaToolParam.__required_keys__
 
 
+def test_to_anthropic_leaves_strict_off_for_a_tool_without_a_required_argument():
+    # A request takes at most 20 strict tools; a read whose arguments may all be left out
+    # checks them itself.
+    optional_only = {
+        "type": "object",
+        "properties": {"query": {"type": "string"}},
+        "additionalProperties": False,
+    }
+    reads = [
+        spec_named(build_tool_specs(house()), "list_devices"),
+        ToolSpec("find_things", "Find things.", optional_only),
+    ]
+
+    assert [to_anthropic(spec)["strict"] for spec in reads] == [False, False]
+
+
 def test_to_ollama_wraps_the_spec_as_a_function_tool():
     spec = spec_named(build_tool_specs(house()), "control_device")
 

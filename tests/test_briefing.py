@@ -1,7 +1,8 @@
 """The morning briefing: the daily_briefing tool and the once-a-day greeting timer.
 
 No test reaches the internet or sleeps: the weather client is a fake with a `today()`
-method, every clock is a fake, and the state and schedule files live in tmp_path.
+method, the to-do list a fake with TodoStore's two reads, every clock is a fake, and the
+state and schedule files live in tmp_path.
 """
 
 import json
@@ -9,7 +10,7 @@ import logging
 import os
 import threading
 import time
-from datetime import datetime
+from datetime import date, datetime
 
 import ollama
 import pytest
@@ -22,6 +23,7 @@ from waifu.briefing import BRIEFING_PROMPT, BriefingTimer, BriefingTools
 from waifu.config import AssistantConfig, BriefingConfig
 from waifu.schedule import DeviceAction, Reminder, RoutineAction, ScheduleStore
 from waifu.screen import ScreenImage
+from waifu.todo import Task
 from waifu.weather import Weather, WeatherError
 
 NOW = datetime(2026, 10, 13, 7, 30)  # a Tuesday
@@ -47,6 +49,12 @@ BANDUNG_JSON = {
 }
 MEDICINE = Reminder("Master, sudah jam tiga, waktunya minum obat!")
 HER_NAMES = [AssistantConfig().name, *AssistantConfig().wake_words]
+CREATED = datetime(2026, 10, 10, 20, 0)
+# In the store's order: overdue first, then by due date, then the undated ones.
+LAPORAN = Task("t1", "kerjakan laporan", date(2026, 10, 12), CREATED, None)
+SUSU = Task("t2", "beli susu", date(2026, 10, 13), CREATED, None)
+KADO = Task("t4", "beli kado Rina", date(2026, 10, 20), CREATED, None)
+MOTOR = Task("t5", "cuci motor", None, CREATED, None)
 
 
 class Clock:
@@ -77,14 +85,41 @@ class UnreadableSchedule:
         raise OSError("the disk hiccupped")
 
 
+class FakeTodo:
+    """Stands in for TodoStore: its two reads over a list in memory, in the store's order,
+    recording the days asked about."""
+
+    def __init__(self, tasks: list[Task]) -> None:
+        self.tasks = tasks
+        self.days_asked: list[date] = []
+
+    def open_tasks(self) -> list[Task]:
+        return list(self.tasks)
+
+    def due_or_overdue(self, today: date) -> list[Task]:
+        self.days_asked.append(today)
+        return [task for task in self.tasks if task.due is not None and task.due <= today]
+
+
+class UnreadableTodo:
+    """A to-do list whose file cannot be read."""
+
+    def open_tasks(self):
+        raise OSError("the to-do file is locked")
+
+    def due_or_overdue(self, today):
+        raise OSError("the to-do file is locked")
+
+
 def make_store(tmp_path) -> ScheduleStore:
     return ScheduleStore(tmp_path / "schedule.json", now=Clock())
 
 
-def make_tools(tmp_path, *, weather=None, schedule=None, now=NOW) -> BriefingTools:
+def make_tools(tmp_path, *, weather=None, schedule=None, todo=None, now=NOW) -> BriefingTools:
     return BriefingTools(
         weather=weather if weather is not None else FakeWeather(),
         schedule=schedule if schedule is not None else make_store(tmp_path),
+        todo=todo,
         now=Clock(now),
     )
 
@@ -97,13 +132,13 @@ def brief(tools: BriefingTools) -> tuple[dict, bool]:
 # --- spec ----------------------------------------------------------------------------------------
 
 
-def test_one_strict_tool_that_takes_no_arguments(tmp_path):
+def test_one_tool_that_takes_no_arguments_so_it_needs_no_strict(tmp_path):
     [spec] = make_tools(tmp_path).specs()
 
     assert spec.name == "daily_briefing"
     assert spec.input_schema == {"type": "object", "properties": {}, "additionalProperties": False}
     claude_tool = to_anthropic(spec)
-    assert claude_tool["strict"] is True
+    assert claude_tool["strict"] is False
     assert claude_tool.keys() <= BetaToolParam.__optional_keys__ | BetaToolParam.__required_keys__
     assert ollama.Tool.model_validate(to_ollama(spec)).function.name == "daily_briefing"
 
@@ -124,11 +159,29 @@ def test_description_says_what_it_holds_and_when_to_use_it(tmp_path):
         assert guidance in spec.description
 
 
+def test_the_description_says_the_tasks_come_too_and_what_a_problem_means(tmp_path):
+    [spec] = make_tools(tmp_path).specs()
+
+    for guidance in [
+        "to-do tasks due today",
+        "overdue",
+        "how many tasks are open",
+        "tasks_problem",
+    ]:
+        assert guidance in spec.description
+
+
 def test_the_spec_is_the_same_without_weather_or_schedule_for_prompt_caching(tmp_path):
     configured = make_tools(tmp_path).specs()
     bare = BriefingTools(weather=None, schedule=None, now=Clock()).specs()
 
     assert bare == configured
+
+
+def test_the_spec_is_the_same_with_or_without_a_todo_list_for_prompt_caching(tmp_path):
+    with_tasks = make_tools(tmp_path, todo=FakeTodo([LAPORAN, SUSU])).specs()
+
+    assert with_tasks == make_tools(tmp_path).specs()
 
 
 # --- the briefing --------------------------------------------------------------------------------
@@ -266,6 +319,83 @@ def test_without_a_schedule_the_day_has_no_entries_and_no_problem(tmp_path):
     assert is_error is False
 
 
+def test_with_a_todo_list_the_briefing_holds_the_tasks_due_today_the_overdue_and_the_count(
+    tmp_path,
+):
+    todo = FakeTodo([LAPORAN, SUSU, KADO, MOTOR])
+
+    briefing, is_error = brief(make_tools(tmp_path, todo=todo))
+
+    assert briefing == {
+        "date": "Selasa, 13-10-2026",
+        "weather": BANDUNG_JSON,
+        "weather_problem": None,
+        "schedule_today": [],
+        "schedule_problem": None,
+        "tasks": {
+            "due_today": [{"id": "t2", "text": "beli susu"}],
+            "overdue": [{"id": "t1", "text": "kerjakan laporan", "due": "2026-10-12"}],
+            "open_count": 4,
+        },
+        "tasks_problem": None,
+    }
+    assert is_error is False
+    assert todo.days_asked == [date(2026, 10, 13)]
+
+
+def test_the_tasks_follow_the_clock(tmp_path):
+    todo = FakeTodo([LAPORAN, SUSU, KADO, MOTOR])
+
+    briefing, _ = brief(make_tools(tmp_path, todo=todo, now=datetime(2026, 10, 20, 7, 0)))
+
+    assert briefing["tasks"] == {
+        "due_today": [{"id": "t4", "text": "beli kado Rina"}],
+        "overdue": [
+            {"id": "t1", "text": "kerjakan laporan", "due": "2026-10-12"},
+            {"id": "t2", "text": "beli susu", "due": "2026-10-13"},
+        ],
+        "open_count": 4,
+    }
+
+
+@pytest.mark.parametrize(
+    ("tasks", "open_count"), [([], 0), ([KADO, MOTOR], 2)], ids=["empty", "nothing due"]
+)
+def test_a_day_without_due_tasks_has_empty_lists_and_the_open_count(tmp_path, tasks, open_count):
+    briefing, is_error = brief(make_tools(tmp_path, todo=FakeTodo(tasks)))
+
+    assert briefing["tasks"] == {"due_today": [], "overdue": [], "open_count": open_count}
+    assert briefing["tasks_problem"] is None
+    assert is_error is False
+
+
+def test_without_a_todo_list_the_briefing_has_no_tasks(tmp_path):
+    briefing, _ = brief(make_tools(tmp_path))
+
+    assert briefing.keys() == {
+        "date",
+        "weather",
+        "weather_problem",
+        "schedule_today",
+        "schedule_problem",
+    }
+
+
+def test_a_todo_list_that_cannot_be_read_is_told_as_the_tasks_problem(tmp_path, caplog):
+    store = make_store(tmp_path)
+    store.add(datetime(2026, 10, 13, 15, 0), "none", MEDICINE)
+
+    with caplog.at_level(logging.ERROR, logger="waifu.briefing"):
+        briefing, is_error = brief(make_tools(tmp_path, schedule=store, todo=UnreadableTodo()))
+
+    assert briefing["tasks"] is None
+    assert briefing["tasks_problem"] == "Daftar tugas tidak bisa dibaca saat ini."
+    assert briefing["weather"] == BANDUNG_JSON
+    assert briefing["schedule_today"] == [{"time": "15:00", "what": MEDICINE.text}]
+    assert is_error is False
+    assert "the to-do file is locked" in caplog.text
+
+
 @pytest.mark.parametrize("arguments", [None, [], "hari ini", {"day": "besok"}])
 def test_arguments_are_an_error_result(tmp_path, arguments):
     result, is_error = make_tools(tmp_path).run("daily_briefing", arguments)
@@ -311,6 +441,10 @@ def test_the_prompt_says_it_is_her_own_greeting_and_names_the_tools():
     assert "game_status" in BRIEFING_PROMPT
     assert "2-4 kalimat pendek" in BRIEFING_PROMPT
     assert "ingatanmu" in BRIEFING_PROMPT
+
+
+def test_the_prompt_sums_up_the_tasks_due_today_and_overdue():
+    assert "tugas yang tenggatnya hari ini atau sudah terlewat" in BRIEFING_PROMPT
 
 
 def test_the_prompt_never_counts_as_master_saying_yes():

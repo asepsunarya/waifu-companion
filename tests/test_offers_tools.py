@@ -248,7 +248,8 @@ def test_the_specs_stay_within_strict_tool_use_for_both_backends(store):
             if node.get("type") == "object":
                 assert node["additionalProperties"] is False
         claude_tool = to_anthropic(tool)
-        assert claude_tool["strict"] is True
+        # Strict, except the list whose one argument may be left out.
+        assert claude_tool["strict"] is (tool.name != "free_offers")
         assert (
             claude_tool.keys() <= BetaToolParam.__optional_keys__ | BetaToolParam.__required_keys__
         )

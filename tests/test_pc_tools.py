@@ -73,13 +73,13 @@ def check(tools: PcTools) -> tuple[dict, bool]:
 # --- the spec ------------------------------------------------------------------------------
 
 
-def test_one_strict_tool_pc_health_that_takes_no_arguments():
+def test_one_tool_pc_health_that_takes_no_arguments_so_it_needs_no_strict():
     [spec] = make_tools(FULL).specs()
 
     assert spec.name == "pc_health"
     assert spec.input_schema == {"type": "object", "properties": {}, "additionalProperties": False}
     claude_tool = to_anthropic(spec)
-    assert claude_tool["strict"] is True
+    assert claude_tool["strict"] is False
     assert claude_tool.keys() <= BetaToolParam.__optional_keys__ | BetaToolParam.__required_keys__
     assert ollama.Tool.model_validate(to_ollama(spec)).function.name == "pc_health"
 

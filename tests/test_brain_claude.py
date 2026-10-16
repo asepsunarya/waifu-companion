@@ -264,8 +264,11 @@ def test_request_carries_model_effort_strict_tools_cache_control_and_fallbacks()
     assert request["cache_control"] == {"type": "ephemeral"}
     assert request["betas"] == ["server-side-fallback-2026-07-01"]
     assert request["fallbacks"] == "default"
-    assert sorted(tool["name"] for tool in request["tools"]) == ["control_device", "list_devices"]
-    assert all(tool["strict"] is True for tool in request["tools"])
+    # Only the tool that requires an argument is strict: list_devices takes none.
+    assert {tool["name"]: tool["strict"] for tool in request["tools"]} == {
+        "control_device": True,
+        "list_devices": False,
+    }
     assert FORBIDDEN_REQUEST_KEYS.isdisjoint(request)
 
 
