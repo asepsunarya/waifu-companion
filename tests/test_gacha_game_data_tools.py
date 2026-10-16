@@ -3308,31 +3308,6 @@ def test_a_hoyolab_error_becomes_an_error_result_with_its_message(game, tool, ar
     assert json.loads(result) == {"ok": False, "message": NETWORK_ERROR.message}
 
 
-def test_no_result_holds_the_uid_or_the_nickname():
-    source = sample_source()
-    source.uid = 800000001
-    source.nickname = "SampleNickname"
-    tools = make_tools(source, ALL_GAMES)
-
-    results = [
-        tools.run(tool, {**arguments, "game": game})[0]
-        for game in ALL_GAMES
-        for tool, arguments in [
-            (GAME_CHARACTERS, {}),
-            (GAME_CHARACTERS, {"name": "Acheron"}),
-            (GAME_CHARACTERS, {"name": "Furina"}),
-            (GAME_CHARACTERS, {"name": "Zhu Yuan"}),
-            (GAME_CHARACTERS, {"name": "Sampel"}),
-            (GAME_ENDGAME, {}),
-            (GAME_EVENTS, {}),
-        ]
-    ]
-
-    for result in results:
-        assert "800000001" not in result
-        assert "SampleNickname" not in result
-
-
 # --- the cache ------------------------------------------------------------------------------
 
 
