@@ -3558,7 +3558,12 @@ perangkatnya. Uji satu kode dengan `waifu device ac on`.
 **Tidak ada suara.** edge-tts butuh internet. Uji dengan
 `waifu say "Halo Master"`; pilih speaker lewat `audio.output_device`. Cek juga volume Windows
 tidak 0 atau dibisukan, misalnya oleh rutinitas dengan `volume 0` atau `mute` (lihat
-[Musik, volume, dan aplikasi PC](#musik-volume-dan-aplikasi-pc)).
+[Musik, volume, dan aplikasi PC](#musik-volume-dan-aplikasi-pc)). Kalau log `waifu run`
+menulis "Microsoft menolak suara ... (403)", biasanya Microsoft mengganti kunci layanan
+suaranya dan edge-tts di PC ini sudah usang: jalankan
+`.venv\Scripts\python -m pip install -U edge-tts`, lalu mulai ulang `waifu run`. Kalau pip
+bilang edge-tts sudah yang terbaru dan suaranya masih ditolak, tunggu rilis edge-tts
+berikutnya (biasanya beberapa hari) lalu ulangi; selama itu jawaban tetap tampil sebagai teks.
 
 ## Checklist uji perangkat keras
 

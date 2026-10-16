@@ -4,6 +4,16 @@ Ringkasan per versi, yang terbaru di atas. Rinciannya ada di README (bagian yang
 setiap versi) dan di SPEC.md. Setelah memperbarui, **mulai ulang `waifu run`** supaya semuanya
 aktif, lalu jalankan `waifu check`.
 
+## v1.22.1: suara kembali
+
+- Cyrene sempat diam: Microsoft mengganti kunci layanan suaranya (Oktober 2026), sehingga
+  edge-tts versi lama ditolak (403) untuk setiap suara.
+- Perbaikannya edge-tts 7.3.1: `.venv\Scripts\python -m pip install -U edge-tts`, lalu mulai
+  ulang `waifu run`.
+- Kalau Microsoft mengganti kuncinya lagi, log `waifu run` kini menulis "Microsoft menolak
+  suara ... (403)" beserta perintah perbaikannya, bukan alamat layanan yang panjang.
+- README: "Tidak ada suara".
+
 ## v1.22: persona ala Cyrene di Honkai: Star Rail (pilihan)
 
 - `config/persona_hsr.md`: sifatmu sendiri tetap ada (tenang, puitis, sedikit manja, suka

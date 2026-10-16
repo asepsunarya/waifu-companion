@@ -5,10 +5,13 @@ import logging
 import urllib.error
 import urllib.parse
 
+import aiohttp
 import numpy as np
 import pytest
 import soundfile as sf
-from edge_tts.exceptions import NoAudioReceived
+from edge_tts.exceptions import NoAudioReceived, SkewAdjustmentError
+from multidict import CIMultiDict, CIMultiDictProxy
+from yarl import URL
 
 from waifu.config import EdgeVoiceConfig, GptSovitsVoiceConfig, RvcConfig, TtsConfig
 from waifu.voice.base import TextToSpeech
@@ -174,6 +177,66 @@ def test_edge_tts_turns_service_errors_into_tts_error():
 
     with pytest.raises(TtsError):
         EdgeTts(EdgeVoiceConfig(voice="v"), communicate_factory=fake).synthesize("Halo", "id")
+
+
+EDGE_SERVICE_URL = URL(
+    "wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1"
+    "?TrustedClientToken=6A5AA1D4EAFF4E9FB37E23D68491D6F4"
+)
+
+
+def handshake_rejection(status: int) -> aiohttp.WSServerHandshakeError:
+    """What aiohttp raises when the Edge service answers the websocket handshake with `status`."""
+    request = aiohttp.RequestInfo(EDGE_SERVICE_URL, "GET", CIMultiDictProxy(CIMultiDict()))
+    return aiohttp.WSServerHandshakeError(
+        request, (), message="Invalid response status", status=status
+    )
+
+
+def edge_tts_error_message(error: Exception, voice: str = "id-ID-GadisNeural") -> str:
+    fake = FakeCommunicate(error=error)
+
+    with pytest.raises(TtsError) as caught:
+        EdgeTts(EdgeVoiceConfig(voice=voice), communicate_factory=fake).synthesize("Sayang?", "id")
+    return str(caught.value)
+
+
+def test_edge_tts_refused_with_403_tells_the_owner_to_update_edge_tts_and_restart():
+    # Oct 2026: Microsoft changed its request token and refused every edge-tts <= 7.2.8.
+    message = edge_tts_error_message(handshake_rejection(403))
+
+    assert r".venv\Scripts\python -m pip install -U edge-tts" in message
+    assert "waifu run" in message
+
+
+def test_edge_tts_refused_with_403_names_the_voice_microsoft_refused():
+    message = edge_tts_error_message(handshake_rejection(403), voice="ja-JP-NanamiNeural")
+
+    assert "Microsoft" in message
+    assert "403" in message
+    assert "ja-JP-NanamiNeural" in message
+
+
+def test_edge_tts_refused_with_403_leaves_the_service_url_out_of_the_message():
+    assert "wss://" not in edge_tts_error_message(handshake_rejection(403))
+
+
+def test_edge_tts_refused_with_403_and_no_server_date_still_tells_the_owner_to_update():
+    # edge-tts reads the server's Date to correct the clock before retrying a 403; without
+    # one it raises SkewAdjustmentError chained from the refusal instead.
+    try:
+        raise SkewAdjustmentError("No server date in headers.") from handshake_rejection(403)
+    except SkewAdjustmentError as error:
+        message = edge_tts_error_message(error)
+
+    assert r".venv\Scripts\python -m pip install -U edge-tts" in message
+
+
+def test_edge_tts_other_handshake_failures_keep_the_plain_error():
+    message = edge_tts_error_message(handshake_rejection(500), voice="id-ID-GadisNeural")
+
+    assert message.startswith("Edge TTS gagal (id-ID-GadisNeural): 500")
+    assert "pip install" not in message
 
 
 def test_edge_tts_works_when_called_from_inside_a_running_event_loop():

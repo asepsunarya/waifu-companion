@@ -20,6 +20,7 @@ import unicodedata
 import urllib.parse
 import urllib.request
 from collections.abc import Callable, Coroutine
+from http import HTTPStatus
 from itertools import groupby
 from typing import Any, Protocol
 
@@ -36,6 +37,9 @@ JAPANESE = "ja"
 RUN_GAP_S = 0.12
 GPT_SOVITS_TIMEOUT_S = 60.0
 CONVERSION_RETRY_S = 60.0
+# Microsoft refuses outdated edge-tts releases at the websocket handshake (HTTP 403)
+# whenever it changes its request token, as in Oct 2026 for every edge-tts <= 7.2.8.
+EDGE_TTS_UPDATE_COMMAND = r".venv\Scripts\python -m pip install -U edge-tts"
 
 _JAPANESE_CHAR = re.compile(
     "[\u3040-\u309f\u30a0-\u30ff\uff66-\uff9f\u3400-\u4dbf\u4e00-\u9fff「」『』。、・！？ー]"
@@ -127,6 +131,12 @@ class EdgeTts(TextToSpeech):
             )
             data = _run_sync(_collect_audio(communicate))
         except Exception as exc:
+            if _refused(exc):
+                raise TtsError(
+                    f"Microsoft menolak suara {voice.voice} (403); biasanya edge-tts di PC ini "
+                    f"sudah usang. Perbarui dari folder proyek Cyrene dengan "
+                    f"'{EDGE_TTS_UPDATE_COMMAND}', lalu jalankan ulang 'waifu run'."
+                ) from exc
             raise TtsError(f"Edge TTS gagal ({voice.voice}): {exc}") from exc
         if not data:
             raise TtsError(f"Edge TTS tidak mengirim audio untuk suara {voice.voice}.")
@@ -271,6 +281,15 @@ def _is_pictograph(char: str) -> bool:
 async def _collect_audio(communicate: Any) -> bytes:
     chunks = [chunk["data"] async for chunk in communicate.stream() if chunk["type"] == "audio"]
     return b"".join(chunks)
+
+
+def _refused(exc: BaseException) -> bool:
+    """Whether the Edge service answered 403, also when edge-tts wrapped that answer (a 403
+    without a server Date becomes SkewAdjustmentError chained from it)."""
+    return HTTPStatus.FORBIDDEN in (
+        getattr(exc, "status", None),
+        getattr(exc.__cause__, "status", None),
+    )
 
 
 def _run_sync(coroutine: Coroutine[Any, Any, bytes]) -> bytes:

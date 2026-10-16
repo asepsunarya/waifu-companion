@@ -48,7 +48,8 @@ config → notify → gacha → app; `gacha` reaches the brain only through the
 
 Python 3.14 venv at `.venv` (3.11+ supported). Core: `anthropic` 1.13, `ollama`
 0.6, `pydantic` 2, `pyyaml`, `numpy` 2, `tinytuya` 1.20, `broadlink` 0.19,
-`wakeonlan` 4, `edge-tts` 7, `soundfile`, `sounddevice`. Voice extra:
+`wakeonlan` 4, `edge-tts` 7.3.1+ (Microsoft's Oct 2026 token change refuses older
+releases with HTTP 403), `soundfile`, `sounddevice`. Voice extra:
 `faster-whisper` 1.2 (+ `ctranslate2`), `speechbrain` 1.1, `torch`/`torchaudio`
 from the cu128 index (RTX 50-series needs CUDA 12.8+ builds). v1.4 adds `genshin`
 (genshin.py) 1.7.31 to the core (unofficial HoYoLAB client, async on `aiohttp`,
