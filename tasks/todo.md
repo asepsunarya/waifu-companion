@@ -1065,3 +1065,46 @@ named `tests/test_<package>_<module>.py`.
 - [x] CHANGELOG v1.23 (the renamed tools, a custom persona to update), README (Genshin and ZZZ section, the Battle Chronicle setting, the `gacha` command list, the manual checklist items), SPEC touch-ups
 
 **Dependencies:** 111, 112, 113, 114 · **Files:** `CHANGELOG.md`, `README.md`, `SPEC.md`, merge fixes · **Scope:** S
+
+## Task 116a: tepira finance contract ✅
+
+**Acceptance criteria:**
+- [x] SPEC "Keuangan dari tepira (v1.24)" (stories, non-goals, privacy, the API as PR #21 has it, config, values, client, gate, tools, persona, CLI, check line, logging rule); tasks 116a-118 in the plan and here
+- [x] `TepiraConfig` as `AppConfig.tepira` (`enabled`, https host-only `url`, `token` SecretStr in the `tpcy_` form, `writes`, `default_wallet` up to 40 characters; `enabled` needs `token`, `writes` needs `default_wallet`), with tests: no token in errors, repr, or JSON; the example block valid once filled in
+- [x] `config.example.yaml` block in Indonesian, off, the token line commented
+- [x] `finance/__init__.py` and `finance/values.py`: `WIB`, `CATEGORY_LABELS`, the API limits, the tool names, `FinanceError(kind, message)` and its messages, `FinanceData`, `RecordedExpense`, `UndoneExpense`, the `FinanceSource` Protocol, `spoken_rupiah`, `expense_question`, with tests; no HTTP code
+- [x] Full suite and ruff clean
+
+**Dependencies:** none · **Files:** `SPEC.md`, `tasks/plan.md`, `tasks/todo.md`, `src/waifu/config.py`, `tests/test_config.py`, `config.example.yaml`, `src/waifu/finance/__init__.py`, `src/waifu/finance/values.py`, `tests/test_finance_values.py` · **Scope:** S
+
+## Task 116: tepira client
+
+**Acceptance criteria:**
+- [ ] `TepiraClient(http, url, token, *, clock)` implements `FinanceSource` per SPEC: routes, query parameters, and JSON body exactly as the API takes them; `Authorization: Bearer`, `Accept`, `User-Agent`; the token in no URL; no redirect followed; arguments tepira would refuse raise `ValueError` before sending
+- [ ] The 8 s budget with each attempt's timeout the time left; one GET retry only after a connect failure with at least 1 s left; POST and DELETE never retried
+- [ ] The answer table (GET, POST, DELETE by status and transport error) and its messages; the shapes checked, lists cut to tepira's caps, `"ok"` dropped, bodies over 32 KiB unreadable
+- [ ] Tests over httpx `MockTransport` (a `FakeTepira` as `tests/test_offers_games.py` fakes Epic): method, path, params, body, headers, timeout per attempt, the retry rule with a fake clock, a FAILURES matrix (refused, timeout, 400 with a field, 401, 403, 404 HTML and JSON, 405, 422, 429 with Retry-After, 500, 502 and 504 HTML, not JSON, a JSON list, `ok` false, an unexpected shape, a boolean as an int, an oversized body) each with its kind, message, and a WARNING without the token (the `SECRETTEPIRA` sentinel never in a log record at DEBUG, an exception's text, or a request URL)
+
+**Dependencies:** 116a · **Files:** `src/waifu/finance/tepira.py`, `tests/test_finance_tepira.py` · **Scope:** M
+
+## Task 117: The yes gate for actions, finance tools, personas
+
+**Acceptance criteria:**
+- [ ] `brain/confirm.py`: `is_yes(..., order_words=ORDER_WORDS)`, `RECORD_ORDER_WORDS`, `ConfirmationGate.check_action(key, *, label, question, order_words)` with `begin_turn` judging the yes by the awaited request's order words; `check` delegates and every v1.9 test passes unchanged (device messages and questions byte for byte); one request per turn across devices and expenses; a yes in the same turn, the model's words, or a late yes never count
+- [ ] `brain/tools.held_for_yes` for any held call; `brain/factory.confirmation_gate(config)` and `build_brain(..., confirmations=)`
+- [ ] `brain/finance_tools.py` `FinanceTools` per SPEC: the specs (four non-strict reads; with `writes` the strict `record_expense` and non-strict `undo_expense`), byte-identical across calls, no keyword strict tool use refuses; argument checks (null as left out, unknown keys, booleans are not integers, the WIB default month at 23:30 on a month's last day and 00:30 on the 1st, `year` without `month`); results and errors; the 60 s cache (successes only, emptied by a record or undo); the briefing guard; record: secret descriptions refused, the wallet looked up and its tepira name used, held until the next turn's plain yes, recorded once, `deduped` kept out of the undo; undo within 15 minutes of her own last entry, never another
+- [ ] Both personas end with the SPEC's section, word for word; `tests/test_brain_persona.py` checks it and that the rule sections stay identical
+
+**Dependencies:** 116a · **Files:** `src/waifu/brain/confirm.py`, `tests/test_brain_confirm.py`, `src/waifu/brain/tools.py` (`held_for_yes` only), `tests/test_brain_tools.py`, `src/waifu/brain/factory.py`, `tests/test_brain_factory.py`, `src/waifu/brain/finance_tools.py`, `tests/test_finance_tools.py`, `config/persona.md`, `config/persona_hsr.md`, `tests/test_brain_persona.py` · **Scope:** M
+
+## Task 118: Integration, CLI, logging, docs
+
+**Acceptance criteria:**
+- [ ] 116 and 117 merged; `_companion_brain` adds `FinanceTools` when `tepira.enabled` over one `TepiraClient` per process, the writes only with Claude, the shared gate from `confirmation_gate`; an autouse `test_cli.py` fixture refuses a real `TepiraClient`
+- [ ] `PRIVATE_ARGUMENT_TOOLS` and `logged_arguments` in `brain/tools.py`, used by `brain/claude.py` and `app.py`: a finance call's arguments are `…` at INFO and its result only at DEBUG (tests in `test_brain_claude.py` and `test_app.py`)
+- [ ] `waifu tepira [ringkasan|dompet|tujuan [nama]|transaksi [-n N]|token]` per SPEC: lines, exit codes 2 off, 1 on a `FinanceError`, 0 otherwise; `token` without config or network, printed once and never logged
+- [ ] `_tepira_check` lines exactly as SPEC, before the notify line; the token sentinel in no check line, log record at DEBUG, or exception text
+- [ ] The strict-limit test with `enable_tepira(home)` (writes on): 17 of 20 strict tools, 16 of 24 optional parameters, `record_expense` in the must-be-strict set; `waifu chat --dry-run` builds the six finance tools
+- [ ] README "Keuangan dari tepira" and its Privasi bullet and checklist items; CHANGELOG v1.24; SPEC touch-ups; full suite and ruff clean
+
+**Dependencies:** 116, 117 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py`, `src/waifu/brain/tools.py`, `src/waifu/brain/claude.py`, `src/waifu/app.py`, `tests/test_brain_tools.py`, `tests/test_brain_claude.py`, `tests/test_app.py`, `README.md`, `CHANGELOG.md`, `SPEC.md` · **Scope:** M

@@ -424,6 +424,24 @@ build in parallel on the contract of 111a.
 - [ ] One real read-only run of `waifu gacha genshin|zzz characters|endgame|events` on the owner's account: privacy behaviour, latency, calendar times and stage names vs the game
 - [ ] By voice or chat: "Furina-ku C berapa?", "Abyss-ku lantai 12 berapa bintang?", "Shiyu Defense-ku rating apa?", "banner ZZZ apa sekarang?"
 
+### Phase 28: Keuangan dari tepira (v1.24, see SPEC → Keuangan dari tepira)
+Decision: Cyrene reads tepira only through its owner-only Cyrene API (tepira PR #21) with a
+bearer token kept as a SecretStr, never the database or OpenClaw's key; four non-strict read
+tools on both backends, and with `tepira.writes` and Claude a strict `record_expense` held by
+the code's yes gate (generalized from v1.9, one question per turn) plus `undo_expense` for her
+own last entry within 15 minutes. Finance only when Master asks: never in the briefing, a
+notice, or a push; arguments never in the INFO log. Off by default until PR #21 is deployed.
+Tasks 116 and 117 build in parallel on the contract of 116a.
+- [x] Task 116a: contract: SPEC, `TepiraConfig`, the example block, `finance/values.py` (`FinanceError`, `FinanceSource`, the categories, `WIB`, the value types, the spoken amount and the question)
+- [ ] Task 116: `finance/tepira.py` `TepiraClient` (time budget, retry rule, the status table, shapes, logging)
+- [ ] Task 117: the generalized gate (`check_action`, per-request order words, `held_for_yes`, `confirmation_gate`), `FinanceTools` (six tools, cache, briefing guard, record and undo), both personas
+- [ ] Task 118: integration: wiring with the shared gate, `waifu tepira`, check line, private-argument logging, the strict limits, README, CHANGELOG
+
+### Checkpoint: Keuangan dari tepira
+- [ ] Python suite and ruff clean; no test reached tepira; the token sentinel in no log, check line, exception, or URL
+- [ ] After PR #21 is merged and the owner set the Vercel env: `waifu tepira`, `dompet`, `tujuan`, `transaksi` against tepira's dashboard
+- [ ] By voice or chat: "pengeluaran bulan ini berapa?", "sisa budget makan?", "saldo GoPay berapa?", "tabungan laptop sudah berapa?", "transaksi terakhir apa?"; with writes: "catat jajan kopi 18 ribu" → "iya" → recorded, then "batalkan yang tadi"; the next morning greeting names no money
+
 ## Risks and Mitigations
 
 | Risk | Impact | Mitigation |
@@ -437,6 +455,8 @@ build in parallel on the contract of 111a.
 | Unofficial HoYoLAB API (check-in) | Account risk, however small | Read-only except the check-in HoYoLAB itself offers; `gacha.checkin: false` turns it off; README says so |
 | Cookie or authkey leaks into logs | Account takeover / history exposure | `SecretStr`, never logged; URL queries never logged; tests use made-up secrets and assert they never show up |
 | Wrong 50/50 call (HSR Celestial Invitation pick) | Misleading reaction | `gacha.off_banner`; the tool description says it is judged from a list |
+| Whisper mishears an amount ("18 ribu" as "80 ribu") | A wrong expense and wallet balance in tepira | The code asks first, naming the amount, what for, and the wallet, and only Master's next plain yes records it; at most 5 juta; tepira deduplicates repeats for 2 minutes; `undo_expense` within 15 minutes |
+| Finance figures spoken or pushed when nobody asked | Money said in front of guests or sent to ntfy | Tools only when asked (descriptions, persona); the briefing turn gets an error from every finance tool in code; no finance in any notice; `tepira.enabled: false` with guests |
 
 ## Open Questions
 
