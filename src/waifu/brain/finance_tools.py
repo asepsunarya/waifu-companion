@@ -309,13 +309,15 @@ class FinanceTools:
                 # tepira may have written it, so "the one just now" is no longer known.
                 self._forget_last()
             raise
+        finally:
+            # Whatever came back, tepira may hold other balances or wallets now.
+            self._forget_reads()
         with self._lock:
             if not expense.deduped:
                 self._last = _Recorded(expense, self._clock())
             elif self._last is not None and self._last.expense.id != expense.id:
                 # tepira's earlier copy of this entry, which she did not record herself.
                 self._last = None
-        self._forget_reads()
         recorded = {
             "id": expense.id,
             "amount": expense.amount,
@@ -351,8 +353,9 @@ class FinanceTools:
             if error.kind == "expired":
                 self._forget(last)
             raise
+        finally:
+            self._forget_reads()
         self._forget(last)
-        self._forget_reads()
         payload = {
             "id": undone.id,
             "amount": undone.amount,
@@ -390,7 +393,8 @@ class FinanceTools:
         return data
 
     def _forget_reads(self) -> None:
-        """Empty the cache, so the next read shows the balance a record or undo moved."""
+        """Empty the cache, so the next read shows the balance a record or undo moved (or may
+        have moved, when its outcome is unknown)."""
         with self._lock:
             self._cache = {}
             self._generation += 1

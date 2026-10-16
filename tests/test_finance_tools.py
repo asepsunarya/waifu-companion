@@ -39,6 +39,7 @@ from waifu.finance.values import (
     SAVINGS_GOALS,
     UNDO_EXPENSE,
     UNDO_EXPIRED,
+    UNDO_UNCONFIRMED,
     WALLET_BALANCES,
     WIB,
     FinanceError,
@@ -1138,6 +1139,31 @@ def test_recording_empties_the_cache_so_the_next_read_shows_the_new_balance():
     assert source.calls_of("wallets") == [("wallets",), ("wallets",)]
 
 
+@pytest.mark.parametrize(
+    "error",
+    [
+        FinanceError("unconfirmed", RECORD_UNCONFIRMED),
+        FinanceError("wallet_not_found", "Dompet GoPay tidak ada di tepira."),
+    ],
+    ids=["outcome_unknown", "wallet_gone"],
+)
+def test_a_recording_that_may_have_changed_tepira_empties_the_cache_too(error):
+    # After "aku belum tahu apakah sudah tercatat", Master checks the balance: it must be
+    # tepira's, not the one read just before the record. A wallet gone since is read anew.
+    source = FakeSource()
+    source.fail("record", error)
+    tools, gate = writing(source)
+    turn(tools, gate, "catat jajan kopi 18 ribu")
+    run(tools, RECORD_EXPENSE, COFFEE)
+    turn(tools, gate, "iya")
+    run(tools, RECORD_EXPENSE, COFFEE)
+    turn(tools, gate, "saldo GoPay berapa?")
+
+    run(tools, WALLET_BALANCES)
+
+    assert source.calls_of("wallets") == [("wallets",), ("wallets",)]
+
+
 def test_a_failed_recording_is_its_message_and_nothing_to_undo():
     source = FakeSource()
     source.fail("record", FinanceError("unconfirmed", RECORD_UNCONFIRMED))
@@ -1411,6 +1437,19 @@ def test_undoing_empties_the_cache():
     tools, _, source = recorded_coffee()
     run(tools, WALLET_BALANCES)
     reads = len(source.calls_of("wallets"))
+
+    run(tools, UNDO_EXPENSE)
+    run(tools, WALLET_BALANCES)
+
+    assert len(source.calls_of("wallets")) == reads + 1
+
+
+def test_an_undo_whose_outcome_is_unknown_empties_the_cache_too():
+    source = FakeSource()
+    tools, _, _ = recorded_coffee(source)
+    run(tools, WALLET_BALANCES)
+    reads = len(source.calls_of("wallets"))
+    source.fail("undo", FinanceError("unconfirmed", UNDO_UNCONFIRMED))
 
     run(tools, UNDO_EXPENSE)
     run(tools, WALLET_BALANCES)
