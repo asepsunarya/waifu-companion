@@ -37,7 +37,7 @@ from itertools import count
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from time import sleep
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, get_args
 
 import httpx
 import numpy as np
@@ -81,6 +81,7 @@ from waifu.config import (
     PhoneConfig,
     RvcConfig,
     VersionNoticeConfig,
+    Weekday,
     cookie_names,
     load_config,
 )
@@ -118,6 +119,7 @@ from waifu.gacha.game_data_tools import GameDataTools
 from waifu.gacha.games import GAMES, Game, next_daily_reset
 from waifu.gacha.genshin_impact import GenshinCharacter
 from waifu.gacha.history import (
+    BannerStats,
     GachaHistory,
     GachaLogApi,
     GachaStore,
@@ -144,6 +146,13 @@ from waifu.gacha.starrail import (
 )
 from waifu.gacha.tools import GachaTools
 from waifu.gacha.watcher import GachaWatcher
+from waifu.gacha.weekly import (
+    WEEK,
+    WEEKLY_REPORT,
+    GameWeek,
+    WeeklyReportTimer,
+    WeeklyReportTools,
+)
 from waifu.gacha.zenless import EVENT_REWARD, ZzzAgent
 from waifu.gate import WakeGate
 from waifu.memory import MemoryStore, memory_prompt_section
@@ -291,9 +300,15 @@ NOTIFY_TEST_MESSAGE = "Tes notifikasi dari {name}. Kalau ini muncul di HP, notif
 NOTIFY_TAG = "video_game"  # ntfy shows it as a game controller emoji
 GACHA_DESCRIPTION = (
     "Teman main game HoYoverse: status stamina dan daily, check-in harian HoYoLAB, "
-    "riwayat pull (pity, 50/50), data akun game (karakter, endgame, kalender event), dan kode "
-    "redeem. Perintah ini jalan walau gacha.enabled: false; yang dinyalakan gacha.enabled "
-    "hanyalah tool game dan pengingat saat 'waifu run'."
+    "riwayat pull (pity, 50/50), data akun game (karakter, endgame, kalender event), kode "
+    "redeem, dan laporan mingguan. Perintah ini jalan walau gacha.enabled: false; yang "
+    "dinyalakan gacha.enabled hanyalah tool game, pengingat, dan laporan mingguan saat "
+    "'waifu run'."
+)
+# What `waifu gacha report` ends with: HoYoverse lists a pull about an hour late.
+WEEKLY_REPORT_NOTE = (
+    "Catatan: HoYoverse mencatat pull sekitar satu jam setelahnya, jadi pull barusan mungkin "
+    "belum ada."
 )
 # The community source of the redeem codes (see gacha.codes), credited wherever its codes show.
 CODES_CREDIT = f"Sumber kode: {CODES_SOURCE} (API komunitas di balik Hoyo Buddy)"
@@ -655,7 +670,7 @@ def build_parser() -> argparse.ArgumentParser:
         "gacha",
         parents=[shared],
         help="Teman main game HoYoverse: status, check-in, riwayat pull, data akun game, kode "
-        "redeem.",
+        "redeem, laporan mingguan.",
         description=GACHA_DESCRIPTION,
     )
     gacha_actions = gacha_command.add_subparsers(dest="action", required=True, metavar="<aksi>")
@@ -705,6 +720,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--redeem",
         action="store_true",
         help="tukarkan kode game itu yang belum ditukarkan di akun HoYoLAB Master",
+    )
+    command(
+        "report",
+        _gacha_report,
+        "Laporan 7 hari terakhir tiap game: pull dan 50/50, pity, endgame, dan yang segera "
+        "berakhir.",
+        gacha_actions,
     )
     memory_command = commands.add_parser(
         "memory",
@@ -1134,6 +1156,7 @@ def _listen(args: argparse.Namespace) -> int:
                             notifier=notifier,
                         ),
                         _briefing_timer(config, assistant, notifier),
+                        _weekly_report_timer(config, gacha, assistant, notifier),
                         _budget_told(usage, _budget_teller(config, assistant, notifier)),
                         _phone_server(config, assistant, camera=camera_offered),
                     ):
@@ -1860,7 +1883,23 @@ def _game_tools(config: AppConfig, gacha: GachaParts | None) -> list[ToolProvide
     ]
     if config.redeem_codes.enabled:
         tools.append(CodeTools(_code_store(config), gacha.hoyolab, config.gacha.games))
+    if config.weekly_report.enabled:
+        tools.append(_weekly_report_tools(config, gacha))
     return tools
+
+
+def _weekly_report_tools(config: AppConfig, gacha: GachaParts) -> WeeklyReportTools:
+    """The week in the configured games from the pull history in `gacha.data_dir`, HoYoLAB,
+    and with the redeem codes on, the codes `waifu run` keeps."""
+    return WeeklyReportTools(
+        config.gacha.games,
+        history=gacha.history,
+        store=GachaStore(config.gacha.data_dir),
+        source=gacha.hoyolab,
+        codes=_code_store(config) if config.redeem_codes.enabled else None,
+        server_utc_offset=config.gacha.server_utc_offset,
+        extra_standard=config.gacha.off_banner,
+    )
 
 
 def _gacha_watcher(
@@ -2020,19 +2059,27 @@ def _gacha_history(args: argparse.Namespace) -> int:
     if report.updated:
         latest = f", terakhir {report.latest_pull:%Y-%m-%d %H:%M}" if report.latest_pull else ""
         print(f"{OK} {report.new_count} pull baru tersimpan{latest}.")
-    top = "S-rank" if game.id == "zzz" else "5★"
+    top = _top_word(game)
     for stats in report.stats:
-        guarantee = {True: ", berikutnya pasti limited", False: ", berikutnya 50/50", None: ""}
-        print(
-            f"{stats.banner.name}: pity {stats.pity}/{stats.banner.hard_pity}"
-            f"{guarantee[stats.guaranteed]}, total {stats.total} pull"
-        )
+        print(_pity_line(stats))
         if stats.recent_tops:
             tops = ", ".join(_top_pull_text(pull) for pull in stats.recent_tops)
             print(f"  {top} terakhir: {tops}")
     if report.hint:
         print(f"{WARN} {report.hint}")
     return 0 if report.problem is None else 1
+
+
+def _top_word(game: Game) -> str:
+    return "S-rank" if game.id == "zzz" else "5★"
+
+
+def _pity_line(stats: BannerStats) -> str:
+    guarantee = {True: ", berikutnya pasti limited", False: ", berikutnya 50/50", None: ""}
+    return (
+        f"{stats.banner.name}: pity {stats.pity}/{stats.banner.hard_pity}"
+        f"{guarantee[stats.guaranteed]}, total {stats.total} pull"
+    )
 
 
 def _top_pull_text(pull: TopPull) -> str:
@@ -2137,15 +2184,17 @@ def _print_hsr_endgame(results: Mapping[str, HsrEndgame | GachaError], now: date
             print(f"{name}: {FAIL} {result.message}")
             failed = True
             continue
-        if result.has_data:
-            extra = f" (+{result.extra_stars} ekstra)" if result.extra_stars else ""
-            parts = [f"{result.stars} bintang{extra}"]
-            if result.deepest_floor:
-                parts.append(f"lantai terdalam {result.deepest_floor}")
-        else:
-            parts = ["belum dimainkan musim ini"]
+        parts = _hsr_endgame_facts(result) if result.has_data else ["belum dimainkan musim ini"]
         print(_labelled(name, [*parts, *_ends(result.ends_at, now)]))
     return 1 if failed else 0
+
+
+def _hsr_endgame_facts(endgame: HsrEndgame) -> list[str]:
+    extra = f" (+{endgame.extra_stars} ekstra)" if endgame.extra_stars else ""
+    facts = [f"{endgame.stars} bintang{extra}"]
+    if endgame.deepest_floor:
+        facts.append(f"lantai terdalam {endgame.deepest_floor}")
+    return facts
 
 
 def _print_endgame(game: str, results: Mapping[str, Endgame | GachaError], now: datetime) -> int:
@@ -2294,6 +2343,98 @@ def _time_left(left: timedelta) -> str:
 
 def _labelled(label: str, parts: list[str], *, separator: str = ", ") -> str:
     return f"{label}: {separator.join(parts)}" if parts else label
+
+
+def _gacha_report(args: argparse.Namespace) -> int:
+    """Print the last 7 days in Master's games as her weekly report gathers them, without the
+    brain; it works whether or not `gacha.enabled` and `weekly_report.enabled` are on. Exit 1
+    when a part of a game could not be read; the rest is printed all the same."""
+    config = load_config(args.config)
+    print("Membaca riwayat pull dan HoYoLAB, tunggu sebentar...", flush=True)
+    report = _weekly_report_tools(config, build_gacha(config)).gather()
+    since = report.since
+    print(
+        f"Laporan game 7 hari terakhir, sejak {WEEKDAYS_ID[since.weekday()]}, "
+        f"{since:%d-%m-%Y %H:%M}"
+    )
+    failed = False
+    for week in report.games:
+        print(f"{week.game.short} ({week.game.name})")
+        for line in _game_week_lines(week, report.now):
+            print(f"  {line}")
+        failed = failed or bool(week.problems)
+    print(WEEKLY_REPORT_NOTE)
+    return 1 if failed else 0
+
+
+def _game_week_lines(week: GameWeek, now: datetime) -> list[str]:
+    """One game's week: its pulls and pity, its endgame, what ends within 7 days, and its
+    codes, each problem marked where its part would be."""
+    lines = []
+    if week.pulls_problem is not None:
+        # With a pity the stored history still answered; without one nothing did.
+        lines.append(f"{WARN if week.pity else FAIL} {week.pulls_problem}")
+    if week.pity:
+        lines += _week_pulls_lines(week)
+    lines += [_season_line(week.game, season, now) for season in week.endgame]
+    if week.endgame_problem is not None:
+        lines.append(f"{FAIL} {week.endgame_problem}")
+    if week.calendar_problem is not None:
+        lines.append(f"{FAIL} {week.calendar_problem}")
+    else:
+        ending = [_ending_banner_text(week.game, banner, now) for banner in week.banners]
+        unit = EVENT_REWARD if week.game.id == "zzz" else None
+        ending += [_event_text(event, now, unit) for event in week.events]
+        lines.append("Berakhir dalam 7 hari:" if ending else "Berakhir dalam 7 hari: tidak ada")
+        lines += [f"  {line}" for line in ending]
+    if week.codes_problem is not None:
+        lines.append(f"{FAIL} {week.codes_problem}")
+    elif week.codes is not None:
+        lines.append(f"Kode belum ditukarkan: {', '.join(week.codes) or 'tidak ada'}")
+    return lines
+
+
+def _week_pulls_lines(week: GameWeek) -> list[str]:
+    count = sum(banner.count for banner in week.pulls)
+    if not count:
+        lines = ["Pull minggu ini: belum ada"]
+    else:
+        banners = ", ".join(f"{banner.banner.name} {banner.count}" for banner in week.pulls)
+        lines = [f"Pull minggu ini: {count} ({banners})"]
+    tops = sorted(
+        (top for banner in week.pulls for top in banner.tops),
+        key=lambda top: (top.time, top.id),
+        reverse=True,
+    )
+    if tops:
+        pulled = ", ".join(_top_pull_text(top) for top in tops)
+        lines.append(f"{_top_word(week.game)} minggu ini: {pulled}")
+    lines += [_pity_line(stats) for stats in week.pity]
+    if week.hint:
+        lines.append(f"{WARN} {week.hint}")
+    return lines
+
+
+def _season_line(game: Game, season: HsrEndgame | Endgame, now: datetime) -> str:
+    """This season of one mode; a season ending within 7 days ends `segera`."""
+    if not season.has_data:
+        facts = ["belum dimainkan musim ini"]
+    elif isinstance(season, HsrEndgame):
+        facts = _hsr_endgame_facts(season)
+    else:
+        facts = _endgame_facts(season)
+    ends_at = season.ends_at
+    if ends_at is not None and now < ends_at <= now + WEEK:
+        end = [_moment("segera berakhir", ends_at, now)]
+    else:
+        end = _ends(ends_at, now)
+    return _labelled(GAME_MODES[game.id][season.mode], [*facts, *end])
+
+
+def _ending_banner_text(game: Game, banner: HsrWarp | Banner, now: datetime) -> str:
+    if isinstance(banner, HsrWarp):
+        return _hsr_warp_text(banner, now)
+    return _game_banner_text(banner, ("S", "A") if game.id == "zzz" else ("5★", "4★"), now)
 
 
 def _gacha_codes(args: argparse.Namespace) -> int:
@@ -2730,7 +2871,7 @@ def _briefing_timer(
     if not briefing.enabled:
         return nullcontext()
     on_reply = (
-        _phone_push(notifier, config.assistant.name)
+        _phone_push(notifier, config.assistant.name, BRIEFING_TAG)
         if briefing.push and notifier is not None
         else None
     )
@@ -2742,11 +2883,36 @@ def _briefing_timer(
     )
 
 
-def _phone_push(notifier: Notifier, title: str) -> Callable[[str], None]:
-    """Sends what she said by herself to the phone (the notifier logs a failed push)."""
+def _weekly_report_timer(
+    config: AppConfig, gacha: GachaParts | None, assistant: Assistant, notifier: Notifier | None
+) -> AbstractContextManager[object]:
+    """Her weekly game report, asked of her once a week while the block runs and also pushed
+    to the phone with the game tag when `weekly_report.push` and notifications are on; none
+    with the games or the report off. As for the morning greeting, a report whose turn never
+    read the week (`weekly_report`) is the brain's apology for a failure, so it is neither said
+    nor pushed, and it starts a new session, so no earlier answer's figure reaches it."""
+    weekly = config.weekly_report
+    if gacha is None or not weekly.enabled:
+        return nullcontext()
+    on_reply = (
+        _phone_push(notifier, config.assistant.name, NOTIFY_TAG)
+        if weekly.push and notifier is not None
+        else None
+    )
+    return WeeklyReportTimer(
+        weekly,
+        request=lambda prompt: assistant.ask_aloud(
+            prompt, on_reply=on_reply, required_tool=WEEKLY_REPORT, new_session=True
+        ),
+    )
+
+
+def _phone_push(notifier: Notifier, title: str, tag: str) -> Callable[[str], None]:
+    """Sends what she said by herself to the phone with `tag` (the notifier logs a failed
+    push)."""
 
     def push(text: str) -> None:
-        notifier.send(title, text, tags=[BRIEFING_TAG])
+        notifier.send(title, text, tags=[tag])
 
     return push
 
@@ -4254,6 +4420,7 @@ def _checks(config_path: Path) -> Iterator[Check]:
     yield from _avatar_checks(config)
     yield from _gacha_checks(config)
     yield _redeem_codes_check(config)
+    yield _weekly_report_check(config)
     yield _tepira_check(config)
     yield _notify_check(config)
     yield from _phone_checks(config)
@@ -4782,6 +4949,28 @@ def _redeem_codes_check(config: AppConfig) -> Check:
             "penukarannya"
         )
     return OK, f"{status}; cookie memuat cookie_token_v2"
+
+
+def _weekly_report_check(config: AppConfig) -> Check:
+    """When she gives the weekly game report by herself, whether the phone gets it, and whether
+    HoYoLAB can be read for it (by the cookie's presence only); nothing is read."""
+    weekly = config.weekly_report
+    if not (config.gacha.enabled and weekly.enabled):
+        off = "weekly_report.enabled" if config.gacha.enabled else "gacha.enabled"
+        return (
+            WARN,
+            f"Laporan game mingguan mati ({off}: false); 'waifu gacha report' tetap bisa dipakai",
+        )
+    day = WEEKDAYS_ID[get_args(Weekday).index(weekly.day)]
+    status = f"Laporan game mingguan: tiap {day} jam {weekly.time:%H:%M}"
+    if weekly.push and config.notify.enabled:
+        status += ", juga ke HP"
+    if config.gacha.cookie is None:
+        return WARN, (
+            f"{status}; cookie HoYoLAB belum diisi (gacha.cookie), jadi endgame dan event tidak "
+            "terbaca"
+        )
+    return OK, status
 
 
 def _tepira_check(config: AppConfig) -> Check:

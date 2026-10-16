@@ -135,6 +135,12 @@ class GameWeek:
         return None if self.complete or not self.pity else partial_history_hint(self.game)
 
     @property
+    def problems(self) -> tuple[str, ...]:
+        """The problem of each section that has one, in the sections' order."""
+        sections = (self.pulls_problem, self.endgame_problem, self.calendar_problem)
+        return tuple(problem for problem in (*sections, self.codes_problem) if problem)
+
+    @property
     def readable(self) -> bool:
         """Whether anything of this game could be read: a history, an endgame, a calendar."""
         return bool(self.pity or self.endgame) or self.calendar_problem is None
@@ -244,7 +250,7 @@ def _outcome(future: Future[T], done: set[Future[Any]], what: str) -> tuple[T | 
     try:
         return future.result(), None
     except GachaError as error:
-        logger.warning("The weekly report could not read the %s: %s", what, error.kind)
+        logger.info("The weekly report could not read the %s: %s", what, error.kind)
         return None, error.message
     except Exception:
         logger.exception("The weekly report's %s read failed", what)
@@ -384,10 +390,9 @@ class WeeklyReportTools:
             return _error(_FAILED)
         return _error(f"Tool '{name}' bukan tool laporan game mingguan.")
 
-    def _report(self, arguments: object) -> tuple[str, bool]:
-        if not isinstance(arguments, Mapping) or arguments:
-            raise _InvalidArguments("tool ini tidak menerima argumen; kirim objek kosong {}.")
-        report = gather_weekly_report(
+    def gather(self) -> WeeklyReport:
+        """The week up to now, as the tool reads it; `waifu gacha report` prints it."""
+        return gather_weekly_report(
             self._games,
             history=self._history,
             store=self._store,
@@ -398,6 +403,11 @@ class WeeklyReportTools:
             extra_standard=self._extra,
             budget_s=self._budget_s,
         )
+
+    def _report(self, arguments: object) -> tuple[str, bool]:
+        if not isinstance(arguments, Mapping) or arguments:
+            raise _InvalidArguments("tool ini tidak menerima argumen; kirim objek kosong {}.")
+        report = self.gather()
         if not report.readable:
             # An error result: a reply without a successful call is never said by herself.
             failed = {"ok": False, "message": _NOTHING_READABLE, "problems": _problems(report)}
@@ -432,18 +442,7 @@ def _spec(games: list[str], *, codes: bool) -> ToolSpec:
 
 def _problems(report: WeeklyReport) -> list[str]:
     """Every problem of the report, each once, in the order of the games and their sections."""
-    found = [
-        problem
-        for week in report.games
-        for problem in (
-            week.pulls_problem,
-            week.endgame_problem,
-            week.calendar_problem,
-            week.codes_problem,
-        )
-        if problem is not None
-    ]
-    return list(dict.fromkeys(found))
+    return list(dict.fromkeys(problem for week in report.games for problem in week.problems))
 
 
 class WeeklyReportTimer(PromptTimer):

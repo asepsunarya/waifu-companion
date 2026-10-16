@@ -10,6 +10,7 @@ from waifu.config import (
     RainAlertConfig,
     TepiraConfig,
     VersionNoticeConfig,
+    WeeklyReportConfig,
     load_config,
 )
 
@@ -1067,3 +1068,12 @@ def test_tepira_default_wallet_may_be_a_long_name_in_full(tmp_path):
 def test_unknown_tepira_settings_are_refused(tmp_path):
     with pytest.raises(ConfigError, match="write_token"):
         load_config(write_yaml(tmp_path, "tepira:\n  write_token: x\n"))
+
+
+def test_the_example_weekly_report_block_written_out_holds_the_defaults(tmp_path):
+    example = (ROOT / "config.example.yaml").read_text(encoding="utf-8")
+    commented = example[example.index("\n# weekly_report:\n") + 1 :].split("\n\n", 1)[0]
+    written_out = "\n".join(line.removeprefix("# ") for line in commented.splitlines())
+
+    weekly = load_config(write_yaml(tmp_path, written_out)).weekly_report
+    assert weekly == WeeklyReportConfig()

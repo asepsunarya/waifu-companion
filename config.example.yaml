@@ -183,6 +183,21 @@ gacha:
 #   notices: true                         # false: tidak pernah bilang sendiri, kode tetap dicek (dan auto_redeem tidak jalan)
 #   state_path: data/redeem_codes.json    # kode yang dikenal, hasil penukarannya, dan yang sudah diberitahukan, hanya di PC ini
 
+# Laporan game mingguan (README, bagian "Laporan game mingguan"): selama `waifu run` dan teman
+# main gacha menyala, sekali seminggu Cyrene bercerita sendiri tentang minggu Master di game
+# yang ada di gacha.games: pull 7 hari terakhir dan 50/50-nya, pity tiap banner, progres
+# endgame musim ini, dan endgame, banner, serta event yang berakhir dalam 7 hari. Itu hanya
+# kabar: dia tidak pernah menyarankan pull atau top up. Teksnya juga dikirim ke HP kalau notify
+# menyala. Kalau `waifu run` baru menyala sesudah jamnya, laporannya tetap datang sekali hari itu;
+# hari yang terlewat seluruhnya tidak disusulkan. Lihat dari terminal dengan `waifu gacha report`.
+# Sudah menyala tanpa ditulis; untuk mengubahnya, tulis bagian ini tanpa tanda # di depannya.
+# weekly_report:
+#   enabled: true                         # false: tanpa tool dan tanpa laporan sendiri (`waifu gacha report` tetap jalan)
+#   day: sunday                           # hari laporannya: monday, tuesday, wednesday, thursday, friday, saturday, atau sunday
+#   time: "19:00"                         # mulai jam ini (jam PC) sampai tengah malam; 19.00 WIB = 20.00 server Asia
+#   push: true                            # kirim laporannya juga ke HP (kalau notify menyala)
+#   state_path: data/weekly_report.json   # hari laporan terakhir, supaya restart tidak mengulangnya
+
 # Notifikasi ke HP lewat ntfy (aplikasi gratis, tanpa akun): langganan topik yang sama di aplikasinya.
 notify:
   enabled: false

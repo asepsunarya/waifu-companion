@@ -67,6 +67,7 @@ from waifu.config import (
     RvcConfig,
     TodoConfig,
     VersionNoticeConfig,
+    WeeklyReportConfig,
 )
 from waifu.devices.base import DeviceError
 from waifu.devices.ir_codes import IrCodeStore
@@ -97,7 +98,14 @@ from waifu.gacha.game_data import (
 from waifu.gacha.game_data_tools import GameDataTools
 from waifu.gacha.games import GAMES
 from waifu.gacha.genshin_impact import GenshinCharacter, GenshinWeapon
-from waifu.gacha.history import BannerStats, GachaHistory, HistoryReport, TopPull
+from waifu.gacha.history import (
+    BannerStats,
+    GachaHistory,
+    GachaRecord,
+    GachaStore,
+    HistoryReport,
+    TopPull,
+)
 from waifu.gacha.hoyolab import (
     NO_COOKIE,
     REDEEM_MESSAGES,
@@ -120,6 +128,7 @@ from waifu.gacha.starrail import (
     HsrWarp,
 )
 from waifu.gacha.tools import GachaTools
+from waifu.gacha.weekly import WEEKLY_REPORT_PROMPT, WeeklyReportTimer, WeeklyReportTools
 from waifu.gacha.zenless import ZzzAgent
 from waifu.memory import MemoryStore, memory_prompt_section
 from waifu.offers.errors import OffersError
@@ -307,6 +316,41 @@ def briefing_timers(monkeypatch) -> list[FakeBriefingTimer]:
         return built[-1]
 
     monkeypatch.setattr(cli, "BriefingTimer", build)
+    return built
+
+
+class FakeWeeklyReportTimer:
+    """Stands in for WeeklyReportTimer without a thread, remembering whether `waifu run`
+    listened when it started and stopped. `tick_at(moment)` runs one check of a real
+    WeeklyReportTimer built with the same arguments, to see what it would ask for then."""
+
+    def __init__(self, config, *, request) -> None:
+        self.config = config
+        self.request = request
+        self.listening: list[bool] = []
+
+    def __enter__(self) -> "FakeWeeklyReportTimer":
+        self.listening.append(listening())
+        return self
+
+    def __exit__(self, *exc_info) -> None:
+        self.listening.append(listening())
+
+    def tick_at(self, moment: datetime) -> None:
+        WeeklyReportTimer(self.config, request=self.request, now=lambda: moment).tick_once()
+
+
+@pytest.fixture(autouse=True)
+def weekly_report_timers(monkeypatch) -> list[FakeWeeklyReportTimer]:
+    """The real timer reports by the wall clock: on a Sunday evening it would ask for the
+    weekly game report in every `run` test with the games on, so every test gets the fake."""
+    built: list[FakeWeeklyReportTimer] = []
+
+    def build(config, *, request) -> FakeWeeklyReportTimer:
+        built.append(FakeWeeklyReportTimer(config, request=request))
+        return built[-1]
+
+    monkeypatch.setattr(cli, "WeeklyReportTimer", build)
     return built
 
 
@@ -4516,9 +4560,19 @@ def test_run_with_the_games_on_gives_the_brain_the_game_tools_and_watches_while_
 
     assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
 
-    [tools, data_tools, code_tools, memory_tools, schedule, todo, briefing, pc, offers, music] = (
-        brains[0].providers
-    )
+    [
+        tools,
+        data_tools,
+        code_tools,
+        weekly,
+        memory_tools,
+        schedule,
+        todo,
+        briefing,
+        pc,
+        offers,
+        music,
+    ] = brains[0].providers
     assert (
         type(tools),
         type(memory_tools),
@@ -4538,7 +4592,11 @@ def test_run_with_the_games_on_gives_the_brain_the_game_tools_and_watches_while_
         OffersTools,
         MusicTools,
     )
-    assert (type(data_tools), type(code_tools)) == (GameDataTools, CodeTools)
+    assert (type(data_tools), type(code_tools), type(weekly)) == (
+        GameDataTools,
+        CodeTools,
+        WeeklyReportTools,
+    )
     assert [spec.name for spec in tools.specs()] == ["game_status", "gacha_history"]
     [watcher] = watchers
     assistant = RecordingAssistant.instances[0]
@@ -4582,6 +4640,7 @@ def test_run_without_a_cookie_has_the_game_tools_but_no_watcher(
         GachaTools,
         GameDataTools,
         CodeTools,
+        WeeklyReportTools,
         MemoryTools,
         ScheduleTools,
         TodoTools,
@@ -4618,6 +4677,7 @@ def test_chat_with_the_games_on_gives_the_brain_the_game_tools(home, brains, gam
         GachaTools,
         GameDataTools,
         CodeTools,
+        WeeklyReportTools,
         MemoryTools,
         ScheduleTools,
         TodoTools,
@@ -10655,6 +10715,428 @@ def test_the_example_redeem_codes_block_is_valid_once_written_out(home):
     assert cli.load_config(home / "config.yaml").redeem_codes == RedeemCodesConfig()
 
 
+# --- laporan game mingguan -----------------------------------------------------------------------
+
+SERVER_TIME = timezone(timedelta(hours=8))
+
+
+def weekly_report_tools(brain: HouseBrain) -> WeeklyReportTools:
+    [tools] = [provider for provider in brain.providers if isinstance(provider, WeeklyReportTools)]
+    return tools
+
+
+def save_hsr_week(home: Path) -> None:
+    """Master's HSR history in data/gacha: nine days ago a lost 50/50 to Himeko, two days ago
+    the guaranteed Castorice, and five pulls since."""
+
+    def pulled(record_id: int, days_ago: int, name: str = "Arrows", rarity: int = 3):
+        moment = datetime.now(SERVER_TIME) - timedelta(days=days_ago)
+        when = f"{moment:%Y-%m-%d %H:%M:%S}"
+        return GachaRecord(record_id, 800000001, 11, name, rarity, "Character", when)
+
+    records = [pulled(i, 9) for i in range(1, 60)]
+    records.append(pulled(60, 9, "Himeko", 5))
+    records += [pulled(i, 2) for i in range(61, 90)]
+    records.append(pulled(90, 2, "Castorice", 5))
+    records += [pulled(i, 1) for i in range(91, 96)]
+    GachaStore(home / "data" / "gacha").save(GAMES["hsr"], 800000001, records, complete=True)
+
+
+def hsr_season(mode: str, **known) -> HsrEndgame:
+    """This season of an HSR mode, not played, without an end, unless `known` says more."""
+    values = {"season": None, "ends_at": None, "has_data": False, "stars": 0, "extra_stars": 0}
+    values |= {"deepest_floor": None, "battles": None, "floors": ()} | known
+    return HsrEndgame(mode, **values)
+
+
+def hsr_week_on_hoyolab(game_data: "FakeGameDataClient") -> dict[str, datetime]:
+    """This HSR season and calendar on HoYoLAB; returns the ends it gave."""
+    ends = {
+        "chaos": from_now(days=1, hours=8),
+        "fiction": from_now(days=10),
+        "warp": from_now(days=2, hours=19),
+        "fissure": from_now(days=1, hours=8),
+    }
+    game_data.hsr_modes = {mode: hsr_season(mode) for mode in ENDGAME_MODES}
+    game_data.hsr_modes["memory_of_chaos"] = hsr_season(
+        "memory_of_chaos",
+        has_data=True,
+        stars=30,
+        extra_stars=2,
+        deepest_floor="Stage 12",
+        ends_at=ends["chaos"],
+    )
+    game_data.hsr_modes["pure_fiction"] = hsr_season("pure_fiction", ends_at=ends["fiction"])
+    game_data.hsr_events = HsrCalendar(
+        "3.7",
+        (
+            HsrWarp(
+                "character",
+                "Bloom of Death",
+                ("Castorice",),
+                ("Pela", "Lynx"),
+                from_now(days=-10),
+                ends["warp"],
+            ),
+            HsrWarp("light_cone", "Later", ("Song",), (), from_now(days=-1), from_now(days=9)),
+        ),
+        (HsrEvent("Planar Fissure", None, ends["fissure"], 3, 7, False),),
+        (),
+    )
+    return ends
+
+
+def every_genshin_and_zzz_mode_unplayed(game_data: "FakeGameDataClient") -> None:
+    game_data.modes = {
+        mode: endgame(mode, has_data=False)
+        for game in ("genshin", "zzz")
+        for mode in GAME_MODES[game]
+    }
+
+
+def test_run_gives_the_weekly_report_once_a_week_while_she_listens_and_pushes_it_as_a_game(
+    home, run_fakes, brains, games, watchers, weekly_report_timers, monkeypatch
+):
+    enable_gacha(home)
+    enable_notify(home)
+    notifier = FakeNotifier()
+    use_notifier(monkeypatch, notifier)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    assert [type(tools) for tools in brains[0].providers][:4] == [
+        GachaTools,
+        GameDataTools,
+        CodeTools,
+        WeeklyReportTools,
+    ]
+    [timer] = weekly_report_timers
+    assert timer.config == WeeklyReportConfig()
+    assert timer.listening == [False, True]
+    timer.tick_at(datetime(2026, 10, 18, 19, 0))  # a Sunday
+    timer.tick_at(datetime(2026, 10, 18, 21, 0))  # she already gave it today
+    assistant = RecordingAssistant.instances[0]
+    [(prompt, on_reply, required_tool)] = assistant.asked
+    assert prompt == WEEKLY_REPORT_PROMPT
+    assert required_tool == "weekly_report"  # a turn that never read the week is never said
+    # In a new session, so no figure from an earlier finance answer reaches the report.
+    assert assistant.new_sessions == [True]
+    on_reply("Minggu ini Master dapat Castorice!")
+    assert notifier.sent == [("Cyrene", "Minggu ini Master dapat Castorice!", ("video_game",))]
+
+
+def test_run_gives_the_weekly_report_on_the_configured_day_and_remembers_it_there(
+    home, run_fakes, games, watchers, weekly_report_timers
+):
+    enable_gacha(home)
+    append_config(
+        home,
+        "weekly_report:\n  day: saturday\n  time: '20:30'\n  state_path: laporan/minggu.json\n",
+    )
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    [timer] = weekly_report_timers
+    timer.tick_at(datetime(2026, 10, 18, 21, 0))  # Sunday
+    timer.tick_at(datetime(2026, 10, 24, 20, 30))  # Saturday
+    assert [prompt for prompt, _, _ in RecordingAssistant.instances[0].asked] == [
+        WEEKLY_REPORT_PROMPT
+    ]
+    saved = json.loads((home / "laporan" / "minggu.json").read_text(encoding="utf-8"))
+    assert saved["last_date"] == "2026-10-24"
+
+
+@pytest.mark.parametrize(
+    ("push", "notify"), [(False, True), (True, False)], ids=["push_off", "notify_off"]
+)
+def test_run_gives_the_weekly_report_without_a_push_when_push_or_notifications_are_off(
+    push, notify, home, run_fakes, games, watchers, weekly_report_timers, monkeypatch
+):
+    enable_gacha(home)
+    if notify:
+        enable_notify(home)
+    append_config(home, f"weekly_report:\n  push: {str(push).lower()}\n")
+    notifier = FakeNotifier()
+    use_notifier(monkeypatch, notifier)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    weekly_report_timers[0].request(WEEKLY_REPORT_PROMPT)
+    [(_, on_reply, _)] = RecordingAssistant.instances[0].asked
+    assert on_reply is None
+
+
+def test_chat_gives_the_brain_the_weekly_report_tool_but_never_reports_by_herself(
+    home, brains, games, weekly_report_timers, monkeypatch
+):
+    enable_gacha(home)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main(["chat", "--dry-run"]) == 0
+
+    assert any(isinstance(tools, WeeklyReportTools) for tools in brains[0].providers)
+    assert weekly_report_timers == []
+
+
+@pytest.mark.parametrize("argv", [["run", "--no-speaker-check"], ["chat"]])
+@pytest.mark.parametrize(
+    "settings",
+    ["weekly_report:\n  enabled: false\n", None],
+    ids=["weekly_report_off", "games_off"],
+)
+def test_without_the_weekly_report_or_the_games_there_is_neither_the_tool_nor_the_timer(
+    settings, argv, home, run_fakes, brains, games, watchers, weekly_report_timers, monkeypatch
+):
+    if settings is not None:
+        enable_gacha(home)
+        append_config(home, settings)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main([*argv, "--dry-run"]) == 0
+
+    assert not any(isinstance(tools, WeeklyReportTools) for tools in brains[0].providers)
+    assert weekly_report_timers == []
+
+
+def test_the_weekly_report_tool_reads_the_history_hoyolab_and_codes_of_the_configured_games(
+    home, brains, game_data, games, monkeypatch
+):
+    enable_gacha(home)
+    play_only(home, "[hsr, zzz]")
+    save_hsr_week(home)
+    hsr_week_on_hoyolab(game_data)
+    every_genshin_and_zzz_mode_unplayed(game_data)
+    CodeStore(home / "data" / "redeem_codes.json").add(
+        "hsr", [("STARRAILGIFT", "50 Stellar Jade")], datetime.now().astimezone()
+    )
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+    assert cli.main(["chat", "--dry-run"]) == 0
+
+    result, is_error = weekly_report_tools(brains[0]).run("weekly_report", {})
+
+    assert is_error is False
+    hsr, zzz = json.loads(result)["games"]
+    assert (hsr["game"], zzz["game"]) == ("hsr", "zzz")
+    assert hsr["pulls_this_week"]["count"] == 35
+    assert hsr["endgame"][0]["stars"] == 30
+    assert [banner["name"] for banner in hsr["ending_soon"]["banners"]] == ["Bloom of Death"]
+    assert (hsr["unredeemed_codes"], zzz["unredeemed_codes"]) == (["STARRAILGIFT"], [])
+    assert zzz["pulls_this_week"] is None
+    assert games.history.asked == [("hsr", False)]  # only a stored history is refreshed
+
+
+def test_the_weekly_report_tool_leaves_the_codes_out_when_they_are_off(
+    home, brains, game_data, games, monkeypatch
+):
+    enable_gacha(home)
+    play_only(home, "[hsr]")
+    save_hsr_week(home)
+    hsr_week_on_hoyolab(game_data)
+    append_config(home, "redeem_codes:\n  enabled: false\n")
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+    assert cli.main(["chat", "--dry-run"]) == 0
+
+    result, _ = weekly_report_tools(brains[0]).run("weekly_report", {})
+
+    [hsr] = json.loads(result)["games"]
+    assert "unredeemed_codes" not in hsr
+
+
+def test_gacha_report_prints_the_week_of_each_game_without_the_brain_also_with_the_games_off(
+    home, game_data, games, capsys
+):
+    play_only(home, "[hsr]")
+    save_hsr_week(home)
+    ends = hsr_week_on_hoyolab(game_data)
+
+    assert cli.main(["gacha", "report"]) == 0
+
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0] == "Membaca riwayat pull dan HoYoLAB, tunggu sebentar..."
+    since = datetime.now() - timedelta(days=7)
+    assert lines[1].startswith(
+        f"Laporan game 7 hari terakhir, sejak {WEEKDAYS_ID[since.weekday()]}, "
+    )
+    assert lines[2:] == [
+        "HSR (Honkai: Star Rail)",
+        "  Pull minggu ini: 35 (Character Event Warp 35)",
+        "  5★ minggu ini: Castorice (30 pull)",
+        "  Character Event Warp: pity 5/90, berikutnya 50/50, total 95 pull",
+        "  Memory of Chaos: 30 bintang (+2 ekstra), lantai terdalam Stage 12, "
+        f"segera berakhir {local(ends['chaos'])} (1 hari 8 jam lagi)",
+        f"  Pure Fiction: belum dimainkan musim ini, berakhir {local(ends['fiction'])} "
+        "(10 hari lagi)",
+        "  Apocalyptic Shadow: belum dimainkan musim ini",
+        "  Anomaly Arbitration: belum dimainkan musim ini",
+        "  Berakhir dalam 7 hari:",
+        "    Bloom of Death (karakter): 5★ Castorice; 4★ Pela, Lynx; "
+        f"berakhir {local(ends['warp'])} (2 hari 19 jam lagi)",
+        f"    Planar Fissure: 3/7, berakhir {local(ends['fissure'])} (1 hari 8 jam lagi)",
+        "  Kode belum ditukarkan: tidak ada",
+        "Catatan: HoYoverse mencatat pull sekitar satu jam setelahnya, jadi pull barusan "
+        "mungkin belum ada.",
+    ]
+    assert games.history.asked == [("hsr", False)]
+
+
+def test_gacha_report_prints_what_it_could_read_and_exits_1_when_a_part_failed(
+    home, game_data, games, capsys
+):
+    save_hsr_week(home)
+    hsr_week_on_hoyolab(game_data)
+    every_genshin_and_zzz_mode_unplayed(game_data)
+    game_data.data_failure = GachaError("network", "HoYoLAB tidak bisa dihubungi.")
+    stale = HistoryReport(
+        GAMES["hsr"], False, "Buka riwayat warp di HSR sekali.", True, (), (), 0, None
+    )
+    games.history = FakeGameHistory(stale)
+
+    assert cli.main(["gacha", "report"]) == 1
+
+    out = capsys.readouterr().out
+    hsr, rest = out.split("Genshin (Genshin Impact)\n")
+    genshin, zzz = rest.split("ZZZ (Zenless Zone Zero)\n")
+    assert (
+        "  ! Riwayat HSR terbaru tidak terbaca, jadi angkanya dari riwayat tersimpan: Buka "
+        "riwayat warp di HSR sekali.\n  Pull minggu ini: 35 (Character Event Warp 35)\n"
+    ) in hsr
+    assert "  Berakhir dalam 7 hari:\n" in hsr
+    assert genshin.splitlines()[0] == (
+        "  ✗ Belum ada riwayat Genshin yang tersimpan; jalankan "
+        "'waifu gacha history genshin --full' sekali."
+    )
+    assert "  Spiral Abyss: belum dimainkan musim ini" in genshin.splitlines()
+    assert "  ✗ Kalender event Genshin tidak terbaca: HoYoLAB tidak bisa dihubungi." in (
+        genshin.splitlines()
+    )
+    assert "  ✗ Kalender event ZZZ tidak terbaca: HoYoLAB tidak bisa dihubungi." in (
+        zzz.splitlines()
+    )
+
+
+def test_gacha_report_shows_this_weeks_s_ranks_codes_and_an_unreadable_endgame_mode(
+    home, game_data, games, capsys
+):
+    play_only(home, "[zzz]")
+    moment = datetime.now(SERVER_TIME) - timedelta(days=1)
+    when = f"{moment:%Y-%m-%d %H:%M:%S}"
+    records = [GachaRecord(i, 1300000003, 2, "Lycaon", 3, "Agents", when) for i in range(1, 10)]
+    records.append(GachaRecord(10, 1300000003, 2, "Ellen", 4, "Agents", when))
+    GachaStore(home / "data" / "gacha").save(GAMES["zzz"], 1300000003, records, complete=True)
+    every_genshin_and_zzz_mode_unplayed(game_data)
+    game_data.modes["deadly_assault"] = GachaError("other", "Deadly Assault bermasalah.")
+    CodeStore(home / "data" / "redeem_codes.json").add(
+        "zzz", [("ZENLESSGIFT", "60 Polychrome")], datetime.now().astimezone()
+    )
+
+    assert cli.main(["gacha", "report"]) == 1
+
+    lines = capsys.readouterr().out.splitlines()
+    assert "  S-rank minggu ini: Ellen (10 pull, menang 50/50)" in lines
+    assert "  Shiyu Defense: belum dimainkan musim ini" in lines
+    assert "  ✗ Deadly Assault tidak terbaca: Deadly Assault bermasalah." in lines
+    assert "  Berakhir dalam 7 hari: tidak ada" in lines
+    assert "  Kode belum ditukarkan: ZENLESSGIFT" in lines
+
+
+def test_gacha_report_never_prints_what_was_spent(home, game_data, games, capsys):
+    play_only(home, "[hsr]")
+    save_hsr_week(home)
+    hsr_week_on_hoyolab(game_data)
+
+    cli.main(["gacha", "report"])
+
+    out = capsys.readouterr().out
+    for word in ("Stellar Jade", "160", "habis dipakai", "top up"):
+        assert word not in out
+
+
+def test_gacha_help_offers_the_weekly_report(monkeypatch, capsys):
+    monkeypatch.setenv("COLUMNS", "300")
+    monkeypatch.setenv("PYTHON_COLORS", "0")
+
+    with pytest.raises(SystemExit):
+        cli.main(["gacha", "--help"])
+
+    out = capsys.readouterr().out
+    assert "report" in out
+    assert "laporan mingguan" in out
+
+
+def weekly_report_line(out: str) -> str:
+    [line] = [line for line in out.splitlines() if "Laporan game mingguan" in line]
+    return line
+
+
+def test_check_reports_the_weekly_report_off_with_the_games(home, nothing_installed, capsys):
+    cli.main(["check"])
+
+    assert weekly_report_line(capsys.readouterr().out) == (
+        "! Laporan game mingguan mati (gacha.enabled: false); 'waifu gacha report' tetap bisa "
+        "dipakai"
+    )
+
+
+def test_check_reports_the_weekly_report_off(home, nothing_installed, capsys):
+    enable_gacha(home)
+    append_config(home, "weekly_report:\n  enabled: false\n")
+
+    cli.main(["check"])
+
+    assert weekly_report_line(capsys.readouterr().out) == (
+        "! Laporan game mingguan mati (weekly_report.enabled: false); 'waifu gacha report' "
+        "tetap bisa dipakai"
+    )
+
+
+@pytest.mark.parametrize(
+    ("cookie", "notify", "settings", "line"),
+    [
+        (GACHA_COOKIE, False, "", "✓ Laporan game mingguan: tiap Minggu jam 19:00"),
+        (GACHA_COOKIE, True, "", "✓ Laporan game mingguan: tiap Minggu jam 19:00, juga ke HP"),
+        (
+            GACHA_COOKIE,
+            True,
+            "  day: saturday\n  time: '20:30'\n  push: false\n",
+            "✓ Laporan game mingguan: tiap Sabtu jam 20:30",
+        ),
+        (
+            None,
+            False,
+            "",
+            "! Laporan game mingguan: tiap Minggu jam 19:00; cookie HoYoLAB belum diisi "
+            "(gacha.cookie), jadi endgame dan event tidak terbaca",
+        ),
+    ],
+    ids=["defaults", "pushed", "saturday", "no-cookie"],
+)
+def test_check_reports_when_she_gives_the_weekly_report(
+    cookie, notify, settings, line, home, nothing_installed, capsys
+):
+    enable_gacha(home, cookie=cookie)
+    if notify:
+        enable_notify(home)
+    if settings:
+        append_config(home, f"weekly_report:\n{settings}")
+
+    cli.main(["check"])
+
+    out = capsys.readouterr().out
+    assert weekly_report_line(out) == line
+    for secret in ("SECRETCOOKIE", "SECRETTOKEN"):
+        assert secret not in out
+
+
+def test_check_reports_the_weekly_report_right_after_the_redeem_codes(
+    home, nothing_installed, capsys
+):
+    cli.main(["check"])
+
+    lines = capsys.readouterr().out.splitlines()
+    codes = next(index for index, line in enumerate(lines) if "Kode redeem" in line)
+    assert "Laporan game mingguan" in lines[codes + 1]
+
+
 # --- to-do list ----------------------------------------------------------------------------------
 
 # Due dates whose weekday never changes: one long past (overdue whenever the test runs), one far
@@ -11052,6 +11534,7 @@ def test_the_claude_request_with_every_tool_on_stays_within_the_strict_tool_limi
     names = {tool["name"] for tool in request["tools"]}
     assert {
         "game_events",
+        "weekly_report",
         "run_routine",
         "add_task",
         "play_youtube",
