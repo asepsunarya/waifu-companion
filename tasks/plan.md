@@ -478,6 +478,25 @@ No new dependency; `waifu version` and a `check` line show the running version.
 - [x] Python suite and ruff clean; no test ran git, wrote outside tmp_path, touched the real run lock, slept for real, spoke, or pushed (2026-10-17: 7362 pytest)
 - [ ] On the owner's PC: after one restart by hand, `waifu check` says `✓ waifu run: v1.26, terbaru`; after the next CHANGELOG version lands she says the sentence once in the active hours (and the phone gets it), and `waifu check` names the old version until the restart
 
+### Phase 31: Laporan game mingguan (v1.27, see SPEC → laporan game mingguan)
+Decision: once a week (Sunday 19:00 by default) a `WeeklyReportTimer`, the briefing's
+once-a-day timer moved into `prompt_timer.py` and shared, asks the brain for her own weekly
+game report in a new session. The facts come from one `weekly_report` tool that gathers them
+in code: this week's pulls and the pity from the stored pull history (refreshed only for games
+that already have one), this season's endgame and what ends within 7 days from the same
+HoYoLAB calls the game data tools make, and the unredeemed codes, each section failing on its
+own inside a 30 s budget. The finance tools refuse in that turn as in the morning greeting.
+No new dependency; `waifu gacha report` prints the facts.
+- [ ] Task 126a: contract: SPEC, tasks, `WeeklyReportConfig`
+- [ ] Task 126: `pulls_since` and the facts gatherer (`gacha/weekly.py`)
+- [ ] Task 127: `PromptTimer` refactor, `weekly_report` tool, `WEEKLY_REPORT_PROMPT`, `WeeklyReportTimer`, finance guard
+- [ ] Task 128: wiring in `run`/`chat`, `waifu gacha report`, check line, example config
+- [ ] Task 129: README, CHANGELOG
+
+### Checkpoint: Laporan game mingguan
+- [ ] Python suite and ruff clean; no test reached HoYoLAB or the history API, slept for real, spoke, or pushed
+- [ ] On the owner's PC: `waifu gacha report` agrees with the games' own history and endgame screens; on Sunday at 19:00 she says the round-up once (and the phone gets it), never names money, and a restart that evening stays quiet
+
 ## Risks and Mitigations
 
 | Risk | Impact | Mitigation |
@@ -493,6 +512,7 @@ No new dependency; `waifu version` and a `check` line show the running version.
 | Wrong 50/50 call (HSR Celestial Invitation pick) | Misleading reaction | `gacha.off_banner`; the tool description says it is judged from a list |
 | Whisper mishears an amount ("18 ribu" as "80 ribu") | A wrong expense and wallet balance in tepira | The code asks first, naming the amount, what for, and the wallet, and only Master's next plain yes records it; at most 5 juta; tepira deduplicates repeats for 2 minutes; `undo_expense` within 15 minutes |
 | Finance figures spoken or pushed when nobody asked | Money said in front of guests or sent to ntfy | Tools only when asked (descriptions, persona); the briefing turn gets an error from every finance tool in code; no finance in any notice; `tepira.enabled: false` with guests |
+| The weekly report's HoYoLAB and history reads hang | Her turn, and so the microphone, waits too long | One 30 s budget for every read: a late section says its time ran out and the rest is told; the history is refreshed only for games with a stored history, never imported for the first time |
 
 ## Open Questions
 

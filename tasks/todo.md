@@ -1182,3 +1182,46 @@ named `tests/test_<package>_<module>.py`.
 - [x] README "Versi baru" with its command, check, checklist, and Privasi rows; CHANGELOG v1.26; full suite and ruff clean
 
 **Dependencies:** 124 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
+
+## Task 126a: Weekly game report contract
+
+**Acceptance criteria:**
+- [ ] SPEC "laporan game mingguan (v1.27)" (stories, non-goals, how the facts are gathered with the refresh rule and the time budget, privacy, config, `prompt_timer.py`, `pulls_since`, `gacha/weekly.py`, the finance guard, CLI, check lines, safety); tasks 126a-129 in the plan and here
+- [ ] `WeeklyReportConfig` as `AppConfig.weekly_report` (`enabled`, `day` an English weekday name, `time` with bare YAML times read as clock times, `push`, `state_path`) with tests
+
+**Dependencies:** none · **Files:** `SPEC.md`, `tasks/plan.md`, `tasks/todo.md`, `src/waifu/config.py`, `tests/test_config.py` · **Scope:** S
+
+## Task 126: This week's pulls and the facts gatherer
+
+**Acceptance criteria:**
+- [ ] `pulls_since`: the count per banner after `since` in server time, each top with the pulls it took and its 50/50 worked out over the whole banner, banners without a pull left out, the week's edge exactly (WIB against server time), an empty week; `partial_history_hint` shared with `HistoryReport.hint`
+- [ ] `gather_weekly_report`: per game this week's pulls and the pity, a refresh only for games with a stored history (one after another), a game without one, a failed refresh falling back to the store, the endgame of every mode with the ones ending within 7 days, the banners and events ending within 7 days, the unredeemed codes when tracked; each section failing on its own (a HoYoLAB error for one game, an unexpected exception), one time budget with a late section told as out of time; `readable`; `report_json` with its size caps and no currency
+
+**Dependencies:** 126a · **Files:** `src/waifu/gacha/history.py`, `tests/test_gacha_history.py`, `src/waifu/gacha/weekly.py`, `tests/test_gacha_weekly.py` · **Scope:** M
+
+## Task 127: The weekly report tool, prompt, and timer
+
+**Acceptance criteria:**
+- [ ] `PromptTimer` in `prompt_timer.py`, with `BriefingTimer` built on it and every briefing test unchanged and green (a separate `refactor:` commit)
+- [ ] `weekly_report {}`: non-strict, a static description built from the configured games; arguments, nothing readable, and an unexpected failure are error results, never exceptions
+- [ ] `WEEKLY_REPORT_PROMPT`: her own turn naming only `weekly_report`, 3-4 warm sentences, information only; it never opens the screen or music tool and never counts as a yes
+- [ ] `WeeklyReportTimer`: once on the configured day from the configured time until midnight, a restart that evening and the next ticks never repeat it, never on another day, the day saved before the request, a failed request not retried that week
+- [ ] The finance tools refuse in the weekly report turn with their own message, asking tepira nothing; the briefing's refusal unchanged
+
+**Dependencies:** 126 · **Files:** `src/waifu/prompt_timer.py`, `src/waifu/briefing.py`, `tests/test_prompt_timer.py`, `src/waifu/gacha/weekly.py`, `tests/test_gacha_weekly.py`, `src/waifu/brain/finance_tools.py`, `tests/test_finance_tools.py` · **Scope:** M
+
+## Task 128: Wiring, `waifu gacha report`, check
+
+**Acceptance criteria:**
+- [ ] `run` with the games and the weekly report on: the tool after `CodeTools` and the timer for the voice loop's lifetime, asking in a new session with `required_tool`, pushing with the game tag only with `weekly_report.push` and `notify`; `chat` the tool only; neither with the games or the report off; an autouse fake timer in `test_cli.py`; the strict-tool budget still holds
+- [ ] `waifu gacha report` lines and exit codes per SPEC, also with `gacha.enabled: false`; the check line right after the redeem codes line
+- [ ] `config.example.yaml` block, valid when written out
+
+**Dependencies:** 127 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py`, `config.example.yaml`, `tests/test_config.py` · **Scope:** M
+
+## Task 129: Docs
+
+**Acceptance criteria:**
+- [ ] README "Laporan game mingguan" with its command, check, checklist, and Privasi rows; CHANGELOG v1.27; full suite and ruff clean
+
+**Dependencies:** 128 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
