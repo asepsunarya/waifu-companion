@@ -1585,7 +1585,8 @@ Zenless Zone Zero:
   masing-masing dengan kapan musimnya berakhir.
 - **Kalender event.** Banner agent dan W-Engine yang sedang jalan dan yang berikutnya dengan
   agent S dan A unggulannya (banner W-Engine tanpa nama, karena HoYoLAB tidak memberikannya),
-  dan event yang berjalan beserta progres Master.
+  dan event yang berjalan beserta Polychrome yang sudah Master dapat dari tiap event dari
+  semua yang bisa didapat (`240/300 Polychrome`).
 
 ```text
 Master : "Cyrene, Furina-ku C berapa, pakai weapon apa?"

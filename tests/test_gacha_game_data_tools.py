@@ -663,6 +663,15 @@ def test_with_genshin_she_may_tell_missing_stars_only_on_a_spiral_abyss_floor():
         ) in description
 
 
+def test_the_events_description_says_a_zzz_event_counts_its_polychrome():
+    description = spec(make_tools(games=ALL_GAMES), GAME_EVENTS).description
+
+    assert (
+        "its events' `current` and `total` count the Polychrome Master has earned from each "
+        "event out of all it gives"
+    ) in description
+
+
 def test_the_events_description_presents_banners_only_as_information():
     assert "only as information" in spec(make_tools(games=ALL_GAMES), GAME_EVENTS).description
 

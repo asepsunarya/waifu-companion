@@ -128,7 +128,7 @@ from waifu.gacha.starrail import (
 )
 from waifu.gacha.tools import GachaTools
 from waifu.gacha.watcher import GachaWatcher
-from waifu.gacha.zenless import ZzzAgent
+from waifu.gacha.zenless import EVENT_REWARD, ZzzAgent
 from waifu.gate import WakeGate
 from waifu.memory import MemoryStore, memory_prompt_section
 from waifu.music import MusicService, open_in_browser, open_link, search_link, youtube_link
@@ -2072,19 +2072,22 @@ def _print_game_calendar(game: str, calendar: GameCalendar, now: datetime) -> No
     print(f"Kalender {short} versi {calendar.version}" if calendar.version else f"Kalender {short}")
     tops = ("S", "A") if game == "zzz" else ("5★", "4★")
     _print_section("Banner", [_game_banner_text(banner, tops, now) for banner in calendar.banners])
-    _print_running_events(calendar.events, now)
+    # A ZZZ event's progress is the Polychrome it gives, so it is printed with its unit.
+    _print_running_events(calendar.events, now, unit=EVENT_REWARD if game == "zzz" else None)
     if game == "genshin":  # ZZZ's calendars carry no endgame windows
         _print_running_windows(calendar.challenges, now)
 
 
-def _print_running_events(events: Sequence[HsrEvent | GameEvent], now: datetime) -> None:
+def _print_running_events(
+    events: Sequence[HsrEvent | GameEvent], now: datetime, *, unit: str | None = None
+) -> None:
     # A calendar keeps upcoming events and endgame windows; only the running ones are
     # listed, the soonest end first ("which event ends soon?"), events without an end last.
     running = sorted(
         (event for event in events if is_running(event.starts_at, event.ends_at, now)),
         key=lambda e: (e.ends_at is None, e.ends_at or now),
     )
-    _print_section("Event", [_event_text(event, now) for event in running])
+    _print_section("Event", [_event_text(event, now, unit) for event in running])
 
 
 def _print_running_windows(
@@ -2132,8 +2135,8 @@ def _banner_text(
     return _labelled(label, parts, separator="; ")
 
 
-def _event_text(event: HsrEvent | GameEvent, now: datetime) -> str:
-    progress = ["selesai"] if event.done else _progress(event.current, event.total)
+def _event_text(event: HsrEvent | GameEvent, now: datetime, unit: str | None) -> str:
+    progress = ["selesai"] if event.done else _progress(event.current, event.total, unit)
     return _labelled(event.name, [*progress, *_ends(event.ends_at, now)])
 
 
@@ -2143,8 +2146,11 @@ def _window_text(window: HsrChallengeWindow | ChallengeWindow, now: datetime) ->
     return _labelled(f"{mode} ({window.name})" if window.name else mode, parts)
 
 
-def _progress(current: int | None, total: int | None) -> list[str]:
-    return [f"{current}/{total}"] if total else []
+def _progress(current: int | None, total: int | None, unit: str | None = None) -> list[str]:
+    """`current/total`, with what it counts when that is said (`240/300 Polychrome`)."""
+    if not total:
+        return []
+    return [f"{current}/{total} {unit}" if unit else f"{current}/{total}"]
 
 
 def _ends(ends_at: datetime | None, now: datetime) -> list[str]:

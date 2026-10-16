@@ -67,6 +67,7 @@ class ZzzAgentDetail:
 
 
 MAX_STAGES = 4
+EVENT_REWARD = "Polychrome"  # what an event's progress counts: genshin.py's "monochromes"
 # The gacha calendar's banner types (genshin.py's `ZZZGachaEventType` names) that Cyrene names
 # otherwise; any other type is its name, or the raw text genshin.py keeps, lowercased.
 BANNER_KINDS = {"CHARACTER": "agent", "WEAPON": "w_engine"}
@@ -232,7 +233,7 @@ def _deadly_assault(model: Any) -> Endgame:
 
 
 def _event(event: Any) -> GameEvent:
-    """One event; its progress is the reward currency it gives, when it counts any."""
+    """One event; its progress is the EVENT_REWARD it gives, when it counts any."""
     counted = event.max_monochromes > 0
     return GameEvent(
         name=event.name,

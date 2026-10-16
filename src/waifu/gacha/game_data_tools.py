@@ -165,8 +165,9 @@ _EVENTS_FRAGMENTS = {
     ),
     "zzz": (
         "Zenless Zone Zero's banners are agent or W-Engine channels, with the S-rank agents in "
-        "`featured` and the A-rank ones in `four_stars`, none for a W-Engine channel, and it "
-        "has no endgame windows. "
+        "`featured` and the A-rank ones in `four_stars`, none for a W-Engine channel; its "
+        "events' `current` and `total` count the Polychrome Master has earned from each event "
+        "out of all it gives, and it has no endgame windows. "
     ),
 }
 

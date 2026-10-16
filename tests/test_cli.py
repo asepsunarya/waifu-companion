@@ -5238,7 +5238,8 @@ def test_gacha_zzz_events_names_the_banners_by_kind_and_rank_without_endgame_win
         f"  Banner W-Engine: berakhir {local(banner_ends)} (4 hari 12 jam lagi)",
         f"  Banner exclusive_rescreening: S Miyabi; mulai {local(next_banner)} (6 hari 2 jam lagi)",
         "Event:",
-        f"  Ridu Weekly: 300/1000, berakhir {local(later)} (9 hari lagi)",
+        # A ZZZ event counts the Polychrome it gives, not quest steps.
+        f"  Ridu Weekly: 300/1000 Polychrome, berakhir {local(later)} (9 hari lagi)",
     ]
 
 
