@@ -11049,3 +11049,53 @@ def test_tepira_with_its_token_refused_names_the_fix_and_never_the_token(
     out = capsys.readouterr().out
     assert out == f"✗ {TOKEN_REJECTED}\n"
     assert "SECRETTEPIRA" not in out + caplog.text
+
+
+TEPIRA_CHECKED = "tepira.asepsunarya.com, token ada"
+
+
+@pytest.mark.parametrize(
+    ("backend", "tepira_on", "writes", "expected"),
+    [
+        ("ollama", False, False, "! Keuangan tepira mati (tepira.enabled: false)"),
+        (
+            "ollama",
+            True,
+            False,
+            f"✓ Keuangan tepira: {TEPIRA_CHECKED}; catat transaksi mati; uji dengan: waifu tepira",
+        ),
+        (
+            "claude",
+            True,
+            True,
+            f"✓ Keuangan tepira: {TEPIRA_CHECKED}; catat transaksi aktif ke dompet GoPay; "
+            "uji dengan: waifu tepira",
+        ),
+        (
+            "ollama",
+            True,
+            True,
+            f"! Keuangan tepira: {TEPIRA_CHECKED}; catat transaksi tidak tersedia dengan Ollama; "
+            "uji dengan: waifu tepira",
+        ),
+    ],
+    ids=["off", "reads", "writes_with_claude", "writes_with_ollama"],
+)
+def test_check_reports_master_s_money_from_tepira_offline_without_the_token(
+    backend, tepira_on, writes, expected, home, nothing_installed, tepira, capsys
+):
+    if backend == "claude":
+        use_claude(home)
+    if tepira_on:
+        enable_tepira(home, writes=writes)
+
+    cli.main(["check"])
+
+    out = capsys.readouterr().out
+    lines = out.splitlines()
+    [line] = [line for line in lines if "Keuangan tepira" in line]
+    assert line == expected
+    assert lines[lines.index(line) + 1] == "! Notifikasi HP mati (notify.enabled: false)"
+    assert "tpcy_" not in out
+    assert "SECRETTEPIRA" not in out
+    assert tepira.built == []  # offline: no client, no request

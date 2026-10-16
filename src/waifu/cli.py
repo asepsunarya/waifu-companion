@@ -3961,6 +3961,7 @@ def _checks(config_path: Path) -> Iterator[Check]:
     yield from _avatar_checks(config)
     yield from _gacha_checks(config)
     yield _redeem_codes_check(config)
+    yield _tepira_check(config)
     yield _notify_check(config)
     yield from _phone_checks(config)
 
@@ -4466,6 +4467,21 @@ def _redeem_codes_check(config: AppConfig) -> Check:
             "penukarannya"
         )
     return OK, f"{status}; cookie memuat cookie_token_v2"
+
+
+def _tepira_check(config: AppConfig) -> Check:
+    """Whether she reads Master's money from tepira, and records it; offline, and never any part
+    of the token (unlike the ntfy topic, it is a password)."""
+    tepira = config.tepira
+    if not tepira.enabled:
+        return WARN, "Keuangan tepira mati (tepira.enabled: false)"
+    reads = f"Keuangan tepira: {tepira.url.removeprefix('https://')}, token ada"
+    test = "uji dengan: waifu tepira"
+    if not tepira.writes:
+        return OK, f"{reads}; catat transaksi mati; {test}"
+    if config.brain.backend != "claude":
+        return WARN, f"{reads}; catat transaksi tidak tersedia dengan Ollama; {test}"
+    return OK, f"{reads}; catat transaksi aktif ke dompet {tepira.default_wallet}; {test}"
 
 
 def _notify_check(config: AppConfig) -> Check:
