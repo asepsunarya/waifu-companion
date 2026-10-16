@@ -1,9 +1,10 @@
 import asyncio
 import copy
+import json
 import logging
 import time
 from collections.abc import Callable
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import aiohttp
@@ -35,6 +36,7 @@ from genshin.models.hoyolab.record import GenshinAccount
 from waifu.gacha import hoyolab
 from waifu.gacha.codes import RedeemResult
 from waifu.gacha.game_data import GAME_MODES, Endgame, GameCalendar
+from waifu.gacha.game_data_tools import GameDataTools
 from waifu.gacha.games import GAMES
 from waifu.gacha.hoyolab import (
     Account,
@@ -2335,3 +2337,114 @@ def test_zzz_results_errors_and_logs_never_hold_the_cookie_uid_or_nickname(caplo
     for secret in ("SECRETCOOKIE", "SECRETTOKEN", str(ZZZ_UID), "Master", "master-avatar-icon"):
         assert all(secret not in text for text in texts)
         assert secret not in caplog.text
+
+
+# ---- the game data tools over HoyolabClient (v1.23) ---------------------------------------------
+
+LOCAL = timezone(timedelta(hours=7))  # Master's clock, which the tools answer in
+
+
+def game_data_tools(fake: FakeHoyolab) -> GameDataTools:
+    """The brain's game data tools for all three games, reading HoYoLAB through HoyolabClient."""
+    client = make_client(fake, now=lambda: FETCHED_AT)
+    return GameDataTools(client, list(GAMES), now=lambda: FETCHED_AT.astimezone(LOCAL))
+
+
+def test_game_characters_reads_a_genshin_character_and_only_its_detail_through_hoyolab():
+    fake = FakeHoyolab()
+
+    result, is_error = game_data_tools(fake).run(
+        "game_characters", {"game": "genshin", "name": "Furina"}
+    )
+
+    assert not is_error
+    assert json.loads(result)["characters"] == [
+        {
+            "name": "Furina",
+            "rarity": 5,
+            "level": 90,
+            "constellation": 2,
+            "element": "Hydro",
+            "weapon_type": "Sword",
+            "weapon": {
+                "name": "Splendor of Tranquil Waters",
+                "level": 90,
+                "refinement": 1,
+                "rarity": 5,
+                "stats": {"Base ATK": "542"},
+            },
+            "stats": {"Max HP": "35307"},
+            "artifacts": [],
+            "sets": {},
+        }
+    ]
+    assert [call[:2] for call in fake.calls] == [
+        ("genshin_characters", UIDS["genshin"]),
+        ("genshin_details", UIDS["genshin"]),
+    ]
+    assert fake.calls[1][2]["characters"] == [FURINA_ID]
+
+
+def test_game_characters_reads_a_zzz_agent_and_its_w_engine_through_hoyolab():
+    fake = FakeHoyolab()
+
+    result, is_error = game_data_tools(fake).run(
+        "game_characters", {"game": "zzz", "name": "Ellen"}
+    )
+
+    assert not is_error
+    (ellen,) = json.loads(result)["characters"]
+    assert (ellen["name"], ellen["mindscape"]) == ("Ellen", 2)
+    assert ellen["w_engine"] == {
+        "name": "Deep Sea Visitor",
+        "level": 60,
+        "refinement": 2,
+        "rarity": "S",
+    }
+    assert [call[:2] for call in fake.calls] == [("zzz_agents", ZZZ_UID), ("zzz_agent_info", 1191)]
+
+
+def test_game_endgame_reads_shiyu_defense_through_hoyolab_without_the_players_nickname():
+    fake = FakeHoyolab()
+
+    result, is_error = game_data_tools(fake).run("game_endgame", {"mode": "shiyu_defense"})
+
+    assert not is_error
+    assert json.loads(result)["modes"] == [
+        {
+            "mode": "shiyu_defense",
+            "name": "Shiyu Defense",
+            "ends": "2026-10-31 02:59",
+            "ends_in_hours": 367,
+            "has_data": True,
+            "rating": "S",
+            "score": 52000,
+            "max_score": 60000,
+            "stages": [{"name": "Frontier 1", "rating": "S", "score": 20000}],
+        }
+    ]
+    assert [call[:2] for call in fake.calls] == [("shiyu_defense", ZZZ_UID)]
+    for secret in ("Master", "master-avatar-icon", str(ZZZ_UID)):
+        assert secret not in result
+
+
+def test_game_events_tells_the_genshin_calendar_in_masters_local_time():
+    fake = FakeHoyolab()
+
+    result, is_error = game_data_tools(fake).run("game_events", {"game": "genshin"})
+
+    assert not is_error
+    calendar = json.loads(result)
+    # The banner ends at 21:00 server time (UTC+8), which is 20:00 for Master (UTC+7).
+    assert calendar["banners"][0]["ends"] == "2026-10-20 20:00"
+    assert calendar["endgame"] == [
+        {
+            "mode": "spiral_abyss",
+            "name": "Spiral Abyss",
+            "ends": "2026-10-16 20:00",
+            "ends_in_hours": 24,
+            "current": 36,
+            "total": 36,
+        }
+    ]
+    assert [call[:2] for call in fake.calls] == [("genshin_calendar", UIDS["genshin"])]
