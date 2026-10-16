@@ -1964,13 +1964,25 @@ HSR (Honkai: Star Rail)
   5★ minggu ini: Castorice (30 pull)
   Character Event Warp: pity 5/90, berikutnya 50/50, total 95 pull
   Light Cone Event Warp: pity 1/80, total 1 pull
-  Memory of Chaos: 30 bintang (+2 ekstra), lantai terdalam Stage 12, segera berakhir 2026-10-20 03:00 (1 hari 8 jam lagi)
-  Pure Fiction: belum dimainkan musim ini, berakhir 2026-10-27 03:00 (8 hari 8 jam lagi)
+  Memory of Chaos: 30 bintang (+2 ekstra), lantai terdalam Stage 12, segera berakhir 2026-10-19 03:00 (8 jam lagi)
+  Pure Fiction: belum dimainkan musim ini, berakhir 2026-11-02 03:00 (14 hari 8 jam lagi)
+  Apocalyptic Shadow: belum dimainkan musim ini, berakhir 2026-11-16 03:00 (28 hari 8 jam lagi)
+  Anomaly Arbitration: belum dimainkan musim ini
   Berakhir dalam 7 hari:
     Bloom of Death (karakter): 5★ Castorice; 4★ Pela, Lynx; berakhir 2026-10-21 14:00 (2 hari 19 jam lagi)
+    Planar Fissure: 3/7, berakhir 2026-10-19 03:00 (8 jam lagi)
   Kode belum ditukarkan: tidak ada
 Genshin (Genshin Impact)
-  ✗ Belum ada riwayat Genshin yang tersimpan; jalankan 'waifu gacha history genshin --full' sekali.
+  Pull minggu ini: 12 (Character Event Wish 12)
+  Character Event Wish: pity 71/90, berikutnya 50/50, total 131 pull
+  Spiral Abyss: 36 bintang, terdalam 12-3, berakhir 2026-11-16 03:00 (28 hari 8 jam lagi)
+  Imaginarium Theater: 10 bintang, difficulty Visionary, berakhir 2026-11-01 03:00 (13 hari 8 jam lagi)
+  Stygian Onslaught: belum dimainkan musim ini
+  Berakhir dalam 7 hari:
+    Banner karakter: 5★ Furina; 4★ Charlotte, Chongyun, Kirara; berakhir 2026-10-20 16:59 (1 hari 21 jam lagi)
+  Kode belum ditukarkan: tidak ada
+ZZZ (Zenless Zone Zero)
+  ✗ Belum ada riwayat ZZZ yang tersimpan; jalankan 'waifu gacha history zzz --full' sekali.
   ...
 Catatan: HoYoverse mencatat pull sekitar satu jam setelahnya, jadi pull barusan mungkin belum ada.
 ```
