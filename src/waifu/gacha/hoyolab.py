@@ -19,8 +19,11 @@ from datetime import UTC, datetime
 from typing import Any, Literal, TypeVar
 
 from waifu.config import cookie_names
+from waifu.gacha import genshin_impact
 from waifu.gacha.codes import RedeemResult
+from waifu.gacha.game_data import Endgame, GameCalendar
 from waifu.gacha.games import GAMES, Game
+from waifu.gacha.genshin_impact import GenshinCharacter, GenshinCharacterDetail
 from waifu.gacha.starrail import (
     HsrCalendar,
     HsrCharacter,
@@ -60,6 +63,7 @@ CHRONICLE_PRIVATE = (
 )
 ENDGAME_REQUESTS_AT_ONCE = 2
 HSR = GAMES["hsr"]
+GENSHIN = GAMES["genshin"]
 # Each endgame mode's Battle Chronicle request: this season, for the given uid. Anomaly
 # Arbitration's schedule_type=1 is this season (genshin.py's default 3 returns the last
 # three). The Imaginarium Theater's answer always holds several seasons (`previous` only
@@ -181,7 +185,7 @@ class HoyolabClient:
         self._uids = dict(uids or {})
         self._client_factory = client_factory or _default_client_factory
         self._timeout_s = timeout_s
-        self._now = now  # the anchor for the HSR calendar's times
+        self._now = now  # when a calendar or an endgame season is read
         self._sleep = sleep  # the waits between redemption attempts
         self._uids_lock = threading.Lock()
 
@@ -264,6 +268,53 @@ class HoyolabClient:
             return read_calendar(model, fetched_at)
 
         return self._run(calendar, HSR)
+
+    def genshin_characters(self) -> tuple[GenshinCharacter, ...]:
+        """Every owned Genshin character with its weapon, from the HoYoLAB Battle Chronicle."""
+
+        async def characters(client: Any) -> tuple[GenshinCharacter, ...]:
+            uid = await self._game_uid(client, GENSHIN)
+            models = await _chronicle(client.get_genshin_characters(uid), GENSHIN)
+            return tuple(genshin_impact.read_character(model) for model in models)
+
+        return self._run(characters, GENSHIN)
+
+    def genshin_character_details(self, refs: Sequence[int]) -> tuple[GenshinCharacterDetail, ...]:
+        """The detail of the Genshin characters with these refs, in one request (none without
+        refs). The refs are always passed: without them genshin.py first reads the whole
+        roster (a second request) and HoYoLAB answers every owned character in detail."""
+        wanted = list(refs)
+        if not wanted:
+            return ()
+
+        async def details(client: Any) -> tuple[GenshinCharacterDetail, ...]:
+            uid = await self._game_uid(client, GENSHIN)
+            request = client.get_genshin_detailed_characters(uid, characters=wanted)
+            response = await _chronicle(request, GENSHIN)
+            return tuple(genshin_impact.read_detail(model) for model in response.characters)
+
+        return self._run(details, GENSHIN)
+
+    def genshin_endgame(self, modes: Iterable[str]) -> dict[str, Endgame | GachaError]:
+        """This season of each Genshin endgame mode; a failing mode does not hide the others.
+        Of the seasons an answer holds, the one running now is read."""
+        fetched_at = self._now()
+
+        def read(mode: str, model: Any) -> Endgame:
+            return genshin_impact.read_endgame(mode, model, fetched_at)
+
+        return self._endgame(GENSHIN, modes, read)
+
+    def genshin_calendar(self) -> GameCalendar:
+        """The Genshin event calendar: banners, events, and endgame windows, in absolute times."""
+
+        async def calendar(client: Any) -> GameCalendar:
+            uid = await self._game_uid(client, GENSHIN)
+            fetched_at = self._now()
+            model = await _chronicle(client.get_genshin_event_calendar(uid), GENSHIN)
+            return genshin_impact.read_calendar(model, fetched_at)
+
+        return self._run(calendar, GENSHIN)
 
     def redeem_codes(
         self,

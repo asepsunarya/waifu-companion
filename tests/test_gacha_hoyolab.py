@@ -1,7 +1,9 @@
 import asyncio
 import copy
+import inspect
 import logging
 import time
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
@@ -12,8 +14,14 @@ import pytest
 from genshin import errors
 from genshin.models import (
     AnomalyArbitration,
+    Character,
+    GenshinDetailCharacters,
+    GenshinEventCalendar,
+    HardChallenge,
     HSREventCalendar,
+    ImgTheater,
     Notes,
+    SpiralAbyss,
     StarRailAPCShadow,
     StarRailChallenge,
     StarRailDetailCharacterResponse,
@@ -21,12 +29,13 @@ from genshin.models import (
     StarRailPureFiction,
     ZZZNotes,
 )
+from genshin.models.genshin import constants as genshin_constants
 from genshin.models.genshin.daily import DailyReward, DailyRewardInfo
 from genshin.models.hoyolab.record import GenshinAccount
 
 from waifu.gacha import hoyolab
 from waifu.gacha.codes import RedeemResult
-from waifu.gacha.game_data import GAME_MODES
+from waifu.gacha.game_data import GAME_MODES, Endgame, GameCalendar, GameDataSource
 from waifu.gacha.games import GAMES
 from waifu.gacha.hoyolab import (
     Account,
@@ -238,6 +247,221 @@ HSR_CALENDAR = {
     "now": str(CALENDAR_NOW),
 }
 FETCHED_AT = datetime(2026, 10, 15, 13, 0, tzinfo=UTC)
+GENSHIN_ICON = "https://example.invalid/UI_AvatarIcon_Icon.png"
+FURINA_ID = 10000089
+
+
+def unix(moment: datetime) -> int:
+    return int(moment.timestamp())
+
+
+def server_unix(moment: datetime) -> dict:
+    # genshin.py wraps a unix time this way when it knows the uid's server offset.
+    return {"timestamp": str(unix(moment)), "tzinfo": 8}
+
+
+def wall_clock(moment: datetime) -> dict:
+    """The wall clock of `moment` in server time (UTC+8), as HoYoLAB writes one."""
+    server_time = moment + timedelta(hours=8)
+    return {key: getattr(server_time, key) for key in ("year", "month", "day", "hour", "minute")}
+
+
+def genshin_weapon(name: str, refinement: int) -> dict:
+    return {
+        "id": 11513,
+        "icon": GENSHIN_ICON,
+        "type": 1,
+        "rarity": 5,
+        "level": 90,
+        "affix_level": refinement,
+        "name": name,
+    }
+
+
+def genshin_character(
+    char_id: int, name: str, element: str, constellation: int, weapon: dict
+) -> dict:
+    return {
+        "id": char_id,
+        "icon": GENSHIN_ICON,
+        "name": name,
+        "element": element,
+        "fetter": 10,
+        "level": 90,
+        "rarity": 5,
+        "actived_constellation_num": constellation,
+        "image": GENSHIN_ICON,
+        "is_chosen": False,
+        "side_icon": GENSHIN_ICON,
+        "weapon_type": 1,
+        "weapon": weapon,
+    }
+
+
+FURINA = genshin_character(
+    FURINA_ID, "Furina", "Hydro", 2, genshin_weapon("Splendor of Tranquil Waters", 1)
+)
+GENSHIN_CHARACTERS = [
+    FURINA,
+    genshin_character(10000047, "Kazuha", "Anemo", 0, genshin_weapon("Freedom-Sworn", 5)),
+]
+GENSHIN_DETAILS = {
+    "list": [
+        {
+            "base": FURINA,
+            "weapon": {
+                **genshin_weapon("Splendor of Tranquil Waters", 1),
+                "desc": "",
+                "main_property": {"property_type": 4, "base": "542", "add": "0", "final": "542"},
+                "sub_property": None,
+                "promote_level": 6,
+            },
+            "relics": [],
+            "constellations": [],
+            "costumes": [],
+            "skills": [],
+            "selected_properties": [
+                {"property_type": 2000, "base": "15307", "add": "20000", "final": "35307"}
+            ],
+            "base_properties": [],
+            "extra_properties": [],
+            "element_properties": [],
+        }
+    ],
+    "property_map": {
+        str(kind): {"property_type": kind, "name": name, "icon": "", "filter_name": name}
+        for kind, name in ((4, "Base ATK"), (2000, "Max HP"))
+    },
+    "relic_property_options": {},
+    "relic_wiki": {},
+    "weapon_wiki": {},
+    "avatar_wiki": {},
+}
+SPIRAL_ABYSS = {
+    "schedule_id": 92,
+    "start_time": server_unix(FETCHED_AT - timedelta(days=29)),
+    "end_time": server_unix(FETCHED_AT + timedelta(days=1)),
+    "total_battle_times": 12,
+    "total_win_times": 12,
+    "max_floor": "12-3",
+    "total_star": 36,
+    "is_unlock": True,
+    # Without battles: their avatars need genshin.py's character-name list to parse.
+    "floors": [{"index": 12, "is_unlock": True, "star": 9, "max_star": 9, "levels": []}],
+}
+
+
+def theater_season(schedule_id: int, start: datetime, end: datetime, best_act: int) -> dict:
+    return {
+        "detail": None,
+        "stat": {
+            "difficulty_id": 4,
+            "max_round_id": best_act,
+            "heraldry": 0,
+            "get_medal_round_list": [],
+            "medal_num": best_act - 1,
+            "coin_num": 20,
+            "avatar_bonus_num": 0,
+            "rent_cnt": 0,
+        },
+        "schedule": {
+            "start_time": unix(start),
+            "end_time": unix(end),
+            "schedule_type": 1,
+            "schedule_id": schedule_id,
+            "start_date_time": {**wall_clock(start), "tzinfo": 8},
+            "end_date_time": {**wall_clock(end), "tzinfo": 8},
+        },
+        "has_data": True,
+        "has_detail_data": False,
+    }
+
+
+OCTOBER_START = datetime(2026, 9, 30, 20, 0, tzinfo=UTC)  # 1 October, 04:00 server time
+IMAGINARIUM_THEATER = {
+    "data": [
+        theater_season(16, OCTOBER_START - timedelta(days=30), OCTOBER_START, 8),
+        theater_season(17, OCTOBER_START, OCTOBER_START + timedelta(days=31), 10),
+    ],
+    "is_unlock": True,
+}
+STYGIAN_ONSLAUGHT = [
+    {
+        "schedule": {
+            "schedule_id": 7,
+            "name": "Season of Tides",
+            "start_time": server_unix(FETCHED_AT - timedelta(days=9)),
+            "end_time": server_unix(FETCHED_AT + timedelta(days=18)),
+            "is_valid": True,
+        },
+        "single": {
+            "best": {"difficulty": 5, "second": 145, "icon": "UI_Badge_5"},
+            "challenge": [],
+            "has_data": True,
+        },
+        "mp": {"best": None, "challenge": [], "has_data": False},
+    }
+]
+
+
+def calendar_entry(start: datetime, end: datetime) -> dict:
+    # The naive wall clocks beside the unix times, which genshin.py gives no time zone.
+    return {
+        "start_timestamp": unix(start),
+        "end_timestamp": unix(end),
+        "start_time": wall_clock(start),
+        "end_time": wall_clock(end),
+        "countdown_seconds": 0,
+    }
+
+
+def calendar_event(name: str, start: datetime, end: datetime, **details) -> dict:
+    return {
+        **calendar_entry(start, end),
+        "id": 1,
+        "name": name,
+        "desc": "",
+        "strategy": "",
+        "type": "ActTypeOther",
+        "status": 2,
+        "reward_list": [],
+        "is_finished": False,
+        **details,
+    }
+
+
+GENSHIN_CALENDAR = {
+    "avatar_card_pool_list": [
+        {
+            **calendar_entry(FETCHED_AT - timedelta(days=1), FETCHED_AT + timedelta(days=5)),
+            "pool_id": 1,
+            "version_name": "6.1",
+            "pool_name": "Ballad of the Fontaine Stage",
+            "pool_type": 1,
+            "avatars": [
+                {"id": FURINA_ID, "icon": "", "name": "Furina", "element": "Hydro", "rarity": 5}
+            ],
+            "weapon": [],
+            "jump_url": "",
+            "pool_status": 1,
+        }
+    ],
+    "weapon_card_pool_list": [],
+    "mixed_card_pool_list": [],
+    "act_list": [
+        calendar_event(
+            "Lantern Rite", FETCHED_AT - timedelta(days=2), FETCHED_AT + timedelta(days=9)
+        )
+    ],
+    "fixed_act_list": [
+        calendar_event(
+            "Spiral Abyss",
+            FETCHED_AT - timedelta(days=29),
+            FETCHED_AT + timedelta(days=1),
+            tower_detail={"is_unlock": True, "max_star": 36, "total_star": 36, "has_data": True},
+        )
+    ],
+}
 
 
 def account(game_biz: str, uid: int, level: int) -> GenshinAccount:
@@ -346,6 +570,39 @@ class FakeHoyolab:
     async def get_starrail_event_calendar(self, uid=None, *, lang=None):
         model = HSREventCalendar(**copy.deepcopy(HSR_CALENDAR))
         return await self._answer(("calendar", uid, {"lang": lang}), model)
+
+    # The Genshin Battle Chronicle, with genshin.py's signatures, recording every argument.
+    async def get_genshin_characters(self, uid=None, *, lang=None):
+        characters = [Character(**copy.deepcopy(item)) for item in GENSHIN_CHARACTERS]
+        return await self._answer(("genshin_characters", uid, {"lang": lang}), characters)
+
+    async def get_genshin_detailed_characters(
+        self, uid=None, *, characters=None, lang=None, return_raw_data=False
+    ):
+        response = GenshinDetailCharacters(**copy.deepcopy(GENSHIN_DETAILS))
+        arguments = {"characters": characters, "lang": lang, "return_raw_data": return_raw_data}
+        return await self._answer(("genshin_details", uid, arguments), response)
+
+    async def get_genshin_spiral_abyss(self, uid=None, *, previous=False, lang=None, raw=False):
+        model = SpiralAbyss(**copy.deepcopy(SPIRAL_ABYSS))
+        arguments = {"previous": previous, "lang": lang, "raw": raw}
+        return await self._answer(("spiral_abyss", uid, arguments), model)
+
+    async def get_imaginarium_theater(
+        self, uid=None, *, previous=False, need_detail=True, lang=None, raw=False
+    ):
+        model = ImgTheater(**copy.deepcopy(IMAGINARIUM_THEATER))
+        arguments = {"previous": previous, "need_detail": need_detail, "lang": lang, "raw": raw}
+        return await self._answer(("imaginarium_theater", uid, arguments), model)
+
+    async def get_stygian_onslaught(self, uid=None, *, lang=None, raw=False, need_detail=True):
+        seasons = [HardChallenge(**copy.deepcopy(season)) for season in STYGIAN_ONSLAUGHT]
+        arguments = {"lang": lang, "raw": raw, "need_detail": need_detail}
+        return await self._answer(("stygian_onslaught", uid, arguments), seasons)
+
+    async def get_genshin_event_calendar(self, uid=None, *, lang=None):
+        model = GenshinEventCalendar(**copy.deepcopy(GENSHIN_CALENDAR))
+        return await self._answer(("genshin_calendar", uid, {"lang": lang}), model)
 
     async def redeem_code(self, code, uid=None, *, game=None, lang=None, region=None):
         await self._answer(("redeem", code, uid, game), None)
@@ -913,6 +1170,291 @@ def test_a_failure_of_a_whole_genshin_or_zzz_endgame_call_names_its_game_for_eve
         "Akun ZZZ tidak ditemukan di HoYoLAB ini."
     }
     assert [call[0] for call in fake.calls] == ["accounts"]
+
+
+# ---- Genshin data (v1.23) -----------------------------------------------------------------------
+
+GENSHIN_MODES = GAME_MODES["genshin"]
+GENSHIN_ENDGAME_CALLS = {
+    "spiral_abyss": (800000002, {"previous": False, "lang": None, "raw": False}),
+    "imaginarium_theater": (
+        800000002,
+        {"previous": False, "need_detail": False, "lang": None, "raw": False},
+    ),
+    "stygian_onslaught": (800000002, {"lang": None, "raw": False, "need_detail": True}),
+}
+GENSHIN_PRIVATE = CHRONICLE_PRIVATE.replace("Data HSR", "Data Genshin")
+
+
+def parse_error(build: Callable[[], object]) -> Exception:
+    """What genshin.py raises for a payload it cannot read."""
+    try:
+        build()
+    except Exception as error:
+        return error
+    raise AssertionError("genshin.py accepted the payload")
+
+
+def genshin_data_calls(client: HoyolabClient) -> tuple:
+    """Each Genshin data call that answers with a value or raises a GachaError."""
+    return (
+        client.genshin_characters,
+        lambda: client.genshin_character_details([FURINA_ID]),
+        client.genshin_calendar,
+    )
+
+
+def test_hoyolab_client_takes_the_genshin_methods_of_the_source_as_they_are():
+    for name in (
+        "genshin_characters",
+        "genshin_character_details",
+        "genshin_endgame",
+        "genshin_calendar",
+    ):
+        expected = inspect.signature(getattr(GameDataSource, name))
+        assert inspect.signature(getattr(HoyolabClient, name)) == expected
+
+
+def test_genshin_characters_reads_the_roster_of_the_genshin_uid():
+    fake = FakeHoyolab()
+
+    characters = make_client(fake).genshin_characters()
+
+    assert [(item.name, item.constellation, item.weapon.refinement) for item in characters] == [
+        ("Furina", 2, 1),
+        ("Kazuha", 0, 5),
+    ]
+    assert fake.calls == [("genshin_characters", 800000002, {"lang": None})]
+
+
+def test_genshin_character_details_asks_once_for_exactly_those_characters():
+    fake = FakeHoyolab()
+
+    details = make_client(fake).genshin_character_details((FURINA_ID,))
+
+    assert [detail.character.name for detail in details] == ["Furina"]
+    assert details[0].stats == (("Max HP", "35307"),)
+    arguments = {"characters": [FURINA_ID], "lang": None, "return_raw_data": False}
+    assert fake.calls == [("genshin_details", 800000002, arguments)]
+
+
+def test_genshin_character_details_of_no_character_asks_nothing():
+    fake = FakeHoyolab()
+
+    assert make_client(fake).genshin_character_details([]) == ()
+    assert (fake.calls, fake.cookies) == ([], [])
+
+
+def test_genshin_endgame_reads_every_mode_asked_for_this_season_of_the_genshin_uid():
+    fake = FakeHoyolab()
+
+    results = make_client(fake, now=lambda: FETCHED_AT).genshin_endgame(GENSHIN_MODES)
+
+    assert list(results) == list(GENSHIN_MODES)
+    assert all(isinstance(result, Endgame) for result in results.values())
+    assert results["spiral_abyss"].stars == 36
+    assert results["imaginarium_theater"].deepest == "Act 10"
+    assert results["stygian_onslaught"].difficulty == "5"
+    assert {call[0]: call[1:] for call in fake.calls} == GENSHIN_ENDGAME_CALLS
+
+
+def test_genshin_endgame_reads_the_theater_season_running_at_the_fetch_time():
+    in_september = OCTOBER_START - timedelta(days=10)
+    client = make_client(FakeHoyolab(), now=lambda: in_september)
+
+    theater = client.genshin_endgame(["imaginarium_theater"])["imaginarium_theater"]
+
+    assert (theater.deepest, theater.ends_at) == ("Act 8", OCTOBER_START)
+
+
+def test_the_genshin_endgame_fetch_time_is_read_before_the_requests():
+    fake = FakeHoyolab()
+
+    def now() -> datetime:
+        fake.calls.append(("now",))
+        return FETCHED_AT
+
+    make_client(fake, now=now).genshin_endgame(GENSHIN_MODES)
+
+    assert fake.calls[0] == ("now",)
+    assert len(fake.calls) == 1 + len(GENSHIN_MODES)
+
+
+def test_one_failing_genshin_endgame_mode_does_not_hide_the_others():
+    failures = {
+        "spiral_abyss": errors.DataNotPublic({"retcode": 10102}),
+        "stygian_onslaught": errors.GenshinException({"retcode": -999}),
+    }
+
+    results = make_client(FakeHoyolab(failures=failures)).genshin_endgame(GENSHIN_MODES)
+
+    assert isinstance(results["imaginarium_theater"], Endgame)
+    abyss, stygian = results["spiral_abyss"], results["stygian_onslaught"]
+    assert (abyss.kind, abyss.message) == ("chronicle_private", GENSHIN_PRIVATE)
+    assert (stygian.kind, stygian.message) == (
+        "other",
+        "HoYoLAB menolak permintaan Genshin (kode -999).",
+    )
+
+
+def test_genshin_calendar_reads_its_times_from_the_unix_timestamps():
+    fake = FakeHoyolab()
+
+    calendar = make_client(fake, now=lambda: FETCHED_AT).genshin_calendar()
+
+    assert isinstance(calendar, GameCalendar)
+    assert calendar.version == "6.1"
+    assert calendar.banners[0].featured == ("Furina",)
+    assert calendar.banners[0].ends_at == FETCHED_AT + timedelta(days=5)
+    assert [event.name for event in calendar.events] == ["Lantern Rite"]
+    assert [window.mode for window in calendar.challenges] == ["spiral_abyss"]
+    assert fake.calls == [("genshin_calendar", 800000002, {"lang": None})]
+
+
+def test_the_genshin_calendar_drops_what_is_over_at_its_fetch_time():
+    client = make_client(FakeHoyolab(), now=lambda: FETCHED_AT + timedelta(days=6))
+
+    calendar = client.genshin_calendar()
+
+    assert (calendar.banners, calendar.version) == ((), None)
+    assert [event.name for event in calendar.events] == ["Lantern Rite"]
+
+
+def test_the_genshin_calendar_fetch_time_is_read_before_the_request():
+    fake = FakeHoyolab()
+
+    def now() -> datetime:
+        fake.calls.append(("now",))
+        return FETCHED_AT
+
+    make_client(fake, now=now).genshin_calendar()
+
+    assert [call[0] for call in fake.calls] == ["now", "genshin_calendar"]
+
+
+def test_hidden_genshin_battle_chronicle_data_is_chronicle_private_and_names_genshin():
+    hidden = errors.DataNotPublic({"retcode": 10102})
+    names = (
+        "genshin_characters",
+        "genshin_details",
+        "genshin_calendar",
+        "imaginarium_theater",
+        "genshin_notes",
+    )
+    client = make_client(FakeHoyolab(failures=dict.fromkeys(names, hidden)))
+
+    for call in genshin_data_calls(client):
+        with pytest.raises(GachaError) as caught:
+            call()
+        assert (caught.value.kind, caught.value.message) == ("chronicle_private", GENSHIN_PRIVATE)
+    theater = client.genshin_endgame(["imaginarium_theater"])["imaginarium_theater"]
+    assert (theater.kind, theater.message) == ("chronicle_private", GENSHIN_PRIVATE)
+    # The Real-Time Notes keep their own kind: they are switched on elsewhere.
+    assert client.status(["genshin"])["genshin"].kind == "notes_off"
+
+
+def test_genshin_data_without_a_genshin_account_is_an_account_error():
+    fake = FakeHoyolab(accounts=[account("hkrpg_global", 800000001, 70)])
+    client = make_client(fake, uids={})
+
+    for call in genshin_data_calls(client):
+        with pytest.raises(GachaError) as caught:
+            call()
+        assert (caught.value.kind, caught.value.message) == (
+            "account",
+            "Akun Genshin tidak ditemukan di HoYoLAB ini.",
+        )
+    assert {result.kind for result in client.genshin_endgame(GENSHIN_MODES).values()} == {"account"}
+    assert {call[0] for call in fake.calls} == {"accounts"}
+
+
+def test_without_configured_uids_genshin_data_is_read_for_the_highest_level_genshin_account():
+    fake = FakeHoyolab()
+
+    make_client(fake, uids={}).genshin_characters()
+
+    assert fake.calls == [("accounts",), ("genshin_characters", 800000002, {"lang": None})]
+
+
+def test_genshin_data_without_a_cookie_says_to_fill_it_in():
+    client = HoyolabClient(None, client_factory=lambda cookie: FakeHoyolab())
+
+    for call in genshin_data_calls(client):
+        with pytest.raises(GachaError) as caught:
+            call()
+        assert caught.value.kind == "no_cookie"
+    kinds = {result.kind for result in client.genshin_endgame(GENSHIN_MODES).values()}
+    assert kinds == {"no_cookie"}
+
+
+def test_genshin_data_that_does_not_parse_is_other(monkeypatch):
+    # genshin.py's character-name list is not loaded: Spiral Abyss avatars carry only an id.
+    monkeypatch.setattr(genshin_constants, "CHARACTER_NAMES", {})
+    abyss = copy.deepcopy(SPIRAL_ABYSS)
+    battle = {"index": 1, "timestamp": server_unix(FETCHED_AT), "avatars": [{"id": FURINA_ID}]}
+    abyss["floors"][0]["levels"] = [{"index": 1, "star": 3, "max_star": 3, "battles": [battle]}]
+    details = copy.deepcopy(GENSHIN_DETAILS)
+    details["list"][0]["base"] = {**FURINA, "weapon_type": 99}  # a weapon type new to genshin.py
+    theater = copy.deepcopy(IMAGINARIUM_THEATER)
+    theater["data"][1]["stat"]["difficulty_id"] = 6
+    calendar = copy.deepcopy(GENSHIN_CALENDAR)
+    calendar["avatar_card_pool_list"][0]["avatars"][0]["rarity"] = 3
+    failures = {
+        "genshin_characters": parse_error(lambda: Character(**{**FURINA, "weapon": None})),
+        "genshin_details": parse_error(lambda: GenshinDetailCharacters(**details)),
+        "spiral_abyss": parse_error(lambda: SpiralAbyss(**abyss)),
+        "imaginarium_theater": parse_error(lambda: ImgTheater(**theater)),
+        "genshin_calendar": parse_error(lambda: GenshinEventCalendar(**calendar)),
+    }
+    assert "Character names not loaded" in str(failures["spiral_abyss"])
+    client = make_client(FakeHoyolab(failures=failures))
+
+    for call in genshin_data_calls(client):
+        with pytest.raises(GachaError) as caught:
+            call()
+        assert (caught.value.kind, caught.value.message) == (
+            "other",
+            "Data HoYoLAB Genshin tidak bisa dibaca saat ini.",
+        )
+    results = client.genshin_endgame(GENSHIN_MODES)
+    assert (results["spiral_abyss"].kind, results["imaginarium_theater"].kind) == ("other", "other")
+    assert isinstance(results["stygian_onslaught"], Endgame)
+
+
+def test_each_genshin_call_is_one_fresh_client_and_never_changes_a_hoyolab_setting():
+    hidden = errors.DataNotPublic({"retcode": 10102})
+    fake = FakeHoyolab(failures={"spiral_abyss": hidden})
+    client = make_client(fake)
+
+    client.genshin_characters()
+    client.genshin_character_details([FURINA_ID])
+    client.genshin_endgame(GENSHIN_MODES)
+    client.genshin_calendar()
+
+    assert fake.cookies == [COOKIE] * 4
+    assert ("update_settings",) not in fake.calls
+
+
+def test_genshin_results_errors_and_logs_never_hold_the_cookie_uid_or_nickname(caplog):
+    failures = {
+        "genshin_details": errors.InvalidCookies(),
+        "spiral_abyss": errors.GenshinException({"retcode": -999}),
+        "imaginarium_theater": errors.DataNotPublic({"retcode": 10102}),
+        "genshin_calendar": aiohttp.ClientConnectionError("down"),
+    }
+    # Without configured uids the account lookup, which holds the nickname, runs too.
+    client = make_client(FakeHoyolab(failures=failures), uids={})
+
+    with caplog.at_level(logging.DEBUG):
+        texts = [repr(client.genshin_characters()), repr(client.genshin_endgame(GENSHIN_MODES))]
+        for call in genshin_data_calls(client)[1:]:
+            with pytest.raises(GachaError) as caught:
+                call()
+            texts.append(str(caught.value))
+
+    for secret in ("SECRETCOOKIE", "SECRETTOKEN", "800000002", "Master"):
+        assert all(secret not in text for text in texts)
+        assert secret not in caplog.text
 
 
 # ---- redeem codes (v1.19) -----------------------------------------------------------------------
