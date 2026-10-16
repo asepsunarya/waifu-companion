@@ -468,14 +468,24 @@ def _text(value: object, max_chars: int, reason: str) -> str:
 
 
 def _goal(given: Mapping[str, object]) -> str | None:
-    """Part of a goal's title, whitespace collapsed and cut to tepira's 50 characters; None
-    (every goal) when left out, null, or blank."""
+    """Part of a goal's title, whitespace collapsed and cut to tepira's 50 characters, counted
+    in UTF-16 units as tepira and the client count them (an emoji counts twice); None (every
+    goal) when left out, null, or blank."""
     goal = given.get("goal")
     if goal is None:
         return None
     if not isinstance(goal, str):
         raise _InvalidArguments("'goal' harus berupa teks.")
-    return " ".join(goal.split())[:MAX_GOAL_QUERY_CHARS].rstrip() or None
+    # A character is one or two UTF-16 units, so the first cut is never too short. Cutting
+    # whole characters never splits an emoji's surrogate pair.
+    query = " ".join(goal.split())[:MAX_GOAL_QUERY_CHARS]
+    while _utf16_units(query) > MAX_GOAL_QUERY_CHARS:
+        query = query[:-1]
+    return query.rstrip() or None
+
+
+def _utf16_units(text: str) -> int:
+    return len(text.encode("utf-16-le")) // 2
 
 
 def _category(given: Mapping[str, object], allowed: tuple[str, ...]) -> str | None:

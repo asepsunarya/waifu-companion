@@ -562,8 +562,22 @@ def test_wallet_balances_takes_no_arguments(arguments):
         ({"goal": "laptop"}, "laptop"),
         ({"goal": "  laptop \n  baru "}, "laptop baru"),
         ({"goal": "tabungan " * 10}, ("tabungan " * 6)[:50].rstrip()),
+        # tepira counts UTF-16 units, as JavaScript does: an emoji counts twice.
+        ({"goal": "\U0001f600" * 30}, "\U0001f600" * 25),
+        ({"goal": "a" * 49 + "\U0001f600"}, "a" * 49),
+        ({"goal": "laptop " + "\U0001f600" * 22 + " x"}, "laptop " + "\U0001f600" * 21),
     ],
-    ids=["left_out", "null", "blank", "plain", "collapsed", "cut_to_50"],
+    ids=[
+        "left_out",
+        "null",
+        "blank",
+        "plain",
+        "collapsed",
+        "cut_to_50",
+        "emoji_cut_to_50_units",
+        "emoji_past_the_50th_unit",
+        "emoji_and_words",
+    ],
 )
 def test_savings_goals_asks_for_the_goal_named(arguments, query):
     source = FakeSource()
@@ -572,7 +586,7 @@ def test_savings_goals_asks_for_the_goal_named(arguments, query):
 
     assert (result, is_error) == (GOALS, False)
     assert source.calls == [("goals", query)]
-    assert query is None or len(query) <= 50
+    assert query is None or len(query.encode("utf-16-le")) // 2 <= 50
 
 
 def test_savings_goals_refuses_a_goal_that_is_not_text():
