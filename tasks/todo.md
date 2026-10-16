@@ -1013,15 +1013,15 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** none · **Files:** the files above, `SPEC.md`, `README.md` · **Scope:** S
 
-## Task 111a: Genshin and ZZZ data contract
+## Task 111a: Genshin and ZZZ data contract ✅
 
 **Acceptance criteria:**
-- [ ] SPEC "Genshin and ZZZ data (v1.23)" and the v1.16 sentences it revises; tasks 111a-115 in the plan and here
-- [ ] `is_over`/`is_running` moved from `gacha/starrail.py` to the new `gacha/game_data.py` in a refactor commit of their own, behaviour unchanged
-- [ ] `gacha/game_data.py`: `GAME_MODES` (`starrail.ENDGAME_MODES` is its `hsr` entry), `MODE_GAMES`, the frozen `EndgameStage`, `Endgame`, `Banner`, `GameEvent`, `ChallengeWindow`, `GameCalendar`, `worn_sets` with tests, and the `GameDataSource` Protocol of the 11 source methods
-- [ ] `gacha/genshin_impact.py` and `gacha/zenless.py` with the per-game frozen dataclasses only (no readers, no genshin import)
-- [ ] `gacha/hoyolab.py`: `CHRONICLE_PRIVATE` per game (the HSR text unchanged), `_chronicle(request, game)`, the 9-mode `_ENDGAME_REQUESTS`, `_endgame(game, modes, read)` with `hsr_endgame` delegating; the HSR tests unchanged and green; tests for the Genshin and ZZZ requests and their chronicle_private message; no `genshin_*`/`zzz_*` methods yet
-- [ ] Full suite and ruff clean
+- [x] SPEC "Genshin and ZZZ data (v1.23)" and the v1.16 sentences it revises; tasks 111a-115 in the plan and here
+- [x] `is_over`/`is_running` moved from `gacha/starrail.py` to the new `gacha/game_data.py` in a refactor commit of their own, behaviour unchanged
+- [x] `gacha/game_data.py`: `GAME_MODES` (`starrail.ENDGAME_MODES` is its `hsr` entry), `MODE_GAMES`, the frozen `EndgameStage`, `Endgame`, `Banner`, `GameEvent`, `ChallengeWindow`, `GameCalendar`, `worn_sets` with tests, and the `GameDataSource` Protocol of the 11 source methods
+- [x] `gacha/genshin_impact.py` and `gacha/zenless.py` with the per-game frozen dataclasses only (no readers, no genshin import)
+- [x] `gacha/hoyolab.py`: `CHRONICLE_PRIVATE` per game (the HSR text unchanged), `_chronicle(request, game)`, the 9-mode `_ENDGAME_REQUESTS`, `_endgame(game, modes, read)` with `hsr_endgame` delegating; the HSR tests unchanged and green; tests for the Genshin and ZZZ requests and their chronicle_private message; no `genshin_*`/`zzz_*` methods yet
+- [x] Full suite and ruff clean
 
 **Dependencies:** none · **Files:** `SPEC.md`, `tasks/plan.md`, `tasks/todo.md`, `src/waifu/gacha/game_data.py`, `src/waifu/gacha/genshin_impact.py`, `src/waifu/gacha/zenless.py`, `src/waifu/gacha/starrail.py`, `src/waifu/gacha/hoyolab.py`, `src/waifu/gacha/hsr_tools.py` and `src/waifu/cli.py` (imports only), `tests/test_gacha_game_data.py`, `tests/test_gacha_hoyolab.py` · **Scope:** S
 
@@ -1031,7 +1031,7 @@ named `tests/test_<package>_<module>.py`.
 - [ ] `read_character`, `read_detail`, `read_endgame(mode, model, fetched_at)` (Spiral Abyss, Imaginarium Theater, Stygian Onslaught), and `read_calendar(model, fetched_at)` per SPEC, tested with real genshin.py models from deep-copied dicts (a fixture fills genshin.py's `CHARACTER_NAMES["en-us"]`): collab rarity, the weapon type's int fallback, weapon and artifact stats, `worn_sets` without `active`, the 4 highest Abyss floors and "0-0", the Theater and Stygian season by window with their fallbacks, calendar timestamps as aware UTC, ended items dropped, upcoming kept, windows from the Abyss and Theater details
 - [ ] `genshin_characters`, `genshin_character_details(refs)` (one request with `characters=`), `genshin_endgame`, `genshin_calendar`, right after `hsr_calendar`: the explicit uid, the Theater with `need_detail=False`, never `raw`/`previous`/`lang`; a failing mode does not hide the others; chronicle_private names Genshin while the notes keep notes_off; `fetched_at` read before the calendar request; parse failures `other`; account and no_cookie; no cookie, uid, or nickname in results or logs; `update_settings` never called
 
-**Dependencies:** 111a · **Files:** `src/waifu/gacha/genshin_impact.py`, `src/waifu/gacha/hoyolab.py`, `tests/test_gacha_genshin_impact.py`, `tests/test_gacha_hoyolab.py` (fake methods after `get_starrail_event_calendar`, tests after the HSR block) · **Scope:** M
+**Dependencies:** 111a · **Files:** `src/waifu/gacha/genshin_impact.py`, `src/waifu/gacha/hoyolab.py`, `tests/test_gacha_genshin_impact.py` (111a left a values test there), `tests/test_gacha_hoyolab.py` (fake methods after `get_starrail_event_calendar`, tests after the HSR block; 111a's `EndgameRequests` fake and request-table tests follow the HSR block) · **Scope:** M
 
 ## Task 112: ZZZ source
 
@@ -1039,7 +1039,7 @@ named `tests/test_<package>_<module>.py`.
 - [ ] `read_agent`, `read_detail`, `read_endgame(mode, model)` (Shiyu Defense V1 and V2, Deadly Assault), and `read_calendar(events, gacha, fetched_at)` per SPEC, tested with real genshin.py models from deep-copied dicts: element and specialty title-cased, no W-Engine, discs and sets, an unplayed V2 and an unplayed Deadly Assault, monochromes and COMPLETED, S/A split, W-Engine banners without names; the nickname and avatar never reach a dataclass
 - [ ] `zzz_characters`, `zzz_character_details(refs)` (one `get_zzz_agent_info(ref, uid=uid)` per ref, never a list, at most 2 in flight), `zzz_endgame`, `zzz_calendar` (2 requests), right before `_run`: the explicit uid, never `raw`/`previous`/`lang`; a failing mode does not hide the others; chronicle_private names ZZZ; a Shiyu `hadal_ver` it does not know is `other`; account and no_cookie; no cookie, uid, or nickname (Shiyu V2's `nick_name` too) in results or logs; `update_settings` never called
 
-**Dependencies:** 111a · **Files:** `src/waifu/gacha/zenless.py`, `src/waifu/gacha/hoyolab.py`, `tests/test_gacha_zenless.py`, `tests/test_gacha_hoyolab.py` (fake methods after `update_settings`, tests at the end of the file) · **Scope:** M
+**Dependencies:** 111a · **Files:** `src/waifu/gacha/zenless.py`, `src/waifu/gacha/hoyolab.py`, `tests/test_gacha_zenless.py` (111a left a values test there), `tests/test_gacha_hoyolab.py` (fake methods after `update_settings`, tests at the end of the file) · **Scope:** M
 
 ## Task 113: Game data tools, wiring, personas
 

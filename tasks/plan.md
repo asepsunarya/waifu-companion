@@ -412,7 +412,7 @@ not move; HSR results stay as they are. Genshin and ZZZ readers feed shared froz
 through thin HoyolabClient methods; detail only for the at most three characters a name
 matches (ZZZ asks once per agent); read-only, never a HoYoLAB setting changed. Tasks 111-114
 build in parallel on the contract of 111a.
-- [ ] Task 111a: contract: SPEC, `gacha/game_data.py`, the Genshin and ZZZ dataclasses, `CHRONICLE_PRIVATE` per game, the 9-mode request table, `_endgame`
+- [x] Task 111a: contract: SPEC, `gacha/game_data.py`, the Genshin and ZZZ dataclasses, `CHRONICLE_PRIVATE` per game, the 9-mode request table, `_endgame`
 - [ ] Task 111: Genshin source: `gacha/genshin_impact.py` readers and the four `genshin_*` HoyolabClient methods
 - [ ] Task 112: ZZZ source: `gacha/zenless.py` readers and the four `zzz_*` HoyolabClient methods
 - [ ] Task 113: `GameDataTools` (renamed tools, game resolution, Genshin and ZZZ results, cache), wiring, both personas
