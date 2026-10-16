@@ -95,8 +95,8 @@ WEEKLY_REPORT_PROMPT = (
     "sekali seminggu. Panggil weekly_report saja, tanpa tool lain, lalu ceritakan minggu Master "
     "di game-nya dalam 3-4 kalimat pendek yang hangat, seperti teman yang ikut bermain: hasil "
     "pull minggu ini dan 50/50-nya, pity yang sudah dekat hard pity, progres endgame, dan yang "
-    "berakhir minggu ini. Itu hanya kabar, jadi jangan pernah menyarankan pull, belanja, atau "
-    "top up. Jangan membacakan datanya satu per satu."
+    "berakhir dalam 7 hari ke depan. Itu hanya kabar, jadi jangan pernah menyarankan pull, "
+    "belanja, atau top up. Jangan membacakan datanya satu per satu."
 )
 
 

@@ -1007,6 +1007,13 @@ def test_the_prompt_tells_only_information_and_never_a_reason_to_spend():
     assert "jangan pernah menyarankan pull, belanja, atau top up" in WEEKLY_REPORT_PROMPT
 
 
+def test_the_prompt_asks_for_what_ends_in_the_next_7_days_never_this_week():
+    # The facts look 7 days ahead: at the default Sunday evening slot nearly all of it ends
+    # next week, so "minggu ini" would have her say a Wednesday banner ends this week.
+    assert "yang berakhir dalam 7 hari ke depan" in WEEKLY_REPORT_PROMPT
+    assert "berakhir minggu ini" not in WEEKLY_REPORT_PROMPT
+
+
 def test_the_prompt_never_counts_as_master_saying_yes():
     # The brain hands the prompt to the confirmation gate as this turn's words: a yes here
     # could confirm a PC shutdown Master was asked about just before the report.
