@@ -785,3 +785,19 @@ def test_the_todo_list_is_on_with_room_for_a_hundred_tasks_by_default():
 def test_bad_todo_settings_are_refused(tmp_path, lines):
     with pytest.raises(ConfigError, match="todo"):
         load_config(write_yaml(tmp_path, "todo:\n" + lines))
+
+
+def test_music_opens_youtube_by_default():
+    music = AppConfig().music
+    assert (music.enabled, music.service) == (True, "youtube")
+
+
+def test_music_can_open_youtube_music_instead(tmp_path):
+    text = "music:\n  service: youtube_music\n"
+    assert load_config(write_yaml(tmp_path, text)).music.service == "youtube_music"
+
+
+@pytest.mark.parametrize("lines", ["  service: spotify\n", "  autoplay: true\n"])
+def test_bad_music_settings_are_refused(tmp_path, lines):
+    with pytest.raises(ConfigError, match="music"):
+        load_config(write_yaml(tmp_path, "music:\n" + lines))

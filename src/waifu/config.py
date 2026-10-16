@@ -666,6 +666,13 @@ class PcHealthConfig(_Strict):
     gpu_warn_minutes: int = Field(default=3, ge=1, le=60)
 
 
+class MusicConfig(_Strict):
+    """Songs on YouTube, opened in the default browser when Master asks."""
+
+    enabled: bool = True
+    service: Literal["youtube", "youtube_music"] = "youtube"
+
+
 class TodoConfig(_Strict):
     """Master's to-do list: tasks with an optional due date, never a time of day."""
 
@@ -760,6 +767,7 @@ class AppConfig(_Strict):
     notify: NotifyConfig = Field(default_factory=NotifyConfig)
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
     todo: TodoConfig = Field(default_factory=TodoConfig)
+    music: MusicConfig = Field(default_factory=MusicConfig)
     pc_health: PcHealthConfig = Field(default_factory=PcHealthConfig)
     web_search: WebSearchConfig = Field(default_factory=WebSearchConfig)
     free_offers: FreeOffersConfig = Field(default_factory=FreeOffersConfig)
