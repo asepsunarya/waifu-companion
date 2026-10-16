@@ -469,7 +469,7 @@ Whether a run is running comes from the run lock plus a live process id in the r
 from cleanup on exit (closing the console skips it). She never restarts herself or runs pip.
 No new dependency; `waifu version` and a `check` line show the running version.
 - [x] Task 122a: contract: SPEC, tasks, `VersionNoticeConfig`
-- [ ] Task 122: `version.py`: releases, dependency hash, commit or source time, `read_code_version`, `newer_releases`, the running record, `process_alive`
+- [x] Task 122: `version.py`: releases, dependency hash, commit or source time, `read_code_version`, `newer_releases`, the running record, `process_alive`
 - [ ] Task 123: `version_watch.py`: `version_news`, the notice and push texts, `VersionWatcher`
 - [ ] Task 124: wiring in `run`, the git guard, `check` lines, `waifu version`, example config
 - [ ] Task 125: README, CHANGELOG

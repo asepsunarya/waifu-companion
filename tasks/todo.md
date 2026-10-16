@@ -1150,12 +1150,12 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** none · **Files:** `SPEC.md`, `tasks/plan.md`, `tasks/todo.md`, `src/waifu/config.py`, `tests/test_config.py` · **Scope:** S
 
-## Task 122: Reading the code's version and the running record
+## Task 122: Reading the code's version and the running record ✅
 
 **Acceptance criteria:**
-- [ ] `parse_releases` (file order, Windows line endings, a byte order mark, three-part versions, no heading), `dependency_hash` (order and comments do not count, the extras do not count, not TOML), `newer_releases` (none, one, several, a CHANGELOG that went back, an unknown side)
-- [ ] `read_code_version` never raises: the commit from an injected `run` with the exact git arguments, 5 s timeout, and `CREATE_NO_WINDOW`; without git, outside a repository, on a timeout, or on odd output the newest source time without `__pycache__`; a missing or malformed CHANGELOG or pyproject as an empty part with its problem; `run=None` asks no git
-- [ ] `write_running`/`read_running`: atomic, round trip, never created by reading, a missing, malformed, or foreign file is None and left in place; `process_alive` true for this process and false for one that ended, without a signal
+- [x] `parse_releases` (file order, Windows line endings, a byte order mark, three-part versions, no heading), `dependency_hash` (order and comments do not count, the extras do not count, not TOML), `newer_releases` (none, one, several, a CHANGELOG that went back, an unknown side)
+- [x] `read_code_version` never raises: the commit from an injected `run` with the exact git arguments, 5 s timeout, and `CREATE_NO_WINDOW`; without git, outside a repository, on a timeout, or on odd output the newest source time without `__pycache__`; a missing or malformed CHANGELOG or pyproject as an empty part with its problem; `run=None` asks no git
+- [x] `write_running`/`read_running`: atomic, round trip, never created by reading, a missing, malformed, or foreign file is None and left in place; `process_alive` true for this process and false for one that ended, without a signal
 
 **Dependencies:** none · **Files:** `src/waifu/version.py`, `tests/test_version.py` · **Scope:** M
 
