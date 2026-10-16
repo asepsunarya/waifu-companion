@@ -10902,6 +10902,24 @@ def test_tepira_goals_says_when_no_goal_matches(home, tepira, capsys):
     assert capsys.readouterr().out == "Tidak ada tujuan tabungan yang cocok.\n"
 
 
+def test_tepira_goals_without_any_goal_says_there_is_none_yet(home, tepira, capsys):
+    enable_tepira(home)
+    tepira.answers["goals"] = {**TEPIRA_GOALS, "goals": []}
+
+    assert cli.main(["tepira", "tujuan"]) == 0
+
+    assert capsys.readouterr().out == "Belum ada tujuan tabungan.\n"
+
+
+def test_tepira_goals_counts_the_goals_tepira_left_out(home, tepira, capsys):
+    enable_tepira(home)
+    tepira.answers["goals"] = {**TEPIRA_GOALS, "more": 3}
+
+    assert cli.main(["tepira", "tujuan"]) == 0
+
+    assert capsys.readouterr().out.splitlines()[-1] == "dan 3 tujuan lagi"
+
+
 def test_tepira_goals_refuses_a_name_tepira_would_refuse(home, tepira, capsys):
     # tepira counts the name in UTF-16 units, as JavaScript does: an emoji counts twice.
     enable_tepira(home)
