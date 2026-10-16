@@ -3,7 +3,13 @@ import time
 
 import pytest
 
-from waifu.brain.confirm import ConfirmationGate, is_yes, needs_confirmation
+from waifu.brain.confirm import (
+    ORDER_WORDS,
+    RECORD_ORDER_WORDS,
+    ConfirmationGate,
+    is_yes,
+    needs_confirmation,
+)
 from waifu.devices.mock import MockDevice
 from waifu.devices.registry import DeviceRegistry
 
@@ -530,6 +536,251 @@ def test_concurrent_calls_use_up_a_confirmed_request_once():
     def confirm() -> None:
         start.wait()
         results.append(gate.check(registry, "komputer", "shutdown", None))
+
+    threads = [threading.Thread(target=confirm) for _ in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert results.count(None) == 1
+
+
+def test_the_device_messages_stay_byte_for_byte_as_in_v1_9():
+    registry = house()
+    gate = ConfirmationGate(clock=FakeClock())
+    gate.begin_turn("matikan komputer dan colokannya")
+
+    first = gate.check(registry, "komputer", "shutdown", None)
+    second = gate.check(registry, "colokan_pc", "off", None)
+
+    assert first == (
+        "Perintah 'shutdown' untuk Komputer belum dijalankan: Master harus mengiyakannya dulu. "
+        f'Setelah jawabanmu, pertanyaan ini otomatis dibacakan untuk Master: "{SHUTDOWN_QUESTION}" '
+        "Jangan menanyakannya lagi. Panggil perintah yang sama lagi hanya setelah Master menjawab "
+        "ya."
+    )
+    assert second == (
+        "Perintah 'off' untuk Colokan PC belum dijalankan dan tidak ditanyakan: hanya satu "
+        "perintah seperti ini yang ditanyakan ke Master dalam satu giliran. Bilang ke Master "
+        "bahwa yang ini perlu dia minta lagi nanti."
+    )
+
+
+# Any action, such as recording an expense (v1.24)
+
+RECORD_KEY = ("record_expense", 18000, "jajan kopi", None, "gopay")
+RECORD_LABEL = "Pencatatan pengeluaran 18000 rupiah untuk jajan kopi di GoPay"
+RECORD_QUESTION = (
+    "Catat delapan belas ribu untuk jajan kopi di GoPay, Master? Jawab iya kalau jadi."
+)
+
+
+def check_record(gate: ConfirmationGate, key: tuple = RECORD_KEY) -> str | None:
+    return gate.check_action(
+        key, label=RECORD_LABEL, question=RECORD_QUESTION, order_words=RECORD_ORDER_WORDS
+    )
+
+
+def record_asked_then_answered(answer: str, clock: FakeClock | None = None) -> ConfirmationGate:
+    """A gate that held recording an expense last turn, now in the turn Master says `answer`."""
+    gate = ConfirmationGate(clock=clock or FakeClock(), names=NAMES)
+    gate.begin_turn("Cyrene, catat jajan kopi 18 ribu.")
+    assert check_record(gate) is not None
+    gate.begin_turn(answer)
+    return gate
+
+
+@pytest.mark.parametrize("text", ["iya, catat aja", "Iya, catat.", "oke catetin", "boleh, simpan"])
+def test_the_record_order_words_hear_a_yes_to_recording(text):
+    assert is_yes(text, NAMES, RECORD_ORDER_WORDS)
+    assert not is_yes(text, NAMES)
+
+
+def test_the_record_order_words_never_take_a_pc_order_word():
+    assert is_yes("iya matikan", NAMES)
+    assert not is_yes("iya matikan", NAMES, RECORD_ORDER_WORDS)
+    assert not is_yes("iya, catat nanti", NAMES, RECORD_ORDER_WORDS)
+
+
+def test_the_pc_order_words_are_unchanged_by_the_record_words():
+    added = RECORD_ORDER_WORDS - ORDER_WORDS
+
+    assert added == {
+        "catat",
+        "catatkan",
+        "catet",
+        "catetin",
+        "dicatat",
+        "simpan",
+    }
+    assert "catat" not in ORDER_WORDS
+
+
+def test_the_first_action_is_held_with_its_label_and_question():
+    gate = ConfirmationGate(clock=FakeClock())
+    gate.begin_turn("catat jajan kopi 18 ribu")
+
+    message = check_record(gate)
+
+    assert message == (
+        f"{RECORD_LABEL} belum dijalankan: Master harus mengiyakannya dulu. Setelah jawabanmu, "
+        f'pertanyaan ini otomatis dibacakan untuk Master: "{RECORD_QUESTION}" Jangan '
+        "menanyakannya lagi. Panggil perintah yang sama lagi hanya setelah Master menjawab ya."
+    )
+    assert gate.with_question("Baik, Master.") == f"Baik, Master. {RECORD_QUESTION}"
+
+
+def test_an_action_runs_once_on_the_next_turns_yes_by_its_own_order_words():
+    gate = record_asked_then_answered("Iya, catat aja.")
+
+    assert check_record(gate) is None
+    assert check_record(gate) is not None
+
+
+def test_a_pc_order_word_does_not_answer_a_recording_question():
+    gate = record_asked_then_answered("iya, matikan")
+
+    assert check_record(gate) is not None
+
+
+def test_a_record_order_word_does_not_answer_the_pcs_question():
+    gate, registry = refused_then_answered("iya, catat")
+
+    assert gate.check(registry, "komputer", "shutdown", None) is not None
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        ("record_expense", 80000, "jajan kopi", None, "gopay"),
+        ("record_expense", 18000, "jajan kopi", None, "ovo"),
+        ("record_expense", 18000, "jajan kopi", "Nongkrong / jajan", "gopay"),
+    ],
+    ids=["another_amount", "another_wallet", "another_category"],
+)
+def test_a_different_action_on_the_answer_turn_is_a_new_request(key):
+    gate = record_asked_then_answered("iya")
+
+    message = gate.check_action(
+        key, label="Pencatatan lain", question="Catat yang lain?", order_words=RECORD_ORDER_WORDS
+    )
+
+    assert message is not None
+    assert '"Catat yang lain?"' in message
+    assert gate.with_question("") == "Catat yang lain?"
+    gate.begin_turn("iya")
+    assert check_record(gate) is not None
+
+
+def test_a_yes_in_the_turn_of_the_action_never_counts():
+    gate = ConfirmationGate(clock=FakeClock())
+    gate.begin_turn("iya, catat jajan kopi 18 ribu")
+
+    assert check_record(gate) is not None
+    assert check_record(gate) is not None
+
+
+def test_a_yes_more_than_one_turn_after_the_action_never_counts():
+    gate = record_asked_then_answered("hmm")
+    gate.begin_turn("iya")
+
+    assert check_record(gate) is not None
+
+
+def test_a_yes_to_an_action_after_window_s_is_stale():
+    clock = FakeClock()
+    gate = ConfirmationGate(clock=clock)
+    gate.begin_turn("catat jajan kopi 18 ribu")
+    check_record(gate)
+    clock.now += 60.001
+    gate.begin_turn("iya")
+
+    assert check_record(gate) is not None
+
+
+def test_one_question_per_turn_covers_the_pc_and_an_action_together():
+    registry = house()
+    gate = ConfirmationGate(clock=FakeClock())
+    gate.begin_turn("matikan komputer dan catat jajan kopi 18 ribu")
+
+    pc = gate.check(registry, "komputer", "shutdown", None)
+    record = check_record(gate)
+
+    assert SHUTDOWN_QUESTION in pc
+    assert record == (
+        f"{RECORD_LABEL} belum dijalankan dan tidak ditanyakan: hanya satu perintah seperti ini "
+        "yang ditanyakan ke Master dalam satu giliran. Bilang ke Master bahwa yang ini perlu dia "
+        "minta lagi nanti."
+    )
+    assert gate.with_question("") == SHUTDOWN_QUESTION
+
+
+def test_an_action_asked_first_leaves_the_pc_for_another_turn():
+    registry = house()
+    gate = ConfirmationGate(clock=FakeClock())
+    gate.begin_turn("catat jajan kopi 18 ribu lalu matikan komputer")
+
+    check_record(gate)
+    pc = gate.check(registry, "komputer", "shutdown", None)
+
+    assert pc.startswith("Perintah 'shutdown' untuk Komputer belum dijalankan dan tidak ditanyakan")
+    assert gate.with_question("") == RECORD_QUESTION
+    gate.begin_turn("iya")
+    assert gate.check(registry, "komputer", "shutdown", None) is not None
+
+
+def test_a_held_action_keeps_the_question_it_was_asked_with():
+    gate = ConfirmationGate(clock=FakeClock())
+    gate.begin_turn("catat jajan kopi 18 ribu")
+    check_record(gate)
+
+    again = gate.check_action(
+        RECORD_KEY, label=RECORD_LABEL, question="Pertanyaan lain?", order_words=RECORD_ORDER_WORDS
+    )
+
+    assert f'"{RECORD_QUESTION}"' in again
+    assert gate.with_question("") == RECORD_QUESTION
+
+
+def test_a_discarded_action_is_never_confirmed():
+    gate = ConfirmationGate(clock=FakeClock())
+    gate.begin_turn("catat jajan kopi 18 ribu")
+    check_record(gate)
+
+    gate.discard_turn()
+    gate.begin_turn("iya")
+
+    assert check_record(gate) is not None
+
+
+def test_a_forgotten_action_is_not_confirmed_by_the_yes_of_its_turn():
+    gate = record_asked_then_answered("iya")
+    assert gate.awaiting_answer()
+
+    gate.forget_question()
+
+    assert check_record(gate) is not None
+
+
+def test_an_action_without_order_words_is_answered_by_the_pcs_list():
+    gate = ConfirmationGate(clock=FakeClock())
+    gate.begin_turn("lakukan itu")
+    assert gate.check_action("aksi", label="Aksi", question="Jadi?") is not None
+
+    gate.begin_turn("iya sekarang")
+
+    assert gate.check_action("aksi", label="Aksi", question="Jadi?") is None
+
+
+def test_concurrent_checks_use_up_a_confirmed_action_once():
+    gate = record_asked_then_answered("iya", SlowClock())
+    start = threading.Barrier(8)
+    results: list[str | None] = []
+
+    def confirm() -> None:
+        start.wait()
+        results.append(check_record(gate))
 
     threads = [threading.Thread(target=confirm) for _ in range(8)]
     for thread in threads:

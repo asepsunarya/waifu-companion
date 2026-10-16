@@ -656,6 +656,24 @@ def test_held_for_yes_tells_a_held_call_from_one_that_ran_or_failed():
     ]
 
 
+def test_held_for_yes_tells_any_tool_held_for_masters_yes():
+    # Such as record_expense (v1.24), so an empty final reply speaks only the gate's question.
+    def record(result: object, is_error: bool) -> ToolCallRecord:
+        return ToolCallRecord("record_expense", {"amount": 18000}, json.dumps(result), is_error)
+
+    held = record({"ok": False, "needs_confirmation": True, "message": "Tunggu ya."}, True)
+    failed = record({"ok": False, "message": "Dompet OVO tidak ada di tepira."}, True)
+    recorded = record({"recorded": {"id": 7}, "needs_confirmation": True}, False)
+    not_an_object = record(["needs_confirmation"], True)
+
+    assert [held_for_yes(call) for call in (held, failed, recorded, not_an_object)] == [
+        True,
+        False,
+        False,
+        False,
+    ]
+
+
 def test_list_devices_is_not_gated():
     registry = pc_house()
 

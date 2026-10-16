@@ -118,12 +118,13 @@ def run_tool(
 
 
 def held_for_yes(record: ToolCallRecord) -> bool:
-    """Whether a tool call was a `control_device` held for Master's yes instead of run."""
-    return (
-        record.name == CONTROL_DEVICE
-        and record.is_error
-        and json.loads(record.result).get("needs_confirmation") is True
-    )
+    """Whether a tool call was held for Master's yes instead of run: an error result with
+    `needs_confirmation`, as a `control_device` turning the PC off or a `record_expense` gives.
+    """
+    if not record.is_error:
+        return False
+    result = json.loads(record.result)
+    return isinstance(result, dict) and result.get("needs_confirmation") is True
 
 
 def to_anthropic(spec: ToolSpec) -> dict[str, Any]:

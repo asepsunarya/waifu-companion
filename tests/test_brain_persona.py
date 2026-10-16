@@ -8,6 +8,7 @@ from waifu.brain.tools import device_lines
 from waifu.config import ConfigError
 from waifu.devices.mock import MockDevice
 from waifu.devices.registry import DeviceRegistry
+from waifu.finance.values import FINANCE_TOOLS
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -95,9 +96,36 @@ def test_committed_persona_leaves_the_question_to_the_code_that_holds_turning_th
     assert "jangan menanyakannya lagi" in house_rules
 
 
+FINANCE_SECTION = (
+    "Keuangan Master:\n"
+    "- Kalau tool finance_summary, wallet_balances, savings_goals, dan recent_transactions "
+    "tersedia, pakai untuk pertanyaan Master soal uangnya di tepira: pengeluaran, sisa budget "
+    "per kategori, pemasukan, saldo dompet, tabungan untuk tujuan, dan transaksi terakhir. "
+    "Pakai hanya kalau Master bertanya soal uangnya, jangan untuk sapaan atau briefing pagi, "
+    "jangan simpan angkanya dengan remember kecuali Master minta, jangan pernah menebak "
+    "angkanya, dan sebut angkanya dibulatkan dengan wajar. Kalau tool record_expense tersedia "
+    "dan Master minta mencatat pengeluaran, langsung panggil tanpa bertanya dulu: kode sendiri "
+    "yang membacakan pertanyaan konfirmasinya, jadi jangan menanyakannya lagi, dan panggil lagi "
+    "dengan isi yang sama hanya setelah Master menjawab ya di ucapan berikutnya. Kalau Master "
+    "minta membatalkan catatan yang barusan, pakai undo_expense.\n"
+)
+
+
+@pytest.mark.parametrize("persona_file", ["persona.md", "persona_hsr.md"])
+def test_committed_personas_end_with_the_finance_section_word_for_word(persona_file):
+    persona = load_persona(ROOT / "config" / persona_file)
+
+    assert persona.endswith(f"\n\n{FINANCE_SECTION}")
+
+
+def test_the_finance_section_names_every_finance_tool():
+    for tool in FINANCE_TOOLS:
+        assert tool in FINANCE_SECTION
+
+
 def test_the_hsr_persona_keeps_every_rule_of_the_persona_word_for_word():
     # Only its personality differs: the rules (voice, face tags, the house and its
-    # confirmations, the games) must change in both files together.
+    # confirmations, the games, the money) must change in both files together.
     persona = load_persona(ROOT / "config" / "persona.md")
     hsr = load_persona(ROOT / "config" / "persona_hsr.md")
 

@@ -13,7 +13,7 @@ import pytest
 from waifu.brain.attachments import TurnImages
 from waifu.brain.base import Brain, BrainReply, ToolImage, ToolSpec
 from waifu.brain.confirm import ConfirmationGate
-from waifu.brain.factory import build_brain
+from waifu.brain.factory import build_brain, confirmation_gate
 from waifu.brain.ollama_brain import OllamaBrain
 from waifu.brain.persona import build_system_prompt
 from waifu.config import (
@@ -547,6 +547,57 @@ def test_the_claude_brain_and_its_gate_call_the_owner_what_she_calls_them(monkey
     assert brain.confirmations.with_question("") == (
         "Komputer mau kumatikan sekarang, Sayang? Jawab iya kalau jadi."
     )
+
+
+def test_confirmation_gate_hears_master_through_her_names_and_what_she_calls_the_owner():
+    config = AppConfig(
+        assistant=AssistantConfig(name="Hikari", wake_words=["hei hikari"], owner_call="Sayang")
+    )
+    gate = confirmation_gate(config)
+    gate.begin_turn("catat jajan kopi")
+    assert gate.check_action("catat", label="Catat", question="Catat, Sayang?") is not None
+
+    gate.begin_turn("Hei Hikari, iya. Hikari, boleh, Sayang.")
+
+    assert gate.check_action("catat", label="Catat", question="Catat, Sayang?") is None
+
+
+def test_confirmation_gate_makes_a_new_gate_each_time():
+    assert confirmation_gate(AppConfig()) is not confirmation_gate(AppConfig())
+
+
+def test_the_claude_brain_takes_the_gate_it_is_given(monkeypatch):
+    # The CLI hands one gate to the brain and to the finance tools: one question per turn.
+    monkeypatch.setattr("waifu.brain.claude.ClaudeBrain", FakeClaudeBrain)
+    gate = confirmation_gate(claude_config())
+
+    brain = build_brain(claude_config(), house(), persona_text=PERSONA, confirmations=gate)
+
+    assert brain.confirmations is gate
+
+
+def test_the_ollama_brain_holds_its_calls_with_the_gate_it_is_given(monkeypatch):
+    shutdown = ollama.Message.ToolCall(
+        function=ollama.Message.ToolCall.Function(
+            name="control_device", arguments={"device": "komputer", "command": "shutdown"}
+        )
+    )
+    client = ScriptedOllama(
+        ollama.Message(role="assistant", content="", tool_calls=[shutdown]),
+        ollama.Message(role="assistant", content="Baik, Master."),
+    )
+    monkeypatch.setattr(ollama, "Client", lambda host, **kwargs: client)
+    registry = DeviceRegistry(
+        [MockDevice("komputer", "Komputer", commands=["shutdown"], kind="pc")]
+    )
+    gate = confirmation_gate(AppConfig())
+
+    brain = build_brain(AppConfig(), registry, persona_text=PERSONA, confirmations=gate)
+    brain.respond("Cyrene, matikan komputer.", now=NOW)
+
+    question = "Komputer mau kumatikan sekarang, Master? Jawab iya kalau jadi."
+    assert registry.get("komputer").calls == []
+    assert gate.with_question("") == question
 
 
 # Web search (Claude's server tool)
