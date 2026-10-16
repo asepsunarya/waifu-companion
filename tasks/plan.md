@@ -405,6 +405,25 @@ first (Prove-It); no new feature, config key, or dependency.
 - [x] D: a secret word alone is no secret; only one followed by its value is refused, in notes and tasks; the words that tie a secret to Master do not count, digit groups are one value, and only a 20-digit token is the value of "token listrik" (`memory.py`)
 - [x] E: GamerPower titles lose their Key word and store brackets ("Dwarven Realms (Steam) Key Giveaway" → "Dwarven Realms"), while a game's own Key stays ("Skeleton Key (Steam) Giveaway" → "Skeleton Key") (`offers/games.py`)
 
+### Phase 27: Genshin and ZZZ data (v1.23, see SPEC → Genshin and ZZZ data)
+Decision: the three HSR tools become `game_characters`, `game_endgame`, and `game_events`, each
+with an optional `game` from `gacha.games`, so they stay non-strict and the strict budget does
+not move; HSR results stay as they are. Genshin and ZZZ readers feed shared frozen dataclasses
+through thin HoyolabClient methods; detail only for the at most three characters a name
+matches (ZZZ asks once per agent); read-only, never a HoYoLAB setting changed. Tasks 111-114
+build in parallel on the contract of 111a.
+- [ ] Task 111a: contract: SPEC, `gacha/game_data.py`, the Genshin and ZZZ dataclasses, `CHRONICLE_PRIVATE` per game, the 9-mode request table, `_endgame`
+- [ ] Task 111: Genshin source: `gacha/genshin_impact.py` readers and the four `genshin_*` HoyolabClient methods
+- [ ] Task 112: ZZZ source: `gacha/zenless.py` readers and the four `zzz_*` HoyolabClient methods
+- [ ] Task 113: `GameDataTools` (renamed tools, game resolution, Genshin and ZZZ results, cache), wiring, both personas
+- [ ] Task 114: `waifu gacha genshin|zzz characters|endgame|events`
+- [ ] Task 115: integration, CHANGELOG, README, the strict limits
+
+### Checkpoint: Genshin and ZZZ data
+- [ ] Python suite and ruff clean; no test reached HoYoLAB; `update_settings` never called
+- [ ] One real read-only run of `waifu gacha genshin|zzz characters|endgame|events` on the owner's account: privacy behaviour, latency, calendar times and stage names vs the game
+- [ ] By voice or chat: "Furina-ku C berapa?", "Abyss-ku lantai 12 berapa bintang?", "Shiyu Defense-ku rating apa?", "banner ZZZ apa sekarang?"
+
 ## Risks and Mitigations
 
 | Risk | Impact | Mitigation |

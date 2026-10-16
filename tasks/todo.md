@@ -1012,3 +1012,56 @@ named `tests/test_<package>_<module>.py`.
 - [x] E: GamerPower titles lose their Giveaway suffix with its Key word ("Key Giveaway", "Steam Key Giveaway") and store brackets as often as the title ends with one ("Dwarven Realms (Steam) Key Giveaway" → "Dwarven Realms"), a game's own Key, other brackets, and words such as "DLC" stay ("Skeleton Key (Steam) Giveaway" → "Skeleton Key"), and a title left empty keeps GamerPower's own (`src/waifu/offers/games.py`, `tests/test_offers_games.py`)
 
 **Dependencies:** none · **Files:** the files above, `SPEC.md`, `README.md` · **Scope:** S
+
+## Task 111a: Genshin and ZZZ data contract
+
+**Acceptance criteria:**
+- [ ] SPEC "Genshin and ZZZ data (v1.23)" and the v1.16 sentences it revises; tasks 111a-115 in the plan and here
+- [ ] `is_over`/`is_running` moved from `gacha/starrail.py` to the new `gacha/game_data.py` in a refactor commit of their own, behaviour unchanged
+- [ ] `gacha/game_data.py`: `GAME_MODES` (`starrail.ENDGAME_MODES` is its `hsr` entry), `MODE_GAMES`, the frozen `EndgameStage`, `Endgame`, `Banner`, `GameEvent`, `ChallengeWindow`, `GameCalendar`, `worn_sets` with tests, and the `GameDataSource` Protocol of the 11 source methods
+- [ ] `gacha/genshin_impact.py` and `gacha/zenless.py` with the per-game frozen dataclasses only (no readers, no genshin import)
+- [ ] `gacha/hoyolab.py`: `CHRONICLE_PRIVATE` per game (the HSR text unchanged), `_chronicle(request, game)`, the 9-mode `_ENDGAME_REQUESTS`, `_endgame(game, modes, read)` with `hsr_endgame` delegating; the HSR tests unchanged and green; tests for the Genshin and ZZZ requests and their chronicle_private message; no `genshin_*`/`zzz_*` methods yet
+- [ ] Full suite and ruff clean
+
+**Dependencies:** none · **Files:** `SPEC.md`, `tasks/plan.md`, `tasks/todo.md`, `src/waifu/gacha/game_data.py`, `src/waifu/gacha/genshin_impact.py`, `src/waifu/gacha/zenless.py`, `src/waifu/gacha/starrail.py`, `src/waifu/gacha/hoyolab.py`, `src/waifu/gacha/hsr_tools.py` and `src/waifu/cli.py` (imports only), `tests/test_gacha_game_data.py`, `tests/test_gacha_hoyolab.py` · **Scope:** S
+
+## Task 111: Genshin source
+
+**Acceptance criteria:**
+- [ ] `read_character`, `read_detail`, `read_endgame(mode, model, fetched_at)` (Spiral Abyss, Imaginarium Theater, Stygian Onslaught), and `read_calendar(model, fetched_at)` per SPEC, tested with real genshin.py models from deep-copied dicts (a fixture fills genshin.py's `CHARACTER_NAMES["en-us"]`): collab rarity, the weapon type's int fallback, weapon and artifact stats, `worn_sets` without `active`, the 4 highest Abyss floors and "0-0", the Theater and Stygian season by window with their fallbacks, calendar timestamps as aware UTC, ended items dropped, upcoming kept, windows from the Abyss and Theater details
+- [ ] `genshin_characters`, `genshin_character_details(refs)` (one request with `characters=`), `genshin_endgame`, `genshin_calendar`, right after `hsr_calendar`: the explicit uid, the Theater with `need_detail=False`, never `raw`/`previous`/`lang`; a failing mode does not hide the others; chronicle_private names Genshin while the notes keep notes_off; `fetched_at` read before the calendar request; parse failures `other`; account and no_cookie; no cookie, uid, or nickname in results or logs; `update_settings` never called
+
+**Dependencies:** 111a · **Files:** `src/waifu/gacha/genshin_impact.py`, `src/waifu/gacha/hoyolab.py`, `tests/test_gacha_genshin_impact.py`, `tests/test_gacha_hoyolab.py` (fake methods after `get_starrail_event_calendar`, tests after the HSR block) · **Scope:** M
+
+## Task 112: ZZZ source
+
+**Acceptance criteria:**
+- [ ] `read_agent`, `read_detail`, `read_endgame(mode, model)` (Shiyu Defense V1 and V2, Deadly Assault), and `read_calendar(events, gacha, fetched_at)` per SPEC, tested with real genshin.py models from deep-copied dicts: element and specialty title-cased, no W-Engine, discs and sets, an unplayed V2 and an unplayed Deadly Assault, monochromes and COMPLETED, S/A split, W-Engine banners without names; the nickname and avatar never reach a dataclass
+- [ ] `zzz_characters`, `zzz_character_details(refs)` (one `get_zzz_agent_info(ref, uid=uid)` per ref, never a list, at most 2 in flight), `zzz_endgame`, `zzz_calendar` (2 requests), right before `_run`: the explicit uid, never `raw`/`previous`/`lang`; a failing mode does not hide the others; chronicle_private names ZZZ; a Shiyu `hadal_ver` it does not know is `other`; account and no_cookie; no cookie, uid, or nickname (Shiyu V2's `nick_name` too) in results or logs; `update_settings` never called
+
+**Dependencies:** 111a · **Files:** `src/waifu/gacha/zenless.py`, `src/waifu/gacha/hoyolab.py`, `tests/test_gacha_zenless.py`, `tests/test_gacha_hoyolab.py` (fake methods after `update_settings`, tests at the end of the file) · **Scope:** M
+
+## Task 113: Game data tools, wiring, personas
+
+**Acceptance criteria:**
+- [ ] `git mv` `gacha/hsr_tools.py` to `gacha/game_data_tools.py`, `HsrTools` to `GameDataTools(source, games, *, now)`: static non-strict specs with the `game` and `mode` enums from `gacha.games`, byte-identical across calls and without live data; the game-resolution rule and its errors before any source call; HSR results unchanged with `games=[hsr]`; the Genshin and ZZZ roster, detail (the shown refs only, cached per ref, no detail call without a match, no ref in the JSON), endgame, and calendar JSON with their caps and size budgets; cache keys per game
+- [ ] `git mv` `tests/test_gacha_hsr_tools.py` to `tests/test_gacha_game_data_tools.py` with a game-keyed `FakeSource`
+- [ ] `cli._game_tools` adds `GameDataTools` after `GachaTools`; the wiring tests and the strict-limit test (`game_events`); both personas' new line and `tests/test_brain_persona.py`
+
+**Dependencies:** 111a · **Files:** `src/waifu/gacha/game_data_tools.py`, `tests/test_gacha_game_data_tools.py`, `src/waifu/cli.py` (the import and `_game_tools` only), `tests/test_cli.py` (wiring and strict-limit tests), `config/persona.md`, `config/persona_hsr.md`, `tests/test_brain_persona.py` · **Scope:** M
+
+## Task 114: `waifu gacha genshin|zzz`
+
+**Acceptance criteria:**
+- [ ] `waifu gacha genshin|zzz characters|endgame|events` through one `_gacha_data(args)` registered with `set_defaults(game=...)`, `DATA_VIEWS`, the "data akun game" help; `waifu gacha hsr ...` prints as before
+- [ ] The SPEC's lines: roster lines, one endgame line per mode with one failing, banners (a ZZZ W-Engine banner as `Banner W-Engine`), events and windows; an empty roster warns and exits 1; a refusal prints FAIL and exits 1; works with the gacha buddy off; `-v` never shows the uid
+
+**Dependencies:** 111a (builds on the contract with a fake HoyolabClient; a real run needs 111 and 112) · **Files:** `src/waifu/cli.py` (parser, handler, printers), `tests/test_cli.py` (the view tests) · **Scope:** M
+
+## Task 115: Integration and docs
+
+**Acceptance criteria:**
+- [ ] 111-114 merged; full suite and ruff clean; `waifu chat --dry-run` builds 28 tools with 16 strict
+- [ ] CHANGELOG v1.23 (the renamed tools, a custom persona to update), README (Genshin and ZZZ section, the Battle Chronicle setting, the `gacha` command list, the manual checklist items), SPEC touch-ups
+
+**Dependencies:** 111, 112, 113, 114 · **Files:** `CHANGELOG.md`, `README.md`, `SPEC.md`, merge fixes · **Scope:** S
