@@ -1225,3 +1225,48 @@ named `tests/test_<package>_<module>.py`.
 - [x] README "Laporan game mingguan" with its command, check, checklist, and Privasi rows; CHANGELOG v1.27; full suite and ruff clean
 
 **Dependencies:** 128 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
+
+## Task 130a: Offline fallback voice contract
+
+**Acceptance criteria:**
+- [ ] SPEC "suara cadangan offline (v1.28)" (stories, non-goals, the PowerShell script and its exit codes, `windows_voices.py`, `WindowsTts`, the router's fallback and pause, RVC pitch per piece and per gender, config, CLI, check lines, safety); tasks 130a-133 in the plan and here
+- [ ] `FallbackTtsConfig` as `TtsConfig.fallback` (`enabled`, `voices`, `retry_s`, `rvc_pitch` with `female` and `male`) with tests
+
+**Dependencies:** none · **Files:** `SPEC.md`, `tasks/plan.md`, `tasks/todo.md`, `src/waifu/config.py`, `tests/test_config.py` · **Scope:** S
+
+## Task 130: Windows voices through PowerShell, and `WindowsTts`
+
+**Acceptance criteria:**
+- [ ] `tests/conftest.py` refuses spawning `powershell` and `pwsh` (with a guard test)
+- [ ] `list_windows_voices` and `speak_wav`: the exact command (system powershell.exe, `-File` the shipped script, `CREATE_NO_WINDOW`, a timeout), her text on stdin and the voice in the environment, never on the command line; parsing `-List`; a missing powershell.exe, a timeout, exit 3, another exit code, and unreadable output as `WindowsVoiceError`
+- [ ] `choose_voice`: a named voice in any language, else a female voice of the language first, else none (never a voice of another language)
+- [ ] `WindowsTts`: no PowerShell at construction; the voice chosen once on first use; no voice, a failure, and empty audio as `TtsError`; `rvc_pitch` by the voice's gender
+- [ ] The script ships as package data
+
+**Dependencies:** 130a · **Files:** `tests/conftest.py`, `tests/test_safety_guard.py`, `src/waifu/voice/windows_voices.py`, `src/waifu/voice/windows_voices.ps1`, `tests/test_voice_windows_voices.py`, `src/waifu/voice/tts.py`, `tests/test_voice_tts.py`, `pyproject.toml` · **Scope:** M
+
+## Task 131: The router's fallback and RVC pitch
+
+**Acceptance criteria:**
+- [ ] `RvcClient.convert(..., pitch=)` sends the given pitch, else `tts.rvc.pitch`
+- [ ] A run whose primary fails is spoken by its language's fallback; the primary skipped for the pause after that, then tried again; a fallback that cannot speak ends the pause; both failing keeps the primary's message; a language without a fallback unchanged
+- [ ] One WARNING per outage, DEBUG while it lasts, one INFO when the primary works again, never her words
+- [ ] `fallback_only`; pieces grouped by pitch for conversion, one conversion for a reply of one pitch
+
+**Dependencies:** 130 · **Files:** `src/waifu/voice/rvc.py`, `tests/test_voice_rvc.py`, `src/waifu/voice/tts.py`, `tests/test_voice_tts.py` · **Scope:** M
+
+## Task 132: Wiring, `waifu say --fallback`, `waifu voices`, check
+
+**Acceptance criteria:**
+- [ ] `build_speech_router` builds one `WindowsTts` per `tts.fallback.voices` entry when enabled, none when disabled, and never starts PowerShell
+- [ ] `waifu say --fallback` (also with `--raw`), and its refusal when the fallback is off; `waifu voices`; the check lines per SPEC; an autouse fake `list_windows_voices` in `test_cli.py`
+- [ ] `config.example.yaml` block, valid when written out
+
+**Dependencies:** 131 · **Files:** `src/waifu/voice/tts.py`, `tests/test_voice_tts.py`, `src/waifu/cli.py`, `tests/test_cli.py`, `config.example.yaml`, `tests/test_config.py` · **Scope:** M
+
+## Task 133: Docs
+
+**Acceptance criteria:**
+- [ ] README "Suara cadangan offline" with its command and check rows, a troubleshooting note, and checklist items; CHANGELOG v1.28; full suite and ruff clean
+
+**Dependencies:** 132 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S

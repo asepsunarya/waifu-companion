@@ -497,6 +497,25 @@ No new dependency; `waifu gacha report` prints the facts.
 - [x] Python suite and ruff clean; no test reached HoYoLAB or the history API, slept for real, spoke, or pushed (2026-10-17: 7495 pytest)
 - [ ] On the owner's PC: `waifu gacha report` agrees with the games' own history and endgame screens; on Sunday at 19:00 she says the round-up once (and the phone gets it), never names money, and a restart that evening stays quiet
 
+### Phase 32: Suara cadangan offline (v1.28, see SPEC → suara cadangan offline)
+Decision: when edge-tts fails (Microsoft's 403 on 2026-10-16, no internet), a run is spoken
+by a speech voice installed in Windows instead of being skipped. A shipped PowerShell 5.1
+script drives the WinRT speech API (System.Speech only when WinRT cannot load), reading her
+text on stdin and writing the WAV to stdout, so there is no new dependency, no temp file, and
+her words are never on a command line. After a failure that language uses the Windows voice
+for 10 minutes before edge-tts is tried again, like the RVC pause. The fallback still goes
+through RVC, with its own pitch per voice gender (a male Andika and a female Japanese voice
+need different shifts), so the RVC client takes a pitch per request.
+- [ ] Task 130a: contract: SPEC, tasks, `tts.fallback` config
+- [ ] Task 130: the PowerShell boundary (`windows_voices.py` + `.ps1`) and `WindowsTts`
+- [ ] Task 131: the router's fallback with its pause and logging; RVC pitch per piece
+- [ ] Task 132: wiring, `waifu say --fallback`, `waifu voices`, check line, example config
+- [ ] Task 133: README, CHANGELOG
+
+### Checkpoint: Suara cadangan offline
+- [ ] Python suite and ruff clean; no test started PowerShell or played audio; one real synthesis with an installed voice to a scratch WAV by hand
+- [ ] On the owner's PC: after adding the Indonesian (and Japanese) voice in Settings, `waifu check` names them; with the network cable out she still answers aloud through the anime voice, and `waifu say --fallback` sounds right (tune `tts.fallback.rvc_pitch`)
+
 ## Risks and Mitigations
 
 | Risk | Impact | Mitigation |

@@ -1201,6 +1201,49 @@ CLI:
 
 Safety: tests never reach HoYoLAB or the history API (fake sources and history; `tests/conftest.py`), never build a real `genshin.Client`, never sleep for real (fake clocks; the time-budget test blocks a fake on an event it releases at its end), and never speak or push; `test_cli.py` gets an autouse fake `WeeklyReportTimer`, so no `run` test starts the real thread.
 
+### suara cadangan offline (v1.28)
+
+User stories (on 2026-10-16 Microsoft refused edge-tts with HTTP 403 and Cyrene went silent; without internet she is silent too):
+
+1. edge-tts fails (a 403, no internet, a timeout): she still speaks, with a speech voice installed in Windows ("Microsoft Andika" for Indonesian, a Japanese voice for her Japanese phrases), through the anime voice (RVC) when it is on. Her text shows as before.
+2. While edge-tts is down she does not wait for it to fail on every reply: after a failure the Windows voice speaks that language for 10 minutes (configurable), then edge-tts is tried again. The log warns once per outage and says once when edge-tts works again.
+3. `waifu say --fallback Halo Master` speaks through the Windows voice, to hear what the fallback sounds like; `waifu voices` lists the voices Windows has, per language; `waifu check` says which fallback voice each language gets, or which voice to add and where (Settings → Time & language → Speech, free).
+
+Non-goals (v1.28): installing voices or language packs (only the owner does that, in Settings); Narrator's natural voices (not in the speech API); a persistent PowerShell worker (a process per run costs ~0.4 s, acceptable against silence); SSML; a fallback voice of another language picked automatically (an English voice mangles Indonesian and Japanese; one can be named explicitly as a stopgap); a new dependency.
+
+How Windows speaks: `src/waifu/voice/windows_voices.ps1` (ASCII, shipped as package data) runs under Windows PowerShell 5.1 (`%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File <script>`, `CREATE_NO_WINDOW`, a 20 s timeout). It uses the WinRT `Windows.Media.SpeechSynthesis` API (the OneCore voices Settings installs), and System.Speech (the SAPI desktop voices) only when WinRT cannot load. `-List` writes one JSON object per installed voice (`{"name", "language", "gender", "api"}`) to stdout; otherwise it speaks the UTF-8 text read from stdin with the voice whose display name is in `WAIFU_TTS_VOICE` and writes the WAV bytes to stdout (plain-text synthesis: markup and PowerShell syntax in her words are read aloud, never run). Exit 3: that voice is not installed; any other error: exit 1 with one plain line on stderr. No temp files; her text is never part of a command line.
+
+`voice/windows_voices.py` (the PowerShell boundary; `run` injected, default `subprocess.run`):
+- `WindowsVoice(name, language, gender, api)` (frozen) with `speaks(language) -> bool` (by the primary subtag: `id-ID` speaks `id`).
+- `WindowsVoiceError`: Windows could not list its voices or speak; the message is Indonesian and safe to show.
+- `list_windows_voices(*, run) -> list[WindowsVoice]`; `speak_wav(voice_name, text, *, run) -> bytes`. A missing powershell.exe, a timeout, exit 3 ("… tidak terpasang"), another exit code (with the stderr line, cut at 300 characters), and unreadable `-List` output are `WindowsVoiceError`.
+- `choose_voice(voices, language, wanted="") -> WindowsVoice | None`: the voice named `wanted` (case-insensitive, with or without the "Microsoft " prefix) whatever its language; else the first female voice that speaks `language`, else the first voice that does.
+- `language_name(language)` ("Indonesia", "Jepang", else the code) and `missing_voice_hint(language)`: "belum ada suara Windows bahasa Indonesia; tambahkan gratis di Settings → Time & language → Speech → Add voices (Indonesian)" (Japanese: "Japanese (日本語)").
+
+`voice/tts.py`:
+- `WindowsTts(language, wanted="", *, pitches: FallbackPitchConfig, run=subprocess.run)`, a `TextToSpeech`: the voice is chosen on the first `synthesize`, never at construction (building a router starts no PowerShell), and a listing that worked is kept for the life of the process (a failed listing is tried again next time). No voice → `TtsError` with the hint; a `WindowsVoiceError` → `TtsError`; the WAV is decoded like GPT-SoVITS's; no audio (empty text gives a 0 s WAV) → `TtsError`. `voice` is the chosen `WindowsVoice` (None before), `rvc_pitch` the semitones RVC shifts that voice by: `pitches.female` for a female voice, `pitches.male` for a male one, None (`tts.rvc.pitch`) for another gender or before the first use.
+- `SpeechRouter(engines, default_language, *, fallbacks=None, fallback_retry_s=FALLBACK_RETRY_S, fallback_only=False, converter=None, clock=time.monotonic)`; `fallbacks` maps a language to a `FallbackVoice` (`synthesize` and `rvc_pitch`). Per run, for a language with a fallback:
+  - the primary engine first; on its `TtsError` the fallback speaks that run. The first failure of an outage logs a WARNING with the primary's error (which carries the edge-tts update hint), later ones DEBUG; when the primary works again, one INFO. Her words are never logged.
+  - once the fallback has spoken for a failed primary, that language skips the primary for `fallback_retry_s` (600 s, `FALLBACK_RETRY_S`) and goes straight to the fallback, then tries the primary again (a failure starts another pause). A fallback that cannot speak ends the pause, so a missing Windows voice never keeps a recovered edge-tts away.
+  - both failing is a `TtsError` that keeps the primary's message and adds the fallback's ("… Suara cadangan Windows juga gagal: …"); the run is skipped as before. A language without a fallback behaves exactly as before.
+  - `fallback_only`: every run goes to its language's fallback without trying the primary; a language without one is a `TtsError` ("Belum ada suara cadangan untuk bahasa …").
+- RVC: each piece carries its pitch (None for the primary, the fallback's `rvc_pitch`). Consecutive pieces with the same pitch are joined (120 ms gaps) and converted together with `converter.convert(audio, sr, pitch=…)`, then the groups are joined with the same gap; a reply of one pitch is one conversion, as before. Each group's conversion falls back to the plain voice on its own, with the existing once-per-streak warning and 60 s pause.
+- `build_speech_router(config: TtsConfig, *, converter=None, fallback_only=False)`: with `tts.fallback.enabled`, one `WindowsTts` per `tts.fallback.voices` entry and `fallback_retry_s=tts.fallback.retry_s`.
+
+`voice/rvc.py`: `RvcClient.convert(audio, sample_rate, *, pitch=None)` sends `pitch` instead of `tts.rvc.pitch` when given (the server already reads `?pitch=` per request, clamped to ±24); the `VoiceConverter` protocol gains the same keyword.
+
+Pitch: the anime model wants ~351 Hz (`tts.rvc.pitch` +4 lifts edge-tts's ~275 Hz there). Measured median F0 of the voices on the owner's PC: Zira ~188 Hz (+11 semitones to 351 Hz), Mark ~150-168 Hz (+13 to +15), David ~95 Hz (+22). One number cannot fit both genders, and WinRT and SAPI report each voice's gender, so the fallback pitch is per gender: `female` 11, `male` 18 (between Mark and David; Andika's F0 is unknown until the owner installs him, so the README says to tune it with `waifu say --fallback`).
+
+Config `tts.fallback`: `enabled` (true), `voices` (`{id: "", ja: ""}`: a language → a Windows voice name, empty = `choose_voice`'s pick for that language), `retry_s` (600, > 0), `rvc_pitch` (`female` 11, `male` 18, each -24..24).
+
+CLI:
+- `waifu say --fallback <text>`: speaks through the fallback voices only (`fallback_only`), through RVC with each voice's pitch unless `--raw` too. With `tts.fallback.enabled: false` it prints `! Suara cadangan mati (tts.fallback.enabled: false).` and exits 1.
+- `waifu voices`: the Windows voices per language (`en-US: Microsoft David (laki-laki), …`, and whether they are OneCore or SAPI voices), then the fallback lines of `check`; exit 1 when the voices cannot be listed.
+- `check`, right before the anime voice lines, with one `-List` call: `✓ Suara cadangan bahasa Indonesia: Microsoft Andika (id-ID, laki-laki)` per configured language; `! Suara cadangan bahasa Jepang: belum ada suara Windows bahasa Jepang; tambahkan gratis di …`; `! Suara cadangan bahasa Indonesia: 'X' (tts.fallback.voices.id) tidak terpasang; lihat 'waifu voices'`; `! Suara Windows tidak terbaca (…); suara cadangan offline tidak bisa dipakai`; `! Suara cadangan offline mati (tts.fallback.enabled: false); kalau edge-tts gagal, Cyrene diam`. All WARN: the fallback is a bonus.
+- Docs: README (Indonesian) section "Suara cadangan offline" after "Suara anime" (adding the Indonesian and Japanese voices in Settings, what the fallback sounds like, tuning its pitch), the command and check rows, a troubleshooting note; `config.example.yaml` documents `tts.fallback`; CHANGELOG v1.28.
+
+Safety: tests never start PowerShell (`tests/conftest.py` refuses `powershell` and `pwsh`; tests inject a fake `run`; `test_cli.py` gets an autouse fake `list_windows_voices`), never install voices or change settings, and never play audio. The real path is checked by hand: one synthesis to a scratch WAV, read back with soundfile.
+
 ## Code Style
 
 See `CLAUDE.md` → Code Conventions and Patterns. Dataclasses for value
