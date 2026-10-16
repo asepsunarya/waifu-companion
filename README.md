@@ -1722,12 +1722,23 @@ Cyrene : "Sudah kuhapus, Master."
 - **Tidak disimpan:** obrolan ringan, perintah perangkat, dan hal yang sudah ada di
   catatannya. Kalau sebuah fakta berubah ("sekarang aku sudah tidak kerja di sana"),
   catatan lamanya diperbarui, bukan ditambah catatan kedua yang bertentangan.
-- **Rahasia tidak pernah disimpan.** Catatan yang terlihat seperti kata sandi, PIN, OTP,
-  token, cookie, API key, atau nomor kartu ditolak oleh kode Cyrene sendiri, apa pun
-  permintaan modelnya, juga kalau ditulis "sandinya", "PIN-ku", atau nomor kartu yang
-  disebut bersama tanggal kedaluwarsanya. Jangan titipkan rahasia kepadanya. Kata biasa
-  yang kebetulan mirip, seperti nama Sandi, sandi Morse, token listrik, pin lokasi, atau
-  kue cookie, tetap boleh disimpan.
+- **Rahasia tidak pernah disimpan.** Catatan yang berisi kata sandi, PIN, OTP, token,
+  cookie, API key, atau nomor kartu ditolak oleh kode Cyrene sendiri, apa pun permintaan
+  modelnya, juga kalau ditulis "sandinya", "PIN-ku", atau nomor kartu yang disebut bersama
+  tanggal kedaluwarsanya. Yang ditolak adalah kata rahasia yang diikuti isinya dalam empat
+  kata berikutnya: tanda `:` atau `=` lalu apa saja ("password wifi: hijau123", juga kalau
+  isinya baru muncul setelah kata keempat), angka 4 digit atau lebih ("PIN ATM 1234", "kode
+  OTP 482910", juga yang ditulis berkelompok seperti "OTP 482 910" atau "PIN 12-34"), atau
+  kata 6 karakter atau lebih yang mencampur huruf dengan angka atau simbol ("passwordnya
+  hijau123"). Kata yang menghubungkan rahasia dengan Master ("Master", "milik", "punya",
+  "adalah", "yaitu", "yang") tidak ikut dihitung, jadi "PIN ATM BCA milik Master adalah
+  123456" juga ditolak. Untuk token listrik atau token PLN, hanya 20 digit tokennya yang
+  dianggap isi: daya ("token listrik 1300 VA"), nomor meter atau ID pelanggan, dan nominal
+  tetap disimpan. Menyebut rahasianya saja tanpa isinya boleh: "Master harus ganti PIN ATM"
+  tetap disimpan, begitu juga kata biasa yang kebetulan mirip, seperti nama Sandi, sandi
+  Morse, token listrik, pin lokasi, atau kue cookie. Sandi yang hanya berupa huruf tanpa `:`
+  ("password laptop mochi"), atau angka pendek yang ditulis jauh dari kata rahasianya, tidak
+  bisa dibedakan dari kata biasa, jadi jangan titipkan rahasia kepadanya.
 - Dia tidak merangkum setiap obrolan: yang disimpan hanya yang dipilih otaknya. Kalau
   sesuatu penting, minta saja: "ingat ya, ...".
 
@@ -2051,13 +2062,17 @@ perintahnya menampilkan `✗` dengan alasannya. Perintah ini tetap jalan walau
 
 - Tugas hanya ada di `data\todo.json` di PC ini. Seluruh `data\` ada di `.gitignore`, jadi
   tidak pernah di-commit.
-- **Rahasia tidak pernah disimpan.** Seperti catatan ingatan, tugas yang terlihat seperti kata
-  sandi, PIN, OTP, token, atau nomor kartu ditolak oleh kode Cyrene sendiri. Kata-katanya saja
-  sudah cukup untuk ditolak, walau tanpa angka atau isinya: "ganti PIN ATM-ku 4821", "ganti PIN
-  ATM", "ganti password wifi", "minta kode OTP ke bank", dan "beli token" sama-sama tidak
-  dicatat. Kecualinya "token listrik" dan "token PLN", jadi "beli token listrik" tetap dicatat.
-  Untuk tugas seperti itu, pakai kata lain, misalnya "ganti nomor rahasia ATM" atau "ganti kunci
-  wifi".
+- **Rahasia tidak pernah disimpan.** Seperti catatan ingatan, tugas yang berisi kata sandi,
+  PIN, OTP, token, atau nomor kartu beserta isinya ditolak oleh kode Cyrene sendiri: "ganti
+  PIN ATM-ku 4821", "password wifi: hijau123", "kode OTP 482910", dan "token PLN 1234 5678
+  9012 3456 7890" tidak dicatat. Menyebut rahasianya saja boleh: "ganti PIN ATM", "ingatkan
+  ganti password wifi", "minta kode OTP ke bank", dan "beli token listrik" tetap dicatat,
+  juga "beli token listrik 100000": setelah "token listrik" atau "token PLN" hanya 20 digit
+  tokennya yang dianggap isi. Setelah kata rahasia lain, tulis nominal sebagai "Rp100.000",
+  "Rp100rb", atau "100 ribu"; angka polos 4 digit atau lebih dalam empat kata setelah kata
+  rahasia ("beli token game 100000"), atau 5 digit atau lebih di sisa kalimatnya, dianggap
+  isinya dan ditolak. Angka di kalimat berikutnya (setelah koma, "lalu", atau "terus") tidak:
+  "ganti PIN ATM terus transfer 500000 ke ibu" tetap dicatat.
 - Batasnya `todo.max_tasks` tugas yang belum selesai (bawaan 100), masing-masing paling panjang
   `todo.max_chars` karakter (bawaan 200); kalau penuh, selesaikan atau hapus tugas lama dulu.
 - Dengan `brain.backend: claude`, tugas yang dia baca (saat Master bertanya dan di sapaan pagi)
@@ -2675,6 +2690,12 @@ Cyrene : "Sekitar 89 sen dolar bulan ini, Master, dari 59 permintaan. Itu perkir
 Master : "Cyrene, hari ini sudah habis berapa?"
 Master : "Cyrene, kalau dirupiahkan berapa?"           (perlu usage.idr_per_usd)
 ```
+
+Kalau dia mencari di web pada hari atau bulan itu, dia juga tahu berapa kali dia mencari dan
+berapa biaya pencariannya. Biaya itu sudah termasuk dalam totalnya, bukan tambahan. Yang
+dicatat hanya jumlah pencariannya, jadi biaya pencarian itu dihitung dengan harga
+`usage.web_search_per_1000_usd` yang sekarang; kalau harganya pernah diubah, totalnya tetap
+memakai harga saat pencarian terjadi, dan biaya pencariannya tidak pernah melebihi total.
 
 ### Yang dicatat dan yang tidak
 
@@ -3709,8 +3730,8 @@ untuk `ac` harus sudah dipelajari.)
       `waifu todo list --done`.
 - [ ] "Cyrene, tambah tugas telepon dokter jam 4 sore": dia bilang itu lebih cocok jadi
       pengingat (atau membuat keduanya kalau diminta).
-- [ ] "Cyrene, catat tugas ganti PIN ATM-ku 4821" dan "catat tugas ganti PIN ATM": dia menolak
-      keduanya, dan tidak ada tugas baru; "catat tugas beli token listrik" tetap dicatat.
+- [ ] "Cyrene, catat tugas ganti PIN ATM-ku 4821": dia menolak, dan tidak ada tugas baru;
+      "catat tugas ganti PIN ATM" dan "catat tugas beli token listrik" tetap dicatat.
 - [ ] "Ganti tugas laporan jadi kerjakan laporan bab 2": `waifu todo` menampilkan teks baru
       dengan tenggat yang sama.
 - [ ] `waifu todo add bayar listrik --due <tanggal kemarin>`, lalu hapus `data\briefing.json`

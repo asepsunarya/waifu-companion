@@ -1001,3 +1001,14 @@ named `tests/test_<package>_<module>.py`.
 - [x] `run`/`chat` wiring (`links` only for Claude with web search); `waifu youtube`; check line; README; `config.example.yaml`; the strict tool limits still hold
 
 **Dependencies:** 108 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py`, `README.md`, `config.example.yaml` · **Scope:** S
+
+## Task 110: Small fixes (v1.21.1) ✅
+
+**Acceptance criteria:**
+- [x] A: the reply's text joins a cited answer's pieces with no doubled space where both carry whitespace (their line breaks stay when the junction holds any), strips the reply's ends, and keeps the text and line breaks inside a block (`src/waifu/brain/claude.py`, `tests/test_brain_claude.py`)
+- [x] B: `api_usage` gives `web_searches`, `web_search_cost_usd`, and `web_search_cost_idr` only when the period has web searches, and its description says `cost_usd` already includes them; the fees use the current search price and are never more than `cost_usd`; the ledger's `web_search_usd` is the price of one search (`src/waifu/brain/usage_tools.py`, `tests/test_usage_tools.py`, `src/waifu/usage.py`, `tests/test_usage.py`)
+- [x] C: the CLI holds the `genshin.models` logger at ERROR, even with `-v`, so genshin.py's "Unknown <enum>: ..., please report to developer" notices (HSR's `DoubleRewardActStatusFinish`) stay off the console and the log file (`src/waifu/cli.py`, `tests/test_cli.py`)
+- [x] D: `looks_secret` refuses a secret word only when its value follows in the next four words, not counting the words that tie it to Master ("milik Master adalah") (`:` or `=` with its value even past them, 4 or more digits or 3 after `cvv`, digit groups split by a space or dash joined, a 6-character mix of letters with digits or symbols; rupiah amounts, "Rp100rb" too, are no value; after "token listrik/PLN" only 20 digits are), so "ganti PIN ATM", "beli token listrik", and "token listrik 1300 VA" are kept as notes and tasks (`src/waifu/memory.py`, `tests/test_memory.py`, `tests/test_todo.py`)
+- [x] E: GamerPower titles lose their Giveaway suffix with its Key word ("Key Giveaway", "Steam Key Giveaway") and store brackets as often as the title ends with one ("Dwarven Realms (Steam) Key Giveaway" → "Dwarven Realms"), a game's own Key, other brackets, and words such as "DLC" stay ("Skeleton Key (Steam) Giveaway" → "Skeleton Key"), and a title left empty keeps GamerPower's own (`src/waifu/offers/games.py`, `tests/test_offers_games.py`)
+
+**Dependencies:** none · **Files:** the files above, `SPEC.md`, `README.md` · **Scope:** S

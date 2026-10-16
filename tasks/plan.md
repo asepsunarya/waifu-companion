@@ -396,6 +396,15 @@ addresses, only when Master's words ask for music; pause and skip stay with the 
 - [x] Python suite and ruff clean; no test opened anything (2026-10-16: 5877 pytest and 454 node tests on the committed tree plus tasks 108-109 and both review-fix rounds; ruff check and format clean on src, tests, and tools. Every opener in the music tests is a recording fake: `MusicTools` and `open_link` take `startfile`, `test_cli.py` replaces `cli.open_in_browser`, and the default `music.open_in_browser` looks `os.startfile` up on every call, so the `tests/conftest.py` guard that refuses it and fails the test at teardown covers it too, and the suite passes with that guard on)
 - [ ] By voice or chat: "putar lagu ..." opens and plays the song; "pause" pauses it
 
+### Phase 26.1: small fixes (v1.21.1)
+Decision: five small defects found while building v1.16-v1.21, each fixed with a failing test
+first (Prove-It); no new feature, config key, or dependency.
+- [x] A: a cited answer's pieces no longer double a space where they meet, and a line break there stays (`brain/claude.py`)
+- [x] B: `api_usage` also gives the web searches and their fees, already in the cost, at the current search price and never more than the cost (`brain/usage_tools.py`, `usage.py`)
+- [x] C: genshin.py's "please report to developer" parsing notices stay out of the console and the log (`cli.py`)
+- [x] D: a secret word alone is no secret; only one followed by its value is refused, in notes and tasks; the words that tie a secret to Master do not count, digit groups are one value, and only a 20-digit token is the value of "token listrik" (`memory.py`)
+- [x] E: GamerPower titles lose their Key word and store brackets ("Dwarven Realms (Steam) Key Giveaway" → "Dwarven Realms"), while a game's own Key stays ("Skeleton Key (Steam) Giveaway" → "Skeleton Key") (`offers/games.py`)
+
 ## Risks and Mitigations
 
 | Risk | Impact | Mitigation |
