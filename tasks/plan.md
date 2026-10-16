@@ -449,13 +449,13 @@ probability and amount) and tells a rain starting within `lead_minutes` once per
 between utterances and never inside a conversation, pushing it too when notifications are on.
 Detection is a pure function over the forecast; the told episode lives in the process. No new
 dependency; `waifu rain` shows the next rain.
-- [ ] Task 119a: contract: SPEC, tasks, `RainAlertConfig`
-- [ ] Task 119: `weather.py`: the hourly rain fields, `Hour`, `Forecast`, `WeatherClient.forecast()`
-- [ ] Task 120: `rain_watch.py`: rain detection (`is_rainy`, `raining_now`, `rain_window`, `follow_rain`, `spoken_hour`) and `RainWatcher`
-- [ ] Task 121: wiring in `run`, `waifu rain`, check line, example config, README, CHANGELOG
+- [x] Task 119a: contract: SPEC, tasks, `RainAlertConfig`
+- [x] Task 119: `weather.py`: the hourly rain fields, `Hour`, `Forecast`, `WeatherClient.forecast()`
+- [x] Task 120: `rain_watch.py`: rain detection (`is_rainy`, `raining_now`, `rain_window`, `follow_rain`, `spoken_hour`) and `RainWatcher`
+- [x] Task 121: wiring in `run`, `waifu rain`, check line, example config, README, CHANGELOG
 
 ### Checkpoint: Peringatan hujan
-- [ ] Python suite and ruff clean; no test reached Open-Meteo, slept for real, spoke, or pushed
+- [x] Python suite and ruff clean; no test reached Open-Meteo, slept for real, spoke, or pushed (2026-10-17: 7170 pytest)
 - [ ] On the owner's PC with `briefing.city: Cianjur`: `waifu rain` agrees with a weather app's hourly rain; before an afternoon rain she says the sentence once (and the phone gets it), then stays quiet through the rain, during a conversation until it ends, and at night
 
 ## Risks and Mitigations

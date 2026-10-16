@@ -42,6 +42,7 @@ Cyrene : "Komputer mau kumatikan sekarang, Master? Jawab iya kalau jadi." (minta
 - [Lagu di YouTube](#lagu-di-youtube)
 - [Melihat layar](#melihat-layar)
 - [Sapaan pagi dan ringkasan harian](#sapaan-pagi-dan-ringkasan-harian)
+- [Peringatan hujan](#peringatan-hujan)
 - [Biaya API Claude](#biaya-api-claude)
 - [Cyrene di HP](#cyrene-di-hp)
 - [Kesehatan PC](#kesehatan-pc)
@@ -641,13 +642,14 @@ waifu speaker-test    # skor kecocokan langsung, Ctrl+C untuk berhenti
 | `waifu routine list` / `run <nama>` | Lihat rutinitas dari `config.yaml`, atau jalankan satu sekarang (`--dry-run`: perangkat simulasi) |
 | `waifu todo` / `todo add <teks> [--due YYYY-MM-DD]` / `done <id>` / `remove <id>` / `list --done` | Lihat, tambah, selesaikan, dan hapus tugas di daftar tugas (lihat [Daftar tugas](#daftar-tugas)) |
 | `waifu briefing` | Tampilkan ringkasan hari ini (tanggal, cuaca, jadwal) tanpa otak, untuk mengecek cuaca (lihat [Sapaan pagi dan ringkasan harian](#sapaan-pagi-dan-ringkasan-harian)) |
+| `waifu rain` | Tampilkan kapan hujan berikutnya dalam 24 jam di kota `briefing.city`, dibaca seperti peringatan hujannya, tanpa otak (lihat [Peringatan hujan](#peringatan-hujan)) |
 | `waifu usage` / `waifu usage --month 2026-09` | Perkiraan biaya API Claude per hari bulan ini atau bulan lain (lihat [Biaya API Claude](#biaya-api-claude)) |
 | `waifu phone setup` / `pair` / `devices` / `forget <id>` | Siapkan Cyrene di HP lewat Tailscale, pasangkan HP dengan kode, lihat dan lupakan HP (lihat [Cyrene di HP](#cyrene-di-hp)) |
 | `waifu pc` | Tampilkan kondisi PC saat ini: beban CPU, RAM, sisa disk, GPU NVIDIA, dan waktu sejak Windows terakhir di-restart (lihat [Kesehatan PC](#kesehatan-pc)) |
 | `waifu youtube <link atau judul lagu>` | Buka video atau playlist YouTube itu, atau halaman pencarian YouTube untuk judulnya, di browser default (lihat [Lagu di YouTube](#lagu-di-youtube)) |
 | `waifu offers` / `offers games` / `offers ai` | Game gratis dan promo AI yang tersimpan, dengan linknya; `waifu offers ai --scan` mencari promo AI sekarang dengan Claude (berbayar) (lihat [Pencarian web dan promo gratis](#pencarian-web-dan-promo-gratis)) |
 | `waifu tepira` / `tepira dompet` / `tujuan [nama]` / `transaksi [-n N]` / `token` | Keuangan dari tepira: ringkasan bulan ini, saldo dompet, tujuan tabungan, dan transaksi terbaru; `token` membuat token API Cyrene baru tanpa internet (lihat [Keuangan dari tepira](#keuangan-dari-tepira)) |
-| `waifu check` | Periksa config, kode IR, aplikasi PC, rutinitas, voiceprint, otak, ingatan, jadwal, daftar tugas, lagu YouTube, sapaan pagi, biaya API, kesehatan PC, pencarian web, promo gratis, paket suara, CUDA, mic, suara anime, avatar, keuangan tepira, dan Cyrene di HP |
+| `waifu check` | Periksa config, kode IR, aplikasi PC, rutinitas, voiceprint, otak, ingatan, jadwal, daftar tugas, lagu YouTube, sapaan pagi, peringatan hujan, biaya API, kesehatan PC, pencarian web, promo gratis, paket suara, CUDA, mic, suara anime, avatar, keuangan tepira, dan Cyrene di HP |
 
 Opsi untuk semua perintah: `--config <file>` (default `config.yaml`), `--dry-run`
 (perangkat simulasi), `-v` (log lebih rinci), `--log-file <file>` (log juga ditulis
@@ -2809,6 +2811,93 @@ briefing:
 
 Untuk tetap disapa tapi tanpa notifikasi HP, cukup `push: false`.
 
+## Peringatan hujan
+
+Selama `waifu run` menyala, Cyrene memperingatkan sendiri sebentar sebelum hujan, supaya
+jemuran sempat diangkat:
+
+```text
+(14.05)  Cyrene : "Sayang, sekitar jam tiga sore kemungkinan hujan di Cianjur, angkat jemuran ya."
+```
+
+Kalimat yang sama juga dikirim ke HP kalau [notifikasi](#3-notifikasi-ke-hp-ntfy) menyala.
+Fitur ini sudah menyala dari awal (`rain_alert.enabled: true`) dan memakai tempat yang sama
+dengan [sapaan pagi](#sapaan-pagi-dan-ringkasan-harian): selama `briefing.city` (atau
+koordinatnya) belum diisi, dia diam (lihat [Mengatur kota](#mengatur-kota)). Peringatannya
+tetap jalan walau sapaan paginya dimatikan (`briefing.enabled: false`), selama kotanya diisi.
+
+### Kapan dia memperingatkan
+
+- **Sebelum hujan mulai.** Setiap 15 menit dia membaca prakiraan per jam dari Open-Meteo, dan
+  memperingatkan kalau hujan diperkirakan mulai dalam `lead_minutes` ke depan (bawaan 60
+  menit). Satu jam dihitung hujan kalau peluang hujannya paling sedikit `threshold` (bawaan
+  60%), curahnya paling sedikit 0,5 mm, atau kodenya hujan, hujan lokal, atau badai petir.
+  Gerimis saja tidak dihitung, kecuali peluang atau curahnya cukup.
+- **Jamnya bulat.** Prakiraannya per jam, jadi dia menyebut jam bulat ("sekitar jam tiga
+  sore"). Open-Meteo menghitung hujan satu jam *sebelum* jam yang tertulis, dan dia
+  membacanya sebagai hujan sekitar jam itu, seperti aplikasi cuaca menampilkannya; jadi hujan
+  bisa saja mulai sedikit lebih awal. Untuk jarak yang lebih aman, naikkan `lead_minutes`
+  (misalnya 90).
+- **Sekali untuk satu hujan.** Dia tidak mengulang saat hujannya makin dekat, saat peluangnya
+  naik-turun di sekitar batas, saat hujan sedang turun, atau saat hujannya berhenti sebentar.
+  Hujan berikutnya baru diperingatkan sesudah paling sedikit tiga jam kering di prakiraan.
+  Hujan yang sudah turun saat dia mulai menyala tidak diperingatkan.
+- **Hanya di jam aktif**, di antara `active_from` dan `active_until` (bawaan 06.00-21.00, jam
+  PC). Di luar jam itu dia tidak membaca prakiraan dan diam, jadi malam hari tidak ada
+  peringatan.
+- **Tidak pernah memotong.** Seperti sapaan pagi, peringatannya diucapkan di sela kalimat
+  Master: tidak saat dia menjawab, tidak saat Master bicara, dan tidak selama jendela
+  lanjutan sesudah jawabannya masih terbuka. Kalau Master sedang ngobrol dengannya,
+  peringatannya menunggu sampai obrolannya selesai; notifikasi HP-nya langsung dikirim.
+- **Kalau internet mati** atau Open-Meteo tidak menjawab, dia tidak bilang apa-apa. Log
+  mencatatnya sekali (`Could not read the rain forecast`), dan 15 menit kemudian dia mencoba
+  lagi.
+- **Hanya selama `waifu run`.** `waifu chat` tidak memperingatkan. Hujan yang sudah
+  diperingatkan hanya diingat selama `waifu run` berjalan, jadi sesudah restart hujan yang
+  sama bisa diperingatkan sekali lagi.
+
+### Pengaturan
+
+```yaml
+rain_alert:
+  enabled: true
+  lead_minutes: 60       # beri tahu sekian menit sebelum hujan mulai (30-180)
+  threshold: 60          # peluang hujan per jam (%) yang dihitung sebagai hujan (30-100)
+  active_from: "06:00"   # hanya mulai jam ini (jam PC)
+  active_until: "21:00"  # dan sebelum jam ini
+  push: true             # kirim peringatannya juga ke HP (kalau notify menyala)
+```
+
+Kotanya ditulis di bagian `briefing` (lihat [Mengatur kota](#mengatur-kota)). Yang dia sebut
+adalah `city` seperti yang kamu tulis ("di Cianjur"); dengan koordinat saja, tanpa `city`,
+dia tidak menyebut tempat. Tulis jamnya dengan tanda kutip, dan `active_from` harus sebelum
+`active_until`. Kalau peringatannya terlalu sering, naikkan `threshold` (misalnya 70 atau 80);
+jam yang kodenya hujan atau badai petir tetap dihitung. Untuk mematikannya, `enabled: false`;
+untuk tanpa notifikasi HP, `push: false`. Jalankan ulang `waifu run` setelah mengubahnya.
+
+### Mengecek prakiraan: `waifu rain`
+
+`waifu rain` menampilkan kapan hujan berikutnya dalam 24 jam, dibaca seperti peringatannya
+membacanya (dengan `rain_alert.threshold`), tanpa otak. Cocok untuk membandingkannya dengan
+aplikasi cuaca di HP:
+
+```text
+Prakiraan hujan di Cianjur, Jawa Barat, per 14:15 (peluang 60% ke atas):
+Hujan berikutnya: sekitar jam tiga sore (15:00-16:00, peluang 85%).
+```
+
+"per 14:15" adalah waktu prakiraannya. Di dalam kurung ada jam pertama dan terakhir yang
+dihitung hujan (dengan `besok` di depannya kalau mulainya besok) dan peluang tertingginya.
+Saat hujan sedang turun ada baris `Sekarang sedang hujan.`; tanpa hujan,
+`Tidak ada hujan dalam 24 jam ke depan.` Kalau kota belum diisi atau cuaca gagal dibaca,
+baris `✗ ...` menyebut sebabnya dan exit code-nya 1. Perintah ini juga jalan walau
+`rain_alert.enabled: false`.
+
+`waifu check` menampilkan
+`✓ Peringatan hujan: 60 menit sebelumnya, peluang 60% ke atas, jam 06:00-21:00, untuk Cianjur`,
+`! Peringatan hujan: cuaca belum diatur (isi briefing.city)`, atau `! Peringatan hujan mati`,
+tanpa menghubungi Open-Meteo.
+
 ## Biaya API Claude
 
 Dengan otak Claude (`brain.backend: claude`), Cyrene mencatat pemakaian setiap jawaban dari
@@ -4146,6 +4235,24 @@ halaman tim di game atau sebuah error)
 - [ ] Kapan saja: "Cyrene, cuaca hari ini gimana?" dan "Cyrene, hari ini ada jadwal apa?"
       dijawab dengan data yang sama.
 
+**Peringatan hujan** (isi dulu `briefing.city`; lihat
+[Peringatan hujan](#peringatan-hujan))
+
+- [ ] `waifu check` menampilkan
+      `✓ Peringatan hujan: 60 menit sebelumnya, peluang 60% ke atas, jam 06:00-21:00, untuk <kotamu>`.
+- [ ] `waifu rain` menampilkan kota dan provinsi yang benar, dan jam hujan berikutnya kira-kira
+      sama dengan prakiraan per jam di aplikasi cuaca HP; exit code-nya 0.
+- [ ] Pada hari yang diperkirakan hujan sore, biarkan `waifu run` menyala: sekitar satu jam
+      sebelumnya dia mengucapkan "<panggilanmu>, sekitar jam ... kemungkinan hujan di <kotamu>,
+      angkat jemuran ya." sekali, dan HP menerima kalimat yang sama kalau notifikasi menyala.
+      Selama hujan dan sesudahnya dia tidak mengulang.
+- [ ] Ngobrol dengannya tepat saat peringatannya datang: peringatannya baru diucapkan sesudah
+      jendela lanjutannya lewat, tidak memotong jawabannya.
+- [ ] Atur sementara `active_until` sebelum jam sekarang dan jalankan ulang `waifu run`: tidak
+      ada peringatan (log tidak menampilkan `Rain is likely`). Kembalikan pengaturannya.
+- [ ] Matikan Wi-Fi sebentar: dia tidak mengucapkan apa pun, dan log menampilkan
+      `Could not read the rain forecast` sekali saja. Nyalakan lagi Wi-Fi-nya.
+
 **Biaya API** (otak Claude; lihat [Biaya API Claude](#biaya-api-claude))
 
 - [ ] Setelah beberapa kalimat di `waifu run`, "Cyrene, biaya API hari ini berapa?" dijawab
@@ -4285,6 +4392,10 @@ di sampingnya)
   - dengan sapaan pagi, nama kota atau koordinat di `briefing` ke Open-Meteo untuk cuacanya
     (tanpa akun, tanpa data lain tentang Master), dan teks sapaannya ke `ntfy.sh` kalau
     notifikasi HP menyala. Hari sapaan terakhir hanya disimpan di `data\briefing.json`.
+  - dengan peringatan hujan, tempat yang sama ke Open-Meteo setiap 15 menit di jam aktif
+    selama `waifu run` menyala, dan kalimat peringatannya (panggilanmu, jam, dan kota) ke
+    `ntfy.sh` kalau notifikasi HP dan `rain_alert.push` menyala. Tidak ada yang disimpan ke
+    disk.
 - **Cookie HoYoLAB setara kata sandi.** Hanya disimpan di `config.yaml` dan tidak pernah
   ditulis ke log. Riwayat pull ada di `data\gacha\` (nama filenya memuat UID game).
 - **Kode redeem:** ke `hoyo-codes.seria.moe` hanya nama game; penukaran ke HoYoLAB dengan

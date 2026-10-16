@@ -4,6 +4,25 @@ Ringkasan per versi, yang terbaru di atas. Rinciannya ada di README (bagian yang
 setiap versi) dan di SPEC.md. Setelah memperbarui, **mulai ulang `waifu run`** supaya semuanya
 aktif, lalu jalankan `waifu check`.
 
+## v1.25: peringatan hujan
+
+- Selama `waifu run` menyala, Cyrene memperingatkan sendiri sebentar sebelum hujan: "Sayang,
+  sekitar jam tiga sore kemungkinan hujan di Cianjur, angkat jemuran ya." Kalimat yang sama
+  dikirim ke HP kalau notifikasi menyala (`rain_alert.push: true`).
+- Prakiraannya dari Open-Meteo, sumber cuaca sapaan pagi, untuk kota di `briefing.city`
+  (tanpa kota dia diam), dibaca setiap 15 menit. Bawaannya satu jam sebelum hujan mulai, dari
+  peluang hujan 60% per jam (atau curah 0,5 mm, atau kode hujan dan badai petir), hanya jam
+  06.00-21.00; semuanya bisa diatur di bagian `rain_alert` baru.
+- Satu hujan hanya diperingatkan sekali: tidak diulang saat makin dekat, saat peluangnya
+  naik-turun, saat hujan turun, atau saat berhenti kurang dari tiga jam. Malam hari dia diam,
+  dan obrolan yang sedang berjalan tidak pernah dipotong. Internet mati tidak pernah diucapkan,
+  hanya dicatat sekali di log.
+- `waifu rain` menampilkan kapan hujan berikutnya dalam 24 jam; `waifu check` menampilkan
+  pengaturannya.
+- Permintaan cuaca ke Open-Meteo kini juga meminta peluang dan curah hujan per jam; sapaan
+  pagi tidak berubah.
+- README: "Peringatan hujan".
+
 ## v1.24: keuangan dari tepira
 
 - Pertanyaan soal uangmu dijawab dari tepira, aplikasi keuanganmu sendiri, hanya saat ditanya:

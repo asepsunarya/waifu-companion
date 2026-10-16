@@ -1109,35 +1109,35 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 116, 117 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py`, `src/waifu/brain/tools.py`, `src/waifu/brain/claude.py`, `src/waifu/app.py`, `tests/test_brain_tools.py`, `tests/test_brain_claude.py`, `tests/test_app.py`, `README.md`, `CHANGELOG.md`, `SPEC.md` · **Scope:** M
 
-## Task 119a: Rain alert contract
+## Task 119a: Rain alert contract ✅
 
 **Acceptance criteria:**
-- [ ] SPEC "peringatan hujan (v1.25)" (stories, non-goals, privacy, config, the weather extension, the detection rules, the watcher, CLI, check line, safety) and the briefing section's forecast parameters; tasks 119a-121 in the plan and here
-- [ ] `RainAlertConfig` as `AppConfig.rain_alert` (`enabled`, `lead_minutes` 30-180, `threshold` 30-100, `active_from` before `active_until` with bare YAML times read as clock times, `push`) with tests
+- [x] SPEC "peringatan hujan (v1.25)" (stories, non-goals, privacy, config, the weather extension, the detection rules, the watcher, CLI, check line, safety) and the briefing section's forecast parameters; tasks 119a-121 in the plan and here
+- [x] `RainAlertConfig` as `AppConfig.rain_alert` (`enabled`, `lead_minutes` 30-180, `threshold` 30-100, `active_from` before `active_until` with bare YAML times read as clock times, `push`) with tests
 
 **Dependencies:** none · **Files:** `SPEC.md`, `tasks/plan.md`, `tasks/todo.md`, `src/waifu/config.py`, `tests/test_config.py` · **Scope:** S
 
-## Task 119: Hourly rain in the forecast
+## Task 119: Hourly rain in the forecast ✅
 
 **Acceptance criteria:**
-- [ ] The forecast request asks `hourly=weather_code,precipitation_probability,precipitation`; `today()` and the briefing unchanged (every malformed-reply case still a `WeatherError`)
-- [ ] `RAIN_CODES`, `Hour`, `Forecast`, and `WeatherClient.forecast()` per SPEC: nulls as None, a malformed reply as the unreadable `WeatherError`, the same 8 s limit and geocoding cache
+- [x] The forecast request asks `hourly=weather_code,precipitation_probability,precipitation`; `today()` and the briefing unchanged (every malformed-reply case still a `WeatherError`)
+- [x] `RAIN_CODES`, `Hour`, `Forecast`, and `WeatherClient.forecast()` per SPEC: nulls as None, a malformed reply as the unreadable `WeatherError`, the same 8 s limit and geocoding cache
 
 **Dependencies:** 119a · **Files:** `src/waifu/weather.py`, `tests/test_weather.py`, `tests/test_cli.py` (the Open-Meteo fake's hourly arrays) · **Scope:** S
 
-## Task 120: Rain detection and the watcher
+## Task 120: Rain detection and the watcher ✅
 
 **Acceptance criteria:**
-- [ ] Pure `is_rainy`, `raining_now`, `rain_window`, `follow_rain`, and `spoken_hour` per SPEC, with the edges: the threshold exactly, 0.5 mm, rain and thunder codes, drizzle, nulls, the lead's edges, rain already falling, a window across midnight, a forecast that drops the rain, a break of three hours (the same rain) and of four (a new one)
-- [ ] `RainWatcher`: quiet outside the active hours without asking Open-Meteo; one alert per episode; failures never said and logged once per run of failures; announce and push each failure-proof; the owner word at sentence start; a daemon thread that polls at once and every 900 s, stops at once, and starts once
+- [x] Pure `is_rainy`, `raining_now`, `rain_window`, `follow_rain`, and `spoken_hour` per SPEC, with the edges: the threshold exactly, 0.5 mm, rain and thunder codes, drizzle, nulls, the lead's edges, rain already falling, a window across midnight, a forecast that drops the rain, a break of three hours (the same rain) and of four (a new one)
+- [x] `RainWatcher`: quiet outside the active hours without asking Open-Meteo; one alert per episode; failures never said and logged once per run of failures; announce and push each failure-proof; the owner word at sentence start; a daemon thread that polls at once and every 900 s, stops at once, and starts once
 
 **Dependencies:** 119a, 119 · **Files:** `src/waifu/rain_watch.py`, `tests/test_rain_watch.py` · **Scope:** M
 
-## Task 121: Wiring, `waifu rain`, check, docs
+## Task 121: Wiring, `waifu rain`, check, docs ✅
 
 **Acceptance criteria:**
-- [ ] `run` starts the watcher after "ready" and stops it on exit when `rain_alert.enabled` and `briefing` names a place, announcing once the follow-up window has closed and pushing only with `rain_alert.push` and `notify`; `chat` never; an autouse fake in `test_cli.py`
-- [ ] `waifu rain` lines and exit codes per SPEC; the check lines right after the briefing line, sharing its place text
-- [ ] `config.example.yaml` block, valid when written out; README "Peringatan hujan" with its command, check, checklist, and Privasi rows; CHANGELOG v1.25; full suite and ruff clean
+- [x] `run` starts the watcher after "ready" and stops it on exit when `rain_alert.enabled` and `briefing` names a place, announcing once the follow-up window has closed and pushing only with `rain_alert.push` and `notify`; `chat` never; an autouse fake in `test_cli.py`
+- [x] `waifu rain` lines and exit codes per SPEC; the check lines right after the briefing line, sharing its place text
+- [x] `config.example.yaml` block, valid when written out; README "Peringatan hujan" with its command, check, checklist, and Privasi rows; CHANGELOG v1.25; full suite and ruff clean
 
 **Dependencies:** 119, 120 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py`, `config.example.yaml`, `tests/test_config.py`, `README.md`, `CHANGELOG.md` · **Scope:** M
