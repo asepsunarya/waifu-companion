@@ -379,10 +379,15 @@ def test_a_read_with_problems_is_never_said_and_logged_once_until_it_reads_clean
     assert not any(record.exc_info for record in records)
 
 
-def test_what_a_read_with_problems_did_read_is_still_compared():
-    rig = Rig(disk(V126, V125, dependencies=None, problems=["pyproject.toml is gone"]))
+def test_a_version_first_seen_in_a_read_with_problems_waits_for_a_clean_read():
+    # Told now, v1.27 would go without its pip step for good: it is told only once.
+    rig = Rig(disk(V127, V126, V125, dependencies=None, problems=["pyproject.toml mid-write"]))
 
-    assert rig.poll() == [V126_TEXT]
+    assert rig.poll() == []
+    [text] = rig.poll(disk(V127, V126, V125, dependencies=OTHER_HASH))
+
+    assert text.startswith("Sayang, ada versi baru Cyrene: v1.27, kamera HP, dan satu versi lain.")
+    assert "Paket Python-nya juga berubah" in text
 
 
 def test_a_failing_read_is_logged_with_its_traceback_and_never_said(caplog):

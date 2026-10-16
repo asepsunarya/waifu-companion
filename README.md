@@ -765,6 +765,8 @@ dia memberi tahu sendiri.
   jawabannya masih terbuka. Notifikasi HP-nya langsung dikirim.
 - **Kalau filenya tidak terbaca** (misalnya `CHANGELOG.md` rusak), dia diam; log mencatatnya
   sekali (`Could not read the code on disk`), dan dia mencoba lagi di pemeriksaan berikutnya.
+  Dia baru memberi tahu sesudah `CHANGELOG.md` dan `pyproject.toml` terbaca utuh, supaya
+  langkah `pip install` tidak tertinggal.
 - **Dia tidak pernah memulai ulang dirinya sendiri.** Memulai ulang berarti membuka jendela
   konsol baru, yang bisa muncul di atas game layar penuh, dan proses barunya akan berebut kunci
   `data\run.lock` dengan yang lama. Kapan mulai ulang, kamu yang menentukan.

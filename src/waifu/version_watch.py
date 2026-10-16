@@ -9,9 +9,9 @@ she started with; when the core dependencies changed since, `pip install` comes 
 push carries the command. A commit that adds no version is never news, also when it changes the
 dependencies, so fixes and half-built versions stay quiet. Each news is said between utterances,
 once the follow-up window has closed, and pushed to the phone when notifications are on, once
-per version number: a later version is told again with its own count. A failed read is never
-said: the first of a run of failures is logged at WARNING. She never restarts herself or runs
-pip. Nothing is raised.
+per version number: a later version is told again with its own count. A failed read, or one
+that missed a file, decides nothing and is never said: the first of a run of failures is logged
+at WARNING. She never restarts herself or runs pip. Nothing is raised.
 """
 
 from __future__ import annotations
@@ -140,8 +140,11 @@ class VersionWatcher:
             self._log_failure(str(exc), traceback=True)
             return []
         if disk.problems:
+            # Decide on clean reads only: a file caught mid-write would leave a part, such as
+            # the pip step, out of a version's one notice.
             self._log_failure("; ".join(disk.problems), traceback=False)
-        elif self._failing:
+            return []
+        if self._failing:
             self._failing = False
             logger.info("The code on disk can be read again")
         try:
