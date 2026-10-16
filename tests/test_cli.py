@@ -71,7 +71,16 @@ from waifu.devices.registry import DeviceRegistry
 from waifu.gacha.code_store import CodeStore
 from waifu.gacha.code_tools import CodeTools
 from waifu.gacha.codes import CodesError, RedeemResult
+from waifu.gacha.game_data import (
+    GAME_MODES,
+    Banner,
+    ChallengeWindow,
+    Endgame,
+    GameCalendar,
+    GameEvent,
+)
 from waifu.gacha.games import GAMES
+from waifu.gacha.genshin_impact import GenshinCharacter, GenshinWeapon
 from waifu.gacha.history import BannerStats, GachaHistory, HistoryReport, TopPull
 from waifu.gacha.hoyolab import (
     NO_COOKIE,
@@ -96,6 +105,7 @@ from waifu.gacha.starrail import (
     HsrWarp,
 )
 from waifu.gacha.tools import GachaTools
+from waifu.gacha.zenless import ZzzAgent
 from waifu.memory import MemoryStore, memory_prompt_section
 from waifu.offers.errors import OffersError
 from waifu.offers.store import OffersStore
@@ -4878,6 +4888,423 @@ def test_genshin_model_parsing_warnings_stay_off_the_console_but_cyrenes_own_gac
 
     assert "please report to developer" not in caplog.text
     assert "HoYoLAB unreachable: TimeoutError" in caplog.text
+
+
+# --- Genshin and ZZZ account data views (v1.23) ------------------------------------------------
+
+
+class FakeGameDataClient(FakeGameClient):
+    """FakeGameClient with Master's Genshin and ZZZ accounts too: what the views read of
+    GameDataSource beside the HSR methods."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.rosters: dict[str, tuple[object, ...]] = {"genshin": (), "zzz": ()}
+        self.modes: dict[str, Endgame | GachaError] = {}
+        self.calendars = dict.fromkeys(("genshin", "zzz"), GameCalendar(None, (), (), ()))
+        self.data_failure: GachaError | None = None
+        self.asked: list[object] = []
+
+    def genshin_characters(self):
+        return self._roster("genshin")
+
+    def genshin_endgame(self, modes):
+        return self._endgame("genshin", modes)
+
+    def genshin_calendar(self):
+        return self._calendar("genshin")
+
+    def zzz_characters(self):
+        return self._roster("zzz")
+
+    def zzz_endgame(self, modes):
+        return self._endgame("zzz", modes)
+
+    def zzz_calendar(self):
+        return self._calendar("zzz")
+
+    def _roster(self, game: str) -> tuple[object, ...]:
+        self.asked.append((game, "characters"))
+        if self.data_failure is not None:
+            raise self.data_failure
+        return self.rosters[game]
+
+    def _endgame(self, game: str, modes) -> dict[str, Endgame | GachaError]:
+        modes = list(modes)
+        self.asked.append((game, "endgame", modes))
+        return {mode: self.modes[mode] for mode in modes}
+
+    def _calendar(self, game: str) -> GameCalendar:
+        self.asked.append((game, "calendar"))
+        if self.data_failure is not None:
+            raise self.data_failure
+        return self.calendars[game]
+
+
+@pytest.fixture
+def game_data(games) -> FakeGameDataClient:
+    games.hoyolab = FakeGameDataClient()
+    return games.hoyolab
+
+
+def genshin_character(
+    name: str,
+    rarity: int,
+    level: int,
+    constellation: int,
+    element: str,
+    weapon_type: str,
+    weapon: GenshinWeapon,
+) -> GenshinCharacter:
+    return GenshinCharacter(
+        10000089, name, rarity, level, constellation, element, weapon_type, weapon
+    )
+
+
+def zzz_agent(
+    name: str, rarity: str, level: int, mindscape: int, element: str, specialty: str
+) -> ZzzAgent:
+    return ZzzAgent(1191, name, name, rarity, level, mindscape, element, specialty)
+
+
+def one_character_each() -> dict[str, tuple[object, ...]]:
+    furina_weapon = GenshinWeapon("Favonius Sword", 90, 5, 4)
+    return {
+        "genshin": (genshin_character("Furina", 5, 90, 2, "Hydro", "Sword", furina_weapon),),
+        "zzz": (zzz_agent("Ellen", "S", 60, 2, "Ice", "Attack"),),
+    }
+
+
+def endgame(mode: str, *, has_data: bool = True, ends_at: datetime | None = None, **facts):
+    """This season of one mode with only the facts given: a mode gives what it has."""
+    known = dict.fromkeys(
+        ("season", "stars", "deepest", "difficulty", "rating", "score", "max_score", "seconds")
+    )
+    return Endgame(
+        mode=mode, ends_at=ends_at, has_data=has_data, battles=None, stages=(), **known | facts
+    )
+
+
+def test_gacha_help_offers_the_account_data_of_each_game(monkeypatch, capsys):
+    monkeypatch.setenv("COLUMNS", "300")
+    monkeypatch.setenv("PYTHON_COLORS", "0")
+
+    with pytest.raises(SystemExit) as exit_info:
+        cli.main(["gacha", "--help"])
+
+    assert exit_info.value.code == 0
+    out = capsys.readouterr().out
+    assert "data akun game (karakter, endgame, kalender event)" in out
+    for short in ("HSR", "Genshin", "ZZZ"):
+        assert f"Data akun {short} dari HoYoLAB: karakter, endgame musim ini, atau kalender" in out
+
+
+def test_gacha_genshin_characters_prints_one_line_per_character_strongest_first(
+    home, game_data, capsys
+):
+    flute = GenshinWeapon("The Flute", 90, 5, 4)
+    fragments = GenshinWeapon("Sacrificial Fragments", 80, 3, 4)
+    splendor = GenshinWeapon("Splendor of Tranquil Waters", 90, 1, 5)
+    game_data.rosters["genshin"] = (
+        genshin_character("Bennett", 4, 90, 6, "Pyro", "Sword", flute),
+        genshin_character("Nahida", 5, 80, 0, "Dendro", "Catalyst", fragments),
+        genshin_character("Furina", 5, 90, 2, "Hydro", "Sword", splendor),
+    )
+
+    assert cli.main(["gacha", "genshin", "characters"]) == 0
+
+    assert game_data.asked == [("genshin", "characters")]
+    assert capsys.readouterr().out.splitlines() == [
+        "Furina ★5 Lv90 C2 (Hydro, Sword), Splendor of Tranquil Waters Lv90 R1",
+        "Nahida ★5 Lv80 C0 (Dendro, Catalyst), Sacrificial Fragments Lv80 R3",
+        "Bennett ★4 Lv90 C6 (Pyro, Sword), The Flute Lv90 R5",
+    ]
+
+
+def test_gacha_zzz_characters_prints_one_line_per_agent_s_rank_first(home, game_data, capsys):
+    game_data.rosters["zzz"] = (
+        zzz_agent("Anby", "A", 60, 6, "Electric", "Stun"),
+        zzz_agent("Miyabi", "S", 50, 0, "Ice", "Anomaly"),
+        zzz_agent("Ellen", "S", 60, 2, "Ice", "Attack"),
+    )
+
+    assert cli.main(["gacha", "zzz", "characters"]) == 0
+
+    assert game_data.asked == [("zzz", "characters")]
+    assert capsys.readouterr().out.splitlines() == [
+        "Ellen S Lv60 M2 (Ice, Attack)",
+        "Miyabi S Lv50 M0 (Ice, Anomaly)",
+        "Anby A Lv60 M6 (Electric, Stun)",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("game", "warning"),
+    [
+        ("genshin", "! Battle Chronicle HoYoLAB tidak memuat satu pun karakter Genshin.\n"),
+        ("zzz", "! Battle Chronicle HoYoLAB tidak memuat satu pun agent ZZZ.\n"),
+    ],
+    ids=["genshin", "zzz"],
+)
+def test_gacha_game_characters_without_any_character_says_so(
+    game, warning, home, game_data, capsys
+):
+    assert cli.main(["gacha", game, "characters"]) == 1
+
+    assert capsys.readouterr().out == warning
+
+
+def test_gacha_genshin_endgame_prints_one_line_per_mode_with_the_facts_it_has(
+    home, game_data, capsys
+):
+    abyss_ends = from_now(days=30, hours=4, minutes=30)
+    theater_ends, stygian_ends = from_now(days=12, hours=3), from_now(hours=5, minutes=30)
+    game_data.modes = {
+        "spiral_abyss": endgame("spiral_abyss", ends_at=abyss_ends, stars=36, deepest="12-3"),
+        "imaginarium_theater": endgame(
+            "imaginarium_theater",
+            ends_at=theater_ends,
+            stars=10,
+            deepest="Act 10",
+            difficulty="Visionary",
+        ),
+        "stygian_onslaught": endgame(
+            "stygian_onslaught",
+            season="Driftwood Reverie",
+            ends_at=stygian_ends,
+            difficulty="6",
+            seconds=95,
+        ),
+    }
+
+    assert cli.main(["gacha", "genshin", "endgame"]) == 0
+
+    assert game_data.asked == [("genshin", "endgame", list(GAME_MODES["genshin"]))]
+    assert capsys.readouterr().out.splitlines() == [
+        "Spiral Abyss: 36 bintang, terdalam 12-3, "
+        f"berakhir {local(abyss_ends)} (30 hari 4 jam lagi)",
+        "Imaginarium Theater: 10 bintang, terdalam Act 10, difficulty Visionary, "
+        f"berakhir {local(theater_ends)} (12 hari 3 jam lagi)",
+        "Stygian Onslaught: difficulty 6, 95 detik, "
+        f"berakhir {local(stygian_ends)} (5 jam 30 menit lagi)",
+    ]
+
+
+def test_gacha_zzz_endgame_says_which_mode_is_not_played_this_season(home, game_data, capsys):
+    shiyu_ends, assault_ends = from_now(days=9), from_now(days=2, hours=6)
+    game_data.modes = {
+        "shiyu_defense": endgame("shiyu_defense", has_data=False, ends_at=shiyu_ends),
+        "deadly_assault": endgame("deadly_assault", ends_at=assault_ends, stars=7, score=30000),
+    }
+
+    assert cli.main(["gacha", "zzz", "endgame"]) == 0
+
+    assert game_data.asked == [("zzz", "endgame", list(GAME_MODES["zzz"]))]
+    assert capsys.readouterr().out.splitlines() == [
+        f"Shiyu Defense: belum dimainkan musim ini, berakhir {local(shiyu_ends)} (9 hari lagi)",
+        "Deadly Assault: 7 bintang, skor 30000, "
+        f"berakhir {local(assault_ends)} (2 hari 6 jam lagi)",
+    ]
+
+
+def test_gacha_zzz_endgame_shows_the_other_mode_when_one_cannot_be_read(home, game_data, capsys):
+    game_data.modes = {
+        "shiyu_defense": endgame(
+            "shiyu_defense", rating="S+", score=52000, max_score=60000, seconds=400
+        ),
+        "deadly_assault": GachaError("other", "HoYoLAB menolak permintaan ZZZ (kode -1)."),
+    }
+
+    assert cli.main(["gacha", "zzz", "endgame"]) == 1
+
+    assert capsys.readouterr().out.splitlines() == [
+        "Shiyu Defense: rating S+, skor 52000/60000, 400 detik",
+        "Deadly Assault: ✗ HoYoLAB menolak permintaan ZZZ (kode -1).",
+    ]
+
+
+def test_gacha_genshin_events_prints_the_banners_running_events_and_endgame_windows(
+    home, game_data, capsys
+):
+    banner_ends, next_banner = from_now(days=4, hours=12, minutes=30), from_now(days=6, hours=2)
+    soon, later, season_ends = from_now(hours=5, minutes=30), from_now(days=9), from_now(days=20)
+    started, ended = from_now(days=-2), from_now(hours=-1)
+    game_data.calendars["genshin"] = GameCalendar(
+        "5.2",
+        (
+            Banner(
+                "character",
+                "Ballad in Goblets",
+                ("Venti",),
+                ("Xiangling", "Bennett", "Noelle"),
+                from_now(days=-10),
+                banner_ends,
+            ),
+            Banner(
+                "weapon",
+                "Epitome Invocation",
+                ("Elegy for the End", "Skyward Harp"),
+                ("The Flute",),
+                next_banner,
+                from_now(days=27),
+            ),
+            Banner("chronicled", None, ("Albedo",), (), from_now(days=-10), banner_ends),
+        ),
+        (
+            GameEvent("Lantern Rite", started, later, None, None, False),
+            GameEvent("Hydro Trial", started, soon, None, None, False),
+            GameEvent("Login Gift", None, None, None, None, True),
+            GameEvent("Windblume Fest", from_now(days=2), from_now(days=20), None, None, False),
+        ),
+        (
+            ChallengeWindow("spiral_abyss", "Spiral Abyss", started, season_ends, 30, 36),
+            ChallengeWindow("imaginarium_theater", "Theater Season", started, later, 8, None),
+            ChallengeWindow(
+                "imaginarium_theater", "Ended Season", from_now(days=-30), ended, 10, None
+            ),
+        ),
+    )
+
+    assert cli.main(["gacha", "genshin", "events"]) == 0
+
+    assert game_data.asked == [("genshin", "calendar")]
+    assert capsys.readouterr().out.splitlines() == [
+        "Kalender Genshin versi 5.2",
+        "Banner:",
+        "  Ballad in Goblets (karakter): 5★ Venti; 4★ Xiangling, Bennett, Noelle; "
+        f"berakhir {local(banner_ends)} (4 hari 12 jam lagi)",
+        "  Epitome Invocation (weapon): 5★ Elegy for the End, Skyward Harp; 4★ The Flute; "
+        f"mulai {local(next_banner)} (6 hari 2 jam lagi)",
+        f"  Banner chronicled: 5★ Albedo; berakhir {local(banner_ends)} (4 hari 12 jam lagi)",
+        "Event:",
+        f"  Hydro Trial: berakhir {local(soon)} (5 jam 30 menit lagi)",
+        f"  Lantern Rite: berakhir {local(later)} (9 hari lagi)",
+        "  Login Gift: selesai",
+        "Endgame:",
+        f"  Spiral Abyss (Spiral Abyss): 30/36, berakhir {local(season_ends)} (20 hari lagi)",
+        f"  Imaginarium Theater (Theater Season): berakhir {local(later)} (9 hari lagi)",
+    ]
+
+
+def test_gacha_zzz_events_names_the_banners_by_kind_and_rank_without_endgame_windows(
+    home, game_data, capsys
+):
+    banner_ends, next_banner = from_now(days=4, hours=12, minutes=30), from_now(days=6, hours=2)
+    later = from_now(days=9)
+    game_data.calendars["zzz"] = GameCalendar(
+        None,
+        (
+            Banner("agent", None, ("Ellen",), ("Soukaku", "Anton"), from_now(days=-3), banner_ends),
+            Banner("w_engine", None, (), (), from_now(days=-3), banner_ends),
+            Banner("exclusive_rescreening", None, ("Miyabi",), (), next_banner, from_now(days=20)),
+        ),
+        (GameEvent("Ridu Weekly", from_now(days=-2), later, 300, 1000, False),),
+        (),
+    )
+
+    assert cli.main(["gacha", "zzz", "events"]) == 0
+
+    assert game_data.asked == [("zzz", "calendar")]
+    assert capsys.readouterr().out.splitlines() == [
+        "Kalender ZZZ",
+        "Banner:",
+        "  Banner agent: S Ellen; A Soukaku, Anton; "
+        f"berakhir {local(banner_ends)} (4 hari 12 jam lagi)",
+        f"  Banner W-Engine: berakhir {local(banner_ends)} (4 hari 12 jam lagi)",
+        f"  Banner exclusive_rescreening: S Miyabi; mulai {local(next_banner)} (6 hari 2 jam lagi)",
+        "Event:",
+        f"  Ridu Weekly: 300/1000, berakhir {local(later)} (9 hari lagi)",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("game", "lines"),
+    [
+        (
+            "genshin",
+            ["Kalender Genshin", "Banner: tidak ada", "Event: tidak ada", "Endgame: tidak ada"],
+        ),
+        ("zzz", ["Kalender ZZZ", "Banner: tidak ada", "Event: tidak ada"]),
+    ],
+    ids=["genshin", "zzz"],
+)
+def test_gacha_game_events_with_an_empty_calendar_says_there_is_nothing(
+    game, lines, home, game_data, capsys
+):
+    assert cli.main(["gacha", game, "events"]) == 0
+
+    assert capsys.readouterr().out.splitlines() == lines
+
+
+@pytest.mark.parametrize("game", ["genshin", "zzz"])
+@pytest.mark.parametrize(("view", "asked"), [("characters", "characters"), ("events", "calendar")])
+def test_gacha_game_data_that_hoyolab_refuses_prints_why_and_fails(
+    game, view, asked, home, game_data, capsys
+):
+    refusal = (
+        f"Data {GAMES[game].short} ini tidak bisa dibaca karena Battle Chronicle tidak publik."
+    )
+    game_data.data_failure = GachaError("chronicle_private", refusal)
+
+    assert cli.main(["gacha", game, view]) == 1
+
+    assert game_data.asked == [(game, asked)]
+    assert capsys.readouterr().out == f"✗ {refusal}\n"
+
+
+@pytest.mark.parametrize("game", ["genshin", "zzz"])
+@pytest.mark.parametrize("view", ["characters", "endgame", "events"])
+def test_gacha_game_data_works_with_the_gacha_buddy_off(game, view, home, games, game_data):
+    game_data.rosters = one_character_each()
+    game_data.modes = {mode: endgame(mode, has_data=False) for mode in GAME_MODES[game]}
+
+    assert cli.main(["gacha", game, view]) == 0
+
+    [config] = games.built
+    assert config.gacha.enabled is False
+
+
+@pytest.mark.parametrize(
+    ("game", "method", "url", "query", "body"),
+    [
+        (
+            "genshin",
+            "POST",
+            "https://sg-public-api.hoyolab.com/event/game_record/genshin/api/character/list",
+            None,
+            {"role_id": 800000001, "server": "os_asia"},
+        ),
+        (
+            "zzz",
+            "GET",
+            "https://sg-act-public-api.hoyolab.com/event/game_record_zzz/api/zzz/avatar/basic",
+            {"role_id": 1300000003, "server": "prod_gf_jp"},
+            None,
+        ),
+    ],
+    ids=["genshin", "zzz"],
+)
+def test_verbose_logging_never_reveals_the_genshin_or_zzz_uid_genshin_logs_with_each_request(
+    game, method, url, query, body, home, game_data, monkeypatch, caplog
+):
+    uid = str((query or body)["role_id"])
+
+    def characters_through_genshin() -> tuple[object, ...]:
+        # Every new genshin.Client sets the "genshin" logger back to NOTSET, and before each
+        # request genshin.py's own hook logs the URL with its query, or the POST body, at
+        # DEBUG: the uid either way. The hook runs here on its logger, without a client.
+        logging.getLogger("genshin").setLevel(logging.NOTSET)
+        base = genshin.client.components.base.BaseClient
+        hooked = types.SimpleNamespace(logger=base.logger)
+        asyncio.run(base._request_hook(hooked, method, url, params=query, data=body))
+        return one_character_each()[game]
+
+    monkeypatch.setattr(game_data, f"{game}_characters", characters_through_genshin)
+    caplog.set_level(logging.DEBUG)
+
+    assert cli.main(["-v", "gacha", game, "characters"]) == 0
+
+    assert uid not in caplog.text
 
 
 # --- long-term memory --------------------------------------------------------------------------

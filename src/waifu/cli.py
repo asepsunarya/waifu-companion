@@ -87,8 +87,19 @@ from waifu.gacha.code_store import CodeStore
 from waifu.gacha.code_tools import RECENT_CODES, CodeTools
 from waifu.gacha.code_watcher import OUTCOME_TEXT, CodeWatcher, ReadCodes
 from waifu.gacha.codes import CODES_SOURCE, FINAL_OUTCOMES, CodesError, RedeemCode, read_codes
-from waifu.gacha.game_data import is_running
+from waifu.gacha.game_data import (
+    GAME_MODES,
+    MODE_GAMES,
+    Banner,
+    ChallengeWindow,
+    Endgame,
+    GameCalendar,
+    GameDataSource,
+    GameEvent,
+    is_running,
+)
 from waifu.gacha.games import GAMES, Game, next_daily_reset
+from waifu.gacha.genshin_impact import GenshinCharacter
 from waifu.gacha.history import (
     GachaHistory,
     GachaLogApi,
@@ -117,6 +128,7 @@ from waifu.gacha.starrail import (
 )
 from waifu.gacha.tools import GachaTools
 from waifu.gacha.watcher import GachaWatcher
+from waifu.gacha.zenless import ZzzAgent
 from waifu.gate import WakeGate
 from waifu.memory import MemoryStore, memory_prompt_section
 from waifu.music import MusicService, open_in_browser, open_link, search_link, youtube_link
@@ -246,7 +258,7 @@ NOTIFY_TEST_MESSAGE = "Tes notifikasi dari {name}. Kalau ini muncul di HP, notif
 NOTIFY_TAG = "video_game"  # ntfy shows it as a game controller emoji
 GACHA_DESCRIPTION = (
     "Teman main game HoYoverse: status stamina dan daily, check-in harian HoYoLAB, "
-    "riwayat pull (pity, 50/50), data akun HSR (karakter, endgame, kalender event), dan kode "
+    "riwayat pull (pity, 50/50), data akun game (karakter, endgame, kalender event), dan kode "
     "redeem. Perintah ini jalan walau gacha.enabled: false; yang dinyalakan gacha.enabled "
     "hanyalah tool game dan pengingat saat 'waifu run'."
 )
@@ -255,8 +267,19 @@ CODES_CREDIT = f"Sumber kode: {CODES_SOURCE} (API komunitas di balik Hoyo Buddy)
 REDEEM_NEEDS_GAME = "--redeem butuh satu game, misalnya: waifu gacha codes hsr --redeem"
 # Where the games keep their logs, which lead to their history caches; tests point it elsewhere.
 GAME_LOGS_DIR = Path.home() / "AppData" / "LocalLow"
-HSR_VIEWS = ("characters", "endgame", "events")
+DATA_VIEWS = ("characters", "endgame", "events")
+# What each game's `waifu gacha <game> <view>` shows, for its --help.
+DATA_VIEW_HELP = {
+    "hsr": "characters: karakter dan Light Cone; endgame: bintang dan lantai musim ini; "
+    "events: warp, event, dan jadwal endgame",
+    "genshin": "characters: karakter dan weapon; endgame: bintang, act, dan difficulty musim "
+    "ini; events: banner, event, dan jadwal endgame",
+    "zzz": "characters: agent; endgame: rating, skor, dan bintang musim ini; "
+    "events: banner dan event",
+}
 HSR_WARP_KINDS = {"character": "karakter", "light_cone": "Light Cone"}
+# The Genshin and ZZZ banner kinds the calendar prints in other words; any other as it is.
+BANNER_KINDS = {"character": "karakter", "w_engine": "W-Engine"}
 MEMORY_DESCRIPTION = (
     "Ingatan Cyrene tentang Master: catatan yang dia baca di awal setiap sesi obrolan. "
     "Perintah ini jalan walau memory.enabled: false; Cyrene yang sedang berjalan melihat "
@@ -571,7 +594,8 @@ def build_parser() -> argparse.ArgumentParser:
     gacha_command = commands.add_parser(
         "gacha",
         parents=[shared],
-        help="Teman main game HoYoverse: status, check-in, riwayat pull, data HSR, kode redeem.",
+        help="Teman main game HoYoverse: status, check-in, riwayat pull, data akun game, kode "
+        "redeem.",
         description=GACHA_DESCRIPTION,
     )
     gacha_actions = gacha_command.add_subparsers(dest="action", required=True, metavar="<aksi>")
@@ -598,18 +622,16 @@ def build_parser() -> argparse.ArgumentParser:
     history.add_argument(
         "--full", action="store_true", help="baca semua halaman riwayat (impor pertama)"
     )
-    hsr = command(
-        "hsr",
-        _gacha_hsr,
-        "Data akun HSR dari HoYoLAB: karakter, endgame musim ini, atau kalender event.",
-        gacha_actions,
-    )
-    hsr.add_argument(
-        "view",
-        choices=HSR_VIEWS,
-        help="characters: karakter dan Light Cone; endgame: bintang dan lantai musim ini; "
-        "events: warp, event, dan jadwal endgame",
-    )
+    for game in GAMES.values():
+        data = command(
+            game.id,
+            _gacha_data,
+            f"Data akun {game.short} dari HoYoLAB: karakter, endgame musim ini, atau kalender "
+            "event.",
+            gacha_actions,
+        )
+        data.set_defaults(game=game.id)
+        data.add_argument("view", choices=DATA_VIEWS, help=DATA_VIEW_HELP[game.id])
     codes = command(
         "codes",
         _gacha_codes,
@@ -1900,22 +1922,43 @@ def _top_pull_text(pull: TopPull) -> str:
     return f"{pull.name} ({pull.pulls} pull{result})"
 
 
-def _gacha_hsr(args: argparse.Namespace) -> int:
-    """Master's HSR account, read from HoYoLAB on every call (only the brain's tools cache it).
-    Times left are counted after the read, which may take a while."""
-    hoyolab = build_gacha(load_config(args.config)).hoyolab
+def _gacha_data(args: argparse.Namespace) -> int:
+    """Master's account in one game, read from HoYoLAB on every call (only the brain's tools
+    cache it). Times left are counted after the read, which may take a while."""
+    source: GameDataSource = build_gacha(load_config(args.config)).hoyolab
+    views = {"characters": _characters_view, "endgame": _endgame_view, "events": _events_view}
     try:
-        if args.view == "characters":
-            return _print_hsr_characters(hoyolab.hsr_characters())
-        if args.view == "endgame":
-            modes = hoyolab.hsr_endgame(list(ENDGAME_MODES))
-            return _print_hsr_endgame(modes, datetime.now().astimezone())
-        calendar = hoyolab.hsr_calendar()
-        _print_hsr_calendar(calendar, datetime.now().astimezone())
-        return 0
+        return views[args.view](args.game, source)
     except GachaError as error:
         print(f"{FAIL} {error.message}")
         return 1
+
+
+def _characters_view(game: str, source: GameDataSource) -> int:
+    if game == "hsr":
+        return _print_hsr_characters(source.hsr_characters())
+    if game == "genshin":
+        return _print_genshin_characters(source.genshin_characters())
+    return _print_zzz_agents(source.zzz_characters())
+
+
+def _endgame_view(game: str, source: GameDataSource) -> int:
+    if game == "hsr":
+        hsr_modes = source.hsr_endgame(list(ENDGAME_MODES))
+        return _print_hsr_endgame(hsr_modes, datetime.now().astimezone())
+    asked = list(GAME_MODES[game])
+    modes = source.genshin_endgame(asked) if game == "genshin" else source.zzz_endgame(asked)
+    return _print_endgame(game, modes, datetime.now().astimezone())
+
+
+def _events_view(game: str, source: GameDataSource) -> int:
+    if game == "hsr":
+        hsr_calendar = source.hsr_calendar()
+        _print_hsr_calendar(hsr_calendar, datetime.now().astimezone())
+        return 0
+    calendar = source.genshin_calendar() if game == "genshin" else source.zzz_calendar()
+    _print_game_calendar(game, calendar, datetime.now().astimezone())
+    return 0
 
 
 def _print_hsr_characters(characters: Sequence[HsrCharacter]) -> int:
@@ -1932,6 +1975,39 @@ def _print_hsr_characters(characters: Sequence[HsrCharacter]) -> int:
             f"{character.name} ★{character.rarity} Lv{character.level} E{character.eidolon} "
             f"({character.path}), {equipped}"
         )
+    return 0
+
+
+def _print_genshin_characters(characters: Sequence[GenshinCharacter]) -> int:
+    ordered = sorted(characters, key=lambda c: (-c.rarity, -c.level, c.name))
+    return _print_roster(
+        [
+            f"{c.name} ★{c.rarity} Lv{c.level} C{c.constellation} ({c.element}, {c.weapon_type}), "
+            f"{c.weapon.name} Lv{c.weapon.level} R{c.weapon.refinement}"
+            for c in ordered
+        ],
+        "karakter Genshin",
+    )
+
+
+def _print_zzz_agents(agents: Sequence[ZzzAgent]) -> int:
+    # S-rank agents first, then A-rank, each by level.
+    ordered = sorted(agents, key=lambda a: (a.rarity != "S", -a.level, a.name))
+    return _print_roster(
+        [
+            f"{a.name} {a.rarity} Lv{a.level} M{a.mindscape} ({a.element}, {a.specialty})"
+            for a in ordered
+        ],
+        "agent ZZZ",
+    )
+
+
+def _print_roster(lines: list[str], whom: str) -> int:
+    if not lines:
+        print(f"{WARN} Battle Chronicle HoYoLAB tidak memuat satu pun {whom}.")
+        return 1
+    for line in lines:
+        print(line)
     return 0
 
 
@@ -1954,6 +2030,36 @@ def _print_hsr_endgame(results: Mapping[str, HsrEndgame | GachaError], now: date
     return 1 if failed else 0
 
 
+def _print_endgame(game: str, results: Mapping[str, Endgame | GachaError], now: datetime) -> int:
+    """This season of each Genshin or ZZZ mode, one line each; a failed mode fails the view."""
+    failed = False
+    for mode, name in GAME_MODES[game].items():
+        result = results[mode]
+        if isinstance(result, GachaError):
+            print(f"{name}: {FAIL} {result.message}")
+            failed = True
+            continue
+        facts = _endgame_facts(result) if result.has_data else ["belum dimainkan musim ini"]
+        print(_labelled(name, [*facts, *_ends(result.ends_at, now)]))
+    return 1 if failed else 0
+
+
+def _endgame_facts(endgame: Endgame) -> list[str]:
+    """The facts a mode gives, in the order they are printed."""
+    score: int | str | None = endgame.score
+    if score is not None and endgame.max_score is not None:
+        score = f"{score}/{endgame.max_score}"
+    facts = (
+        ("{} bintang", endgame.stars),
+        ("terdalam {}", endgame.deepest),
+        ("difficulty {}", endgame.difficulty),
+        ("rating {}", endgame.rating),
+        ("skor {}", score),
+        ("{} detik", endgame.seconds),
+    )
+    return [text.format(value) for text, value in facts if value is not None]
+
+
 def _print_hsr_calendar(calendar: HsrCalendar, now: datetime) -> None:
     print(f"Kalender HSR versi {calendar.version}" if calendar.version else "Kalender HSR")
     _print_section("Warp", [_hsr_warp_text(warp, now) for warp in calendar.warps])
@@ -1961,7 +2067,18 @@ def _print_hsr_calendar(calendar: HsrCalendar, now: datetime) -> None:
     _print_running_windows(calendar.challenges, now)
 
 
-def _print_running_events(events: Sequence[HsrEvent], now: datetime) -> None:
+def _print_game_calendar(game: str, calendar: GameCalendar, now: datetime) -> None:
+    """A Genshin or ZZZ calendar, printed as the HSR one is."""
+    short = GAMES[game].short
+    print(f"Kalender {short} versi {calendar.version}" if calendar.version else f"Kalender {short}")
+    tops = ("S", "A") if game == "zzz" else ("5★", "4★")
+    _print_section("Banner", [_game_banner_text(banner, tops, now) for banner in calendar.banners])
+    _print_running_events(calendar.events, now)
+    if game == "genshin":  # ZZZ's calendars carry no endgame windows
+        _print_running_windows(calendar.challenges, now)
+
+
+def _print_running_events(events: Sequence[HsrEvent | GameEvent], now: datetime) -> None:
     # A calendar keeps upcoming events and endgame windows; only the running ones are
     # listed, the soonest end first ("which event ends soon?"), events without an end last.
     running = sorted(
@@ -1971,7 +2088,9 @@ def _print_running_events(events: Sequence[HsrEvent], now: datetime) -> None:
     _print_section("Event", [_event_text(event, now) for event in running])
 
 
-def _print_running_windows(windows: Sequence[HsrChallengeWindow], now: datetime) -> None:
+def _print_running_windows(
+    windows: Sequence[HsrChallengeWindow | ChallengeWindow], now: datetime
+) -> None:
     running = [window for window in windows if is_running(window.starts_at, window.ends_at, now)]
     _print_section("Endgame", [_window_text(window, now) for window in running])
 
@@ -1989,8 +2108,12 @@ def _hsr_warp_text(warp: HsrWarp, now: datetime) -> str:
     return _banner_text(warp, "Warp", HSR_WARP_KINDS[warp.kind], ("5★", "4★"), now)
 
 
+def _game_banner_text(banner: Banner, tops: tuple[str, str], now: datetime) -> str:
+    return _banner_text(banner, "Banner", BANNER_KINDS.get(banner.kind, banner.kind), tops, now)
+
+
 def _banner_text(
-    banner: HsrWarp, word: str, kind: str, tops: tuple[str, str], now: datetime
+    banner: HsrWarp | Banner, word: str, kind: str, tops: tuple[str, str], now: datetime
 ) -> str:
     """One banner: `tops` names its two rarities, such as 5★ and 4★ or S and A."""
     top, second = tops
@@ -2004,19 +2127,21 @@ def _banner_text(
     else:
         parts.extend(_ends(banner.ends_at, now))
     # Semicolons: the names inside a part are already separated by commas.
-    # HoYoLAB's calendar often names no warp; the featured names say which one it is.
+    # HoYoLAB's calendars often name no banner (ZZZ's never do): the kind and the featured
+    # names say which one it is.
     label = f"{banner.name} ({kind})" if banner.name else f"{word} {kind}"
     return _labelled(label, parts, separator="; ")
 
 
-def _event_text(event: HsrEvent, now: datetime) -> str:
+def _event_text(event: HsrEvent | GameEvent, now: datetime) -> str:
     progress = ["selesai"] if event.done else _progress(event.current, event.total)
     return _labelled(event.name, [*progress, *_ends(event.ends_at, now)])
 
 
-def _window_text(window: HsrChallengeWindow, now: datetime) -> str:
+def _window_text(window: HsrChallengeWindow | ChallengeWindow, now: datetime) -> str:
     parts = [*_progress(window.current, window.total), *_ends(window.ends_at, now)]
-    return _labelled(f"{ENDGAME_MODES[window.mode]} ({window.name})", parts)
+    mode = GAME_MODES[MODE_GAMES[window.mode]][window.mode]
+    return _labelled(f"{mode} ({window.name})", parts)
 
 
 def _progress(current: int | None, total: int | None) -> list[str]:
