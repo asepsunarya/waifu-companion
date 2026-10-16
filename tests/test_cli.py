@@ -48,6 +48,7 @@ from waifu.brain.pc_tools import PcTools
 from waifu.brain.persona import WEEKDAYS_ID
 from waifu.brain.schedule_tools import ScheduleTools
 from waifu.brain.screen_tools import ScreenTools
+from waifu.brain.todo_tools import TodoTools
 from waifu.brain.usage_tools import UsageTools
 from waifu.briefing import BRIEFING_PROMPT, DAILY_BRIEFING, BriefingTimer, BriefingTools
 from waifu.config import (
@@ -56,6 +57,7 @@ from waifu.config import (
     PcHealthConfig,
     RedeemCodesConfig,
     RvcConfig,
+    TodoConfig,
 )
 from waifu.devices.base import DeviceError
 from waifu.devices.ir_codes import IrCodeStore
@@ -101,6 +103,7 @@ from waifu.schedule import DeviceAction, Reminder, RoutineAction, ScheduleStore
 from waifu.scheduler import MONTHS_ID, Scheduler
 from waifu.screen import ScreenImage
 from waifu.single_instance import InstanceLock
+from waifu.todo import TodoStore
 from waifu.usage import TokenUsage, UsageLedger, UsageSummary
 from waifu.voice.base import SpeakerEmbedder, SpeechToText, Transcript
 from waifu.voice.rvc import RvcError
@@ -168,6 +171,14 @@ def no_real_memory_or_schedule(tmp_path, monkeypatch):
     file, so the refusal comes first)."""
     for name in ("MemoryStore", "ScheduleStore"):
         monkeypatch.setattr(cli, name, only_under(tmp_path, getattr(cli, name)))
+
+
+@pytest.fixture(autouse=True)
+def no_real_todo_list(tmp_path, monkeypatch):
+    """Every to-do store a command builds lives under tmp_path: a test that leaves the working
+    directory at the repository fails instead of reading or writing the owner's tasks in
+    data/todo.json (building a store touches no file, so the refusal comes first)."""
+    monkeypatch.setattr(cli, "TodoStore", only_under(tmp_path, cli.TodoStore))
 
 
 @pytest.fixture(autouse=True)
@@ -954,6 +965,11 @@ def event_player(events, monkeypatch) -> None:
         (["phone", "forget", "d1"], "phone"),
         (["gacha", "codes"], "gacha"),
         (["gacha", "codes", "hsr", "--redeem"], "gacha"),
+        (["todo"], "todo"),
+        (["todo", "list", "--done"], "todo"),
+        (["todo", "add", "kerjakan", "laporan", "--due", "2099-10-16"], "todo"),
+        (["todo", "done", "t3"], "todo"),
+        (["todo", "remove", "t3"], "todo"),
     ],
 )
 def test_every_subcommand_in_the_spec_parses(argv, command):
@@ -4296,17 +4312,18 @@ def test_run_with_the_games_on_gives_the_brain_the_game_tools_and_watches_while_
 
     assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
 
-    [tools, hsr_tools, code_tools, memory_tools, schedule, briefing, pc, offers] = brains[
+    [tools, hsr_tools, code_tools, memory_tools, schedule, todo, briefing, pc, offers] = brains[
         0
     ].providers
     assert (
         type(tools),
         type(memory_tools),
         type(schedule),
+        type(todo),
         type(briefing),
         type(pc),
         type(offers),
-    ) == (GachaTools, MemoryTools, ScheduleTools, BriefingTools, PcTools, OffersTools)
+    ) == (GachaTools, MemoryTools, ScheduleTools, TodoTools, BriefingTools, PcTools, OffersTools)
     assert (type(hsr_tools), type(code_tools)) == (HsrTools, CodeTools)
     assert [spec.name for spec in tools.specs()] == ["game_status", "gacha_history"]
     [watcher] = watchers
@@ -4353,6 +4370,7 @@ def test_run_without_a_cookie_has_the_game_tools_but_no_watcher(
         CodeTools,
         MemoryTools,
         ScheduleTools,
+        TodoTools,
         BriefingTools,
         PcTools,
         OffersTools,
@@ -4367,6 +4385,7 @@ def test_run_with_the_games_off_builds_none_of_it(home, run_fakes, brains, games
     assert [type(tools) for tools in brains[0].providers] == [
         MemoryTools,
         ScheduleTools,
+        TodoTools,
         BriefingTools,
         PcTools,
         OffersTools,
@@ -4385,6 +4404,7 @@ def test_chat_with_the_games_on_gives_the_brain_the_game_tools(home, brains, gam
         CodeTools,
         MemoryTools,
         ScheduleTools,
+        TodoTools,
         BriefingTools,
         PcTools,
         OffersTools,
@@ -4448,6 +4468,7 @@ def test_without_hsr_among_the_games_there_are_no_hsr_tools(
         CodeTools,
         MemoryTools,
         ScheduleTools,
+        TodoTools,
         BriefingTools,
         PcTools,
         OffersTools,
@@ -4848,7 +4869,7 @@ def test_run_gives_the_brain_her_memory_tools_and_the_notes_at_each_session_star
     assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
 
     brain = brains[0]
-    [tools, _, _, _, _] = brain.providers  # then the schedule, briefing, PC, and offers tools
+    [tools, _, _, _, _, _] = brain.providers  # then the schedule, to-do, briefing, PC, and offers
     assert isinstance(tools, MemoryTools)
     assert brain.memory_section() == memory_prompt_section([])
     assert tools.run("remember", {"text": "Master alergi udang."})[1] is False
@@ -4868,6 +4889,7 @@ def test_chat_gives_the_brain_the_notes_saved_in_data_memory_json(home, brains, 
     assert [type(tools) for tools in brains[0].providers] == [
         MemoryTools,
         ScheduleTools,
+        TodoTools,
         BriefingTools,
         PcTools,
         OffersTools,
@@ -4886,6 +4908,7 @@ def test_with_the_memory_off_the_brain_gets_neither_the_tools_nor_the_notes(
 
     assert [type(tools) for tools in brains[0].providers] == [
         ScheduleTools,
+        TodoTools,
         BriefingTools,
         PcTools,
         OffersTools,
@@ -5198,6 +5221,7 @@ def test_run_gives_the_brain_the_schedule_tools_and_fires_her_schedule_while_she
     assert [type(tools) for tools in brain.providers] == [
         MemoryTools,
         ScheduleTools,
+        TodoTools,
         BriefingTools,
         PcTools,
         OffersTools,
@@ -5353,6 +5377,7 @@ def test_with_the_schedule_off_she_gets_neither_the_tools_nor_a_scheduler(
 
     assert [type(tools) for tools in brains[0].providers] == [
         MemoryTools,
+        TodoTools,
         BriefingTools,
         PcTools,
         OffersTools,
@@ -5824,6 +5849,7 @@ def test_with_claude_she_may_look_at_the_screen_at_the_configured_size(
     assert [type(tools) for tools in brains[0].providers] == [
         MemoryTools,
         ScheduleTools,
+        TodoTools,
         BriefingTools,
         PcTools,
         OffersTools,
@@ -5972,6 +5998,7 @@ def test_without_claude_or_with_vision_off_the_brain_gets_no_screen_tool(
     assert [type(tools) for tools in brains[0].providers] == [
         MemoryTools,
         ScheduleTools,
+        TodoTools,
         BriefingTools,
         PcTools,
         OffersTools,
@@ -6209,6 +6236,7 @@ def test_with_the_briefing_off_she_gets_neither_the_tool_nor_the_greeting(
     assert [type(tools) for tools in brains[0].providers] == [
         MemoryTools,
         ScheduleTools,
+        TodoTools,
         PcTools,
         OffersTools,
     ]
@@ -9147,3 +9175,420 @@ def test_the_example_redeem_codes_block_is_valid_once_written_out(home):
     write_out_example_block(home, "redeem_codes")
 
     assert cli.load_config(home / "config.yaml").redeem_codes == RedeemCodesConfig()
+
+
+# --- to-do list ----------------------------------------------------------------------------------
+
+# Due dates whose weekday never changes: one long past (overdue whenever the test runs), one far
+# ahead.
+LONG_AGO = date(2020, 1, 6)  # a Monday
+FAR_AHEAD = date(2099, 10, 16)  # a Friday
+
+
+def todo_file(home: Path) -> Path:
+    """Where the example config keeps Master's tasks, inside the test's working directory."""
+    return home / "data" / "todo.json"
+
+
+def todo_store(path: Path) -> TodoStore:
+    """The tasks in `path` with the default limits, on the wall clock like the commands."""
+    return TodoStore(path, max_tasks=100, max_chars=200, keep_done_days=7)
+
+
+def disable_todo(home: Path) -> None:
+    append_config(home, "todo:\n  enabled: false\n")
+
+
+def todo_tools(brain: HouseBrain) -> TodoTools:
+    [tools] = [provider for provider in brain.providers if isinstance(provider, TodoTools)]
+    return tools
+
+
+def test_todo_outside_tmp_path_is_refused_so_no_test_touches_the_owner_s_tasks():
+    with pytest.raises(AssertionError, match="TodoStore outside tmp_path"):
+        cli.TodoStore(ROOT / "data" / "todo.json", max_tasks=100, max_chars=200, keep_done_days=7)
+
+
+def test_run_gives_the_brain_her_to_do_tools_and_the_tasks_due_today_in_the_briefing(
+    home, run_fakes, brains
+):
+    write_config(home, "todo:\n  path: tugas/daftar.json\n  max_chars: 20\n")
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    brain = brains[0]
+    assert [type(tools) for tools in brain.providers] == [
+        MemoryTools,
+        ScheduleTools,
+        TodoTools,
+        BriefingTools,
+        PcTools,
+        OffersTools,
+    ]
+    tools = todo_tools(brain)
+    today = date.today()
+    assert tools.run("add_task", {"text": "Kerjakan laporan", "due": f"{today}"})[1] is False
+    saved = todo_store(home / "tugas" / "daftar.json").open_tasks()  # a dry run keeps real tasks
+    assert [(task.text, task.due) for task in saved] == [("Kerjakan laporan", today)]
+    assert daily_briefing(brain)["tasks"] == {
+        "due_today": [{"id": "t1", "text": "Kerjakan laporan"}],
+        "overdue": [],
+        "open_count": 1,
+    }
+    result, is_error = tools.run("add_task", {"text": "Beli susu, roti, dan telur"})
+    assert is_error and "20 karakter" in result
+
+
+@pytest.mark.parametrize("claude", [False, True], ids=["ollama", "claude"])
+def test_chat_gives_the_brain_the_tasks_saved_in_data_todo_json_with_either_backend(
+    claude, home, brains, monkeypatch
+):
+    if claude:
+        use_claude(home)
+    todo_store(todo_file(home)).add("Beli susu", LONG_AGO)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main(["chat", "--dry-run"]) == 0
+
+    assert [type(tools) for tools in brains[0].providers] == [
+        MemoryTools,
+        ScheduleTools,
+        TodoTools,
+        BriefingTools,
+        PcTools,
+        OffersTools,
+        *([ScreenTools, UsageTools] if claude else []),
+    ]
+    listed = json.loads(todo_tools(brains[0]).run("list_tasks", {})[0])
+    assert listed["open"] == [
+        {"id": "t1", "text": "Beli susu", "due": "2020-01-06", "overdue": True}
+    ]
+    assert daily_briefing(brains[0])["tasks"]["overdue"] == [
+        {"id": "t1", "text": "Beli susu", "due": "2020-01-06"}
+    ]
+
+
+@pytest.mark.parametrize("argv", [["run", "--no-speaker-check"], ["chat"]])
+def test_with_the_todo_list_off_the_brain_gets_neither_the_tools_nor_the_tasks(
+    argv, home, run_fakes, brains, monkeypatch
+):
+    disable_todo(home)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main([*argv, "--dry-run"]) == 0
+
+    assert [type(tools) for tools in brains[0].providers] == [
+        MemoryTools,
+        ScheduleTools,
+        BriefingTools,
+        PcTools,
+        OffersTools,
+    ]
+    assert "tasks" not in daily_briefing(brains[0])
+    assert not todo_file(home).exists()
+
+
+@pytest.mark.parametrize("argv", [["todo"], ["todo", "list"]])
+def test_todo_without_tasks_says_so_and_creates_no_file(argv, home, capsys):
+    assert cli.main(argv) == 0
+
+    assert capsys.readouterr().out == "Tidak ada tugas terbuka.\n"
+    assert not todo_file(home).exists()
+
+
+def test_todo_lists_the_open_tasks_overdue_first_then_by_due_date_then_the_rest(home, capsys):
+    store = todo_store(todo_file(home))
+    store.add("beli susu")
+    store.add("kerjakan laporan", FAR_AHEAD)
+    store.add("bayar listrik", LONG_AGO)
+
+    assert cli.main(["todo"]) == 0
+
+    assert capsys.readouterr().out.splitlines() == [
+        "ID  TENGGAT                       TUGAS",
+        "t3  Senin 06-01-2020 (terlambat)  bayar listrik",
+        "t2  Jumat 16-10-2099              kerjakan laporan",
+        "t1  -                             beli susu",
+    ]
+
+
+def test_todo_marks_the_tasks_due_today(home, capsys):
+    today = date.today()
+    todo_store(todo_file(home)).add("kirim tugas kuliah", today)
+
+    assert cli.main(["todo", "list"]) == 0
+
+    [_, line] = capsys.readouterr().out.splitlines()
+    assert line == f"t1  {day_text(today)} (hari ini)  kirim tugas kuliah"
+
+
+def test_todo_list_done_also_lists_the_tasks_finished_lately(home, capsys):
+    store = todo_store(todo_file(home))
+    store.add("beli susu")
+    store.add("bayar listrik")
+    store.complete("t1")
+
+    assert cli.main(["todo", "list", "--done"]) == 0
+
+    today = day_text(date.today())
+    assert capsys.readouterr().out.splitlines() == [
+        "ID  TENGGAT  TUGAS",
+        "t2  -        bayar listrik",
+        "",
+        "Sudah selesai:",
+        f"ID  {'SELESAI'.ljust(len(today))}  TUGAS",
+        f"t1  {today}  beli susu",
+    ]
+
+
+def test_todo_keeps_the_finished_tasks_as_many_days_as_the_config_says(home, capsys):
+    append_config(home, "todo:\n  keep_done_days: 0\n")
+    assert cli.main(["todo", "add", "beli", "susu"]) == 0
+    assert cli.main(["todo", "done", "t1"]) == 0
+    capsys.readouterr()
+
+    assert cli.main(["todo", "list", "--done"]) == 0
+
+    assert capsys.readouterr().out.splitlines() == [
+        "Tidak ada tugas terbuka.",
+        "",
+        "Belum ada tugas yang selesai.",
+    ]
+
+
+def test_todo_list_done_without_tasks_says_so_twice(home, capsys):
+    assert cli.main(["todo", "list", "--done"]) == 0
+
+    assert capsys.readouterr().out.splitlines() == [
+        "Tidak ada tugas terbuka.",
+        "",
+        "Belum ada tugas yang selesai.",
+    ]
+
+
+def test_todo_add_saves_the_words_as_one_task_also_with_the_list_off(home, capsys):
+    disable_todo(home)
+
+    assert cli.main(["todo", "add", "beli", "susu"]) == 0
+
+    assert capsys.readouterr().out == "✓ Tugas t1 ditambahkan: beli susu\n"
+    [task] = todo_store(todo_file(home)).open_tasks()
+    assert (task.text, task.due) == ("beli susu", None)
+
+
+def test_todo_add_with_a_due_date_saves_it_and_names_the_day(home, capsys):
+    assert cli.main(["todo", "add", "kerjakan", "laporan", "--due", "2099-10-16"]) == 0
+
+    out = capsys.readouterr().out
+    assert out == "✓ Tugas t1 ditambahkan: kerjakan laporan (tenggat Jumat 16-10-2099)\n"
+    [task] = todo_store(todo_file(home)).open_tasks()
+    assert (task.text, task.due) == ("kerjakan laporan", FAR_AHEAD)
+
+
+@pytest.mark.parametrize("due", ["16-10-2099", "20991016", "2099-02-30", "Jumat"])
+def test_todo_add_refuses_a_due_date_not_written_yyyy_mm_dd(due, home, capsys):
+    with pytest.raises(SystemExit) as exited:
+        cli.main(["todo", "add", "kerjakan", "laporan", "--due", due])
+
+    assert exited.value.code == 2
+    assert "YYYY-MM-DD" in capsys.readouterr().err
+    assert not todo_file(home).exists()
+
+
+@pytest.mark.parametrize(
+    ("words", "reason"),
+    [
+        (["ganti", "PIN", "ATM-ku", "4821"], "rahasia"),
+        (["susu" * 51], "terlalu panjang"),
+        (["  "], "kosong"),
+    ],
+)
+def test_todo_add_prints_why_a_task_is_refused_and_exits_1(words, reason, home, capsys):
+    assert cli.main(["todo", "add", *words]) == 1
+
+    out = capsys.readouterr().out
+    assert out.startswith("✗ ") and reason in out
+    assert "4821" not in out
+    assert not todo_file(home).exists()
+
+
+def test_todo_add_keeps_to_the_number_of_open_tasks_set_in_the_config(home, capsys):
+    write_config(home, "todo:\n  path: tugas/daftar.json\n  max_tasks: 1\n")
+    assert cli.main(["todo", "add", "beli", "susu"]) == 0
+    capsys.readouterr()
+
+    assert cli.main(["todo", "add", "bayar", "listrik"]) == 1
+
+    out = capsys.readouterr().out
+    assert out.startswith("✗ ") and "penuh" in out
+    tasks = todo_store(home / "tugas" / "daftar.json").open_tasks()
+    assert [task.text for task in tasks] == ["beli susu"]
+
+
+def test_todo_done_marks_one_task_done_and_says_which(home, capsys):
+    store = todo_store(todo_file(home))
+    store.add("beli susu")
+    store.add("bayar listrik")
+
+    assert cli.main(["todo", "done", "t1"]) == 0
+
+    assert capsys.readouterr().out == "✓ Selesai t1: beli susu\n"
+    assert [task.text for task in store.open_tasks()] == ["bayar listrik"]
+    assert [task.text for task in store.done_tasks()] == ["beli susu"]
+
+
+def test_todo_remove_deletes_one_task_and_says_which(home, capsys):
+    store = todo_store(todo_file(home))
+    store.add("beli susu")
+    store.add("bayar listrik")
+
+    assert cli.main(["todo", "remove", "t2"]) == 0
+
+    assert capsys.readouterr().out == "✓ Dihapus t2: bayar listrik\n"
+    assert [task.text for task in store.open_tasks()] == ["beli susu"]
+    assert store.done_tasks() == []
+
+
+@pytest.mark.parametrize("action", ["done", "remove"])
+def test_todo_done_or_remove_of_an_unknown_id_fails_with_the_reason(action, home, capsys):
+    assert cli.main(["todo", action, "t9"]) == 1
+
+    assert capsys.readouterr().out == "✗ Tidak ada tugas dengan id t9.\n"
+    assert not todo_file(home).exists()
+
+
+def todo_line(out: str) -> str:
+    [line] = [line for line in out.splitlines() if "aftar tugas" in line]
+    return line
+
+
+def test_check_counts_the_open_tasks(home, nothing_installed, capsys):
+    store = todo_store(todo_file(home))
+    store.add("beli susu")
+    store.add("bayar listrik")
+    store.add("cuci motor")
+    store.complete("t1")  # 2 open, 1 done, 3 in all: each count differs
+
+    cli.main(["check"])
+
+    assert todo_line(capsys.readouterr().out) == "✓ Daftar tugas: 2 terbuka"
+
+
+def test_check_reports_the_todo_list_off(home, nothing_installed, capsys):
+    disable_todo(home)
+
+    cli.main(["check"])
+
+    assert todo_line(capsys.readouterr().out) == "! Daftar tugas mati"
+
+
+def test_check_shows_where_a_broken_todo_file_was_moved(home, nothing_installed, capsys):
+    todo_file(home).parent.mkdir()
+    todo_file(home).write_text("{tugas yang rusak", encoding="utf-8")
+
+    cli.main(["check"])
+
+    [moved] = todo_file(home).parent.glob("todo.json.corrupt-*")
+    line = todo_line(capsys.readouterr().out)
+    assert line.startswith("! Daftar tugas: 0 terbuka; ")
+    assert str(Path("data") / moved.name) in line
+    assert moved.read_text(encoding="utf-8") == "{tugas yang rusak"
+    assert not todo_file(home).exists()
+
+
+def test_check_fails_a_todo_file_it_cannot_read(home, nothing_installed, capsys):
+    todo_file(home).mkdir(parents=True)  # a folder where the file should be
+
+    cli.main(["check"])
+
+    line = todo_line(capsys.readouterr().out)
+    assert line.startswith(f"✗ File daftar tugas {Path('data/todo.json')} tidak bisa dibaca")
+
+
+def test_the_example_todo_block_is_valid_once_written_out(home):
+    write_out_example_block(home, "todo")
+
+    assert cli.load_config(home / "config.yaml").todo == TodoConfig()
+
+
+def strict_parameters(schema: dict) -> list[dict]:
+    """The parameter schemas of every object in a strict input schema, nested ones too."""
+    found: list[dict] = []
+    for value in schema.get("properties", {}).values():
+        found.append(value)
+        found += strict_parameters(value)
+        for branch in value.get("anyOf", []):
+            found += strict_parameters(branch)
+    if "items" in schema:
+        found += strict_parameters(schema["items"])
+    return found
+
+
+def optional_parameters(schema: dict) -> int:
+    """The parameters left out of their object's `required`, nested ones too."""
+    left_out = len(set(schema.get("properties", {})) - set(schema.get("required", [])))
+    nested = [*schema.get("properties", {}).values()]
+    nested += [branch for value in nested for branch in value.get("anyOf", [])]
+    if "items" in schema:
+        nested.append(schema["items"])
+    return left_out + sum(optional_parameters(inner) for inner in nested)
+
+
+def test_the_claude_request_with_every_tool_on_stays_within_the_strict_tool_limits(
+    home, games, monkeypatch
+):
+    # Anthropic refuses a request with more than 20 strict tools, 24 optional parameters, or
+    # 16 parameters with a union type across its strict schemas: every turn would be a 400.
+    use_claude(home)
+    enable_gacha(home)
+    append_config(
+        home, "routines:\n  tidur:\n    steps:\n      - {device: lampu_kamar, command: off}\n"
+    )
+    (home / "config").mkdir()
+    shutil.copy(ROOT / "config" / "persona.md", home / "config" / "persona.md")
+    sent: list[dict] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        sent.append(json.loads(request.content))
+        message = {
+            "id": "msg_1",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-opus-5-5",
+            "content": [{"type": "text", "text": "Halo, Master!"}],
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 10, "output_tokens": 5},
+        }
+        return streamed_message(message)
+
+    use_claude_transport(monkeypatch, handler)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("halo\nkeluar\n"))
+
+    assert cli.main(["chat", "--dry-run"]) == 0
+
+    [request] = sent
+    names = {tool["name"] for tool in request["tools"]}
+    assert {"hsr_events", "run_routine", "add_task", "look_at_screen", "api_usage"} <= names
+    strict = [tool for tool in request["tools"] if tool.get("strict")]
+    schemas = [tool["input_schema"] for tool in strict]
+    parameters = [parameter for schema in schemas for parameter in strict_parameters(schema)]
+    assert len(strict) <= 20
+    assert sum(optional_parameters(schema) for schema in schemas) <= 24
+    unions = [p for p in parameters if "anyOf" in p or isinstance(p.get("type"), list)]
+    assert len(unions) <= 16
+    # Every tool that acts on something stays strict.
+    assert {
+        "control_device",
+        "redeem_codes",
+        "remember",
+        "forget",
+        "schedule",
+        "cancel_schedule",
+        "run_routine",
+        "add_task",
+        "complete_task",
+        "reopen_task",
+        "remove_task",
+        "edit_task",
+        "send_offer_link",
+    } <= {tool["name"] for tool in strict}

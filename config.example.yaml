@@ -226,6 +226,20 @@ schedule:
 #       - {device: lampu_kamar, command: off}
 #       - {device: ac, command: temp, value: 26}
 
+# Daftar tugas (README, bagian "Daftar tugas"): hal yang perlu dikerjakan tanpa jam tertentu,
+# dengan tenggat kalau ada ("Cyrene, tambah tugas: beli susu", "catat tugas kerjakan laporan,
+# tenggatnya Jumat"). "Tugasku apa aja?" menyebut yang terlambat dan yang tenggatnya paling dekat
+# dulu, dan sapaan pagi ikut menyebut tugas yang tenggatnya hari ini atau sudah lewat. Pengingat
+# pada jam tertentu tetap lewat jadwal (bagian schedule di atas). Rahasia (kata sandi, PIN, OTP,
+# token, nomor kartu) selalu ditolak. Lihat dan ubah dengan `waifu todo [add|done|remove|list]`.
+# Sudah menyala tanpa ditulis; untuk mengubahnya, tulis bagian ini tanpa tanda # di depannya.
+# todo:
+#   enabled: true          # false: tanpa tool dan tanpa tugas di sapaan pagi (`waifu todo` tetap jalan)
+#   path: data/todo.json   # hanya di PC ini, tidak di-commit; boleh diedit saat Cyrene mati
+#   max_tasks: 100         # jumlah tugas yang belum selesai paling banyak (1-500)
+#   max_chars: 200         # panjang satu tugas paling banyak, dalam karakter (20-1000)
+#   keep_done_days: 7      # tugas yang selesai masih ditampilkan N hari, lalu dilupakan (0-90)
+
 # Melihat layar (README, bagian "Melihat layar"): dengan otak Claude, Cyrene mengambil satu
 # tangkapan layar monitor utama hanya kalau kalimat Master sendiri memintanya ("Cyrene, lihat
 # layarku"), lalu menjawab tentang isinya. Gambarnya ikut dikirim ke API Anthropic bersama

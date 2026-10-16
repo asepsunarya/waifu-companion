@@ -60,6 +60,7 @@ from waifu.brain.pc_tools import PcTools
 from waifu.brain.persona import WEEKDAYS_ID
 from waifu.brain.schedule_tools import ScheduleTools
 from waifu.brain.screen_tools import ScreenTools
+from waifu.brain.todo_tools import TodoTools
 from waifu.brain.tools import ToolProvider
 from waifu.brain.usage_tools import UsageTools
 from waifu.briefing import DAILY_BRIEFING, BriefingTimer, BriefingTools
@@ -140,6 +141,7 @@ from waifu.schedule import (
 from waifu.scheduler import MONTHS_ID, Scheduler
 from waifu.screen import capture_screen
 from waifu.single_instance import InstanceLock
+from waifu.todo import Task, TodoError, TodoStore
 from waifu.usage import DayUsage, TokenUsage, UsageLedger, UsageSummary, cost_usd
 from waifu.voice.audio import MicStream, Player, list_devices
 from waifu.voice.rvc import (
@@ -281,6 +283,12 @@ NO_ROUTINES = (
     "Belum ada rutinitas. Tulis di bagian routines di config.yaml "
     "(lihat README, bagian Jadwal, pengingat, dan rutinitas)."
 )
+TODO_DESCRIPTION = (
+    "Daftar tugas Master: hal yang perlu dikerjakan, dengan tenggat (tanggal) kalau ada, tanpa "
+    "jam; pengingat pada jam tertentu tetap lewat jadwal. Tanpa aksi, 'waifu todo' menampilkan "
+    "tugas yang belum selesai. Perintah ini jalan walau todo.enabled: false; Cyrene yang sedang "
+    "berjalan langsung melihat perubahannya."
+)
 BRIEFING_TAG = "sunrise"  # ntfy shows it as a sunrise emoji
 BUDGET_TAG = "money_with_wings"  # ntfy shows it as an emoji of money flying away
 PHONE_DESCRIPTION = (
@@ -338,6 +346,8 @@ REPEAT_TEXT: dict[Repeat, str] = {
     "weekends": "tiap akhir pekan",
 }
 _YEAR_MONTH = re.compile(r"([0-9]{4})-(0[1-9]|1[0-2])")
+# date.fromisoformat also reads 20261023 and 2026-W43-5; a due date is only YYYY-MM-DD.
+_ISO_DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 _REGISTERED_DELAY = re.compile(r" --startup-delay (\d+) ")
 # build_command always quotes the folder, and a path in it never contains a quote.
 _REGISTERED_PROJECT = re.compile(r' /d "([^"]+)" ')
@@ -633,6 +643,34 @@ def build_parser() -> argparse.ArgumentParser:
     command("list", _routine_list, "Tampilkan setiap rutinitas dan langkahnya.", routine_actions)
     run_now = command("run", _routine_run, "Jalankan satu rutinitas sekarang.", routine_actions)
     run_now.add_argument("routine_name", metavar="nama", help="nama rutinitas, misalnya tidur")
+    todo_command = commands.add_parser(
+        "todo",
+        parents=[shared],
+        help="Daftar tugas Master: lihat, tambah, selesaikan, dan hapus tugas.",
+        description=TODO_DESCRIPTION,
+    )
+    todo_command.set_defaults(handler=_todo_list, done=False)
+    todo_actions = todo_command.add_subparsers(dest="action", metavar="<aksi>")
+    todo_list = command(
+        "list",
+        _todo_list,
+        "Tampilkan tugas yang belum selesai, yang terlambat dan tenggatnya paling dekat dulu.",
+        todo_actions,
+    )
+    todo_list.add_argument(
+        "--done",
+        action="store_true",
+        help="tampilkan juga tugas yang sudah selesai (disimpan todo.keep_done_days hari)",
+    )
+    todo_add = command("add", _todo_add, "Tambah satu tugas.", todo_actions)
+    todo_add.add_argument("text", nargs="+")
+    todo_add.add_argument(
+        "--due", type=_due_date, metavar="YYYY-MM-DD", help="tenggatnya, misalnya 2026-10-23"
+    )
+    todo_done = command("done", _todo_done, "Tandai satu tugas selesai.", todo_actions)
+    todo_done.add_argument("task_id", metavar="id", help="id dari 'waifu todo', misalnya t3")
+    todo_remove = command("remove", _todo_remove, "Hapus satu tugas.", todo_actions)
+    todo_remove.add_argument("task_id", metavar="id", help="id dari 'waifu todo', misalnya t3")
     phone_command = commands.add_parser(
         "phone",
         parents=[shared],
@@ -710,6 +748,18 @@ def _year_month(text: str) -> tuple[int, int]:
             f"tulis bulannya YYYY-MM, misalnya 2026-10, bukan {text!r}"
         )
     return int(match[1]), int(match[2])
+
+
+def _due_date(text: str) -> date:
+    """`2026-10-23` as a date: exactly YYYY-MM-DD, a day that exists."""
+    if _ISO_DATE.fullmatch(text):
+        try:
+            return date.fromisoformat(text)
+        except ValueError:  # a day that does not exist, such as 2026-02-30
+            pass
+    raise argparse.ArgumentTypeError(
+        f"tulis tanggalnya YYYY-MM-DD, misalnya 2026-10-23, bukan {text!r}"
+    )
 
 
 def _config_problem(exc: ConfigError) -> str:
@@ -1021,11 +1071,14 @@ def _companion_brain(
     camera_turn: CameraTurn | None = None,
 ) -> Brain:
     """The brain with the game tools when they are on, her long-term memory when it is on,
-    then her schedule when it is on, the day's briefing when it is on, with `pc` how the PC is
-    doing, the free offers when they are on (their links pushed through `notifier`), with
-    Claude her eyes on the screen when vision is on, and with `usage` what her requests cost.
+    then her schedule when it is on, Master's to-do list when it is on, the day's briefing when
+    it is on, with `pc` how the PC is doing, the free offers when they are on (their links
+    pushed through `notifier`), with Claude her eyes on the screen when vision is on, and with
+    `usage` what her requests cost.
 
     With memory, every new session lists the notes as they are in the file at that moment.
+    The to-do list is the real one also in a dry run (it moves no device), and the briefing
+    tells its tasks due today and overdue.
     With `usage`, every Claude response is recorded in its ledger. With `turn_images` (only
     while the phone camera is offered), Claude sees the photo a phone message carries, and
     with `camera_turn` the screen tool looks at the PC in a turn sent through the phone camera
@@ -1033,6 +1086,7 @@ def _companion_brain(
     """
     owner_call = config.assistant.owner_call
     notes = _memory_store(config) if config.memory.enabled else None
+    todo = _todo_store(config) if config.todo.enabled else None
     providers = _game_tools(config, gacha)
     if notes is not None:
         providers.append(MemoryTools(notes, owner_call=owner_call))
@@ -1042,8 +1096,10 @@ def _companion_brain(
                 schedule, registry=registry, routines=config.routines, owner_call=owner_call
             )
         )
+    if todo is not None:
+        providers.append(TodoTools(todo))
     if config.briefing.enabled:
-        providers.append(_briefing_tools(config.briefing, schedule))
+        providers.append(_briefing_tools(config.briefing, schedule, todo=todo))
     if pc is not None:
         providers.append(PcTools(pc, owner_call=owner_call))
     if config.free_offers.enabled:
@@ -2255,6 +2311,85 @@ def _command_text(device: str, command: str, value: int | None) -> str:
     return f"{device} {command}" if value is None else f"{device} {command} {value}"
 
 
+# --- to-do list ------------------------------------------------------------------------------
+
+
+def _todo_store(config: AppConfig) -> TodoStore:
+    """Master's tasks, in the file `todo.path` names, whether the list is on or not."""
+    settings = config.todo
+    return TodoStore(
+        settings.path,
+        max_tasks=settings.max_tasks,
+        max_chars=settings.max_chars,
+        keep_done_days=settings.keep_done_days,
+    )
+
+
+def _todo_list(args: argparse.Namespace) -> int:
+    """The open tasks, the overdue ones first; with --done also the ones finished lately."""
+    store = _todo_store(load_config(args.config))
+    today = date.today()
+    tasks = store.open_tasks()
+    if tasks:
+        rows = [(task.id, _due_text(task.due, today), task.text) for task in tasks]
+        print(_format_table(("ID", "TENGGAT", "TUGAS"), rows))
+    else:
+        print("Tidak ada tugas terbuka.")
+    if not args.done:
+        return 0
+    print()
+    done = store.done_tasks()
+    if done:
+        print("Sudah selesai:")
+        rows = [(task.id, _day_text(task.done.date()), task.text) for task in done]
+        print(_format_table(("ID", "SELESAI", "TUGAS"), rows))
+    else:
+        print("Belum ada tugas yang selesai.")
+    return 0
+
+
+def _todo_add(args: argparse.Namespace) -> int:
+    try:
+        task = _todo_store(load_config(args.config)).add(" ".join(args.text), args.due)
+    except TodoError as exc:
+        print(f"{FAIL} {exc}")
+        return 1
+    due = "" if task.due is None else f" (tenggat {_day_text(task.due)})"
+    print(f"{OK} Tugas {task.id} ditambahkan: {task.text}{due}")
+    return 0
+
+
+def _todo_done(args: argparse.Namespace) -> int:
+    task = _todo_store(load_config(args.config)).complete(args.task_id)
+    return _todo_changed(task, args.task_id, "Selesai")
+
+
+def _todo_remove(args: argparse.Namespace) -> int:
+    task = _todo_store(load_config(args.config)).remove(args.task_id)
+    return _todo_changed(task, args.task_id, "Dihapus")
+
+
+def _todo_changed(task: Task | None, task_id: str, change: str) -> int:
+    """Say which task the change (`Selesai`, `Dihapus`) was made to; exit 1 when the list holds
+    no task `task_id`."""
+    if task is None:
+        print(f"{FAIL} Tidak ada tugas dengan id {task_id}.")
+        return 1
+    print(f"{OK} {change} {task.id}: {task.text}")
+    return 0
+
+
+def _due_text(due: date | None, today: date) -> str:
+    """`Senin 06-01-2020 (terlambat)`: a task's due date as the owner reads it, `-` without one."""
+    if due is None:
+        return "-"
+    if due < today:
+        return f"{_day_text(due)} (terlambat)"
+    if due == today:
+        return f"{_day_text(due)} (hari ini)"
+    return _day_text(due)
+
+
 # --- morning briefing ------------------------------------------------------------------------
 
 
@@ -2268,9 +2403,12 @@ def _weather_client(briefing: BriefingConfig) -> WeatherClient | None:
     )
 
 
-def _briefing_tools(briefing: BriefingConfig, schedule: ScheduleStore | None) -> BriefingTools:
-    """The day's date, weather, and entries of `schedule` (none without one) for the brain."""
-    return BriefingTools(weather=_weather_client(briefing), schedule=schedule)
+def _briefing_tools(
+    briefing: BriefingConfig, schedule: ScheduleStore | None, *, todo: TodoStore | None = None
+) -> BriefingTools:
+    """The day's date, weather, entries of `schedule` (none without one), and with `todo` the
+    tasks due today and overdue, for the brain."""
+    return BriefingTools(weather=_weather_client(briefing), schedule=schedule, todo=todo)
 
 
 def _briefing_timer(
@@ -2306,8 +2444,9 @@ def _phone_push(notifier: Notifier, title: str) -> Callable[[str], None]:
 
 
 def _briefing(args: argparse.Namespace) -> int:
-    """Print the briefing data the brain would get now, without the brain: the way to check the
-    weather. Exit 1 when a part of it failed; the rest is printed all the same."""
+    """Print the date, weather, and schedule the brain would get now (its tasks are what
+    `waifu todo` lists), without the brain: the way to check the weather. Exit 1 when a part of
+    it failed; the rest is printed all the same."""
     config = load_config(args.config)
     schedule = _schedule_store(config) if config.schedule.enabled else None
     result, is_error = _briefing_tools(config.briefing, schedule).run(DAILY_BRIEFING, {})
@@ -3287,6 +3426,7 @@ def _checks(config_path: Path) -> Iterator[Check]:
     yield _web_search_check(config)
     yield _memory_check(config)
     yield _schedule_check(config)
+    yield _todo_check(config)
     yield _briefing_check(config.briefing)
     yield _usage_check(config)
     yield _pc_health_check(config)
@@ -3502,6 +3642,25 @@ def _schedule_check(config: AppConfig) -> Check:
     return OK, status
 
 
+def _todo_check(config: AppConfig) -> Check:
+    """How many tasks are open, and where a broken to-do file was moved, if one was."""
+    if not config.todo.enabled:
+        return WARN, "Daftar tugas mati"
+    path = config.todo.path
+    try:
+        count = len(_todo_store(config).open_tasks())  # moves a broken file aside, as `run` would
+    except OSError as exc:
+        return FAIL, f"File daftar tugas {path} tidak bisa dibaca: {exc}"
+    status = f"Daftar tugas: {count} terbuka"
+    moved = _set_aside_files(path)
+    if moved:
+        return WARN, (
+            f"{status}; file daftar tugas yang rusak dipindah ke {', '.join(map(str, moved))} "
+            "(cara memulihkannya ada di README, bagian Daftar tugas)"
+        )
+    return OK, status
+
+
 def _briefing_check(briefing: BriefingConfig) -> Check:
     """When she greets by herself and where the weather is for (coordinates win over the city,
     which still names the place); Open-Meteo is never asked."""
@@ -3590,7 +3749,7 @@ def _free_offers_check(config: AppConfig) -> Check:
 
 
 def _set_aside_files(path: Path) -> list[Path]:
-    """The copies a broken memory, schedule, usage, or offers file was renamed to
+    """The copies a broken memory, schedule, to-do, usage, or offers file was renamed to
     (`<name>.corrupt-<time>`), oldest first.
 
     They stay until the owner repairs or deletes them, so `check` points at them every time.

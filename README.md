@@ -35,6 +35,7 @@ Cyrene : "Komputer mau kumatikan sekarang, Master? Jawab iya kalau jadi." (minta
 - [Teman main gacha (HoYoverse)](#teman-main-gacha-hoyoverse)
 - [Ingatan Cyrene](#ingatan-cyrene)
 - [Jadwal, pengingat, dan rutinitas](#jadwal-pengingat-dan-rutinitas)
+- [Daftar tugas](#daftar-tugas)
 - [Musik, volume, dan aplikasi PC](#musik-volume-dan-aplikasi-pc)
 - [Melihat layar](#melihat-layar)
 - [Sapaan pagi dan ringkasan harian](#sapaan-pagi-dan-ringkasan-harian)
@@ -130,6 +131,10 @@ Jadwal menambah tool `schedule`, `list_schedules`, `cancel_schedule`, dan `run_r
 `waifu run` yang mengecek file itu setiap 15 detik: pengingat diucapkan dan dikirim ke HP,
 perintah perangkat dan rutinitas dijalankan lewat `DeviceRegistry` yang sama.
 
+Daftar tugas menambah tool `add_task`, `list_tasks`, `complete_task`, `reopen_task`,
+`remove_task`, dan `edit_task` yang mengubah `data\todo.json`; tugas yang tenggatnya hari ini
+atau sudah lewat ikut masuk ke `daily_briefing` untuk sapaan pagi.
+
 Cyrene di HP (opsional) menambah server kedua di `127.0.0.1` selama `waifu run`, yang
 dibagikan ke HP lewat `tailscale serve`: teks atau rekaman dari HP masuk ke otak yang sama
 (satu giliran pada satu waktu, bergantian dengan mic PC), dan jawabannya disuarakan untuk HP,
@@ -137,8 +142,8 @@ tidak di speaker PC. Selama kamera di halaman HP terbuka, pesan itu membawa satu
 masuk ke otak Claude bersama kalimatnya, hanya untuk giliran itu.
 
 Kode ada di `src/waifu/`: `devices/`, `brain/`, `voice/`, `avatar/`, `gacha/`, `phone/`, lalu
-`memory.py`, `schedule.py`, `routines.py`, `scheduler.py`, `notify.py`, `gate.py`, `app.py`,
-dan `cli.py` yang menyatukan semuanya. Detail kontrak tiap modul ada di `SPEC.md`.
+`memory.py`, `schedule.py`, `routines.py`, `scheduler.py`, `todo.py`, `notify.py`, `gate.py`,
+`app.py`, dan `cli.py` yang menyatukan semuanya. Detail kontrak tiap modul ada di `SPEC.md`.
 
 ## Instalasi
 
@@ -611,12 +616,13 @@ waifu speaker-test    # skor kecocokan langsung, Ctrl+C untuk berhenti
 | `waifu memory list` / `add` / `forget` / `clear` | Lihat, tambah, dan hapus catatan ingatannya (lihat [Ingatan Cyrene](#ingatan-cyrene)) |
 | `waifu schedule list` / `cancel <id>` / `clear` | Lihat dan batalkan pengingat dan perintah terjadwal (lihat [Jadwal, pengingat, dan rutinitas](#jadwal-pengingat-dan-rutinitas)) |
 | `waifu routine list` / `run <nama>` | Lihat rutinitas dari `config.yaml`, atau jalankan satu sekarang (`--dry-run`: perangkat simulasi) |
+| `waifu todo` / `todo add <teks> [--due YYYY-MM-DD]` / `done <id>` / `remove <id>` / `list --done` | Lihat, tambah, selesaikan, dan hapus tugas di daftar tugas (lihat [Daftar tugas](#daftar-tugas)) |
 | `waifu briefing` | Tampilkan ringkasan hari ini (tanggal, cuaca, jadwal) tanpa otak, untuk mengecek cuaca (lihat [Sapaan pagi dan ringkasan harian](#sapaan-pagi-dan-ringkasan-harian)) |
 | `waifu usage` / `waifu usage --month 2026-09` | Perkiraan biaya API Claude per hari bulan ini atau bulan lain (lihat [Biaya API Claude](#biaya-api-claude)) |
 | `waifu phone setup` / `pair` / `devices` / `forget <id>` | Siapkan Cyrene di HP lewat Tailscale, pasangkan HP dengan kode, lihat dan lupakan HP (lihat [Cyrene di HP](#cyrene-di-hp)) |
 | `waifu pc` | Tampilkan kondisi PC saat ini: beban CPU, RAM, sisa disk, GPU NVIDIA, dan waktu sejak Windows terakhir di-restart (lihat [Kesehatan PC](#kesehatan-pc)) |
 | `waifu offers` / `offers games` / `offers ai` | Game gratis dan promo AI yang tersimpan, dengan linknya; `waifu offers ai --scan` mencari promo AI sekarang dengan Claude (berbayar) (lihat [Pencarian web dan promo gratis](#pencarian-web-dan-promo-gratis)) |
-| `waifu check` | Periksa config, kode IR, aplikasi PC, rutinitas, voiceprint, otak, ingatan, jadwal, sapaan pagi, biaya API, kesehatan PC, pencarian web, promo gratis, paket suara, CUDA, mic, suara anime, avatar, dan Cyrene di HP |
+| `waifu check` | Periksa config, kode IR, aplikasi PC, rutinitas, voiceprint, otak, ingatan, jadwal, daftar tugas, sapaan pagi, biaya API, kesehatan PC, pencarian web, promo gratis, paket suara, CUDA, mic, suara anime, avatar, dan Cyrene di HP |
 
 Opsi untuk semua perintah: `--config <file>` (default `config.yaml`), `--dry-run`
 (perangkat simulasi), `-v` (log lebih rinci), `--log-file <file>` (log juga ditulis
@@ -1962,6 +1968,107 @@ berjalan melihat perubahannya dalam 15 detik. `waifu check` menampilkan
   jadwal, tapi filenya tidak dihapus; hapus isinya dengan `waifu schedule clear --yes` kalau
   mau.
 
+## Daftar tugas
+
+Selain jadwal pada jam tertentu, Cyrene menyimpan **daftar tugas**: hal yang perlu Master
+kerjakan, dengan tenggat (tanggal) kalau ada, tanpa jam. Daftar tugas sudah menyala dari awal
+(`todo.enabled: true`) di `waifu run` dan `waifu chat` (juga dengan `--dry-run`, yang
+memalsukan perangkat tapi memakai daftar tugas yang asli).
+
+```text
+Master : "Cyrene, tambah tugas: beli susu."
+Cyrene : "Sudah kucatat, Master."
+Master : "Catat tugas kerjakan laporan, tenggatnya Jumat."
+Cyrene : "Oke, laporan tenggatnya Jumat, 23 Oktober."
+Master : "Tugasku apa aja?"
+Cyrene : "Ada tiga, Master. Bayar listrik sudah lewat tenggatnya kemarin, terus laporan Jumat nanti."
+Master : "Beli susu sudah."
+Cyrene : "Yay, satu selesai!"
+```
+
+### Contoh kalimat
+
+- **Menambah:** "Cyrene, tambah tugas: beli susu.", "Cyrene, catat tugas kerjakan laporan,
+  tenggatnya Jumat." Dia mengubah "besok", "Jumat", atau "minggu depan" menjadi tanggal dari
+  tanggal hari ini, yang dia tahu dari setiap kalimatmu, dan menyebut tanggalnya.
+- **Melihat:** "Cyrene, tugasku apa aja?", "Ada yang telat nggak?" Dia menyebut jumlahnya dan
+  yang paling mendesak (yang terlambat dulu, lalu yang tenggatnya paling dekat), bukan
+  membacakan semuanya, kecuali Master minta daftar lengkapnya.
+- **Selesai, dihapus, atau diubah:** "Beli susu sudah.", "Tugas laporan selesai.", "Hapus tugas
+  beli susu.", "Ganti tenggat laporan jadi Senin.", "Laporan ternyata belum selesai." (dibuka
+  lagi).
+- **Yang sudah selesai:** "Cyrene, minggu ini aku sudah menyelesaikan apa saja?" Tugas yang
+  selesai masih diingat `todo.keep_done_days` hari (bawaan 7), lalu dilupakan.
+- **Sapaan pagi** dan "Cyrene, hari ini ada apa?" ikut menyebut tugas yang tenggatnya hari ini
+  atau sudah lewat (lihat [Sapaan pagi dan ringkasan harian](#sapaan-pagi-dan-ringkasan-harian)).
+
+### Tugas atau pengingat?
+
+- **Tugas** tidak punya jam dan tidak pernah diucapkan sendiri pada waktunya: dia menyebutnya
+  hanya kalau ditanya dan di sapaan pagi. Cocok untuk "kerjakan laporan sebelum Jumat".
+- **Pengingat** adalah jadwal: diucapkan pada jamnya selama `waifu run` menyala dan dikirim ke
+  HP (lihat [Jadwal, pengingat, dan rutinitas](#jadwal-pengingat-dan-rutinitas)). Tugas yang
+  menyebut jam ("tambah tugas telepon dokter jam 4 sore") lebih cocok jadi pengingat: dia bilang
+  begitu, atau membuat tugas dan pengingatnya sekaligus kalau Master minta.
+- Tidak ada tugas berulang, sub-tugas, prioritas (urutannya selalu: terlambat, menurut
+  tenggat, lalu tanpa tenggat), atau sinkron ke Google Calendar dan layanan lain.
+
+### Mengatur tugas dari terminal
+
+```powershell
+waifu todo                                          # tugas yang belum selesai (sama dengan todo list)
+waifu todo add kerjakan laporan --due 2026-10-23    # tambah satu tugas; tenggat opsional, YYYY-MM-DD
+waifu todo done t3                                  # tandai selesai (id dari list)
+waifu todo remove t3                                # hapus satu tugas, yang belum atau sudah selesai
+waifu todo list --done                              # juga tugas yang selesai beberapa hari terakhir
+```
+
+`waifu todo` menampilkan yang terlambat dulu, lalu menurut tenggat, lalu yang tanpa tenggat:
+
+```text
+ID  TENGGAT                       TUGAS
+t3  Kamis 15-10-2026 (terlambat)  bayar listrik
+t4  Jumat 16-10-2026 (hari ini)   kirim tugas kuliah
+t2  Jumat 23-10-2026              kerjakan laporan
+t1  -                             beli susu
+```
+
+Aturan yang sama berlaku seperti lewat suara (rahasia, panjang, jumlah); kalau ditolak,
+perintahnya menampilkan `✗` dengan alasannya. Perintah ini tetap jalan walau
+`todo.enabled: false`, dan Cyrene yang sedang berjalan langsung melihat perubahannya.
+`waifu check` menampilkan `✓ Daftar tugas: <n> terbuka`, atau `! Daftar tugas mati`.
+
+### File data\todo.json dan privasi tugas
+
+- Tugas hanya ada di `data\todo.json` di PC ini. Seluruh `data\` ada di `.gitignore`, jadi
+  tidak pernah di-commit.
+- **Rahasia tidak pernah disimpan.** Seperti catatan ingatan, tugas yang terlihat seperti kata
+  sandi, PIN, OTP, token, atau nomor kartu ditolak oleh kode Cyrene sendiri. Kata-katanya saja
+  sudah cukup untuk ditolak, walau tanpa angka atau isinya: "ganti PIN ATM-ku 4821", "ganti PIN
+  ATM", "ganti password wifi", "minta kode OTP ke bank", dan "beli token" sama-sama tidak
+  dicatat. Kecualinya "token listrik" dan "token PLN", jadi "beli token listrik" tetap dicatat.
+  Untuk tugas seperti itu, pakai kata lain, misalnya "ganti nomor rahasia ATM" atau "ganti kunci
+  wifi".
+- Batasnya `todo.max_tasks` tugas yang belum selesai (bawaan 100), masing-masing paling panjang
+  `todo.max_chars` karakter (bawaan 200); kalau penuh, selesaikan atau hapus tugas lama dulu.
+- Dengan `brain.backend: claude`, tugas yang dia baca (saat Master bertanya dan di sapaan pagi)
+  ikut terkirim ke API Anthropic sebagai bagian dari obrolan; dengan Ollama daftarnya tidak
+  keluar dari PC (jawaban yang menyebutnya tetap dijadikan suara oleh edge-tts kalau engine
+  `edge` dipakai). Sapaan pagi yang menyebut tugas juga dikirim ke `ntfy.sh` kalau notifikasi
+  HP menyala, dan tugas yang Master ucapkan tercatat di log seperti setiap kalimat yang dia
+  dengar (`Heard ...`).
+- **Edit hanya saat Cyrene mati**, seperti `data\memory.json`: di antara dua program, yang
+  terakhir menulis yang menang. `waifu todo` membaca file tepat sebelum mengubahnya, jadi aman
+  dipakai selagi dia berjalan.
+- **File yang rusak tidak pernah ditimpa.** Kalau isinya bukan daftar tugas yang benar, Cyrene
+  mengganti namanya menjadi `todo.json.corrupt-<tanggal>-<jam>`, menulis error di log, lalu
+  mulai dengan daftar kosong. Selama file itu masih ada, `waifu check` menunjukkannya dengan
+  `!`. Untuk memulihkan: matikan Cyrene, perbaiki file `.corrupt-...` itu, lalu ganti namanya
+  kembali menjadi `todo.json`.
+- Untuk mematikan daftar tugas: `todo.enabled: false` (contohnya ada di `config.example.yaml`).
+  Dia tidak lagi membaca atau mengubah tugas, juga tidak di sapaan pagi, tapi filenya tidak
+  dihapus.
+
 ## Musik, volume, dan aplikasi PC
 
 Cyrene bisa menekan tombol media dan volume Windows, dan membuka aplikasi atau game yang
@@ -2274,8 +2381,9 @@ seluruh layar tetap tertangkap. Jalankan ulang `waifu run` setelah mengubahnya.
 
 Sekali sehari, saat `waifu run` menyala pertama kali di antara jam 07.00 dan 12.00, Cyrene
 menyapa Master sendiri dan merangkum harinya dalam 2-4 kalimat pendek: cuaca, jadwal dan
-pengingat hari ini, game kalau [teman main gacha](#teman-main-gacha-hoyoverse) menyala, dan
-hal dari [ingatannya](#ingatan-cyrene) yang penting hari ini (ulang tahun, ujian). Data yang
+pengingat hari ini, [tugas](#daftar-tugas) yang tenggatnya hari ini atau sudah lewat, game
+kalau [teman main gacha](#teman-main-gacha-hoyoverse) menyala, dan hal dari
+[ingatannya](#ingatan-cyrene) yang penting hari ini (ulang tahun, ujian). Data yang
 sama juga dipakai kapan saja kalau Master bertanya. Fitur ini sudah menyala dari awal
 (`briefing.enabled: true`), tapi cuacanya baru ada setelah kotanya diisi (lihat
 [Mengatur kota](#mengatur-kota)).
@@ -2283,7 +2391,8 @@ sama juga dipakai kapan saja kalau Master bertanya. Fitur ini sudah menyala dari
 ```text
 (07.05)  Cyrene : "おはよう, Master! Bandung pagi ini berawan, 21 derajat, nanti paling panas
                    28 dan peluang hujannya 85 persen, jadi bawa payung ya. Jam tiga sore ada
-                   pengingat minum obat, dan hari ini Master ujian. Semangat!"
+                   pengingat minum obat, laporan tenggatnya hari ini, dan hari ini Master
+                   ujian. Semangat!"
 Master : "Makasih ya."                    (tanpa memanggil nama: jendela lanjutan terbuka)
 Master : "Cyrene, cuaca hari ini gimana?"
 Master : "Cyrene, hari ini ada jadwal apa?"
@@ -2367,8 +2476,9 @@ lengkapnya ada di `config.example.yaml`. Jalankan ulang `waifu run` setelah meng
 
 ### Mengecek cuaca: `waifu briefing`
 
-`waifu briefing` menampilkan data yang sama dengan yang dibaca Cyrene untuk sapaannya, tanpa
-otak (tidak memakai Claude atau Ollama), jadi cocok untuk menguji kota dan internetnya:
+`waifu briefing` menampilkan tanggal, cuaca, dan jadwal yang dibaca Cyrene untuk sapaannya
+(tugasnya dilihat dengan `waifu todo`), tanpa otak (tidak memakai Claude atau Ollama), jadi
+cocok untuk menguji kota dan internetnya:
 
 ```text
 Ringkasan hari ini: Rabu, 14-10-2026
@@ -3436,6 +3546,25 @@ untuk `ac` harus sudah dipelajari.)
 - [ ] `waifu chat --dry-run`: jadwal yang dibuat di sana tidak muncul di
       `waifu schedule list`.
 
+**Daftar tugas**
+
+- [ ] `waifu check` menampilkan `✓ Daftar tugas: 0 terbuka`.
+- [ ] "Cyrene, tambah tugas: beli susu" dan "catat tugas kerjakan laporan, tenggatnya Jumat":
+      dia menyebut tanggal Jumat yang benar, dan `waifu todo` menampilkan keduanya.
+- [ ] "Cyrene, tugasku apa aja?": jumlahnya dan yang paling mendesak, bukan daftar yang
+      dibacakan semuanya.
+- [ ] "Beli susu sudah": tugasnya hilang dari `waifu todo` dan muncul di
+      `waifu todo list --done`.
+- [ ] "Cyrene, tambah tugas telepon dokter jam 4 sore": dia bilang itu lebih cocok jadi
+      pengingat (atau membuat keduanya kalau diminta).
+- [ ] "Cyrene, catat tugas ganti PIN ATM-ku 4821" dan "catat tugas ganti PIN ATM": dia menolak
+      keduanya, dan tidak ada tugas baru; "catat tugas beli token listrik" tetap dicatat.
+- [ ] "Ganti tugas laporan jadi kerjakan laporan bab 2": `waifu todo` menampilkan teks baru
+      dengan tenggat yang sama.
+- [ ] `waifu todo add bayar listrik --due <tanggal kemarin>`, lalu hapus `data\briefing.json`
+      dan jalankan `waifu run` di jendela jam sapaan pagi: sapaannya menyebut tugas yang
+      terlambat itu.
+
 **Musik dan aplikasi PC** (tambahkan dulu `musik` dan `aplikasi` di `config.yaml`; lihat
 [Musik, volume, dan aplikasi PC](#musik-volume-dan-aplikasi-pc))
 
@@ -3614,6 +3743,9 @@ halaman tim di game atau sebuah error)
 - **Jadwal** (pengingat, perintah perangkat terjadwal) ada di `data\schedule.json`, hanya di
   PC ini. Teks pengingat juga dikirim ke `ntfy.sh` kalau notifikasi HP menyala. Lihat
   [File data\schedule.json](#file-dataschedulejson).
+- **Daftar tugas** ada di `data\todo.json`, hanya di PC ini; rahasia seperti kata sandi atau
+  nomor kartu tidak pernah disimpan. Lihat
+  [File data\todo.json dan privasi tugas](#file-datatodojson-dan-privasi-tugas).
 - **Catatan biaya API** (jumlah token dan biaya per hari, tanpa isi obrolan) ada di
   `data\usage.json`, hanya di PC ini. Pemberitahuan anggaran juga dikirim ke `ntfy.sh` kalau
   notifikasi HP menyala. Lihat [File data\usage.json](#file-datausagejson).
