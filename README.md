@@ -31,6 +31,7 @@ Cyrene : "Komputer mau kumatikan sekarang, Master? Jawab iya kalau jadi." (minta
 - [Mendaftarkan suara Master](#mendaftarkan-suara-master)
 - [Pemakaian sehari-hari](#pemakaian-sehari-hari)
 - [Jalan otomatis saat login](#jalan-otomatis-saat-login)
+- [Versi baru](#versi-baru)
 - [Suara anime (つくよみちゃん)](#suara-anime-つくよみちゃん)
 - [Avatar 3D (つくよみちゃん)](#avatar-3d-つくよみちゃん)
 - [Avatar Live2D & interaksi](#avatar-live2d--interaksi)
@@ -626,6 +627,7 @@ waifu speaker-test    # skor kecocokan langsung, Ctrl+C untuk berhenti
 | `waifu run --no-speaker-check` | Layani semua suara, bukan hanya Master |
 | `waifu run --startup-delay 15 --announce` | Tunggu 15 detik dulu, lalu setelah model dimuat dia bilang "Cyrene siap, Master." (dipakai autostart) |
 | `waifu autostart enable` / `disable` / `status` | Jalan otomatis saat login Windows (lihat [Jalan otomatis saat login](#jalan-otomatis-saat-login)) |
+| `waifu version` | Versi Cyrene di disk dan versi `waifu run` yang sedang berjalan, dengan perintah yang perlu dijalankan kalau dia perlu dimulai ulang atau paketnya berubah (lihat [Versi baru](#versi-baru)) |
 | `waifu chat` | Ngobrol lewat teks; ketik `keluar` untuk berhenti |
 | `waifu chat --dry-run -v` | Uji persona dan tool call ke perangkat simulasi, dengan jadwal sementara (`-v` menampilkan setiap tool call) |
 | `waifu chat --speak` | Ngobrol lewat teks, jawabannya juga diucapkan |
@@ -649,7 +651,7 @@ waifu speaker-test    # skor kecocokan langsung, Ctrl+C untuk berhenti
 | `waifu youtube <link atau judul lagu>` | Buka video atau playlist YouTube itu, atau halaman pencarian YouTube untuk judulnya, di browser default (lihat [Lagu di YouTube](#lagu-di-youtube)) |
 | `waifu offers` / `offers games` / `offers ai` | Game gratis dan promo AI yang tersimpan, dengan linknya; `waifu offers ai --scan` mencari promo AI sekarang dengan Claude (berbayar) (lihat [Pencarian web dan promo gratis](#pencarian-web-dan-promo-gratis)) |
 | `waifu tepira` / `tepira dompet` / `tujuan [nama]` / `transaksi [-n N]` / `token` | Keuangan dari tepira: ringkasan bulan ini, saldo dompet, tujuan tabungan, dan transaksi terbaru; `token` membuat token API Cyrene baru tanpa internet (lihat [Keuangan dari tepira](#keuangan-dari-tepira)) |
-| `waifu check` | Periksa config, kode IR, aplikasi PC, rutinitas, voiceprint, otak, ingatan, jadwal, daftar tugas, lagu YouTube, sapaan pagi, peringatan hujan, biaya API, kesehatan PC, pencarian web, promo gratis, paket suara, CUDA, mic, suara anime, avatar, keuangan tepira, dan Cyrene di HP |
+| `waifu check` | Periksa config, versi `waifu run` yang berjalan, kabar versi baru, kode IR, aplikasi PC, rutinitas, voiceprint, otak, ingatan, jadwal, daftar tugas, lagu YouTube, sapaan pagi, peringatan hujan, biaya API, kesehatan PC, pencarian web, promo gratis, paket suara, CUDA, mic, suara anime, avatar, keuangan tepira, dan Cyrene di HP |
 
 Opsi untuk semua perintah: `--config <file>` (default `config.yaml`), `--dry-run`
 (perangkat simulasi), `-v` (log lebih rinci), `--log-file <file>` (log juga ditulis
@@ -727,6 +729,109 @@ Autostart selalu memakai `config.yaml` di folder repo dan perangkat asli;
 - **Folder repo atau venv dipindah:** perintah yang tersimpan masih menunjuk ke path
   lama, dan `status` menandainya dengan `!`. Jalankan lagi `waifu autostart enable`
   dari folder yang baru.
+
+## Versi baru
+
+`waifu run` menjalankan kode yang ada saat dia dimulai. Kalau jendelanya dibiarkan terbuka
+berhari-hari (misalnya dari autostart), versi baru yang sudah ada di folder proyek baru aktif
+setelah dia dimulai ulang. Sejak v1.26 Cyrene memberi tahu sendiri:
+
+```text
+(09.30)  Cyrene : "Sayang, ada versi baru Cyrene: v1.27, kamera HP, dan satu versi lain. Mulai ulang aku kalau sempat ya."
+```
+
+Kalimat yang sama juga dikirim ke HP kalau [notifikasi](#3-notifikasi-ke-hp-ntfy) menyala.
+Fitur ini sudah menyala dari awal (`version_notice.enabled: true`).
+
+**Sekali mulai ulang manual dulu.** `waifu run` yang dimulai sebelum v1.26 tidak mencatat
+versinya, jadi dia belum bisa memberi tahu apa-apa. Tutup jendela "Cyrene" (atau Ctrl+C), lalu
+jalankan lagi `waifu run` (atau logout lalu login kalau pakai autostart) sekali saja; sesudah itu
+dia memberi tahu sendiri.
+
+### Kapan dia memberi tahu
+
+- **Saat CHANGELOG punya versi baru.** Setiap 30 menit dia membandingkan `CHANGELOG.md` dan
+  `pyproject.toml` di folder proyek dengan yang ada saat dia dimulai. Versi baru adalah judul
+  `## v1.26: ...` yang lebih tinggi dari versi yang sedang berjalan. Perbaikan kecil tanpa
+  versi baru di CHANGELOG tidak diberitahukan; `waifu check` menyebutnya (lihat di bawah).
+- **Sekali untuk setiap versi.** Kalau sesudah itu masuk versi yang lebih baru lagi, dia memberi
+  tahu sekali lagi, dengan hitungannya sendiri.
+- **Hanya di jam aktif**, di antara `active_from` dan `active_until` (bawaan 08.00-22.00, jam
+  PC). Di luar jam itu dia tidak memeriksa apa pun; versi yang masuk malam hari diberitahukan
+  pagi berikutnya.
+- **Tidak pernah memotong.** Seperti peringatan hujan, kalimatnya diucapkan di sela obrolan:
+  tidak saat dia menjawab, tidak saat Master bicara, dan tidak selama jendela lanjutan sesudah
+  jawabannya masih terbuka. Notifikasi HP-nya langsung dikirim.
+- **Kalau filenya tidak terbaca** (misalnya `CHANGELOG.md` rusak), dia diam; log mencatatnya
+  sekali (`Could not read the code on disk`), dan dia mencoba lagi di pemeriksaan berikutnya.
+- **Dia tidak pernah memulai ulang dirinya sendiri.** Memulai ulang berarti membuka jendela
+  konsol baru, yang bisa muncul di atas game layar penuh, dan proses barunya akan berebut kunci
+  `data\run.lock` dengan yang lama. Kapan mulai ulang, kamu yang menentukan.
+
+### Kalau paket Python-nya berubah
+
+Kadang versi baru butuh paket Python lain (daftar `dependencies` di `pyproject.toml` berubah).
+Dia lalu bilang "... Paket Python-nya juga berubah. Tutup aku dulu, jalankan pip install, lalu
+mulai ulang aku ya; perintahnya ada di HP." dan notifikasi HP-nya berisi perintahnya:
+
+```powershell
+# Tutup jendela "Cyrene" (atau Ctrl+C) dulu: selama dia jalan, Windows mengunci waifu.exe.
+cd <folder proyek>
+.venv\Scripts\python -m pip install -e .
+waifu run
+```
+
+Tanpa notifikasi HP dia bilang "perintahnya ada di waifu version": `waifu version` dan
+`waifu check` menampilkan perintah yang sama. Paket suara (`.[voice]`) tidak ikut dihitung;
+pasang ulang lewat langkah di [Paket suara](#2-paket-suara-stt-verifikasi-suara) kalau
+CHANGELOG memintanya.
+
+### Mengecek: `waifu version` dan `waifu check`
+
+`waifu version` (jalan juga tanpa `config.yaml`) menampilkan versi di disk dan versi
+`waifu run` yang sedang berjalan:
+
+```text
+Kode di disk: v1.26, versi baru (commit 3f9c2ab)
+Yang berjalan: v1.25, peringatan hujan (commit ec4aadf), dimulai 2026-10-13 08:15
+! waifu run yang sedang jalan masih v1.25 (dimulai 2026-10-13); mulai ulang supaya v1.26 aktif
+```
+
+Baris terakhirnya juga muncul di `waifu check`, tepat di bawah "Konfigurasi valid":
+
+| Baris | Artinya |
+|---|---|
+| `✓ waifu run: v1.26, terbaru` | yang berjalan sudah versi terbaru |
+| `✓ waifu run: v1.26, terbaru; ada perubahan kecil sejak dimulai, mulai ulang kalau sempat` | ada commit baru tanpa versi baru, misalnya perbaikan |
+| `! waifu run yang sedang jalan masih v1.25 (dimulai 2026-10-13); mulai ulang supaya v1.26 aktif` | ada versi baru di disk |
+| `! ... dan paket Python-nya berubah: tutup Cyrene, jalankan .venv\Scripts\python -m pip install -e . di folder proyek, lalu mulai ulang ...` | pasang paketnya dulu (lihat di atas) |
+| `! waifu run yang sedang jalan versinya tidak tercatat (lebih lama dari v1.26); mulai ulang ...` | `waifu run` dari sebelum v1.26, atau `waifu enroll`/`speaker-test` sedang jalan |
+| `✓ waifu run tidak berjalan; versi di disk v1.26, versi baru` | tidak ada `waifu run` yang jalan |
+
+Di bawahnya ada `✓ Kabar versi baru: dicek tiap 30 menit, jam 08:00-22:00` (atau
+`! Kabar versi baru mati`).
+
+Setiap `waifu run` dimulai, versinya dicatat di `data\running.json`: versi dan judul dari
+CHANGELOG, hash daftar paket, commit git (tanpa git: waktu file terbaru di `src\waifu`), waktu
+mulai, dan nomor prosesnya. Apakah dia masih berjalan dilihat dari kunci `data\run.lock` dan
+nomor proses itu, bukan dari ada tidaknya file ini: menutup jendela konsol tidak sempat
+menghapusnya.
+
+### Pengaturan
+
+```yaml
+version_notice:
+  enabled: true
+  check_minutes: 30      # bandingkan dengan kode di disk setiap sekian menit (5-1440)
+  active_from: "08:00"   # hanya mulai jam ini (jam PC)
+  active_until: "22:00"  # dan sebelum jam ini
+  push: true             # kirim kabarnya juga ke HP (kalau notify menyala)
+```
+
+Tulis jamnya dengan tanda kutip, dan `active_from` harus sebelum `active_until`. Untuk
+mematikannya, `enabled: false` (`waifu run` tetap mencatat versinya untuk `waifu check` dan
+`waifu version`); untuk tanpa notifikasi HP, `push: false`. Jalankan ulang `waifu run` setelah
+mengubahnya.
 
 ## Suara anime (つくよみちゃん)
 
@@ -3992,6 +4097,20 @@ mendengarkan"; jawaban pertama bisa lebih lama karena model Ollama baru dimuat)
 - [ ] Menutup jendela "Cyrene" menghentikannya; `waifu autostart disable` membuat
       login berikutnya tidak menjalankannya lagi.
 
+**Versi baru** (lihat [Versi baru](#versi-baru))
+
+- [ ] Tutup jendela "Cyrene" yang lama dan jalankan lagi `waifu run` (sekali, manual):
+      `waifu check` menampilkan `✓ waifu run: v1.26, terbaru`, dan `waifu version` menampilkan
+      versi yang sama di baris "Kode di disk" dan "Yang berjalan". Tidak ada jendela yang
+      berkedip saat dia mulai.
+- [ ] Atur sementara `version_notice.check_minutes: 5`, jalankan ulang `waifu run`, lalu
+      tambahkan baris `## v1.99: uji` di atas versi teratas `CHANGELOG.md` (jangan di-commit):
+      dalam 5 menit, di jam aktif, dia bilang "<panggilanmu>, ada versi baru Cyrene: v1.99, uji.
+      Mulai ulang aku kalau sempat ya." sekali, HP menerima kalimat yang sama, dan `waifu check`
+      menampilkan `! waifu run yang sedang jalan masih v1.26 ...`. Ngobrol dengannya saat itu:
+      kalimatnya baru diucapkan sesudah jendela lanjutannya lewat. Hapus lagi barisnya dan
+      kembalikan pengaturannya.
+
 **Opsional: suara anime**
 
 - [ ] `waifu check` menampilkan `✓` untuk Folder Applio, Python Applio, Model RVC,
@@ -4398,6 +4517,10 @@ di sampingnya)
     selama `waifu run` menyala, dan kalimat peringatannya (panggilanmu, jam, dan kota) ke
     `ntfy.sh` kalau notifikasi HP dan `rain_alert.push` menyala. Tidak ada yang disimpan ke
     disk.
+  - dengan kabar versi baru, kalimatnya (panggilanmu, nama Cyrene, versi dan judulnya; kalau
+    paketnya berubah, juga perintah `pip install`) ke `ntfy.sh` kalau notifikasi HP dan
+    `version_notice.push` menyala; tidak ada path folder, commit, atau nama paket yang
+    dikirim. Versi `waifu run` yang berjalan hanya dicatat di `data\running.json`.
 - **Cookie HoYoLAB setara kata sandi.** Hanya disimpan di `config.yaml` dan tidak pernah
   ditulis ke log. Riwayat pull ada di `data\gacha\` (nama filenya memuat UID game).
 - **Kode redeem:** ke `hoyo-codes.seria.moe` hanya nama game; penukaran ke HoYoLAB dengan

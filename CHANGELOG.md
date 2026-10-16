@@ -4,6 +4,30 @@ Ringkasan per versi, yang terbaru di atas. Rinciannya ada di README (bagian yang
 setiap versi) dan di SPEC.md. Setelah memperbarui, **mulai ulang `waifu run`** supaya semuanya
 aktif, lalu jalankan `waifu check`.
 
+## v1.26: versi baru
+
+- `waifu run` yang dibiarkan menyala berhari-hari kini memberi tahu sendiri kalau ada versi baru
+  di folder proyek: "Sayang, ada versi baru Cyrene: v1.27, kamera HP, dan satu versi lain. Mulai
+  ulang aku kalau sempat ya." Kalimat yang sama dikirim ke HP kalau notifikasi menyala
+  (`version_notice.push: true`).
+- Dia membandingkan `CHANGELOG.md` dan `pyproject.toml` setiap 30 menit, hanya jam 08.00-22.00,
+  dan memberi tahu sekali untuk setiap versi, tanpa memotong obrolan. Perbaikan kecil tanpa
+  versi baru di CHANGELOG tidak diberitahukan. Semuanya bisa diatur di bagian `version_notice`
+  baru.
+- Kalau paket Python-nya berubah, dia minta `pip install` dulu, dan notifikasi HP-nya berisi
+  perintahnya: tutup Cyrene, jalankan `.venv\Scripts\python -m pip install -e .` di folder
+  proyek, lalu jalankan lagi `waifu run`.
+- `waifu version` baru menampilkan versi di disk dan versi `waifu run` yang sedang berjalan;
+  `waifu check` menampilkannya tepat di bawah "Konfigurasi valid" (`✓ waifu run: v1.26, terbaru`
+  atau `! waifu run yang sedang jalan masih v1.25 ...; mulai ulang supaya v1.26 aktif`).
+  Versinya dicatat di `data\running.json` setiap `waifu run` dimulai.
+- Dia tidak pernah memulai ulang dirinya sendiri: jendela konsol baru bisa muncul di atas game
+  layar penuh dan berebut kunci dengan yang lama.
+- **Sekali ini mulai ulang manual:** `waifu run` dari versi lama belum mencatat versinya. Tutup
+  jendela "Cyrene", lalu jalankan lagi `waifu run` (atau logout lalu login kalau pakai
+  autostart); sesudah itu dia memberi tahu sendiri.
+- README: "Versi baru".
+
 ## v1.25: peringatan hujan
 
 - Selama `waifu run` menyala, Cyrene memperingatkan sendiri sebentar sebelum hujan: "Sayang,

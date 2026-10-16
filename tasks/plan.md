@@ -472,10 +472,10 @@ No new dependency; `waifu version` and a `check` line show the running version.
 - [x] Task 122: `version.py`: releases, dependency hash, commit or source time, `read_code_version`, `newer_releases`, the running record, `process_alive`
 - [x] Task 123: `version_watch.py`: `version_news`, the notice and push texts, `VersionWatcher`
 - [x] Task 124: wiring in `run`, the git guard, `check` lines, `waifu version`, example config
-- [ ] Task 125: README, CHANGELOG
+- [x] Task 125: README, CHANGELOG
 
 ### Checkpoint: Versi baru
-- [ ] Python suite and ruff clean; no test ran git, wrote outside tmp_path, touched the real run lock, slept for real, spoke, or pushed
+- [x] Python suite and ruff clean; no test ran git, wrote outside tmp_path, touched the real run lock, slept for real, spoke, or pushed (2026-10-17: 7362 pytest)
 - [ ] On the owner's PC: after one restart by hand, `waifu check` says `✓ waifu run: v1.26, terbaru`; after the next CHANGELOG version lands she says the sentence once in the active hours (and the phone gets it), and `waifu check` names the old version until the restart
 
 ## Risks and Mitigations

@@ -1176,9 +1176,9 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 122, 123 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py`, `tests/conftest.py`, `config.example.yaml`, `tests/test_config.py` · **Scope:** M
 
-## Task 125: Docs
+## Task 125: Docs ✅
 
 **Acceptance criteria:**
-- [ ] README "Versi baru" with its command, check, checklist, and Privasi rows; CHANGELOG v1.26; full suite and ruff clean
+- [x] README "Versi baru" with its command, check, checklist, and Privasi rows; CHANGELOG v1.26; full suite and ruff clean
 
 **Dependencies:** 124 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
