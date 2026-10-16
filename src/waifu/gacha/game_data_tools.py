@@ -159,7 +159,8 @@ _EVENTS_FRAGMENTS = {
     "genshin": (
         "Genshin Impact's banners are character, weapon, or chronicled, with the 5-star names "
         "in `featured` and the 4-star ones in `four_stars`, and its endgame windows are Spiral "
-        "Abyss and Imaginarium Theater. "
+        "Abyss, with Master's stars out of the season's maximum as `current` and `total` when "
+        "HoYoLAB gives them, and Imaginarium Theater. "
     ),
     "zzz": (
         "Zenless Zone Zero's banners are agent or W-Engine channels, with the S-rank agents in "

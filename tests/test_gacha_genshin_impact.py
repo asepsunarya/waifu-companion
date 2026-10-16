@@ -1067,8 +1067,40 @@ def test_endgame_windows_come_from_the_abyss_and_theater_challenges_and_skip_the
 
     assert challenges == (
         ChallengeWindow("spiral_abyss", "Abyssal Moon Spire", ABYSS_START, ABYSS_ENDS_AT, 30, 36),
-        ChallengeWindow("imaginarium_theater", None, OCTOBER[0], OCTOBER_ENDS_AT, 8, None),
+        ChallengeWindow("imaginarium_theater", None, OCTOBER[0], OCTOBER_ENDS_AT, None, None),
     )
+
+
+def test_an_abyss_window_without_maximum_stars_has_no_progress():
+    """Before the season's first battle HoYoLAB gives the window 0 of 0 stars (the owner's real
+    calendar), which counts nothing, as an HSR or ZZZ total of 0 does."""
+    unplayed = {"is_unlock": True, "max_star": 0, "total_star": 0, "has_data": False}
+    payload = {
+        **CALENDAR,
+        "fixed_act_list": [event("Abyssal Moon Spire", ABYSS_START, ABYSS_END, abyss=unplayed)],
+    }
+
+    (window,) = read_calendar(calendar_model(payload), FETCHED_AT).challenges
+
+    assert (window.mode, window.current, window.total) == ("spiral_abyss", None, None)
+
+
+@pytest.mark.parametrize(
+    "detail",
+    [
+        {"is_unlock": True, "max_round_id": 8, "has_data": True},
+        {"is_unlock": True, "max_round_id": 0, "has_data": False},
+    ],
+)
+def test_a_theater_window_has_no_progress_since_its_deepest_act_is_the_endgames(detail):
+    payload = {
+        **CALENDAR,
+        "fixed_act_list": [event("Imaginarium Theater", *OCTOBER, theater_detail=detail)],
+    }
+
+    (window,) = read_calendar(calendar_model(payload), FETCHED_AT).challenges
+
+    assert (window.mode, window.current, window.total) == ("imaginarium_theater", None, None)
 
 
 @pytest.mark.parametrize("name", ["Spiral Abyss", ""])

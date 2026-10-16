@@ -283,13 +283,21 @@ def _season_window(challenge: Any) -> tuple[datetime | None, datetime | None]:
 
 
 def _challenge_window(challenge: Any) -> ChallengeWindow | None:
-    """A calendar challenge's Spiral Abyss or Imaginarium Theater window (None: another)."""
+    """A calendar challenge's Spiral Abyss or Imaginarium Theater window (None: another).
+
+    Only the Abyss window has progress, its stars out of the season's maximum, and none while
+    HoYoLAB gives a maximum of 0 (before the season's first battle), which counts nothing. The
+    Theater window's deepest act is left to `game_endgame`, which names it "Act N".
+    """
     starts_at, ends_at = _window(challenge)
     abyss, theater = challenge.abyss_detail, challenge.theater_detail
+    current = total = None
     if abyss is not None:
-        mode, current, total = "spiral_abyss", abyss.total_star, abyss.max_star
+        mode = "spiral_abyss"
+        if abyss.max_star > 0:
+            current, total = abyss.total_star, abyss.max_star
     elif theater is not None:
-        mode, current, total = "imaginarium_theater", theater.max_round, None
+        mode = "imaginarium_theater"
     else:
         return None
     name = _own_name(challenge.name, mode)

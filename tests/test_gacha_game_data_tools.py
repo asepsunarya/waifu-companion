@@ -2973,7 +2973,7 @@ GENSHIN_CALENDAR = GameCalendar(
             None,  # HoYoLAB named it after its mode
             datetime(2026, 9, 30, 20, 0, tzinfo=UTC),
             datetime(2026, 10, 31, 20, 0, tzinfo=UTC),
-            8,
+            None,  # its deepest act is game_endgame's
             None,
         ),
     ),
@@ -3066,12 +3066,7 @@ def test_the_genshin_calendar_gives_banners_events_and_endgame_windows_in_local_
                 "current": 33,
                 "total": 36,
             },
-            {
-                "mode": "imaginarium_theater",
-                "ends": "2026-11-01 03:00",
-                "ends_in_hours": 391,
-                "current": 8,
-            },
+            {"mode": "imaginarium_theater", "ends": "2026-11-01 03:00", "ends_in_hours": 391},
         ],
     }
     assert source.calls == ["genshin_calendar"]
