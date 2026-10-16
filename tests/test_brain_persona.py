@@ -84,6 +84,27 @@ def test_committed_persona_leaves_the_question_to_the_code_that_holds_turning_th
     assert "jangan menanyakannya lagi" in house_rules
 
 
+def test_the_hsr_persona_keeps_every_rule_of_the_persona_word_for_word():
+    # Only its personality differs: the rules (voice, face tags, the house and its
+    # confirmations, the games) must change in both files together.
+    persona = load_persona(ROOT / "config" / "persona.md")
+    hsr = load_persona(ROOT / "config" / "persona_hsr.md")
+
+    rules_start = "Cara bicara (jawabanmu diubah menjadi suara):"
+    assert persona[persona.index(rules_start) :] == hsr[hsr.index(rules_start) :]
+    assert "Honkai: Star Rail" in hsr.split(rules_start)[0]
+
+
+def test_the_hsr_persona_becomes_a_prompt_with_her_name_and_the_owner_s_call():
+    hsr = load_persona(ROOT / "config" / "persona_hsr.md")
+
+    prompt = build_system_prompt(hsr, "Cyrene", house(), owner_call="Sayang")
+
+    assert prompt.startswith("Kamu adalah Cyrene")
+    assert 'Panggil pemilikmu "Sayang"' in prompt
+    assert "{owner}" not in prompt and "{name}" not in prompt
+
+
 def test_missing_persona_file_is_a_config_error_naming_the_path(tmp_path):
     with pytest.raises(ConfigError, match="persona_hilang.md"):
         load_persona(tmp_path / "persona_hilang.md")

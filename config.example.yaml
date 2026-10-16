@@ -12,7 +12,7 @@ assistant:
   wake_words: [cyrene, sairin, sairen, syrene, kyurene, キュレネ]
   # Setelah dia menjawab, kamu boleh lanjut bicara tanpa memanggil namanya selama N detik.
   followup_seconds: 8
-  persona_file: config/persona.md
+  persona_file: config/persona.md   # atau config/persona_hsr.md: lebih mirip Cyrene di Honkai: Star Rail
   # Obrolan dilupakan kalau tidak ada percakapan selama N menit.
   session_idle_minutes: 10
   max_session_turns: 40

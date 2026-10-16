@@ -230,6 +230,20 @@ waifu check
 Kunci yang tidak dikenal ditolak dengan pesan yang jelas, jadi salah ketik langsung
 ketahuan saat `waifu check`. Kepribadian Cyrene ada di `config/persona.md`.
 
+Ada juga persona yang lebih mirip Cyrene di Honkai: Star Rail, `config/persona_hsr.md`:
+sifatmu sendiri tetap ada (tenang, puitis, sedikit manja, suka menggoda), ditambah sifat
+Cyrene di game (berbelas kasih, ceria dan penuh harapan, menghargai hal-hal kecil dan
+kenangan, bicara anggun seperti bersenandung) tanpa membeberkan cerita Amphoreus kecuali kamu
+yang membahasnya. Aturan lainnya (suara, ekspresi, rumah, konfirmasi, game) sama persis.
+Untuk mencobanya, tulis di `config.yaml`:
+
+```yaml
+assistant:
+  persona_file: config/persona_hsr.md
+```
+
+lalu mulai ulang `waifu run`. Hapus baris itu untuk kembali ke persona semula.
+
 `assistant.owner_call` (bawaan `Master`, misalnya `Sayang`) adalah panggilannya untukmu.
 Semua kalimatnya memakai kata itu: jawaban, persona (`{owner}`), pertanyaan konfirmasi,
 pengingat dan pengumuman jadwal atau game, permintaan maaf, sapaan saat `run --announce`,

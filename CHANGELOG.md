@@ -4,6 +4,15 @@ Ringkasan per versi, yang terbaru di atas. Rinciannya ada di README (bagian yang
 setiap versi) dan di SPEC.md. Setelah memperbarui, **mulai ulang `waifu run`** supaya semuanya
 aktif, lalu jalankan `waifu check`.
 
+## v1.22: persona ala Cyrene di Honkai: Star Rail (pilihan)
+
+- `config/persona_hsr.md`: sifatmu sendiri tetap ada (tenang, puitis, sedikit manja, suka
+  menggoda), ditambah sifat Cyrene di game: berbelas kasih, ceria dan penuh harapan,
+  menghargai hal-hal kecil dan kenangan, bicara anggun seperti bersenandung, tanpa
+  membeberkan cerita Amphoreus kecuali kamu yang membahasnya. Aturan lainnya sama persis.
+- Untuk mencoba: `assistant.persona_file: config/persona_hsr.md` di `config.yaml`, lalu mulai
+  ulang `waifu run`. Persona semula tidak diubah.
+
 ## v1.21.1: perbaikan kecil
 
 - Jawaban dari pencarian web tidak lagi berspasi ganda atau berspasi sebelum koma.
