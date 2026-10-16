@@ -17,9 +17,9 @@ import ollama
 import pytest
 from anthropic.types.beta import BetaToolParam
 
-from waifu.brain.base import ToolSpec
+from waifu.brain.base import ToolCallRecord, ToolSpec
 from waifu.brain.confirm import ConfirmationGate
-from waifu.brain.finance_tools import CACHE_TTL_S, FinanceTools
+from waifu.brain.finance_tools import CACHE_TTL_S, FinanceTools, finance_changes
 from waifu.brain.ollama_brain import OllamaBrain
 from waifu.brain.tools import to_anthropic, to_ollama
 from waifu.briefing import BRIEFING_PROMPT
@@ -1259,6 +1259,22 @@ def test_a_deduplicated_entry_says_so_and_is_not_hers_to_undo():
     assert result["recorded"]["id"] == 101
     assert (undo, is_error) == ({"ok": False, "message": NOTHING_TO_UNDO}, True)
     assert source.calls_of("undo") == []
+
+
+def test_after_a_rolled_back_turn_only_what_tepira_kept_is_said():
+    # A held call and a read changed nothing; a deduplicated entry is in tepira all the same.
+    source = FakeSource(deduped=True)
+    tools, gate = writing(source)
+    turn(tools, gate, "catat jajan kopi 18 ribu, saldo GoPay berapa?")
+    held = ToolCallRecord(RECORD_EXPENSE, COFFEE, *tools.run(RECORD_EXPENSE, COFFEE))
+    read = ToolCallRecord(WALLET_BALANCES, {}, *tools.run(WALLET_BALANCES, {}))
+    turn(tools, gate, "iya")
+    kept = ToolCallRecord(RECORD_EXPENSE, COFFEE, *tools.run(RECORD_EXPENSE, COFFEE))
+
+    assert finance_changes([held, read]) == ""
+    assert finance_changes([held, read, kept]) == (
+        "Tapi pengeluaran delapan belas ribu untuk jajan kopi sudah tercatat di tepira."
+    )
 
 
 def test_one_question_per_turn_covers_the_pc_and_an_expense():

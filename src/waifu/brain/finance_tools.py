@@ -18,11 +18,11 @@ import json
 import logging
 import threading
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 
-from waifu.brain.base import ToolSpec
+from waifu.brain.base import ToolCallRecord, ToolSpec
 from waifu.brain.confirm import RECORD_ORDER_WORDS, ConfirmationGate
 from waifu.briefing import BRIEFING_PROMPT
 from waifu.finance.values import (
@@ -47,11 +47,14 @@ from waifu.finance.values import (
     WALLET_NOT_FOUND,
     WALLETS_THERE,
     WIB,
+    WRITE_TOOLS,
     FinanceData,
     FinanceError,
     FinanceSource,
     RecordedExpense,
     expense_question,
+    spoken_rupiah,
+    spoken_text,
 )
 from waifu.memory import looks_secret
 
@@ -73,6 +76,9 @@ _NOTHING_TO_UNDO = (
     "Belum ada pengeluaran yang kucatat dalam 15 menit terakhir, jadi tidak ada yang bisa "
     "kubatalkan dari sini."
 )
+# Said after the apology of a rolled-back turn whose write tepira kept (see finance_changes).
+_RECORDED_ANYWAY = "Tapi pengeluaran{amount}{purpose} sudah tercatat di tepira."
+_UNDONE_ANYWAY = "Tapi catatan{amount}{purpose} sudah dibatalkan di tepira."
 _MONTH_REASON = "'month' harus bilangan bulat dari 1 sampai 12."
 _YEAR_REASON = f"'year' harus bilangan bulat dari {MIN_YEAR} sampai {MAX_YEAR}."
 _YEAR_WITHOUT_MONTH = "'month' harus diisi kalau 'year' diisi."
@@ -409,6 +415,30 @@ class FinanceTools:
         with self._lock:
             self._cache = {}
             self._generation += 1
+
+
+def finance_changes(tool_calls: Sequence[ToolCallRecord]) -> str:
+    """What the calls changed in tepira, as sentences Master hears after the apology of a turn
+    the brain rolls back; empty when they changed nothing.
+
+    tepira keeps a recorded or undone expense even when the rest of the turn fails, and the
+    rolled-back history no longer shows it: without a word, "coba lagi nanti" would have Master
+    record it again, after tepira's two-minute dedupe. A call held for Master's yes is an error
+    result, so it changed nothing.
+    """
+    sentences = []
+    for call in tool_calls:
+        if call.is_error or call.name not in WRITE_TOOLS:
+            continue
+        if call.name == RECORD_EXPENSE:
+            entry, sentence = json.loads(call.result)["recorded"], _RECORDED_ANYWAY
+        else:
+            entry, sentence = json.loads(call.result)["undone"], _UNDONE_ANYWAY
+        amount, note = entry["amount"], entry.get("note")
+        spoken = f" {spoken_rupiah(amount)}" if 1 <= amount <= MAX_EXPENSE_AMOUNT else ""
+        purpose = f" untuk {spoken_text(note)}" if note else ""
+        sentences.append(sentence.format(amount=spoken, purpose=purpose))
+    return " ".join(sentences)
 
 
 def _specs(writes: bool, default_wallet: str | None) -> tuple[ToolSpec, ...]:

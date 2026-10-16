@@ -11,7 +11,9 @@ The tools are fixed for the brain's lifetime. A callable system prompt is read
 once when a session starts (a turn begins with an empty history) and kept for
 the rest of that session, so what it returns can change between sessions only.
 A rolled-back turn that saved or deleted a note ends its session instead: the
-note would be missing from both that session's prompt and its history.
+note would be missing from both that session's prompt and its history. One that
+recorded or undid an expense in tepira says so after its apology, since tepira
+keeps it.
 
 A call held for Master's yes (`confirmations`) is answered like any failed tool
 call, so the gate never touches the system prompt, the tools, or earlier turns.
@@ -81,6 +83,7 @@ from anthropic.types.beta import (
 from waifu.brain.attachments import TurnImages
 from waifu.brain.base import Brain, BrainReply, ToolCallRecord, ToolImage
 from waifu.brain.confirm import ConfirmationGate
+from waifu.brain.finance_tools import finance_changes
 from waifu.brain.memory_tools import changed_memory
 from waifu.brain.persona import format_user_turn
 from waifu.brain.session import SessionClock
@@ -409,7 +412,8 @@ class ClaudeBrain(Brain):
     def _roll_back(
         self, turn_start: int, apology: str, tool_calls: list[ToolCallRecord]
     ) -> BrainReply:
-        """Undo the turn and apologise with `apology`, one of the canned replies above."""
+        """Undo the turn and apologise with `apology`, one of the canned replies above, followed
+        by what the turn changed in tepira all the same (a recorded or undone expense)."""
         if self._confirmations is not None:
             self._confirmations.discard_turn()
         if changed_memory(tool_calls):
@@ -419,7 +423,10 @@ class ClaudeBrain(Brain):
             self.reset()
         else:
             del self._history[turn_start:]
-        return BrainReply(apology.format(owner=self._owner_call), tool_calls)
+        text = " ".join(
+            filter(None, (apology.format(owner=self._owner_call), finance_changes(tool_calls)))
+        )
+        return BrainReply(text, tool_calls)
 
     def _client_or_create(self) -> anthropic.Anthropic:
         """The injected or cached client; a new one is kept only once it has credentials."""

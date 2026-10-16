@@ -18,6 +18,7 @@ from waifu.brain.attachments import TurnImages
 from waifu.brain.base import ToolCallRecord, ToolImage, ToolSpec
 from waifu.brain.claude import ClaudeBrain, web_search_tool
 from waifu.brain.confirm import ConfirmationGate
+from waifu.brain.finance_tools import FinanceTools
 from waifu.brain.memory_tools import MemoryTools
 from waifu.brain.persona import format_user_turn
 from waifu.brain.screen_tools import ScreenTools
@@ -25,6 +26,7 @@ from waifu.config import BrainConfig, ClaudeConfig
 from waifu.devices.base import Device, DeviceResult
 from waifu.devices.mock import MockDevice
 from waifu.devices.registry import DeviceRegistry
+from waifu.finance.values import RecordedExpense, UndoneExpense
 from waifu.memory import MemoryStore, memory_prompt_section
 from waifu.screen import ScreenImage, encode_png
 from waifu.usage import TokenUsage
@@ -1235,6 +1237,121 @@ def test_rolled_back_turn_whose_note_was_refused_keeps_the_session(tmp_path):
     third = client.requests[3]["messages"]
     assert [entry["role"] for entry in third] == ["user", "assistant", "user"]
     assert third[2]["content"] == format_user_turn("coba lagi", NOW)
+
+
+# An expense recorded or undone in a turn that is rolled back afterwards
+
+
+class TepiraLedger:
+    """Stands in for the tepira client (a FinanceSource): GoPay is the only wallet, and it keeps
+    each expense recorded and still there."""
+
+    def __init__(self) -> None:
+        self.expenses: dict[int, tuple[int, str | None, int]] = {}
+
+    def wallets(self) -> dict:
+        gopay = {"id": 1, "name": "GoPay", "type": "e-wallet", "balance": 250000, "is_debt": False}
+        totals = {"assets": 250000, "debts": 0, "net_worth": 250000}
+        return {
+            "as_of": "2026-10-16T09:12:00+07:00",
+            "wallets": [gopay],
+            "more": 0,
+            "totals": totals,
+        }
+
+    def record(self, amount, category, note, wallet, source="gaji") -> RecordedExpense:
+        expense_id = 101 + len(self.expenses)
+        self.expenses[expense_id] = (amount, note, wallet)
+        return RecordedExpense(
+            expense_id, amount, category, note, "2026-10-16 09:12", "GoPay", False
+        )
+
+    def undo(self, expense_id: int) -> UndoneExpense:
+        amount, _, _ = self.expenses.pop(expense_id)
+        return UndoneExpense(expense_id, amount)
+
+
+COFFEE = {"amount": 18000, "description": "jajan kopi"}
+
+
+def finance_brain(client: FakeAnthropic, ledger: TepiraLedger) -> ClaudeBrain:
+    """A brain that records expenses in `ledger` on Master's yes, as `waifu run` wires it."""
+    gate = ConfirmationGate(clock=FakeClock())
+    tools = FinanceTools(ledger, writes=True, default_wallet="GoPay", confirmations=gate)
+    return make_brain(client, confirmations=gate, providers=[tools])
+
+
+def record_coffee(block_id: str) -> SimpleNamespace:
+    return message([tool_use(block_id, "record_expense", COFFEE)], "tool_use")
+
+
+@pytest.mark.parametrize(
+    ("error", "apology"),
+    [
+        (
+            request_error(anthropic.InternalServerError, 500),
+            "Maaf Master, server Claude sedang bermasalah. Coba lagi nanti, ya.",
+        ),
+        (
+            request_error(anthropic.RateLimitError, 429),
+            "Maaf Master, server Claude sedang sibuk. Coba lagi sebentar lagi, ya.",
+        ),
+        (message([text("Aku")], "refusal"), "Maaf Master, aku tidak bisa membantu yang itu."),
+    ],
+    ids=["server_error", "rate_limited", "refused"],
+)
+def test_a_rolled_back_turn_still_tells_master_the_expense_it_recorded(error, apology):
+    # Otherwise "coba lagi nanti" has Master record it again, after tepira's two-minute dedupe.
+    ledger = TepiraLedger()
+    client = FakeAnthropic(
+        record_coffee("call_1"),
+        message([text("Baik, Master.")], "end_turn"),
+        record_coffee("call_2"),
+        error,
+    )
+    brain = finance_brain(client, ledger)
+
+    brain.respond("catat jajan kopi 18 ribu", now=NOW)
+    reply = brain.respond("iya", now=NOW)
+
+    assert ledger.expenses == {101: (18000, "jajan kopi", 1)}
+    assert reply.text == (
+        f"{apology} Tapi pengeluaran delapan belas ribu untuk jajan kopi sudah tercatat di tepira."
+    )
+
+
+def test_a_rolled_back_turn_still_tells_master_the_expense_it_undid():
+    ledger = TepiraLedger()
+    client = FakeAnthropic(
+        record_coffee("call_1"),
+        message([text("Baik, Master.")], "end_turn"),
+        record_coffee("call_2"),
+        message([text("Sudah kucatat, Master.")], "end_turn"),
+        message([tool_use("call_3", "undo_expense", {})], "tool_use"),
+        connection_error(),
+    )
+    brain = finance_brain(client, ledger)
+
+    brain.respond("catat jajan kopi 18 ribu", now=NOW)
+    brain.respond("iya", now=NOW)
+    reply = brain.respond("batalkan yang tadi", now=NOW)
+
+    assert ledger.expenses == {}
+    assert reply.text == (
+        "Maaf Master, aku tidak bisa terhubung ke server Claude. "
+        "Tapi catatan delapan belas ribu untuk jajan kopi sudah dibatalkan di tepira."
+    )
+
+
+def test_a_rolled_back_turn_that_only_asked_about_an_expense_says_just_its_apology():
+    ledger = TepiraLedger()
+    client = FakeAnthropic(record_coffee("call_1"), connection_error())
+    brain = finance_brain(client, ledger)
+
+    reply = brain.respond("catat jajan kopi 18 ribu", now=NOW)
+
+    assert ledger.expenses == {}
+    assert reply.text == "Maaf Master, aku tidak bisa terhubung ke server Claude."
 
 
 # Master's yes before the PC turns off
