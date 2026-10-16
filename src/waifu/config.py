@@ -235,6 +235,35 @@ class RvcConfig(_Strict):
         return self
 
 
+class FallbackPitchConfig(_Strict):
+    """Semitones RVC shifts the Windows fallback voice by, per the voice's gender.
+
+    Measured median F0 against the anime model's ~351 Hz: Zira ~188 Hz needs +11; male voices
+    range from Mark ~150-168 Hz (+13 to +15) to David ~95 Hz (+22).
+    """
+
+    female: int = Field(default=11, ge=-24, le=24)
+    male: int = Field(default=18, ge=-24, le=24)
+
+
+class FallbackTtsConfig(_Strict):
+    """Speech voices installed in Windows, speaking offline when the primary voice fails."""
+
+    enabled: bool = True
+    # A language -> a Windows voice name; empty takes that language's installed voice.
+    voices: dict[str, str] = Field(default_factory=lambda: {"id": "", "ja": ""})
+    retry_s: float = Field(default=600.0, gt=0)
+    rvc_pitch: FallbackPitchConfig = Field(default_factory=FallbackPitchConfig)
+
+    @field_validator("voices", mode="before")
+    @classmethod
+    def _blank_names_are_empty(cls, value: object) -> object:
+        """`id:` with nothing after it is YAML null, which means the same as an empty name."""
+        if isinstance(value, dict):
+            return {language: "" if name is None else name for language, name in value.items()}
+        return value
+
+
 class TtsConfig(_Strict):
     voices: dict[str, VoiceConfig] = Field(
         default_factory=lambda: {
@@ -244,6 +273,7 @@ class TtsConfig(_Strict):
     )
     default_language: str = "id"
     rvc: RvcConfig = Field(default_factory=RvcConfig)
+    fallback: FallbackTtsConfig = Field(default_factory=FallbackTtsConfig)
 
     @model_validator(mode="after")
     def _default_language_has_voice(self) -> TtsConfig:

@@ -152,6 +152,38 @@ def test_rvc_ipv4_loopback_hosts_are_accepted(tmp_path, host):
     assert load_config(write_yaml(tmp_path, text)).tts.rvc.host == host
 
 
+def test_the_offline_fallback_voice_is_on_for_indonesian_and_japanese_by_default():
+    fallback = AppConfig().tts.fallback
+    assert fallback.enabled is True
+    assert fallback.voices == {"id": "", "ja": ""}
+    assert fallback.retry_s == 600
+    # Measured: a female Windows voice (~188 Hz) needs +11 to reach the anime model's
+    # ~351 Hz; male ones lie between Mark (+13 to +15) and David (+22).
+    assert (fallback.rvc_pitch.female, fallback.rvc_pitch.male) == (11, 18)
+
+
+def test_a_fallback_voice_can_be_named_for_a_language(tmp_path):
+    text = "tts:\n  fallback:\n    voices:\n      id: Microsoft Zira\n"
+    assert load_config(write_yaml(tmp_path, text)).tts.fallback.voices == {"id": "Microsoft Zira"}
+
+
+def test_a_fallback_voice_left_blank_means_the_installed_voice_of_its_language(tmp_path):
+    text = "tts:\n  fallback:\n    voices:\n      id:\n      ja: ''\n"
+    assert load_config(write_yaml(tmp_path, text)).tts.fallback.voices == {"id": "", "ja": ""}
+
+
+@pytest.mark.parametrize("gender", ["female", "male"])
+def test_the_fallback_rvc_pitch_is_bounded(tmp_path, gender):
+    text = f"tts:\n  fallback:\n    rvc_pitch:\n      {gender}: 25\n"
+    with pytest.raises(ConfigError, match=gender):
+        load_config(write_yaml(tmp_path, text))
+
+
+def test_the_fallback_pause_must_be_positive(tmp_path):
+    with pytest.raises(ConfigError, match="retry_s"):
+        load_config(write_yaml(tmp_path, "tts:\n  fallback:\n    retry_s: 0\n"))
+
+
 def test_avatar_is_off_by_default_as_a_desktop_mascot():
     avatar = AppConfig().avatar
     assert avatar.enabled is False
