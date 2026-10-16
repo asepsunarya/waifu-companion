@@ -45,6 +45,7 @@ from waifu.avatar.window import AvatarWindow
 from waifu.brain import claude as claude_module
 from waifu.brain.attachments import CameraTurn, TurnImages
 from waifu.brain.base import Brain, BrainReply, ToolCallRecord
+from waifu.brain.finance_tools import FinanceTools
 from waifu.brain.memory_tools import MemoryTools
 from waifu.brain.music_tools import MusicTools
 from waifu.brain.offers_tools import OffersTools
@@ -69,6 +70,13 @@ from waifu.devices.ir_codes import IrCodeStore
 from waifu.devices.ir_device import IrDevice
 from waifu.devices.mock import MockDevice
 from waifu.devices.registry import DeviceRegistry
+from waifu.finance.tepira import TepiraClient
+from waifu.finance.values import (
+    FINANCE_TOOLS,
+    READ_TOOLS,
+    RecordedExpense,
+    UndoneExpense,
+)
 from waifu.gacha.code_store import CodeStore
 from waifu.gacha.code_tools import CodeTools
 from waifu.gacha.codes import CodesError, RedeemResult
@@ -467,6 +475,24 @@ def code_source_asked(tmp_path, monkeypatch):
     assert not refused, f"a test asked the redeem code source for {refused}"
 
 
+@pytest.fixture(autouse=True)
+def tepira_asked(monkeypatch):
+    """No test reaches tepira, the owner's finance app (tests/conftest.py refuses the network
+    beyond loopback too, but the finance tools turn any failure into an error result, so that
+    refusal alone could go unnoticed): building a real TepiraClient is refused, and a test that
+    forgets the `tepira` fake fails afterwards, also when `main` turned the refusal into exit 1.
+    Yields the url of each refused client."""
+    refused: list[str] = []
+
+    def refuse(http, url, token, **options) -> object:
+        refused.append(url)
+        raise AssertionError("a test built a real TepiraClient")
+
+    monkeypatch.setattr(cli, "TepiraClient", refuse)
+    yield refused
+    assert not refused, f"a test built a TepiraClient for {refused}"
+
+
 class FakeCodeWatcher:
     """Stands in for CodeWatcher without a thread, remembering what it was given and whether
     `waifu run` listened when it started and stopped."""
@@ -549,12 +575,14 @@ class HouseBrain(Brain):
         memory_section=None,
         on_usage=None,
         turn_images=None,
+        confirmations=None,
     ) -> None:
         self.registry = registry
         self.providers = list(providers)
         self.memory_section = memory_section
         self.on_usage = on_usage
         self.turn_images = turn_images
+        self.confirmations = confirmations
         self.heard: list[str] = []
 
     def respond(self, user_text: str, *, now: datetime | None = None) -> BrainReply:
@@ -1311,9 +1339,18 @@ def brains(monkeypatch) -> list[HouseBrain]:
     built: list[HouseBrain] = []
 
     def build(
-        config, registry, *, providers=(), memory_section=None, on_usage=None, turn_images=None
+        config,
+        registry,
+        *,
+        providers=(),
+        memory_section=None,
+        on_usage=None,
+        turn_images=None,
+        confirmations=None,
     ):
-        built.append(HouseBrain(registry, providers, memory_section, on_usage, turn_images))
+        built.append(
+            HouseBrain(registry, providers, memory_section, on_usage, turn_images, confirmations)
+        )
         return built[-1]
 
     monkeypatch.setattr(cli, "build_brain", build)
@@ -10395,3 +10432,342 @@ def test_the_example_music_block_is_valid_once_written_out(home):
     write_out_example_block(home, "music")
 
     assert cli.load_config(home / "config.yaml").music == MusicConfig()
+
+
+# --- Master's money from tepira (v1.24) --------------------------------------------------------
+
+# A made-up token in the tpcy_ form: it must never show in a line, a log record, or an error.
+TEPIRA_TOKEN = "tpcy_SECRETTEPIRA" + "0" * 31
+TEPIRA_AS_OF = "2026-10-16T09:12:00+07:00"
+# tepira's answers as the client hands them on (without "ok"), from the API's own examples.
+TEPIRA_SUMMARY = {
+    "as_of": TEPIRA_AS_OF,
+    "period": {"month": 10, "year": 2026, "month_basis": "web", "day_basis": "wib"},
+    "spent": {
+        "total": 2350000,
+        "count": 41,
+        "gaji": 2100000,
+        "bonus": 250000,
+        "today": 45000,
+        "yesterday": 120000,
+        "this_week": 310000,
+    },
+    "income": {
+        "salary": 5000000,
+        "bonus": 500000,
+        "starting_balance": 1000000,
+        "net": 3150000,
+        "ending_estimate": 4150000,
+    },
+    "savings_allocation": 500000,
+    "budget": {
+        "basis": "gaji+bonus",
+        "allocated": 3000000,
+        "spent": 2350000,
+        "remaining": 650000,
+        "used_percent": 78.3,
+        "status": "WITHIN_BUDGET",
+    },
+    "categories": [
+        {
+            "category": "Makan harian",
+            "allocated": 1200000,
+            "spent": 980000,
+            "remaining": 220000,
+            "used_percent": 81.7,
+            "over": False,
+        },
+        {
+            "category": "Nongkrong / jajan",
+            "allocated": 300000,
+            "spent": 342000,
+            "remaining": -42000,
+            "used_percent": 114,
+            "over": True,
+        },
+    ],
+    "other_spent": {"uncategorized": 35000, "unbudgeted": 0},
+    "top": [{"category": "Makan harian", "spent": 980000}],
+    "insight": {"week_start": "2026-10-12", "health_score": 72, "status": "SEHAT"},
+}
+TEPIRA_WALLETS = {
+    "as_of": TEPIRA_AS_OF,
+    "wallets": [
+        {"id": 1, "name": "GoPay", "type": "e-wallet", "balance": 250000, "is_debt": False},
+        {"id": 2, "name": "BCA", "type": "bank", "balance": 5000000, "is_debt": False},
+        {"id": 3, "name": "Kartu kredit", "type": "credit", "balance": -1200000, "is_debt": True},
+    ],
+    "more": 0,
+    "totals": {"assets": 5250000, "debts": 1200000, "net_worth": 4050000},
+}
+TEPIRA_GOALS = {
+    "as_of": TEPIRA_AS_OF,
+    "goals": [
+        {
+            "id": 3,
+            "title": "Laptop baru",
+            "target": 15000000,
+            "saved": 6200000,
+            "remaining": 8800000,
+            "percent": 41.3,
+            "deadline": "2027-03-31",
+            "days_left": 166,
+            "per_month_needed": 1600000,
+            "saved_this_month": 500000,
+            "last_contribution": {"date": "2026-10-05", "amount": 500000},
+        },
+        {
+            "id": 4,
+            "title": "Dana darurat",
+            "target": 5000000,
+            "saved": 5000000,
+            "remaining": 0,
+            "percent": 100,
+            "saved_this_month": 0,
+        },
+    ],
+    "more": 0,
+}
+TEPIRA_TRANSACTIONS = {
+    "as_of": TEPIRA_AS_OF,
+    "transactions": [
+        {
+            "id": 812,
+            "date": "2026-10-16 08:41",
+            "amount": 18000,
+            "category": "Nongkrong / jajan",
+            "note": "kopi susu",
+            "wallet": "GoPay",
+            "source": "gaji",
+        },
+        {
+            "id": 811,
+            "date": "2026-10-15 19:02",
+            "amount": 35000,
+            "category": None,
+            "note": None,
+            "wallet": "BCA",
+            "source": "bonus",
+        },
+    ],
+}
+
+
+def enable_tepira(home: Path, *, writes: bool = False) -> None:
+    """The example config with tepira on and the made-up token; with `writes`, recording by voice
+    to the default wallet GoPay as well."""
+    config = home / "config.yaml"
+    text = config.read_text(encoding="utf-8")
+    changes = [
+        ("\ntepira:\n  enabled: false\n", "\ntepira:\n  enabled: true\n"),
+        ("  # token: tpcy_isi-dengan-hasil-waifu-tepira-token\n", f"  token: {TEPIRA_TOKEN}\n"),
+    ]
+    if writes:
+        changes += [
+            ("  writes: false ", "  writes: true  "),
+            ("  # default_wallet: GoPay ", "  default_wallet: GoPay "),
+        ]
+    for old, new in changes:
+        assert old in text
+        text = text.replace(old, new, 1)
+    config.write_text(text, encoding="utf-8")
+
+
+class FakeTepira:
+    """Stands in for TepiraClient, a FinanceSource: `build` remembers each client a command made
+    (its httpx client, url, and token) and hands out this fake, which remembers every request and
+    answers each read with `answers[route]` (raised when it is an exception)."""
+
+    def __init__(self) -> None:
+        self.built: list[tuple[httpx.Client, str, object]] = []
+        self.asked: list[tuple[object, ...]] = []
+        self.answers: dict[str, object] = {
+            "summary": TEPIRA_SUMMARY,
+            "wallets": TEPIRA_WALLETS,
+            "goals": TEPIRA_GOALS,
+            "transactions": TEPIRA_TRANSACTIONS,
+        }
+
+    def build(self, http: httpx.Client, url: str, token: object) -> "FakeTepira":
+        self.built.append((http, url, token))
+        return self
+
+    def summary(self, month: int, year: int) -> dict:
+        return self._answer("summary", month, year)
+
+    def wallets(self) -> dict:
+        return self._answer("wallets")
+
+    def goals(self, query: str | None) -> dict:
+        return self._answer("goals", query)
+
+    def transactions(self, limit: int, category: str | None) -> dict:
+        return self._answer("transactions", limit, category)
+
+    def record(
+        self, amount: int, category: str | None, note: str | None, wallet: str, source="gaji"
+    ) -> RecordedExpense:
+        self.asked.append(("record", amount, category, note, wallet, source))
+        return RecordedExpense(812, amount, category, note, "2026-10-16 08:41", wallet, False)
+
+    def undo(self, expense_id: int) -> UndoneExpense:
+        self.asked.append(("undo", expense_id))
+        return UndoneExpense(expense_id, 18000)
+
+    def _answer(self, route: str, *arguments: object) -> dict:
+        self.asked.append((route, *arguments))
+        answer = self.answers[route]
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+
+@pytest.fixture
+def tepira(monkeypatch) -> FakeTepira:
+    fake = FakeTepira()
+    monkeypatch.setattr(cli, "TepiraClient", fake.build)
+    return fake
+
+
+def test_the_fake_tepira_has_the_real_client_s_methods():
+    # So the views and the wiring tested over the fake work over the real client.
+    for name in ("summary", "wallets", "goals", "transactions", "record", "undo"):
+        fake, real = getattr(FakeTepira, name), getattr(TepiraClient, name)
+        assert list(inspect.signature(fake).parameters) == list(inspect.signature(real).parameters)
+    assert list(inspect.signature(FakeTepira.build).parameters) == ["self", "http", "url", "token"]
+    assert list(inspect.signature(TepiraClient).parameters) == ["http", "url", "token", "clock"]
+
+
+def finance_tools(brain: HouseBrain) -> FinanceTools:
+    [tools] = [provider for provider in brain.providers if isinstance(provider, FinanceTools)]
+    return tools
+
+
+def test_run_with_tepira_on_reads_master_s_money_after_the_free_offers(
+    home, run_fakes, brains, tepira
+):
+    enable_tepira(home)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    assert [type(tools) for tools in brains[0].providers][-4:] == [
+        PcTools,
+        OffersTools,
+        FinanceTools,
+        MusicTools,
+    ]
+    [(http, url, token)] = tepira.built
+    assert isinstance(http, httpx.Client)
+    assert url == "https://tepira.asepsunarya.com"
+    assert token.get_secret_value() == TEPIRA_TOKEN
+    # Only the reads: recording is off in the example config. Building asked tepira nothing.
+    assert [spec.name for spec in finance_tools(brains[0]).specs()] == list(READ_TOOLS)
+    assert tepira.asked == []
+
+
+def test_chat_with_tepira_off_builds_neither_the_finance_tools_nor_a_client(
+    home, brains, tepira, monkeypatch
+):
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main(["chat", "--dry-run"]) == 0
+
+    assert not any(isinstance(tools, FinanceTools) for tools in brains[0].providers)
+    assert tepira.built == []
+
+
+def test_with_writes_on_and_claude_she_may_also_record_and_undo(home, brains, tepira, monkeypatch):
+    use_claude(home)
+    enable_tepira(home, writes=True)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main(["chat", "--dry-run"]) == 0
+
+    assert [spec.name for spec in finance_tools(brains[0]).specs()] == list(FINANCE_TOOLS)
+
+
+def test_with_writes_on_and_ollama_she_only_reads(home, brains, tepira, monkeypatch):
+    # Recording needs the brain that picks tools reliably: Claude.
+    enable_tepira(home, writes=True)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main(["chat", "--dry-run"]) == 0
+
+    assert [spec.name for spec in finance_tools(brains[0]).specs()] == list(READ_TOOLS)
+
+
+def test_the_finance_tools_hold_an_expense_with_the_brain_s_own_gate(
+    home, brains, tepira, monkeypatch
+):
+    # One gate: the question the tools hold an expense with is the one the brain asks, and the
+    # PC and an expense share the one question of a turn.
+    use_claude(home)
+    enable_tepira(home, writes=True)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+    assert cli.main(["chat", "--dry-run"]) == 0
+    gate, tools = brains[0].confirmations, finance_tools(brains[0])
+
+    gate.begin_turn("catat jajan kopi 18 ribu")
+    tools.begin_turn("catat jajan kopi 18 ribu")
+    result, is_error = tools.run("record_expense", {"amount": 18000, "description": "jajan kopi"})
+
+    assert is_error and json.loads(result)["needs_confirmation"] is True
+    assert gate.with_question("Baik.") == (
+        "Baik. Catat delapan belas ribu untuk jajan kopi di GoPay, Master? Jawab iya kalau jadi."
+    )
+    assert [asked for asked in tepira.asked if asked[0] == "record"] == []
+
+
+def claude_replies(sent: list[dict], replies: list[list[dict]]) -> Callable:
+    """A Claude transport handler answering the n-th request with the n-th content list."""
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        sent.append(json.loads(request.content))
+        content = replies[len(sent) - 1]
+        message = {
+            "id": f"msg_{len(sent)}",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-opus-5-5",
+            "content": content,
+            "stop_reason": "tool_use" if content[0]["type"] == "tool_use" else "end_turn",
+            "usage": {"input_tokens": 10, "output_tokens": 5},
+        }
+        return streamed_message(message)
+
+    return handler
+
+
+def test_chat_records_an_expense_only_after_master_s_yes_in_the_next_turn(
+    home, tepira, monkeypatch, capsys
+):
+    # The real Claude brain and finance tools over the fake tepira, Claude over a mock transport.
+    use_claude(home)
+    enable_tepira(home, writes=True)
+    (home / "config").mkdir()
+    shutil.copy(ROOT / "config" / "persona.md", home / "config" / "persona.md")
+    record = {
+        "type": "tool_use",
+        "name": "record_expense",
+        "input": {"amount": 18000, "description": "jajan kopi"},
+    }
+    sent: list[dict] = []
+    replies = [
+        [{**record, "id": "toolu_1"}],
+        [{"type": "text", "text": "Baik, Master."}],
+        [{**record, "id": "toolu_2"}],
+        [{"type": "text", "text": "Sudah kucatat, Master."}],
+    ]
+    use_claude_transport(monkeypatch, claude_replies(sent, replies))
+    monkeypatch.setattr(sys, "stdin", io.StringIO("catat jajan kopi 18 ribu\niya\nkeluar\n"))
+
+    assert cli.main(["chat", "--dry-run"]) == 0
+
+    out = capsys.readouterr().out
+    assert (
+        "Cyrene: Baik, Master. Catat delapan belas ribu untuk jajan kopi di GoPay, Master? "
+        "Jawab iya kalau jadi." in out
+    )
+    assert "Cyrene: Sudah kucatat, Master." in out
+    records = [asked for asked in tepira.asked if asked[0] == "record"]
+    assert records == [("record", 18000, None, "jajan kopi", "GoPay", "gaji")]

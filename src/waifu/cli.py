@@ -53,7 +53,9 @@ from waifu.avatar.server import AvatarError, AvatarServer, file_under
 from waifu.avatar.window import AvatarWindow
 from waifu.brain.attachments import CameraTurn, TurnImages
 from waifu.brain.base import Brain, ToolCallRecord
-from waifu.brain.factory import build_brain
+from waifu.brain.confirm import ConfirmationGate
+from waifu.brain.factory import build_brain, confirmation_gate
+from waifu.brain.finance_tools import FinanceTools
 from waifu.brain.memory_tools import MemoryTools
 from waifu.brain.music_tools import MusicTools
 from waifu.brain.offers_tools import OffersTools
@@ -83,6 +85,7 @@ from waifu.devices.base import DeviceError
 from waifu.devices.ir_codes import COMMAND_PATTERN, IrCodeStoreError
 from waifu.devices.ir_device import IrDevice
 from waifu.devices.registry import DeviceRegistry, build_registry
+from waifu.finance.tepira import TepiraClient
 from waifu.gacha.code_store import CodeStore
 from waifu.gacha.code_tools import RECENT_CODES, CodeTools
 from waifu.gacha.code_watcher import OUTCOME_TEXT, CodeWatcher, ReadCodes
@@ -1124,8 +1127,9 @@ def _companion_brain(
     """The brain with the game tools when they are on, her long-term memory when it is on,
     then her schedule when it is on, Master's to-do list when it is on, the day's briefing when
     it is on, with `pc` how the PC is doing, the free offers when they are on (their links
-    pushed through `notifier`), songs on YouTube when they are on, with Claude her eyes on the
-    screen when vision is on, and with `usage` what her requests cost.
+    pushed through `notifier`), Master's money from tepira when it is on, songs on YouTube
+    when they are on, with Claude her eyes on the screen when vision is on, and with `usage`
+    what her requests cost.
 
     With memory, every new session lists the notes as they are in the file at that moment.
     The to-do list is the real one also in a dry run (it moves no device), and the briefing
@@ -1136,6 +1140,9 @@ def _companion_brain(
     only when Master names the screen.
     """
     owner_call = config.assistant.owner_call
+    # One gate for Master's yes, shared by the brain (turning the PC off) and the finance tools
+    # (recording an expense), so one question per turn covers both.
+    confirmations = confirmation_gate(config)
     notes = _memory_store(config) if config.memory.enabled else None
     todo = _todo_store(config) if config.todo.enabled else None
     providers = _game_tools(config, gacha)
@@ -1155,6 +1162,8 @@ def _companion_brain(
         providers.append(PcTools(pc, owner_call=owner_call))
     if config.free_offers.enabled:
         providers.append(_offers_tools(config, notifier))
+    if config.tepira.enabled:
+        providers.append(_finance_tools(config, confirmations))
     if config.music.enabled:
         # Both backends: only Claude with her web search can look a song's link up, so only
         # she is offered one; any other brain opens YouTube's search page, never a link it made
@@ -1184,7 +1193,12 @@ def _companion_brain(
     on_usage = None if usage is None else usage.record
     if notes is None:
         return build_brain(
-            config, registry, providers=providers, on_usage=on_usage, turn_images=turn_images
+            config,
+            registry,
+            providers=providers,
+            on_usage=on_usage,
+            turn_images=turn_images,
+            confirmations=confirmations,
         )
     return build_brain(
         config,
@@ -1193,6 +1207,7 @@ def _companion_brain(
         memory_section=lambda: memory_prompt_section(notes.facts()),
         on_usage=on_usage,
         turn_images=turn_images,
+        confirmations=confirmations,
     )
 
 
@@ -3580,6 +3595,31 @@ def _scan_cost_text(
 def _day_text(day: date) -> str:
     """`Minggu 25-10-2026`: a day as the owner reads it."""
     return f"{WEEKDAYS_ID[day.weekday()]} {day:%d-%m-%Y}"
+
+
+# --- Master's money from tepira --------------------------------------------------------------
+
+
+def _finance_tools(config: AppConfig, confirmations: ConfirmationGate) -> FinanceTools:
+    """Master's money from tepira over one connection for the process, so a later question
+    reuses it. Recording and its undo come only with `tepira.writes` and Claude, the brain that
+    picks tools reliably, and an expense waits for Master's yes on `confirmations`, the brain's
+    own gate."""
+    tepira = config.tepira
+    return FinanceTools(
+        _tepira_client(config, httpx.Client()),
+        writes=tepira.writes and config.brain.backend == "claude",
+        default_wallet=tepira.default_wallet,
+        confirmations=confirmations,
+        owner_call=config.assistant.owner_call,
+    )
+
+
+def _tepira_client(config: AppConfig, http: httpx.Client) -> TepiraClient:
+    """tepira's Cyrene API at `tepira.url` with the token, over `http`, which the caller owns."""
+    token = config.tepira.token
+    assert token is not None  # tepira.enabled needs the token (TepiraConfig)
+    return TepiraClient(http, config.tepira.url, token)
 
 
 # --- songs on YouTube ------------------------------------------------------------------------
