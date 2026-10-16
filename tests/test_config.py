@@ -901,10 +901,19 @@ def test_tepira_writes_need_a_default_wallet(tmp_path):
     assert load_config(write_yaml(tmp_path, text)).tepira.default_wallet == "GoPay"
 
 
-@pytest.mark.parametrize("wallet", ["''", "'   '", "'" + "x" * 41 + "'", '"Go\tPay"'])
+@pytest.mark.parametrize("wallet", ["''", "'   '", "'" + "x" * 61 + "'", '"Go\tPay"'])
 def test_tepira_default_wallet_is_a_short_printable_name(tmp_path, wallet):
     with pytest.raises(ConfigError, match="tepira.default_wallet"):
         load_config(write_yaml(tmp_path, f"tepira:\n  default_wallet: {wallet}\n"))
+
+
+def test_tepira_default_wallet_may_be_a_long_name_in_full(tmp_path):
+    # tepira shows it cut to 40 characters; Cyrene matches it the way tepira cuts it.
+    name = "Tabungan Rencana Pendidikan Anak Pertama Kita Bersama Ibu"
+
+    config = load_config(write_yaml(tmp_path, f"tepira:\n  default_wallet: {name}\n"))
+
+    assert config.tepira.default_wallet == name
 
 
 def test_unknown_tepira_settings_are_refused(tmp_path):

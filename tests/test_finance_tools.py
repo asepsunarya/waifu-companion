@@ -118,6 +118,18 @@ WALLETS = {
     "more": 0,
     "totals": {"assets": 5250000, "debts": 1200000, "net_worth": 4050000},
 }
+GOPAY_ID, BCA_ID = 1, 2
+# tepira shows a wallet's name cleaned up and cut to 40 characters (its clampText), but matches
+# a name sent to it against the name it stores: "Bank  Jago" with two spaces, and in full
+# "Tabungan Rencana Pendidikan Anak Pertama Kita".
+JAGO = {"id": 4, "name": "Bank Jago", "type": "bank", "balance": 900000, "is_debt": False}
+SCHOOL_FUND = {
+    "id": 5,
+    "name": "Tabungan Rencana Pendidikan Anak Pertam…",
+    "type": "bank",
+    "balance": 2000000,
+    "is_debt": False,
+}
 GOALS = {
     "as_of": "2026-10-16T09:12:00+07:00",
     "goals": [
@@ -209,7 +221,7 @@ class FakeSource:
             category=category,
             note=note,
             date="2026-10-16 09:12",
-            wallet=wallet,
+            wallet=self._wallet_name(wallet),
             deduped=self.deduped,
         )
         self.next_id += 1
@@ -222,6 +234,11 @@ class FakeSource:
 
     def calls_of(self, method: str) -> list[tuple]:
         return [call for call in self.calls if call[0] == method]
+
+    def _wallet_name(self, wallet_id: int) -> str:
+        """The name of the wallet a record named by its id, as tepira answers it."""
+        [name] = [each["name"] for each in self.wallets_data["wallets"] if each["id"] == wallet_id]
+        return name
 
     def _call(self, method: str, *arguments: object) -> None:
         self.calls.append((method, *arguments))
@@ -857,7 +874,7 @@ def test_masters_plain_yes_in_the_next_turn_records_it_once(answer):
         },
         "deduped": False,
     }
-    assert source.calls_of("record") == [("record", 18000, None, "jajan kopi", "GoPay", "gaji")]
+    assert source.calls_of("record") == [("record", 18000, None, "jajan kopi", GOPAY_ID, "gaji")]
     assert held and again["needs_confirmation"] is True
 
 
@@ -950,7 +967,7 @@ def test_a_null_category_and_wallet_count_as_left_out():
 
     assert question == QUESTION
     assert not is_error
-    assert source.calls_of("record") == [("record", 18000, None, "jajan kopi", "GoPay", "gaji")]
+    assert source.calls_of("record") == [("record", 18000, None, "jajan kopi", GOPAY_ID, "gaji")]
 
 
 def test_the_confirming_call_may_differ_in_case_and_spacing():
@@ -965,7 +982,7 @@ def test_the_confirming_call_may_differ_in_case_and_spacing():
     )
 
     assert not is_error
-    assert source.calls_of("record") == [("record", 18000, None, "Jajan Kopi", "GoPay", "gaji")]
+    assert source.calls_of("record") == [("record", 18000, None, "Jajan Kopi", GOPAY_ID, "gaji")]
 
 
 def test_a_wallet_is_recorded_under_the_name_tepira_writes():
@@ -988,9 +1005,55 @@ def test_a_wallet_is_recorded_under_the_name_tepira_writes():
         "Catat satu juta lima ratus ribu untuk servis motor di BCA, Master? Jawab iya kalau jadi."
     )
     assert source.calls_of("record") == [
-        ("record", 1500000, "Transport", "servis motor", "BCA", "gaji")
+        ("record", 1500000, "Transport", "servis motor", BCA_ID, "gaji")
     ]
     assert result["recorded"]["category"] == "Transport"
+
+
+def test_a_wallet_is_recorded_by_its_id_whatever_name_tepira_stores_for_it():
+    # A name POSTed for "Bank Jago" would miss the stored "Bank  Jago": the id never does.
+    source = FakeSource(wallets={**WALLETS, "wallets": [*WALLETS["wallets"], JAGO]})
+    tools, gate = writing(source)
+    arguments = {"amount": 2000, "description": "parkir", "wallet": "Bank Jago"}
+    turn(tools, gate, "catat parkir 2 ribu di Bank Jago")
+    run(tools, RECORD_EXPENSE, arguments)
+    question = gate.with_question("")
+    turn(tools, gate, "iya")
+
+    result, is_error = run(tools, RECORD_EXPENSE, arguments)
+
+    assert question == "Catat dua ribu untuk parkir di Bank Jago, Master? Jawab iya kalau jadi."
+    assert not is_error
+    assert source.calls_of("record") == [("record", 2000, None, "parkir", 4, "gaji")]
+    assert result["recorded"]["wallet"] == "Bank Jago"
+
+
+@pytest.mark.parametrize(
+    "named",
+    [
+        "Tabungan Rencana Pendidikan Anak Pertama Kita",
+        "  tabungan rencana  pendidikan anak pertama kita ",
+        "Tabungan Rencana Pendidikan Anak Pertam…",
+    ],
+    ids=["in_full", "in_full_any_case_and_spacing", "as_tepira_shows_it"],
+)
+def test_a_wallet_over_40_characters_is_named_in_full_or_as_tepira_shows_it(named):
+    source = FakeSource(wallets={**WALLETS, "wallets": [*WALLETS["wallets"], SCHOOL_FUND]})
+    tools, gate = writing(source)
+    arguments = {"amount": 200000, "description": "sekolah", "wallet": named}
+    turn(tools, gate, "catat sekolah 200 ribu dari tabungan pendidikan")
+    run(tools, RECORD_EXPENSE, arguments)
+    question = gate.with_question("")
+    turn(tools, gate, "iya")
+
+    _, is_error = run(tools, RECORD_EXPENSE, arguments)
+
+    assert question == (
+        "Catat dua ratus ribu untuk sekolah di Tabungan Rencana Pendidikan Anak Pertam…, "
+        "Master? Jawab iya kalau jadi."
+    )
+    assert not is_error
+    assert source.calls_of("record") == [("record", 200000, None, "sekolah", 5, "gaji")]
 
 
 def test_an_unknown_wallet_is_an_error_naming_the_wallets_there_before_any_question():
@@ -1086,12 +1149,12 @@ DESCRIPTION_REASON = "'description' wajib diisi dengan teks, paling banyak 120 k
             "'category' harus salah satu dari: " + ", ".join(CATEGORY_LABELS) + ".",
         ),
         (
-            {**COFFEE, "wallet": "x" * 41},
-            "'wallet' harus berupa nama dompet, paling banyak 40 karakter.",
+            {**COFFEE, "wallet": "x" * 61},
+            "'wallet' harus berupa nama dompet, paling banyak 60 karakter.",
         ),
         (
             {**COFFEE, "wallet": " "},
-            "'wallet' harus berupa nama dompet, paling banyak 40 karakter.",
+            "'wallet' harus berupa nama dompet, paling banyak 60 karakter.",
         ),
         ({**COFFEE, "date": "2026-10-15"}, "argumen tidak dikenal: date."),
     ],
@@ -1122,7 +1185,7 @@ def test_the_largest_amount_and_a_120_character_description_are_recorded():
     _, is_error = run(tools, RECORD_EXPENSE, arguments)
 
     assert not is_error
-    assert source.calls_of("record") == [("record", 5_000_000, None, "x" * 120, "GoPay", "gaji")]
+    assert source.calls_of("record") == [("record", 5_000_000, None, "x" * 120, GOPAY_ID, "gaji")]
 
 
 def test_recording_empties_the_cache_so_the_next_read_shows_the_new_balance():
@@ -1250,7 +1313,7 @@ def test_a_brain_speaks_only_the_question_after_a_held_recording_and_records_on_
 
     assert asked.text == QUESTION
     assert done.text == "Sudah kucatat, Master."
-    assert source.calls_of("record") == [("record", 18000, None, "jajan kopi", "GoPay", "gaji")]
+    assert source.calls_of("record") == [("record", 18000, None, "jajan kopi", GOPAY_ID, "gaji")]
 
 
 # undo_expense

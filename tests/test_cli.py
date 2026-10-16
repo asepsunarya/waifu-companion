@@ -10612,10 +10612,15 @@ class FakeTepira:
         return self._answer("transactions", limit, category)
 
     def record(
-        self, amount: int, category: str | None, note: str | None, wallet: str, source="gaji"
+        self, amount: int, category: str | None, note: str | None, wallet: int | str, source="gaji"
     ) -> RecordedExpense:
         self.asked.append(("record", amount, category, note, wallet, source))
-        return RecordedExpense(812, amount, category, note, "2026-10-16 08:41", wallet, False)
+        [name] = [
+            each["name"]
+            for each in TEPIRA_WALLETS["wallets"]
+            if wallet in (each["id"], each["name"])
+        ]
+        return RecordedExpense(812, amount, category, note, "2026-10-16 08:41", name, False)
 
     def undo(self, expense_id: int) -> UndoneExpense:
         self.asked.append(("undo", expense_id))
@@ -10777,7 +10782,7 @@ def test_chat_records_an_expense_only_after_master_s_yes_in_the_next_turn(
     )
     assert "Cyrene: Sudah kucatat, Master." in out
     records = [asked for asked in tepira.asked if asked[0] == "record"]
-    assert records == [("record", 18000, None, "jajan kopi", "GoPay", "gaji")]
+    assert records == [("record", 18000, None, "jajan kopi", 1, "gaji")]  # GoPay's id
 
 
 def test_tepira_summary_prints_this_month_in_wib(home, tepira, capsys):

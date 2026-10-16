@@ -798,10 +798,11 @@ class TepiraConfig(_Strict):
         if value is None:
             return None
         name = value.strip()
-        # 40: tepira shows wallet names cut to 40 characters in every Cyrene API answer.
-        if not name or len(name) > 40 or not name.isprintable():
+        # 60: tepira takes a wallet name of up to 60 characters in its API. It shows names over
+        # 40 cut to 40, and the finance tools match a name in full the way tepira cuts it.
+        if not name or len(name) > 60 or not name.isprintable():
             raise ValueError(
-                "tepira.default_wallet must be a wallet name of 1-40 characters, "
+                "tepira.default_wallet must be a wallet name of 1-60 characters, "
                 "written as tepira shows it"
             )
         return name

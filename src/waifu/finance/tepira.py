@@ -44,6 +44,7 @@ from waifu.finance.values import (
     UNDO_UNCONFIRMED,
     UNREACHABLE,
     UNREADABLE,
+    WALLET_GONE,
     WALLET_NOT_FOUND,
     WALLETS_THERE,
     WRITES_OFF,
@@ -69,6 +70,7 @@ _CONNECT_FAILURES = (httpx.ConnectError, httpx.ConnectTimeout)
 _FIELD_NAME = re.compile(r"[A-Za-z0-9_]{1,40}")
 _UNNAMED_FIELD = "permintaan"
 _MAX_WALLET_NAMES = 20
+_MAX_WALLET_ID = 2**31 - 1  # tepira's ids are Postgres int4
 
 # What tepira's answers mean for each method beyond a plain success (SPEC v1.24's table): a 404,
 # then an answer that leaves unknown whether a write happened (a 5xx, an unexpected 2xx, a
@@ -145,7 +147,7 @@ _SUMMARY = _Shape(
 _WALLETS = _Shape(
     _object(
         as_of=_text,
-        wallets=_list_of(_object(name=_text, balance=_int)),
+        wallets=_list_of(_object(id=_int, name=_text, balance=_int)),
         more=_int,
         totals=_object(assets=_int, debts=_int, net_worth=_int),
     ),
@@ -231,11 +233,12 @@ class TepiraClient:
         amount: int,
         category: str | None,
         note: str | None,
-        wallet: str,
+        wallet: int | str,
         source: ExpenseSource = "gaji",
     ) -> RecordedExpense:
-        """POST /expenses, dated now by tepira; never retried. tepira answers a repeat of the
-        last two minutes with that entry, marked `deduped`."""
+        """POST /expenses, dated now by tepira, to the wallet with that id (as /wallets lists
+        it) or that name; never retried. tepira answers a repeat of the last two minutes with
+        that entry, marked `deduped`."""
         _require_whole_number("amount", amount, 1, MAX_EXPENSE_AMOUNT)
         if category is not None and category not in CATEGORY_LABELS:
             raise ValueError("the category must be one of tepira's labels")
@@ -243,8 +246,10 @@ class TepiraClient:
             not isinstance(note, str) or not note.strip() or len(note) > MAX_NOTE_CHARS
         ):
             raise ValueError(f"the note must be text of 1-{MAX_NOTE_CHARS} characters")
-        if not isinstance(wallet, str) or not wallet.strip():
-            raise ValueError("the wallet must be a name")
+        if _int(wallet):
+            _require_whole_number("wallet id", wallet, 1, _MAX_WALLET_ID)
+        elif not isinstance(wallet, str) or not wallet.strip():
+            raise ValueError("the wallet must be a name or an id")
         if source not in get_args(ExpenseSource):
             raise ValueError("the source must be gaji or bonus")
         body: dict[str, Any] = {"amount": amount, "wallet": wallet, "source": source}
@@ -277,7 +282,7 @@ class TepiraClient:
         shape: _Shape,
         *,
         logged: str | None = None,
-        wallet: str | None = None,
+        wallet: int | str | None = None,
         **request: Any,
     ) -> dict[str, Any]:
         """tepira's answer without "ok" when it has `shape`; else a FinanceError, logged."""
@@ -373,7 +378,7 @@ def _no_answer(method: str, *, connected: bool) -> FinanceError:
     return FinanceError(*_UNCONFIRMED[method])
 
 
-def _failure(method: str, status: int, data: Any, wallet: str | None) -> FinanceError:
+def _failure(method: str, status: int, data: Any, wallet: int | str | None) -> FinanceError:
     """Why tepira's answer is no answer to `method` (SPEC v1.24's table)."""
     if 200 <= status < 300:
         return FinanceError(*_UNCONFIRMED.get(method, ("unreadable", UNREADABLE)))
@@ -411,8 +416,11 @@ def _wallet_names(data: Any) -> list[str] | None:
     return [name for name in cut if name][:_MAX_WALLET_NAMES]
 
 
-def _wallet_not_found(wallet: str, names: list[str]) -> FinanceError:
-    message = WALLET_NOT_FOUND.format(wallet=wallet.strip())
+def _wallet_not_found(wallet: int | str, names: list[str]) -> FinanceError:
+    if isinstance(wallet, int):
+        message = WALLET_GONE
+    else:
+        message = WALLET_NOT_FOUND.format(wallet=wallet.strip())
     if names:
         message = f"{message} {WALLETS_THERE.format(names=', '.join(names))}"
     return FinanceError("wallet_not_found", message)

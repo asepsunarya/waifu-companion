@@ -355,6 +355,21 @@ def test_record_sends_the_source_it_is_given():
     assert json.loads(tepira.requests[0].content)["source"] == "bonus"
 
 
+def test_record_names_a_wallet_by_its_id_as_a_json_number():
+    # tepira matches a name against the one it stores, which the name it shows may not be.
+    tepira = FakeTepira(lambda: httpx.Response(201, json=RECORDED))
+
+    recorded = tepira.client.record(18000, None, "jajan kopi", 1)
+
+    assert json.loads(tepira.requests[0].content) == {
+        "amount": 18000,
+        "wallet": 1,
+        "source": "gaji",
+        "note": "jajan kopi",
+    }
+    assert recorded.wallet == "GoPay"
+
+
 def test_record_reports_the_wallet_as_tepira_writes_it():
     tepira = FakeTepira(lambda: httpx.Response(201, json=RECORDED))
 
@@ -477,6 +492,10 @@ INVALID_CALLS: dict[str, Callable[[TepiraClient], Any]] = {
     "empty wallet": lambda client: client.record(18000, None, "kopi", ""),
     "blank wallet": lambda client: client.record(18000, None, "kopi", "  "),
     "wallet not text": lambda client: client.record(18000, None, "kopi", None),
+    "wallet id 0": lambda client: client.record(18000, None, "kopi", 0),
+    "wallet id past int4": lambda client: client.record(18000, None, "kopi", 2**31),
+    "wallet as a boolean": lambda client: client.record(18000, None, "kopi", True),
+    "wallet as a float": lambda client: client.record(18000, None, "kopi", 1.0),
     "unknown source": lambda client: client.record(18000, None, "kopi", "GoPay", "tabungan"),
     "expense id 0": lambda client: client.undo(0),
     "negative expense id": lambda client: client.undo(-1),
@@ -510,6 +529,11 @@ EDGE_CALLS: dict[str, tuple[Callable[[TepiraClient], Any], Reply]] = {
         DEDUPED,
     ),
     "expense id 1": (lambda client: client.undo(1), DELETED),
+    "wallet id 1": (lambda client: client.record(18000, None, "kopi", 1), DEDUPED),
+    "the largest wallet id": (
+        lambda client: client.record(18000, None, "kopi", 2**31 - 1),
+        DEDUPED,
+    ),
 }
 
 
@@ -843,6 +867,17 @@ def test_an_unknown_wallet_without_any_wallet_in_tepira_names_only_the_one_asked
     assert (error.kind, error.message) == ("wallet_not_found", "Dompet Dana tidak ada di tepira.")
 
 
+def test_a_wallet_named_by_its_id_that_is_gone_says_so_and_lists_the_wallets_tepira_has():
+    tepira = FakeTepira(lambda: error_json(422, "wallet_not_found", wallets=["GoPay", "BCA"]))
+
+    error = failure(lambda client: client.record(18000, None, "kopi", 4), tepira)
+
+    assert (error.kind, error.message) == (
+        "wallet_not_found",
+        "Dompet itu sudah tidak ada di tepira. Dompet yang ada: GoPay, BCA.",
+    )
+
+
 def test_tepiras_wallet_names_are_cut_to_40_characters_and_20_names():
     names = [f"{index:02d}" + "x" * 50 for index in range(25)]
     tepira = FakeTepira(lambda: error_json(422, "wallet_not_found", wallets=names))
@@ -902,6 +937,8 @@ UNEXPECTED_READS: dict[str, tuple[str, dict]] = {
     "summary top item a number": ("summary", changed(SUMMARY, ("top", 1), 35000)),
     "wallets without as_of": ("wallets", changed(WALLETS, ("as_of",))),
     "wallets without wallets": ("wallets", changed(WALLETS, ("wallets",))),
+    "wallets without an id": ("wallets", changed(WALLETS, ("wallets", 0, "id"))),
+    "wallets id as text": ("wallets", changed(WALLETS, ("wallets", 0, "id"), "1")),
     "wallets without a name": ("wallets", changed(WALLETS, ("wallets", 0, "name"))),
     "wallets name a number": ("wallets", changed(WALLETS, ("wallets", 0, "name"), 1)),
     "wallets balance as text": ("wallets", changed(WALLETS, ("wallets", 1, "balance"), "5000000")),

@@ -34,6 +34,7 @@ from waifu.finance.values import (
     MAX_NOTE_CHARS,
     MAX_TRANSACTIONS,
     MAX_WALLET_CHARS,
+    MAX_WALLET_NAME_CHARS,
     MAX_YEAR,
     MIN_YEAR,
     RECENT_TRANSACTIONS,
@@ -80,7 +81,9 @@ _AMOUNT_REASON = "'amount' harus bilangan bulat rupiah dari 1 sampai 5.000.000."
 _DESCRIPTION_REASON = (
     f"'description' wajib diisi dengan teks, paling banyak {MAX_NOTE_CHARS} karakter."
 )
-_WALLET_REASON = f"'wallet' harus berupa nama dompet, paling banyak {MAX_WALLET_CHARS} karakter."
+_WALLET_REASON = (
+    f"'wallet' harus berupa nama dompet, paling banyak {MAX_WALLET_NAME_CHARS} karakter."
+)
 
 _WHEN_ASKED = (
     "Use it only when Master asks {request}, never for a greeting, the morning briefing, or "
@@ -287,14 +290,14 @@ class FinanceTools:
         category = _category(given, CATEGORY_LABELS)
         named = given.get("wallet")
         wanted = _text(
-            self._default_wallet if named is None else named, MAX_WALLET_CHARS, _WALLET_REASON
+            self._default_wallet if named is None else named, MAX_WALLET_NAME_CHARS, _WALLET_REASON
         )
         if looks_secret(description):
             return _error(_LOOKS_SECRET)
-        wallet = self._wallet_named(wanted)
+        wallet_id, wallet = self._wallet_named(wanted)
         assert self._confirmations is not None  # writes need the gate (see __init__)
         refusal = self._confirmations.check_action(
-            (RECORD_EXPENSE, amount, description.casefold(), category, wallet.casefold()),
+            (RECORD_EXPENSE, amount, description.casefold(), category, wallet_id),
             label=f"Pencatatan pengeluaran {amount} rupiah untuk {description} di {wallet}",
             question=expense_question(amount, description, wallet, self._owner_call),
             order_words=RECORD_ORDER_WORDS,
@@ -303,7 +306,7 @@ class FinanceTools:
             # An error result, so an empty final reply never tells Master it is recorded.
             return _to_json({"ok": False, "needs_confirmation": True, "message": refusal}), True
         try:
-            expense = self._source.record(amount, category, description, wallet)
+            expense = self._source.record(amount, category, description, wallet_id)
         except FinanceError as error:
             if error.kind == "unconfirmed":
                 # tepira may have written it, so "the one just now" is no longer known.
@@ -328,14 +331,22 @@ class FinanceTools:
         }
         return _to_json({"recorded": recorded, "deduped": expense.deduped}), False
 
-    def _wallet_named(self, wanted: str) -> str:
-        """The name tepira writes for the wallet `wanted`, matched as tepira matches it (its
-        findWalletByName: trimmed, ignoring case); a `FinanceError` when it has none such."""
+    def _wallet_named(self, wanted: str) -> tuple[int, str]:
+        """The id of the wallet `wanted` and its name as tepira shows it; a `FinanceError` when
+        tepira has none such.
+
+        tepira shows names cleaned up and cut to 40 characters (its clampText), so `wanted` is
+        cut the same way and matched as tepira's findWalletByName matches: the first wallet,
+        trimmed, ignoring case. A record names the wallet by its id, since tepira matches a
+        name against the one it stores, which may differ from the one it shows ("Bank  Jago"
+        with two spaces, or a name over 40 characters).
+        """
         wallets = self._read(("wallets",), self._source.wallets)["wallets"]
+        shown = _as_tepira_shows(wanted).lower()
+        for wallet in wallets:
+            if wallet["name"].strip().lower() == shown:
+                return wallet["id"], wallet["name"].strip()
         names = [wallet["name"] for wallet in wallets]
-        for name in names:
-            if name.strip().lower() == wanted.lower():
-                return name.strip()
         message = WALLET_NOT_FOUND.format(wallet=wanted)
         if names:
             listed = ", ".join(name[:MAX_WALLET_CHARS] for name in names[:_WALLETS_NAMED])
@@ -482,6 +493,14 @@ def _text(value: object, max_chars: int, reason: str) -> str:
     if not 1 <= len(text) <= max_chars:
         raise _InvalidArguments(reason)
     return text
+
+
+def _as_tepira_shows(name: str) -> str:
+    """A whitespace-collapsed wallet name as tepira shows it: over 40 characters (code points),
+    its first 39 and an ellipsis."""
+    if len(name) <= MAX_WALLET_CHARS:
+        return name
+    return name[: MAX_WALLET_CHARS - 1].rstrip() + "…"
 
 
 def _goal(given: Mapping[str, object]) -> str | None:

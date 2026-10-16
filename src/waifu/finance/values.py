@@ -38,7 +38,8 @@ UNCATEGORIZED = "uncategorized"
 MAX_EXPENSE_AMOUNT = 5_000_000  # rupiah per expense
 MAX_NOTE_CHARS = 120
 MAX_GOAL_QUERY_CHARS = 50
-MAX_WALLET_CHARS = 40  # as tepira.default_wallet: tepira shows wallet names cut to 40
+MAX_WALLET_CHARS = 40  # tepira shows wallet names cut to 40 (its clampText)
+MAX_WALLET_NAME_CHARS = 60  # a wallet named in full, as tepira takes one in its API
 DEFAULT_TRANSACTIONS = 5
 MAX_TRANSACTIONS = 10
 MIN_YEAR = 2000
@@ -95,6 +96,8 @@ UNDO_EXPIRED = (
 # Templates the client fills: `field` only as a plain field name, `names` joined with ", ".
 BAD_REQUEST = "tepira menolak isian {field}."
 WALLET_NOT_FOUND = "Dompet {wallet} tidak ada di tepira."
+# For a wallet named by its id: it was there when the wallets were read.
+WALLET_GONE = "Dompet itu sudah tidak ada di tepira."
 WALLETS_THERE = "Dompet yang ada: {names}."
 
 # A read's JSON object as tepira sent it, without "ok", after the client checked its shape.
@@ -157,10 +160,10 @@ class FinanceSource(Protocol):
         amount: int,
         category: str | None,
         note: str | None,
-        wallet: str,
+        wallet: int | str,
         source: ExpenseSource = "gaji",
     ) -> RecordedExpense:
-        """POST /expenses, dated now; never retried."""
+        """POST /expenses, dated now, to the wallet with that id or that name; never retried."""
         ...
 
     def undo(self, expense_id: int) -> UndoneExpense:
