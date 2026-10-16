@@ -8,8 +8,10 @@ aktif, lalu jalankan `waifu check`.
 
 - Jam warp, event, dan jendela endgame HSR kini sama dengan timer di game: warp yang berakhir
   jam 11.00 WIB tidak lagi tertulis `berakhir 10:59`, di `waifu gacha hsr events`, jawaban
-  Cyrene, maupun laporan mingguan. Genshin dan ZZZ sudah begitu sejak v1.23; jam berakhir
-  musim endgame HSR memang sudah tepat.
+  Cyrene, maupun laporan mingguan. Genshin dan ZZZ sudah begitu sejak v1.23.
+- Musim endgame HSR (Memory of Chaos, Pure Fiction, Apocalyptic Shadow, Anomaly Arbitration)
+  kini berakhir jam 03.00 WIB, sama dengan jendelanya di kalender, bukan `02:59`, di
+  `waifu gacha hsr endgame`, jawaban Cyrene, maupun laporan mingguan.
 
 ## v1.27: laporan game mingguan
 
