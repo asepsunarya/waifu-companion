@@ -20,6 +20,16 @@ logger = logging.getLogger(__name__)
 _MEMORY_UNREADABLE = "Ingatanmu tentang Master tidak bisa dibaca saat ini."
 
 
+def confirmation_gate(config: AppConfig) -> ConfirmationGate:
+    """A new gate for Master's own yes: it hears Master through her name and wake words ("iya,
+    Cyrene", in the follow-up window and in chat) and what she calls the owner ("iya, Sayang").
+    """
+    return ConfirmationGate(
+        names=[config.assistant.name, *config.assistant.wake_words],
+        owner_call=config.assistant.owner_call,
+    )
+
+
 def build_brain(
     config: AppConfig,
     registry: DeviceRegistry,
@@ -29,12 +39,14 @@ def build_brain(
     memory_section: Callable[[], str] | None = None,
     on_usage: Callable[[str, TokenUsage], None] | None = None,
     turn_images: TurnImages | None = None,
+    confirmations: ConfirmationGate | None = None,
 ) -> Brain:
     """The configured backend; the persona comes from `assistant.persona_file` unless given.
 
     With `memory_section`, the brain reads the system prompt at each session start,
-    and the section follows the unchanged base prompt. Every brain gets its own
-    confirmation gate. `on_usage` hears what each Claude response used; Ollama is
+    and the section follows the unchanged base prompt. The brain holds its calls with
+    `confirmations`, the gate the finance tools share, else with a gate of its own from
+    `confirmation_gate`. `on_usage` hears what each Claude response used; Ollama is
     free, so its brain never calls it. `turn_images` brings Claude the photo a phone
     message carries; Ollama's model cannot see images, so its brain never gets it.
     With `web_search.enabled`, Claude gets its server-side web search (near
@@ -58,13 +70,8 @@ def build_brain(
         "session_idle_minutes": config.assistant.session_idle_minutes,
         "max_session_turns": config.assistant.max_session_turns,
         "providers": providers,
-        # Never off: turning the PC off or cutting its power waits for Master's own yes, which
-        # still carries her name ("iya, Cyrene") in the follow-up window and in chat, or what
-        # she calls the owner ("iya, Sayang").
-        "confirmations": ConfirmationGate(
-            names=[config.assistant.name, *config.assistant.wake_words],
-            owner_call=config.assistant.owner_call,
-        ),
+        # Never off: turning the PC off or cutting its power waits for Master's own yes.
+        "confirmations": confirmation_gate(config) if confirmations is None else confirmations,
         "owner_call": config.assistant.owner_call,
     }
     if uses_claude:
