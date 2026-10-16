@@ -214,7 +214,10 @@ class SpeechRouter:
             try:
                 pieces.append(engine.synthesize(run_text, language))
             except TtsError as exc:
-                logger.warning("Skipping %s speech run %r: %s", language, run_text, exc)
+                # Never her words: a reply may hold Master's money, and this reaches the log file.
+                logger.warning(
+                    "Skipping %s speech run of %d characters: %s", language, len(run_text), exc
+                )
                 failures.append(exc)
         if not pieces:
             raise TtsError(f"Semua bagian teks gagal diucapkan: {failures[-1]}") from failures[-1]

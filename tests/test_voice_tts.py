@@ -403,6 +403,18 @@ def test_router_skips_a_failing_run_and_speaks_the_rest():
     assert len(audio) == 100 + 120 + 100
 
 
+def test_a_skipped_run_is_logged_without_what_she_was_saying(caplog):
+    # The warning reaches logs\waifu.log under autostart; her replies may hold Master's money.
+    router = SpeechRouter({"id": FakeEngine(fail=True), "ja": FakeEngine()}, default_language="id")
+
+    with caplog.at_level(logging.DEBUG, logger="waifu.voice.tts"):
+        router.synthesize("Saldo GoPay-mu dua ratus lima puluh ribu, はい")
+
+    [warning] = [record for record in caplog.records if record.levelno == logging.WARNING]
+    assert warning.getMessage() == "Skipping id speech run of 41 characters: engine down"
+    assert "GoPay" not in caplog.text
+
+
 def test_router_raises_tts_error_when_every_run_fails():
     router = SpeechRouter({"id": FakeEngine(fail=True)}, default_language="id")
 
