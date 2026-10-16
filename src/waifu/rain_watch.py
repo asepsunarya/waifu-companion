@@ -14,6 +14,9 @@ counts only through its amount or probability. Open-Meteo gives an entry's proba
 sums its amount over the hour before its time, so a rainy 16:00 entry is rain from 15:00 to
 16:00: the lead counts to 15:00, and she says "jam tiga sore".
 
+It rains now only when the current code is rain or the hour running now holds at least
+`RAIN_MM`: a chance alone is not rain falling, so it never silences the rain after it.
+
 A rain is told once: one starting within the lead while it is dry now. While it rains, while
 the same rain comes closer, and when a rain starts less than `DRY_GAP` after the end of the
 last rainy hour already known (fewer than three dry hours between), nothing more is said. A
@@ -90,26 +93,35 @@ def is_rainy(hour: Hour, threshold: int) -> bool:
     )
 
 
-def raining_now(forecast: Forecast, threshold: int) -> bool:
-    """Whether the current code is rain or the entry of the hour running now is."""
+def raining_now(forecast: Forecast) -> bool:
+    """Whether rain falls now: the current code is rain, or the entry of the hour running now
+    holds at least `RAIN_MM`. Its chance or code alone is a forecast, not rain falling."""
     if forecast.current_code in RAIN_CODES:
         return True
     running = _running_entry(forecast.now)
-    return any(hour.at == running and is_rainy(hour, threshold) for hour in forecast.hours)
+    return any(
+        hour.at == running
+        and hour.precipitation_mm is not None
+        and hour.precipitation_mm >= RAIN_MM
+        for hour in forecast.hours
+    )
 
 
 def rain_window(forecast: Forecast, threshold: int, *, within: timedelta) -> RainWindow | None:
     """The first rain that starts after `forecast.now` and at most `within` later: a rainy
-    entry after a dry one (or the first entry), with the rainy entries that follow it. It
-    starts an hour before that entry's time."""
-    rainy = [is_rainy(hour, threshold) for hour in forecast.hours]
-    for first, hour in enumerate(forecast.hours):
-        starts = rainy[first] and (first == 0 or not rainy[first - 1])
-        if starts and forecast.now < hour.at - HOUR <= forecast.now + within:
+    entry of an hour still to come after one without rain, with the rainy entries that follow
+    it. It starts an hour before that entry's time; the hour running now is rain only while it
+    rains now."""
+    coming = [hour for hour in forecast.hours if hour.at - HOUR > forecast.now]
+    rainy = [is_rainy(hour, threshold) for hour in coming]
+    rain_before = raining_now(forecast)
+    for first, hour in enumerate(coming):
+        starts = rainy[first] and not (rainy[first - 1] if first else rain_before)
+        if starts and hour.at - HOUR <= forecast.now + within:
             last = first
             while last + 1 < len(rainy) and rainy[last + 1]:
                 last += 1
-            run = forecast.hours[first : last + 1]
+            run = coming[first : last + 1]
             chances = [entry.rain_chance for entry in run if entry.rain_chance is not None]
             return RainWindow(hour.at - HOUR, run[-1].at, max(chances, default=None))
     return None
@@ -119,7 +131,7 @@ def follow_rain(
     forecast: Forecast, *, threshold: int, lead: timedelta, episode_last: datetime | None
 ) -> RainState:
     """The rain to tell after this forecast, and how far the episode now reaches."""
-    if raining_now(forecast, threshold):
+    if raining_now(forecast):
         running = _running_entry(forecast.now)
         return RainState(None, running if episode_last is None else max(episode_last, running))
     window = rain_window(forecast, threshold, within=lead)

@@ -2832,7 +2832,9 @@ tetap jalan walau sapaan paginya dimatikan (`briefing.enabled: false`), selama k
   memperingatkan kalau hujan diperkirakan mulai dalam `lead_minutes` ke depan (bawaan 60
   menit). Satu jam dihitung hujan kalau peluang hujannya paling sedikit `threshold` (bawaan
   60%), curahnya paling sedikit 0,5 mm, atau kodenya hujan, hujan lokal, atau badai petir.
-  Gerimis saja tidak dihitung, kecuali peluang atau curahnya cukup.
+  Gerimis saja tidak dihitung, kecuali peluang atau curahnya cukup. Peluang hujan saja di jam
+  yang sedang berjalan belum dianggap hujan yang turun, jadi hujan sesudahnya tetap
+  diperingatkan.
 - **Jamnya bulat.** Prakiraannya per jam, jadi dia menyebut jam bulat ("sekitar jam tiga
   sore"): jam hujannya mulai. Open-Meteo mencatat hujan untuk satu jam *sebelum* jam yang
   tertulis (angka jam 16.00 adalah hujan dari 15.00 sampai 16.00), jadi dia menyebut jam 15.00

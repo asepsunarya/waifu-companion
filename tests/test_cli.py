@@ -7214,6 +7214,19 @@ def test_rain_while_it_rains_says_so_and_looks_for_another_rain(home, open_meteo
     ]
 
 
+def test_rain_with_only_a_chance_of_rain_now_shows_the_rain_after_it(home, open_meteo, capsys):
+    write_out_example_briefing(home)
+    dry_tomorrow(open_meteo)
+    forecast_hour(open_meteo, 8, code=3, chance=95)  # 07:00-08:00, the hour running at 07:15
+    forecast_hour(open_meteo, 9, code=61, chance=90, mm=2.0)
+
+    assert cli.main(["rain"]) == 0
+
+    assert capsys.readouterr().out.splitlines()[1:] == [
+        "Hujan berikutnya: sekitar jam delapan pagi (08:00-09:00, peluang 90%)."
+    ]
+
+
 def test_rain_counts_rain_by_the_configured_threshold_also_with_the_alerts_off(
     home, open_meteo, capsys
 ):

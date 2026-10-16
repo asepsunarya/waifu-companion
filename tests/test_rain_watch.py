@@ -102,12 +102,16 @@ def test_the_threshold_is_the_configured_one():
 
 
 def test_it_rains_now_when_the_current_code_is_rain():
-    assert raining_now(forecast(14.25, current_code=63), THRESHOLD) is True
+    assert raining_now(forecast(14.25, current_code=63)) is True
 
 
-def test_it_rains_now_when_the_hour_running_now_is_rainy_whatever_the_current_code():
+def test_it_rains_now_when_the_hour_running_now_holds_rain_whatever_the_current_code():
     # At 14:15 the hour running now is 14:00-15:00: the 15:00 entry.
-    assert raining_now(forecast(14.25, rain=[15]), THRESHOLD) is True
+    assert raining_now(forecast(14.25, rain=[15])) is True
+
+
+def test_half_a_millimetre_in_the_hour_running_now_is_rain_now():
+    assert raining_now(forecast(14.25, changes={15: Hour(at(15), DRY_CODE, 10, 0.5)})) is True
 
 
 @pytest.mark.parametrize(
@@ -117,11 +121,20 @@ def test_it_rains_now_when_the_hour_running_now_is_rainy_whatever_the_current_co
         forecast(14.25, current_code=51),
         forecast(14.5, rain=[14]),
         forecast(15.0, rain=[15]),
+        forecast(14.25, changes={15: Hour(at(15), DRY_CODE, 95, 0.4)}),
+        forecast(14.25, changes={15: Hour(at(15), 61, 40, 0.2)}),
     ],
-    ids=["rain next hour", "drizzle now", "rain the hour before", "rain that just ended"],
+    ids=[
+        "rain next hour",
+        "drizzle now",
+        "rain the hour before",
+        "rain that just ended",
+        "a chance alone",
+        "a rain code forecast for the hour",
+    ],
 )
 def test_it_does_not_rain_now_otherwise(dry_now):
-    assert raining_now(dry_now, THRESHOLD) is False
+    assert raining_now(dry_now) is False
 
 
 # --- the next rain ---------------------------------------------------------------------------
@@ -171,6 +184,16 @@ def test_the_rain_already_falling_is_not_the_next_rain():
     window = rain_window(forecast(14.25, rain=[15, 16, 19]), THRESHOLD, within=24 * HOUR)
 
     assert window == RainWindow(at(18), at(19), 80)
+
+
+def test_a_rain_after_an_hour_with_only_a_chance_of_it_starts_when_that_hour_ends():
+    # At 14:00 the hour running now has a 62 % chance but holds no rain, so it is not a rain
+    # falling now: the rain starts at 15:00, without the hour's chance.
+    changes = {15: Hour(at(15), DRY_CODE, 62, 0.0), 16: wet(at(16), 90), 17: wet(at(17), 70)}
+
+    window = rain_window(forecast(14.0, changes=changes), THRESHOLD, within=LEAD)
+
+    assert window == RainWindow(at(15), at(17), 90)
 
 
 def test_the_next_rain_may_start_after_midnight():
@@ -406,6 +429,33 @@ def test_a_wavering_forecast_never_tells_the_same_rain_twice():
     notices = rig.poll()
     notices += rig.poll(forecast(14.25, changes={16: Hour(at(16), DRY_CODE, 58, 0.0)}))
     notices += rig.poll(forecast(14.5, changes={16: Hour(at(16), DRY_CODE, 61, 0.0)}))
+
+    assert notices == [THREE_PM]
+
+
+def test_an_hour_with_only_a_chance_of_rain_never_silences_the_rain_after_it():
+    # At 13:45 the rain from 15:00 is too far ahead; at 14:00 the hour running now reaches a
+    # 62 % chance with clouds and no rain, which is not rain falling now.
+    ahead = {15: Hour(at(15), DRY_CODE, 55, 0.0), 16: wet(at(16), 90), 17: wet(at(17), 90)}
+    rig = Rig(forecast(13.75, changes=ahead))
+    rig.now = at(13.75)
+    notices = rig.poll()
+    for now in (14.0, 14.25, 14.75):
+        rig.now = at(now)
+        notices += rig.poll(forecast(now, changes={**ahead, 15: Hour(at(15), DRY_CODE, 62, 0.0)}))
+
+    assert notices == [THREE_PM]
+
+
+def test_a_rain_of_chances_alone_is_told_once_as_it_passes():
+    # From 15:00 to 19:00 at 80 % with clouds and no amount: never rain falling now, so every
+    # poll sees its rest start within the hour.
+    likely = {h: Hour(at(h), DRY_CODE, 80, 0.0) for h in (16, 17, 18, 19)}
+    rig = Rig(forecast(14.0, changes=likely))
+    notices = rig.poll()
+    for now in (14.25, 14.75, 15.0, 15.5, 16.25, 17.0, 17.75, 18.5, 19.25):
+        rig.now = at(now)
+        notices += rig.poll(forecast(now, changes=likely))
 
     assert notices == [THREE_PM]
 

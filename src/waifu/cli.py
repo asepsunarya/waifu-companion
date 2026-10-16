@@ -2814,7 +2814,7 @@ def _rain(args: argparse.Namespace) -> int:
         f"Prakiraan hujan di {forecast.place}, per {forecast.now:%H:%M} "
         f"(peluang {threshold}% ke atas):"
     )
-    rains_now = raining_now(forecast, threshold)
+    rains_now = raining_now(forecast)
     if rains_now:
         print("Sekarang sedang hujan.")
     window = rain_window(forecast, threshold, within=timedelta(hours=RAIN_LOOKAHEAD_HOURS))
