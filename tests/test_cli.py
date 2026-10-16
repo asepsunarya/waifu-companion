@@ -440,13 +440,14 @@ DISK_CODE = CodeVersion((V125, V124), DISK_HASH, DISK_COMMIT)
 
 class FakeCodeReader:
     """Stands in for read_code_version, which would read this repository and run git: hands
-    out `disk` and remembers each read's `run` (None: neither git nor the source files)."""
+    out `disk` and remembers each read's `run` (None: neither git nor the source files). Like
+    the real one it has no default `run`, so `runs` is what the caller asked for."""
 
     def __init__(self) -> None:
         self.disk = DISK_CODE
         self.runs: list[object] = []
 
-    def __call__(self, *, run=subprocess.run) -> CodeVersion:
+    def __call__(self, *, run) -> CodeVersion:
         self.runs.append(run)
         return self.disk
 
@@ -7805,13 +7806,14 @@ def test_check_reports_the_version_right_after_the_config(
     assert code_on_disk.runs == [subprocess.run]  # with the commit, for a small change
 
 
-def test_version_prints_the_version_on_disk_and_that_nothing_runs(home, capsys):
+def test_version_prints_the_version_on_disk_and_that_nothing_runs(home, code_on_disk, capsys):
     assert cli.main(["version"]) == 0
 
     assert capsys.readouterr().out.splitlines() == [
         "Kode di disk: v1.25, peringatan hujan (commit ec4aadf)",
         "✓ waifu run tidak berjalan; versi di disk v1.25, peringatan hujan",
     ]
+    assert code_on_disk.runs == [subprocess.run]  # with git, for the commit it prints
 
 
 def test_version_after_she_was_closed_still_gives_the_pip_command(home, capsys):

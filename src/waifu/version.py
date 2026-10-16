@@ -142,9 +142,10 @@ def dependencies_changed(running: CodeVersion, disk: CodeVersion) -> bool:
     )
 
 
-def read_code_version(root: Path = REPO_ROOT, *, run: Run | None = subprocess.run) -> CodeVersion:
-    """The code in `root` now: its releases and dependency hash, and with `run` its commit, or
-    the newest source file's time when git cannot tell. `run=None` reads neither. Never raises."""
+def read_code_version(root: Path = REPO_ROOT, *, run: Run | None) -> CodeVersion:
+    """The code in `root` now: its releases and dependency hash, and with `run` (git through
+    subprocess.run) its commit, or the newest source file's time when git cannot tell;
+    `run=None` reads neither. No default: every caller says whether git runs. Never raises."""
     problems: list[str] = []
     try:
         releases = parse_releases((root / CHANGELOG).read_text(encoding="utf-8-sig"))

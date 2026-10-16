@@ -2878,7 +2878,7 @@ def _record_running_version() -> CodeVersion:
     """What this process runs, read with git and recorded in RUNNING_FILE for `check` and
     `waifu version`; a part it could not read is logged, and so is a failed write, never
     raised: a missing git or a locked file must not stop her."""
-    code = read_code_version()
+    code = read_code_version(run=subprocess.run)
     for problem in code.problems:
         logger.warning("%s", problem)
     logger.info("Running %s", _logged_code(code))
@@ -3013,7 +3013,7 @@ def _version(args: argparse.Namespace) -> int:
     """Print the version on disk, the running one while a recorded `waifu run` runs, and the
     check line comparing them; no config needed. The run lock and record are read in the
     project folder, as the code is, so it answers the same from any working directory."""
-    disk = read_code_version()
+    disk = read_code_version(run=subprocess.run)
     held, running = _running_status(REPO_ROOT / RUN_LOCK, REPO_ROOT / RUNNING_FILE)
     print(f"Kode di disk: {_code_text(disk)}")
     if held and running is not None:
@@ -4230,7 +4230,8 @@ def _checks(config_path: Path) -> Iterator[Check]:
         yield FAIL, f"Konfigurasi tidak valid: {_config_problem(exc)}"
         return
     yield OK, f"Konfigurasi valid ({config_path})"
-    yield _running_version_check(read_code_version(), *_running_status(RUN_LOCK, RUNNING_FILE))
+    disk = read_code_version(run=subprocess.run)  # with the commit, for a small change
+    yield _running_version_check(disk, *_running_status(RUN_LOCK, RUNNING_FILE))
     yield _version_notice_check(config.version_notice)
     yield from _device_checks(config, config_path)
     yield from _routine_checks(config)
