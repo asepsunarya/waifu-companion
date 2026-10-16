@@ -958,23 +958,24 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** none · **Files:** `src/waifu/config.py`, `tests/test_config.py`, `src/waifu/todo.py` (value only), `tests/test_todo.py` · **Scope:** XS
 
-## Task 103: The task store
+## Task 103: The task store ✅
 
 **Acceptance criteria:**
-- [ ] `TodoStore` per SPEC (file rules, ids never reused, ordering, edits with the keep/clear due sentinel, secret refusal, limits, done tasks forgotten after `keep_done_days`)
+- [x] `TodoStore` per SPEC (file rules, ids never reused, ordering, edits with the keep/clear due sentinel, secret refusal, limits, done tasks forgotten after `keep_done_days`)
 
 **Dependencies:** 103a · **Files:** `src/waifu/todo.py`, `tests/test_todo.py` · **Scope:** M
 
-## Task 104: Tools and the briefing
+## Task 104: Tools and the briefing ✅
 
 **Acceptance criteria:**
-- [ ] The six strict tools per SPEC; `daily_briefing` gains the tasks and `BRIEFING_PROMPT` mentions them
+- [x] The six strict tools per SPEC (a null argument counts as left out, so only `clear_due` true removes a due date; a confirmation that sets a due date names its weekday and date); `daily_briefing` gains the tasks and `BRIEFING_PROMPT` mentions them
 
 **Dependencies:** 103a · **Files:** `src/waifu/brain/todo_tools.py`, `src/waifu/briefing.py`, `tests/test_todo_tools.py`, `tests/test_briefing.py` · **Scope:** M
 
-## Task 105: Wiring, CLI, README
+## Task 105: Wiring, CLI, README ✅
 
 **Acceptance criteria:**
-- [ ] `run`/`chat` wiring; `waifu todo [add|done|remove|list]`; check line; README; `config.example.yaml`
+- [x] `run`/`chat` wiring; `waifu todo [add|done|remove|list]`; check line; README; `config.example.yaml`
+- [x] With every tool on (Claude, the games, routines), one request stays within Anthropic's strict tool limits (20 strict tools, 24 optional and 16 union-typed parameters): `to_anthropic` makes only the tools that require an argument strict
 
-**Dependencies:** 103, 104 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py`, `README.md`, `config.example.yaml` · **Scope:** S
+**Dependencies:** 103, 104 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py`, `README.md`, `config.example.yaml`; for the strict limit `src/waifu/brain/tools.py` and the strict assertions of the tool tests · **Scope:** S

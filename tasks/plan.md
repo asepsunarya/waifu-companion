@@ -376,12 +376,12 @@ cooldown respected.
 Decision: a small local task store beside the schedules (tasks have dates, never times), six
 strict tools, the due and overdue tasks in her morning greeting, and `waifu todo`.
 - [x] Task 103a: `todo` config and the `Task` value
-- [ ] Task 103: `TodoStore`
-- [ ] Task 104: `TodoTools` and the briefing's tasks
-- [ ] Task 105: wiring, `waifu todo`, check, README
+- [x] Task 103: `TodoStore`
+- [x] Task 104: `TodoTools` and the briefing's tasks
+- [x] Task 105: wiring, `waifu todo`, check, README
 
 ### Checkpoint: to-do list
-- [ ] Python suite and ruff clean
+- [x] Python suite and ruff clean (2026-10-16: 5543 pytest and 454 node tests on the committed tree plus tasks 103-105 and the review fixes; ruff check and format clean on src, tests, and tools. Every store lives under tmp_path with an injected clock; `test_cli.py` refuses a to-do file outside tmp_path. A test sends the Claude request with every tool on and checks Anthropic's strict tool limits: only the tools that require an argument are strict)
 - [ ] By voice or chat: add a task with a due day, list, finish one; the next morning greeting mentions a due task
 
 ## Risks and Mitigations
