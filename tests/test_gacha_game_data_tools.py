@@ -1672,6 +1672,20 @@ def test_a_genshin_match_hoyolab_gives_no_detail_for_shows_only_its_roster_facts
     ]
 
 
+def test_a_match_hoyolab_gave_no_detail_for_is_asked_for_again():
+    source = genshin_source()
+    tools = make_tools(source, ALL_GAMES)
+
+    tools.run(GAME_CHARACTERS, {**GENSHIN, "name": "Nahida"})
+    tools.run(GAME_CHARACTERS, {**GENSHIN, "name": "Nahida"})
+
+    assert source.calls == [
+        "genshin_characters",
+        "genshin_character_details:10000073",
+        "genshin_character_details:10000073",
+    ]
+
+
 GENSHIN_NAMES = [
     "Kaedehara Kazuha",
     "Sangonomiya Kokomi",
