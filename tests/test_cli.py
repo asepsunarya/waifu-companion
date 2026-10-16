@@ -71,6 +71,7 @@ from waifu.devices.registry import DeviceRegistry
 from waifu.gacha.code_store import CodeStore
 from waifu.gacha.code_tools import CodeTools
 from waifu.gacha.codes import CodesError, RedeemResult
+from waifu.gacha.game_data_tools import HsrTools
 from waifu.gacha.games import GAMES
 from waifu.gacha.history import BannerStats, GachaHistory, HistoryReport, TopPull
 from waifu.gacha.hoyolab import (
@@ -83,7 +84,6 @@ from waifu.gacha.hoyolab import (
     HoyolabClient,
     WeeklyTask,
 )
-from waifu.gacha.hsr_tools import HsrTools
 from waifu.gacha.starrail import (
     ENDGAME_MODES,
     HsrCalendar,
