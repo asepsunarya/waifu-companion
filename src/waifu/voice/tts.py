@@ -15,6 +15,7 @@ import io
 import logging
 import math
 import re
+import subprocess
 import time
 import unicodedata
 import urllib.parse
@@ -27,9 +28,24 @@ from typing import Any, Protocol
 import numpy as np
 import soundfile as sf
 
-from waifu.config import EdgeVoiceConfig, GptSovitsVoiceConfig, TtsConfig
+from waifu.config import (
+    EdgeVoiceConfig,
+    FallbackPitchConfig,
+    GptSovitsVoiceConfig,
+    TtsConfig,
+    at_sentence_start,
+)
 from waifu.voice.base import TextToSpeech
 from waifu.voice.rvc import RvcError, RvcUnavailableError
+from waifu.voice.windows_voices import (
+    Run,
+    WindowsVoice,
+    WindowsVoiceError,
+    choose_voice,
+    list_windows_voices,
+    missing_voice_hint,
+    speak_wav,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -172,6 +188,77 @@ class GptSovitsTts(TextToSpeech):
                 "Pastikan server api_v2 GPT-SoVITS sudah berjalan."
             ) from exc
         return _decode_audio(data, "GPT-SoVITS")
+
+
+class WindowsTts(TextToSpeech):
+    """A speech voice installed in Windows: offline, Cyrene's fallback when her voice fails.
+
+    The voice is chosen on the first `synthesize`, never when built, so building a speech
+    router starts no PowerShell. A listing that worked is kept for the life of the process,
+    so a voice the owner adds in Settings is used once Cyrene is restarted.
+    """
+
+    def __init__(
+        self,
+        language: str,
+        wanted: str = "",
+        *,
+        pitches: FallbackPitchConfig,
+        run: Run = subprocess.run,
+    ) -> None:
+        self._language = language
+        self._wanted = wanted
+        self._pitches = pitches
+        self._run = run
+        self._listed = False
+        self._voice: WindowsVoice | None = None
+
+    @property
+    def voice(self) -> WindowsVoice | None:
+        """The voice that speaks; None before the first use, or when none is installed."""
+        return self._voice
+
+    @property
+    def rvc_pitch(self) -> int | None:
+        """Semitones RVC shifts this voice by; None (`tts.rvc.pitch`) when its gender is not
+        known."""
+        gender = self._voice.gender.lower() if self._voice else ""
+        return {"female": self._pitches.female, "male": self._pitches.male}.get(gender)
+
+    def synthesize(self, text: str, language: str) -> tuple[np.ndarray, int]:
+        voice = self._chosen_voice()
+        try:
+            data = speak_wav(voice.name, text, run=self._run)
+        except WindowsVoiceError as exc:
+            raise TtsError(str(exc)) from exc
+        audio, sample_rate = _decode_audio(data, f"suara Windows {voice.name}")
+        if audio.size == 0:
+            raise TtsError(f"Suara Windows {voice.name} tidak menghasilkan audio.")
+        return audio, sample_rate
+
+    def _chosen_voice(self) -> WindowsVoice:
+        if not self._listed:
+            try:
+                voices = list_windows_voices(run=self._run)
+            except WindowsVoiceError as exc:
+                raise TtsError(str(exc)) from exc
+            self._voice = choose_voice(voices, self._language, self._wanted)
+            self._listed = True
+            if self._voice is not None:
+                logger.info(
+                    "Offline fallback voice for %s: %s (%s)",
+                    self._language,
+                    self._voice.name,
+                    self._voice.language,
+                )
+        if self._voice is not None:
+            return self._voice
+        if self._wanted:
+            raise TtsError(
+                f"Suara Windows '{self._wanted}' (tts.fallback.voices.{self._language}) "
+                "tidak terpasang; lihat 'waifu voices'."
+            )
+        raise TtsError(f"{at_sentence_start(missing_voice_hint(self._language))}.")
 
 
 class SpeechRouter:

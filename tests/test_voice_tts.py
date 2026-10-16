@@ -1,7 +1,10 @@
 import asyncio
+import dataclasses
 import http.client
 import io
+import json
 import logging
+import subprocess
 import urllib.error
 import urllib.parse
 
@@ -13,7 +16,13 @@ from edge_tts.exceptions import NoAudioReceived, SkewAdjustmentError
 from multidict import CIMultiDict, CIMultiDictProxy
 from yarl import URL
 
-from waifu.config import EdgeVoiceConfig, GptSovitsVoiceConfig, RvcConfig, TtsConfig
+from waifu.config import (
+    EdgeVoiceConfig,
+    FallbackPitchConfig,
+    GptSovitsVoiceConfig,
+    RvcConfig,
+    TtsConfig,
+)
 from waifu.voice.base import TextToSpeech
 from waifu.voice.rvc import RvcClient, RvcError, RvcUnavailableError
 from waifu.voice.tts import (
@@ -22,10 +31,12 @@ from waifu.voice.tts import (
     SpeechRouter,
     TtsError,
     VoiceConverter,
+    WindowsTts,
     build_speech_router,
     clean_for_speech,
     split_by_language,
 )
+from waifu.voice.windows_voices import WindowsVoice
 
 
 def encode(audio: np.ndarray, sample_rate: int, fmt: str) -> bytes:
@@ -323,6 +334,165 @@ def test_gpt_sovits_unreadable_audio_raises_tts_error():
 
     with pytest.raises(TtsError):
         GptSovitsTts(sovits_voice(), http_get=http_get).synthesize("はい", "ja")
+
+
+# --- WindowsTts --------------------------------------------------------------
+
+ANDIKA = WindowsVoice("Microsoft Andika", "id-ID", "Male", "onecore")
+ZIRA = WindowsVoice("Microsoft Zira", "en-US", "Female", "onecore")
+DAVID = WindowsVoice("Microsoft David", "en-US", "Male", "onecore")
+HARUKA = WindowsVoice("Microsoft Haruka", "ja-JP", "Female", "onecore")
+PITCHES = FallbackPitchConfig(female=11, male=18)
+
+
+class FakePowerShell:
+    """Stands in for subprocess.run of windows_voices.ps1: `-List` answers with `voices` (or
+    fails with `list_returncode`), speaking answers with `wav` (or fails with
+    `speak_returncode`). Remembers how often it listed and what each voice spoke."""
+
+    def __init__(
+        self,
+        voices: tuple[WindowsVoice, ...] = (ZIRA, DAVID, ANDIKA),
+        *,
+        wav: bytes | None = None,
+        list_returncode: int = 0,
+        speak_returncode: int = 0,
+    ) -> None:
+        self.voices = voices
+        self.wav = encode(tone(0.5, 16000), 16000, "WAV") if wav is None else wav
+        self.list_returncode = list_returncode
+        self.speak_returncode = speak_returncode
+        self.listings = 0
+        self.spoken: list[tuple[str, str]] = []
+
+    def __call__(self, args: list[str], **kwargs) -> subprocess.CompletedProcess[bytes]:
+        if args[-1] == "-List":
+            self.listings += 1
+            listing = "".join(json.dumps(dataclasses.asdict(voice)) + "\n" for voice in self.voices)
+            return subprocess.CompletedProcess(
+                args, self.list_returncode, listing.encode(), b"listing failed\r\n"
+            )
+        self.spoken.append((kwargs["env"]["WAIFU_TTS_VOICE"], kwargs["input"].decode("utf-8")))
+        return subprocess.CompletedProcess(
+            args, self.speak_returncode, self.wav, b"synthesis failed\r\n"
+        )
+
+
+def windows_tts(run: FakePowerShell, language: str = "id", wanted: str = "") -> WindowsTts:
+    return WindowsTts(language, wanted, pitches=PITCHES, run=run)
+
+
+def test_windows_tts_starts_no_powershell_when_it_is_built():
+    run = FakePowerShell()
+
+    tts = windows_tts(run)
+
+    assert (run.listings, run.spoken) == (0, [])
+    assert tts.voice is None and tts.rvc_pitch is None
+
+
+def test_windows_tts_speaks_with_the_installed_voice_of_its_language():
+    run = FakePowerShell()
+
+    audio, sample_rate = windows_tts(run).synthesize("Halo Master", "id")
+
+    assert run.spoken == [("Microsoft Andika", "Halo Master")]
+    assert sample_rate == 16000
+    assert audio.dtype == np.float32 and audio.ndim == 1 and len(audio) == 8000
+
+
+def test_windows_tts_lists_the_voices_only_once():
+    run = FakePowerShell()
+    tts = windows_tts(run)
+
+    tts.synthesize("Halo", "id")
+    tts.synthesize("Master", "id")
+
+    assert run.listings == 1
+    assert tts.voice == ANDIKA
+
+
+def test_windows_tts_speaks_with_a_named_voice_of_another_language():
+    # The owner's stopgap until the Indonesian voice is added.
+    run = FakePowerShell()
+
+    windows_tts(run, wanted="Zira").synthesize("Halo", "id")
+
+    assert run.spoken == [("Microsoft Zira", "Halo")]
+
+
+def test_windows_tts_without_a_voice_of_its_language_says_where_to_add_one():
+    run = FakePowerShell(voices=(ZIRA, DAVID))
+    tts = windows_tts(run, language="ja")
+
+    for _ in range(2):
+        with pytest.raises(TtsError) as caught:
+            tts.synthesize("はい", "ja")
+
+    assert str(caught.value) == (
+        "Belum ada suara Windows bahasa Jepang; tambahkan gratis di Settings → "
+        "Time & language → Speech → Add voices (Japanese)."
+    )
+    assert run.listings == 1  # not again on every reply while edge-tts is down
+    assert run.spoken == []
+
+
+def test_windows_tts_with_a_named_voice_that_is_not_installed_says_so():
+    with pytest.raises(TtsError) as caught:
+        windows_tts(FakePowerShell(), wanted="Microsoft Gadis").synthesize("Halo", "id")
+
+    assert str(caught.value) == (
+        "Suara Windows 'Microsoft Gadis' (tts.fallback.voices.id) tidak terpasang; "
+        "lihat 'waifu voices'."
+    )
+
+
+def test_windows_tts_lists_the_voices_again_after_a_failed_listing():
+    run = FakePowerShell(list_returncode=1)
+    tts = windows_tts(run)
+
+    with pytest.raises(TtsError, match="listing failed"):
+        tts.synthesize("Halo", "id")
+    run.list_returncode = 0
+    tts.synthesize("Halo", "id")
+
+    assert run.listings == 2
+    assert run.spoken == [("Microsoft Andika", "Halo")]
+
+
+def test_windows_tts_turns_a_failed_synthesis_into_a_tts_error():
+    with pytest.raises(TtsError, match="synthesis failed"):
+        windows_tts(FakePowerShell(speak_returncode=1)).synthesize("Halo", "id")
+
+
+def test_windows_tts_turns_unreadable_audio_into_a_tts_error():
+    with pytest.raises(TtsError, match="Microsoft Andika"):
+        windows_tts(FakePowerShell(wav=b"not a wav")).synthesize("Halo", "id")
+
+
+def test_windows_tts_refuses_a_clip_without_sound():
+    # Windows answers empty text with a valid WAV of 0 s.
+    empty = encode(np.zeros(0, dtype=np.float32), 16000, "WAV")
+
+    with pytest.raises(TtsError, match="Microsoft Andika"):
+        windows_tts(FakePowerShell(wav=empty)).synthesize(" ", "id")
+
+
+@pytest.mark.parametrize(
+    ("voice", "pitch"),
+    [
+        (HARUKA, 11),
+        (WindowsVoice("Microsoft Ichiro", "ja-JP", "Male", "onecore"), 18),
+        (WindowsVoice("Microsoft Aoi", "ja-JP", "Neutral", "onecore"), None),
+    ],
+    ids=["female", "male", "other"],
+)
+def test_windows_tts_shifts_rvc_by_the_pitch_of_its_voice_s_gender(voice, pitch):
+    tts = windows_tts(FakePowerShell(voices=(voice,)), language="ja")
+
+    tts.synthesize("はい", "ja")
+
+    assert tts.rvc_pitch == pitch
 
 
 # --- SpeechRouter ------------------------------------------------------------
