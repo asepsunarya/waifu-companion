@@ -1512,7 +1512,7 @@ Master : "Karakter Nihility-ku siapa aja?"
 Cyrene : "Ada Acheron, Silver Wolf, dan Pela, Master."
 Master : "Memory of Chaos-ku udah berapa bintang?"
 Cyrene : "Tiga puluh bintang, Master, sampai Stage 12. Musimnya berakhir empat hari lagi."
-Master : "Banner apa sekarang?"
+Master : "Banner HSR apa sekarang?"
 Cyrene : "Sekarang banner Acheron, Master, sampai hari Selasa."
 ```
 
@@ -1608,8 +1608,8 @@ Cyrene : "Sekarang banner Furina, Master, sampai hari Selasa."
   pernah sebagai ajakan pull atau top-up, dan tidak pernah tanpa ditanya, juga tidak di
   sapaan atau briefing pagi.
 - Dengan lebih dari satu game di `gacha.games`, dia memilih game dari pertanyaanmu (nama
-  karakter, mode endgame). Untuk banner dan event, sebut game-nya: "banner Genshin apa
-  sekarang?", "event ZZZ apa yang mau habis?".
+  karakter, mode endgame). Untuk banner dan event, sebut game-nya, juga untuk HSR: "banner
+  HSR apa sekarang?", "banner Genshin apa sekarang?", "event ZZZ apa yang mau habis?".
 - HoYoLAB hanya memuat satu Traveler, dengan elemen yang sedang dipakai: "Traveler-ku C
   berapa?". Untuk nama panggilan, Cyrene diminta memakai nama di game (Tartaglia untuk
   Childe, Traveler untuk Aether atau Lumine); kalau dia tetap bilang tidak menemukan
@@ -1652,10 +1652,11 @@ bilang "Data Genshin ini tidak bisa dibaca karena Battle Chronicle di HoYoLAB ti
 sendiri**: membukanya atau tidak, Master yang memutuskan.
 
 **Daftar nama karakter.** Bacaan Battle Chronicle pertama dalam seminggu (juga untuk HSR) bisa
-membuat genshin.py mengunduh daftar nama karakter Genshin dari GitHub (EnkaNetwork) atau
-gi.yatta.moe, lalu menyimpannya di `%TEMP%\genshinpy\`. Unduhan itu tidak membawa data Master,
-tapi bisa membuat bacaan pertama lebih lambat. Spiral Abyss butuh daftar itu: kalau unduhannya
-gagal, hanya Spiral Abyss yang tidak terbaca, mode lain tetap.
+membuat genshin.py mengunduh daftar nama karakter Genshin dari gi.yatta.moe, atau kalau gagal
+dari GitHub (EnkaNetwork), lalu GitLab (AnimeGameData), dan menyimpannya di
+`%TEMP%\genshinpy\`. Unduhan itu tidak membawa data Master, tapi bisa membuat bacaan pertama
+lebih lambat. Spiral Abyss butuh daftar itu: kalau unduhannya gagal, hanya Spiral Abyss yang
+tidak terbaca, mode lain tetap.
 
 **Persona buatan sendiri.** Sejak v1.23 ketiga tool data akun bernama `game_characters`,
 `game_endgame`, dan `game_events` (dulu `hsr_characters`, `hsr_endgame`, dan `hsr_events`).
@@ -3811,7 +3812,7 @@ mendengarkan"; jawaban pertama bisa lebih lama karena model Ollama baru dimuat)
 - [ ] `waifu gacha hsr characters`: Eidolon dan Superimposition Light Cone satu karakter
       (dan tiap Path Trailblazer) sama dengan di game.
 - [ ] Di `waifu run` atau `waifu chat`: "Cyrene, Acheron-ku Eidolon berapa?" dan "Banner
-      apa sekarang?" dijawab sama dengan perintah di atas.
+      HSR apa sekarang?" dijawab sama dengan perintah di atas.
 - [ ] (Opsional) Sembunyikan sendiri sementara *Show your Character Details in the Battle
       Chronicle* di HoYoLAB: `waifu gacha hsr characters` menampilkan `✗ Data HSR ini tidak
       bisa dibaca karena Battle Chronicle di HoYoLAB tidak publik...`. Buka lagi setelahnya;
@@ -3835,13 +3836,16 @@ ZZZ](#data-akun-genshin-dan-zzz-karakter-endgame-dan-event))
       Assault sama dengan di game. Di `waifu chat -v`, "Shiyu Defense-ku gimana?": catat apa
       yang di hasil tool bernama `Frontier 5 battle 1`, `Frontier 5 battle 2`, dan seterusnya
       (pertarungan di frontier kelima), dan namanya di game.
-- [ ] `waifu gacha genshin events`: jam berakhir satu banner sama dengan timer banner di game
-      (sampai menitnya). `waifu gacha zzz events`: jam berakhir satu banner dan satu event
-      sama dengan di game. Jam kedua kalender ini belum pernah dicek dengan akun asli: kalau
-      meleset, catat selisihnya.
-- [ ] `waifu gacha genshin events`: catat bagaimana jadwal endgame tertulis (bisa dobel,
-      misalnya `Spiral Abyss (Spiral Abyss)`), dan apakah baris `Banner W-Engine: berakhir ...`
-      di `waifu gacha zzz events` sudah cukup jelas.
+- [x] Jam kalender Genshin dan ZZZ sudah cocok di akun asli (2026-10-16): jam mulai dan
+      berakhir tiap event dan banner di `waifu gacha zzz events` sama dengan hitung mundur dari
+      HoYoLAB sendiri sampai menitnya, dan di `waifu gacha genshin events` banner berakhir
+      14:00 WIB (15:00 waktu server) dan Spiral Abyss 03:00 WIB (reset 04:00 waktu server),
+      sesuai jadwal server. Kalau suatu saat ada jam yang terasa meleset, bandingkan lagi
+      dengan timer di game.
+- [ ] `waifu gacha genshin events` setelah Master main Spiral Abyss musim ini: jadwal
+      endgame-nya tertulis `Spiral Abyss (<nama musim>): <bintang>/36, berakhir ...`, dengan
+      bintang yang sama dengan di game (bukan `36/<bintang>`). Imaginarium Theater tertulis
+      sekali saja (`Imaginarium Theater: berakhir ...`).
 - [ ] Di `waifu chat -v`: "Stat Furina-ku gimana?" dan "Drive Disc Ellen apa aja?": hasil tool
       `game_characters` di log menyebut set artifact atau Drive Disc dan nama stat yang sama
       dengan di game, dan jawabannya hanya dari data itu.

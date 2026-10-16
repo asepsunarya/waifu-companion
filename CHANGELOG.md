@@ -19,6 +19,9 @@ aktif, lalu jalankan `waifu check`.
   Kedua persona bawaan sudah memakai nama baru. **Kalau kamu memakai persona buatan sendiri
   yang masih menyebut `hsr_*`, ganti dengan nama baru** (salin baris game_characters dari
   `config/persona.md`): nama lama membuat Cyrene salah memanggil tool dulu.
+- Dengan lebih dari satu game di `gacha.games`, sebut game-nya saat bertanya banner atau
+  event, juga untuk HSR: "banner HSR apa sekarang?" (tanpa nama game, Cyrene harus bertanya
+  dulu game yang mana).
 - `waifu gacha genshin characters|endgame|events` dan `waifu gacha zzz characters|endgame|events`.
 - Battle Chronicle tiap game harus boleh dibaca (setelannya di HoYoLAB; Cyrene tidak pernah
   mengubahnya). Bacaan pertama dalam seminggu bisa membuat genshin.py mengunduh daftar nama
