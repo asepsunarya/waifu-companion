@@ -413,14 +413,14 @@ through thin HoyolabClient methods; detail only for the at most three characters
 matches (ZZZ asks once per agent); read-only, never a HoYoLAB setting changed. Tasks 111-114
 build in parallel on the contract of 111a.
 - [x] Task 111a: contract: SPEC, `gacha/game_data.py`, the Genshin and ZZZ dataclasses, `CHRONICLE_PRIVATE` per game, the 9-mode request table, `_endgame`
-- [ ] Task 111: Genshin source: `gacha/genshin_impact.py` readers and the four `genshin_*` HoyolabClient methods
-- [ ] Task 112: ZZZ source: `gacha/zenless.py` readers and the four `zzz_*` HoyolabClient methods
-- [ ] Task 113: `GameDataTools` (renamed tools, game resolution, Genshin and ZZZ results, cache), wiring, both personas
-- [ ] Task 114: `waifu gacha genshin|zzz characters|endgame|events`
-- [ ] Task 115: integration, CHANGELOG, README, the strict limits
+- [x] Task 111: Genshin source: `gacha/genshin_impact.py` readers and the four `genshin_*` HoyolabClient methods
+- [x] Task 112: ZZZ source: `gacha/zenless.py` readers and the four `zzz_*` HoyolabClient methods
+- [x] Task 113: `GameDataTools` (renamed tools, game resolution, Genshin and ZZZ results, cache), wiring, both personas
+- [x] Task 114: `waifu gacha genshin|zzz characters|endgame|events`
+- [x] Task 115: integration, CHANGELOG, README, the strict limits
 
 ### Checkpoint: Genshin and ZZZ data
-- [ ] Python suite and ruff clean; no test reached HoYoLAB; `update_settings` never called
+- [x] Python suite and ruff clean; no test reached HoYoLAB; `update_settings` never called
 - [ ] One real read-only run of `waifu gacha genshin|zzz characters|endgame|events` on the owner's account: privacy behaviour, latency, calendar times and stage names vs the game
 - [ ] By voice or chat: "Furina-ku C berapa?", "Abyss-ku lantai 12 berapa bintang?", "Shiyu Defense-ku rating apa?", "banner ZZZ apa sekarang?"
 
