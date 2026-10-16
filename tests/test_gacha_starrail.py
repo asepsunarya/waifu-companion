@@ -784,6 +784,36 @@ def test_calendar_times_on_a_minutes_last_second_read_as_the_next_whole_minute()
     assert calendar.warps[0].starts_at == FETCHED_AT - timedelta(days=6)  # a whole minute stays
 
 
+def test_a_calendar_end_on_minute_59_of_its_hour_reads_as_the_next_whole_hour():
+    # The owner's real calendar (2026-10-17): HoYoLAB gave the warp end as 11:59:00 server
+    # time, to the minute only, and the next phase's start as 12:00; it printed "10:59" WIB.
+    warp_end = datetime(2026, 10, 21, 11, 59, tzinfo=SERVER_TZ)
+    next_start = datetime(2026, 10, 21, 12, 0, tzinfo=SERVER_TZ)
+    payload = {
+        **CALENDAR,
+        "avatar_card_pool_list": [
+            warp("Bloom of Death", API_NOW - 6 * DAY, unix(warp_end)),
+            warp("Next Phase", unix(next_start), unix(next_start) + 21 * DAY),
+        ],
+        "equip_card_pool_list": [],
+    }
+
+    warps = read_calendar(calendar_model(payload), FETCHED_AT).warps
+
+    assert warps[0].ends_at == next_start == warps[1].starts_at
+
+
+def test_a_calendar_end_on_any_other_minute_stays_as_given():
+    end = datetime(2026, 10, 21, 11, 58, tzinfo=SERVER_TZ)
+    payload = {
+        **CALENDAR,
+        "avatar_card_pool_list": [warp("Bloom of Death", API_NOW - 6 * DAY, unix(end))],
+        "equip_card_pool_list": [],
+    }
+
+    assert read_calendar(calendar_model(payload), FETCHED_AT).warps[0].ends_at == end
+
+
 def test_an_endgame_season_ends_when_its_calendar_window_does():
     # HoYoLAB ends both at 03:59:59 server time for the 04:00 reset: the calendar gives that
     # second, the endgame only its minute (03:59), which printed "berakhir 02:59" WIB for the

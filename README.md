@@ -1979,7 +1979,7 @@ Genshin (Genshin Impact)
   Imaginarium Theater: 10 bintang, difficulty Visionary, berakhir 2026-11-01 03:00 (13 hari 8 jam lagi)
   Stygian Onslaught: belum dimainkan musim ini
   Berakhir dalam 7 hari:
-    Banner karakter: 5★ Furina; 4★ Charlotte, Chongyun, Kirara; berakhir 2026-10-20 16:59 (1 hari 21 jam lagi)
+    Banner karakter: 5★ Furina; 4★ Charlotte, Chongyun, Kirara; berakhir 2026-10-20 17:00 (1 hari 21 jam lagi)
   Kode belum ditukarkan: tidak ada
 ZZZ (Zenless Zone Zero)
   ✗ Belum ada riwayat ZZZ yang tersimpan; jalankan 'waifu gacha history zzz --full' sekali.

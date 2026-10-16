@@ -195,7 +195,7 @@ def read_calendar(model: Any, fetched_at: datetime) -> HsrCalendar:
             return None, None
         return (
             on_the_minute((info.start + shift).astimezone(zone)),
-            on_the_minute((info.end + shift).astimezone(zone)),
+            _calendar_end(on_the_minute((info.end + shift).astimezone(zone))),
         )
 
     pools: tuple[tuple[WarpKind, Any], ...] = (
@@ -283,6 +283,15 @@ def _season_end(end_time: Any) -> datetime:
     reads the same end in the calendar. Any other minute stays as given."""
     moment = end_time.datetime
     return moment + timedelta(minutes=1) if moment.minute == LAST_MINUTE else moment
+
+
+def _calendar_end(moment: datetime) -> datetime:
+    """A calendar end HoYoLAB gives to the minute only (a warp ending 11:59:00 server time, the
+    next phase starting 12:00) is the next whole minute, as `_season_end` reads an endgame
+    season's; `on_the_minute` already moved an end on second 59. Any other end stays."""
+    if moment.minute == LAST_MINUTE and moment.second == 0:
+        return moment + timedelta(minutes=1)
+    return moment
 
 
 def _names(items: Iterable[Any], rarity: int) -> tuple[str, ...]:
