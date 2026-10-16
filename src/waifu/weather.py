@@ -10,6 +10,9 @@ said in Indonesian.
 She is silent while the weather is fetched, so one call has `TIME_LIMIT_S` for both
 requests together: each request's timeout is the time left, and none starts with less
 than `MIN_REQUEST_S` left.
+
+Every failure is logged at the client's `failure_level`, WARNING unless a caller that logs its
+failures itself (the rain watcher, once per run of them) asks for less.
 """
 
 from __future__ import annotations
@@ -117,12 +120,14 @@ class WeatherClient:
         city: str | None = None,
         fetch: Fetch = get_json,
         clock: Callable[[], float] = time.monotonic,
+        failure_level: int = logging.WARNING,
     ) -> None:
         if (latitude is None) != (longitude is None):
             raise ValueError("latitude and longitude go together")
         self._city = city
         self._fetch = fetch
         self._clock = clock
+        self._failure_level = failure_level
         # Coordinates win over the city, which still names the place she says; a geocoded city
         # is kept here for the client's life.
         self._location: _Location | None = None
@@ -150,7 +155,11 @@ class WeatherClient:
         try:
             return parse(location.place, data)
         except (LookupError, TypeError, ValueError) as exc:
-            logger.warning("Open-Meteo sent a forecast without the expected fields: %r", exc)
+            logger.log(
+                self._failure_level,
+                "Open-Meteo sent a forecast without the expected fields: %r",
+                exc,
+            )
             raise WeatherError(UNREADABLE) from None
 
     def _locate(self, deadline: float) -> _Location:
@@ -174,7 +183,11 @@ class WeatherClient:
         try:
             location = _first_place(data)
         except (LookupError, TypeError, ValueError) as exc:
-            logger.warning("Open-Meteo sent a geocoding reply without the expected fields: %r", exc)
+            logger.log(
+                self._failure_level,
+                "Open-Meteo sent a geocoding reply without the expected fields: %r",
+                exc,
+            )
             raise WeatherError(UNREADABLE) from None
         if location is None:
             raise WeatherError(
@@ -185,8 +198,11 @@ class WeatherClient:
     def _get(self, base: str, query: Mapping[str, object], deadline: float) -> Any:
         time_left = deadline - self._clock()
         if time_left < MIN_REQUEST_S:
-            logger.warning(
-                "Open-Meteo is too slow: not asking %s with %.1f s left", base, time_left
+            logger.log(
+                self._failure_level,
+                "Open-Meteo is too slow: not asking %s with %.1f s left",
+                base,
+                time_left,
             )
             raise WeatherError(UNREACHABLE)
         # Commas stay literal in the variable lists, as in Open-Meteo's examples; a space is %20.
@@ -194,15 +210,20 @@ class WeatherClient:
         try:
             return self._fetch(url, time_left)
         except urllib.error.HTTPError as exc:
-            logger.warning("Open-Meteo answered HTTP %s for %s", exc.code, base)
+            logger.log(self._failure_level, "Open-Meteo answered HTTP %s for %s", exc.code, base)
             raise WeatherError(
                 f"Server cuaca sedang bermasalah (HTTP {exc.code}). Coba lagi nanti."
             ) from None
         except (OSError, http.client.HTTPException) as exc:  # URLError and timeouts are OSErrors
-            logger.warning("Open-Meteo is unreachable at %s: %s", base, exc)
+            logger.log(self._failure_level, "Open-Meteo is unreachable at %s: %s", base, exc)
             raise WeatherError(UNREACHABLE) from None
         except ValueError as exc:  # not UTF-8 or not JSON
-            logger.warning("Open-Meteo sent something that is not JSON from %s: %s", base, exc)
+            logger.log(
+                self._failure_level,
+                "Open-Meteo sent something that is not JSON from %s: %s",
+                base,
+                exc,
+            )
             raise WeatherError(UNREADABLE) from None
 
 

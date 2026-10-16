@@ -10,6 +10,7 @@ real thread whose waits are real or last a few milliseconds.
 import logging
 import threading
 import time
+import urllib.error
 from collections.abc import Iterable
 from datetime import datetime, timedelta
 
@@ -28,7 +29,7 @@ from waifu.rain_watch import (
     raining_now,
     spoken_hour,
 )
-from waifu.weather import Forecast, Hour, WeatherError
+from waifu.weather import Forecast, Hour, WeatherClient, WeatherError
 
 DAY = datetime(2026, 10, 17)
 HOUR = timedelta(hours=1)
@@ -547,6 +548,30 @@ def test_a_failed_read_is_never_said_and_logged_once_until_it_works_again(caplog
     assert levels[-1] == logging.WARNING  # a new run of failures
     assert UNREACHABLE in records[0].getMessage()
     assert not any(record.exc_info for record in records)
+
+
+def test_open_meteo_out_of_reach_for_many_polls_is_one_warning_in_the_whole_log(caplog):
+    def offline(url: str, timeout_s: float) -> object:
+        raise urllib.error.URLError("getaddrinfo failed")
+
+    weather = WeatherClient(city="Cianjur", fetch=offline, failure_level=logging.DEBUG)
+    watcher = RainWatcher(
+        weather.forecast,
+        RainAlertConfig(),
+        announce=None,
+        notifier=None,
+        owner_call="Master",
+        place="Cianjur",
+        now=lambda: AFTERNOON,
+    )
+
+    with caplog.at_level(logging.DEBUG):
+        polls = [watcher.poll_once() for _ in range(4)]
+
+    assert polls == [[], [], [], []]
+    warnings = [record for record in caplog.records if record.levelno >= logging.WARNING]
+    assert [record.name for record in warnings] == ["waifu.rain_watch"]
+    assert UNREACHABLE in warnings[0].getMessage()
 
 
 def test_an_unexpected_failure_is_logged_with_its_traceback_and_never_said(caplog):

@@ -262,7 +262,8 @@ class RainWatcher:
 
     def _log_failure(self, exc: Exception) -> None:
         """The first failure of a run at WARNING (an unexpected one with its traceback), the
-        rest at DEBUG: Open-Meteo out of reach for hours is one line, not one per poll."""
+        rest at DEBUG: Open-Meteo out of reach for hours is one line, not one per poll, when
+        the reader logs its own failures below WARNING (as `waifu run`'s client does)."""
         traceback = not isinstance(exc, WeatherError)
         if self._failing:
             logger.debug("The rain forecast still cannot be read: %s", exc, exc_info=traceback)

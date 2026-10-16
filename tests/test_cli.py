@@ -138,7 +138,7 @@ from waifu.voice.rvc import RvcError
 from waifu.voice.speaker import SpeakerVerifier
 from waifu.voice.stt import SttError, WhisperStt
 from waifu.voice.tts import TtsError
-from waifu.weather import WeatherClient
+from waifu.weather import WeatherClient, WeatherError
 
 ROOT = Path(__file__).resolve().parent.parent
 SAMPLE_RATE = 16000
@@ -7067,6 +7067,21 @@ def test_run_watches_for_rain_at_the_briefing_s_city_while_she_listens_and_pushe
     assert assistant.announced == [(RAIN_TEXT, "neutral")]
     # Never inside a conversation: she says it once the follow-up window has closed.
     assert assistant.waiting_for_followup == [RAIN_TEXT]
+
+
+def test_run_s_rain_watcher_reads_from_a_client_that_leaves_logging_failures_to_it(
+    home, run_fakes, brains, rain_watchers, open_meteo, caplog
+):
+    write_out_example_briefing(home)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    [watcher] = rain_watchers
+    open_meteo.failure = urllib.error.URLError("getaddrinfo failed")
+    with caplog.at_level(logging.DEBUG, logger="waifu.weather"), pytest.raises(WeatherError):
+        watcher.read_forecast()
+    levels = [record.levelno for record in caplog.records if record.name == "waifu.weather"]
+    assert levels == [logging.DEBUG]  # the watcher logs a run of failures once itself
 
 
 def test_run_watches_for_rain_as_configured_also_with_the_greeting_off(

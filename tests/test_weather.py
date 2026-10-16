@@ -643,6 +643,69 @@ def test_the_forecast_is_not_asked_with_less_than_a_second_left_and_the_city_is_
     assert fetch.timeouts == [8.0, 8.0]  # the next call asks only the forecast, with 8 s
 
 
+def slow_client(**options) -> WeatherClient:
+    """A client whose city lookup takes 7.5 of its 8 s, leaving too little for the forecast."""
+    clock = FakeClock()
+    fetch = FakeOpenMeteo(clock=clock, took_s=7.5)
+    return WeatherClient(city="Bandung", fetch=fetch, clock=clock, **options)
+
+
+CLIENT_FAILURES = {
+    "unreachable": lambda **options: WeatherClient(
+        latitude=-6.9,
+        longitude=107.6,
+        fetch=FakeOpenMeteo(forecast=TimeoutError("timed out")),
+        **options,
+    ),
+    "http error": lambda **options: WeatherClient(
+        city="Bandung",
+        fetch=FakeOpenMeteo(
+            geocoding=urllib.error.HTTPError(
+                "https://geocoding-api.open-meteo.com/v1/search", 503, "Busy", None, None
+            )
+        ),
+        **options,
+    ),
+    "not json": lambda **options: WeatherClient(
+        latitude=-6.9,
+        longitude=107.6,
+        fetch=FakeOpenMeteo(forecast=json.JSONDecodeError("Expecting value", "<html>", 0)),
+        **options,
+    ),
+    "malformed geocoding": lambda **options: WeatherClient(
+        city="Bandung",
+        fetch=FakeOpenMeteo(geocoding={"results": [{"name": "Bandung"}]}),
+        **options,
+    ),
+    "malformed forecast": lambda **options: WeatherClient(
+        latitude=-6.9, longitude=107.6, fetch=FakeOpenMeteo(forecast={"current": {}}), **options
+    ),
+    "too slow": slow_client,
+}
+
+
+def failure_records(caplog, level: int) -> list[logging.LogRecord]:
+    return [record for record in caplog.records if record.levelno == level]
+
+
+@pytest.mark.parametrize("make", CLIENT_FAILURES.values(), ids=CLIENT_FAILURES.keys())
+def test_each_failure_is_logged_at_warning_by_default(make, caplog):
+    with caplog.at_level(logging.DEBUG, logger="waifu.weather"), pytest.raises(WeatherError):
+        make().forecast()
+
+    assert len(failure_records(caplog, logging.WARNING)) == 1
+
+
+@pytest.mark.parametrize("make", CLIENT_FAILURES.values(), ids=CLIENT_FAILURES.keys())
+def test_a_client_told_to_log_failures_at_debug_keeps_them_out_of_the_warnings(make, caplog):
+    # The rain watcher's client: the watcher logs a run of failures once itself.
+    with caplog.at_level(logging.DEBUG, logger="waifu.weather"), pytest.raises(WeatherError):
+        make(failure_level=logging.DEBUG).forecast()
+
+    assert failure_records(caplog, logging.WARNING) == []
+    assert len(failure_records(caplog, logging.DEBUG)) == 1
+
+
 def test_the_default_fetch_is_a_urllib_get_with_the_time_left_and_our_user_agent(monkeypatch):
     seen: list[tuple[urllib.request.Request, float]] = []
 

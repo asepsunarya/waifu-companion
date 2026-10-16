@@ -2669,13 +2669,19 @@ def _due_text(due: date | None, today: date) -> str:
 # --- morning briefing ------------------------------------------------------------------------
 
 
-def _weather_client(briefing: BriefingConfig) -> WeatherClient | None:
-    """Open-Meteo for the place `briefing` names (its coordinates win over its city); None
-    when it names none. Nothing is asked until the weather is wanted."""
+def _weather_client(
+    briefing: BriefingConfig, *, failure_level: int = logging.WARNING
+) -> WeatherClient | None:
+    """Open-Meteo for the place `briefing` names (its coordinates win over its city), logging
+    its failures at `failure_level`; None when it names none. Nothing is asked until the
+    weather is wanted."""
     if briefing.city is None and briefing.latitude is None:
         return None
     return WeatherClient(
-        latitude=briefing.latitude, longitude=briefing.longitude, city=briefing.city
+        latitude=briefing.latitude,
+        longitude=briefing.longitude,
+        city=briefing.city,
+        failure_level=failure_level,
     )
 
 
@@ -2773,9 +2779,12 @@ def _rain_watcher(
     """Her warnings shortly before rain at the briefing's place while the block runs, also pushed
     to the phone when `rain_alert.push` and notifications are on; none with the alerts off or
     without a place. She says one once the follow-up window has closed, so a conversation is
-    never interrupted, and names the city as written (none with coordinates only)."""
+    never interrupted, and names the city as written (none with coordinates only). Its client
+    logs failures at DEBUG: the watcher logs a run of them once itself."""
     rain = config.rain_alert
-    weather = _weather_client(config.briefing) if rain.enabled else None
+    weather = (
+        _weather_client(config.briefing, failure_level=logging.DEBUG) if rain.enabled else None
+    )
     if weather is None:
         yield
         return
