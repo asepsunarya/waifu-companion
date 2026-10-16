@@ -1159,11 +1159,11 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** none · **Files:** `src/waifu/version.py`, `tests/test_version.py` · **Scope:** M
 
-## Task 123: The version watcher
+## Task 123: The version watcher ✅
 
 **Acceptance criteria:**
-- [ ] `version_news`, `notice_text`, `push_text` per SPEC: one newer version, several (the count in words), changed packages with and without a push, packages alone, nothing new, an unknown side; no parentheses in what she says
-- [ ] `VersionWatcher`: quiet outside the active hours without reading; one notice per news, a later version told again with its own count; read problems and failures never said and logged once per run of failures; announce and push each failure-proof; the owner word at sentence start; a daemon thread that polls at once and every `check_minutes`, stops at once, and starts once
+- [x] `version_news`, `notice_text`, `push_text` per SPEC: one newer version, several (the count in words), changed packages with and without a push, packages alone, nothing new, an unknown side; no parentheses in what she says
+- [x] `VersionWatcher`: quiet outside the active hours without reading; one notice per news, a later version told again with its own count; read problems and failures never said and logged once per run of failures; announce and push each failure-proof; the owner word at sentence start; a daemon thread that polls at once and every `check_minutes`, stops at once, and starts once
 
 **Dependencies:** 122a, 122 · **Files:** `src/waifu/version_watch.py`, `tests/test_version_watch.py` · **Scope:** M
 
