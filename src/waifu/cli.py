@@ -176,6 +176,7 @@ from waifu.todo import Task, TodoError, TodoStore
 from waifu.usage import DayUsage, TokenUsage, UsageLedger, UsageSummary, cost_usd
 from waifu.version import (
     INSTALL_COMMAND,
+    REPO_ROOT,
     CodeVersion,
     Release,
     RunningVersion,
@@ -2926,14 +2927,14 @@ def _version_watcher(
         watcher.stop()
 
 
-def _running_status() -> tuple[bool, RunningVersion | None]:
-    """Whether the run lock is held, and the record of the `waifu run` holding it: None when
-    it recorded nothing (a run from before v1.26, or `enroll`/`speaker-test` holds the lock)
-    or its record names a process that ended. Only the lock tells that something runs: a
-    console closed by hand never removes the record."""
-    if not _instance_running(RUN_LOCK):
+def _running_status(lock: Path, record_path: Path) -> tuple[bool, RunningVersion | None]:
+    """Whether the run lock at `lock` is held, and the record at `record_path` of the
+    `waifu run` holding it: None when it recorded nothing (a run from before v1.26, or
+    `enroll`/`speaker-test` holds the lock) or its record names a process that ended. Only the
+    lock tells that something runs: a console closed by hand never removes the record."""
+    if not _instance_running(lock):
         return False, None
-    record = read_running(RUNNING_FILE)
+    record = read_running(record_path)
     if record is None or not process_alive(record.pid):
         return True, None
     return True, record
@@ -3001,9 +3002,10 @@ def _version_notice_check(notice: VersionNoticeConfig) -> Check:
 
 def _version(args: argparse.Namespace) -> int:
     """Print the version on disk, the running one while a recorded `waifu run` runs, and the
-    check line comparing them; no config needed."""
+    check line comparing them; no config needed. The run lock and record are read in the
+    project folder, as the code is, so it answers the same from any working directory."""
     disk = read_code_version()
-    held, running = _running_status()
+    held, running = _running_status(REPO_ROOT / RUN_LOCK, REPO_ROOT / RUNNING_FILE)
     print(f"Kode di disk: {_code_text(disk)}")
     if running is not None:
         print(
@@ -4219,7 +4221,7 @@ def _checks(config_path: Path) -> Iterator[Check]:
         yield FAIL, f"Konfigurasi tidak valid: {_config_problem(exc)}"
         return
     yield OK, f"Konfigurasi valid ({config_path})"
-    yield _running_version_check(read_code_version(), *_running_status())
+    yield _running_version_check(read_code_version(), *_running_status(RUN_LOCK, RUNNING_FILE))
     yield _version_notice_check(config.version_notice)
     yield from _device_checks(config, config_path)
     yield from _routine_checks(config)

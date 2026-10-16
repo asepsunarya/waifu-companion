@@ -482,6 +482,13 @@ def running_records_under_tmp_path(tmp_path, monkeypatch):
     monkeypatch.setattr(cli, "write_running", write_under_tmp_path)
 
 
+@pytest.fixture(autouse=True)
+def project_folder_is_tmp_path(tmp_path, monkeypatch) -> None:
+    """`waifu version` reads the run lock and record in the project folder from any working
+    directory: in every test that is tmp_path, never this repository with the owner's lock."""
+    monkeypatch.setattr(cli, "REPO_ROOT", tmp_path)
+
+
 class FakeVersionWatcher:
     """Stands in for VersionWatcher without a thread, remembering what it was given, whether
     `waifu run` listened when it started and stopped, and the test's `events` up to then."""
@@ -7811,6 +7818,22 @@ def test_version_shows_what_it_could_read_of_the_code_on_disk(
     assert cli.main(["version"]) == 0
 
     assert capsys.readouterr().out.splitlines()[0] == expected
+
+
+def test_version_from_another_folder_reads_the_run_in_the_project_folder(home, monkeypatch, capsys):
+    record_a_run(home, CodeVersion((V111,), DISK_HASH, OLD_COMMIT))
+    elsewhere = home / "elsewhere"  # the venv's waifu works from any folder
+    elsewhere.mkdir()
+
+    with InstanceLock(home / "data" / "run.lock"):
+        monkeypatch.chdir(elsewhere)
+        assert cli.main(["version"]) == 0
+
+    assert capsys.readouterr().out.splitlines()[1:] == [
+        "Yang berjalan: v1.11, memotong bicaranya (commit 1a2b3c4), dimulai 2026-10-13 08:15",
+        "! waifu run yang sedang jalan masih v1.11 (dimulai 2026-10-13); "
+        "mulai ulang supaya v1.25 aktif",
+    ]
 
 
 def test_version_needs_no_config(tmp_path, monkeypatch, capsys):

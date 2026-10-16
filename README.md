@@ -795,8 +795,8 @@ CHANGELOG memintanya.
 
 ### Mengecek: `waifu version` dan `waifu check`
 
-`waifu version` (jalan juga tanpa `config.yaml`) menampilkan versi di disk dan versi
-`waifu run` yang sedang berjalan:
+`waifu version` (jalan juga tanpa `config.yaml`, dari folder mana pun) menampilkan versi di disk
+dan versi `waifu run` yang sedang berjalan:
 
 ```text
 Kode di disk: v1.26, versi baru (commit 3f9c2ab)
