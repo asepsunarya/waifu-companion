@@ -832,6 +832,10 @@ def _configure_logging(verbose: bool) -> None:
     # genshin.py logs every request's URL at DEBUG, the HoYoLAB uid in its query included.
     # Not on "genshin" itself: every new genshin.Client sets that one back to NOTSET.
     logging.getLogger("genshin.client").setLevel(logging.INFO)
+    # genshin.py warns "Unknown <enum>: ..., please report to developer" from genshin.models
+    # whenever HoYoLAB sends a value it has no name for (on every HSR calendar read): the
+    # library's own business. The HoYoLAB errors Cyrene logs herself are not affected.
+    logging.getLogger("genshin.models").setLevel(logging.ERROR)
     if not verbose:
         # httpx logs every Ollama request at INFO, which would bury the conversation.
         logging.getLogger("httpx").setLevel(logging.WARNING)

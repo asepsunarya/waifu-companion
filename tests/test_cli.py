@@ -28,6 +28,8 @@ import httpx
 import httpx2
 import numpy as np
 import pytest
+from genshin.models import HSREventStatus
+from genshin.models.model import prevent_enum_error
 from tinytuya.core.error_helper import ERR_PAYLOAD, error_json
 from tinytuya.core.XenonDevice import XenonDevice
 
@@ -500,7 +502,8 @@ def code_watchers(monkeypatch) -> list[FakeCodeWatcher]:
 @pytest.fixture(autouse=True)
 def restore_library_log_levels():
     """main() tunes third-party loggers process-wide; give later tests the levels back."""
-    loggers = [logging.getLogger(name) for name in ("tinytuya", "httpx", "anthropic")]
+    names = ("tinytuya", "httpx", "anthropic", "genshin.client", "genshin.models")
+    loggers = [logging.getLogger(name) for name in names]
     levels = [logger.level for logger in loggers]
     yield
     for logger, level in zip(loggers, levels, strict=True):
@@ -4850,6 +4853,31 @@ def test_verbose_logging_never_reveals_the_hsr_uid_genshin_puts_in_request_urls(
 
     assert uid not in caplog.text
     assert "SAMPLECOOKIE" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("flags", "level"), [([], logging.INFO), (["-v"], logging.DEBUG)], ids=["default", "verbose"]
+)
+def test_genshin_model_parsing_warnings_stay_off_the_console_but_cyrenes_own_gacha_warnings_show(
+    flags, level, home, games, monkeypatch, caplog
+):
+    def calendar_with_an_event_status_genshin_cannot_name() -> HsrCalendar:
+        # As on the owner's PC: genshin.py keeps an act_status it has no enum member for, and
+        # warns about it from genshin.models.model on every read of the HSR calendar.
+        prevent_enum_error("DoubleRewardActStatusFinish", HSREventStatus)
+        # A HoYoLAB failure Cyrene logs herself, as HoyolabClient does for a timeout.
+        logging.getLogger("waifu.gacha.hoyolab").warning("HoYoLAB unreachable: TimeoutError")
+        return HsrCalendar(None, (), (), ())
+
+    monkeypatch.setattr(
+        games.hoyolab, "hsr_calendar", calendar_with_an_event_status_genshin_cannot_name
+    )
+    caplog.set_level(level)
+
+    assert cli.main([*flags, "gacha", "hsr", "events"]) == 0
+
+    assert "please report to developer" not in caplog.text
+    assert "HoYoLAB unreachable: TimeoutError" in caplog.text
 
 
 # --- long-term memory --------------------------------------------------------------------------
