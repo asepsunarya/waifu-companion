@@ -152,7 +152,9 @@ def _disc(disc: Any) -> ZzzDisc:
 
 def _shiyu_defense_v2(model: Any) -> Endgame:
     """Shiyu Defense as genshin.py's `ShiyuDefenseV2`: the run's rating, score, and clear time,
-    and the scored battles of its fifth frontier, which genshin.py gives no name."""
+    and the scored battles of its fifth frontier, which genshin.py gives no name. Each is
+    "Frontier 5 battle N": a bare "Frontier N" would name another frontier, as the Critical
+    Node's stages do."""
     brief = model.brief_info
     battles = () if model.fifth_frontier is None else model.fifth_frontier.layers
     return Endgame(
@@ -170,7 +172,12 @@ def _shiyu_defense_v2(model: Any) -> Endgame:
         battles=None,
         stages=tuple(
             EndgameStage(
-                f"Frontier {position}", None, None, battle.rating, battle.score, battle.clear_time
+                f"Frontier 5 battle {position}",
+                None,
+                None,
+                battle.rating,
+                battle.score,
+                battle.clear_time,
             )
             for position, battle in enumerate(battles[:MAX_STAGES], start=1)
         ),

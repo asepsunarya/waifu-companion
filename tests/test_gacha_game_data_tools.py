@@ -2359,9 +2359,9 @@ SHIYU_DEFENSE = Endgame(
     seconds=312,
     battles=None,
     stages=(
-        EndgameStage("Frontier 1", None, None, "S", 20412, 104),
-        EndgameStage("Frontier 2", None, None, "S", 20411, 98),
-        EndgameStage("Frontier 3", None, None, "A", 20411, 110),
+        EndgameStage("Frontier 5 battle 1", None, None, "S", 20412, 104),
+        EndgameStage("Frontier 5 battle 2", None, None, "S", 20411, 98),
+        EndgameStage("Frontier 5 battle 3", None, None, "A", 20411, 110),
     ),
 )
 DEADLY_ASSAULT = Endgame(
@@ -2446,9 +2446,9 @@ SHIYU_DEFENSE_JSON = {
     "max_score": 65000,
     "clear_seconds": 312,
     "stages": [
-        {"name": "Frontier 1", "rating": "S", "score": 20412, "clear_seconds": 104},
-        {"name": "Frontier 2", "rating": "S", "score": 20411, "clear_seconds": 98},
-        {"name": "Frontier 3", "rating": "A", "score": 20411, "clear_seconds": 110},
+        {"name": "Frontier 5 battle 1", "rating": "S", "score": 20412, "clear_seconds": 104},
+        {"name": "Frontier 5 battle 2", "rating": "S", "score": 20411, "clear_seconds": 98},
+        {"name": "Frontier 5 battle 3", "rating": "A", "score": 20411, "clear_seconds": 110},
     ],
 }
 DEADLY_ASSAULT_JSON = {
@@ -2620,7 +2620,8 @@ def busy_game_endgames() -> dict[str, Endgame | GachaError]:
             score=65000,
             seconds=600,
             stages=tuple(
-                EndgameStage(f"Frontier {i}", None, None, "S", 21666, 200) for i in range(1, 5)
+                EndgameStage(f"Frontier 5 battle {i}", None, None, "S", 21666, 200)
+                for i in range(1, 5)
             ),
         ),
         Endgame(

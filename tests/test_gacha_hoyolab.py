@@ -2420,7 +2420,7 @@ def test_game_endgame_reads_shiyu_defense_through_hoyolab_without_the_players_ni
             "rating": "S",
             "score": 52000,
             "max_score": 60000,
-            "stages": [{"name": "Frontier 1", "rating": "S", "score": 20000}],
+            "stages": [{"name": "Frontier 5 battle 1", "rating": "S", "score": 20000}],
         }
     ]
     assert [call[:2] for call in fake.calls] == [("shiyu_defense", ZZZ_UID)]

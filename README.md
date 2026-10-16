@@ -3830,8 +3830,8 @@ ZZZ](#data-akun-genshin-dan-zzz-karakter-endgame-dan-event))
       12 di game.
 - [ ] `waifu gacha zzz endgame`: rating dan skor Shiyu Defense, serta skor dan bintang Deadly
       Assault sama dengan di game. Di `waifu chat -v`, "Shiyu Defense-ku gimana?": catat apa
-      yang di hasil tool bernama `Frontier 1`, `Frontier 2`, dan seterusnya, dan namanya di
-      game.
+      yang di hasil tool bernama `Frontier 5 battle 1`, `Frontier 5 battle 2`, dan seterusnya
+      (pertarungan di frontier kelima), dan namanya di game.
 - [ ] `waifu gacha genshin events`: jam berakhir satu banner sama dengan timer banner di game
       (sampai menitnya). `waifu gacha zzz events`: jam berakhir satu banner dan satu event
       sama dengan di game. Jam kedua kalender ini belum pernah dicek dengan akun asli: kalau

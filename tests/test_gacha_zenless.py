@@ -453,9 +453,11 @@ def test_shiyu_defense_reads_the_runs_rating_score_and_clear_time_and_the_fifth_
         seconds=412,
         battles=None,
         stages=(
-            EndgameStage("Frontier 1", None, None, "S", 20000, 120),
-            EndgameStage("Frontier 2", None, None, "A", 17000, 150),
-            EndgameStage("Frontier 3", None, None, "S", 15000, None),
+            # Battles of the fifth frontier: "Frontier 1" would be another frontier's number,
+            # which the Critical Node's stages use.
+            EndgameStage("Frontier 5 battle 1", None, None, "S", 20000, 120),
+            EndgameStage("Frontier 5 battle 2", None, None, "A", 17000, 150),
+            EndgameStage("Frontier 5 battle 3", None, None, "S", 15000, None),
         ),
     )
     assert endgame.ends_at.utcoffset() == timedelta(hours=8)
