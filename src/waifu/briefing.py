@@ -8,29 +8,23 @@ carries no data, so it stays byte-identical for the brain's lifetime and keeps t
 cache warm.
 
 `BriefingTimer` asks for her greeting once a day, the first time `waifu run` is on between
-`briefing.time` and `briefing.until`: it hands `BRIEFING_PROMPT` to `request`, which has the
-brain answer it between Master's utterances. The day goes into the state file before the
-request, so a crash, a restart, or a second PC start the same morning never greets twice;
-a request that fails is not retried until the next day. The file follows the rules of
-`memory.py`: it is re-read at every check, replaced atomically, never created by reading,
-and a file that is not a briefing state is moved aside, never overwritten.
+`briefing.time` and `briefing.until`: a `PromptTimer` that hands `BRIEFING_PROMPT` to
+`request`, which has the brain answer it between Master's utterances. The day goes into the
+state file before the request, so a crash, a restart, or a second PC start the same morning
+never greets twice; a request that fails is not retried until the next day.
 """
 
 from __future__ import annotations
 
 import json
 import logging
-import os
-import re
-import threading
 from collections.abc import Callable, Mapping
 from datetime import date, datetime
-from types import TracebackType
 
 from waifu.brain.base import ToolSpec
 from waifu.brain.persona import WEEKDAYS_ID
 from waifu.config import BriefingConfig
-from waifu.gacha.files import write_json_atomic
+from waifu.prompt_timer import PromptTimer
 from waifu.schedule import Action, DeviceAction, Entry, Reminder, ScheduleStore
 from waifu.todo import Task, TodoStore
 from waifu.weather import Weather, WeatherClient, WeatherError
@@ -38,8 +32,6 @@ from waifu.weather import Weather, WeatherClient, WeatherError
 logger = logging.getLogger(__name__)
 
 DAILY_BRIEFING = "daily_briefing"
-FILE_VERSION = 1
-STOP_TIMEOUT_S = 5.0
 # Her own turn, not Master's words: it holds no look word (the screen tool stays shut), no
 # play verb or music word (the music tool stays shut), and does not start with a yes (the
 # confirmation gate stays shut).
@@ -57,9 +49,6 @@ _WEATHER_FAILED = "Cuaca tidak bisa dibaca saat ini."
 _SCHEDULE_FAILED = "Jadwal tidak bisa dibaca saat ini."
 _TASKS_FAILED = "Daftar tugas tidak bisa dibaca saat ini."
 _FAILED = "Ringkasan hari ini tidak bisa dibuat saat ini."
-_STATE_KEYS = {"version", "last_date"}
-# date.fromisoformat also reads 20261013 and 2026-W42-2; the file holds only YYYY-MM-DD.
-_ISO_DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 
 
 class _InvalidArguments(Exception):
@@ -157,7 +146,7 @@ class BriefingTools:
         return [_entry_json(entry) for entry in entries if entry.at.date() == today], None
 
 
-class BriefingTimer:
+class BriefingTimer(PromptTimer):
     """Asks for her greeting once a day inside the configured window, from a daemon thread."""
 
     def __init__(
@@ -168,119 +157,17 @@ class BriefingTimer:
         now: Callable[[], datetime] = datetime.now,
         tick_seconds: float = 30,
     ) -> None:
-        self._config = config
-        self._path = config.state_path
-        self._request = request
-        self._now = now
-        self._tick_seconds = tick_seconds
-        self._stop = threading.Event()
-        self._thread: threading.Thread | None = None
-
-    def tick_once(self) -> None:
-        """Ask for the greeting when `time <= now < until` and none was asked for today.
-
-        Today is saved first: when the save fails, nothing is asked (it raises, and the next
-        tick tries again); a request that fails is logged and not retried today.
-        """
-        now = self._now()
-        if not self._config.time <= now.time() < self._config.until:
-            return
-        today = now.date()
-        if self._last_date(now) == today:
-            return
-        write_json_atomic(self._path, {"version": FILE_VERSION, "last_date": today.isoformat()})
-        logger.info("Asking for the morning briefing of %s", today.isoformat())
-        try:
-            self._request(BRIEFING_PROMPT)
-        except Exception:
-            logger.exception("The morning briefing request failed; not asking again today")
-
-    def start(self) -> None:
-        if self._thread is not None:
-            return
-        self._stop.clear()
-        self._thread = threading.Thread(target=self._loop, name="briefing", daemon=True)
-        self._thread.start()
-        logger.info(
-            "Morning briefing between %s and %s, remembered in %s",
-            f"{self._config.time:%H:%M}",
-            f"{self._config.until:%H:%M}",
-            self._path,
+        super().__init__(
+            BRIEFING_PROMPT,
+            due=lambda moment: config.time <= moment.time() < config.until,
+            state_path=config.state_path,
+            request=request,
+            what="morning briefing",
+            when=f"between {config.time:%H:%M} and {config.until:%H:%M}",
+            thread_name="briefing",
+            now=now,
+            tick_seconds=tick_seconds,
         )
-
-    def stop(self) -> None:
-        self._stop.set()
-        if self._thread is not None:
-            self._thread.join(STOP_TIMEOUT_S)
-            self._thread = None
-
-    def __enter__(self) -> BriefingTimer:
-        self.start()
-        return self
-
-    def __exit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc: BaseException | None,
-        traceback: TracebackType | None,
-    ) -> None:
-        self.stop()
-
-    def _loop(self) -> None:
-        while not self._stop.is_set():
-            try:
-                self.tick_once()
-            except Exception:
-                logger.exception("A morning briefing check failed; trying again at the next one")
-            self._stop.wait(self._tick_seconds)
-
-    def _last_date(self, now: datetime) -> date | None:
-        """The day of the last greeting; None when there was none or the file was moved aside."""
-        try:
-            # utf-8-sig: Notepad may save the file with a byte order mark.
-            return _parse_state(json.loads(self._path.read_text(encoding="utf-8-sig")))
-        except FileNotFoundError:
-            return None
-        except ValueError as problem:  # also bad JSON and bad UTF-8
-            self._set_aside(problem, now)
-            return None
-
-    def _set_aside(self, problem: ValueError, now: datetime) -> None:
-        """Rename a file that is not a briefing state, so that no write ever replaces it."""
-        name = f"{self._path.name}.corrupt-{now:%Y%m%d-%H%M%S}"
-        target = self._path.with_name(name)
-        counter = 2
-        while target.exists():
-            target = self._path.with_name(f"{name}-{counter}")
-            counter += 1
-        try:
-            os.rename(self._path, target)
-        except OSError as exc:
-            logger.error(
-                "Briefing state %s is not a briefing state (%s) and could not be moved aside: %s",
-                self._path,
-                problem,
-                exc,
-            )
-            raise
-        logger.error(
-            "Briefing state %s is not a briefing state (%s); moved it to %s and started anew",
-            self._path,
-            problem,
-            target,
-        )
-
-
-def _parse_state(raw: object) -> date:
-    """The day of the last greeting in `raw`; ValueError says what is wrong."""
-    if not isinstance(raw, dict) or raw.keys() != _STATE_KEYS:
-        raise ValueError(f"expected an object with exactly the keys {sorted(_STATE_KEYS)}")
-    version, last_date = raw["version"], raw["last_date"]
-    if type(version) is not int or version != FILE_VERSION:
-        raise ValueError(f"version must be {FILE_VERSION}")
-    if not isinstance(last_date, str) or not _ISO_DATE.fullmatch(last_date):
-        raise ValueError("last_date must be a date written YYYY-MM-DD")
-    return date.fromisoformat(last_date)  # ValueError for a day that does not exist
 
 
 def _weather_json(weather: Weather) -> dict[str, object]:
