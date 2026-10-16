@@ -613,6 +613,38 @@ class FakeHoyolab:
     async def update_settings(self, *args, **kwargs):
         return await self._answer(("update_settings",), None)
 
+    # The ZZZ Battle Chronicle, with genshin.py's signatures, recording every argument; its
+    # payloads are with the ZZZ data tests at the end of this file.
+    async def get_zzz_agents(self, uid=None, *, lang=None):
+        agents = [genshin.models.ZZZPartialAgent(**copy.deepcopy(agent)) for agent in ZZZ_AGENTS]
+        return await self._answer(("zzz_agents", uid, {"lang": lang}), agents)
+
+    async def get_zzz_agent_info(self, character_id, *, uid=None, lang=None):
+        payload = ZZZ_AGENT_DETAILS.get(character_id)
+        agent = None if payload is None else genshin.models.ZZZFullAgent(**copy.deepcopy(payload))
+        answer = await self._answer(("zzz_agent_info", character_id, uid, {"lang": lang}), agent)
+        if answer is None:  # HoYoLAB lists no agent the account lacks: genshin.py's [0] fails
+            raise IndexError("list index out of range")
+        return answer
+
+    async def get_shiyu_defense(self, uid=None, *, previous=False, lang=None, raw=False):
+        model = genshin.models.ShiyuDefenseV2(**copy.deepcopy(SHIYU_DEFENSE))
+        arguments = {"previous": previous, "lang": lang, "raw": raw}
+        return await self._answer(("shiyu_defense", uid, arguments), model)
+
+    async def get_deadly_assault(self, uid=None, *, previous=False, lang=None, raw=False):
+        model = genshin.models.DeadlyAssault(**copy.deepcopy(DEADLY_ASSAULT))
+        arguments = {"previous": previous, "lang": lang, "raw": raw}
+        return await self._answer(("deadly_assault", uid, arguments), model)
+
+    async def get_zzz_event_calendar(self, uid=None, *, lang=None):
+        events = [genshin.models.ZZZEvent(**copy.deepcopy(event)) for event in ZZZ_EVENTS]
+        return await self._answer(("zzz_events", uid, {"lang": lang}), events)
+
+    async def get_zzz_gacha_calendar(self, uid=None, *, lang=None):
+        model = genshin.models.ZZZGachaCalendar(**copy.deepcopy(ZZZ_GACHA_CALENDAR))
+        return await self._answer(("zzz_gacha", uid, {"lang": lang}), model)
+
 
 def make_client(fake: FakeHoyolab, *, cookie=COOKIE, uids=UIDS, **kwargs) -> HoyolabClient:
     cookies: list[str] = []
@@ -1892,3 +1924,426 @@ def test_redeeming_is_one_fresh_client_and_never_changes_a_hoyolab_setting():
 
     assert fake.cookies == [COOKIE]
     assert ("update_settings",) not in fake.calls
+
+
+# ---- ZZZ data (v1.23) ---------------------------------------------------------------------------
+
+ZZZ_UID = 1300000003
+ZZZ_NOW = int(FETCHED_AT.timestamp())
+ZZZ_PRIVATE = CHRONICLE_PRIVATE.replace("Data HSR", "Data ZZZ")
+# genshin.py adds the uid's server offset ("tzinfo") to the endgame times it returns.
+ZZZ_SEASON_END = {"year": 2026, "month": 10, "day": 31, "hour": 3, "minute": 59, "tzinfo": 8}
+
+
+def zzz_agent(agent_id: int, name: str, *, rarity: str = "S", rank: int = 0) -> dict:
+    return {
+        "id": agent_id,
+        "element_type": 202,
+        "rarity": rarity,
+        "name_mi18n": name,
+        "full_name_mi18n": f"{name} Full Name",
+        "avatar_profession": 1,
+        "group_icon_path": "",
+        "hollow_icon_path": "",
+        "role_square_url": "",
+        "camp_name_mi18n": "",
+        "level": 60,
+        "rank": rank,
+    }
+
+
+def zzz_agent_detail(agent: dict, weapon: dict | None = None) -> dict:
+    detail = {
+        **agent,
+        "properties": [
+            {"property_name": "HP", "property_id": 1, "base": "100", "add": "10", "final": "8000"}
+        ],
+        "equip": [],
+        "skills": [],
+        "ranks": [],
+        "skill_awaken": {
+            "has_awaken_system": False,
+            "awaken_level": 0,
+            "awaken_max_level": 0,
+            "skill_awaken_items": [],
+        },
+        "role_vertical_painting_url": "",
+    }
+    if weapon is not None:
+        detail["weapon"] = weapon
+    return detail
+
+
+ZZZ_AGENTS = [
+    zzz_agent(1191, "Ellen", rank=2),
+    zzz_agent(1031, "Nicole", rarity="A"),
+    zzz_agent(1141, "Lycaon", rank=1),
+]
+DEEP_SEA_VISITOR = {
+    "id": 14119,
+    "level": 60,
+    "name": "Deep Sea Visitor",
+    "icon": "",
+    "star": 2,
+    "rarity": "S",
+    "properties": [],
+    "main_properties": [],
+    "talent_title": "",
+    "talent_content": "",
+    "profession": 1,
+}
+ZZZ_AGENT_DETAILS = {
+    1191: zzz_agent_detail(ZZZ_AGENTS[0], DEEP_SEA_VISITOR),
+    1031: zzz_agent_detail(ZZZ_AGENTS[1]),
+    1141: zzz_agent_detail(ZZZ_AGENTS[2]),
+}
+SHIYU_DEFENSE = {
+    "zone_id": 62041,
+    "hadal_begin_time": {**ZZZ_SEASON_END, "day": 17, "hour": 4, "minute": 0},
+    "hadal_end_time": ZZZ_SEASON_END,
+    "pass_fifth_floor": True,
+    "brief": {"score": 52000, "max_score": 60000, "rank_percent": 1234, "rating": "S"},
+    "fitfh_layer_detail": {
+        "layer_challenge_info_list": [
+            {
+                "layer_id": 51,
+                "rating": "S",
+                "buffer": {"title": "", "text": ""},
+                "score": 20000,
+                "max_score": 20000,
+                "monster_pic": "",
+                "avatar_list": [],
+            }
+        ]
+    },
+    # genshin.py copies the player's nickname and avatar into the model.
+    "nick_name": "Master",
+    "icon": "master-avatar-icon",
+}
+DEADLY_ASSAULT = {
+    "zone_id": 30014,
+    "start_time": {**ZZZ_SEASON_END, "day": 20, "hour": 4, "minute": 0},
+    "end_time": {**ZZZ_SEASON_END, "month": 11, "day": 3},
+    "list": [
+        {
+            "score": 22000,
+            "star": 3,
+            "total_star": 3,
+            "challenge_time": {**ZZZ_SEASON_END, "day": 22},
+            "boss": [
+                {"icon": "", "name": "Notorious - Marionette", "bg_icon": "", "race_icon": ""}
+            ],
+            "buffer": [],
+            "avatar_list": [],
+        }
+    ],
+    "has_data": True,
+    "total_score": 40000,
+    "total_star": 5,
+    "rank_percent": 523,
+    "total_max_score": 60000,
+    "nick_name": "Master",
+    "avatar_icon": "master-avatar-icon",
+}
+
+
+def zzz_times(start: int, end: int) -> dict:
+    return {
+        "start_ts": str(start),
+        "end_ts": str(end),
+        "left_start_ts": max(0, start - ZZZ_NOW),
+        "left_end_ts": max(0, end - ZZZ_NOW),
+    }
+
+
+def zzz_event(name: str, start: int, end: int) -> dict:
+    return {
+        "activity_id": 1001,
+        "state": "STATE_IN_PROGRESS",
+        "name": name,
+        "monochrome_got_cnt": 240,
+        "monochrome_cnt": 420,
+        **zzz_times(start, end),
+    }
+
+
+def zzz_schedule(kind: str) -> dict:
+    return {
+        "gacha_type": kind,
+        "gacha_state": "GACHA_STATE_IN_PROGRESS",
+        "version": "2.3",
+        **zzz_times(ZZZ_NOW - 5 * 86400, ZZZ_NOW + 16 * 86400),
+        "sup_lock_show": False,
+        "insurance_id": 0,
+    }
+
+
+def zzz_banner_agent(name: str, rarity: str) -> dict:
+    return {
+        "avatar_id": 1191,
+        "avatar_name": name,
+        "full_name": name,
+        "rarity": rarity,
+        "icon": "",
+        "avatar_profession": 1,
+        "avatar_element_type": 202,
+        "avatar_sub_element_type": 0,
+        "wiki_url": "",
+        "jump_cultivate": False,
+        "is_forward": True,
+        "show_upon": True,
+    }
+
+
+ZZZ_EVENTS = [
+    zzz_event("Ridu Rush", ZZZ_NOW - 3 * 86400, ZZZ_NOW + 4 * 86400),
+    zzz_event("An Event That Ended", ZZZ_NOW - 20 * 86400, ZZZ_NOW - 86400),
+]
+ZZZ_GACHA_CALENDAR = {
+    "avatar_gacha_schedule_list": [
+        {
+            **zzz_schedule("GACHA_TYPE_CHARACTER_UP"),
+            "avatar_list": [zzz_banner_agent("Ellen", "S"), zzz_banner_agent("Nicole", "A")],
+        }
+    ],
+    "weapon_gacha_schedule_list": [{**zzz_schedule("GACHA_TYPE_WEAPON_UP"), "weapon_list": []}],
+}
+ZZZ_MODES = list(GAME_MODES["zzz"])
+
+
+def zzz_data_calls(client: HoyolabClient) -> tuple:
+    """Every ZZZ data method that raises a GachaError (endgame gives one per mode instead)."""
+    return (
+        client.zzz_characters,
+        lambda: client.zzz_character_details([1191]),
+        client.zzz_calendar,
+    )
+
+
+def new_element_error() -> pydantic.ValidationError:
+    """What genshin.py raises for an agent of an element it does not know yet."""
+    try:
+        genshin.models.ZZZPartialAgent(**{**ZZZ_AGENTS[0], "element_type": 299})
+    except pydantic.ValidationError as error:
+        return error
+    raise AssertionError("genshin.py accepted an unknown element")
+
+
+def test_zzz_characters_reads_the_roster_of_the_zzz_uid():
+    fake = FakeHoyolab()
+
+    agents = make_client(fake).zzz_characters()
+
+    assert [(agent.name, agent.rarity, agent.mindscape) for agent in agents] == [
+        ("Ellen", "S", 2),
+        ("Nicole", "A", 0),
+        ("Lycaon", "S", 1),
+    ]
+    assert fake.calls == [("zzz_agents", ZZZ_UID, {"lang": None})]
+
+
+def test_zzz_character_details_ask_for_each_agent_on_its_own_and_keep_the_order_given():
+    fake = FakeHoyolab()
+
+    details = make_client(fake).zzz_character_details([1031, 1191])
+
+    assert [detail.agent.name for detail in details] == ["Nicole", "Ellen"]
+    assert (details[0].w_engine, details[1].w_engine.refinement) == (None, 2)
+    # Never a list: genshin.py would gather one request per agent without a limit.
+    assert fake.calls == [
+        ("zzz_agent_info", 1031, ZZZ_UID, {"lang": None}),
+        ("zzz_agent_info", 1191, ZZZ_UID, {"lang": None}),
+    ]
+
+
+def test_at_most_two_agent_details_are_asked_for_at_once():
+    fake = FakeHoyolab(delay_s=0.05)
+
+    details = make_client(fake).zzz_character_details([1191, 1031, 1141])
+
+    assert [detail.agent.name for detail in details] == ["Ellen", "Nicole", "Lycaon"]
+    assert fake.most_in_flight == 2
+
+
+def test_no_agent_details_asked_for_ask_hoyolab_nothing():
+    fake = FakeHoyolab()
+
+    assert make_client(fake).zzz_character_details([]) == ()
+    assert (fake.calls, fake.cookies) == ([], [])
+
+
+def test_an_agent_hoyolab_does_not_return_fails_the_whole_detail_call():
+    with pytest.raises(GachaError) as caught:
+        make_client(FakeHoyolab()).zzz_character_details([1191, 9999])
+
+    assert (caught.value.kind, caught.value.message) == (
+        "other",
+        "Data HoYoLAB ZZZ tidak bisa dibaca saat ini.",
+    )
+
+
+def test_zzz_endgame_reads_this_season_of_both_modes_of_the_zzz_uid():
+    fake = FakeHoyolab()
+
+    results = make_client(fake).zzz_endgame(ZZZ_MODES)
+
+    assert list(results) == ["shiyu_defense", "deadly_assault"]
+    assert all(isinstance(result, Endgame) for result in results.values())
+    assert (results["shiyu_defense"].rating, results["deadly_assault"].score) == ("S", 40000)
+    this_season = (ZZZ_UID, {"previous": False, "lang": None, "raw": False})
+    assert {call[0]: call[1:] for call in fake.calls} == {
+        "shiyu_defense": this_season,
+        "deadly_assault": this_season,
+    }
+
+
+def test_an_unknown_shiyu_defense_version_is_other_and_does_not_hide_deadly_assault():
+    unknown = ValueError("Unknown Shiyu Defense version: 'v3'")  # what genshin.py raises
+    fake = FakeHoyolab(failures={"shiyu_defense": unknown})
+
+    results = make_client(fake).zzz_endgame(ZZZ_MODES)
+
+    assert (results["shiyu_defense"].kind, results["shiyu_defense"].message) == (
+        "other",
+        "Data HoYoLAB ZZZ tidak bisa dibaca saat ini.",
+    )
+    assert isinstance(results["deadly_assault"], Endgame)
+
+
+def test_zzz_calendar_reads_events_and_banners_in_two_requests_after_the_fetch_time():
+    fake = FakeHoyolab()
+
+    def now() -> datetime:
+        fake.calls.append(("now",))
+        return FETCHED_AT
+
+    calendar = make_client(fake, now=now).zzz_calendar()
+
+    assert [event.name for event in calendar.events] == ["Ridu Rush"]  # one ended at FETCHED_AT
+    assert [(banner.kind, banner.featured, banner.four_stars) for banner in calendar.banners] == [
+        ("agent", ("Ellen",), ("Nicole",)),
+        ("w_engine", (), ()),
+    ]
+    assert calendar.version == "2.3"
+    assert fake.calls == [
+        ("now",),
+        ("zzz_events", ZZZ_UID, {"lang": None}),
+        ("zzz_gacha", ZZZ_UID, {"lang": None}),
+    ]
+
+
+@pytest.mark.parametrize("failing", ["zzz_events", "zzz_gacha"])
+def test_either_zzz_calendar_request_failing_fails_the_call(failing):
+    fake = FakeHoyolab(failures={failing: errors.GenshinException({"retcode": -999})})
+
+    with pytest.raises(GachaError) as caught:
+        make_client(fake).zzz_calendar()
+
+    assert (caught.value.kind, caught.value.message) == (
+        "other",
+        "HoYoLAB menolak permintaan ZZZ (kode -999).",
+    )
+
+
+def test_hidden_zzz_battle_chronicle_data_is_chronicle_private_and_names_zzz():
+    hidden = errors.DataNotPublic({"retcode": 10102})
+    names = ("zzz_agents", "zzz_agent_info", "zzz_events", "deadly_assault", "zzz_notes")
+    client = make_client(FakeHoyolab(failures=dict.fromkeys(names, hidden)))
+
+    for call in zzz_data_calls(client):
+        with pytest.raises(GachaError) as caught:
+            call()
+        assert (caught.value.kind, caught.value.message) == ("chronicle_private", ZZZ_PRIVATE)
+    results = client.zzz_endgame(ZZZ_MODES)
+    assert (results["deadly_assault"].kind, results["deadly_assault"].message) == (
+        "chronicle_private",
+        ZZZ_PRIVATE,
+    )
+    assert isinstance(results["shiyu_defense"], Endgame)
+    # The Real-Time Notes keep their own kind: they are switched on elsewhere.
+    assert client.status(["zzz"])["zzz"].kind == "notes_off"
+
+
+def test_zzz_data_without_a_zzz_account_is_an_account_error():
+    fake = FakeHoyolab(accounts=[account("hkrpg_global", 800000001, 70)])
+    client = make_client(fake, uids={})
+
+    for call in zzz_data_calls(client):
+        with pytest.raises(GachaError) as caught:
+            call()
+        assert (caught.value.kind, caught.value.message) == (
+            "account",
+            "Akun ZZZ tidak ditemukan di HoYoLAB ini.",
+        )
+    assert {result.kind for result in client.zzz_endgame(ZZZ_MODES).values()} == {"account"}
+    assert {call[0] for call in fake.calls} == {"accounts"}
+
+
+def test_without_configured_uids_zzz_data_is_read_for_the_highest_level_zzz_account():
+    fake = FakeHoyolab()
+
+    make_client(fake, uids={}).zzz_characters()
+
+    assert ("zzz_agents", ZZZ_UID, {"lang": None}) in fake.calls
+
+
+def test_zzz_data_without_a_cookie_says_to_fill_it_in():
+    client = HoyolabClient(None, client_factory=lambda cookie: FakeHoyolab())
+
+    for call in zzz_data_calls(client):
+        with pytest.raises(GachaError) as caught:
+            call()
+        assert caught.value.kind == "no_cookie"
+    assert {result.kind for result in client.zzz_endgame(ZZZ_MODES).values()} == {"no_cookie"}
+
+
+def test_zzz_data_that_does_not_parse_is_other():
+    fake = FakeHoyolab(
+        failures={"zzz_agents": new_element_error()},
+        answers={"zzz_gacha": SimpleNamespace(), "deadly_assault": SimpleNamespace()},
+    )
+    client = make_client(fake)
+
+    for call in (client.zzz_characters, client.zzz_calendar):
+        with pytest.raises(GachaError) as caught:
+            call()
+        assert (caught.value.kind, caught.value.message) == (
+            "other",
+            "Data HoYoLAB ZZZ tidak bisa dibaca saat ini.",
+        )
+    results = client.zzz_endgame(ZZZ_MODES)
+    assert results["deadly_assault"].kind == "other"
+    assert isinstance(results["shiyu_defense"], Endgame)
+
+
+def test_each_zzz_call_is_one_fresh_client_and_never_changes_a_hoyolab_setting():
+    fake = FakeHoyolab(failures={"deadly_assault": errors.DataNotPublic({"retcode": 10102})})
+    client = make_client(fake)
+
+    client.zzz_characters()
+    client.zzz_character_details([1191, 1031])
+    client.zzz_endgame(ZZZ_MODES)
+    client.zzz_calendar()
+
+    assert fake.cookies == [COOKIE] * 4
+    assert ("update_settings",) not in fake.calls
+
+
+def test_zzz_results_errors_and_logs_never_hold_the_cookie_uid_or_nickname(caplog):
+    failures = {
+        "zzz_agent_info": errors.GenshinException({"retcode": -999}),
+        "zzz_events": aiohttp.ClientConnectionError("down"),
+    }
+    client = make_client(FakeHoyolab(failures=failures))
+
+    with caplog.at_level(logging.DEBUG):
+        # Both endgame models hold the player's nickname and avatar.
+        texts = [repr(client.zzz_characters()), repr(client.zzz_endgame(ZZZ_MODES))]
+        for call in (lambda: client.zzz_character_details([1191]), client.zzz_calendar):
+            with pytest.raises(GachaError) as caught:
+                call()
+            texts.append(str(caught.value))
+
+    for secret in ("SECRETCOOKIE", "SECRETTOKEN", str(ZZZ_UID), "Master", "master-avatar-icon"):
+        assert all(secret not in text for text in texts)
+        assert secret not in caplog.text
