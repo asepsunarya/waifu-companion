@@ -48,19 +48,52 @@ _SECRET_WORDS = (
     "otp",
     "cvv",
     r"api[\s_-]*key",
-    # "token listrik" (or "token PLN") is prepaid electricity.
-    r"token(?![\s_-]*(?:listrik|pln))",
+    # Also "token listrik" and "token PLN": the 20 digits of a prepaid electricity token are
+    # its value (see _ELECTRICITY).
+    "token",
     r"seed[\s_-]*phrase",
 )
 
 # Whole words only: a letter or digit in front makes another word, and so does a letter
 # behind, except the suffixes -nya, -ku, and -mu that Indonesian attaches to the word
-# itself. So "pinjam" and "tokenisasi" are not matched, while "passwordnya", "PIN-nya",
-# "my_password", and "PIN1234" are.
+# itself, with or without a hyphen. So "pinjam" and "tokenisasi" are not matched, while
+# "passwordnya", "PIN-nya", "my_password", and "PIN1234" are.
 _SECRET_WORD = re.compile(
-    r"(?<![^\W_])(?:" + "|".join(_SECRET_WORDS) + r")(?:nya|ku|mu)?(?![^\W\d_])",
+    r"(?<![^\W_])(?:" + "|".join(_SECRET_WORDS) + r")(?:-?(?:nya|ku|mu))?(?![^\W\d_])",
     re.IGNORECASE,
 )
+# A secret word alone is no secret ("ganti PIN ATM"): its value is looked for in the words
+# right after it. The words that tie a secret to Master ("PIN ATM BCA milik Master adalah
+# 123456") lead to its value without being one of them.
+_VALUE_WORDS = 4
+# Past those words the rest of the clause still counts, for a value that cannot be a year or an
+# amount: five or more digits, or a long mix ("Kode OTP login Shopee hari ini 482910"). A clause
+# ends at a comma, a semicolon, the end of a sentence, or a word that starts the next one.
+_CLAUSE_WORDS = 12
+_CLAUSE_END_CHARS = ",;.!?"
+_CLAUSE_END_WORDS = frozenset({"lalu", "terus", "kemudian", "dan", "and", "then", "tapi", "but"})
+_LONG_VALUE_DIGITS = 5
+_LINKING_WORDS = frozenset(
+    {"master", "milik", "punya", "adalah", "ialah", "yaitu", "yakni", "yang", "is"}
+)
+# A ':' or '=' among those words gives its value away, wherever the value itself is.
+_VALUE_SEPARATOR = re.compile(r"[:=]\s*\S")
+# Digits in groups split by a single space or dash ("482 910", "12-34") are one value.
+_DIGIT_GROUP_SPLIT = re.compile(r"(?<=[0-9])[ -](?=[0-9])")
+_DIGITS = re.compile(r"[0-9]+")
+# A card's CVV has three digits; the value of every other secret has four or more.
+_CVV_DIGITS, _VALUE_DIGITS = 3, 4
+_MIXED_VALUE_CHARS = 6
+# "token listrik" or "token PLN" is prepaid electricity: the meter's power ("1300 VA"), its
+# meter or customer number (11-12 digits), or an amount is no value, only a token's 20 digits.
+_ELECTRICITY = re.compile(r"[\s_-]*(?:listrik|pln)(?:-?(?:nya|ku|mu))?(?![^\W\d_])", re.IGNORECASE)
+_PREPAID_TOKEN_DIGITS = 20
+# Punctuation around a word is not part of it ("(rumah).", "“kucing”").
+_EDGE_PUNCTUATION = "\"'“”‘’()[]{}<>.,;:!?"
+# Inside a word these join two words ("ATM-ku", "e-mail", "wifi/email"): they are no symbol.
+_WORD_JOINERS = "-/'’"
+# An amount in rupiah ("Rp100.000", "Rp1.500.000,-", "Rp100rb", "Rp1,5jt") is no value.
+_RUPIAH = re.compile(r"rp\.?[0-9][0-9.,]*(?:rb|ribu|k|jt|juta)?-?", re.IGNORECASE)
 _TOKEN_RUN = re.compile(r"[A-Za-z0-9_+/=-]{20,}")
 # Digits in groups separated by single spaces or dashes ("4111 1111 1111 1111 12-28").
 _DIGIT_RUN = re.compile(r"[0-9](?:[ -]?[0-9])*")
@@ -99,9 +132,9 @@ class MemoryError(Exception):
 
 
 def looks_secret(text: str) -> bool:
-    """True when `text` names a secret, holds a long mixed token, or a card number."""
+    """True when a secret word comes with its value, or `text` holds a long token or a card."""
     return (
-        _SECRET_WORD.search(text) is not None
+        any(_value_follows(word) for word in _SECRET_WORD.finditer(text))
         or any(_has_letters_and_digits(run) for run in _TOKEN_RUN.findall(text))
         or any(_holds_card_number(run) for run in _DIGIT_RUN.findall(text))
     )
@@ -265,6 +298,69 @@ def _find(facts: list[Fact], fact_id: str) -> Fact:
         if fact.id == fact_id:
             return fact
     raise MemoryError("Tidak ada catatan dengan id itu.")
+
+
+def _value_follows(secret_word: re.Match[str]) -> bool:
+    """True when the words after `secret_word`, in its clause, look like the secret's value:
+    a ':' or '=', a value among the first words, or a long value in the rest of the clause."""
+    rest = _DIGIT_GROUP_SPLIT.sub("", secret_word.string[secret_word.end() :])
+    clause = _clause(rest.split())
+    if _VALUE_SEPARATOR.search(" ".join(clause)):
+        return True
+    window = _value_window(clause)
+    name = secret_word.group().casefold()
+    if name.startswith("token") and _ELECTRICITY.match(rest):
+        return any(_longest_digit_run(word) >= _PREPAID_TOKEN_DIGITS for word in clause)
+    min_digits = _CVV_DIGITS if name.startswith("cvv") else _VALUE_DIGITS
+    return any(_looks_like_value(word, min_digits) for word in window) or any(
+        _looks_like_value(word, _LONG_VALUE_DIGITS) for word in clause
+    )
+
+
+def _clause(words: list[str]) -> list[str]:
+    """`words` up to the end of their clause, at most `_CLAUSE_WORDS` that are not linking
+    words: a word ending a clause is kept ("2:" or "kucing."), a word starting the next is not."""
+    clause: list[str] = []
+    counted = 0
+    for word in words:
+        bare = word.strip(_EDGE_PUNCTUATION).casefold()
+        if bare in _CLAUSE_END_WORDS:
+            break
+        clause.append(word)
+        if bare not in _LINKING_WORDS:
+            counted += 1
+        if counted == _CLAUSE_WORDS or word.rstrip("\"'“”‘’)]}").endswith(tuple(_CLAUSE_END_CHARS)):
+            break
+    return clause
+
+
+def _value_window(words: list[str]) -> list[str]:
+    """`words` up to the `_VALUE_WORDS`th one that is not a linking word."""
+    counted = 0
+    for end, word in enumerate(words, start=1):
+        if word.strip(_EDGE_PUNCTUATION).casefold() not in _LINKING_WORDS:
+            counted += 1
+            if counted == _VALUE_WORDS:
+                return words[:end]
+    return words
+
+
+def _looks_like_value(word: str, min_digits: int) -> bool:
+    """True for `min_digits` digits in a row, or a long mix of letters with digits or symbols."""
+    word = word.strip(_EDGE_PUNCTUATION)
+    if _RUPIAH.fullmatch(word):
+        return False
+    if _longest_digit_run(word) >= min_digits:
+        return True
+    return (
+        len(word) >= _MIXED_VALUE_CHARS
+        and any(char.isalpha() for char in word)
+        and any(not char.isalpha() and char not in _WORD_JOINERS for char in word)
+    )
+
+
+def _longest_digit_run(word: str) -> int:
+    return max(map(len, _DIGITS.findall(word)), default=0)
 
 
 def _has_letters_and_digits(run: str) -> bool:

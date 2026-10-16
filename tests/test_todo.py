@@ -246,10 +246,15 @@ def test_secret_text_is_refused_without_echoing_it(tmp_path):
 
 @pytest.mark.parametrize(
     "text",
-    ["ganti PIN ATM", "ganti password wifi", "minta kode OTP ke bank", "beli token"],
+    [
+        "PIN ATM 1234",
+        "password wifi: hijau123",
+        "passwordnya hijau123",
+        "token PLN 1234 5678 9012 3456 7890",
+        "kode OTP 482910",
+    ],
 )
-def test_a_task_that_only_names_a_secret_is_refused_too(text, tmp_path):
-    # The README says so: the word alone is refused, without the secret itself.
+def test_a_task_that_holds_a_secret_is_refused(text, tmp_path):
     store = make_store(tmp_path)
 
     with pytest.raises(TodoError, match="rahasia"):
@@ -259,9 +264,21 @@ def test_a_task_that_only_names_a_secret_is_refused_too(text, tmp_path):
 
 
 @pytest.mark.parametrize(
-    "text", ["beli token listrik", "isi token PLN", "ganti nomor rahasia ATM", "ganti kunci wifi"]
+    "text",
+    [
+        "ganti PIN ATM",
+        "ganti password wifi",
+        "ingatkan ganti password wifi",
+        "minta kode OTP ke bank",
+        "beli token",
+        "beli token listrik",
+        "isi token PLN",
+        "beli token listrik 100000",
+        "ganti nomor rahasia ATM",
+        "ganti kunci wifi",
+    ],
 )
-def test_the_wordings_the_readme_suggests_instead_are_saved(text, tmp_path):
+def test_a_task_that_names_a_secret_without_its_value_is_saved(text, tmp_path):
     assert make_store(tmp_path).add(text).text == text
 
 

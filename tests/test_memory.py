@@ -603,18 +603,18 @@ def test_nothing_is_written_when_a_corrupt_file_cannot_be_moved(tmp_path, monkey
         "Sandi HP Master 1234",
         "Passcode iPhone Master 0000",
         "pw email: rahasia123",
-        "PWD laptop Master mochi",
+        "PWD laptop Master mochi123",
         "passwd server: kucing",
         "PIN ATM 4321",
         "PIN-nya 4321",
         "Kode OTP dari bank 123456",
         "CVV kartu Master 123",
-        "API key OpenAI milik Master",
-        "Master punya apikey baru",
-        "my_api_key ada di catatan",
-        "Token GitHub Master",
+        "API key OpenAI milik Master: sk-proj-Ab12",
+        "Master punya apikey baru 9f8e7d6c5b",
+        "my_api_key=Ab12Cd34",
+        "Token GitHub Master ghp_Ab12Cd34",
         "Cookie HoYoLAB Master: ltuid_v2=12345678; ltoken_v2=v2_FAKEtokenForTests1234567890",
-        "Seed phrase dompet kripto Master",
+        "Seed phrase dompet kripto Master: abandon ability able about",
         "ltoken_v2=AbCdEf1234567890XyZq",
         "kuncinya sk-ant-api03-AbCdEfGh1234 ya",
         "4111 1111 1111 1111",
@@ -631,9 +631,192 @@ def test_looks_secret_catches_secrets(text):
 @pytest.mark.parametrize(
     "text",
     [
-        "Kata sandinya kucing123.",
+        "PIN ATM 1234",
+        "password wifi: hijau123",
+        "passwordnya hijau123",
+        "token PLN 1234 5678 9012 3456 7890",
+        "Token listrik Master 12345678901234567890",
+        "kode OTP 482910",
+        "Password email Master Xk9#p2",
+        "password wifi kucing#lucu",
+        "pin=4321",
+        "Sandi wifi lantai 2: kucing",
+        "PIN-nya ATM BCA Master 4321",
+        "PIN ATM BCA milik Master: 123456",
+        "password wifi lantai 2 = kucinglucu",
+        "Sandi wifi rumah lantai 2: kucing",
+        "PIN ATM Mandiri (kartu lama): 123456",
+        "Password wifi rumah lantai dua: kucing",
+    ],
+)
+def test_looks_secret_catches_a_secret_word_followed_by_its_value(text):
+    # A ':' or '=' with something after it anywhere in the clause; within the four words after
+    # the secret word, four or more digits (a 20-digit prepaid electricity token too), or six
+    # or more characters mixing letters with digits or symbols.
+    assert looks_secret(text)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Sandi wifi di rumah lantai 2: kucing",
+        "Kode OTP login Shopee untuk Master hari ini 482910",
+        "PIN ATM BCA milik Master untuk transfer harian 482910",
+        "password akun game lama Master yang dulu dipakai Mochi2024#",
+    ],
+)
+def test_looks_secret_catches_a_long_value_later_in_the_same_clause(text):
+    # Past the four words, the rest of the clause still counts: a ':' or '=', five or more
+    # digits, or a long mix of letters with digits or symbols.
+    assert looks_secret(text)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "ganti PIN ATM, lalu bayar listrik 150000",
+        "ganti PIN ATM terus transfer 500000 ke ibu",
+        "ingatkan ganti password wifi lalu beli kabel LAN 10 meter",
+        "reset password email kantor; tagihan internet 350000",
+    ],
+)
+def test_looks_secret_stops_at_the_end_of_the_clause(text):
+    # A number in the next clause ("lalu", "terus", a comma, a semicolon) is not the secret's.
+    assert not looks_secret(text)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "PIN ATM BCA milik Master 123456",
+        "PIN ATM BCA Master adalah 123456",
+        "PIN kartu ATM BRI Master 123456",
+        "PIN m-banking BCA milik Master 123456",
+        "PIN ATM BCA Master yang baru 123456",
+        "Kode OTP Shopee Master tadi pagi adalah 482910",
+        "CVV kartu kredit BCA Master 123",
+        "Password WiFi rumah Master adalah kucing123",
+        "Kata sandi laptop kantor Master adalah Mochi2024",
+        "password akun Steam Master adalah Mochi2024",
+        "PIN kartu ATM BRI punya Master yaitu 123456",
+    ],
+)
+def test_looks_secret_does_not_count_the_words_that_tie_a_secret_to_master(text):
+    # The model writes about Master: "Master" and "milik", "punya", "adalah", "ialah",
+    # "yaitu", "yakni", "yang", "is" lead to the value without being one of its four words.
+    assert looks_secret(text)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "OTP 482 910",
+        "OTP 482-910",
+        "kode OTP 482 910",
+        "OTP 48 29 10",
+        "PIN ATM 12 34",
+        "PIN 12-34",
+        "PIN 1 2 3 4",
+        "CVV 1 2 3",
+    ],
+)
+def test_looks_secret_reads_digits_in_groups_as_one_value(text):
+    # An OTP is shown and dictated in groups; a single space or dash joins them.
+    assert looks_secret(text)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Token listrik Master 1234-5678-9012-3456-7890",
+        "token_listrik 12345678901234567890",
+        "token PLN-nya 1234 5678 9012 3456 7890",
+    ],
+)
+def test_looks_secret_catches_a_prepaid_electricity_token(text):
+    assert looks_secret(text)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Rumah Master pakai token listrik 1300 VA",
+        "Rumah Master pakai token listrik 2200VA",
+        "Nomor meter token listrik Master 14234567890",
+        "ID pelanggan token PLN Master 532100123456",
+        "beli token PLN untuk meter 14234567890",
+        "beli token listrik 100000",
+        "beli token listrik Rp100rb",
+        "Master biasa beli token listrik Rp100k",
+        "isi token PLN Rp1,5jt",
+    ],
+)
+def test_looks_secret_takes_only_a_20_digit_token_as_the_value_of_token_listrik(text):
+    # The meter's power, its meter or customer number (11-12 digits), and an amount are what
+    # Master needs to buy a token, and no secret: only the 20 digits of the token itself are.
+    assert not looks_secret(text)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Master ganti PIN ATM, biayanya Rp10rb",
+        "Master top up token game Rp100k",
+        "beli token game Rp1,5jt",
+    ],
+)
+def test_looks_secret_takes_an_amount_in_rupiah_with_its_unit_for_no_value(text):
+    assert not looks_secret(text)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "ganti PIN ATM",
+        "ingatkan ganti password wifi",
+        "beli token listrik",
+        "beli token",
+        "minta kode OTP ke bank",
+        "Master lupa passwordnya",
+        "ganti PIN ATM-ku",
+        "ganti password e-mail kantor",
+        "ganti password wifi/email",
+        "Ganti password wifi (rumah).",
+        "beli token listrik Rp100.000",
+        "Master isi token PLN Rp1.500.000,- tiap bulan",
+        "Master ganti PIN ATM tiap awal bulan sejak 2024",
+        "API key OpenAI milik Master",
+        "Master punya apikey baru",
+        "my_api_key ada di catatan",
+        "Token GitHub Master",
+        "Seed phrase dompet kripto Master",
+    ],
+)
+def test_looks_secret_lets_a_secret_named_without_its_value_through(text):
+    # A hyphen or a slash joins two words, punctuation around a word is no symbol, an amount
+    # in rupiah is no value, and a year five words further on is not looked at.
+    assert not looks_secret(text)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "PWD laptop Master mochi",
         "Passwordnya WiFi rumah kucinglucu.",
         "WiFi rumah Master passwordnya kucinglucu",
+    ],
+)
+def test_looks_secret_cannot_tell_a_value_of_plain_letters_from_a_word(text):
+    # "mochi" after "PWD laptop Master" reads like "baru" after "password wifi": without a ':'
+    # or '=' only digits or symbols give a value away. The remember and add_task descriptions
+    # tell the model never to pass a secret at all.
+    assert not looks_secret(text)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Kata sandinya kucing123.",
         "Sandiku kucing123",
         "PINnya 4321.",
         "Master minta dicatat pinnya ATM 4321",
