@@ -10082,12 +10082,13 @@ def optional_parameters(schema: dict) -> int:
 
 
 def test_the_claude_request_with_every_tool_on_stays_within_the_strict_tool_limits(
-    home, games, monkeypatch
+    home, games, tepira, monkeypatch
 ):
     # Anthropic refuses a request with more than 20 strict tools, 24 optional parameters, or
     # 16 parameters with a union type across its strict schemas: every turn would be a 400.
     use_claude(home)
     enable_gacha(home)
+    enable_tepira(home, writes=True)
     append_config(
         home, "routines:\n  tidur:\n    steps:\n      - {device: lampu_kamar, command: off}\n"
     )
@@ -10122,6 +10123,7 @@ def test_the_claude_request_with_every_tool_on_stays_within_the_strict_tool_limi
         "play_youtube",
         "look_at_screen",
         "api_usage",
+        *FINANCE_TOOLS,
     } <= names
     strict = [tool for tool in request["tools"] if tool.get("strict")]
     schemas = [tool["input_schema"] for tool in strict]
@@ -10146,6 +10148,7 @@ def test_the_claude_request_with_every_tool_on_stays_within_the_strict_tool_limi
         "edit_task",
         "send_offer_link",
         "play_youtube",
+        "record_expense",
     } <= {tool["name"] for tool in strict}
 
 
