@@ -1975,6 +1975,10 @@ Genshin (Genshin Impact)
 Catatan: HoYoverse mencatat pull sekitar satu jam setelahnya, jadi pull barusan mungkin belum ada.
 ```
 
+Daftar kode diperbarui oleh `waifu run` saat teman main gacha menyala. Dengan `gacha.enabled:
+false` tidak ada yang memperbaruinya selain `waifu gacha codes`, jadi barisnya berbunyi `Kode
+belum ditukarkan (daftar tersimpan, perbarui dengan 'waifu gacha codes'): ...`.
+
 `waifu check` menampilkan `✓ Laporan game mingguan: tiap Minggu jam 19:00` (dengan
 `, juga ke HP` kalau notifikasi menyala), `! Laporan game mingguan: ...; cookie HoYoLAB belum
 diisi (gacha.cookie), jadi endgame dan event tidak terbaca`, atau `! Laporan game mingguan

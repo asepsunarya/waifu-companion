@@ -310,6 +310,12 @@ WEEKLY_REPORT_NOTE = (
     "Catatan: HoYoverse mencatat pull sekitar satu jam setelahnya, jadi pull barusan mungkin "
     "belum ada."
 )
+# `waifu gacha report`'s codes line; with the games off no watcher keeps the codes fresh, so
+# the line says they are the stored list (an empty or stale file reads the same as none left).
+UNREDEEMED_CODES = "Kode belum ditukarkan"
+UNREDEEMED_STORED_CODES = (
+    "Kode belum ditukarkan (daftar tersimpan, perbarui dengan 'waifu gacha codes')"
+)
 # The community source of the redeem codes (see gacha.codes), credited wherever its codes show.
 CODES_CREDIT = f"Sumber kode: {CODES_SOURCE} (API komunitas di balik Hoyo Buddy)"
 REDEEM_NEEDS_GAME = "--redeem butuh satu game, misalnya: waifu gacha codes hsr --redeem"
@@ -2353,6 +2359,7 @@ def _gacha_report(args: argparse.Namespace) -> int:
     brain; it works whether or not `gacha.enabled` and `weekly_report.enabled` are on. Exit 1
     when a part of a game could not be read; the rest is printed all the same."""
     config = load_config(args.config)
+    codes_label = UNREDEEMED_CODES if config.gacha.enabled else UNREDEEMED_STORED_CODES
     print("Membaca riwayat pull dan HoYoLAB, tunggu sebentar...", flush=True)
     report = _weekly_report_tools(config, build_gacha(config)).gather()
     since = report.since
@@ -2363,16 +2370,16 @@ def _gacha_report(args: argparse.Namespace) -> int:
     failed = False
     for week in report.games:
         print(f"{week.game.short} ({week.game.name})")
-        for line in _game_week_lines(week, report.now):
+        for line in _game_week_lines(week, report.now, codes_label):
             print(f"  {line}")
         failed = failed or bool(week.problems)
     print(WEEKLY_REPORT_NOTE)
     return 1 if failed else 0
 
 
-def _game_week_lines(week: GameWeek, now: datetime) -> list[str]:
+def _game_week_lines(week: GameWeek, now: datetime, codes_label: str) -> list[str]:
     """One game's week: its pulls and pity, its endgame, what ends within 7 days, and its
-    codes, each problem marked where its part would be."""
+    codes after `codes_label`, each problem marked where its part would be."""
     lines = []
     if week.pulls_problem is not None:
         # With a pity the stored history still answered; without one nothing did.
@@ -2393,7 +2400,7 @@ def _game_week_lines(week: GameWeek, now: datetime) -> list[str]:
     if week.codes_problem is not None:
         lines.append(f"{FAIL} {week.codes_problem}")
     elif week.codes is not None:
-        lines.append(f"Kode belum ditukarkan: {', '.join(week.codes) or 'tidak ada'}")
+        lines.append(f"{codes_label}: {', '.join(week.codes) or 'tidak ada'}")
     return lines
 
 

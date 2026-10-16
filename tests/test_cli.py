@@ -10972,7 +10972,9 @@ def test_gacha_report_prints_the_week_of_each_game_without_the_brain_also_with_t
         "    Bloom of Death (karakter): 5★ Castorice; 4★ Pela, Lynx; "
         f"berakhir {local(ends['warp'])} (2 hari 19 jam lagi)",
         f"    Planar Fissure: 3/7, berakhir {local(ends['fissure'])} (1 hari 8 jam lagi)",
-        "  Kode belum ditukarkan: tidak ada",
+        # With the games off no watcher keeps the codes fresh, so the stored list says so.
+        "  Kode belum ditukarkan (daftar tersimpan, perbarui dengan 'waifu gacha codes'): "
+        "tidak ada",
         "Catatan: HoYoverse mencatat pull sekitar satu jam setelahnya, jadi pull barusan "
         "mungkin belum ada.",
     ]
@@ -11056,7 +11058,26 @@ def test_gacha_report_shows_this_weeks_s_ranks_codes_and_an_unreadable_endgame_m
     assert "  Shiyu Defense: belum dimainkan musim ini" in lines
     assert "  ✗ Deadly Assault tidak terbaca: Deadly Assault bermasalah." in lines
     assert "  Berakhir dalam 7 hari: tidak ada" in lines
-    assert "  Kode belum ditukarkan: ZENLESSGIFT" in lines
+    assert (
+        "  Kode belum ditukarkan (daftar tersimpan, perbarui dengan 'waifu gacha codes'): "
+        "ZENLESSGIFT"
+    ) in lines
+
+
+def test_gacha_report_tells_the_codes_plainly_while_waifu_run_keeps_them_fresh(
+    home, game_data, games, capsys
+):
+    enable_gacha(home)
+    play_only(home, "[hsr]")
+    save_hsr_week(home)
+    hsr_week_on_hoyolab(game_data)
+    CodeStore(home / "data" / "redeem_codes.json").add(
+        "hsr", [("STARRAILGIFT", "50 Stellar Jade")], datetime.now().astimezone()
+    )
+
+    assert cli.main(["gacha", "report"]) == 0
+
+    assert "  Kode belum ditukarkan: STARRAILGIFT" in capsys.readouterr().out.splitlines()
 
 
 def test_gacha_report_never_prints_what_was_spent(home, game_data, games, capsys):
