@@ -4,6 +4,28 @@ Ringkasan per versi, yang terbaru di atas. Rinciannya ada di README (bagian yang
 setiap versi) dan di SPEC.md. Setelah memperbarui, **mulai ulang `waifu run`** supaya semuanya
 aktif, lalu jalankan `waifu check`.
 
+## v1.24: keuangan dari tepira
+
+- Pertanyaan soal uangmu dijawab dari tepira, aplikasi keuanganmu sendiri, hanya saat ditanya:
+  "pengeluaran bulan ini berapa?", "hari ini habis berapa?", "pemasukan bulan ini berapa?",
+  "sisa budget makan?", "saldo GoPay berapa?", "kekayaan bersihku berapa?", "tabungan laptop
+  sudah berapa?", "transaksi terakhir apa?", "skor keuanganku gimana?".
+- Mencatat pengeluaran lewat suara (pilihan, `tepira.writes: true`, hanya dengan otak Claude):
+  "catat jajan kopi 18 ribu" → dia bertanya dulu dengan nominal, keterangan, dan dompetnya, dan
+  baru mencatat setelah kamu menjawab "iya". "Batalkan yang tadi" menghapusnya lagi dalam 15
+  menit.
+- Tidak pernah di sapaan pagi, pemberitahuan, atau notifikasi HP; angkanya tidak disimpan ke
+  ingatan kecuali kamu minta, dan tidak ada yang ditulis ke disk.
+- `waifu tepira` (ringkasan), `waifu tepira dompet`, `waifu tepira tujuan [nama]`,
+  `waifu tepira transaksi [-n N]`, dan `waifu tepira token` untuk membuat token API Cyrene.
+- **Masih mati** (`tepira.enabled: false`): API-nya ada di PR #21 tepira, yang belum di-merge
+  dan di-deploy. Setelah itu ikuti langkah "Menyiapkan" di README (token, env Vercel, bagian
+  `tepira` di `config.yaml`, `waifu check`, `waifu tepira`).
+- Log INFO kini menulis panggilan tool keuangan tanpa isinya (`Tool record_expense(…) -> ok`).
+- Kedua persona bawaan mendapat bagian "Keuangan Master". Kalau kamu memakai persona buatan
+  sendiri, salin bagian itu dari `config/persona.md`.
+- README: "Keuangan dari tepira".
+
 ## v1.23: data akun Genshin dan ZZZ
 
 - Akun Genshin Impact dan Zenless Zone Zero dari Battle Chronicle HoYoLAB, hanya saat

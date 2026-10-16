@@ -433,12 +433,12 @@ own last entry within 15 minutes. Finance only when Master asks: never in the br
 notice, or a push; arguments never in the INFO log. Off by default until PR #21 is deployed.
 Tasks 116 and 117 build in parallel on the contract of 116a.
 - [x] Task 116a: contract: SPEC, `TepiraConfig`, the example block, `finance/values.py` (`FinanceError`, `FinanceSource`, the categories, `WIB`, the value types, the spoken amount and the question)
-- [ ] Task 116: `finance/tepira.py` `TepiraClient` (time budget, retry rule, the status table, shapes, logging)
-- [ ] Task 117: the generalized gate (`check_action`, per-request order words, `held_for_yes`, `confirmation_gate`), `FinanceTools` (six tools, cache, briefing guard, record and undo), both personas
-- [ ] Task 118: integration: wiring with the shared gate, `waifu tepira`, check line, private-argument logging, the strict limits, README, CHANGELOG
+- [x] Task 116: `finance/tepira.py` `TepiraClient` (time budget, retry rule, the status table, shapes, logging)
+- [x] Task 117: the generalized gate (`check_action`, per-request order words, `held_for_yes`, `confirmation_gate`), `FinanceTools` (six tools, cache, briefing guard, record and undo), both personas
+- [x] Task 118: integration: wiring with the shared gate, `waifu tepira`, check line, private-argument logging, the strict limits, README, CHANGELOG
 
 ### Checkpoint: Keuangan dari tepira
-- [ ] Python suite and ruff clean; no test reached tepira; the token sentinel in no log, check line, exception, or URL
+- [x] Python suite and ruff clean; no test reached tepira; the token sentinel in no log, check line, exception, or URL
 - [ ] After PR #21 is merged and the owner set the Vercel env: `waifu tepira`, `dompet`, `tujuan`, `transaksi` against tepira's dashboard
 - [ ] By voice or chat: "pengeluaran bulan ini berapa?", "sisa budget makan?", "saldo GoPay berapa?", "tabungan laptop sudah berapa?", "transaksi terakhir apa?"; with writes: "catat jajan kopi 18 ribu" → "iya" → recorded, then "batalkan yang tadi"; the next morning greeting names no money
 

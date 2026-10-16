@@ -46,6 +46,7 @@ Cyrene : "Komputer mau kumatikan sekarang, Master? Jawab iya kalau jadi." (minta
 - [Cyrene di HP](#cyrene-di-hp)
 - [Kesehatan PC](#kesehatan-pc)
 - [Pencarian web dan promo gratis](#pencarian-web-dan-promo-gratis)
+- [Keuangan dari tepira](#keuangan-dari-tepira)
 - [Pemecahan masalah](#pemecahan-masalah)
 - [Checklist uji perangkat keras](#checklist-uji-perangkat-keras)
 - [Privasi](#privasi)
@@ -645,7 +646,8 @@ waifu speaker-test    # skor kecocokan langsung, Ctrl+C untuk berhenti
 | `waifu pc` | Tampilkan kondisi PC saat ini: beban CPU, RAM, sisa disk, GPU NVIDIA, dan waktu sejak Windows terakhir di-restart (lihat [Kesehatan PC](#kesehatan-pc)) |
 | `waifu youtube <link atau judul lagu>` | Buka video atau playlist YouTube itu, atau halaman pencarian YouTube untuk judulnya, di browser default (lihat [Lagu di YouTube](#lagu-di-youtube)) |
 | `waifu offers` / `offers games` / `offers ai` | Game gratis dan promo AI yang tersimpan, dengan linknya; `waifu offers ai --scan` mencari promo AI sekarang dengan Claude (berbayar) (lihat [Pencarian web dan promo gratis](#pencarian-web-dan-promo-gratis)) |
-| `waifu check` | Periksa config, kode IR, aplikasi PC, rutinitas, voiceprint, otak, ingatan, jadwal, daftar tugas, lagu YouTube, sapaan pagi, biaya API, kesehatan PC, pencarian web, promo gratis, paket suara, CUDA, mic, suara anime, avatar, dan Cyrene di HP |
+| `waifu tepira` / `tepira dompet` / `tujuan [nama]` / `transaksi [-n N]` / `token` | Keuangan dari tepira: ringkasan bulan ini, saldo dompet, tujuan tabungan, dan transaksi terbaru; `token` membuat token API Cyrene baru tanpa internet (lihat [Keuangan dari tepira](#keuangan-dari-tepira)) |
+| `waifu check` | Periksa config, kode IR, aplikasi PC, rutinitas, voiceprint, otak, ingatan, jadwal, daftar tugas, lagu YouTube, sapaan pagi, biaya API, kesehatan PC, pencarian web, promo gratis, paket suara, CUDA, mic, suara anime, avatar, keuangan tepira, dan Cyrene di HP |
 
 Opsi untuk semua perintah: `--config <file>` (default `config.yaml`), `--dry-run`
 (perangkat simulasi), `-v` (log lebih rinci), `--log-file <file>` (log juga ditulis
@@ -3601,6 +3603,171 @@ Jalankan ulang `waifu run` setelah mengubahnya.
   diberitahukan sekali lagi), dan `waifu check` menunjukkannya dengan `!`.
 - Teks pemberitahuan dan link yang dikirim ke HP lewat `ntfy.sh` kalau notifikasi HP menyala.
 
+## Keuangan dari tepira
+
+Cyrene bisa menjawab pertanyaan soal uangmu dari **tepira** (https://tepira.asepsunarya.com,
+aplikasi keuanganmu sendiri) dan, kalau kamu mau, mencatat pengeluaran lewat suara. Dia membaca
+tepira lewat API khusus Cyrene (`/api/cyrene/*`) yang hanya melayani pemiliknya dengan token
+sendiri; Cyrene tidak pernah memegang akses database tepira. Fitur ini **mati dari awal**
+(`tepira.enabled: false`): API-nya baru ada setelah PR #21 tepira di-merge dan di-deploy, dan
+sebelum itu tepira menjawab 404, yang Cyrene sampaikan sebagai "Akses Cyrene di tepira belum
+aktif."
+
+**Hanya kalau Master bertanya.** tepira tidak pernah dibaca sendiri: tidak di sapaan pagi, tidak
+di pemberitahuan atau notifikasi HP, dan angkanya tidak disimpan dengan `remember` kecuali Master
+minta.
+
+```text
+Master : "Cyrene, pengeluaran bulan ini berapa?"
+Cyrene : "Dua koma tiga lima juta dari empat puluh satu transaksi, Master. Hari ini baru empat puluh lima ribu."
+Master : "Sisa budget makan?"
+Cyrene : "Makan harian sisa dua ratus dua puluh ribu dari satu koma dua juta."
+Master : "Catat jajan kopi 18 ribu."
+Cyrene : "Baik, Master. Catat delapan belas ribu untuk jajan kopi di GoPay, Master? Jawab iya kalau jadi."
+Master : "Iya."                                 (ucapan berikutnya, tanpa memanggil nama)
+Cyrene : "Sudah kucatat di GoPay, Master."
+Master : "Cyrene, batalkan yang tadi."
+Cyrene : "Sudah kubatalkan, saldo GoPay kembali."
+```
+
+### Yang bisa dia jawab
+
+- **Pengeluaran dan pemasukan bulan ini:** "pengeluaran bulan ini berapa?", "hari ini habis
+  berapa?", "pemasukan bulan ini berapa?" Total pengeluaran (dari gaji dan dari bonus, hari ini,
+  kemarin, minggu ini) dan pemasukan (gaji, bonus, saldo awal, sisa, dan perkiraan saldo akhir
+  seperti di dashboard). "Bulan lalu" juga bisa.
+- **Budget per kategori:** "sisa budget makan?" Alokasi, terpakai, sisa, dan persennya. Basis
+  budget-nya gaji plus bonus, seperti halaman Laporan tepira; dia menyebutnya kalau budget-nya
+  lewat.
+- **Saldo dompet dan kekayaan bersih:** "saldo GoPay berapa?", "kekayaan bersihku berapa?"
+  Dompet utang (kartu kredit, paylater) bersaldo negatif, dan kekayaan bersih adalah aset
+  dikurangi kewajiban.
+- **Tujuan tabungan:** "tabungan laptop sudah berapa?" Terkumpul, target, persen, kurangnya,
+  tenggat, dan perlu berapa per bulan.
+- **Transaksi terakhir:** "transaksi terakhir apa?", "jajan terakhir apa aja?" (paling banyak 10).
+- **Skor keuangan mingguan:** "skor keuanganku gimana?"
+
+Batas bulan mengikuti tampilan web tepira (bulan server): pengeluaran jam 00.00–06.59 WIB tanggal
+1 masih terhitung bulan sebelumnya, sama seperti di dashboard. "Hari ini", "kemarin", dan "minggu
+ini" memakai WIB. Dia tidak menebak angka yang tidak ada di jawaban tepira, dan menyebut angkanya
+dibulatkan.
+
+Yang belum bisa: menabung ke tujuan, mengubah pengeluaran, mencatat pemasukan atau transfer,
+mencatat untuk hari lain atau dari bonus, dan menghapus pengeluaran selain catatannya sendiri
+yang terakhir. Semua itu lewat tepira langsung.
+
+### Mencatat pengeluaran lewat suara
+
+Hanya dengan `tepira.writes: true`, otak Claude (dengan Ollama dia hanya membaca), dan saklar
+tulis tepira menyala (`TEPIRA_CYRENE_WRITES=1` di Vercel).
+
+- "Catat jajan kopi 18 ribu" membuatnya **bertanya dulu**: "Catat delapan belas ribu untuk jajan
+  kopi di GoPay, Master? Jawab iya kalau jadi." Pertanyaan ini dibuat kode Cyrene sendiri, bukan
+  modelnya, dan menyebut nominal, untuk apa, dan dompetnya, supaya salah dengar ("18 ribu" jadi
+  "80 ribu") ketahuan sebelum tercatat.
+- Pengeluarannya baru tercatat kalau **ucapan Master berikutnya** adalah "iya" (juga "iya, catat
+  aja", "boleh", "oke"), dalam 60 detik. Diam, "jangan", kalimat lain, atau "iya" yang datang
+  lebih lambat: tidak ada yang tercatat. Hanya satu pertanyaan seperti ini per giliran, juga
+  bersama konfirmasi mematikan PC.
+- Dompetnya `tepira.default_wallet`, kecuali Master menyebut dompet lain: "catat bensin 30 ribu
+  pakai BCA". Namanya harus sama dengan di tepira (huruf besar dan kecil tidak dibedakan); kalau
+  tidak ada, dia menyebut dompet yang ada.
+- Tercatat dengan waktu sekarang, sumber gaji, paling banyak Rp5.000.000 per catatan; kategori
+  hanya kalau jelas cocok dengan salah satu dari 9 kategori tepira. Keterangan yang terlihat
+  seperti rahasia (PIN, kata sandi, nomor kartu) tidak dicatat.
+- **Membatalkan:** "batalkan yang tadi" menghapus pengeluaran yang terakhir dia catat, paling
+  lama **15 menit** setelah dicatat (batas dari tepira), dan saldo dompetnya kembali. Hanya
+  catatannya sendiri yang terakhir, dan hanya selama `waifu run` atau `waifu chat` yang
+  mencatatnya masih berjalan; selebihnya hapus di tepira.
+- Kalau tepira tidak menjawab dengan jelas saat mencatat, dia bilang belum tahu apakah sudah
+  tercatat. Mencatat yang sama lagi dalam dua menit tidak membuat catatan ganda: tepira
+  mengembalikan catatan yang sudah ada.
+
+### Menyiapkan
+
+1. **PR #21 tepira di-merge dan di-deploy** (API `/api/cyrene/*`). Sebelum itu setiap
+   permintaan dijawab 404: "Akses Cyrene di tepira belum aktif."
+2. **Buat token di PC:** `waifu tepira token` (tanpa internet, tanpa config). Hasilnya dua baris,
+   `token : tpcy_...` dan `sha256: ...`. Token itu rahasia seperti kata sandi: jangan dibagikan
+   atau ditempel di chat. Baris sha256 bukan rahasia; simpan juga, karena rotasi token nanti
+   butuh hash lama.
+3. **Vercel → Settings → Environment Variables** (scope Production, tandai *Sensitive*), lalu
+   redeploy:
+   - `TEPIRA_CYRENE_TOKEN_SHA256` = baris sha256 tadi;
+   - `TEPIRA_CYRENE_USER_ID` = `id` milikmu di tabel `User` (Supabase Table Editor; salin dari
+     selnya, jangan diketik ulang);
+   - `TEPIRA_CYRENE_WRITES` = `1`, hanya kalau mau mencatat lewat suara (hapus variabelnya lalu
+     redeploy untuk mematikannya lagi).
+4. **Bagian `tepira` di `config.yaml`** (contohnya ada di `config.example.yaml`):
+
+   ```yaml
+   tepira:
+     enabled: true
+     url: https://tepira.asepsunarya.com
+     token: tpcy_...           # baris token dari langkah 2
+     writes: false             # true: catat lewat suara (otak Claude dan TEPIRA_CYRENE_WRITES=1)
+     default_wallet: GoPay     # wajib kalau writes: true; nama dompet seperti di tepira
+   ```
+
+5. **`waifu check`** menampilkan `✓ Keuangan tepira: tepira.asepsunarya.com, token ada; catat
+   transaksi mati; uji dengan: waifu tepira`; dengan writes dan Claude `catat transaksi aktif ke
+   dompet GoPay`, dengan writes dan Ollama `!` dan `catat transaksi tidak tersedia dengan
+   Ollama`. Baris ini tidak menghubungi tepira dan tidak pernah menampilkan tokennya.
+6. **`waifu tepira`** menampilkan ringkasan bulan ini; cocokkan dengan dashboard tepira.
+   `✗ Akses Cyrene di tepira belum aktif.` berarti PR #21 belum di-deploy atau env Vercel-nya
+   kosong atau salah; `✗ Token tepira ditolak...` berarti hash di Vercel tidak cocok dengan token
+   di `config.yaml`.
+7. **Mulai ulang `waifu run`** supaya tool keuangannya aktif.
+
+Yang bisa bertanya soal uang adalah siapa pun yang lolos verifikasi suara dan HP yang sudah
+dipasangkan. Kalau ada tamu, matikan dengan `tepira.enabled: false` lalu mulai ulang.
+
+### Dari terminal: `waifu tepira`
+
+```powershell
+waifu tepira                  # ringkasan bulan ini (sama dengan: waifu tepira ringkasan)
+waifu tepira dompet           # saldo tiap dompet, lalu aset, kewajiban, dan kekayaan bersih
+waifu tepira tujuan laptop    # tujuan tabungan yang namanya memuat "laptop" (tanpa nama: semua)
+waifu tepira transaksi -n 10  # transaksi terbaru, 1 sampai 10 (bawaan 5)
+waifu tepira token            # token API baru dan hash-nya, sekali tampil
+```
+
+```text
+Keuangan Oktober 2026 (per 2026-10-16 09:12 WIB)
+Pengeluaran: Rp2.350.000 dari 41 transaksi (gaji Rp2.100.000, bonus Rp250.000); hari ini Rp45.000, kemarin Rp120.000, minggu ini Rp310.000
+Pemasukan: gaji Rp5.000.000, bonus Rp500.000, saldo awal Rp1.000.000; sisa Rp3.150.000, perkiraan saldo akhir Rp4.150.000
+Budget (gaji+bonus): Rp3.000.000, terpakai Rp2.350.000 (78,3%), sisa Rp650.000
+- Makan harian: sisa Rp220.000 dari Rp1.200.000 (81,7%)
+- Nongkrong / jajan: lewat Rp42.000 dari Rp300.000 (114%)
+Tanpa kategori Rp35.000; di luar budget Rp0
+Skor mingguan: 72 (SEHAT), minggu mulai 2026-10-12
+```
+
+Perintah ini membaca tepira langsung (tanpa cache), sama dengan yang dibaca Cyrene, jalan walau
+`writes: false`, dan tidak pernah mencatat apa pun. Exit code-nya 2 kalau `tepira.enabled:
+false`, 1 kalau tepira tidak menjawab (pesannya diawali `✗`), dan 0 kalau berhasil.
+
+### Privasi keuangan
+
+- tepira hanya dibaca saat Master bertanya, tidak pernah dicek berkala.
+- Dengan otak Claude, hasil tool-nya (angka, nama dompet dan tujuan, catatan transaksi) ikut ke
+  API Anthropic bersama obrolan dan tetap ada di riwayat sesi sampai sesinya berakhir (10 menit
+  tanpa percakapan atau 40 giliran); dengan Ollama semuanya tetap di PC. Teks jawabannya
+  dijadikan suara oleh edge-tts Microsoft, seperti setiap jawaban.
+- Tidak ada yang ditulis ke disk: cache 60 detik dan catatan terakhirnya (untuk dibatalkan)
+  hanya ada di memori `waifu run`/`waifu chat`.
+- Token hanya ada di `config.yaml` dan hanya dikirim di header `Authorization` ke tepira (tidak
+  pernah di URL). Token tidak pernah ditulis ke log, tidak ditampilkan (kecuali token baru dari
+  `waifu tepira token`, sekali), dan tidak muncul di pesan error.
+- Di log INFO (`logs\waifu.log` saat autostart), panggilan tool keuangan ditulis tanpa isinya,
+  misalnya `Tool record_expense(…) -> ok`; hasilnya hanya di log DEBUG (`-v`), dan
+  `waifu chat -v` menampilkannya di terminal. Kalimat Master yang terdengar tetap tercatat
+  seperti biasa (`Heard ...`), jadi "catat kopi 18 ribu" ada di log itu. Dengan `-v`, log httpx
+  juga menulis alamat setiap permintaan, termasuk nama tujuan yang dicari (tidak pernah
+  tokennya).
+- Catatan transaksi, nama tujuan, dan nama dompet adalah teks bebas di tepira: Cyrene
+  memperlakukannya sebagai data, tidak pernah sebagai perintah.
+
 ## Pemecahan masalah
 
 Log `waifu run` tampil di terminal dalam bahasa Inggris. Baris seperti
@@ -4070,6 +4237,27 @@ halaman tim di game atau sebuah error)
       dengan judul promonya, dan mengetuknya membuka halaman penyedianya. Dia tidak membuka apa pun
       di PC.
 
+**Keuangan dari tepira** (setelah langkah 1–7 di [Menyiapkan](#menyiapkan); buka dashboard tepira
+di sampingnya)
+
+- [ ] `waifu check` menampilkan baris `Keuangan tepira` yang sesuai setelan `writes` dan otaknya,
+      tanpa token atau potongannya.
+- [ ] `waifu tepira`, `waifu tepira dompet`, `waifu tepira tujuan`, dan `waifu tepira transaksi`
+      cocok dengan dashboard, halaman Dompet, tujuan tabungan, dan daftar pengeluaran di tepira.
+- [ ] Satu pertanyaan suara per cerita, masing-masing dijawab satu-dua kalimat dengan angka yang
+      cocok dengan tepira dan dibulatkan: "pengeluaran bulan ini berapa?", "hari ini habis
+      berapa?", "pemasukan bulan ini berapa?", "skor keuanganku gimana?", "pengeluaran bulan lalu
+      berapa?", "sisa budget makan?", "saldo GoPay berapa?", "kekayaan bersihku berapa?",
+      "tabungan laptop sudah berapa?", "transaksi terakhir apa?".
+- [ ] Dengan `writes: true` dan otak Claude: "catat jajan kopi seribu" membuatnya bertanya dengan
+      nominal, keterangan, dan dompetnya; jawab "jangan": tidak ada catatan baru di tepira.
+      Ulangi, lalu jawab "iya": catatannya ada di tepira dan saldo dompetnya berkurang Rp1.000.
+      "Batalkan yang tadi" dalam 15 menit: catatannya hilang dan saldonya kembali.
+- [ ] Sapaan pagi (hapus `data\briefing.json`, lalu `waifu run` di dalam jendela jamnya) tidak
+      menyebut uang sama sekali, begitu juga notifikasi HP-nya.
+- [ ] `logs\waifu.log` setelah semua itu memuat `Tool finance_summary(…) -> ok` tanpa angka dari
+      tepira dan tanpa token.
+
 ## Privasi
 
 - **Suara tidak pernah keluar dari PC.** Rekaman mic, verifikasi suara, dan
@@ -4129,6 +4317,12 @@ halaman tim di game atau sebuah error)
   yang ditemukan ada di `data\free_offers.json`, hanya di PC ini; pemberitahuannya dan
   linknya ke `ntfy.sh` kalau notifikasi HP menyala. Lihat
   [Privasi pencarian dan promo](#privasi-pencarian-dan-promo).
+- **Keuangan dari tepira:** tepira hanya dibaca saat Master bertanya, tidak pernah di sapaan pagi
+  atau notifikasi HP. Dengan Claude, angka, nama dompet dan tujuan, dan catatan transaksi ikut ke
+  API Anthropic dan tetap di riwayat sesi sampai sesinya berakhir; dengan Ollama tetap di PC.
+  Tidak ada yang disimpan ke disk. Tokennya hanya di `config.yaml`, hanya dikirim di header ke
+  tepira, dan tidak pernah ditulis ke log; log INFO menulis panggilan tool keuangan tanpa isinya,
+  tapi kalimat Master yang terdengar tetap tercatat. Lihat [Privasi keuangan](#privasi-keuangan).
 - **Voiceprint adalah data biometrik.** `data/voiceprint.npy` (dan seluruh `data/`)
   ada di `.gitignore` dan tidak boleh di-commit atau dibagikan. Begitu juga
   `config.yaml` (local key Tuya) dan `models/`.
