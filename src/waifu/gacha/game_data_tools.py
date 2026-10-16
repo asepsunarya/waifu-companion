@@ -122,8 +122,9 @@ _CHARACTERS_FRAGMENTS = {
     "genshin": (
         "Genshin Impact rows give rarity, level, Constellation, element, weapon type, and the "
         "weapon with its level and Refinement; a named character adds final stats, the "
-        "weapon's stats, artifact main stats, and the sets worn, and a name with its element, "
-        "such as Traveler Anemo, gives that one character. "
+        "weapon's stats, artifact main stats, and the sets worn. HoYoLAB lists the Traveler "
+        "once, with the element in use now, and a nickname needs the in-game name, such as "
+        "Tartaglia for Childe or Traveler for Aether or Lumine. "
     ),
     "zzz": (
         "Zenless Zone Zero rows give each agent's rank S or A, level, Mindscape Cinema, "
@@ -440,7 +441,9 @@ def _specs(games: list[str], modes: list[str]) -> list[ToolSpec]:
                 "three matching characters in detail; when more match, `more` names the "
                 "others, so ask again for the one you need, and when nothing matches, `close` "
                 "holds similar names of owned characters, since the name may have been "
-                "misheard. "
+                "misheard. Use the in-game name when Master says a nickname or another name. "
+                "Nothing matching and nothing close only means that no owned character has "
+                "that name as given, not that Master does not own the character. "
                 + _per_game(_CHARACTERS_FRAGMENTS, games)
                 + _character_uses(games)
                 + rules

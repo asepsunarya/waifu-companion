@@ -1610,9 +1610,11 @@ Cyrene : "Sekarang banner Furina, Master, sampai hari Selasa."
 - Dengan lebih dari satu game di `gacha.games`, dia memilih game dari pertanyaanmu (nama
   karakter, mode endgame). Untuk banner dan event, sebut game-nya: "banner Genshin apa
   sekarang?", "event ZZZ apa yang mau habis?".
-- Traveler punya satu karakter per elemen, semuanya dengan nama yang sama. Sebut elemennya
-  untuk satu elemen saja: "Traveler Anemo-ku C berapa?". Agent ZZZ juga bisa disebut dengan
-  nama lengkapnya ("Ellen Joe").
+- HoYoLAB hanya memuat satu Traveler, dengan elemen yang sedang dipakai: "Traveler-ku C
+  berapa?". Untuk nama panggilan, Cyrene diminta memakai nama di game (Tartaglia untuk
+  Childe, Traveler untuk Aether atau Lumine); kalau dia tetap bilang tidak menemukan
+  karakternya, sebut nama di game-nya. Agent ZZZ juga bisa disebut dengan nama lengkapnya
+  ("Ellen Joe").
 - Belum ada: level talent Genshin dan level skill ZZZ, substat artifact dan Drive Disc,
   W-Engine di daftar semua agent (W-Engine hanya ada untuk agent yang ditanya namanya), mode
   ZZZ selain Shiyu Defense dan Deadly Assault, Bangboo, info gacha ZZZ (pity sudah ada dari

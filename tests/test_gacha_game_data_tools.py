@@ -680,9 +680,24 @@ def test_the_characters_description_says_how_a_name_picks_one_character_and_more
     description = spec(make_tools(games=ALL_GAMES), GAME_CHARACTERS).description
 
     assert "a name with its Path, such as Trailblazer Harmony, gives that one" in description
-    assert "a name with its element, such as Traveler Anemo, gives that one" in description
     assert "the full name, such as Ellen Joe, works too" in description
     assert "`more` names the others" in description
+
+
+def test_the_characters_description_asks_for_the_in_game_name_of_a_nickname():
+    """On the owner's real roster "Childe" and "Lumine" match nothing and have no close name,
+    and HoYoLAB lists the Traveler once: an empty result must not read as "not owned"."""
+    description = spec(make_tools(games=ALL_GAMES), GAME_CHARACTERS).description
+
+    assert "Use the in-game name when Master says a nickname or another name" in description
+    assert (
+        "Nothing matching and nothing close only means that no owned character has that name "
+        "as given, not that Master does not own the character"
+    ) in description
+    assert (
+        "HoYoLAB lists the Traveler once, with the element in use now, and a nickname needs "
+        "the in-game name, such as Tartaglia for Childe or Traveler for Aether or Lumine"
+    ) in description
 
 
 # --- arguments -----------------------------------------------------------------------------
@@ -1559,9 +1574,9 @@ def test_a_named_genshin_character_comes_with_weapon_stats_artifacts_and_sets():
 
 
 @pytest.mark.parametrize("query", ["Traveler Anemo", "anemo traveler"])
-def test_a_genshin_name_with_its_element_gives_that_one_character(query):
-    traveler_geo = replace(TRAVELER, ref=10000007, element="Geo")
-    source = genshin_source((TRAVELER, traveler_geo, VENTI))
+def test_a_genshin_name_with_its_element_finds_that_character(query):
+    # HoYoLAB lists the Traveler once, with the element in use now.
+    source = genshin_source((TRAVELER, VENTI))
 
     tools = make_tools(source, ALL_GAMES)
 
