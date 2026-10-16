@@ -389,11 +389,11 @@ Decision: no API key and no scraping: with Claude she finds the song's YouTube l
 web search and opens it in the default browser; otherwise the search page opens. Only YouTube
 addresses, only when Master's words ask for music; pause and skip stay with the media device.
 - [x] Task 108a: `music` config
-- [ ] Task 108: `music.py` and `MusicTools`
-- [ ] Task 109: wiring, `waifu youtube`, check, README
+- [x] Task 108: `music.py` and `MusicTools`
+- [x] Task 109: wiring, `waifu youtube`, check, README
 
 ### Checkpoint: songs on YouTube
-- [ ] Python suite and ruff clean; no test opened anything
+- [x] Python suite and ruff clean; no test opened anything (2026-10-16: 5877 pytest and 454 node tests on the committed tree plus tasks 108-109 and both review-fix rounds; ruff check and format clean on src, tests, and tools. Every opener in the music tests is a recording fake: `MusicTools` and `open_link` take `startfile`, `test_cli.py` replaces `cli.open_in_browser`, and the default `music.open_in_browser` looks `os.startfile` up on every call, so the `tests/conftest.py` guard that refuses it and fails the test at teardown covers it too, and the suite passes with that guard on)
 - [ ] By voice or chat: "putar lagu ..." opens and plays the song; "pause" pauses it
 
 ## Risks and Mitigations

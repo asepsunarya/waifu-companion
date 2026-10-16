@@ -987,17 +987,17 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** none · **Files:** `src/waifu/config.py`, `tests/test_config.py` · **Scope:** XS
 
-## Task 108: YouTube links and the tool
+## Task 108: YouTube links and the tool ✅
 
 **Acceptance criteria:**
-- [ ] `youtube_link`, `search_link`, `open_link` per SPEC (strict host and id rules, canonical links, service)
-- [ ] `MusicTools.play_youtube` with the play-word gate, one page per turn, url or query, Indonesian errors
+- [x] `youtube_link`, `search_link`, `open_link` per SPEC (strict host and id rules, canonical links, service)
+- [x] `MusicTools.play_youtube` with the play-word gate (a play verb, or a music word not about looking it up, the media keys, or the volume), one page per turn, `url` only with `links` (any other link opens the search page), Indonesian errors
 
 **Dependencies:** 108a · **Files:** `src/waifu/music.py`, `src/waifu/brain/music_tools.py`, `tests/test_music.py`, `tests/test_music_tools.py` · **Scope:** M
 
-## Task 109: Wiring, CLI, README
+## Task 109: Wiring, CLI, README ✅
 
 **Acceptance criteria:**
-- [ ] `run`/`chat` wiring; `waifu youtube`; check line; README; `config.example.yaml`; the strict tool limits still hold
+- [x] `run`/`chat` wiring (`links` only for Claude with web search); `waifu youtube`; check line; README; `config.example.yaml`; the strict tool limits still hold
 
 **Dependencies:** 108 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py`, `README.md`, `config.example.yaml` · **Scope:** S
