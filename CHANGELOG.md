@@ -1,0 +1,94 @@
+# Yang baru di Cyrene
+
+Ringkasan per versi, yang terbaru di atas. Rinciannya ada di README (bagian yang disebut di
+setiap versi) dan di SPEC.md. Setelah memperbarui, **mulai ulang `waifu run`** supaya semuanya
+aktif, lalu jalankan `waifu check`.
+
+## v1.21.1: perbaikan kecil
+
+- Jawaban dari pencarian web tidak lagi berspasi ganda atau berspasi sebelum koma.
+- "Biaya API bulan ini berapa?" ikut menyebut jumlah dan biaya pencarian web.
+- Peringatan dari pustaka genshin.py tidak lagi memenuhi jendela `waifu run`.
+- Catatan dan tugas yang hanya *menyebut* rahasia boleh disimpan ("ganti PIN ATM",
+  "ingatkan ganti password wifi"); yang menyertakan *isinya* tetap ditolak ("PIN ATM 1234",
+  "password wifi: hijau123").
+- Nama game dari GamerPower tanpa embel-embel "(Steam) Key".
+
+## v1.21: lagu di YouTube
+
+- "Putar lagu Hope Is the Thing With Feathers", "puterin playlist lofi", "cari lagu lofi terus
+  putar": dengan Claude dia mencari link lagunya lewat pencarian web lalu membukanya di
+  browser; dengan Ollama halaman pencarian YouTube yang terbuka.
+- Jeda, lewati, dan volume tetap lewat tombol media ("pause musik", "lagu berikutnya").
+- Hanya alamat YouTube yang dibuka, dan hanya kalau kalimatmu meminta lagu.
+- `waifu youtube <judul atau link>`; `music.service: youtube_music` untuk YouTube Music.
+- README: "Lagu di YouTube".
+
+## v1.20: daftar tugas
+
+- "Tambah tugas beli susu", "catat kerjakan laporan, tenggatnya Jumat", "tugasku apa aja?",
+  "laporan sudah selesai", "ganti tenggat laporan jadi Senin".
+- Tugas yang jatuh tempo hari ini atau terlambat ikut disebut di sapaan pagi.
+- `waifu todo`, `waifu todo add ... --due 2026-10-23`, `waifu todo done t1`.
+- Perbaikan penting: permintaan ke Claude kini tetap di bawah batas 20 tool "strict" dari
+  Anthropic (versi sebelumnya bisa membuat setiap jawaban gagal setelah dimulai ulang).
+- README: "Daftar tugas".
+
+## v1.19: kode redeem
+
+- Kode redeem HSR, Genshin, dan ZZZ yang baru diberitahukan (juga ke HP): "ada 2 kode HSR
+  baru... mau kutukarkan?". Jawab "iya, tukarkan" dan dia menukarkannya lewat HoYoLAB;
+  hadiahnya masuk ke surat di dalam game.
+- `redeem_codes.auto_redeem: true` supaya ditukarkan otomatis.
+- `waifu gacha codes hsr`, `waifu gacha codes hsr --redeem`.
+- README: "Kode redeem".
+
+## v1.18: pencarian web dan penawaran gratis
+
+- Pencarian web di obrolan: "cari berita terbaru soal ...", "harga RTX 5070 sekarang?".
+  Biayanya $10 per 1.000 pencarian ditambah token, tercatat di `waifu usage`.
+- Game gratis dari Epic dan GamerPower.com: "ada game gratis apa?"; game baru diberitahukan.
+- Promo AI (kredit gratis, program startup atau pelajar seperti Claude for Startups), dicari
+  seminggu sekali; "ada promo AI gratis?", "kirim linknya ke HP".
+- `waifu offers`, `waifu offers ai --scan`.
+- README: "Pencarian web dan promo gratis".
+
+## v1.17: kesehatan PC
+
+- "PC-ku gimana?", "GPU-ku panas nggak?", "disk C sisa berapa?".
+- Dia memberi tahu sendiri kalau disk hampir penuh atau GPU terlalu panas beberapa menit.
+- `waifu pc`. README: "Kesehatan PC".
+
+## v1.16: data HSR
+
+- "Acheron-ku Eidolon berapa?", "Memory of Chaos-ku berapa bintang?", "banner apa
+  sekarang?": dari Battle Chronicle HoYoLAB, hanya dibaca.
+- `waifu gacha hsr characters|endgame|events`. README: "Data akun HSR".
+
+## v1.15.1: maskot saat main game
+
+- Maskot tidak lagi hilang selamanya saat game layar penuh; dia kembali sendiri dan
+  dipulihkan kalau Electron atau GPU-nya bermasalah.
+- Kalau masih hilang, kirim baris `Cyrene mascot: ...` dari jendela `waifu run`.
+- README: "Cyrene hilang saat main game".
+
+## v1.15: kamera HP
+
+- Tombol kamera di halaman HP: setiap pesan saat kamera terbuka membawa satu foto ("ini
+  apa?"). README: bagian kamera di "Cyrene di HP".
+
+## v1.14: Cyrene di HP
+
+- Halaman Cyrene di HP Android lewat Tailscale: avatar, obrolan, dan tahan-untuk-bicara.
+- Perlu: Tailscale di PC dan HP, `waifu phone setup`, `waifu phone pair`.
+- README: "Cyrene di HP".
+
+## v1.13: biaya API
+
+- "Biaya API bulan ini berapa?", `waifu usage`, dan peringatan anggaran
+  (`usage.monthly_budget_usd`).
+
+## v1.12: sapaan pagi
+
+- Sapaan pagi sekali sehari: cuaca, jadwal, game, dan hal penting hari itu.
+- `assistant.owner_call` menentukan panggilannya untukmu (sekarang "Sayang").

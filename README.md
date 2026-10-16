@@ -7,6 +7,8 @@ rumah: lampu dan colokan Wi-Fi Tuya; AC, proyektor, dan TV lewat IR blaster; ser
 PC itu sendiri (daya, musik, volume, dan aplikasi). Nama dan kepribadiannya bisa diganti
 di `config.yaml` dan `config/persona.md`.
 
+Yang baru di setiap versi, dengan cara mencobanya: [CHANGELOG.md](CHANGELOG.md).
+
 Rekaman mic, deteksi bicara, verifikasi suara, dan speech-to-text diproses lokal di
 PC (Whisper dan verifikasi suara memakai GPU). Otaknya bisa model lokal lewat
 **Ollama** (gratis, offline) atau **Claude** lewat API.
