@@ -13,9 +13,15 @@ aktif, lalu jalankan `waifu check`.
 - Mencatat pengeluaran lewat suara (pilihan, `tepira.writes: true`, hanya dengan otak Claude):
   "catat jajan kopi 18 ribu" → dia bertanya dulu dengan nominal, keterangan, dan dompetnya, dan
   baru mencatat setelah kamu menjawab "iya". "Batalkan yang tadi" menghapusnya lagi dalam 15
-  menit.
-- Tidak pernah di sapaan pagi, pemberitahuan, atau notifikasi HP; angkanya tidak disimpan ke
-  ingatan kecuali kamu minta, dan tidak ada yang ditulis ke disk.
+  menit, dan tidak pernah menghapus catatan yang lebih lama kalau jawaban tepira tidak jelas.
+- Dompet dicocokkan seperti tepira menampilkannya lalu dicatat lewat id-nya, jadi nama dengan
+  spasi ganda atau lebih dari 40 karakter tetap bisa dipakai (`tepira.default_wallet` boleh
+  sampai 60 karakter). Pengeluaran hari lain atau dari bonus tidak dicatat dari sini: dia
+  menyarankan mencatatnya di tepira. Kalau Claude gagal setelah pengeluaran tercatat, dia tetap
+  bilang pengeluaran itu sudah tercatat.
+- Tidak pernah di sapaan pagi, pemberitahuan, atau notifikasi HP (sapaan pagi selalu dimulai
+  di sesi baru); angkanya tidak disimpan ke ingatan kecuali kamu minta, dan tidak ada yang
+  ditulis ke disk.
 - `waifu tepira` (ringkasan), `waifu tepira dompet`, `waifu tepira tujuan [nama]`,
   `waifu tepira transaksi [-n N]`, dan `waifu tepira token` untuk membuat token API Cyrene.
 - **Masih mati** (`tepira.enabled: false`): API-nya ada di PR #21 tepira, yang belum di-merge
