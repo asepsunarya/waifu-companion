@@ -767,6 +767,32 @@ def test_switching_back_to_an_account_carries_on_from_its_own_history(
     assert len(store.load(HSR, uid=800000009).records) == 5  # B's own history is untouched
 
 
+def test_the_report_names_the_account_it_read_also_when_nothing_new_was_saved(
+    tmp_path, locallow, hsr_cache
+):
+    store = GachaStore(tmp_path / "gacha")
+    main = [*pulls_until(1, 40), *pulls_until(41, 5, banner=12)]
+    store.save(HSR, 800000001, main, complete=True)  # account A
+    store.save(HSR, 800000009, pulls_until(100, 10, uid=800000009), complete=True)  # then alt B
+    api = FakeLogApi({11: pulls_until(1, 40), 12: pulls_until(41, 5, banner=12)})  # back on A
+
+    report = make_history(tmp_path, locallow, api).report("hsr")
+
+    assert (report.uid, report.new_count) == (800000001, 0)
+    assert [stats.total for stats in report.stats] == [40, 5]
+    assert store.load(HSR).uid == 800000009  # nothing new on A, so nothing was saved
+
+
+def test_a_report_that_could_not_refresh_names_the_stored_account(tmp_path, locallow, hsr_cache):
+    store = GachaStore(tmp_path / "gacha")
+    store.save(HSR, 800000009, pulls_until(1, 10, uid=800000009), complete=True)
+    api = FakeLogApi({}, failure=GachaError("network", "Server riwayat HSR tidak bisa dihubungi."))
+
+    report = make_history(tmp_path, locallow, api).report("hsr")
+
+    assert (report.uid, report.problem) == (800000009, "Server riwayat HSR tidak bisa dihubungi.")
+
+
 # --- this week's pulls ---------------------------------------------------------------------------
 
 WIB = timezone(timedelta(hours=7))

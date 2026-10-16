@@ -473,6 +473,7 @@ class HistoryReport:
     new_pulls: tuple[NewPull, ...]  # the new items of the top two rarities, newest first
     new_count: int
     latest_pull: datetime | None  # local time
+    uid: int | None = None  # the account read, not always the one saved last; None: no record
 
     @property
     def hint(self) -> str | None:
@@ -511,13 +512,13 @@ class GachaHistory:
         """Never raises `GachaError`: a failed refresh reports the saved history with a problem."""
         game = GAMES[game_id]
         stored = self._store.load(game)
-        records, complete, new = stored.records, stored.complete, []
+        uid, records, complete, new = stored.uid, stored.records, stored.complete, []
         problem = None
         if refresh:
             try:
                 uid, records, new, complete = self._refresh(game, stored, full)
             except GachaError as error:
-                records, complete, problem = stored.records, stored.complete, error.message
+                problem = error.message
             else:
                 # No uid yet means no record at all: nothing to keep, no account to file it under.
                 if uid is not None and (new or complete != stored.complete):
@@ -534,6 +535,7 @@ class GachaHistory:
             latest_pull=self._local_time(max(records, key=lambda r: r.id).time)
             if records
             else None,
+            uid=uid,
         )
 
     def _refresh(

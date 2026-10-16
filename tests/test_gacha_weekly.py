@@ -154,15 +154,24 @@ class FakeSource:
 
 
 class FakeHistory:
-    """GachaHistory.report over the real store: a refresh saves the pulls in `found` for its
-    game, or fails with `problems[game]` (the saved history answers instead), or raises
-    `failures[game]`; `blocked` holds an event a refresh waits for. Each call is recorded
-    with the thread it ran on."""
+    """GachaHistory.report over the real store: a refresh reads the account in `accounts` for
+    its game (else the one saved last) and saves the pulls in `found` for it, or fails with
+    `problems[game]` (the saved history answers instead), or raises `failures[game]`;
+    `blocked` holds an event a refresh waits for. Each call is recorded with the thread it
+    ran on."""
 
     def __init__(
-        self, store: GachaStore, *, found=None, problems=None, failures=None, blocked=None
+        self,
+        store: GachaStore,
+        *,
+        accounts=None,
+        found=None,
+        problems=None,
+        failures=None,
+        blocked=None,
     ):
         self.store = store
+        self.accounts: dict[str, int] = accounts or {}
         self.found: dict[str, list[GachaRecord]] = found or {}
         self.problems: dict[str, str] = problems or {}
         self.failures: dict[str, Exception] = failures or {}
@@ -177,12 +186,14 @@ class FakeHistory:
         if game_id in self.failures:
             raise self.failures[game_id]
         game = GAMES[game_id]
-        stored = self.store.load(game)
+        stored = self.store.load(game, uid=self.accounts.get(game_id))
         problem = self.problems.get(game_id)
         if problem is None and game_id in self.found:
             records = [*stored.records, *self.found[game_id]]
             self.store.save(game, stored.uid, records, complete=stored.complete)
-        return HistoryReport(game, problem is None, problem, stored.complete, (), (), 0, None)
+        return HistoryReport(
+            game, problem is None, problem, stored.complete, (), (), 0, None, uid=stored.uid
+        )
 
 
 class UnreadableStore:
@@ -261,6 +272,21 @@ def test_this_weeks_pulls_and_the_pity_come_from_the_history_after_its_refresh(t
         (12, 1, None),
     ]
     assert (week.complete, week.pulls_problem) == (True, None)
+
+
+def test_the_pulls_and_the_pity_are_of_the_account_the_refresh_read(tmp_path):
+    # Master's alt was saved last; back on the main account with no new pull, nothing is
+    # saved, so the alt is still the latest file in the store.
+    store = make_store(tmp_path)
+    store.save(
+        HSR, 800000009, [pull(i, "2026-10-17 10:00:00") for i in range(200, 210)], complete=True
+    )
+    history = FakeHistory(store, accounts={"hsr": 800000001})
+
+    week = week_of(gather(tmp_path, store=store, history=history), "hsr")
+
+    assert [banner.count for banner in week.pulls] == [35, 1]
+    assert [stats.pity for stats in week.pity] == [5, 1]
 
 
 def test_the_owners_off_banner_pick_counts_as_a_lost_fifty_fifty(tmp_path):

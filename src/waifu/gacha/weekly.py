@@ -215,9 +215,9 @@ def gather_weekly_report(
     return WeeklyReport(now, since, tuple(weeks))
 
 
-def _load(store: StoreSource, game: Game) -> StoredHistory | None:
+def _load(store: StoreSource, game: Game, uid: int | None = None) -> StoredHistory | None:
     try:
-        return store.load(game)
+        return store.load(game, uid)
     except Exception:
         logger.exception("Could not read the %s pull history for the weekly report", game.short)
         return None
@@ -267,14 +267,15 @@ def _pulls_section(
     extra: Iterable[str],
 ) -> tuple[tuple[BannerPulls, ...], tuple[BannerStats, ...], bool, str | None]:
     """This week's pulls, the pity, whether the history is complete, and the problem: the
-    store as it is after the refresh (or as it was, when it cannot be read again)."""
+    store as it is after the refresh, of the account the refresh read, which need not be the
+    one saved last (or the store as it was, when it cannot be read again)."""
     if before is None:
         return (), (), False, _HISTORY_FAILED.format(short=game.short)
     if refreshed is None:  # nothing stored, so nothing was refreshed
         return (), (), False, _NO_HISTORY.format(short=game.short, id=game.id)
     report, failure = refreshed
     why = failure if report is None else report.problem
-    stored = _load(store, game) or before
+    stored = _load(store, game, None if report is None else report.uid) or before
     extra = list(extra)
     return (
         tuple(pulls_since(game, stored.records, since, offset, extra)),
