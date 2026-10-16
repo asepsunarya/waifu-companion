@@ -888,13 +888,21 @@ def test_a_yes_two_turns_later_records_nothing():
             "Catat delapan puluh ribu untuk jajan kopi di GoPay, Master? Jawab iya kalau jadi.",
         ),
         (
+            {**COFFEE, "description": "rokok"},
+            "Catat delapan belas ribu untuk rokok di GoPay, Master? Jawab iya kalau jadi.",
+        ),
+        # The question does not name the category, but Master's yes covers only the one asked.
+        ({**COFFEE, "category": "Transport"}, QUESTION),
+        (
             {**COFFEE, "wallet": "BCA"},
             "Catat delapan belas ribu untuk jajan kopi di BCA, Master? Jawab iya kalau jadi.",
         ),
     ],
-    ids=["another_amount", "another_wallet"],
+    ids=["another_amount", "another_description", "another_category", "another_wallet"],
 )
-def test_a_different_amount_or_wallet_on_the_answer_turn_is_asked_anew(arguments, question):
+def test_a_different_amount_purpose_category_or_wallet_on_the_answer_turn_is_asked_anew(
+    arguments, question
+):
     source = FakeSource()
     tools, gate = writing(source)
     turn(tools, gate, "catat jajan kopi 18 ribu")
@@ -1129,10 +1137,17 @@ def test_a_failed_recording_is_its_message_and_nothing_to_undo():
 def test_a_deduplicated_entry_says_so_and_is_not_hers_to_undo():
     source = FakeSource(deduped=True)
 
-    tools, _, _ = recorded_coffee(source)
+    tools, gate = writing(source)
+    turn(tools, gate, "catat jajan kopi 18 ribu")
+    run(tools, RECORD_EXPENSE, COFFEE)
+    turn(tools, gate, "iya")
+
+    result, recorded_error = run(tools, RECORD_EXPENSE, COFFEE)
     undo, is_error = run(tools, UNDO_EXPENSE)
 
-    assert source.calls_of("record")
+    assert not recorded_error
+    assert result["deduped"] is True
+    assert result["recorded"]["id"] == 101
     assert (undo, is_error) == ({"ok": False, "message": NOTHING_TO_UNDO}, True)
     assert source.calls_of("undo") == []
 
