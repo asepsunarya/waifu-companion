@@ -103,6 +103,19 @@ def test_opening_a_real_avatar_window_is_refused(program):
         subprocess.run([program, "--version"], capture_output=True, check=False)
 
 
+# The offline fallback voice speaks through PowerShell: a forgotten fake would make the owner's
+# Windows voices speak, or list them. "exit 0" does nothing, so a broken guard does no harm.
+@pytest.mark.parametrize(
+    "program",
+    [r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe", "powershell", "pwsh.exe"],
+)
+def test_running_powershell_is_refused(program):
+    with pytest.raises(AssertionError, match="system-change command"):
+        subprocess.run(
+            [program, "-NoProfile", "-Command", "exit 0"], capture_output=True, check=False
+        )
+
+
 # A push to the owner's phone or a HoYoLAB check-in must never come from a test.
 @pytest.mark.parametrize(
     "url", ["https://ntfy.sh/", "https://sg-public-api.hoyolab.com/x", "http://192.168.1.50/"]

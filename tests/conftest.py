@@ -8,7 +8,9 @@ or check in on their HoYoLAB account. Nor may a test read the owner's game logs 
 caches, which hold their history authkeys, press real keys (media keys would change the
 owner's music and volume), open real programs and URLs, or capture the owner's real screen.
 Nor may a test run git: the version reader finds the repository from its own file, so a
-forgotten fake would ask the real repository, which the builder commits to.
+forgotten fake would ask the real repository, which the builder commits to. Nor PowerShell:
+the offline fallback voice speaks through it, so a forgotten fake would use the owner's
+Windows voices.
 """
 
 import ctypes
@@ -94,6 +96,8 @@ def _is_system_change_command(args: object) -> bool:
     if "rvc_server" in programs:  # would load Applio and a GPU model
         return True
     if programs and programs[0] in {"electron", "msedge"}:  # would open a real window
+        return True
+    if programs and programs[0] in {"powershell", "pwsh"}:  # would speak with Windows' voices
         return True
     if "reg" in programs:
         verb_index = programs.index("reg") + 1
