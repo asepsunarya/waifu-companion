@@ -442,6 +442,22 @@ Tasks 116 and 117 build in parallel on the contract of 116a.
 - [ ] After PR #21 is merged and the owner set the Vercel env: `waifu tepira`, `dompet`, `tujuan`, `transaksi` against tepira's dashboard
 - [ ] By voice or chat: "pengeluaran bulan ini berapa?", "sisa budget makan?", "saldo GoPay berapa?", "tabungan laptop sudah berapa?", "transaksi terakhir apa?"; with writes: "catat jajan kopi 18 ribu" → "iya" → recorded, then "batalkan yang tadi"; the next morning greeting names no money
 
+### Phase 29: Peringatan hujan (v1.25, see SPEC → peringatan hujan)
+Decision: a `RainWatcher` thread built like the PC watcher reads the briefing's Open-Meteo
+forecast every 15 minutes during the active hours (the hourly request gains the precipitation
+probability and amount) and tells a rain starting within `lead_minutes` once per rain episode,
+between utterances and never inside a conversation, pushing it too when notifications are on.
+Detection is a pure function over the forecast; the told episode lives in the process. No new
+dependency; `waifu rain` shows the next rain.
+- [ ] Task 119a: contract: SPEC, tasks, `RainAlertConfig`
+- [ ] Task 119: `weather.py`: the hourly rain fields, `Hour`, `Forecast`, `WeatherClient.forecast()`
+- [ ] Task 120: `rain_watch.py`: rain detection (`is_rainy`, `raining_now`, `rain_window`, `follow_rain`, `spoken_hour`) and `RainWatcher`
+- [ ] Task 121: wiring in `run`, `waifu rain`, check line, example config, README, CHANGELOG
+
+### Checkpoint: Peringatan hujan
+- [ ] Python suite and ruff clean; no test reached Open-Meteo, slept for real, spoke, or pushed
+- [ ] On the owner's PC with `briefing.city: Cianjur`: `waifu rain` agrees with a weather app's hourly rain; before an afternoon rain she says the sentence once (and the phone gets it), then stays quiet through the rain, during a conversation until it ends, and at night
+
 ## Risks and Mitigations
 
 | Risk | Impact | Mitigation |
