@@ -1142,11 +1142,11 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 119, 120 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py`, `config.example.yaml`, `tests/test_config.py`, `README.md`, `CHANGELOG.md` · **Scope:** M
 
-## Task 122a: Version notice contract
+## Task 122a: Version notice contract ✅
 
 **Acceptance criteria:**
-- [ ] SPEC "versi baru (v1.26)" (stories, non-goals with the self-restart, privacy, config, `version.py`, the watcher, the running record and how a run is found running, CLI, check lines, safety); tasks 122a-125 in the plan and here
-- [ ] `VersionNoticeConfig` as `AppConfig.version_notice` (`enabled`, `check_minutes` 5-1440, `active_from` before `active_until` with bare YAML times read as clock times, `push`) with tests
+- [x] SPEC "versi baru (v1.26)" (stories, non-goals with the self-restart, privacy, config, `version.py`, the watcher, the running record and how a run is found running, CLI, check lines, safety); tasks 122a-125 in the plan and here
+- [x] `VersionNoticeConfig` as `AppConfig.version_notice` (`enabled`, `check_minutes` 5-1440, `active_from` before `active_until` with bare YAML times read as clock times, `push`) with tests
 
 **Dependencies:** none · **Files:** `SPEC.md`, `tasks/plan.md`, `tasks/todo.md`, `src/waifu/config.py`, `tests/test_config.py` · **Scope:** S
 

@@ -579,6 +579,29 @@ class RainAlertConfig(_Strict):
         return self
 
 
+class VersionNoticeConfig(_Strict):
+    """Her own notice that newer code is on disk than the `waifu run` she is."""
+
+    enabled: bool = True
+    check_minutes: int = Field(default=30, ge=5, le=1440)  # how often she compares the code
+    active_from: _Clock = _Clock(8, 0)
+    active_until: _Clock = _Clock(22, 0)
+    push: bool = True
+
+    @field_validator("active_from", "active_until", mode="before")
+    @classmethod
+    def _yaml_sexagesimal_is_hh_mm(cls, value: object) -> object:
+        return _clock_from_yaml(value)
+
+    @model_validator(mode="after")
+    def _active_hours_in_order(self) -> VersionNoticeConfig:
+        if self.active_from >= self.active_until:
+            raise ValueError(
+                "version_notice.active_from must be before version_notice.active_until"
+            )
+        return self
+
+
 class PhoneConfig(_Strict):
     """Cyrene on the owner's phone: a page served on 127.0.0.1 and shared through Tailscale."""
 
@@ -867,6 +890,7 @@ class AppConfig(_Strict):
     vision: VisionConfig = Field(default_factory=VisionConfig)
     briefing: BriefingConfig = Field(default_factory=BriefingConfig)
     rain_alert: RainAlertConfig = Field(default_factory=RainAlertConfig)
+    version_notice: VersionNoticeConfig = Field(default_factory=VersionNoticeConfig)
     usage: UsageConfig = Field(default_factory=UsageConfig)
     phone: PhoneConfig = Field(default_factory=PhoneConfig)
     schedule: ScheduleConfig = Field(default_factory=ScheduleConfig)

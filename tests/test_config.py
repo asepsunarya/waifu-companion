@@ -610,6 +610,41 @@ def test_the_example_rain_alert_block_written_out_holds_the_defaults(tmp_path):
     assert load_config(write_yaml(tmp_path, written_out)).rain_alert == RainAlertConfig()
 
 
+def test_the_version_notice_checks_every_half_hour_from_eight_to_ten_and_pushes():
+    notice = AppConfig().version_notice
+    assert (notice.enabled, notice.check_minutes, notice.push) == (True, 30, True)
+    assert (notice.active_from, notice.active_until) == (time(8, 0), time(22, 0))
+
+
+def test_version_notice_settings_are_read_including_bare_yaml_times(tmp_path):
+    text = (
+        "version_notice:\n  enabled: false\n  check_minutes: 60\n  active_from: 09:30\n"
+        "  active_until: '21:00'\n  push: false\n"
+    )
+    notice = load_config(write_yaml(tmp_path, text)).version_notice
+    assert (notice.enabled, notice.check_minutes, notice.push) == (False, 60, False)
+    assert (notice.active_from, notice.active_until) == (time(9, 30), time(21, 0))
+
+
+NOTICE_HOURS_REVERSED = "version_notice.active_from must be before version_notice.active_until"
+
+
+@pytest.mark.parametrize(
+    ("lines", "named"),
+    [
+        ("  check_minutes: 4\n", "version_notice.check_minutes"),
+        ("  check_minutes: 1441\n", "version_notice.check_minutes"),
+        ("  active_from: '22:00'\n  active_until: '08:00'\n", NOTICE_HOURS_REVERSED),
+        ("  active_from: '08:00'\n  active_until: '08:00'\n", NOTICE_HOURS_REVERSED),
+        ("  active_until: '07:00'\n", NOTICE_HOURS_REVERSED),  # before the default 08:00
+        ("  restart: true\n", "version_notice.restart"),  # she never restarts herself
+    ],
+)
+def test_bad_version_notice_settings_are_refused_naming_the_setting(tmp_path, lines, named):
+    with pytest.raises(ConfigError, match=re.escape(named)):
+        load_config(write_yaml(tmp_path, "version_notice:\n" + lines))
+
+
 def test_she_calls_the_owner_master_unless_told_otherwise(tmp_path):
     assert AppConfig().assistant.owner_call == "Master"
     text = "assistant:\n  owner_call: Sayang\n"
