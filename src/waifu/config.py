@@ -29,6 +29,12 @@ GameId = Literal["hsr", "genshin", "zzz"]
 HOYOLAB_LOGIN_COOKIES = (("ltuid_v2", "ltoken_v2"), ("ltuid", "ltoken"))
 # Anyone who knows a topic on the public ntfy server can read it, so it must be hard to guess.
 NTFY_TOPIC_PATTERN = re.compile(r"^[A-Za-z0-9_-]{16,64}$")
+# The token of tepira's owner-only Cyrene API, as `waifu tepira token` makes it: tpcy_ and 32
+# random bytes in base64url (43 characters). tepira accepts no other form.
+TEPIRA_TOKEN_PATTERN = re.compile(r"tpcy_[A-Za-z0-9_-]{43}")
+# The token goes to this address, so it is https and a host name only: no user, port, path, or
+# query that could send it somewhere else.
+TEPIRA_URL_PATTERN = re.compile(r"https://[a-z0-9-]+(\.[a-z0-9-]+)+")
 # A Tailscale MagicDNS name: <machine>.<tailnet>.ts.net, no scheme or port.
 TAILSCALE_HOST_PATTERN = re.compile(r"^[a-z0-9-]+(\.[a-z0-9-]+)+\.ts\.net$")
 # What an `apps` device may start: launcher URLs, or a program or shortcut on a local drive.
@@ -753,6 +759,69 @@ class NotifyConfig(_Strict):
         return self
 
 
+class TepiraConfig(_Strict):
+    """Master's money from tepira, the owner's own finance app, through its Cyrene API."""
+
+    enabled: bool = False
+    url: str = "https://tepira.asepsunarya.com"
+    # The Cyrene API token: as secret as a password, never logged or printed.
+    token: SecretStr | None = None
+    # Recording expenses by voice: only with the Claude backend, and only after Master's yes.
+    writes: bool = False
+    # The wallet an expense goes to when Master names none, as tepira shows its name.
+    default_wallet: str | None = None
+
+    @field_validator("url")
+    @classmethod
+    def _url_is_a_plain_https_host(cls, value: str) -> str:
+        url = value.rstrip("/").lower()
+        if not TEPIRA_URL_PATTERN.fullmatch(url):
+            raise ValueError(
+                "tepira.url must be https:// and a host name only, like "
+                "https://tepira.asepsunarya.com"
+            )
+        return url
+
+    @field_validator("token")
+    @classmethod
+    def _token_has_the_cyrene_form(cls, value: SecretStr | None) -> SecretStr | None:
+        if value is not None and not TEPIRA_TOKEN_PATTERN.fullmatch(value.get_secret_value()):
+            raise ValueError(
+                "tepira.token must be tpcy_ followed by 43 letters, digits, '-' or '_' "
+                "(make one with: waifu tepira token)"
+            )
+        return value
+
+    @field_validator("default_wallet")
+    @classmethod
+    def _wallet_is_a_short_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        name = value.strip()
+        # 40: tepira shows wallet names cut to 40 characters in every Cyrene API answer.
+        if not name or len(name) > 40 or not name.isprintable():
+            raise ValueError(
+                "tepira.default_wallet must be a wallet name of 1-40 characters, "
+                "written as tepira shows it"
+            )
+        return name
+
+    @model_validator(mode="after")
+    def _enabled_needs_token(self) -> TepiraConfig:
+        if self.enabled and self.token is None:
+            raise ValueError(
+                "tepira.token is required when tepira is enabled "
+                "(make one with: waifu tepira token)"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _writes_need_a_default_wallet(self) -> TepiraConfig:
+        if self.writes and self.default_wallet is None:
+            raise ValueError("tepira.default_wallet is required when tepira.writes is on")
+        return self
+
+
 class AppConfig(_Strict):
     assistant: AssistantConfig = Field(default_factory=AssistantConfig)
     audio: AudioConfig = Field(default_factory=AudioConfig)
@@ -765,6 +834,7 @@ class AppConfig(_Strict):
     gacha: GachaConfig = Field(default_factory=GachaConfig)
     redeem_codes: RedeemCodesConfig = Field(default_factory=RedeemCodesConfig)
     notify: NotifyConfig = Field(default_factory=NotifyConfig)
+    tepira: TepiraConfig = Field(default_factory=TepiraConfig)
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
     todo: TodoConfig = Field(default_factory=TodoConfig)
     music: MusicConfig = Field(default_factory=MusicConfig)

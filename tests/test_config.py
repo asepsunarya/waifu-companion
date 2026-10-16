@@ -1,9 +1,10 @@
+import re
 from datetime import time
 from pathlib import Path
 
 import pytest
 
-from waifu.config import AppConfig, ConfigError, load_config
+from waifu.config import AppConfig, ConfigError, TepiraConfig, load_config
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -801,3 +802,111 @@ def test_music_can_open_youtube_music_instead(tmp_path):
 def test_bad_music_settings_are_refused(tmp_path, lines):
     with pytest.raises(ConfigError, match="music"):
         load_config(write_yaml(tmp_path, "music:\n" + lines))
+
+
+# tepira (v1.24): the token is a sentinel that must never show up in an error or a repr.
+GOOD_TEPIRA_TOKEN = "tpcy_SECRETTEPIRA" + "Ab3-_" * 6 + "Z"
+
+
+def test_tepira_is_off_by_default_without_a_token_or_writes():
+    tepira = AppConfig().tepira
+    assert (tepira.enabled, tepira.token, tepira.writes, tepira.default_wallet) == (
+        False,
+        None,
+        False,
+        None,
+    )
+    assert tepira.url == "https://tepira.asepsunarya.com"
+
+
+def test_the_example_config_leaves_tepira_off():
+    assert load_config(ROOT / "config.example.yaml").tepira == TepiraConfig()
+
+
+def test_the_example_tepira_block_is_valid_once_its_comments_are_filled_in(tmp_path):
+    example = (ROOT / "config.example.yaml").read_text(encoding="utf-8")
+    block = example[example.index("\ntepira:\n") + 1 :].split("\n\n", 1)[0]
+    filled = re.sub(r"(?m)^  enabled: false", "  enabled: true", block)
+    filled = re.sub(r"(?m)^  writes: false", "  writes: true", filled)
+    filled = re.sub(r"(?m)^  # default_wallet:", "  default_wallet:", filled)
+    filled = re.sub(r"(?m)^  # token: \S+", f"  token: {GOOD_TEPIRA_TOKEN}", filled)
+
+    tepira = load_config(write_yaml(tmp_path, filled)).tepira
+
+    assert (tepira.enabled, tepira.writes, tepira.default_wallet) == (True, True, "GoPay")
+    assert tepira.token.get_secret_value() == GOOD_TEPIRA_TOKEN
+
+
+def test_tepira_token_is_kept_secret(tmp_path):
+    text = f"tepira:\n  enabled: true\n  token: {GOOD_TEPIRA_TOKEN}\n"
+    config = load_config(write_yaml(tmp_path, text))
+    assert config.tepira.token.get_secret_value() == GOOD_TEPIRA_TOKEN
+    for shown in (repr(config.tepira), repr(config), config.model_dump_json()):
+        assert "SECRETTEPIRA" not in shown
+
+
+def test_enabled_tepira_needs_a_token(tmp_path):
+    with pytest.raises(ConfigError, match="tepira.token") as caught:
+        load_config(write_yaml(tmp_path, "tepira:\n  enabled: true\n"))
+    assert "waifu tepira token" in str(caught.value)
+
+
+@pytest.mark.parametrize(
+    "token",
+    [
+        "'tpcy_SECRETTEPIRA'",
+        f"'{GOOD_TEPIRA_TOKEN}x'",
+        f"'{GOOD_TEPIRA_TOKEN.replace('tpcy_', 'tpco_')}'",
+        f"'{GOOD_TEPIRA_TOKEN.replace('-', '+')}'",
+        f'"{GOOD_TEPIRA_TOKEN}\n"',
+    ],
+)
+def test_tepira_token_must_have_the_cyrene_form_and_is_never_echoed(tmp_path, token):
+    with pytest.raises(ConfigError, match="tpcy_") as caught:
+        load_config(write_yaml(tmp_path, f"tepira:\n  token: {token}\n"))
+    assert "SECRETTEPIRA" not in str(caught.value)
+
+
+def test_tepira_url_is_a_plain_https_host_without_the_trailing_slash(tmp_path):
+    for written, kept in [
+        ("https://tepira.asepsunarya.com/", "https://tepira.asepsunarya.com"),
+        ("HTTPS://Tepira.Example.com", "https://tepira.example.com"),
+    ]:
+        text = f"tepira:\n  url: {written}\n"
+        assert load_config(write_yaml(tmp_path, text)).tepira.url == kept
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://tepira.asepsunarya.com",
+        "tepira.asepsunarya.com",
+        "https://tepira.asepsunarya.com/api",
+        "https://user@tepira.asepsunarya.com",
+        "https://tepira.asepsunarya.com:8443",
+        "'https://tepira.asepsunarya.com?x=1'",
+        "https://localhost",
+    ],
+)
+def test_tepira_url_is_refused_unless_https_and_a_host_name_only(tmp_path, url):
+    # The token goes to this address, so nothing may hide another host or path in it.
+    with pytest.raises(ConfigError, match="tepira.url"):
+        load_config(write_yaml(tmp_path, f"tepira:\n  url: {url}\n"))
+
+
+def test_tepira_writes_need_a_default_wallet(tmp_path):
+    with pytest.raises(ConfigError, match="tepira.default_wallet"):
+        load_config(write_yaml(tmp_path, "tepira:\n  writes: true\n"))
+    text = "tepira:\n  writes: true\n  default_wallet: '  GoPay  '\n"
+    assert load_config(write_yaml(tmp_path, text)).tepira.default_wallet == "GoPay"
+
+
+@pytest.mark.parametrize("wallet", ["''", "'   '", "'" + "x" * 41 + "'", '"Go\tPay"'])
+def test_tepira_default_wallet_is_a_short_printable_name(tmp_path, wallet):
+    with pytest.raises(ConfigError, match="tepira.default_wallet"):
+        load_config(write_yaml(tmp_path, f"tepira:\n  default_wallet: {wallet}\n"))
+
+
+def test_unknown_tepira_settings_are_refused(tmp_path):
+    with pytest.raises(ConfigError, match="write_token"):
+        load_config(write_yaml(tmp_path, "tepira:\n  write_token: x\n"))

@@ -191,6 +191,24 @@ notify:
   # notifikasinya. Buat dengan: python -c "import secrets; print('cyrene-' + secrets.token_urlsafe(12))"
   # topic: cyrene-isi-dengan-hasil-perintah-di-atas
 
+# Keuangan dari tepira (README, bagian "Keuangan dari tepira"): "Cyrene, pengeluaran bulan ini
+# berapa?", "sisa budget makan?", "saldo GoPay berapa?", "tabungan laptop sudah berapa?", atau
+# "transaksi terakhir apa?" membuatnya membaca tepira (aplikasi keuanganmu) saat itu juga, lewat
+# API khusus Cyrene di tepira yang hanya melayani pemiliknya. Hanya kalau Master bertanya: tidak
+# pernah di sapaan pagi atau notifikasi HP. Dengan otak Claude angkanya ikut dikirim ke API
+# Anthropic, dan jawabannya dibacakan lewat edge-tts; tidak ada yang disimpan ke disk. Dengan
+# writes: true dan otak Claude, "catat jajan kopi 18 ribu" mencatat pengeluaran setelah Master
+# menjawab iya, dan "batalkan yang tadi" menghapusnya lagi dalam 15 menit.
+# Lihat dan uji dari terminal dengan `waifu tepira`.
+tepira:
+  enabled: false
+  url: https://tepira.asepsunarya.com
+  # Token API Cyrene: rahasia seperti kata sandi (config.yaml tidak di-commit). Buat dengan:
+  # waifu tepira token, lalu pasang baris sha256-nya di Vercel (TEPIRA_CYRENE_TOKEN_SHA256).
+  # token: tpcy_isi-dengan-hasil-waifu-tepira-token
+  writes: false            # mencatat pengeluaran lewat suara (butuh TEPIRA_CYRENE_WRITES=1 di Vercel)
+  # default_wallet: GoPay  # dompet untuk catatan yang tidak menyebut dompet; wajib kalau writes menyala
+
 # Ingatan jangka panjang (README, bagian "Ingatan Cyrene"): catatan singkat tentang Master yang
 # dia simpan saat diminta ("ingat ya, ...") atau sendiri, dan dibaca lagi di awal setiap sesi.
 # Rahasia (kata sandi, PIN, OTP, token, cookie, nomor kartu) selalu ditolak.
