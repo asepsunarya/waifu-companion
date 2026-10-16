@@ -557,6 +557,28 @@ class BriefingConfig(_Strict):
         return self
 
 
+class RainAlertConfig(_Strict):
+    """Her own warning shortly before rain, for the place `briefing` names."""
+
+    enabled: bool = True
+    lead_minutes: int = Field(default=60, ge=30, le=180)  # how long before the rain starts
+    threshold: int = Field(default=60, ge=30, le=100)  # hourly precipitation probability, %
+    active_from: _Clock = _Clock(6, 0)
+    active_until: _Clock = _Clock(21, 0)
+    push: bool = True
+
+    @field_validator("active_from", "active_until", mode="before")
+    @classmethod
+    def _yaml_sexagesimal_is_hh_mm(cls, value: object) -> object:
+        return _clock_from_yaml(value)
+
+    @model_validator(mode="after")
+    def _active_hours_in_order(self) -> RainAlertConfig:
+        if self.active_from >= self.active_until:
+            raise ValueError("rain_alert.active_from must be before rain_alert.active_until")
+        return self
+
+
 class PhoneConfig(_Strict):
     """Cyrene on the owner's phone: a page served on 127.0.0.1 and shared through Tailscale."""
 
@@ -844,6 +866,7 @@ class AppConfig(_Strict):
     free_offers: FreeOffersConfig = Field(default_factory=FreeOffersConfig)
     vision: VisionConfig = Field(default_factory=VisionConfig)
     briefing: BriefingConfig = Field(default_factory=BriefingConfig)
+    rain_alert: RainAlertConfig = Field(default_factory=RainAlertConfig)
     usage: UsageConfig = Field(default_factory=UsageConfig)
     phone: PhoneConfig = Field(default_factory=PhoneConfig)
     schedule: ScheduleConfig = Field(default_factory=ScheduleConfig)

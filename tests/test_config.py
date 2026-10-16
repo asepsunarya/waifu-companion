@@ -563,6 +563,45 @@ def test_bad_briefing_settings_are_refused(tmp_path, lines):
         load_config(write_yaml(tmp_path, "briefing:\n" + lines))
 
 
+def test_rain_alerts_are_on_an_hour_ahead_at_sixty_percent_from_six_to_nine_and_pushed():
+    rain = AppConfig().rain_alert
+    assert rain.enabled is True
+    assert (rain.lead_minutes, rain.threshold) == (60, 60)
+    assert (rain.active_from, rain.active_until) == (time(6, 0), time(21, 0))
+    assert rain.push is True
+
+
+def test_rain_alert_settings_are_read_including_bare_yaml_times(tmp_path):
+    text = (
+        "rain_alert:\n  enabled: false\n  lead_minutes: 90\n  threshold: 70\n"
+        "  active_from: 05:30\n  active_until: '22:00'\n  push: false\n"
+    )
+    rain = load_config(write_yaml(tmp_path, text)).rain_alert
+    assert (rain.enabled, rain.lead_minutes, rain.threshold, rain.push) == (False, 90, 70, False)
+    assert (rain.active_from, rain.active_until) == (time(5, 30), time(22, 0))
+
+
+ACTIVE_HOURS_REVERSED = "rain_alert.active_from must be before rain_alert.active_until"
+
+
+@pytest.mark.parametrize(
+    ("lines", "named"),
+    [
+        ("  lead_minutes: 29\n", "rain_alert.lead_minutes"),
+        ("  lead_minutes: 181\n", "rain_alert.lead_minutes"),
+        ("  threshold: 29\n", "rain_alert.threshold"),
+        ("  threshold: 101\n", "rain_alert.threshold"),
+        ("  active_from: '21:00'\n  active_until: '06:00'\n", ACTIVE_HOURS_REVERSED),
+        ("  active_from: '08:00'\n  active_until: '08:00'\n", ACTIVE_HOURS_REVERSED),
+        ("  active_until: '05:00'\n", ACTIVE_HOURS_REVERSED),  # before the default 06:00
+        ("  city: Cianjur\n", "rain_alert.city"),  # the place is briefing's
+    ],
+)
+def test_bad_rain_alert_settings_are_refused_naming_the_setting(tmp_path, lines, named):
+    with pytest.raises(ConfigError, match=re.escape(named)):
+        load_config(write_yaml(tmp_path, "rain_alert:\n" + lines))
+
+
 def test_she_calls_the_owner_master_unless_told_otherwise(tmp_path):
     assert AppConfig().assistant.owner_call == "Master"
     text = "assistant:\n  owner_call: Sayang\n"
