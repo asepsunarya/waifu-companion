@@ -1,4 +1,4 @@
-"""Master's own yes, enforced in code, before anything turns the PC off.
+"""Master's own yes, enforced in code, before anything turns the PC off or records an expense.
 
 Shutting the PC down, restarting it, putting it to sleep, or switching off the
 plug that feeds it runs only after Master's next words say yes. The first such
@@ -8,6 +8,10 @@ always hears what a yes would run, even when the model forgets to ask. The same
 call runs in the very next turn when Master's words as heard (`begin_turn`) are a
 plain yes, said within the window. The model's own words never count, so a model
 that skips the question, answers for Master, or mishears cannot turn the PC off.
+
+Any other action held the same way (`check_action`, such as recording an expense in
+tepira) shares those rules and the one request per turn, with its own question and
+the words that may repeat its order in Master's yes.
 """
 
 from __future__ import annotations
@@ -17,7 +21,7 @@ import re
 import threading
 import time
 import unicodedata
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Hashable, Iterable
 from dataclasses import dataclass
 
 from waifu.devices.base import Device
@@ -85,6 +89,29 @@ ORDER_WORDS = frozenset(
         "お願いします",
     }
 )
+# What may repeat or soften an order to record an expense ("iya, catat aja"). The PC's words
+# stay out, so "iya, matikan" answers no recording question.
+RECORD_ORDER_WORDS = frozenset(
+    {
+        "aja",
+        "saja",
+        "deh",
+        "dong",
+        "sekarang",
+        "langsung",
+        "udah",
+        "sudah",
+        "nya",
+        "catat",
+        "catatkan",
+        "catet",
+        "catetin",
+        "dicatat",
+        "simpan",
+        "どうぞ",
+        "お願いします",
+    }
+)
 PC_COMMANDS_TO_CONFIRM = frozenset({"shutdown", "restart", "sleep"})
 PLUG_COMMANDS_TO_CONFIRM = frozenset({"off", "toggle"})
 
@@ -92,6 +119,9 @@ PLUG_COMMANDS_TO_CONFIRM = frozenset({"off", "toggle"})
 _WORD = re.compile(r"[^\W_]+")
 # Always skipped in Master's answer, like her name and wake words.
 _MASTER = "master"
+# The tool a device call comes from heads its request's key (with the device id, the resolved
+# command, and the value), so no other action's key can equal a device call's.
+_DEVICE_ACTION = "control_device"
 # What the question says she is about to do, by the gated command.
 _ACTIONS = {
     "shutdown": "kumatikan",
@@ -101,25 +131,24 @@ _ACTIONS = {
     "toggle": "kubalik",
 }
 
-# (device id, resolved command, value): what Master's yes has to answer.
-_Call = tuple[str, str, int | None]
-
 
 @dataclass(frozen=True)
 class _Request:
-    """A refused call and the question Master hears about it."""
+    """A refused action, the question Master hears about it, and the words that may repeat its
+    order in Master's yes."""
 
-    call: _Call
+    key: Hashable
     at: float
     question: str
+    order_words: frozenset[str]
 
 
-def is_yes(text: str, names: Iterable[str] = ()) -> bool:
+def is_yes(text: str, names: Iterable[str] = (), order_words: frozenset[str] = ORDER_WORDS) -> bool:
     """Whether Master's words are a plain yes, such as "Iya, matikan." or "Cyrene, boleh".
 
     Leaving out "Master" and the `names` (her name and wake words she answers to, and what she
     calls the owner), the words must start with an affirmative word and hold only affirmative
-    and order words. A question ("iya?") is never a yes.
+    words and `order_words` (the PC's by default). A question ("iya?") is never a yes.
     """
     text = unicodedata.normalize("NFKC", text).lower()
     if "?" in text:
@@ -129,7 +158,7 @@ def is_yes(text: str, names: Iterable[str] = ()) -> bool:
     return (
         bool(words)
         and words[0] in AFFIRMATIVE_WORDS
-        and all(word in AFFIRMATIVE_WORDS or word in ORDER_WORDS for word in words)
+        and all(word in AFFIRMATIVE_WORDS or word in order_words for word in words)
     )
 
 
@@ -172,13 +201,14 @@ class ConfirmationGate:
         """Start a turn with Master's words as heard; only these can confirm a request.
 
         The last turn's request becomes the one this turn may answer, and any older one expires.
+        The words are judged a yes by that request's order words.
         """
-        yes = is_yes(user_text, self._names)
         now = self._clock()
         with self._lock:
             self._asked, self._recorded = self._recorded, None
+            order_words = ORDER_WORDS if self._asked is None else self._asked.order_words
             self._turn_at = now
-            self._turn_is_yes = yes
+            self._turn_is_yes = is_yes(user_text, self._names, order_words)
 
     def awaiting_answer(self) -> bool:
         """Whether this turn may still answer the question asked in the turn before it."""
@@ -200,28 +230,32 @@ class ConfirmationGate:
         if gated is None:
             return None
         device, resolved = gated
-        call: _Call = (device_id, resolved, value)
-        with self._lock:
-            confirmed = (
-                self._turn_is_yes
-                and self._answerable()
-                and self._asked is not None
-                and self._asked.call == call
-            )
-            if confirmed:
-                self._asked = None
-            elif self._recorded is None:
-                question = _question(device, resolved, self._owner_call)
-                self._recorded = _Request(call, self._clock(), question)
-            request = self._recorded
-        if confirmed:
-            logger.info("Master confirmed '%s' on '%s'", resolved, device_id)
-            return None
-        if request is not None and request.call == call:
-            logger.info("Holding '%s' on '%s' until Master says yes", resolved, device_id)
-            return _ask_first_message(device, resolved, request.question)
-        logger.info("Holding '%s' on '%s'; another request is asked first", resolved, device_id)
-        return _one_at_a_time_message(device, resolved)
+        return self._check(
+            (_DEVICE_ACTION, device_id, resolved, value),
+            label=f"Perintah '{resolved}' untuk {device.name}",
+            question=_question(device, resolved, self._owner_call),
+            order_words=ORDER_WORDS,
+            subject=f"'{resolved}' on '{device_id}'",
+        )
+
+    def check_action(
+        self,
+        key: Hashable,
+        *,
+        label: str,
+        question: str,
+        order_words: frozenset[str] = ORDER_WORDS,
+    ) -> str | None:
+        """None when the action `key` may run now, otherwise the message telling the model why
+        not, as `check` does for the PC.
+
+        `label` names the action in that message and `question` is what Master hears; a held
+        request keeps the question and `order_words` it was first refused with, and Master's
+        yes to it may repeat or soften the order only with those words.
+        """
+        return self._check(
+            key, label=label, question=question, order_words=order_words, subject="an action"
+        )
 
     def with_question(self, reply: str) -> str:
         """The reply Master hears: `reply`, then the question for this turn's request, if any."""
@@ -241,6 +275,37 @@ class ConfirmationGate:
         asked it is gone."""
         with self._lock:
             self._asked = None
+
+    def _check(
+        self,
+        key: Hashable,
+        *,
+        label: str,
+        question: str,
+        order_words: frozenset[str],
+        subject: str,
+    ) -> str | None:
+        """The rules of `check` and `check_action`; `subject` names the action in the log."""
+        with self._lock:
+            confirmed = (
+                self._turn_is_yes
+                and self._answerable()
+                and self._asked is not None
+                and self._asked.key == key
+            )
+            if confirmed:
+                self._asked = None
+            elif self._recorded is None:
+                self._recorded = _Request(key, self._clock(), question, order_words)
+            request = self._recorded
+        if confirmed:
+            logger.info("Master confirmed %s", subject)
+            return None
+        if request is not None and request.key == key:
+            logger.info("Holding %s until Master says yes", subject)
+            return _ask_first_message(label, request.question)
+        logger.info("Holding %s; another request is asked first", subject)
+        return _one_at_a_time_message(label)
 
     def _answerable(self) -> bool:
         """The last turn's request is waiting and this turn's words came in time (lock held)."""
@@ -268,18 +333,17 @@ def _question(device: Device, command: str, owner_call: str) -> str:
     return f"{device.name} mau {action} sekarang, {owner_call}?{warning} Jawab iya kalau jadi."
 
 
-def _ask_first_message(device: Device, command: str, question: str) -> str:
+def _ask_first_message(label: str, question: str) -> str:
     return (
-        f"Perintah '{command}' untuk {device.name} belum dijalankan: Master harus mengiyakannya "
-        f'dulu. Setelah jawabanmu, pertanyaan ini otomatis dibacakan untuk Master: "{question}" '
-        "Jangan menanyakannya lagi. Panggil perintah yang sama lagi hanya setelah Master "
-        "menjawab ya."
+        f"{label} belum dijalankan: Master harus mengiyakannya dulu. Setelah jawabanmu, "
+        f'pertanyaan ini otomatis dibacakan untuk Master: "{question}" Jangan menanyakannya '
+        "lagi. Panggil perintah yang sama lagi hanya setelah Master menjawab ya."
     )
 
 
-def _one_at_a_time_message(device: Device, command: str) -> str:
+def _one_at_a_time_message(label: str) -> str:
     return (
-        f"Perintah '{command}' untuk {device.name} belum dijalankan dan tidak ditanyakan: hanya "
-        "satu perintah seperti ini yang ditanyakan ke Master dalam satu giliran. Bilang ke Master "
-        "bahwa yang ini perlu dia minta lagi nanti."
+        f"{label} belum dijalankan dan tidak ditanyakan: hanya satu perintah seperti ini yang "
+        "ditanyakan ke Master dalam satu giliran. Bilang ke Master bahwa yang ini perlu dia minta "
+        "lagi nanti."
     )
