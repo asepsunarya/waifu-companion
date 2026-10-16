@@ -1,11 +1,11 @@
-"""HoYoLAB for the owner's games via genshin.py: accounts, notes, check-in, HSR data, redeem codes.
+"""HoYoLAB for the owner's games via genshin.py: accounts, notes, check-in, game data, redeem codes.
 
 genshin.py is async (aiohttp). Each public call here is one `asyncio.run` with a new
 `genshin.Client`, so the voice loop (the brain's tool calls) and the watcher thread
 never share an event loop, a session, or a lock. Failures become `GachaError`s whose
 Indonesian message tells the owner what to do; the cookie never reaches a message or
-a log line. Notes are read with `autoauth=False` and the HSR Battle Chronicle is only
-read: Cyrene never changes HoYoLAB settings.
+a log line. Notes are read with `autoauth=False` and the Battle Chronicle is only read:
+Cyrene never changes HoYoLAB settings.
 """
 
 from __future__ import annotations
@@ -53,19 +53,29 @@ Sleep = Callable[[float], Awaitable[None]]
 NOTES_OFF_RETCODES = frozenset({10102, 10104})
 GAME_BIZ_PREFIXES = {"hkrpg_": "hsr", "hk4e_": "genshin", "nap_": "zzz"}
 NO_COOKIE = "Cookie HoYoLAB belum diisi. Isi gacha.cookie di config.yaml (lihat README)."
+# Formatted with the game's short name (HSR, Genshin, ZZZ).
 CHRONICLE_PRIVATE = (
-    "Data HSR ini tidak bisa dibaca karena Battle Chronicle di HoYoLAB tidak publik. "
+    "Data {game} ini tidak bisa dibaca karena Battle Chronicle di HoYoLAB tidak publik. "
     "Pengaturannya ada di HoYoLAB, di Battle Chronicle; Cyrene tidak mengubahnya."
 )
 ENDGAME_REQUESTS_AT_ONCE = 2
 HSR = GAMES["hsr"]
-# Each endgame mode's Battle Chronicle request. Anomaly Arbitration's schedule_type=1 is
-# this season (genshin.py's default 3 returns the last three).
+# Each endgame mode's Battle Chronicle request: this season, for the given uid. Anomaly
+# Arbitration's schedule_type=1 is this season (genshin.py's default 3 returns the last
+# three). The Imaginarium Theater's answer always holds several seasons (`previous` only
+# warns), and its detail would need genshin.py's character-name list.
 _ENDGAME_REQUESTS: dict[str, Callable[[Any, int], Awaitable[Any]]] = {
     "memory_of_chaos": lambda client, uid: client.get_starrail_challenge(uid),
     "pure_fiction": lambda client, uid: client.get_starrail_pure_fiction(uid),
     "apocalyptic_shadow": lambda client, uid: client.get_starrail_apc_shadow(uid),
     "anomaly_arbitration": lambda client, uid: client.get_anomaly_arbitration(uid, schedule_type=1),
+    "spiral_abyss": lambda client, uid: client.get_genshin_spiral_abyss(uid),
+    "imaginarium_theater": lambda client, uid: client.get_imaginarium_theater(
+        uid, need_detail=False
+    ),
+    "stygian_onslaught": lambda client, uid: client.get_stygian_onslaught(uid),
+    "shiyu_defense": lambda client, uid: client.get_shiyu_defense(uid),
+    "deadly_assault": lambda client, uid: client.get_deadly_assault(uid),
 }
 # Codes tried per redeem_codes call; the rest are left out of its results for a later call.
 REDEEM_CODES_AT_MOST = 10
@@ -235,34 +245,14 @@ class HoyolabClient:
 
         async def characters(client: Any) -> tuple[HsrCharacter, ...]:
             uid = await self._game_uid(client, HSR)
-            response = await _chronicle(client.get_starrail_characters(uid))
+            response = await _chronicle(client.get_starrail_characters(uid), HSR)
             return tuple(read_character(character) for character in response.avatar_list)
 
         return self._run(characters, HSR)
 
     def hsr_endgame(self, modes: Iterable[str]) -> dict[str, HsrEndgame | GachaError]:
         """This season of each endgame mode; a failing mode does not hide the others."""
-        modes = list(modes)
-
-        async def all_modes(client: Any) -> list[HsrEndgame | BaseException]:
-            uid = await self._game_uid(client, HSR)
-            at_once = asyncio.Semaphore(ENDGAME_REQUESTS_AT_ONCE)
-
-            async def one(mode: str) -> HsrEndgame:
-                async with at_once:
-                    model = await _chronicle(_ENDGAME_REQUESTS[mode](client, uid))
-                return read_endgame(mode, model)
-
-            return await asyncio.gather(*(one(mode) for mode in modes), return_exceptions=True)
-
-        try:
-            results = self._run(all_modes, HSR)
-        except GachaError as error:
-            return dict.fromkeys(modes, error)
-        return {
-            mode: _to_error(result, HSR) if isinstance(result, BaseException) else result
-            for mode, result in zip(modes, results, strict=True)
-        }
+        return self._endgame(HSR, modes, read_endgame)
 
     def hsr_calendar(self) -> HsrCalendar:
         """The HSR event calendar: warps, events, and endgame windows, in absolute times."""
@@ -270,7 +260,7 @@ class HoyolabClient:
         async def calendar(client: Any) -> HsrCalendar:
             uid = await self._game_uid(client, HSR)
             fetched_at = self._now()
-            model = await _chronicle(client.get_starrail_event_calendar(uid))
+            model = await _chronicle(client.get_starrail_event_calendar(uid), HSR)
             return read_calendar(model, fetched_at)
 
         return self._run(calendar, HSR)
@@ -371,6 +361,35 @@ class HoyolabClient:
         except Exception as exc:
             raise _to_error(exc, game) from None
 
+    def _endgame(
+        self, game: Game, modes: Iterable[str], read: Callable[[str, Any], T]
+    ) -> dict[str, T | GachaError]:
+        """This season of each of one game's endgame modes, each read from its model with
+        `read(mode, model)`: at most ENDGAME_REQUESTS_AT_ONCE requests in flight, a failing
+        mode does not hide the others, and a failure of the whole call (the account lookup,
+        the timeout) is every mode's error."""
+        modes = list(modes)
+
+        async def all_modes(client: Any) -> list[T | BaseException]:
+            uid = await self._game_uid(client, game)
+            at_once = asyncio.Semaphore(ENDGAME_REQUESTS_AT_ONCE)
+
+            async def one(mode: str) -> T:
+                async with at_once:
+                    model = await _chronicle(_ENDGAME_REQUESTS[mode](client, uid), game)
+                return read(mode, model)
+
+            return await asyncio.gather(*(one(mode) for mode in modes), return_exceptions=True)
+
+        try:
+            results = self._run(all_modes, game)
+        except GachaError as error:
+            return dict.fromkeys(modes, error)
+        return {
+            mode: _to_error(result, game) if isinstance(result, BaseException) else result
+            for mode, result in zip(modes, results, strict=True)
+        }
+
     async def _accounts(self, client: Any) -> list[Account]:
         accounts = []
         for account in await client.get_game_accounts():
@@ -395,7 +414,7 @@ class HoyolabClient:
         """The uid of one game, passed to every request.
 
         genshin.py then never looks one up itself, and it knows the server offset that
-        makes the HSR endgame times aware and the server a code is redeemed on.
+        makes the endgame times aware and the server a code is redeemed on.
         """
         uid = (await self._resolve_uids(client, [game.id])).get(game.id)
         if uid is None:
@@ -471,8 +490,9 @@ def _hoyolab_game(game: Game) -> Any:
     return genshin.Game(game.hoyolab_game)
 
 
-async def _chronicle(request: Awaitable[T]) -> T:
-    """An HSR Battle Chronicle request: data hidden from HoYoLAB is chronicle_private.
+async def _chronicle(request: Awaitable[T], game: Game) -> T:
+    """A Battle Chronicle data request of `game`: data hidden from HoYoLAB is
+    chronicle_private, with a message that names the game.
 
     The same retcode means notes_off for the Real-Time Notes, so only these requests
     turn genshin.py's `DataNotPublic` into this kind.
@@ -482,7 +502,8 @@ async def _chronicle(request: Awaitable[T]) -> T:
     try:
         return await request
     except errors.DataNotPublic:
-        raise GachaError("chronicle_private", CHRONICLE_PRIVATE) from None
+        message = CHRONICLE_PRIVATE.format(game=game.short)
+        raise GachaError("chronicle_private", message) from None
 
 
 def _redeem_result(game: Game, code: str, outcome: str, problem: str = "") -> RedeemResult:

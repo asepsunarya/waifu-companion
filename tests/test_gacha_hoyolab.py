@@ -26,6 +26,8 @@ from genshin.models.hoyolab.record import GenshinAccount
 
 from waifu.gacha import hoyolab
 from waifu.gacha.codes import RedeemResult
+from waifu.gacha.game_data import GAME_MODES
+from waifu.gacha.games import GAMES
 from waifu.gacha.hoyolab import (
     Account,
     CheckinResult,
@@ -825,6 +827,92 @@ def test_hsr_results_errors_and_logs_never_hold_the_cookie_uid_or_nickname(caplo
     for secret in ("SECRETCOOKIE", "SECRETTOKEN", "800000001", "Master"):
         assert all(secret not in text for text in texts)
         assert secret not in caplog.text
+
+
+# ---- Genshin and ZZZ endgame requests (v1.23 contract) ------------------------------------------
+
+
+class EndgameRequests(FakeHoyolab):
+    """genshin.py's Genshin and ZZZ endgame requests with its signatures, recording every
+    argument and answering each mode's name in place of a model."""
+
+    async def get_genshin_spiral_abyss(self, uid=None, *, previous=False, lang=None, raw=False):
+        arguments = {"previous": previous, "lang": lang, "raw": raw}
+        return await self._answer(("spiral_abyss", uid, arguments), "spiral_abyss")
+
+    async def get_imaginarium_theater(
+        self, uid=None, *, previous=False, need_detail=True, lang=None, raw=False
+    ):
+        arguments = {"previous": previous, "need_detail": need_detail, "lang": lang, "raw": raw}
+        return await self._answer(("imaginarium_theater", uid, arguments), "imaginarium_theater")
+
+    async def get_stygian_onslaught(self, uid=None, *, lang=None, raw=False, need_detail=True):
+        arguments = {"lang": lang, "raw": raw, "need_detail": need_detail}
+        return await self._answer(("stygian_onslaught", uid, arguments), "stygian_onslaught")
+
+    async def get_shiyu_defense(self, uid=None, *, previous=False, lang=None, raw=False):
+        arguments = {"previous": previous, "lang": lang, "raw": raw}
+        return await self._answer(("shiyu_defense", uid, arguments), "shiyu_defense")
+
+    async def get_deadly_assault(self, uid=None, *, previous=False, lang=None, raw=False):
+        arguments = {"previous": previous, "lang": lang, "raw": raw}
+        return await self._answer(("deadly_assault", uid, arguments), "deadly_assault")
+
+
+def read_as_pair(mode: str, model) -> tuple[str, object]:
+    return mode, model
+
+
+def test_genshin_and_zzz_endgame_modes_ask_for_this_season_of_their_games_uid():
+    fake = EndgameRequests()
+    client = make_client(fake)
+
+    genshin = client._endgame(GAMES["genshin"], GAME_MODES["genshin"], read_as_pair)
+    zzz = client._endgame(GAMES["zzz"], GAME_MODES["zzz"], read_as_pair)
+
+    assert genshin == {mode: (mode, mode) for mode in GAME_MODES["genshin"]}
+    assert zzz == {mode: (mode, mode) for mode in GAME_MODES["zzz"]}
+    this_season = {"previous": False, "lang": None, "raw": False}
+    assert {call[0]: call[1:] for call in fake.calls} == {
+        "spiral_abyss": (800000002, this_season),
+        # The Theater's detail would need genshin.py's character-name list.
+        "imaginarium_theater": (800000002, {**this_season, "need_detail": False}),
+        "stygian_onslaught": (800000002, {"lang": None, "raw": False, "need_detail": True}),
+        "shiyu_defense": (1300000003, this_season),
+        "deadly_assault": (1300000003, this_season),
+    }
+
+
+def test_hidden_genshin_and_zzz_battle_chronicle_data_names_its_game():
+    hidden = errors.DataNotPublic({"retcode": 10102})
+    fake = EndgameRequests(failures={"spiral_abyss": hidden, "deadly_assault": hidden})
+    client = make_client(fake)
+
+    genshin = client._endgame(GAMES["genshin"], ["spiral_abyss"], read_as_pair)
+    zzz = client._endgame(GAMES["zzz"], ["shiyu_defense", "deadly_assault"], read_as_pair)
+
+    assert (genshin["spiral_abyss"].kind, genshin["spiral_abyss"].message) == (
+        "chronicle_private",
+        CHRONICLE_PRIVATE.replace("Data HSR", "Data Genshin"),
+    )
+    assert zzz["shiyu_defense"] == ("shiyu_defense", "shiyu_defense")
+    assert (zzz["deadly_assault"].kind, zzz["deadly_assault"].message) == (
+        "chronicle_private",
+        CHRONICLE_PRIVATE.replace("Data HSR", "Data ZZZ"),
+    )
+
+
+def test_a_failure_of_a_whole_genshin_or_zzz_endgame_call_names_its_game_for_every_mode():
+    fake = EndgameRequests(accounts=[account("hkrpg_global", 800000001, 70)])
+    client = make_client(fake, uids={})
+
+    results = client._endgame(GAMES["zzz"], GAME_MODES["zzz"], read_as_pair)
+
+    assert {result.kind for result in results.values()} == {"account"}
+    assert {result.message for result in results.values()} == {
+        "Akun ZZZ tidak ditemukan di HoYoLAB ini."
+    }
+    assert [call[0] for call in fake.calls] == ["accounts"]
 
 
 # ---- redeem codes (v1.19) -----------------------------------------------------------------------
