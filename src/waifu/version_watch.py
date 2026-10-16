@@ -4,7 +4,8 @@ The owner keeps one `waifu run` open for days, so versions land in the project f
 running one never loaded. Every `check_minutes`, timed from the start of the previous poll and
 first right after it starts, it reads the CHANGELOG and pyproject on disk (never git), but only
 between `active_from` and `active_until` on the PC's clock: at night it reads nothing and stays
-quiet, so a version found then is told in the morning. News is a CHANGELOG version above the one
+quiet, and the next poll comes at `active_from` at the latest, so a version found then is told
+in the morning. News is a CHANGELOG version above the one
 she started with; when the core dependencies changed since, `pip install` comes first, and the
 push carries the command. A commit that adds no version is never news, also when it changes the
 dependencies, so fixes and half-built versions stay quiet. Each news is said between utterances,
@@ -21,7 +22,7 @@ import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from waifu.config import VersionNoticeConfig, at_sentence_start
 from waifu.finance.values import spoken_rupiah as spoken_number
@@ -132,7 +133,7 @@ class VersionWatcher:
     def poll_once(self) -> list[str]:
         """Inside the active hours, read the code on disk and give the notice that is due;
         returns its text."""
-        if not self._config.active_from <= self._now().time() < self._config.active_until:
+        if not self._active(self._now()):
             return []
         try:
             disk = self._read()
@@ -191,7 +192,22 @@ class VersionWatcher:
         while not self._stop.is_set():
             started = self._clock()
             self.poll_once()
-            self._wait(self._stop, max(0.0, started + interval_s - self._clock()))
+            due_s = max(0.0, started + interval_s - self._clock())
+            self._wait(self._stop, min(due_s, self._until_active_s()))
+
+    def _active(self, now: datetime) -> bool:
+        return self._config.active_from <= now.time() < self._config.active_until
+
+    def _until_active_s(self) -> float:
+        """Outside the active hours, the seconds until they begin; inside, infinite. A day-long
+        interval would otherwise land every poll at the same hour outside them."""
+        now = self._now()
+        if self._active(now):
+            return float("inf")
+        begin = datetime.combine(now.date(), self._config.active_from)
+        if begin <= now:
+            begin += timedelta(days=1)
+        return (begin - now).total_seconds()
 
     def _log_failure(self, reason: str, *, traceback: bool) -> None:
         """The first failure of a run at WARNING (a raised one with its traceback), the rest at

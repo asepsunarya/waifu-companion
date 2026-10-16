@@ -759,7 +759,7 @@ dia memberi tahu sendiri.
   versi baru.
 - **Hanya di jam aktif**, di antara `active_from` dan `active_until` (bawaan 08.00-22.00, jam
   PC). Di luar jam itu dia tidak memeriksa apa pun; versi yang masuk malam hari diberitahukan
-  pagi berikutnya.
+  pagi berikutnya, begitu jam aktif mulai.
 - **Tidak pernah memotong.** Seperti peringatan hujan, kalimatnya diucapkan di sela obrolan:
   tidak saat dia menjawab, tidak saat Master bicara, dan tidak selama jendela lanjutan sesudah
   jawabannya masih terbuka. Notifikasi HP-nya langsung dikirim.

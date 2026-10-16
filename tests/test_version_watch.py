@@ -8,7 +8,7 @@ thread whose waits are real or last a few milliseconds.
 import logging
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pytest
 
@@ -521,6 +521,67 @@ def test_the_next_poll_comes_check_minutes_after_the_last_one_began(minutes, int
 
     assert waits.asked[:2] == [interval - 6, interval]
     assert read.calls >= 2
+
+
+class PassingTime:
+    """The PC's clock for a watcher thread: each wait moves it on by the whole timeout at once
+    (the stop event still ends the wait), and each read of the code on disk notes the time."""
+
+    def __init__(self, start: datetime) -> None:
+        self.start = self.now = start
+        self.reads: list[datetime] = []
+
+    def clock(self) -> float:
+        return (self.now - self.start).total_seconds()
+
+    def wait(self, stop: threading.Event, timeout: float) -> bool:
+        self.now += timedelta(seconds=timeout)
+        return stop.wait(0.001)
+
+    def read(self) -> CodeVersion:
+        self.reads.append(self.now)
+        return disk(V125, V124)
+
+
+@pytest.mark.parametrize(
+    ("settings", "started", "first_read"),
+    [
+        ({}, datetime(2026, 10, 17, 7, 30), datetime(2026, 10, 17, 8, 0)),
+        ({}, datetime(2026, 10, 16, 23, 0), datetime(2026, 10, 17, 8, 0)),
+        (
+            {"active_from": "06:00", "active_until": "09:00", "check_minutes": 480},
+            datetime(2026, 10, 17, 10, 0),
+            datetime(2026, 10, 18, 6, 0),
+        ),
+    ],
+    ids=["daily_from_07:30", "daily_from_23:00", "8_hours_in_06-09_from_10:00"],
+)
+def test_a_poll_outside_the_active_hours_waits_no_longer_than_until_they_begin(
+    settings, started, first_read
+):
+    # A day-long interval would otherwise land every poll outside the hours, at night for good.
+    time_ = PassingTime(started)
+    watcher = VersionWatcher(
+        time_.read,
+        RUNNING,
+        VersionNoticeConfig(**{"check_minutes": 1440, **settings}),
+        announce=None,
+        notifier=None,
+        owner_call="Master",
+        now=lambda: time_.now,
+        clock=time_.clock,
+        wait=time_.wait,
+    )
+
+    watcher.start()
+    try:
+        deadline = time.monotonic() + 5
+        while not time_.reads and time.monotonic() < deadline:
+            time.sleep(0.01)
+    finally:
+        watcher.stop()
+
+    assert time_.reads[:1] == [first_read]
 
 
 def test_starting_twice_runs_one_thread():
