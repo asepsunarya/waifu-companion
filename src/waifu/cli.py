@@ -1950,26 +1950,30 @@ def _print_hsr_endgame(results: Mapping[str, HsrEndgame | GachaError], now: date
                 parts.append(f"lantai terdalam {result.deepest_floor}")
         else:
             parts = ["belum dimainkan musim ini"]
-        print(_labelled(name, [*parts, *_hsr_end(result.ends_at, now)]))
+        print(_labelled(name, [*parts, *_ends(result.ends_at, now)]))
     return 1 if failed else 0
 
 
 def _print_hsr_calendar(calendar: HsrCalendar, now: datetime) -> None:
     print(f"Kalender HSR versi {calendar.version}" if calendar.version else "Kalender HSR")
     _print_section("Warp", [_hsr_warp_text(warp, now) for warp in calendar.warps])
-    # The calendar keeps upcoming events and endgame windows; only the running ones are
+    _print_running_events(calendar.events, now)
+    _print_running_windows(calendar.challenges, now)
+
+
+def _print_running_events(events: Sequence[HsrEvent], now: datetime) -> None:
+    # A calendar keeps upcoming events and endgame windows; only the running ones are
     # listed, the soonest end first ("which event ends soon?"), events without an end last.
-    events = sorted(
-        (event for event in calendar.events if is_running(event.starts_at, event.ends_at, now)),
+    running = sorted(
+        (event for event in events if is_running(event.starts_at, event.ends_at, now)),
         key=lambda e: (e.ends_at is None, e.ends_at or now),
     )
-    _print_section("Event", [_hsr_event_text(event, now) for event in events])
-    windows = [
-        window
-        for window in calendar.challenges
-        if is_running(window.starts_at, window.ends_at, now)
-    ]
-    _print_section("Endgame", [_hsr_window_text(window, now) for window in windows])
+    _print_section("Event", [_event_text(event, now) for event in running])
+
+
+def _print_running_windows(windows: Sequence[HsrChallengeWindow], now: datetime) -> None:
+    running = [window for window in windows if is_running(window.starts_at, window.ends_at, now)]
+    _print_section("Endgame", [_window_text(window, now) for window in running])
 
 
 def _print_section(title: str, lines: list[str]) -> None:
@@ -1982,41 +1986,48 @@ def _print_section(title: str, lines: list[str]) -> None:
 
 
 def _hsr_warp_text(warp: HsrWarp, now: datetime) -> str:
+    return _banner_text(warp, "Warp", HSR_WARP_KINDS[warp.kind], ("5★", "4★"), now)
+
+
+def _banner_text(
+    banner: HsrWarp, word: str, kind: str, tops: tuple[str, str], now: datetime
+) -> str:
+    """One banner: `tops` names its two rarities, such as 5★ and 4★ or S and A."""
+    top, second = tops
     parts = []
-    if warp.featured:
-        parts.append(f"5★ {', '.join(warp.featured)}")
-    if warp.four_stars:
-        parts.append(f"4★ {', '.join(warp.four_stars)}")
-    if warp.starts_at is not None and warp.starts_at > now:
-        parts.append(_hsr_moment("mulai", warp.starts_at, now))
+    if banner.featured:
+        parts.append(f"{top} {', '.join(banner.featured)}")
+    if banner.four_stars:
+        parts.append(f"{second} {', '.join(banner.four_stars)}")
+    if banner.starts_at is not None and banner.starts_at > now:
+        parts.append(_moment("mulai", banner.starts_at, now))
     else:
-        parts.extend(_hsr_end(warp.ends_at, now))
+        parts.extend(_ends(banner.ends_at, now))
     # Semicolons: the names inside a part are already separated by commas.
-    kind = HSR_WARP_KINDS[warp.kind]
     # HoYoLAB's calendar often names no warp; the featured names say which one it is.
-    label = f"{warp.name} ({kind})" if warp.name else f"Warp {kind}"
+    label = f"{banner.name} ({kind})" if banner.name else f"{word} {kind}"
     return _labelled(label, parts, separator="; ")
 
 
-def _hsr_event_text(event: HsrEvent, now: datetime) -> str:
-    progress = ["selesai"] if event.done else _hsr_progress(event.current, event.total)
-    return _labelled(event.name, [*progress, *_hsr_end(event.ends_at, now)])
+def _event_text(event: HsrEvent, now: datetime) -> str:
+    progress = ["selesai"] if event.done else _progress(event.current, event.total)
+    return _labelled(event.name, [*progress, *_ends(event.ends_at, now)])
 
 
-def _hsr_window_text(window: HsrChallengeWindow, now: datetime) -> str:
-    parts = [*_hsr_progress(window.current, window.total), *_hsr_end(window.ends_at, now)]
+def _window_text(window: HsrChallengeWindow, now: datetime) -> str:
+    parts = [*_progress(window.current, window.total), *_ends(window.ends_at, now)]
     return _labelled(f"{ENDGAME_MODES[window.mode]} ({window.name})", parts)
 
 
-def _hsr_progress(current: int | None, total: int | None) -> list[str]:
+def _progress(current: int | None, total: int | None) -> list[str]:
     return [f"{current}/{total}"] if total else []
 
 
-def _hsr_end(ends_at: datetime | None, now: datetime) -> list[str]:
-    return [] if ends_at is None else [_hsr_moment("berakhir", ends_at, now)]
+def _ends(ends_at: datetime | None, now: datetime) -> list[str]:
+    return [] if ends_at is None else [_moment("berakhir", ends_at, now)]
 
 
-def _hsr_moment(word: str, moment: datetime, now: datetime) -> str:
+def _moment(word: str, moment: datetime, now: datetime) -> str:
     """`berakhir 2026-10-20 03:59 (4 hari 12 jam lagi)`, in local time."""
     return f"{word} {moment.astimezone():%Y-%m-%d %H:%M} ({_time_left(moment - now)})"
 
