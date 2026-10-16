@@ -2,14 +2,17 @@ import http.client
 import http.server
 import io
 import json
+import logging
 import threading
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import Callable
+from datetime import datetime
 
 import pytest
 
-from waifu.weather import Weather, WeatherClient, WeatherError, get_json
+from waifu.weather import RAIN_CODES, Hour, Weather, WeatherClient, WeatherError, get_json
 
 FORECAST_HOST = "api.open-meteo.com"
 GEOCODING_HOST = "geocoding-api.open-meteo.com"
@@ -43,13 +46,19 @@ def forecast_reply(
     current_code: int = 2,
     tomorrow_morning_code: int = 61,
 ) -> dict:
-    """A forecast shaped like Open-Meteo's reply to the SPEC's request (timezone=auto, 2 days)."""
+    """A forecast shaped like Open-Meteo's reply to the SPEC's request (timezone=auto, 2 days).
+
+    Rain is likely at today 15:00 (80 %, 1.2 mm) and tomorrow 08:00 (a shower code)."""
     hours = [f"{day}T{hour:02d}:00" for day in (today, tomorrow) for hour in range(24)]
     codes = [3] * 48
     codes[7] = 0  # today 07:00, which tomorrow_morning must not read
     codes[24 + 6] = 45
     codes[24 + 7] = tomorrow_morning_code
     codes[24 + 8] = 80
+    rain_chances = [10] * 48
+    rain_chances[15] = 80
+    precipitation = [0.0] * 48
+    precipitation[15] = 1.2
     return {
         "latitude": -6.9,
         "longitude": 107.625,
@@ -70,8 +79,18 @@ def forecast_reply(
             "temperature_2m": 21.4,
             "weather_code": current_code,
         },
-        "hourly_units": {"time": "iso8601", "weather_code": "wmo code"},
-        "hourly": {"time": hours, "weather_code": codes},
+        "hourly_units": {
+            "time": "iso8601",
+            "weather_code": "wmo code",
+            "precipitation_probability": "%",
+            "precipitation": "mm",
+        },
+        "hourly": {
+            "time": hours,
+            "weather_code": codes,
+            "precipitation_probability": rain_chances,
+            "precipitation": precipitation,
+        },
         "daily_units": {
             "time": "iso8601",
             "weather_code": "wmo code",
@@ -167,7 +186,7 @@ def test_the_forecast_request_asks_for_the_spec_parameters():
         "daily": [
             "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max"
         ],
-        "hourly": ["weather_code"],
+        "hourly": ["weather_code,precipitation_probability,precipitation"],
         "timezone": ["auto"],
         "forecast_days": ["2"],
     }
@@ -378,6 +397,156 @@ def test_a_forecast_reply_that_is_not_an_object_is_a_weather_error(reply):
 
     with pytest.raises(WeatherError, match="tidak bisa dibaca"):
         WeatherClient(latitude=-6.9, longitude=107.6, fetch=fetch).today()
+
+
+# --- the hourly forecast, for the rain alerts -------------------------------------------------
+
+
+def test_rain_codes_are_rain_showers_and_thunderstorms_but_not_drizzle():
+    assert sorted(RAIN_CODES) == [*range(61, 68), *range(80, 83), *range(95, 100)]
+    assert not RAIN_CODES & set(range(51, 58))
+
+
+def test_forecast_reads_the_time_and_code_now_and_every_hour_with_its_rain():
+    fetch = FakeOpenMeteo()
+    client = WeatherClient(latitude=-6.82, longitude=107.14, city="Cianjur", fetch=fetch)
+
+    forecast = client.forecast()
+
+    assert (forecast.place, forecast.now, forecast.current_code) == (
+        "Cianjur",
+        datetime(2026, 10, 13, 7, 15),
+        2,
+    )
+    assert len(forecast.hours) == 48
+    assert forecast.hours[0] == Hour(datetime(2026, 10, 13, 0, 0), 3, 10, 0.0)
+    assert forecast.hours[15] == Hour(datetime(2026, 10, 13, 15, 0), 3, 80, 1.2)
+    assert forecast.hours[24 + 8] == Hour(datetime(2026, 10, 14, 8, 0), 80, 10, 0.0)
+    assert forecast.hours[-1].at == datetime(2026, 10, 14, 23, 0)
+
+
+def test_forecast_asks_the_same_request_as_the_briefing():
+    fetch = FakeOpenMeteo()
+    client = WeatherClient(latitude=-6.82, longitude=107.14, fetch=fetch)
+
+    client.today()
+    client.forecast()
+
+    briefing, rain = fetch.requests_to(FORECAST_HOST)
+    assert briefing == rain
+
+
+def test_forecast_uses_the_city_geocoded_once_for_the_client_and_its_place_name():
+    fetch = FakeOpenMeteo()
+    client = WeatherClient(city="Bandung", fetch=fetch)
+
+    client.today()
+    forecast = client.forecast()
+
+    assert forecast.place == "Bandung, Jawa Barat"
+    assert len(fetch.requests_to(GEOCODING_HOST)) == 1
+
+
+def test_unknown_hourly_values_are_none_never_rain():
+    # Open-Meteo sends null where a model has no value for an hour.
+    reply = forecast_reply()
+    for name in ("weather_code", "precipitation_probability", "precipitation"):
+        reply["hourly"][name][15] = None
+    fetch = FakeOpenMeteo(forecast=reply)
+
+    forecast = WeatherClient(latitude=-6.9, longitude=107.6, fetch=fetch).forecast()
+
+    assert forecast.hours[15] == Hour(datetime(2026, 10, 13, 15, 0), None, None, None)
+
+
+def test_an_hourly_rain_chance_sent_as_a_float_is_a_whole_percent():
+    reply = forecast_reply()
+    reply["hourly"]["precipitation_probability"][15] = 79.6
+    fetch = FakeOpenMeteo(forecast=reply)
+
+    forecast = WeatherClient(latitude=-6.9, longitude=107.6, fetch=fetch).forecast()
+
+    assert forecast.hours[15].rain_chance == 80
+    assert isinstance(forecast.hours[15].rain_chance, int)
+
+
+def _damage_hour(name: str, value: object) -> Callable[[dict], None]:
+    """Sets today 15:00's `name` to `value`."""
+
+    def damage(reply: dict) -> None:
+        reply["hourly"][name][15] = value
+
+    return damage
+
+
+MALFORMED_HOURLY = {
+    "no current time": lambda reply: reply["current"].pop("time"),
+    "current time is not a time": lambda reply: reply["current"].update(time="pagi"),
+    "current code is null": lambda reply: reply["current"].update(weather_code=None),
+    "no hourly block": lambda reply: reply.pop("hourly"),
+    "no rain chances": lambda reply: reply["hourly"].pop("precipitation_probability"),
+    "no amounts": lambda reply: reply["hourly"].pop("precipitation"),
+    "amounts end early": lambda reply: reply["hourly"].update(
+        precipitation=reply["hourly"]["precipitation"][:30]
+    ),
+    "codes are not a list": lambda reply: reply["hourly"].update(weather_code={"0": 3}),
+    "an hour is not a time": _damage_hour("time", "besok"),
+    "an hour is a number": _damage_hour("time", 15),
+    "a rain chance is text": _damage_hour("precipitation_probability", "80"),
+    "an amount is a boolean": _damage_hour("precipitation", True),
+}
+
+
+@pytest.mark.parametrize("damage", MALFORMED_HOURLY.values(), ids=MALFORMED_HOURLY.keys())
+def test_a_forecast_without_its_hourly_rain_fields_is_a_logged_weather_error(damage, caplog):
+    reply = forecast_reply()
+    damage(reply)
+    fetch = FakeOpenMeteo(forecast=reply)
+    client = WeatherClient(latitude=-6.9, longitude=107.6, fetch=fetch)
+
+    with (
+        caplog.at_level(logging.WARNING, logger="waifu.weather"),
+        pytest.raises(WeatherError, match="tidak bisa dibaca"),
+    ):
+        client.forecast()
+
+    assert "without the expected fields" in caplog.text
+
+
+def test_the_briefing_never_fails_over_the_hourly_rain_fields():
+    reply = forecast_reply()
+    del reply["hourly"]["precipitation_probability"]
+    reply["hourly"]["precipitation"] = ["?"] * 10
+    fetch = FakeOpenMeteo(forecast=reply)
+
+    weather = WeatherClient(latitude=-6.9, longitude=107.6, fetch=fetch).today()
+
+    assert weather.tomorrow_morning == "hujan"
+
+
+def test_forecast_without_a_location_says_how_to_set_the_city_and_asks_no_one():
+    fetch = FakeOpenMeteo()
+
+    with pytest.raises(WeatherError, match="briefing.city"):
+        WeatherClient(fetch=fetch).forecast()
+
+    assert fetch.urls == []
+
+
+def test_an_unreachable_server_is_a_weather_error_for_the_forecast_too():
+    fetch = FakeOpenMeteo(forecast=urllib.error.URLError("getaddrinfo failed"))
+
+    with pytest.raises(WeatherError, match="koneksi internet"):
+        WeatherClient(latitude=-6.9, longitude=107.6, fetch=fetch).forecast()
+
+
+def test_the_forecast_shares_one_8_s_limit_with_the_city_lookup():
+    clock = FakeClock()
+    fetch = FakeOpenMeteo(clock=clock, took_s=3.0)
+
+    WeatherClient(city="Bandung", fetch=fetch, clock=clock).forecast()
+
+    assert fetch.timeouts == [8.0, 5.0]
 
 
 @pytest.mark.parametrize(

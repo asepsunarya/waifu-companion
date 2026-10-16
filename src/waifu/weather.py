@@ -1,12 +1,14 @@
 """Today's weather from Open-Meteo (https://open-meteo.com): free, no account or key.
 
 A city is geocoded once with Open-Meteo's geocoding API; then one forecast request
-returns the conditions now, today's range and rain chance, and the hourly codes for
-tomorrow morning, all in the place's own time zone (`timezone=auto`). Conditions are
-WMO weather codes, said in Indonesian.
+returns the conditions now, today's range and rain chance, and two days of hourly codes,
+rain chances, and amounts, all in the place's own time zone (`timezone=auto`). `today()`
+reads the briefing's weather from it (the code for tomorrow morning among the hourly
+values), `forecast()` every hour for the rain alerts. Conditions are WMO weather codes,
+said in Indonesian.
 
-She is silent while the weather is fetched, so one `today()` call has `TIME_LIMIT_S` for
-both requests together: each request's timeout is the time left, and none starts with less
+She is silent while the weather is fetched, so one call has `TIME_LIMIT_S` for both
+requests together: each request's timeout is the time left, and none starts with less
 than `MIN_REQUEST_S` left.
 """
 
@@ -21,8 +23,8 @@ import urllib.parse
 import urllib.request
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from datetime import date, timedelta
-from typing import Any
+from datetime import date, datetime, timedelta
+from typing import Any, TypeVar
 
 from waifu import __version__
 
@@ -33,20 +35,23 @@ GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search"
 FORECAST_QUERY = {
     "current": "temperature_2m,weather_code",
     "daily": "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max",
-    "hourly": "weather_code",
+    "hourly": "weather_code,precipitation_probability,precipitation",
     "timezone": "auto",
     "forecast_days": 2,
 }
-TIME_LIMIT_S = 8.0  # for one today(): the city lookup and the forecast together
+TIME_LIMIT_S = 8.0  # for one call: the city lookup and the forecast together
 MIN_REQUEST_S = 1.0
 USER_AGENT = f"waifu-companion/{__version__}"
 MORNING = "07:00"
+# The WMO codes of rain, freezing rain, showers, and thunderstorms; drizzle (51-57) is not rain.
+RAIN_CODES = frozenset([*range(61, 68), *range(80, 83), *range(95, 100)])
 
 UNREACHABLE = "Server cuaca tidak bisa dihubungi. Cek koneksi internet, lalu coba lagi."
 UNREADABLE = "Data cuaca dari Open-Meteo tidak bisa dibaca. Coba lagi nanti."
 
 # (url, timeout in seconds) -> the decoded JSON reply.
 Fetch = Callable[[str, float], Any]
+_Read = TypeVar("_Read")
 
 
 @dataclass(frozen=True)
@@ -58,6 +63,27 @@ class Weather:
     max_c: float  # today
     rain_chance: int  # today's highest precipitation probability, %
     tomorrow_morning: str  # the condition at 07:00 tomorrow
+
+
+@dataclass(frozen=True)
+class Hour:
+    """One hourly entry; None where Open-Meteo has no value (unknown, never rain).
+
+    Open-Meteo gives the rain chance and sums the amount over the hour before `at`.
+    """
+
+    at: datetime  # the place's local time, without an offset
+    code: int | None  # WMO weather code
+    rain_chance: int | None  # precipitation probability, %
+    precipitation_mm: float | None
+
+
+@dataclass(frozen=True)
+class Forecast:
+    place: str
+    now: datetime  # the reply's current time: the place's local time, in 15-minute steps
+    current_code: int  # WMO weather code now
+    hours: tuple[Hour, ...]  # every hourly entry of today and tomorrow, in order
 
 
 class WeatherError(Exception):
@@ -107,12 +133,22 @@ class WeatherClient:
     def today(self) -> Weather:
         """The weather now, today, and tomorrow morning, within `TIME_LIMIT_S`; WeatherError
         when there is none."""
+        return self._read_forecast(_weather)
+
+    def forecast(self) -> Forecast:
+        """The time and code now and every hourly entry of today and tomorrow, within
+        `TIME_LIMIT_S`; WeatherError when there is none."""
+        return self._read_forecast(_forecast)
+
+    def _read_forecast(self, parse: Callable[[str, Any], _Read]) -> _Read:
+        """Asks for the forecast at the place and has `parse` read the reply; a reply without
+        the fields it reads is the unreadable WeatherError."""
         deadline = self._clock() + TIME_LIMIT_S
         location = self._locate(deadline)
         query = {"latitude": location.latitude, "longitude": location.longitude, **FORECAST_QUERY}
         data = self._get(FORECAST_URL, query, deadline)
         try:
-            return _weather(location.place, data)
+            return parse(location.place, data)
         except (LookupError, TypeError, ValueError) as exc:
             logger.warning("Open-Meteo sent a forecast without the expected fields: %r", exc)
             raise WeatherError(UNREADABLE) from None
@@ -208,6 +244,39 @@ def _weather(place: str, data: Any) -> Weather:
         rain_chance=round(_number(daily["precipitation_probability_max"][0])),
         tomorrow_morning=_condition(hourly["weather_code"][hours.index(tomorrow_morning)]),
     )
+
+
+def _forecast(place: str, data: Any) -> Forecast:
+    """The forecast reply's time and code now and its hourly entries as a Forecast."""
+    current, hourly = data["current"], data["hourly"]
+    columns = [
+        hourly[name]
+        for name in ("time", "weather_code", "precipitation_probability", "precipitation")
+    ]
+    if not all(isinstance(column, list) for column in columns):
+        raise TypeError("the hourly values are not lists")
+    hours = tuple(
+        Hour(
+            at=_local_time(at),
+            code=None if code is None else int(_number(code)),
+            rain_chance=None if chance is None else round(_number(chance)),
+            precipitation_mm=None if amount is None else _number(amount),
+        )
+        for at, code, chance, amount in zip(*columns, strict=True)
+    )
+    return Forecast(
+        place=place,
+        now=_local_time(current["time"]),
+        current_code=int(_number(current["weather_code"])),
+        hours=hours,
+    )
+
+
+def _local_time(value: object) -> datetime:
+    """An ISO time as Open-Meteo sends it, e.g. 2026-10-14T07:00 (the place's local time)."""
+    if not isinstance(value, str):
+        raise TypeError(f"the time is not text: {value!r}")
+    return datetime.fromisoformat(value)
 
 
 def _number(value: object) -> float:

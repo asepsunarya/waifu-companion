@@ -6611,6 +6611,8 @@ def open_meteo_forecast(today: date) -> dict:
         "hourly": {
             "time": [f"{day}T{hour:02d}:00" for day in days for hour in range(24)],
             "weather_code": [2] * 24 + [61] * 24,
+            "precipitation_probability": [10] * 24 + [70] * 24,
+            "precipitation": [0.0] * 24 + [1.5] * 24,
         },
         "daily": {
             "time": [day.isoformat() for day in days],
