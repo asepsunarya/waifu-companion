@@ -20,7 +20,10 @@ It rains now only when the current code is rain or the hour running now holds at
 A rain is told once: one starting within the lead while it is dry now. While it rains, while
 the same rain comes closer, and when a rain starts less than `DRY_GAP` after the end of the
 last rainy hour already known (fewer than three dry hours between), nothing more is said. A
-forecast that drops the rain keeps the episode, so a wavering forecast never tells it twice.
+forecast that drops the rain keeps the episode, so a wavering forecast never tells it twice. A
+coming rain reaches the episode only as far as the lead, and each hour it rains one hour
+further, so a long rain that a later forecast splits by three dry hours has its second part
+told.
 """
 
 from __future__ import annotations
@@ -77,8 +80,8 @@ class RainWindow:
 
 @dataclass(frozen=True)
 class RainState:
-    """What one forecast means: the rain to tell, if any, and the end of the episode's last
-    rainy hour."""
+    """What one forecast means: the rain to tell, if any, and how far the episode reaches:
+    the end of the hours it rained and of its coming rain within the lead."""
 
     tell: RainWindow | None
     episode_last: datetime | None
@@ -137,9 +140,10 @@ def follow_rain(
     window = rain_window(forecast, threshold, within=lead)
     if window is None:
         return RainState(None, episode_last)
+    reach = min(window.last, forecast.now + lead)  # beyond the lead, later forecasts decide
     if episode_last is not None and window.start - episode_last < DRY_GAP:
-        return RainState(None, max(episode_last, window.last))
-    return RainState(window, window.last)
+        return RainState(None, max(episode_last, reach))
+    return RainState(window, reach)
 
 
 def spoken_hour(hour: int) -> str:

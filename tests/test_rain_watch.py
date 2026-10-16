@@ -221,10 +221,17 @@ def follow(
     return follow_rain(rain_forecast, threshold=THRESHOLD, lead=lead, episode_last=episode_last)
 
 
-def test_a_coming_rain_is_told_and_becomes_the_episode():
+def test_a_coming_rain_is_told_and_the_episode_reaches_as_far_as_the_lead():
+    # From 15:00 to 17:00; at 14:00 the lead reaches 15:00.
     state = follow(forecast(14.0, rain=[16, 17]))
 
-    assert state == RainState(RainWindow(at(15), at(17), 80), at(17))
+    assert state == RainState(RainWindow(at(15), at(17), 80), at(15))
+
+
+def test_a_coming_rain_ending_within_the_lead_is_the_episode_up_to_its_end():
+    state = follow(forecast(13.0, rain=[16]), lead=3 * HOUR)
+
+    assert state == RainState(RainWindow(at(15), at(16), 80), at(16))
 
 
 def test_nothing_is_told_while_it_rains_and_the_episode_reaches_the_end_of_this_hour():
@@ -235,21 +242,21 @@ def test_rain_falling_now_never_shortens_the_episode():
     assert follow(forecast(14.25, current_code=63), at(17)) == RainState(None, at(17))
 
 
-def test_the_same_rain_coming_closer_is_not_told_again():
-    assert follow(forecast(14.5, rain=[16, 17]), at(17)) == RainState(None, at(17))
+def test_the_same_rain_coming_closer_is_not_told_and_the_episode_follows_the_lead():
+    assert follow(forecast(14.5, rain=[16, 17]), at(15)) == RainState(None, at(15.5))
 
 
 def test_a_rain_after_two_dry_hours_is_the_same_rain():
     # Rain until 16:00, dry from 16:00 to 18:00, rain again from 18:00 to 20:00.
     assert DRY_GAP == 3 * HOUR
-    assert follow(forecast(17.25, rain=[19, 20]), at(16)) == RainState(None, at(20))
+    assert follow(forecast(17.25, rain=[19, 20]), at(16)) == RainState(None, at(18.25))
 
 
 def test_a_rain_after_three_dry_hours_is_a_new_rain():
     # Rain until 16:00, dry from 16:00 to 19:00, rain again from 19:00 to 20:00.
     state = follow(forecast(18.25, rain=[20]), at(16))
 
-    assert state == RainState(RainWindow(at(19), at(20), 80), at(20))
+    assert state == RainState(RainWindow(at(19), at(20), 80), at(19.25))
 
 
 def test_a_forecast_that_drops_the_rain_keeps_the_episode_so_it_is_not_told_twice():
@@ -258,8 +265,8 @@ def test_a_forecast_that_drops_the_rain_keeps_the_episode_so_it_is_not_told_twic
     back = follow(forecast(14.5, rain=[16]), dropped.episode_last)
 
     assert told.tell is not None
-    assert dropped == RainState(None, at(16))
-    assert back == RainState(None, at(16))
+    assert dropped == RainState(None, at(15))
+    assert back == RainState(None, at(15.5))
 
 
 def test_a_rain_beyond_the_lead_is_not_told_yet():
@@ -421,6 +428,23 @@ def test_a_new_rain_after_three_dry_hours_is_told_again():
 
     assert notices == [
         "Master, sekitar jam tujuh malam kemungkinan hujan di Cianjur, angkat jemuran ya."
+    ]
+
+
+def test_a_long_rain_a_later_forecast_splits_by_three_dry_hours_tells_the_rain_after_it():
+    # At 13:00 rain from 14:00 to 22:00 is told. Later forecasts keep only the rain from 14:00
+    # to 15:00 and from 18:00 to 19:00: three dry hours between, so 18:00 is a new rain.
+    rig = Rig(forecast(13.0, rain=range(15, 23)))
+    rig.now = at(13)
+    notices = rig.poll()
+    for quarter in range(1, 17):  # 13:15 to 17:00
+        now = 13 + quarter / 4
+        rig.now = at(now)
+        notices += rig.poll(forecast(now, rain=[15, 19]))
+
+    assert notices == [
+        "Master, sekitar jam dua siang kemungkinan hujan di Cianjur, angkat jemuran ya.",
+        "Master, sekitar jam enam sore kemungkinan hujan di Cianjur, angkat jemuran ya.",
     ]
 
 
