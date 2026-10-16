@@ -388,9 +388,45 @@ def test_gamerpower_n_a_means_no_worth_and_no_end():
         ("Hades (2020) Giveaway", "Hades (2020)"),
         ("Hades (2020) (Steam) Giveaway", "Hades (2020)"),
         ("Moonlit Garden (IndieGala) Giveaway", "Moonlit Garden"),
+        ("Moonlit Garden (Epic Games Store) Giveaway", "Moonlit Garden"),
     ],
 )
 def test_gamerpower_titles_lose_the_giveaway_word_and_the_platform(title, clean):
+    web = FakeWeb(gamerpower={"steam": [{**ROGUE_HARBOR, "title": title}]})
+
+    assert titles(read(web, ["steam"])) == [clean]
+
+
+@pytest.mark.parametrize(
+    ("title", "clean"),
+    [
+        # The owner's list once said "Dwarven Realms (Steam) Key di Steam".
+        ("Dwarven Realms (Steam) Key Giveaway", "Dwarven Realms"),
+        ("Dwarven Realms Steam Key Giveaway", "Dwarven Realms"),
+        ("Dwarven Realms Key Giveaway", "Dwarven Realms"),
+        ("Dwarven Realms (PC) (Steam) Key Giveaway", "Dwarven Realms"),
+        ("Dwarven Realms DLC (Steam) Giveaway", "Dwarven Realms DLC"),
+        ("Portal 2 (Soundtrack) (Steam) Key Giveaway", "Portal 2 (Soundtrack)"),
+        ("Portal 2 (Soundtrack) Key Giveaway", "Portal 2 (Soundtrack)"),
+    ],
+)
+def test_gamerpower_titles_lose_the_key_word_and_every_platform_at_the_end(title, clean):
+    web = FakeWeb(gamerpower={"steam": [{**ROGUE_HARBOR, "title": title}]})
+
+    assert titles(read(web, ["steam"])) == [clean]
+
+
+@pytest.mark.parametrize(
+    ("title", "clean"),
+    [
+        ("Skeleton Key (Steam) Giveaway", "Skeleton Key"),
+        ("The Key (Steam) Giveaway", "The Key"),
+        ("Skeleton Key (Steam) Key Giveaway", "Skeleton Key"),
+        ("The Last Key Steam Key Giveaway", "The Last Key"),
+        ("Skeleton Key (Steam)", "Skeleton Key"),
+    ],
+)
+def test_a_game_named_with_key_keeps_it_the_key_word_goes_only_before_giveaway(title, clean):
     web = FakeWeb(gamerpower={"steam": [{**ROGUE_HARBOR, "title": title}]})
 
     assert titles(read(web, ["steam"])) == [clean]
@@ -403,11 +439,12 @@ def test_a_store_in_brackets_is_one_of_the_giveaway_s_own_platforms_too():
     assert titles(read(web, ["gog"])) == ["Starward Drift"]
 
 
-def test_a_giveaway_whose_title_is_only_its_platform_is_skipped():
-    nameless = {**ROGUE_HARBOR, "id": 3830, "title": "(Steam) Giveaway"}
-    web = FakeWeb(gamerpower={"steam": [nameless, ROGUE_HARBOR]})
+@pytest.mark.parametrize("title", ["(Steam) Giveaway", "(Steam) Key Giveaway"])
+def test_a_title_that_is_only_its_platform_stays_as_gamerpower_wrote_it(title):
+    nameless = {**ROGUE_HARBOR, "title": title}
+    web = FakeWeb(gamerpower={"steam": [nameless]})
 
-    assert titles(read(web, ["steam"])) == ["Rogue Harbor"]
+    assert titles(read(web, ["steam"])) == [title]
 
 
 @pytest.mark.parametrize(
@@ -464,7 +501,10 @@ def test_a_gamerpower_giveaway_that_cannot_be_read_is_skipped(caplog):
     no_id = {**ROGUE_HARBOR, "id": None}
     no_link = {**ROGUE_HARBOR, "id": 3830, "open_giveaway_url": None, "gamerpower_url": "http://x"}
     bad_date = {**ROGUE_HARBOR, "id": 3831, "end_date": "next week"}
-    web = FakeWeb(gamerpower={"gog": [no_id, no_link, "junk", bad_date, STARWARD_DRIFT]})
+    blank_title = {**ROGUE_HARBOR, "id": 3832, "title": "   "}
+    web = FakeWeb(
+        gamerpower={"gog": [no_id, no_link, "junk", bad_date, blank_title, STARWARD_DRIFT]}
+    )
 
     with caplog.at_level(logging.WARNING):
         games = read(web, ["gog"])

@@ -36,7 +36,9 @@ GAMERPOWER_PLATFORMS = {"steam": "Steam", "gog": "GOG", "itchio": "itch.io", "pc
 TIMEOUT_S = 15.0
 USER_AGENT = f"waifu-companion/{__version__}"
 
-_GIVEAWAY_WORD = re.compile(r"\s+Giveaway$")
+# GamerPower ends a title with "Giveaway", "Key Giveaway", or "Steam Key Giveaway"; a Key
+# anywhere else is the game's own ("Skeleton Key (Steam) Giveaway").
+_GIVEAWAY_WORDS = re.compile(r"\s+(?:(?:Steam\s+)?Key\s+)?Giveaway$")
 _IN_PARENTHESES_AT_THE_END = re.compile(r"\s*\(([^()]*)\)$")
 # The stores GamerPower names in a title's brackets besides a giveaway's own platforms.
 _STORES_IN_TITLES = frozenset(
@@ -233,12 +235,22 @@ def _gamerpower_game(
 
 
 def _clean_title(title: str, platforms: Any) -> str:
-    """'Agent A (Epic Games) Giveaway' -> 'Agent A': no Giveaway word, and no store in brackets
-    at the end, one of `platforms` (GamerPower's list, such as "PC, Steam") or another store;
-    other brackets are part of the name ('Hades (2020)'). Empty when the title was only that."""
-    title = _GIVEAWAY_WORD.sub("", title.strip())
+    """'Dwarven Realms (Steam) Key Giveaway' -> 'Dwarven Realms': no Giveaway words ('Giveaway',
+    'Key Giveaway', 'Steam Key Giveaway'), then, as often as the title ends so, no store in
+    brackets, one of `platforms` (GamerPower's list, such as "PC, Steam") or another store;
+    other brackets are part of the name ('Hades (2020)'), and so is a Key before them
+    ('Skeleton Key (Steam) Giveaway'). GamerPower's own title when nothing else would be left."""
+    original = title.strip()
     listed = platforms.split(",") if isinstance(platforms, str) else []
     stores = _STORES_IN_TITLES | {platform.strip().casefold() for platform in listed}
+    title = _GIVEAWAY_WORDS.sub("", original)
+    while (shorter := _without_store_in_brackets(title, stores)) != title:
+        title = shorter
+    return title or original
+
+
+def _without_store_in_brackets(title: str, stores: frozenset[str]) -> str:
+    """The title without the store in brackets it ends with, if any."""
     match = _IN_PARENTHESES_AT_THE_END.search(title)
     if match is not None and match[1].strip().casefold() in stores:
         return title[: match.start()]
