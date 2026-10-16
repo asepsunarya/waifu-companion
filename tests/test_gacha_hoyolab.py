@@ -997,7 +997,8 @@ def test_the_calendar_fetch_time_is_read_before_the_request():
 
 def test_the_calendar_fetch_time_defaults_to_the_aware_utc_now():
     # A calendar whose clock agrees with the PC's: only the right anchor gives its end back.
-    api_now = int(datetime.now(UTC).timestamp())
+    # Its times are whole minutes, so none is on a minute's last second (read as the next).
+    api_now = int(datetime.now(UTC).timestamp()) // 60 * 60
     payload = copy.deepcopy(HSR_CALENDAR)
     payload["now"] = str(api_now)
     payload["avatar_card_pool_list"][0]["time_info"].update(
@@ -2448,3 +2449,21 @@ def test_game_events_tells_the_genshin_calendar_in_masters_local_time():
         }
     ]
     assert [call[:2] for call in fake.calls] == [("genshin_calendar", UIDS["genshin"])]
+
+
+def test_game_events_tells_an_hsr_warp_ending_on_hoyolabs_last_second_on_the_whole_minute():
+    # HoYoLAB ends the warp at 11:59:59 server time: the game says 11:00 for Master (UTC+7).
+    warp_end = datetime(2026, 10, 21, 11, 59, 59, tzinfo=timezone(timedelta(hours=8)))
+    api_now = unix(FETCHED_AT)
+    payload = copy.deepcopy(HSR_CALENDAR)
+    payload["now"] = str(api_now)
+    payload["avatar_card_pool_list"][0]["time_info"].update(
+        start_ts=str(api_now - 86400), end_ts=str(unix(warp_end)), now=str(api_now)
+    )
+    fake = FakeHoyolab(answers={"calendar": HSREventCalendar(**payload)})
+
+    result, is_error = game_data_tools(fake).run("game_events", {"game": "hsr"})
+
+    assert not is_error
+    warp = json.loads(result)["warps"][0]
+    assert (warp["ends"], warp["ends_in_hours"]) == ("2026-10-21 11:00", 135)

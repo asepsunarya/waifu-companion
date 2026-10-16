@@ -741,6 +741,39 @@ def moved(payload: object, seconds: int) -> object:
 UNIX_TIMES = {"start_ts", "end_ts", "now"}
 
 
+def unix(moment: datetime) -> int:
+    return int(moment.timestamp())
+
+
+def test_calendar_times_on_a_minutes_last_second_read_as_the_next_whole_minute():
+    # HoYoLAB ends a warp at 11:59:59 server time, which printed "berakhir 10:59" WIB where the
+    # game says 11:00 WIB, and an event or endgame window at 03:59:59 for the 04:00 reset.
+    warp_end = datetime(2026, 10, 21, 11, 59, 59, tzinfo=SERVER_TZ)
+    event_end = datetime(2026, 10, 20, 3, 59, 59, tzinfo=SERVER_TZ)
+    season_end = datetime(2026, 11, 17, 3, 59, 59, tzinfo=SERVER_TZ)
+    payload = {
+        **CALENDAR,
+        "avatar_card_pool_list": [
+            warp("Bloom of Death", API_NOW - 6 * DAY, unix(warp_end)),
+            # A start given on a minute's last second reads the same way.
+            warp("Next Phase", unix(warp_end), unix(warp_end) + 21 * DAY),
+        ],
+        "equip_card_pool_list": [],
+        "act_list": [event("Planar Fissure", time_info(API_NOW - DAY, unix(event_end)))],
+        "challenge_list": [
+            challenge("ChallengeTypeChasm", "Gleaming Treasure", API_NOW - DAY, unix(season_end))
+        ],
+    }
+
+    calendar = read_calendar(calendar_model(payload), FETCHED_AT)
+
+    assert calendar.warps[0].ends_at == datetime(2026, 10, 21, 12, 0, tzinfo=SERVER_TZ)
+    assert calendar.warps[1].starts_at == datetime(2026, 10, 21, 12, 0, tzinfo=SERVER_TZ)
+    assert calendar.events[0].ends_at == datetime(2026, 10, 20, 4, 0, tzinfo=SERVER_TZ)
+    assert calendar.challenges[0].ends_at == datetime(2026, 11, 17, 4, 0, tzinfo=SERVER_TZ)
+    assert calendar.warps[0].starts_at == FETCHED_AT - timedelta(days=6)  # a whole minute stays
+
+
 @pytest.mark.parametrize("offset", [timedelta(hours=8), timedelta(hours=-5, minutes=-45)])
 def test_calendar_times_are_right_whichever_clock_the_api_counts_in(offset):
     fetched_at = FETCHED_AT - timedelta(seconds=2)

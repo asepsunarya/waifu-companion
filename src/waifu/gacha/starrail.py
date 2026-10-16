@@ -3,7 +3,8 @@
 The readers at the bottom turn genshin.py's models (taken as `Any`) into these frozen
 dataclasses for the HoYoLAB side, and the brain's HSR tools turn them into compact
 JSON. Nothing here imports genshin.py, and nothing holds the uid, the nickname, ids,
-icons, or descriptions. Every datetime is aware.
+icons, or descriptions. Every datetime is aware, and a time on a minute's last second
+(HoYoLAB's 11:59:59 warp end) is read as the next whole minute.
 """
 
 from __future__ import annotations
@@ -14,7 +15,7 @@ from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Literal
 
-from waifu.gacha.game_data import GAME_MODES, is_over
+from waifu.gacha.game_data import GAME_MODES, is_over, on_the_minute
 
 # The endgame modes in display order: the tool argument and its official English name.
 ENDGAME_MODES: dict[str, str] = GAME_MODES["hsr"]
@@ -149,7 +150,8 @@ def read_character(model: Any) -> HsrCharacter:
 def read_endgame(mode: str, model: Any) -> HsrEndgame:
     """This season of one endgame mode, from genshin.py's model of that mode.
 
-    Season times are already aware: genshin.py adds the uid's server offset to them.
+    Season times are already aware (genshin.py adds the uid's server offset to them) and
+    whole minutes (its `PartialTime` has no seconds), so none is on a minute's last second.
     """
     if mode == "anomaly_arbitration":
         return _anomaly_arbitration(model)
@@ -175,9 +177,10 @@ def read_calendar(model: Any, fetched_at: datetime) -> HsrCalendar:
     calendar's `now` on Cyrene's clock, read just before the request: their difference is
     the API's clock offset plus seconds of latency and clock skew, so every time is moved
     by that difference rounded to the quarter hour. That is right whichever clock the API
-    uses, and to HoYoLAB's own minute. Whatever is over is dropped; upcoming warps, events,
-    and endgame windows stay with their start, so a calendar kept across a season or
-    version change still has what started since it was read.
+    uses, and to HoYoLAB's own minute; a time on that minute's last second (11:59:59 for a
+    warp ending at 12:00) is the next whole minute. Whatever is over is dropped; upcoming
+    warps, events, and endgame windows stay with their start, so a calendar kept across a
+    season or version change still has what started since it was read.
     """
     shift = _clock_offset(fetched_at - model.now)
     zone = fetched_at.tzinfo
@@ -186,7 +189,10 @@ def read_calendar(model: Any, fetched_at: datetime) -> HsrCalendar:
         info = item.time_info
         if info is None:
             return None, None
-        return (info.start + shift).astimezone(zone), (info.end + shift).astimezone(zone)
+        return (
+            on_the_minute((info.start + shift).astimezone(zone)),
+            on_the_minute((info.end + shift).astimezone(zone)),
+        )
 
     pools: tuple[tuple[WarpKind, Any], ...] = (
         ("character", model.character_warps),
