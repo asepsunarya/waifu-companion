@@ -2928,25 +2928,34 @@ def _version_watcher(
 
 
 def _running_status(lock: Path, record_path: Path) -> tuple[bool, RunningVersion | None]:
-    """Whether the run lock at `lock` is held, and the record at `record_path` of the
-    `waifu run` holding it: None when it recorded nothing (a run from before v1.26, or
-    `enroll`/`speaker-test` holds the lock) or its record names a process that ended. Only the
-    lock tells that something runs: a console closed by hand never removes the record."""
-    if not _instance_running(lock):
-        return False, None
+    """Whether the run lock at `lock` is held, and a record at `record_path`. While held, the
+    record of the `waifu run` holding it: None when it recorded nothing (a run from before
+    v1.26, or `enroll`/`speaker-test` holds the lock) or its record names a process that ended.
+    While free, the last run's record, for the packages it ran with. Only the lock tells that
+    something runs: a console closed by hand never removes the record."""
     record = read_running(record_path)
+    if not _instance_running(lock):
+        return False, record
     if record is None or not process_alive(record.pid):
         return True, None
     return True, record
 
 
 def _running_version_check(disk: CodeVersion, held: bool, running: RunningVersion | None) -> Check:
-    """Whether the running `waifu run` runs the code on `disk`, and what to do when not."""
+    """Whether the running `waifu run` runs the code on `disk`, and what to do when not. With
+    the lock free, `running` is the last run's record: packages changed since it ran still need
+    pip install before the next start, as she asked to be closed first."""
     if disk.release is None:
         return WARN, "waifu run: versi kode di disk tidak terbaca (lihat CHANGELOG.md)"
     newest = disk.release.version
     if not held:
-        return OK, f"waifu run tidak berjalan; versi di disk {_release_text(disk.release)}"
+        on_disk = f"waifu run tidak berjalan; versi di disk {_release_text(disk.release)}"
+        if running is not None and dependencies_changed(running.code, disk):
+            return WARN, (
+                f"{on_disk}; paket Python-nya berubah sejak terakhir dijalankan: kalau belum, "
+                f"jalankan {INSTALL_COMMAND} di folder proyek sebelum waifu run"
+            )
+        return OK, on_disk
     if running is None:
         return WARN, (
             "waifu run yang sedang jalan versinya tidak tercatat (lebih lama dari v1.26); "
@@ -3007,7 +3016,7 @@ def _version(args: argparse.Namespace) -> int:
     disk = read_code_version()
     held, running = _running_status(REPO_ROOT / RUN_LOCK, REPO_ROOT / RUNNING_FILE)
     print(f"Kode di disk: {_code_text(disk)}")
-    if running is not None:
+    if held and running is not None:
         print(
             f"Yang berjalan: {_code_text(running.code)}, dimulai {running.started:%Y-%m-%d %H:%M}"
         )

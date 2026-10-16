@@ -789,9 +789,11 @@ masih dikerjakan. Dia menyebutnya bersama versi baru berikutnya, dan `waifu chec
 menampilkannya.
 
 Tanpa notifikasi HP dia bilang "perintahnya ada di waifu version": `waifu version` dan
-`waifu check` menampilkan perintah yang sama. Paket suara (`.[voice]`) tidak ikut dihitung;
-pasang ulang lewat langkah di [Paket suara](#2-paket-suara-stt-verifikasi-suara) kalau
-CHANGELOG memintanya.
+`waifu check` menampilkan perintah yang sama, juga sesudah dia ditutup. Jalankan perintahnya
+sebelum memulai `waifu run` lagi: `waifu run` yang baru mencatat paket yang baru, jadi
+pengingatnya hilang meskipun `pip install` belum dijalankan. Paket suara (`.[voice]`) tidak
+ikut dihitung; pasang ulang lewat langkah di [Paket suara](#2-paket-suara-stt-verifikasi-suara)
+kalau CHANGELOG memintanya.
 
 ### Mengecek: `waifu version` dan `waifu check`
 
@@ -814,6 +816,7 @@ Baris terakhirnya juga muncul di `waifu check`, tepat di bawah "Konfigurasi vali
 | `! ... dan paket Python-nya berubah: tutup Cyrene, jalankan .venv\Scripts\python -m pip install -e . di folder proyek, lalu mulai ulang ...` | pasang paketnya dulu (lihat di atas) |
 | `! waifu run yang sedang jalan versinya tidak tercatat (lebih lama dari v1.26); mulai ulang ...` | `waifu run` dari sebelum v1.26, atau `waifu enroll`/`speaker-test` sedang jalan |
 | `✓ waifu run tidak berjalan; versi di disk v1.26, versi baru` | tidak ada `waifu run` yang jalan |
+| `! waifu run tidak berjalan; versi di disk v1.26, versi baru; paket Python-nya berubah sejak terakhir dijalankan: kalau belum, jalankan .venv\Scripts\python -m pip install -e . di folder proyek sebelum waifu run` | dia sudah ditutup, tapi paket barunya belum tentu terpasang |
 
 Di bawahnya ada `✓ Kabar versi baru: dicek tiap 30 menit, jam 08:00-22:00` (atau
 `! Kabar versi baru mati`).

@@ -7624,6 +7624,24 @@ def test_check_with_a_free_run_lock_says_she_is_not_running(home, nothing_instal
     assert version_line(capsys.readouterr().out).startswith("✓ waifu run tidak berjalan")
 
 
+CLOSED_WITH_NEW_PACKAGES = (
+    "! waifu run tidak berjalan; versi di disk v1.25, peringatan hujan; paket Python-nya berubah "
+    f"sejak terakhir dijalankan: kalau belum, jalankan {INSTALL} di folder proyek sebelum "
+    "waifu run"
+)
+
+
+def test_check_without_a_running_cyrene_still_gives_the_pip_command_her_last_run_needs(
+    home, nothing_installed, capsys
+):
+    # She asked to be closed before pip install: the command must still be there afterwards.
+    record_a_run(home, CodeVersion((V125,), OLD_HASH, OLD_COMMIT))
+
+    cli.main(["check"])
+
+    assert version_line(capsys.readouterr().out) == CLOSED_WITH_NEW_PACKAGES
+
+
 def test_check_says_a_running_cyrene_runs_the_newest_version(home, nothing_installed, capsys):
     record_a_run(home, CodeVersion((V125,), DISK_HASH, DISK_COMMIT))
 
@@ -7780,6 +7798,17 @@ def test_version_prints_the_version_on_disk_and_that_nothing_runs(home, capsys):
     assert capsys.readouterr().out.splitlines() == [
         "Kode di disk: v1.25, peringatan hujan (commit ec4aadf)",
         "✓ waifu run tidak berjalan; versi di disk v1.25, peringatan hujan",
+    ]
+
+
+def test_version_after_she_was_closed_still_gives_the_pip_command(home, capsys):
+    record_a_run(home, CodeVersion((V111,), OLD_HASH, OLD_COMMIT))
+
+    assert cli.main(["version"]) == 0
+
+    assert capsys.readouterr().out.splitlines() == [
+        "Kode di disk: v1.25, peringatan hujan (commit ec4aadf)",
+        CLOSED_WITH_NEW_PACKAGES,
     ]
 
 
