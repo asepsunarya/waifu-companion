@@ -57,16 +57,27 @@ def test_committed_persona_uses_the_game_tools_and_never_pushes_spending():
     assert "top-up" in games
 
 
-def test_committed_persona_names_the_hsr_tools_and_brings_banners_up_only_when_asked():
+def test_committed_persona_names_the_game_data_tools_and_brings_banners_up_only_when_asked():
     persona = load_persona(ROOT / "config" / "persona.md")
 
     games = persona.split("Game HoYoverse", 1)[1]
 
-    for tool in ("hsr_characters", "hsr_endgame", "hsr_events"):
+    for tool in ("game_characters", "game_endgame", "game_events"):
         assert tool in games
+    assert "dengan game yang ditanya diisi di argumen game" in games
     assert "bukan ajakan untuk pull" in games
-    assert "hanya kalau Master bertanya soal Honkai: Star Rail" in games
+    assert "hanya kalau Master bertanya soal akun game-nya" in games
     assert "jangan untuk sapaan atau briefing pagi" in games
+
+
+@pytest.mark.parametrize("persona_file", ["persona.md", "persona_hsr.md"])
+def test_committed_personas_name_none_of_the_v1_16_hsr_tools(persona_file):
+    # The model calls a tool by the name the persona gives it, and the v1.16 names are gone:
+    # each one costs a wasted "tidak dikenal" round.
+    persona = load_persona(ROOT / "config" / persona_file)
+
+    for tool in ("hsr_characters", "hsr_endgame", "hsr_events"):
+        assert tool not in persona
 
 
 def test_committed_persona_leaves_the_question_to_the_code_that_holds_turning_the_pc_off():

@@ -71,6 +71,7 @@ from waifu.devices.registry import DeviceRegistry
 from waifu.gacha.code_store import CodeStore
 from waifu.gacha.code_tools import CodeTools
 from waifu.gacha.codes import CodesError, RedeemResult
+from waifu.gacha.game_data_tools import GameDataTools
 from waifu.gacha.games import GAMES
 from waifu.gacha.history import BannerStats, GachaHistory, HistoryReport, TopPull
 from waifu.gacha.hoyolab import (
@@ -83,7 +84,6 @@ from waifu.gacha.hoyolab import (
     HoyolabClient,
     WeeklyTask,
 )
-from waifu.gacha.hsr_tools import HsrTools
 from waifu.gacha.starrail import (
     ENDGAME_MODES,
     HsrCalendar,
@@ -4317,7 +4317,7 @@ def test_run_with_the_games_on_gives_the_brain_the_game_tools_and_watches_while_
 
     assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
 
-    [tools, hsr_tools, code_tools, memory_tools, schedule, todo, briefing, pc, offers, music] = (
+    [tools, data_tools, code_tools, memory_tools, schedule, todo, briefing, pc, offers, music] = (
         brains[0].providers
     )
     assert (
@@ -4339,7 +4339,7 @@ def test_run_with_the_games_on_gives_the_brain_the_game_tools_and_watches_while_
         OffersTools,
         MusicTools,
     )
-    assert (type(hsr_tools), type(code_tools)) == (HsrTools, CodeTools)
+    assert (type(data_tools), type(code_tools)) == (GameDataTools, CodeTools)
     assert [spec.name for spec in tools.specs()] == ["game_status", "gacha_history"]
     [watcher] = watchers
     assistant = RecordingAssistant.instances[0]
@@ -4381,7 +4381,7 @@ def test_run_without_a_cookie_has_the_game_tools_but_no_watcher(
 
     assert [type(tools) for tools in brains[0].providers] == [
         GachaTools,
-        HsrTools,
+        GameDataTools,
         CodeTools,
         MemoryTools,
         ScheduleTools,
@@ -4417,7 +4417,7 @@ def test_chat_with_the_games_on_gives_the_brain_the_game_tools(home, brains, gam
 
     assert [type(tools) for tools in brains[0].providers] == [
         GachaTools,
-        HsrTools,
+        GameDataTools,
         CodeTools,
         MemoryTools,
         ScheduleTools,
@@ -4430,15 +4430,16 @@ def test_chat_with_the_games_on_gives_the_brain_the_game_tools(home, brains, gam
 
 
 @pytest.fixture
-def hsr_sources(monkeypatch) -> list[object]:
-    """Builds the real HsrTools, remembering where each one reads Master's HSR account."""
-    sources: list[object] = []
+def data_sources(monkeypatch) -> list[tuple[object, list[str]]]:
+    """Builds the real GameDataTools, remembering where each one reads Master's game accounts
+    and for which games."""
+    sources: list[tuple[object, list[str]]] = []
 
-    def build(source):
-        sources.append(source)
-        return HsrTools(source)
+    def build(source, games):
+        sources.append((source, list(games)))
+        return GameDataTools(source, games)
 
-    monkeypatch.setattr(cli, "HsrTools", build)
+    monkeypatch.setattr(cli, "GameDataTools", build)
     return sources
 
 
@@ -4452,28 +4453,40 @@ def play_only(home: Path, games: str) -> None:
 
 
 @pytest.mark.parametrize("argv", [["run", "--no-speaker-check"], ["chat"]])
-def test_with_hsr_among_the_games_the_hsr_tools_follow_the_game_tools_and_read_hoyolab(
-    argv, home, run_fakes, brains, games, watchers, hsr_sources, monkeypatch
+@pytest.mark.parametrize(
+    ("played", "configured"),
+    [
+        ("[hsr]", ["hsr"]),
+        ("[genshin, zzz]", ["genshin", "zzz"]),
+        ("[zzz, hsr]", ["zzz", "hsr"]),
+    ],
+)
+def test_the_data_tools_follow_the_game_tools_and_read_hoyolab_for_the_configured_games(
+    played, configured, argv, home, run_fakes, brains, games, watchers, data_sources, monkeypatch
 ):
     enable_gacha(home)
-    play_only(home, "[hsr]")
+    play_only(home, played)
     monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
 
     assert cli.main([*argv, "--dry-run"]) == 0
 
-    [tools, hsr_tools, *_] = brains[0].providers
-    assert (type(tools), type(hsr_tools)) == (GachaTools, HsrTools)
-    assert [spec.name for spec in hsr_tools.specs()] == [
-        "hsr_characters",
-        "hsr_endgame",
-        "hsr_events",
+    [tools, data_tools, code_tools, *_] = brains[0].providers
+    assert (type(tools), type(data_tools), type(code_tools)) == (
+        GachaTools,
+        GameDataTools,
+        CodeTools,
+    )
+    assert [spec.name for spec in data_tools.specs()] == [
+        "game_characters",
+        "game_endgame",
+        "game_events",
     ]
-    assert hsr_sources == [games.hoyolab]
+    assert data_sources == [(games.hoyolab, configured)]
 
 
 @pytest.mark.parametrize("argv", [["run", "--no-speaker-check"], ["chat"]])
-def test_without_hsr_among_the_games_there_are_no_hsr_tools(
-    argv, home, run_fakes, brains, games, watchers, hsr_sources, monkeypatch
+def test_the_data_tools_offer_only_the_configured_games_and_their_modes(
+    argv, home, run_fakes, brains, games, watchers, monkeypatch
 ):
     enable_gacha(home)
     play_only(home, "[genshin, zzz]")
@@ -4481,30 +4494,28 @@ def test_without_hsr_among_the_games_there_are_no_hsr_tools(
 
     assert cli.main([*argv, "--dry-run"]) == 0
 
-    assert [type(tools) for tools in brains[0].providers] == [
-        GachaTools,
-        CodeTools,
-        MemoryTools,
-        ScheduleTools,
-        TodoTools,
-        BriefingTools,
-        PcTools,
-        OffersTools,
-        MusicTools,
+    [data_tools] = [p for p in brains[0].providers if isinstance(p, GameDataTools)]
+    endgame = next(spec for spec in data_tools.specs() if spec.name == "game_endgame")
+    assert endgame.input_schema["properties"]["game"]["enum"] == ["genshin", "zzz"]
+    assert endgame.input_schema["properties"]["mode"]["enum"] == [
+        "spiral_abyss",
+        "imaginarium_theater",
+        "stygian_onslaught",
+        "shiyu_defense",
+        "deadly_assault",
     ]
-    assert hsr_sources == []
 
 
 @pytest.mark.parametrize("argv", [["run", "--no-speaker-check"], ["chat"]])
-def test_with_the_games_off_there_are_no_hsr_tools(
-    argv, home, run_fakes, brains, games, watchers, hsr_sources, monkeypatch
+def test_with_the_games_off_there_are_no_data_tools(
+    argv, home, run_fakes, brains, games, watchers, data_sources, monkeypatch
 ):
     monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
 
     assert cli.main([*argv, "--dry-run"]) == 0
 
-    assert not any(isinstance(tools, HsrTools) for tools in brains[0].providers)
-    assert (games.built, hsr_sources) == ([], [])
+    assert not any(isinstance(tools, GameDataTools) for tools in brains[0].providers)
+    assert (games.built, data_sources) == ([], [])
 
 
 def test_check_reports_the_games_off(home, nothing_installed, capsys):
@@ -9626,7 +9637,7 @@ def test_the_claude_request_with_every_tool_on_stays_within_the_strict_tool_limi
     [request] = sent
     names = {tool["name"] for tool in request["tools"]}
     assert {
-        "hsr_events",
+        "game_events",
         "run_routine",
         "add_task",
         "play_youtube",

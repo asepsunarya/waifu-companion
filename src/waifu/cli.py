@@ -88,6 +88,7 @@ from waifu.gacha.code_tools import RECENT_CODES, CodeTools
 from waifu.gacha.code_watcher import OUTCOME_TEXT, CodeWatcher, ReadCodes
 from waifu.gacha.codes import CODES_SOURCE, FINAL_OUTCOMES, CodesError, RedeemCode, read_codes
 from waifu.gacha.game_data import is_running
+from waifu.gacha.game_data_tools import GameDataTools
 from waifu.gacha.games import GAMES, Game, next_daily_reset
 from waifu.gacha.history import (
     GachaHistory,
@@ -104,7 +105,6 @@ from waifu.gacha.hoyolab import (
     HoyolabClient,
     preferred_uids,
 )
-from waifu.gacha.hsr_tools import HsrTools
 from waifu.gacha.reminders import duration_text
 from waifu.gacha.starrail import (
     ENDGAME_MODES,
@@ -1714,10 +1714,9 @@ def _game_tools(config: AppConfig, gacha: GachaParts | None) -> list[ToolProvide
             gacha.history,
             config.gacha.games,
             server_utc_offset=config.gacha.server_utc_offset,
-        )
+        ),
+        GameDataTools(gacha.hoyolab, config.gacha.games),
     ]
-    if "hsr" in config.gacha.games:
-        tools.append(HsrTools(gacha.hoyolab))
     if config.redeem_codes.enabled:
         tools.append(CodeTools(_code_store(config), gacha.hoyolab, config.gacha.games))
     return tools

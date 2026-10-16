@@ -1041,12 +1041,12 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 111a · **Files:** `src/waifu/gacha/zenless.py`, `src/waifu/gacha/hoyolab.py`, `tests/test_gacha_zenless.py` (111a left a values test there), `tests/test_gacha_hoyolab.py` (fake methods after `update_settings`, tests at the end of the file) · **Scope:** M
 
-## Task 113: Game data tools, wiring, personas
+## Task 113: Game data tools, wiring, personas ✅
 
 **Acceptance criteria:**
-- [ ] `git mv` `gacha/hsr_tools.py` to `gacha/game_data_tools.py`, `HsrTools` to `GameDataTools(source, games, *, now)`: static non-strict specs with the `game` and `mode` enums from `gacha.games`, byte-identical across calls and without live data; the game-resolution rule and its errors before any source call; HSR results unchanged with `games=[hsr]`; the Genshin and ZZZ roster, detail (the shown refs only, cached per ref, no detail call without a match, no ref in the JSON), endgame, and calendar JSON with their caps and size budgets; cache keys per game
-- [ ] `git mv` `tests/test_gacha_hsr_tools.py` to `tests/test_gacha_game_data_tools.py` with a game-keyed `FakeSource`
-- [ ] `cli._game_tools` adds `GameDataTools` after `GachaTools`; the wiring tests and the strict-limit test (`game_events`); both personas' new line and `tests/test_brain_persona.py`
+- [x] `git mv` `gacha/hsr_tools.py` to `gacha/game_data_tools.py`, `HsrTools` to `GameDataTools(source, games, *, now)`: static non-strict specs with the `game` and `mode` enums from `gacha.games`, byte-identical across calls and without live data; the game-resolution rule and its errors before any source call; HSR results unchanged with `games=[hsr]`; the Genshin and ZZZ roster, detail (the shown refs only, cached per ref, no detail call without a match, no ref in the JSON), endgame, and calendar JSON with their caps and size budgets; cache keys per game
+- [x] `git mv` `tests/test_gacha_hsr_tools.py` to `tests/test_gacha_game_data_tools.py` with a game-keyed `FakeSource`
+- [x] `cli._game_tools` adds `GameDataTools` after `GachaTools`; the wiring tests and the strict-limit test (`game_events`); both personas' new line and `tests/test_brain_persona.py`
 
 **Dependencies:** 111a · **Files:** `src/waifu/gacha/game_data_tools.py`, `tests/test_gacha_game_data_tools.py`, `src/waifu/cli.py` (the import and `_game_tools` only), `tests/test_cli.py` (wiring and strict-limit tests), `config/persona.md`, `config/persona_hsr.md`, `tests/test_brain_persona.py` · **Scope:** M
 
