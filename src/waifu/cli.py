@@ -87,6 +87,7 @@ from waifu.gacha.code_store import CodeStore
 from waifu.gacha.code_tools import RECENT_CODES, CodeTools
 from waifu.gacha.code_watcher import OUTCOME_TEXT, CodeWatcher, ReadCodes
 from waifu.gacha.codes import CODES_SOURCE, FINAL_OUTCOMES, CodesError, RedeemCode, read_codes
+from waifu.gacha.game_data import is_running
 from waifu.gacha.games import GAMES, Game, next_daily_reset
 from waifu.gacha.history import (
     GachaHistory,
@@ -113,7 +114,6 @@ from waifu.gacha.starrail import (
     HsrEndgame,
     HsrEvent,
     HsrWarp,
-    is_running,
 )
 from waifu.gacha.tools import GachaTools
 from waifu.gacha.watcher import GachaWatcher

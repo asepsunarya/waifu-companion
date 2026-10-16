@@ -20,6 +20,7 @@ from datetime import datetime, timedelta
 from typing import Any, Generic, Protocol, TypeVar
 
 from waifu.brain.base import ToolSpec
+from waifu.gacha.game_data import is_over, is_running
 from waifu.gacha.hoyolab import GachaError
 from waifu.gacha.starrail import (
     ENDGAME_MODES,
@@ -30,8 +31,6 @@ from waifu.gacha.starrail import (
     HsrEvent,
     HsrFloor,
     HsrWarp,
-    is_over,
-    is_running,
 )
 from waifu.gacha.tools import LOCAL_TIME
 

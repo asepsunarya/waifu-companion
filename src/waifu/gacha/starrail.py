@@ -14,6 +14,8 @@ from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Literal
 
+from waifu.gacha.game_data import is_over
+
 # The endgame modes in display order: the tool argument and its official English name.
 ENDGAME_MODES: dict[str, str] = {
     "memory_of_chaos": "Memory of Chaos",
@@ -222,16 +224,6 @@ def read_calendar(model: Any, fetched_at: datetime) -> HsrCalendar:
             )
     version = model.cur_game_version or None
     return HsrCalendar(version, tuple(warps), tuple(events), tuple(challenges))
-
-
-def is_over(ends_at: datetime | None, now: datetime) -> bool:
-    """Whether something that ends at `ends_at` (None: no end given) is over at `now`."""
-    return ends_at is not None and ends_at <= now
-
-
-def is_running(starts_at: datetime | None, ends_at: datetime | None, now: datetime) -> bool:
-    """Whether something has started (None: no start given) and is not over at `now`."""
-    return (starts_at is None or starts_at <= now) and not is_over(ends_at, now)
 
 
 def _clock_offset(difference: timedelta) -> timedelta:
