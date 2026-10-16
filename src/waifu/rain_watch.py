@@ -1,4 +1,12 @@
-"""Telling Master shortly before rain, from the hourly forecast.
+"""The watcher inside `waifu run` that tells Master shortly before rain.
+
+Every `POLL_S`, timed from the start of the previous poll and first right after it starts, it
+reads the forecast for the briefing's place, but only between `active_from` and `active_until`
+on the PC's clock: at night it asks nothing and stays quiet. A rain starting within
+`lead_minutes` of the forecast's own time is said between utterances, once the follow-up window
+has closed, and pushed to the phone when notifications are on. A failed read is never said: the
+first of a run of failures is logged at WARNING and the next poll tries again. What was told
+lives only in this process, so a restart may tell a rain once more. Nothing is raised.
 
 An hourly entry is rain when its WMO code is rain, showers, or a thunderstorm, its
 precipitation probability reaches the threshold, or it holds at least `RAIN_MM`; drizzle
@@ -13,11 +21,24 @@ forecast that drops the rain keeps the episode, so a wavering forecast never tel
 
 from __future__ import annotations
 
+import logging
+import threading
+import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from waifu.weather import RAIN_CODES, Forecast, Hour
+from waifu.avatar.emotion import NEUTRAL
+from waifu.config import RainAlertConfig, at_sentence_start
+from waifu.notify import Notifier
+from waifu.weather import RAIN_CODES, Forecast, Hour, WeatherError
 
+logger = logging.getLogger(__name__)
+
+POLL_S = 900.0
+NOTICE_EMOTION = NEUTRAL  # a calm heads-up
+RAIN_TAG = "umbrella"  # ntfy shows it as an umbrella with rain drops
+STOP_TIMEOUT_S = 5.0
 RAIN_MM = 0.5  # an hour with at least this much is rain, whatever its probability
 DRY_GAP = timedelta(hours=3)  # a rain starting this soon after the last rainy hour is the same
 # Hour numbers as she says them, from "dua belas" (0 and 12) on.
@@ -35,6 +56,9 @@ _NUMBERS = (
     "sepuluh",
     "sebelas",
 )
+
+# Waits up to the given seconds for the event; True when it was set.
+Wait = Callable[[threading.Event, float], bool]
 
 
 @dataclass(frozen=True)
@@ -121,3 +145,123 @@ def spoken_hour(hour: int) -> str:
 
 def _hour_of(moment: datetime) -> datetime:
     return moment.replace(minute=0, second=0, microsecond=0)
+
+
+class RainWatcher:
+    def __init__(
+        self,
+        read_forecast: Callable[[], Forecast],
+        config: RainAlertConfig,
+        *,
+        announce: Callable[[str, str], None] | None,
+        notifier: Notifier | None,
+        owner_call: str,
+        place: str | None,
+        title: str = "Cyrene",
+        now: Callable[[], datetime] = datetime.now,
+        clock: Callable[[], float] = time.monotonic,
+        wait: Wait = threading.Event.wait,
+    ) -> None:
+        """`place` is the city she names (none: she names no place); `now` is the PC's local
+        time, for the active hours, and `clock` monotonic seconds, for the polls."""
+        self._read_forecast = read_forecast
+        self._config = config
+        self._announce = announce
+        self._notifier = notifier
+        self._owner = at_sentence_start(owner_call)  # every alert opens with it
+        self._place = place
+        self._title = title
+        self._now = now
+        self._clock = clock
+        self._wait = wait
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._episode_last: datetime | None = None  # the last rainy hour of the rain told
+        self._failing = False  # the last read failed
+
+    def poll_once(self) -> list[str]:
+        """Inside the active hours, read the forecast and give the alert that is due; returns
+        its text."""
+        if not self._config.active_from <= self._now().time() < self._config.active_until:
+            return []
+        try:
+            forecast = self._read_forecast()
+        except Exception as exc:
+            self._log_failure(exc)
+            return []
+        if self._failing:
+            self._failing = False
+            logger.info("The rain forecast can be read again")
+        state = follow_rain(
+            forecast,
+            threshold=self._config.threshold,
+            lead=timedelta(minutes=self._config.lead_minutes),
+            episode_last=self._episode_last,
+        )
+        self._episode_last = state.episode_last
+        if state.tell is None:
+            return []
+        logger.info(
+            "Rain is likely from %s (chance %s %%); telling Master",
+            f"{state.tell.start:%H:%M}",
+            state.tell.chance,
+        )
+        where = f" di {self._place}" if self._place else ""
+        text = (
+            f"{self._owner}, sekitar {spoken_hour(state.tell.start.hour)} kemungkinan "
+            f"hujan{where}, angkat jemuran ya."
+        )
+        self._deliver(text)
+        return [text]
+
+    def start(self) -> None:
+        if self._thread is not None:
+            return
+        self._stop.clear()
+        self._thread = threading.Thread(target=self._loop, name="rain-watcher", daemon=True)
+        self._thread.start()
+        logger.info(
+            "Watching for rain %d minutes ahead between %s and %s",
+            self._config.lead_minutes,
+            f"{self._config.active_from:%H:%M}",
+            f"{self._config.active_until:%H:%M}",
+        )
+
+    def stop(self) -> None:
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(STOP_TIMEOUT_S)
+            self._thread = None
+
+    def _loop(self) -> None:
+        while not self._stop.is_set():
+            started = self._clock()
+            self.poll_once()
+            self._wait(self._stop, max(0.0, started + POLL_S - self._clock()))
+
+    def _log_failure(self, exc: Exception) -> None:
+        """The first failure of a run at WARNING (an unexpected one with its traceback), the
+        rest at DEBUG: Open-Meteo out of reach for hours is one line, not one per poll."""
+        traceback = not isinstance(exc, WeatherError)
+        if self._failing:
+            logger.debug("The rain forecast still cannot be read: %s", exc, exc_info=traceback)
+            return
+        self._failing = True
+        logger.warning(
+            "Could not read the rain forecast (%s); trying again at every poll",
+            exc,
+            exc_info=traceback,
+        )
+
+    def _deliver(self, text: str) -> None:
+        """Say the alert and push it; a failure of either is logged, never raised."""
+        if self._announce is not None:
+            try:
+                self._announce(text, NOTICE_EMOTION)
+            except Exception:
+                logger.exception("Could not say a rain alert")
+        if self._notifier is not None:
+            try:
+                self._notifier.send(self._title, text, tags=[RAIN_TAG])
+            except Exception:
+                logger.exception("Could not push a rain alert")

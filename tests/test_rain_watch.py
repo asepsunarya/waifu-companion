@@ -1,17 +1,25 @@
 """Rain detection and the rain watcher: no test asks Open-Meteo, speaks, or pushes.
 
 Forecasts are built here as `weather.forecast()` returns them: two days of hourly entries
-from DAY 00:00, dry unless a test makes an hour rainy.
+from DAY 00:00, dry unless a test makes an hour rainy. Every `RainWatcher` gets a fake read,
+a fake local time, a fake announce, and a fake notifier; the thread tests run a real thread
+whose waits are real or last a few milliseconds.
 """
 
+import logging
+import threading
+import time
 from collections.abc import Iterable
 from datetime import datetime, timedelta
 
 import pytest
 
+from waifu.config import RainAlertConfig
 from waifu.rain_watch import (
     DRY_GAP,
+    POLL_S,
     RainState,
+    RainWatcher,
     RainWindow,
     follow_rain,
     is_rainy,
@@ -19,7 +27,7 @@ from waifu.rain_watch import (
     raining_now,
     spoken_hour,
 )
-from waifu.weather import Forecast, Hour
+from waifu.weather import Forecast, Hour, WeatherError
 
 DAY = datetime(2026, 10, 17)
 HOUR = timedelta(hours=1)
@@ -260,3 +268,334 @@ def test_the_lead_is_the_configured_one():
 )
 def test_a_whole_hour_is_said_with_its_part_of_the_day(hour, said):
     assert spoken_hour(hour) == said
+
+
+# --- the watcher -------------------------------------------------------------------------------
+
+AFTERNOON = at(14)  # the PC's local time in most watcher tests
+THREE_PM = "Master, sekitar jam tiga sore kemungkinan hujan di Cianjur, angkat jemuran ya."
+UNREACHABLE = "Server cuaca tidak bisa dihubungi. Cek koneksi internet, lalu coba lagi."
+
+
+class FakeForecasts:
+    """Stands in for WeatherClient.forecast: hands out `reply`, or raises it."""
+
+    def __init__(self, reply: Forecast | Exception) -> None:
+        self.reply = reply
+        self.calls = 0
+
+    def __call__(self) -> Forecast:
+        self.calls += 1
+        if isinstance(self.reply, Exception):
+            raise self.reply
+        return self.reply
+
+
+class FakeNotifier:
+    def __init__(self, outcome: bool | Exception = True) -> None:
+        self.sent: list[tuple[str, str, tuple[str, ...]]] = []
+        self.outcome = outcome
+
+    def send(self, title, message, *, tags=()):
+        self.sent.append((title, message, tuple(tags)))
+        if isinstance(self.outcome, Exception):
+            raise self.outcome
+        return self.outcome
+
+
+class Rig:
+    """A watcher and the fakes around it: the forecast, the PC's local time, the voice."""
+
+    def __init__(
+        self,
+        reply: Forecast | Exception,
+        *,
+        owner_call: str = "Master",
+        place: str | None = "Cianjur",
+        **config,
+    ) -> None:
+        self.read = FakeForecasts(reply)
+        self.now = AFTERNOON
+        self.notifier = FakeNotifier()
+        self.announced: list[tuple[str, str]] = []
+        self.watcher = RainWatcher(
+            self.read,
+            RainAlertConfig(**config),
+            announce=lambda text, emotion: self.announced.append((text, emotion)),
+            notifier=self.notifier,
+            owner_call=owner_call,
+            place=place,
+            now=lambda: self.now,
+        )
+
+    def poll(self, reply: Forecast | Exception | None = None) -> list[str]:
+        """One poll, reading `reply` when given (else the last one)."""
+        if reply is not None:
+            self.read.reply = reply
+        return self.watcher.poll_once()
+
+
+def test_a_rain_within_the_hour_is_said_calmly_and_pushed_with_an_umbrella():
+    rig = Rig(forecast(14.0, rain=[15, 16]))
+
+    notices = rig.poll()
+
+    assert notices == [THREE_PM]
+    assert rig.announced == [(THREE_PM, "neutral")]
+    assert rig.notifier.sent == [("Cyrene", THREE_PM, ("umbrella",))]
+
+
+def test_she_says_it_as_the_owner_asked_calling_them_at_sentence_start():
+    rig = Rig(forecast(14.0, rain=[15]), owner_call="sayang")
+
+    assert rig.poll() == [
+        "Sayang, sekitar jam tiga sore kemungkinan hujan di Cianjur, angkat jemuran ya."
+    ]
+
+
+def test_without_a_city_she_names_no_place():
+    rig = Rig(forecast(14.0, rain=[15]), place=None)
+
+    assert rig.poll() == ["Master, sekitar jam tiga sore kemungkinan hujan, angkat jemuran ya."]
+
+
+def test_one_rain_is_told_once_as_it_comes_closer_falls_and_pauses():
+    rig = Rig(forecast(14.0, rain=[15, 16, 19]))
+    notices = rig.poll()
+    for now in (14.25, 14.5, 14.75, 15.25, 16.25, 17.25, 18.25, 19.25):
+        rig.now = at(now)
+        notices += rig.poll(forecast(now, rain=[15, 16, 19]))
+
+    assert notices == [THREE_PM]
+    assert len(rig.notifier.sent) == 1
+
+
+def test_a_new_rain_after_three_dry_hours_is_told_again():
+    rig = Rig(forecast(14.0, rain=[15]))
+    rig.poll()
+    rig.now = at(18.25)
+
+    notices = rig.poll(forecast(18.25, rain=[15, 19]))
+
+    assert notices == [
+        "Master, sekitar jam tujuh malam kemungkinan hujan di Cianjur, angkat jemuran ya."
+    ]
+
+
+def test_a_wavering_forecast_never_tells_the_same_rain_twice():
+    rig = Rig(forecast(14.0, changes={15: Hour(at(15), DRY_CODE, 62, 0.0)}))
+    notices = rig.poll()
+    notices += rig.poll(forecast(14.25, changes={15: Hour(at(15), DRY_CODE, 58, 0.0)}))
+    notices += rig.poll(forecast(14.5, changes={15: Hour(at(15), DRY_CODE, 61, 0.0)}))
+
+    assert notices == [THREE_PM]
+
+
+def test_rain_already_falling_when_she_starts_is_never_told():
+    rig = Rig(forecast(14.25, rain=[14, 15, 16]))
+
+    assert rig.poll() == []
+    assert rig.notifier.sent == []
+
+
+def test_the_lead_is_timed_on_the_forecasts_own_clock():
+    # The PC says 14:00, but the forecast is of 13:00: 15:00 is two hours ahead of it.
+    rig = Rig(forecast(13.0, rain=[15]))
+
+    assert rig.poll() == []
+
+
+@pytest.mark.parametrize(
+    ("now", "speaks"),
+    [(at(5) + timedelta(minutes=59), False), (at(6), True), (at(20.98), True), (at(21), False)],
+    ids=["05:59", "06:00", "20:59", "21:00"],
+)
+def test_she_speaks_only_in_the_active_hours_and_asks_nothing_outside_them(now, speaks):
+    rig = Rig(forecast(now.hour + now.minute / 60, rain=[now.hour + 1]))
+    rig.now = now
+
+    notices = rig.poll()
+
+    assert (len(notices), rig.read.calls) == ((1, 1) if speaks else (0, 0))
+
+
+def test_the_active_hours_lead_and_threshold_are_the_configured_ones():
+    rig = Rig(
+        forecast(21.5, changes={23: Hour(at(23), DRY_CODE, 70, 0.0)}),
+        active_from="07:00",
+        active_until="23:00",
+        lead_minutes=90,
+        threshold=70,
+    )
+    rig.now = at(21.5)
+
+    assert rig.poll() == [
+        "Master, sekitar jam sebelas malam kemungkinan hujan di Cianjur, angkat jemuran ya."
+    ]
+    rig.now = at(6.5)
+    assert (rig.poll(forecast(6.5, rain=[7])), rig.read.calls) == ([], 1)
+
+
+def test_a_failed_read_is_never_said_and_logged_once_until_it_works_again(caplog):
+    rig = Rig(WeatherError(UNREACHABLE))
+
+    with caplog.at_level(logging.DEBUG, logger="waifu.rain_watch"):
+        failures = rig.poll() + rig.poll() + rig.poll()
+        told = rig.poll(forecast(14.0, rain=[15]))
+        rig.poll(WeatherError(UNREACHABLE))
+
+    assert failures == []
+    assert told == [THREE_PM]
+    assert rig.announced == [(THREE_PM, "neutral")]
+    records = [record for record in caplog.records if record.name == "waifu.rain_watch"]
+    levels = [record.levelno for record in records]
+    assert levels[:3] == [logging.WARNING, logging.DEBUG, logging.DEBUG]
+    assert levels[3] == logging.INFO  # it works again
+    assert levels[-1] == logging.WARNING  # a new run of failures
+    assert UNREACHABLE in records[0].getMessage()
+    assert not any(record.exc_info for record in records)
+
+
+def test_an_unexpected_failure_is_logged_with_its_traceback_and_never_said(caplog):
+    rig = Rig(RuntimeError("the forecast broke"))
+
+    with caplog.at_level(logging.WARNING, logger="waifu.rain_watch"):
+        assert rig.poll() == []
+
+    [record] = caplog.records
+    assert record.levelno == logging.WARNING
+    assert str(record.exc_info[1]) == "the forecast broke"
+    assert (rig.announced, rig.notifier.sent) == ([], [])
+
+
+def test_a_voice_that_fails_never_stops_the_push(caplog):
+    rig = Rig(forecast(14.0, rain=[15]))
+
+    def broken(text: str, emotion: str) -> None:
+        raise RuntimeError("the avatar is gone")
+
+    rig.watcher._announce = broken
+
+    with caplog.at_level(logging.ERROR, logger="waifu.rain_watch"):
+        assert rig.poll() == [THREE_PM]
+
+    assert rig.notifier.sent == [("Cyrene", THREE_PM, ("umbrella",))]
+    assert "the avatar is gone" in caplog.text
+
+
+def test_a_push_that_fails_is_logged_and_the_alert_still_said(caplog):
+    rig = Rig(forecast(14.0, rain=[15]))
+    rig.notifier.outcome = OSError("no internet")
+
+    with caplog.at_level(logging.ERROR, logger="waifu.rain_watch"):
+        assert rig.poll() == [THREE_PM]
+
+    assert rig.announced == [(THREE_PM, "neutral")]
+    assert "no internet" in caplog.text
+
+
+def test_without_a_voice_or_a_notifier_it_still_keeps_track():
+    watcher = RainWatcher(
+        FakeForecasts(forecast(14.0, rain=[15])),
+        RainAlertConfig(),
+        announce=None,
+        notifier=None,
+        owner_call="Master",
+        place="Cianjur",
+        now=lambda: AFTERNOON,
+    )
+
+    assert watcher.poll_once() == [THREE_PM]
+    assert watcher.poll_once() == []
+
+
+# --- the thread --------------------------------------------------------------------------------
+
+
+class SignallingForecasts(FakeForecasts):
+    def __init__(self, reply: Forecast | Exception) -> None:
+        super().__init__(reply)
+        self.read = threading.Event()
+
+    def __call__(self) -> Forecast:
+        self.read.set()
+        return super().__call__()
+
+
+class ShortWaits:
+    """Stands in for threading.Event.wait: records each timeout asked for and waits on the stop
+    event a few milliseconds at most."""
+
+    def __init__(self) -> None:
+        self.asked: list[float] = []
+
+    def __call__(self, stop: threading.Event, timeout: float) -> bool:
+        self.asked.append(timeout)
+        return stop.wait(0.005)
+
+
+def watcher_threads() -> list[threading.Thread]:
+    return [thread for thread in threading.enumerate() if thread.name == "rain-watcher"]
+
+
+def make_watcher(read: FakeForecasts, **options) -> RainWatcher:
+    return RainWatcher(
+        read,
+        RainAlertConfig(),
+        announce=None,
+        notifier=None,
+        owner_call="Master",
+        place="Cianjur",
+        now=lambda: AFTERNOON,
+        **options,
+    )
+
+
+def test_the_daemon_thread_polls_at_once_and_stop_wakes_it_at_once():
+    read = SignallingForecasts(forecast(14.0))
+    watcher = make_watcher(read)
+
+    watcher.start()
+    try:
+        assert read.read.wait(5)
+        [thread] = watcher_threads()
+        assert thread.daemon is True
+    finally:
+        stopping = time.monotonic()
+        watcher.stop()
+
+    assert time.monotonic() - stopping < 1  # although the next poll was 15 minutes away
+    assert watcher_threads() == []
+    assert read.calls == 1
+
+
+def test_the_next_poll_comes_15_minutes_after_the_last_one_began():
+    assert POLL_S == 900
+    read = SignallingForecasts(WeatherError(UNREACHABLE))
+    waits = ShortWaits()
+    seconds = iter([1000.0, 1006.0] + [2000.0, 2000.0] * 100)  # the first read took 6 s
+    watcher = make_watcher(read, clock=lambda: next(seconds), wait=waits)
+
+    watcher.start()
+    try:
+        deadline = time.monotonic() + 5
+        while len(waits.asked) < 2 and time.monotonic() < deadline:
+            time.sleep(0.01)
+    finally:
+        watcher.stop()
+
+    assert waits.asked[:2] == [894.0, 900.0]
+    assert read.calls >= 2  # a failed read is tried again at the next poll
+
+
+def test_starting_twice_runs_one_thread():
+    watcher = make_watcher(FakeForecasts(forecast(14.0)), wait=ShortWaits())
+
+    watcher.start()
+    try:
+        watcher.start()
+        assert len(watcher_threads()) == 1
+    finally:
+        watcher.stop()
+
+    assert watcher_threads() == []
