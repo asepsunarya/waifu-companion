@@ -4,15 +4,15 @@
 `weekly_report.time` until midnight, handing `WEEKLY_REPORT_PROMPT` to the brain; the one tool
 her turn calls, `weekly_report`, gives the facts below as compact JSON.
 
-`gather_weekly_report` reads, for each configured game, this week's pulls and the pity from the
-stored pull history (refreshed first, one game after another, and only for a game that already
-has one: a first import is far too slow for a voice turn), this season's endgame and the banners
-and events that end within 7 days from HoYoLAB (the same calls the game data tools make, one
-worker per game), and the redeem codes not redeemed yet. Every section fails on its own into a
-short Indonesian problem, and all the reads share one time budget, so a slow HoYoLAB never
-holds her turn for long: a late section says that its time ran out. `report_json` is what the
-brain gets; `waifu gacha report` prints the same `WeeklyReport`. Nothing here is logged at INFO:
-the facts are Master's own.
+`gather_weekly_report` reads, for each configured game, this week's pulls (since `week_start`)
+and the pity from the stored pull history (refreshed first, one game after another, and only
+for a game that already has one: a first import is far too slow for a voice turn), this
+season's endgame and the banners and events that end within 7 days from HoYoLAB (the same calls
+the game data tools make, one worker per game), and the redeem codes not redeemed yet. Every
+section fails on its own into a short Indonesian problem, and all the reads share one time
+budget, so a slow HoYoLAB never holds her turn for long: a late section says that its time ran
+out. `report_json` is what the brain gets; `waifu gacha report` prints the same `WeeklyReport`.
+Nothing here is logged at INFO: the facts are Master's own.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ import threading
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from concurrent.futures import Future, wait
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 from functools import partial
 from typing import Any, Protocol, TypeVar, cast, get_args
 
@@ -62,6 +62,7 @@ logger = logging.getLogger(__name__)
 
 WEEKLY_REPORT = "weekly_report"
 WEEK = timedelta(days=7)
+LISTING_LAG = timedelta(hours=1)  # HoYoverse lists a pull about an hour after it is made
 BUDGET_S = 30.0  # for every read together; one HoYoLAB call alone may take 20 s
 CODES_MAX = 5
 TOPS_MAX = 10
@@ -151,13 +152,26 @@ class GameWeek:
 @dataclass(frozen=True)
 class WeeklyReport:
     now: datetime  # aware
-    since: datetime  # the week is (since, now]
+    since: datetime  # the week is (since, now], see week_start
     games: tuple[GameWeek, ...]
 
     @property
     def readable(self) -> bool:
         """Whether there is anything to tell at all."""
         return any(week.readable for week in self.games)
+
+
+def week_start(now: datetime, day: Weekday, at: time) -> datetime:
+    """Where the week up to `now` (aware, local) starts: 7 days and the listing lag before the
+    report's slot, `day` at `at`, when `now` is on that day from `at` on, else before `now`.
+
+    A pull made in the hour before a report is listed only after it, so each report reaches
+    back that hour; and counted from the slot, not from when the report is said, consecutive
+    weekly reports meet however late each is said that evening. A pull already listed in that
+    hour may be told in both."""
+    slot = datetime.combine(now.date(), at, now.tzinfo)
+    on_report_day = now.weekday() == get_args(Weekday).index(day) and now >= slot
+    return (slot if on_report_day else now) - WEEK - LISTING_LAG
 
 
 def gather_weekly_report(
@@ -168,11 +182,12 @@ def gather_weekly_report(
     source: GameDataSource,
     codes: CodeSource | None,
     now: datetime,
+    since: datetime,
     offset: int,
     extra_standard: Mapping[str, Sequence[str]],
     budget_s: float = BUDGET_S,
 ) -> WeeklyReport:
-    """The week up to `now` (aware) in each of `games`, in that order. Never raises: each
+    """The week `(since, now]` (aware) in each of `games`, in that order. Never raises: each
     section that fails or is not read within `budget_s` seconds carries its problem. A read
     still running then is left to finish on its daemon thread, bounded by its own timeout,
     and never holds up the process's exit; a read not started by then never starts."""
@@ -202,7 +217,6 @@ def gather_weekly_report(
     done, late = wait([*refreshes.values(), *endgames.values(), *calendars.values()], budget_s)
     for future in late:
         future.cancel()  # only a read not started yet can be cancelled
-    since = now - WEEK
     weeks = []
     for game in chosen:
         refresh = refreshes.get(game.id)
@@ -390,17 +404,23 @@ class WeeklyReportTools:
         store: StoreSource,
         source: GameDataSource,
         codes: CodeSource | None,
+        report_day: Weekday,
+        report_time: time,
         server_utc_offset: int = 8,
         extra_standard: Mapping[str, Sequence[str]] | None = None,
         now: Callable[[], datetime] = _local_now,
         budget_s: float = BUDGET_S,
     ) -> None:
-        """Without `codes` (the redeem codes are off) the report holds no codes."""
+        """Without `codes` (the redeem codes are off) the report holds no codes; the week
+        starts as `week_start` says from her weekly report's slot, `report_day` at
+        `report_time`."""
         self._games = list(games)
         self._history = history
         self._store = store
         self._source = source
         self._codes = codes
+        self._day = report_day
+        self._time = report_time
         self._offset = server_utc_offset
         self._extra = extra_standard or {}
         self._now = now
@@ -423,13 +443,15 @@ class WeeklyReportTools:
 
     def gather(self) -> WeeklyReport:
         """The week up to now, as the tool reads it; `waifu gacha report` prints it."""
+        now = self._now()
         return gather_weekly_report(
             self._games,
             history=self._history,
             store=self._store,
             source=self._source,
             codes=self._codes,
-            now=self._now(),
+            now=now,
+            since=week_start(now, self._day, self._time),
             offset=self._offset,
             extra_standard=self._extra,
             budget_s=self._budget_s,

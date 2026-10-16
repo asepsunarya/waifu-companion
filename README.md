@@ -1936,8 +1936,13 @@ Kapan dia melapor:
   uang yang terucap atau terkirim ke HP.
 - **Riwayatnya diperbarui dulu**, seperti saat Master bertanya pity, tapi hanya untuk game yang
   sudah punya riwayat tersimpan. Game yang belum pernah diimpor tidak diimpor di sini (terlalu
-  lama untuk satu giliran): jalankan `waifu gacha history <game> --full` sekali. HoYoverse
-  mencatat pull sekitar satu jam setelahnya, jadi pull barusan belum terhitung.
+  lama untuk satu giliran): jalankan `waifu gacha history <game> --full` sekali.
+- **Minggunya dihitung dari satu jam sebelum jam laporan minggu lalu** (bawaannya Minggu jam
+  18.00), seberapa pun telatnya laporan diucapkan. HoYoverse mencatat pull sekitar satu jam
+  setelahnya, jadi pull di jam terakhir sebelum laporan belum terhitung malam itu, tapi masuk
+  laporan minggu berikutnya; pull yang sudah tercatat di jam itu bisa disebut di dua laporan.
+  Di hari lain, saat ditanya atau lewat `waifu gacha report`, minggunya adalah 7 hari dan satu
+  jam terakhir.
 - **Paling lama 30 detik** untuk semua bacaan. Bagian yang gagal (HoYoLAB tidak bisa
   dihubungi, cookie belum diisi, riwayat di game belum dibuka) atau belum selesai dalam 30
   detik disebut singkat, dan sisanya tetap diceritakan. Kalau tidak ada satu pun yang terbaca,
@@ -1953,7 +1958,7 @@ waifu gacha report   # 7 hari terakhir tiap game; exit code 1 kalau ada bagian y
 ```
 
 ```text
-Laporan game 7 hari terakhir, sejak Minggu, 11-10-2026 19:00
+Laporan game 7 hari terakhir, sejak Minggu, 11-10-2026 18:00
 HSR (Honkai: Star Rail)
   Pull minggu ini: 36 (Character Event Warp 35, Light Cone Event Warp 1)
   5★ minggu ini: Castorice (30 pull)

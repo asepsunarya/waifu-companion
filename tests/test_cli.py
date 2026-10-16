@@ -10953,7 +10953,7 @@ def test_gacha_report_prints_the_week_of_each_game_without_the_brain_also_with_t
 
     lines = capsys.readouterr().out.splitlines()
     assert lines[0] == "Membaca riwayat pull dan HoYoLAB, tunggu sebentar..."
-    since = datetime.now() - timedelta(days=7)
+    since = datetime.now() - timedelta(days=7, hours=1)  # pulls are listed about an hour late
     assert lines[1].startswith(
         f"Laporan game 7 hari terakhir, sejak {WEEKDAYS_ID[since.weekday()]}, "
     )
@@ -10977,6 +10977,26 @@ def test_gacha_report_prints_the_week_of_each_game_without_the_brain_also_with_t
         "mungkin belum ada.",
     ]
     assert games.history.asked == [("hsr", False)]
+
+
+def test_gacha_report_counts_from_an_hour_before_last_weeks_report_slot_on_the_report_day(
+    home, game_data, games, capsys
+):
+    # As her own report does, so the week `waifu gacha report` prints is the one she told.
+    today = datetime.now()
+    report_day = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
+    play_only(home, "[hsr]")
+    append_config(home, f"weekly_report:\n  day: {report_day[today.weekday()]}\n  time: '00:00'\n")
+    save_hsr_week(home)
+    hsr_week_on_hoyolab(game_data)
+
+    assert cli.main(["gacha", "report"]) == 0
+
+    since = datetime.combine(today.date(), datetime.min.time()) - timedelta(days=7, hours=1)
+    assert capsys.readouterr().out.splitlines()[1] == (
+        f"Laporan game 7 hari terakhir, sejak {WEEKDAYS_ID[since.weekday()]}, "
+        f"{since:%d-%m-%Y %H:%M}"
+    )
 
 
 def test_gacha_report_prints_what_it_could_read_and_exits_1_when_a_part_failed(

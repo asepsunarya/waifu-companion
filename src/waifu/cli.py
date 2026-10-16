@@ -1890,13 +1890,16 @@ def _game_tools(config: AppConfig, gacha: GachaParts | None) -> list[ToolProvide
 
 def _weekly_report_tools(config: AppConfig, gacha: GachaParts) -> WeeklyReportTools:
     """The week in the configured games from the pull history in `gacha.data_dir`, HoYoLAB,
-    and with the redeem codes on, the codes `waifu run` keeps."""
+    and with the redeem codes on, the codes `waifu run` keeps; the week starts from the
+    report's slot even when the report is off, so `waifu gacha report` shows her week."""
     return WeeklyReportTools(
         config.gacha.games,
         history=gacha.history,
         store=GachaStore(config.gacha.data_dir),
         source=gacha.hoyolab,
         codes=_code_store(config) if config.redeem_codes.enabled else None,
+        report_day=config.weekly_report.day,
+        report_time=config.weekly_report.time,
         server_utc_offset=config.gacha.server_utc_offset,
         extra_standard=config.gacha.off_banner,
     )

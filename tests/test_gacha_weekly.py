@@ -12,6 +12,7 @@ import os
 import threading
 import time
 from datetime import datetime, timedelta, timezone
+from datetime import time as clock
 
 import ollama
 import pytest
@@ -35,12 +36,14 @@ from waifu.gacha.weekly import (
     WeeklyReportTools,
     gather_weekly_report,
     report_json,
+    week_start,
 )
 from waifu.screen import ScreenImage
 
 WIB = timezone(timedelta(hours=7))
 SERVER = timezone(timedelta(hours=8))
 NOW = datetime(2026, 10, 18, 19, 0, tzinfo=WIB)  # a Sunday, 20:00 on the Asia server
+SINCE = datetime(2026, 10, 11, 18, 0, tzinfo=WIB)  # where the week of NOW's report starts
 HSR, GENSHIN, ZZZ = GAMES["hsr"], GAMES["genshin"], GAMES["zzz"]
 EVERY_GAME = ["hsr", "genshin", "zzz"]
 NO_COOKIE = GachaError("no_cookie", "Cookie HoYoLAB belum diisi.")
@@ -229,6 +232,7 @@ def gather(
         source=source if source is not None else FakeSource(),
         codes=codes,
         now=NOW,
+        since=SINCE,
         offset=8,
         extra_standard=extra or {},
         budget_s=budget_s,
@@ -243,7 +247,7 @@ def week_of(report, game_id: str):
 # --- the pulls and the pity ----------------------------------------------------------------------
 
 
-def test_the_week_is_the_seven_days_up_to_now():
+def test_the_week_runs_from_its_start_up_to_now():
     report = gather_weekly_report(
         [],
         history=None,
@@ -251,11 +255,52 @@ def test_the_week_is_the_seven_days_up_to_now():
         source=None,
         codes=None,
         now=NOW,
+        since=SINCE,
         offset=8,
         extra_standard={},
     )
 
-    assert (report.now, report.since, report.games) == (NOW, NOW - timedelta(days=7), ())
+    assert (report.now, report.since, report.games) == (NOW, SINCE, ())
+
+
+@pytest.mark.parametrize(
+    ("now", "day", "at", "start"),
+    [
+        (NOW, "sunday", clock(19, 0), SINCE),
+        (datetime(2026, 10, 18, 22, 30, tzinfo=WIB), "sunday", clock(19, 0), SINCE),
+        (
+            datetime(2026, 10, 18, 18, 59, tzinfo=WIB),
+            "sunday",
+            clock(19, 0),
+            datetime(2026, 10, 11, 17, 59, tzinfo=WIB),
+        ),
+        (
+            datetime(2026, 10, 21, 10, 0, tzinfo=WIB),
+            "sunday",
+            clock(19, 0),
+            datetime(2026, 10, 14, 9, 0, tzinfo=WIB),
+        ),
+        (
+            datetime(2026, 10, 24, 23, 0, tzinfo=WIB),
+            "saturday",
+            clock(20, 30),
+            datetime(2026, 10, 17, 19, 30, tzinfo=WIB),
+        ),
+    ],
+    ids=[
+        "at the slot",
+        "said late that evening",
+        "just before the slot",
+        "another day",
+        "saturday",
+    ],
+)
+def test_the_week_starts_7_days_and_an_hour_before_the_report_slot_else_before_now(
+    now, day, at, start
+):
+    # HoYoverse lists a pull about an hour late, so a report reaches back that hour; counted
+    # from the slot, not from when the report is said, consecutive reports always meet.
+    assert week_start(now, day, at) == start
 
 
 def test_this_weeks_pulls_and_the_pity_come_from_the_history_after_its_refresh(tmp_path):
@@ -729,7 +774,7 @@ def test_the_json_holds_the_whole_week_of_a_game_in_local_time(tmp_path):
 
     assert data == {
         "as_of": "2026-10-18 19:00",
-        "since": "2026-10-11 19:00",
+        "since": "2026-10-11 18:00",
         "note": HISTORY_NOTE,
         "games": [
             {
@@ -934,6 +979,8 @@ def make_tools(tmp_path, *, games=EVERY_GAME, store=None, source=None, codes=Non
         store=store,
         source=source if source is not None else FakeSource(),
         codes=codes,
+        report_day="sunday",
+        report_time=clock(19, 0),
         server_utc_offset=8,
         extra_standard={},
         now=lambda: now,
@@ -999,10 +1046,31 @@ def test_the_report_is_the_weeks_compact_json_up_to_the_clock(tmp_path):
 
     data = json.loads(result)
     assert is_error is False
-    assert (data["as_of"], data["since"]) == ("2026-10-18 19:00", "2026-10-11 19:00")
+    assert (data["as_of"], data["since"]) == ("2026-10-18 19:00", "2026-10-11 18:00")
     assert [game["game"] for game in data["games"]] == EVERY_GAME
     assert data["games"][0]["pulls_this_week"]["count"] == 36
     assert '"rarity":"5★"' in result
+
+
+def test_a_pull_listed_after_a_report_is_told_in_the_next_one_however_late_that_is_said(
+    tmp_path,
+):
+    # Castorice, pulled at 18:30 WIB, is listed by HoYoverse only after the 19:00 report;
+    # the next report, said at 22:00 a week later, still has her.
+    store = GachaStore(tmp_path / "gacha")
+    records = [pull(i, "2026-10-12 21:00:00") for i in range(1, 30)]
+    records.append(pull(30, "2026-10-18 19:30:00", "Castorice", rarity=5))
+    store.save(HSR, 800000001, records, complete=True)
+    next_week_late = datetime(2026, 10, 25, 22, 0, tzinfo=WIB)
+
+    result, _ = make_tools(tmp_path, games=["hsr"], store=store, now=next_week_late).run(
+        "weekly_report", {}
+    )
+
+    data = json.loads(result)
+    assert data["since"] == "2026-10-18 18:00"
+    [hsr] = data["games"]
+    assert [top["name"] for top in hsr["pulls_this_week"]["top_pulls"]] == ["Castorice"]
 
 
 def test_nothing_readable_is_an_error_result_so_her_apology_is_never_said_unasked(tmp_path):
@@ -1055,6 +1123,8 @@ def test_a_failing_clock_is_an_error_result_never_an_exception(tmp_path, caplog)
         store=store,
         source=FakeSource(),
         codes=None,
+        report_day="sunday",
+        report_time=clock(19, 0),
         server_utc_offset=8,
         extra_standard={},
         now=broken_clock,
