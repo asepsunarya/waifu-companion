@@ -458,6 +458,26 @@ dependency; `waifu rain` shows the next rain.
 - [x] Python suite and ruff clean; no test reached Open-Meteo, slept for real, spoke, or pushed (2026-10-17: 7170 pytest)
 - [ ] On the owner's PC with `briefing.city: Cianjur`: `waifu rain` agrees with a weather app's hourly rain; before an afternoon rain she says the sentence once (and the phone gets it), then stays quiet through the rain, during a conversation until it ends, and at night
 
+### Phase 30: Versi baru (v1.26, see SPEC → versi baru)
+Decision: `waifu run` records what it started with (the CHANGELOG's newest version, a hash of
+the core dependencies, the git commit or else the newest source file's time) in
+`data/running.json`, and a `VersionWatcher` thread built like the rain watcher compares the
+CHANGELOG and pyproject on disk every 30 minutes during the active hours, telling a newer
+version (and changed packages, with the pip command in the push) once, between utterances.
+News is a CHANGELOG version, never a bare commit, so fixes and half-built versions stay quiet.
+Whether a run is running comes from the run lock plus a live process id in the record, never
+from cleanup on exit (closing the console skips it). She never restarts herself or runs pip.
+No new dependency; `waifu version` and a `check` line show the running version.
+- [ ] Task 122a: contract: SPEC, tasks, `VersionNoticeConfig`
+- [ ] Task 122: `version.py`: releases, dependency hash, commit or source time, `read_code_version`, `newer_releases`, the running record, `process_alive`
+- [ ] Task 123: `version_watch.py`: `version_news`, the notice and push texts, `VersionWatcher`
+- [ ] Task 124: wiring in `run`, the git guard, `check` lines, `waifu version`, example config
+- [ ] Task 125: README, CHANGELOG
+
+### Checkpoint: Versi baru
+- [ ] Python suite and ruff clean; no test ran git, wrote outside tmp_path, touched the real run lock, slept for real, spoke, or pushed
+- [ ] On the owner's PC: after one restart by hand, `waifu check` says `✓ waifu run: v1.26, terbaru`; after the next CHANGELOG version lands she says the sentence once in the active hours (and the phone gets it), and `waifu check` names the old version until the restart
+
 ## Risks and Mitigations
 
 | Risk | Impact | Mitigation |

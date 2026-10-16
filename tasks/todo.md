@@ -1141,3 +1141,44 @@ named `tests/test_<package>_<module>.py`.
 - [x] `config.example.yaml` block, valid when written out; README "Peringatan hujan" with its command, check, checklist, and Privasi rows; CHANGELOG v1.25; full suite and ruff clean
 
 **Dependencies:** 119, 120 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py`, `config.example.yaml`, `tests/test_config.py`, `README.md`, `CHANGELOG.md` · **Scope:** M
+
+## Task 122a: Version notice contract
+
+**Acceptance criteria:**
+- [ ] SPEC "versi baru (v1.26)" (stories, non-goals with the self-restart, privacy, config, `version.py`, the watcher, the running record and how a run is found running, CLI, check lines, safety); tasks 122a-125 in the plan and here
+- [ ] `VersionNoticeConfig` as `AppConfig.version_notice` (`enabled`, `check_minutes` 5-1440, `active_from` before `active_until` with bare YAML times read as clock times, `push`) with tests
+
+**Dependencies:** none · **Files:** `SPEC.md`, `tasks/plan.md`, `tasks/todo.md`, `src/waifu/config.py`, `tests/test_config.py` · **Scope:** S
+
+## Task 122: Reading the code's version and the running record
+
+**Acceptance criteria:**
+- [ ] `parse_releases` (file order, Windows line endings, a byte order mark, three-part versions, no heading), `dependency_hash` (order and comments do not count, the extras do not count, not TOML), `newer_releases` (none, one, several, a CHANGELOG that went back, an unknown side)
+- [ ] `read_code_version` never raises: the commit from an injected `run` with the exact git arguments, 5 s timeout, and `CREATE_NO_WINDOW`; without git, outside a repository, on a timeout, or on odd output the newest source time without `__pycache__`; a missing or malformed CHANGELOG or pyproject as an empty part with its problem; `run=None` asks no git
+- [ ] `write_running`/`read_running`: atomic, round trip, never created by reading, a missing, malformed, or foreign file is None and left in place; `process_alive` true for this process and false for one that ended, without a signal
+
+**Dependencies:** none · **Files:** `src/waifu/version.py`, `tests/test_version.py` · **Scope:** M
+
+## Task 123: The version watcher
+
+**Acceptance criteria:**
+- [ ] `version_news`, `notice_text`, `push_text` per SPEC: one newer version, several (the count in words), changed packages with and without a push, packages alone, nothing new, an unknown side; no parentheses in what she says
+- [ ] `VersionWatcher`: quiet outside the active hours without reading; one notice per news, a later version told again with its own count; read problems and failures never said and logged once per run of failures; announce and push each failure-proof; the owner word at sentence start; a daemon thread that polls at once and every `check_minutes`, stops at once, and starts once
+
+**Dependencies:** 122a, 122 · **Files:** `src/waifu/version_watch.py`, `tests/test_version_watch.py` · **Scope:** M
+
+## Task 124: Wiring, `check`, `waifu version`
+
+**Acceptance criteria:**
+- [ ] `run` records its version before `--startup-delay` (a failed write logged, never raised; `enroll`, `speaker-test`, and `chat` never record) and starts the watcher after "ready" when `version_notice.enabled`, announcing once the follow-up window has closed and pushing only with `version_notice.push` and `notify`; an autouse fake watcher and reader in `test_cli.py`; `tests/conftest.py` refuses git
+- [ ] The `check` lines right after `Konfigurasi valid` per SPEC (lock free, current, a later commit, older, changed packages, no record, a dead process id, no release on disk; the settings line); `waifu version` lines
+- [ ] `config.example.yaml` block, valid when written out
+
+**Dependencies:** 122, 123 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py`, `tests/conftest.py`, `config.example.yaml`, `tests/test_config.py` · **Scope:** M
+
+## Task 125: Docs
+
+**Acceptance criteria:**
+- [ ] README "Versi baru" with its command, check, checklist, and Privasi rows; CHANGELOG v1.26; full suite and ruff clean
+
+**Dependencies:** 124 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
