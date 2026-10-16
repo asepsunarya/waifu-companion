@@ -4,6 +4,27 @@ Ringkasan per versi, yang terbaru di atas. Rinciannya ada di README (bagian yang
 setiap versi) dan di SPEC.md. Setelah memperbarui, **mulai ulang `waifu run`** supaya semuanya
 aktif, lalu jalankan `waifu check`.
 
+## v1.23: data akun Genshin dan ZZZ
+
+- Akun Genshin Impact dan Zenless Zone Zero dari Battle Chronicle HoYoLAB, hanya saat
+  ditanya: "Furina-ku C berapa, pakai weapon apa?", "Ellen pakai W-Engine apa?", "Abyss-ku
+  lantai 12 berapa bintang?", "Shiyu Defense-ku rating apa, berakhir kapan?", "banner Genshin
+  apa sekarang?".
+- Genshin: karakter (Constellation, weapon dan Refinement; stat, artifact, dan set untuk yang
+  ditanya namanya), Spiral Abyss, Imaginarium Theater, Stygian Onslaught, serta banner dan
+  event. ZZZ: agent (Mindscape Cinema; W-Engine, stat, Drive Disc, dan set untuk yang ditanya
+  namanya), Shiyu Defense, Deadly Assault, serta banner dan event.
+- Tool `hsr_characters`, `hsr_endgame`, dan `hsr_events` kini bernama `game_characters`,
+  `game_endgame`, dan `game_events`, dengan pilihan `game`; jawaban untuk HSR tetap sama.
+  Kedua persona bawaan sudah memakai nama baru. **Kalau kamu memakai persona buatan sendiri
+  yang masih menyebut `hsr_*`, ganti dengan nama baru** (salin baris game_characters dari
+  `config/persona.md`): nama lama membuat Cyrene salah memanggil tool dulu.
+- `waifu gacha genshin characters|endgame|events` dan `waifu gacha zzz characters|endgame|events`.
+- Battle Chronicle tiap game harus boleh dibaca (setelannya di HoYoLAB; Cyrene tidak pernah
+  mengubahnya). Bacaan pertama dalam seminggu bisa membuat genshin.py mengunduh daftar nama
+  karakter Genshin, tanpa data Master.
+- README: "Data akun Genshin dan ZZZ".
+
 ## v1.22.1: suara kembali
 
 - Cyrene sempat diam: Microsoft mengganti kunci layanan suaranya (Oktober 2026), sehingga

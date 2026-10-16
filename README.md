@@ -1383,8 +1383,10 @@ Yang dia lakukan:
 - **Check-in harian HoYoLAB otomatis**, sekali sehari untuk tiap game.
 - **Riwayat pull.** Pity tiap banner, sisa ke hard pity, apakah 5★ berikutnya pasti
   limited, dan reaksi seperti teman: senang kalau menang 50/50, menghibur kalau kalah.
-- **Akun HSR.** Karakter, Eidolon, dan Light Cone milik Master, progres endgame musim
-  ini, serta banner dan event yang sedang jalan (lihat "Data akun HSR").
+- **Akun game.** Karakter milik Master dengan Eidolon, Constellation, atau Mindscape
+  Cinema dan Light Cone, weapon, atau W-Engine-nya, progres endgame musim ini, serta banner
+  dan event yang sedang jalan, untuk ketiga game (lihat "Data akun HSR" dan "Data akun
+  Genshin dan ZZZ").
 - **Kode redeem.** Kode baru ketiga game diberitahukan lewat suara dan HP, dan ditukarkan
   di HoYoLAB hanya kalau Master minta (lihat "Kode redeem").
 - **Tidak pernah menyarankan top-up** atau membelanjakan uang.
@@ -1459,6 +1461,7 @@ waifu gacha status                # stamina, daily, mingguan, ekspedisi, check-i
 waifu gacha checkin               # ambil check-in sekarang (biasanya otomatis)
 waifu gacha history hsr --full    # impor riwayat pertama (1100 pull HSR: sekitar 40 detik)
 waifu gacha codes                 # kode redeem tiap game: yang belum ditukarkan dan hasil terakhir
+waifu gacha hsr characters        # data akun dari Battle Chronicle (juga genshin dan zzz; endgame, events)
 waifu notify-test                 # notifikasi tes ke HP
 ```
 
@@ -1523,9 +1526,9 @@ Cyrene : "Sekarang banner Acheron, Master, sampai hari Selasa."
 - Banner hanya disampaikan sebagai informasi. Dia tidak pernah menyuruh pull atau top-up,
   dan tidak pernah mengingatkan banner atau musim endgame yang mau habis tanpa ditanya,
   juga tidak di sapaan atau briefing pagi.
-- Belum ada: substat dan nama set relic, trace, tim dan musim endgame sebelumnya, detail
-  Simulated Universe (poin mingguannya sudah ada di status), serta data serupa untuk
-  Genshin dan ZZZ.
+- Belum ada: substat dan nama set relic, trace, tim dan musim endgame sebelumnya, dan detail
+  Simulated Universe (poin mingguannya sudah ada di status). Data akun Genshin dan ZZZ ada di
+  bagian berikutnya.
 - Jawaban disimpan sebentar di memori supaya pertanyaan beruntun tidak membebani HoYoLAB:
   karakter 15 menit, endgame 10 menit, kalender 60 menit. Eidolon atau Light Cone yang
   baru diganti bisa baru terlihat setelah itu; `waifu gacha hsr` selalu membaca ulang.
@@ -1552,6 +1555,111 @@ on your profile* dan *Show your Character Details in the Battle Chronicle* untuk
 Kalau tertutup, Cyrene bilang "Data HSR ini tidak bisa dibaca karena Battle Chronicle di
 HoYoLAB tidak publik" dan di mana setelannya. **Dia tidak pernah mengubah setelan itu
 sendiri**: membukanya atau tidak, Master yang memutuskan.
+
+### Data akun Genshin dan ZZZ: karakter, endgame, dan event
+
+Untuk **Genshin Impact** dan **Zenless Zone Zero** yang ada di `gacha.games`, Cyrene juga bisa
+membaca akun Master dari **Battle Chronicle** HoYoLAB, sama seperti data HSR: hanya saat
+ditanya.
+
+Genshin Impact:
+
+- **Karakter.** Semua karakter yang Master punya: rarity, level, Constellation, elemen, jenis
+  weapon, dan weapon yang dipakai (level dan Refinement). Untuk karakter yang ditanya namanya
+  juga stat akhirnya, stat weapon, main stat artifact, dan set yang dipakai.
+- **Endgame musim ini.** Spiral Abyss (bintang, chamber terdalam seperti 12-3, jumlah
+  pertarungan, dan bintang empat lantai tertinggi), Imaginarium Theater (difficulty, act
+  terjauh, dan bintang), dan Stygian Onslaught (difficulty, waktu clear, dan waktu tiap
+  tantangan), masing-masing dengan kapan musimnya berakhir.
+- **Kalender event.** Banner karakter, weapon, dan Chronicled Wish yang sedang jalan dan yang
+  berikutnya dengan 5★ dan 4★ unggulannya, event yang berjalan, dan jadwal Spiral Abyss serta
+  Imaginarium Theater.
+
+Zenless Zone Zero:
+
+- **Agent.** Semua agent yang Master punya: rank (S atau A), level, Mindscape Cinema, elemen,
+  dan specialty. Untuk agent yang ditanya namanya juga W-Engine-nya (level dan Refinement),
+  stat akhir, main stat Drive Disc, dan set yang dipakai.
+- **Endgame musim ini.** Shiyu Defense (rating, skor dan skor maksimalnya, waktu clear, dan
+  rating tiap tahap) dan Deadly Assault (skor, bintang, serta bintang dan skor tiap boss),
+  masing-masing dengan kapan musimnya berakhir.
+- **Kalender event.** Banner agent dan W-Engine yang sedang jalan dan yang berikutnya dengan
+  agent S dan A unggulannya (banner W-Engine tanpa nama, karena HoYoLAB tidak memberikannya),
+  dan event yang berjalan beserta progres Master.
+
+```text
+Master : "Cyrene, Furina-ku C berapa, pakai weapon apa?"
+Cyrene : "Furina-mu C2, Master, pakai Splendor of Tranquil Waters R1."
+Master : "Abyss-ku lantai 12 berapa bintang?"
+Cyrene : "Lantai 12 dapat delapan dari sembilan bintang, Master."
+Master : "Ellen pakai W-Engine apa?"
+Cyrene : "Ellen pakai Deep Sea Visitor, Master, Refinement dua."
+Master : "Shiyu Defense-ku rating apa, berakhir kapan?"
+Cyrene : "Rating S, Master, skornya lima puluh dua ribu. Musimnya berakhir dua minggu lagi."
+Master : "Banner Genshin apa sekarang?"
+Cyrene : "Sekarang banner Furina, Master, sampai hari Selasa."
+```
+
+- Aturannya sama dengan data HSR: dia menjawab dari data itu saja, tanpa saran build atau tim
+  dari kode, dan tidak pernah bilang berapa bintang lagi yang kurang, kecuali per lantai
+  Spiral Abyss (satu lantai paling banyak 9 bintang). Karakter, weapon, atau W-Engine yang
+  baru rilis dia akui belum dia kenal. Banner hanya disampaikan sebagai informasi, tidak
+  pernah sebagai ajakan pull atau top-up, dan tidak pernah tanpa ditanya, juga tidak di
+  sapaan atau briefing pagi.
+- Dengan lebih dari satu game di `gacha.games`, dia memilih game dari pertanyaanmu (nama
+  karakter, mode endgame). Untuk banner dan event, sebut game-nya: "banner Genshin apa
+  sekarang?", "event ZZZ apa yang mau habis?".
+- Traveler punya satu karakter per elemen, semuanya dengan nama yang sama. Sebut elemennya
+  untuk satu elemen saja: "Traveler Anemo-ku C berapa?". Agent ZZZ juga bisa disebut dengan
+  nama lengkapnya ("Ellen Joe").
+- Belum ada: level talent Genshin dan level skill ZZZ, substat artifact dan Drive Disc,
+  W-Engine di daftar semua agent (W-Engine hanya ada untuk agent yang ditanya namanya), mode
+  ZZZ selain Shiyu Defense dan Deadly Assault, Bangboo, info gacha ZZZ (pity sudah ada dari
+  riwayat pull), tim dan musim endgame sebelumnya, detail tiap act Imaginarium Theater, dan
+  satu pertanyaan yang mencari di semua game sekaligus.
+- Jawaban disimpan sebentar di memori seperti data HSR: karakter dan detailnya 15 menit,
+  endgame 10 menit, kalender 60 menit. `waifu gacha genshin` dan `waifu gacha zzz` selalu
+  membaca ulang.
+
+Dari terminal (selalu langsung dari HoYoLAB, juga saat `gacha.enabled: false`):
+
+```powershell
+waifu gacha genshin characters   # satu baris per karakter: Furina ★5 Lv90 C2 (Hydro, Sword), Splendor of Tranquil Waters Lv90 R1
+waifu gacha genshin endgame      # tiap mode: bintang, terdalam, difficulty, detik, berakhir <jam> (<sisa waktu>)
+waifu gacha genshin events       # banner, event, dan jadwal endgame
+waifu gacha zzz characters       # satu baris per agent: Ellen S Lv60 M2 (Ice, Attack)
+waifu gacha zzz endgame          # Shiyu Defense dan Deadly Assault: rating, skor, bintang, berakhir <jam> (<sisa waktu>)
+waifu gacha zzz events           # banner dan event
+```
+
+Detail satu karakter (stat, artifact, Drive Disc) tidak ada di terminal: tanyakan ke Cyrene
+lewat `waifu chat -v`, yang juga mencatat hasil tool-nya di layar.
+
+**Privasi.** Sama dengan data HSR: dibaca hanya saat Master bertanya, disimpan di memori
+beberapa menit, dan tidak pernah ditulis ke disk atau ke log, kecuali hasil tool dengan `-v`.
+Jawaban untuk otaknya tidak memuat UID, nickname, avatar, ID, ikon, atau deskripsi, termasuk
+nickname dan avatar yang ikut dikirim HoYoLAB bersama data Shiyu Defense dan Deadly Assault.
+
+**Setelan Battle Chronicle.** Tiap game punya setelannya sendiri di HoYoLAB: **Battle
+Chronicle** → ikon pengaturan, pilih Genshin Impact atau Zenless Zone Zero, yaitu *Show your
+Battle Chronicle on your profile* dan sakelar detail karakter di bawahnya (*Show your Character
+Details in the Battle Chronicle*; namanya di ZZZ bisa sedikit berbeda). Kalau tertutup, Cyrene
+bilang "Data Genshin ini tidak bisa dibaca karena Battle Chronicle di HoYoLAB tidak publik"
+(atau "Data ZZZ ini ...") dan di mana setelannya. **Dia tidak pernah mengubah setelan itu
+sendiri**: membukanya atau tidak, Master yang memutuskan.
+
+**Daftar nama karakter.** Bacaan Battle Chronicle pertama dalam seminggu (juga untuk HSR) bisa
+membuat genshin.py mengunduh daftar nama karakter Genshin dari GitHub (EnkaNetwork) atau
+gi.yatta.moe, lalu menyimpannya di `%TEMP%\genshinpy\`. Unduhan itu tidak membawa data Master,
+tapi bisa membuat bacaan pertama lebih lambat. Spiral Abyss butuh daftar itu: kalau unduhannya
+gagal, hanya Spiral Abyss yang tidak terbaca, mode lain tetap.
+
+**Persona buatan sendiri.** Sejak v1.23 ketiga tool data akun bernama `game_characters`,
+`game_endgame`, dan `game_events` (dulu `hsr_characters`, `hsr_endgame`, dan `hsr_events`).
+Kedua persona bawaan sudah memakai nama baru. Kalau `assistant.persona_file` menunjuk ke
+persona yang kamu ubah sendiri dan masih menyebut `hsr_*`, ganti dengan nama baru (salin baris
+game_characters dari `config/persona.md`): nama lama membuat Cyrene salah memanggil tool dulu,
+jadi jawabannya lebih lambat.
 
 ### Kode redeem
 
@@ -1691,8 +1799,12 @@ tenang: dia juga bicara di malam hari selama `waifu run` jalan.
 
 - **"Cookie HoYoLAB tidak berlaku lagi".** Ambil ulang cookie (langkah 1).
 - **"Real-Time Notes ... belum aktif".** Langkah 2.
-- **"Data HSR ini tidak bisa dibaca karena Battle Chronicle di HoYoLAB tidak publik".**
-  Lihat "Setelan Battle Chronicle" di bagian Data akun HSR.
+- **"Data HSR ini tidak bisa dibaca karena Battle Chronicle di HoYoLAB tidak publik"**
+  (atau Data Genshin, Data ZZZ). Lihat "Setelan Battle Chronicle" di bagian Data akun HSR
+  atau Data akun Genshin dan ZZZ.
+- **Hanya Spiral Abyss yang "tidak bisa dibaca saat ini".** genshin.py belum berhasil
+  mengunduh daftar nama karakter (lihat "Daftar nama karakter" di bagian Data akun Genshin
+  dan ZZZ). Coba lagi beberapa saat lagi; mode lain tidak terpengaruh.
 - **"HoYoLAB minta verifikasi captcha".** Buka HoYoLAB di browser sekali; untuk
   check-in, ambil manual dulu di hari itu.
 - **"Buka riwayat warp di HSR sekali, lalu tanya lagi".** Buka halaman riwayat di game
@@ -3702,8 +3814,38 @@ mendengarkan"; jawaban pertama bisa lebih lama karena model Ollama baru dimuat)
       bisa dibaca karena Battle Chronicle di HoYoLAB tidak publik...`. Buka lagi setelahnya;
       Cyrene tidak pernah mengubah setelan itu.
 - [ ] Sapaan pagi di `waifu run` (lihat **Sapaan pagi** di bawah) tidak menyebut banner,
-      event, atau musim endgame HSR, dan log tidak menampilkan `Tool hsr_` untuk giliran
-      itu.
+      event, atau musim endgame HSR, Genshin, atau ZZZ, dan log tidak menampilkan
+      `Tool game_characters`, `Tool game_endgame`, atau `Tool game_events` untuk giliran itu.
+
+**Data akun Genshin dan ZZZ** (lihat [Data akun Genshin dan
+ZZZ](#data-akun-genshin-dan-zzz-karakter-endgame-dan-event))
+
+- [ ] `waifu gacha genshin characters`: Constellation dan Refinement weapon satu karakter (dan
+      Traveler) sama dengan di game.
+- [ ] `waifu gacha zzz characters`: Mindscape Cinema satu agent sama dengan di game.
+- [ ] `waifu gacha genshin endgame`: bintang dan chamber terdalam Spiral Abyss, act dan
+      difficulty Imaginarium Theater, serta difficulty dan waktu Stygian Onslaught sama dengan
+      di game, begitu juga jam berakhir tiap musim.
+- [ ] Di `waifu chat`: "Abyss-ku lantai 12 berapa bintang?" dijawab sama dengan bintang lantai
+      12 di game.
+- [ ] `waifu gacha zzz endgame`: rating dan skor Shiyu Defense, serta skor dan bintang Deadly
+      Assault sama dengan di game. Di `waifu chat -v`, "Shiyu Defense-ku gimana?": catat apa
+      yang di hasil tool bernama `Frontier 1`, `Frontier 2`, dan seterusnya, dan namanya di
+      game.
+- [ ] `waifu gacha genshin events`: jam berakhir satu banner sama dengan timer banner di game
+      (sampai menitnya). `waifu gacha zzz events`: jam berakhir satu banner dan satu event
+      sama dengan di game. Jam kedua kalender ini belum pernah dicek dengan akun asli: kalau
+      meleset, catat selisihnya.
+- [ ] `waifu gacha genshin events`: catat bagaimana jadwal endgame tertulis (bisa dobel,
+      misalnya `Spiral Abyss (Spiral Abyss)`), dan apakah baris `Banner W-Engine: berakhir ...`
+      di `waifu gacha zzz events` sudah cukup jelas.
+- [ ] Di `waifu chat -v`: "Stat Furina-ku gimana?" dan "Drive Disc Ellen apa aja?": hasil tool
+      `game_characters` di log menyebut set artifact atau Drive Disc dan nama stat yang sama
+      dengan di game, dan jawabannya hanya dari data itu.
+- [ ] (Opsional) Sembunyikan sendiri sementara detail karakter Genshin di Battle Chronicle
+      HoYoLAB: `waifu gacha genshin characters` menampilkan `✗ Data Genshin ini tidak bisa
+      dibaca karena Battle Chronicle di HoYoLAB tidak publik...`. Buka lagi setelahnya; Cyrene
+      tidak pernah mengubah setelan itu.
 
 **Ingatan**
 
