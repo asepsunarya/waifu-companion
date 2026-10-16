@@ -20,10 +20,12 @@ from __future__ import annotations
 import json
 import logging
 import math
+import threading
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from concurrent.futures import Future, ThreadPoolExecutor, wait
+from concurrent.futures import Future, wait
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from functools import partial
 from typing import Any, Protocol, TypeVar, cast, get_args
 
 from waifu.brain.base import ToolSpec
@@ -171,29 +173,35 @@ def gather_weekly_report(
     budget_s: float = BUDGET_S,
 ) -> WeeklyReport:
     """The week up to `now` (aware) in each of `games`, in that order. Never raises: each
-    section that fails or is not read within `budget_s` seconds carries its problem. Readers
-    still running then are left to finish on their own, bounded by their own timeouts."""
+    section that fails or is not read within `budget_s` seconds carries its problem. A read
+    still running then is left to finish on its daemon thread, bounded by its own timeout,
+    and never holds up the process's exit; a read not started by then never starts."""
     chosen = [GAMES[game_id] for game_id in games]
     before = {game.id: _load(store, game) for game in chosen}
-    workers = max(1, len(chosen))
-    refreshing = ThreadPoolExecutor(1, thread_name_prefix="weekly-history")
-    reading = ThreadPoolExecutor(workers, thread_name_prefix="weekly-hoyolab")
-    try:
-        refreshes = {
-            game.id: refreshing.submit(history.report, game.id)
-            for game in chosen
-            if (stored := before[game.id]) is not None and stored.records
-        }
-        # Every endgame first: each worker reads its game's endgame, then a calendar.
-        endgames = {
-            game.id: reading.submit(_endgame_reader(source, game.id), list(GAME_MODES[game.id]))
-            for game in chosen
-        }
-        calendars = {game.id: reading.submit(_calendar_reader(source, game.id)) for game in chosen}
-        done, _ = wait([*refreshes.values(), *endgames.values(), *calendars.values()], budget_s)
-    finally:
-        refreshing.shutdown(wait=False, cancel_futures=True)
-        reading.shutdown(wait=False, cancel_futures=True)
+    refreshes: dict[str, Future[HistoryReport]] = {
+        game.id: Future()
+        for game in chosen
+        if (stored := before[game.id]) is not None and stored.records
+    }
+    _start_lane(
+        "weekly-history",
+        [(future, partial(history.report, game_id)) for game_id, future in refreshes.items()],
+    )
+    endgames: dict[str, Future[Mapping[str, Any]]] = {}
+    calendars: dict[str, Future[Any]] = {}
+    for game in chosen:  # one lane per game: its endgame, then its calendar
+        endgames[game.id], calendars[game.id] = Future(), Future()
+        modes = list(GAME_MODES[game.id])
+        _start_lane(
+            f"weekly-hoyolab-{game.id}",
+            [
+                (endgames[game.id], partial(_endgame_reader(source, game.id), modes)),
+                (calendars[game.id], _calendar_reader(source, game.id)),
+            ],
+        )
+    done, late = wait([*refreshes.values(), *endgames.values(), *calendars.values()], budget_s)
+    for future in late:
+        future.cancel()  # only a read not started yet can be cancelled
     since = now - WEEK
     weeks = []
     for game in chosen:
@@ -213,6 +221,28 @@ def gather_weekly_report(
         )
         weeks.append(GameWeek(game, *pulls, *endgame, *calendar, *_codes_section(game, codes)))
     return WeeklyReport(now, since, tuple(weeks))
+
+
+def _start_lane(name: str, jobs: Sequence[tuple[Future[Any], Callable[[], Any]]]) -> None:
+    """Run `jobs` one after another on a daemon thread named `name`, each settling its future;
+    a job whose future was cancelled before its turn is skipped. Daemon threads, not a pool:
+    Python joins a pool's workers at exit, so a read given up on would hold up the exit of
+    `waifu gacha report` or a closing `waifu run` until its own timeout."""
+    if not jobs:
+        return
+
+    def run() -> None:
+        for future, job in jobs:
+            if not future.set_running_or_notify_cancel():
+                continue
+            try:
+                result = job()
+            except Exception as error:  # raised again where the result is read
+                future.set_exception(error)
+            else:
+                future.set_result(result)
+
+    threading.Thread(target=run, name=name, daemon=True).start()
 
 
 def _load(store: StoreSource, game: Game, uid: int | None = None) -> StoredHistory | None:

@@ -103,7 +103,8 @@ def unplayed_seasons() -> dict[str, HsrEndgame | Endgame]:
 class FakeSource:
     """HoyolabClient's endgame and calendar methods with fixed answers: `endgames` per mode (a
     GachaError there is that mode's), `calendars` per game, `failures` an exception raised by a
-    whole call (`hsr_endgame`, `zzz_calendar`, ...), and `blocked` an event a call waits for."""
+    whole call (`hsr_endgame`, `zzz_calendar`, ...), and `blocked` an event a call waits for.
+    Each call is recorded with the thread it ran on."""
 
     def __init__(self, *, endgames=None, calendars=None, failures=None, blocked=None) -> None:
         self.endgames = unplayed_seasons() | (endgames or {})
@@ -116,6 +117,7 @@ class FakeSource:
         self.failures: dict[str, Exception] = failures or {}
         self.blocked: dict[str, threading.Event] = blocked or {}
         self.calls: list[str] = []
+        self.threads: dict[str, threading.Thread] = {}
 
     def hsr_endgame(self, modes):
         return self._endgame("hsr", modes)
@@ -147,6 +149,7 @@ class FakeSource:
 
     def _call(self, name: str) -> None:
         self.calls.append(name)
+        self.threads[name] = threading.current_thread()
         if name in self.blocked:
             self.blocked[name].wait(5)
         if name in self.failures:
@@ -176,11 +179,11 @@ class FakeHistory:
         self.problems: dict[str, str] = problems or {}
         self.failures: dict[str, Exception] = failures or {}
         self.blocked: dict[str, threading.Event] = blocked or {}
-        self.calls: list[tuple[str, str]] = []
+        self.calls: list[tuple[str, threading.Thread]] = []
 
     def report(self, game_id: str, *, refresh: bool = True, full: bool = False) -> HistoryReport:
         assert (refresh, full) == (True, False)
-        self.calls.append((game_id, threading.current_thread().name))
+        self.calls.append((game_id, threading.current_thread()))
         if game_id in self.blocked:
             self.blocked[game_id].wait(5)
         if game_id in self.failures:
@@ -563,6 +566,57 @@ def test_a_section_not_done_within_the_budget_ran_out_of_time_and_the_rest_is_to
         None,
         None,
         None,
+    )
+
+
+def test_a_read_still_running_after_the_budget_never_holds_up_the_exit(tmp_path):
+    # Python joins a thread pool's workers at exit, so a late HoYoLAB or history read would
+    # keep `waifu gacha report`, or a closing `waifu run`, waiting long after the 30 s.
+    store = make_store(tmp_path)
+    hanging = threading.Event()
+    history = FakeHistory(store, blocked={"hsr": hanging})
+    source = FakeSource(blocked={"hsr_endgame": hanging})
+    try:
+        gather(tmp_path, store=store, history=history, source=source, budget_s=0.2)
+        [(_, refreshing)] = history.calls
+        reading = source.threads["hsr_endgame"]
+        assert refreshing.is_alive() and reading.is_alive()
+        assert (refreshing.daemon, reading.daemon) == (True, True)
+    finally:
+        hanging.set()
+
+
+def test_a_read_not_started_within_the_budget_never_starts(tmp_path):
+    store = make_store(tmp_path)
+    store.save(GENSHIN, 700000001, [pull(1, "2026-10-12 21:00:00", banner=301)], complete=True)
+    hanging = threading.Event()
+    history = FakeHistory(store, blocked={"hsr": hanging})
+    source = FakeSource(blocked={"hsr_endgame": hanging})
+    try:
+        report = gather(
+            tmp_path,
+            games=["hsr", "genshin"],
+            store=store,
+            history=history,
+            source=source,
+            budget_s=0.2,
+        )
+    finally:
+        hanging.set()
+    [(_, refreshing)] = history.calls
+    reading = source.threads["hsr_endgame"]
+    refreshing.join(5)
+    reading.join(5)
+
+    assert [game for game, _ in history.calls] == ["hsr"]  # Genshin's refresh was next
+    assert "hsr_calendar" not in source.calls  # HSR's calendar came after its endgame
+    genshin = week_of(report, "genshin")
+    assert genshin.pulls_problem == (
+        "Riwayat Genshin terbaru tidak terbaca, jadi angkanya dari riwayat tersimpan: "
+        "waktunya habis."
+    )
+    assert week_of(report, "hsr").calendar_problem == (
+        "Kalender event HSR tidak terbaca: waktunya habis."
     )
 
 
