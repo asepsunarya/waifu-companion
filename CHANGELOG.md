@@ -12,13 +12,18 @@ aktif, lalu jalankan `waifu check`.
 - Prakiraannya dari Open-Meteo, sumber cuaca sapaan pagi, untuk kota di `briefing.city`
   (tanpa kota dia diam), dibaca setiap 15 menit. Bawaannya satu jam sebelum hujan mulai, dari
   peluang hujan 60% per jam (atau curah 0,5 mm, atau kode hujan dan badai petir), hanya jam
-  06.00-21.00; semuanya bisa diatur di bagian `rain_alert` baru.
+  06.00-21.00; semuanya bisa diatur di bagian `rain_alert` baru. Jam yang dia sebut adalah jam
+  hujannya mulai: Open-Meteo mencatat hujan untuk satu jam sebelum jam yang tertulis, jadi
+  angka jam 16.00 berarti "sekitar jam tiga sore", diucapkan sekitar jam 14.00.
 - Satu hujan hanya diperingatkan sekali: tidak diulang saat makin dekat, saat peluangnya
-  naik-turun, saat hujan turun, atau saat berhenti kurang dari tiga jam. Malam hari dia diam,
-  dan obrolan yang sedang berjalan tidak pernah dipotong. Internet mati tidak pernah diucapkan,
-  hanya dicatat sekali di log.
-- `waifu rain` menampilkan kapan hujan berikutnya dalam 24 jam; `waifu check` menampilkan
-  pengaturannya.
+  naik-turun, saat hujan turun, atau saat berhenti kurang dari tiga jam. Hujan sesudah tiga jam
+  kering di prakiraan terbaru diperingatkan lagi, juga kalau prakiraan sebelumnya menyebut
+  hujan panjang. Peluang hujan saja di jam yang sedang berjalan belum dianggap hujan yang
+  turun, jadi hujan sesudahnya tetap diperingatkan. Malam hari dia diam, dan obrolan yang
+  sedang berjalan tidak pernah dipotong. Internet mati tidak pernah diucapkan, hanya dicatat
+  sekali di log.
+- `waifu rain` menampilkan kapan hujan berikutnya mulai dan selesai dalam 24 jam;
+  `waifu check` menampilkan pengaturannya.
 - Permintaan cuaca ke Open-Meteo kini juga meminta peluang dan curah hujan per jam; sapaan
   pagi tidak berubah.
 - README: "Peringatan hujan".
