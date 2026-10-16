@@ -2653,6 +2653,91 @@ def test_text_before_a_search_stays_one_space_apart_from_the_answer_after_it():
     )
 
 
+def cited(value: str) -> dict:
+    """A piece of an answer that cites a search result, as the API returns it."""
+    return {
+        "type": "text",
+        "text": value,
+        "citations": [
+            {
+                "type": "web_search_result_location",
+                "url": "https://example.com/hsr-47",
+                "title": "HSR 4.7",
+                "encrypted_index": "idx-1",
+                "cited_text": "Version 4.7 arrives on November 12 with Cyrene's banner",
+            }
+        ],
+    }
+
+
+def uncited(value: str) -> dict:
+    return {"type": "text", "text": value}
+
+
+def reply_after_a_search(answer: list[dict]) -> str:
+    """What she says when the real SDK streams a search and then `answer`'s text blocks."""
+    client = sdk_client(sdk_reply([*SEARCHED[:2], *answer], "end_turn"))
+    brain = make_brain(client, web_search=WEB_SEARCH, owner_call="Sayang")
+    return brain.respond("kapan HSR 4.7 rilis?", now=NOW).text
+
+
+@pytest.mark.parametrize(
+    ("answer", "expected"),
+    [
+        (
+            [uncited("Rilisnya "), cited("12 November"), uncited(", Sayang.")],
+            "Rilisnya 12 November, Sayang.",
+        ),
+        (
+            [uncited("Rilisnya "), cited(" 12 November"), uncited(", Sayang.")],
+            "Rilisnya 12 November, Sayang.",
+        ),
+        (
+            [
+                uncited("Rilisnya "),
+                cited("12 November "),
+                uncited(" "),
+                cited("bersama banner Cyrene"),
+                uncited(", Sayang."),
+            ],
+            "Rilisnya 12 November bersama banner Cyrene, Sayang.",
+        ),
+    ],
+    ids=["split_mid_sentence_and_before_punctuation", "both_pieces_spaced", "space_between_cites"],
+)
+def test_a_cited_answer_reads_with_one_space_wherever_its_pieces_meet(answer, expected):
+    assert reply_after_a_search(answer) == expected
+
+
+@pytest.mark.parametrize(
+    ("answer", "expected"),
+    [
+        (
+            [cited("Rilisnya 12 November.\n"), uncited("\n"), uncited("Bannernya Cyrene.")],
+            "Rilisnya 12 November.\n\nBannernya Cyrene.",
+        ),
+        (
+            [uncited("Rilisnya "), cited("12 November. "), uncited("\nBannernya Cyrene.")],
+            "Rilisnya 12 November.\nBannernya Cyrene.",
+        ),
+        (
+            [cited("Rilisnya 12 November.\n"), uncited(" Bannernya Cyrene.")],
+            "Rilisnya 12 November.\nBannernya Cyrene.",
+        ),
+    ],
+    ids=["paragraph_break_between_pieces", "space_then_line_break", "line_break_then_space"],
+)
+def test_a_line_break_where_cited_pieces_meet_stays_a_line_break(answer, expected):
+    # The phone shows her reply with its line breaks.
+    assert reply_after_a_search(answer) == expected
+
+
+def test_an_answer_in_one_text_block_keeps_its_own_text_and_loses_only_its_outer_whitespace():
+    answer = [uncited("\n\nRilisnya 12 November, Sayang.\nMau aku ingatkan nanti?\n")]
+
+    assert reply_after_a_search(answer) == "Rilisnya 12 November, Sayang.\nMau aku ingatkan nanti?"
+
+
 def test_a_paused_search_resumes_with_the_history_ending_in_its_assistant_message():
     paused = [thinking("sig-1"), server_tool_use("srvtoolu_1", "harga RTX 5070")]
     resumed = [web_search_result("srvtoolu_1"), text("Sekitar sepuluh juta, Master.")]

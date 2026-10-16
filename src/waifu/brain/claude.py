@@ -59,7 +59,7 @@ import json
 import logging
 import os
 import time
-from collections.abc import Callable, Collection, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from datetime import datetime
 from itertools import groupby
 from typing import Any
@@ -599,13 +599,13 @@ def _final_text(
 ) -> str:
     """The reply's text, or when it has none, what the tool calls did, said to `owner_call`.
 
-    Adjacent text blocks are one passage the API split at its citations, each piece keeping its
-    own spacing, so they join as they are; passages that other blocks (a search) separate join
-    with a space. Calls held for Master's yes are left out: the gate's question follows the
-    reply, and is the whole reply when every call was held.
+    Adjacent text blocks are one passage the API split at its citations (see `_passage`);
+    passages that other blocks (a search) separate join with a space. Calls held for Master's
+    yes are left out: the gate's question follows the reply, and is the whole reply when every
+    call was held.
     """
     passages = (
-        "".join(block.text for block in blocks).strip()
+        _passage(block.text for block in blocks)
         for is_text, blocks in groupby(content, key=lambda block: block.type == "text")
         if is_text
     )
@@ -619,6 +619,23 @@ def _final_text(
         return ""
     canned = _TOOLS_FAILED if any(call.is_error for call in ran) else _DONE
     return canned.format(owner=owner_call)
+
+
+def _passage(pieces: Iterable[str]) -> str:
+    """The pieces of one passage joined as they are, since each keeps its own spacing, with
+    its ends stripped. Whitespace that both pieces carry where they meet becomes one space, or
+    its line breaks when it holds any; the text inside a piece, its line breaks too, stays as
+    written.
+    """
+    text = ""
+    for piece in pieces:
+        head, tail = text.rstrip(), piece.lstrip()
+        if head != text and tail != piece:
+            junction = text[len(head) :] + piece[: len(piece) - len(tail)]
+            text = head + ("\n" * junction.count("\n") or " ") + tail
+        else:
+            text += piece
+    return text.strip()
 
 
 def billed_attempts(response: BetaMessage, requested_model: str) -> list[tuple[str, TokenUsage]]:
