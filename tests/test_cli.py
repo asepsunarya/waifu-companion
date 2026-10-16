@@ -4453,28 +4453,40 @@ def play_only(home: Path, games: str) -> None:
 
 
 @pytest.mark.parametrize("argv", [["run", "--no-speaker-check"], ["chat"]])
-def test_with_hsr_among_the_games_the_data_tools_follow_the_game_tools_and_read_hoyolab(
-    argv, home, run_fakes, brains, games, watchers, data_sources, monkeypatch
+@pytest.mark.parametrize(
+    ("played", "configured"),
+    [
+        ("[hsr]", ["hsr"]),
+        ("[genshin, zzz]", ["genshin", "zzz"]),
+        ("[zzz, hsr]", ["zzz", "hsr"]),
+    ],
+)
+def test_the_data_tools_follow_the_game_tools_and_read_hoyolab_for_the_configured_games(
+    played, configured, argv, home, run_fakes, brains, games, watchers, data_sources, monkeypatch
 ):
     enable_gacha(home)
-    play_only(home, "[hsr]")
+    play_only(home, played)
     monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
 
     assert cli.main([*argv, "--dry-run"]) == 0
 
-    [tools, data_tools, *_] = brains[0].providers
-    assert (type(tools), type(data_tools)) == (GachaTools, GameDataTools)
+    [tools, data_tools, code_tools, *_] = brains[0].providers
+    assert (type(tools), type(data_tools), type(code_tools)) == (
+        GachaTools,
+        GameDataTools,
+        CodeTools,
+    )
     assert [spec.name for spec in data_tools.specs()] == [
         "game_characters",
         "game_endgame",
         "game_events",
     ]
-    assert data_sources == [(games.hoyolab, ["hsr"])]
+    assert data_sources == [(games.hoyolab, configured)]
 
 
 @pytest.mark.parametrize("argv", [["run", "--no-speaker-check"], ["chat"]])
-def test_without_hsr_among_the_games_there_are_no_data_tools(
-    argv, home, run_fakes, brains, games, watchers, data_sources, monkeypatch
+def test_the_data_tools_offer_only_the_configured_games_and_their_modes(
+    argv, home, run_fakes, brains, games, watchers, monkeypatch
 ):
     enable_gacha(home)
     play_only(home, "[genshin, zzz]")
@@ -4482,18 +4494,16 @@ def test_without_hsr_among_the_games_there_are_no_data_tools(
 
     assert cli.main([*argv, "--dry-run"]) == 0
 
-    assert [type(tools) for tools in brains[0].providers] == [
-        GachaTools,
-        CodeTools,
-        MemoryTools,
-        ScheduleTools,
-        TodoTools,
-        BriefingTools,
-        PcTools,
-        OffersTools,
-        MusicTools,
+    [data_tools] = [p for p in brains[0].providers if isinstance(p, GameDataTools)]
+    endgame = next(spec for spec in data_tools.specs() if spec.name == "game_endgame")
+    assert endgame.input_schema["properties"]["game"]["enum"] == ["genshin", "zzz"]
+    assert endgame.input_schema["properties"]["mode"]["enum"] == [
+        "spiral_abyss",
+        "imaginarium_theater",
+        "stygian_onslaught",
+        "shiyu_defense",
+        "deadly_assault",
     ]
-    assert data_sources == []
 
 
 @pytest.mark.parametrize("argv", [["run", "--no-speaker-check"], ["chat"]])

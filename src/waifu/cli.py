@@ -1714,10 +1714,9 @@ def _game_tools(config: AppConfig, gacha: GachaParts | None) -> list[ToolProvide
             gacha.history,
             config.gacha.games,
             server_utc_offset=config.gacha.server_utc_offset,
-        )
+        ),
+        GameDataTools(gacha.hoyolab, config.gacha.games),
     ]
-    if "hsr" in config.gacha.games:
-        tools.append(GameDataTools(gacha.hoyolab, ["hsr"]))
     if config.redeem_codes.enabled:
         tools.append(CodeTools(_code_store(config), gacha.hoyolab, config.gacha.games))
     return tools
