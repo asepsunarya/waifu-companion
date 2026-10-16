@@ -491,7 +491,7 @@ def test_starting_twice_runs_one_thread():
     assert watcher_threads() == []
 
 
-def test_the_watcher_waits_the_whole_interval_when_a_poll_overruns_it():
+def test_a_poll_that_overruns_the_interval_is_followed_by_the_next_one_at_once():
     # A poll slower than the interval must not make the wait negative.
     read = SignallingRead(disk(V125, V124))
     waits = ShortWaits()
