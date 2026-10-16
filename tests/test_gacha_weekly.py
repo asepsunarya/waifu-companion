@@ -1,17 +1,27 @@
-"""The weekly game report: the facts gathered in code, and their JSON for the brain.
+"""The weekly game report: the facts gathered in code, their JSON, the weekly_report tool, her
+prompt, and the once-a-week timer.
 
 No test reaches HoYoLAB or the history API: the game data source and the history refresh are
 fakes, while the pull history and the redeem codes are the real stores in tmp_path. Every
 clock is fixed; the time-budget tests block a fake on an event they release at their end.
 """
 
+import json
 import logging
+import os
 import threading
 import time
 from datetime import datetime, timedelta, timezone
 
+import ollama
 import pytest
+from anthropic.types.beta import BetaToolParam
 
+from waifu.brain.confirm import is_yes
+from waifu.brain.music_tools import MusicTools
+from waifu.brain.screen_tools import ScreenTools
+from waifu.brain.tools import to_anthropic, to_ollama
+from waifu.config import AssistantConfig, WeeklyReportConfig
 from waifu.gacha.code_store import CodeStore
 from waifu.gacha.game_data import GAME_MODES, Banner, Endgame, GameCalendar, GameEvent
 from waifu.gacha.games import GAMES
@@ -19,7 +29,14 @@ from waifu.gacha.history import GachaRecord, GachaStore, HistoryReport
 from waifu.gacha.hoyolab import GachaError
 from waifu.gacha.starrail import HsrCalendar, HsrEndgame, HsrEvent, HsrWarp
 from waifu.gacha.tools import HISTORY_NOTE
-from waifu.gacha.weekly import gather_weekly_report, report_json
+from waifu.gacha.weekly import (
+    WEEKLY_REPORT_PROMPT,
+    WeeklyReportTimer,
+    WeeklyReportTools,
+    gather_weekly_report,
+    report_json,
+)
+from waifu.screen import ScreenImage
 
 WIB = timezone(timedelta(hours=7))
 SERVER = timezone(timedelta(hours=8))
@@ -28,6 +45,7 @@ HSR, GENSHIN, ZZZ = GAMES["hsr"], GAMES["genshin"], GAMES["zzz"]
 EVERY_GAME = ["hsr", "genshin", "zzz"]
 NO_COOKIE = GachaError("no_cookie", "Cookie HoYoLAB belum diisi.")
 OFFLINE = GachaError("network", "HoYoLAB tidak bisa dihubungi. Cek koneksi internet.")
+HER_NAMES = [AssistantConfig().name, *AssistantConfig().wake_words]
 
 
 def server(text: str) -> datetime:
@@ -823,3 +841,414 @@ def test_the_json_keeps_each_game_small(tmp_path):
     assert len(data["ending_soon"]["banners"]) == 8
     assert len(data["ending_soon"]["events"]) == 10
     assert {len(event["name"]) for event in data["ending_soon"]["events"]} == {60}
+
+
+# --- the tool ------------------------------------------------------------------------------------
+
+
+def make_tools(tmp_path, *, games=EVERY_GAME, store=None, source=None, codes=None, now=NOW):
+    store = store if store is not None else make_store(tmp_path)
+    return WeeklyReportTools(
+        games,
+        history=FakeHistory(store),
+        store=store,
+        source=source if source is not None else FakeSource(),
+        codes=codes,
+        server_utc_offset=8,
+        extra_standard={},
+        now=lambda: now,
+        budget_s=5.0,
+    )
+
+
+def no_cookie_anywhere() -> dict[str, GachaError]:
+    return {f"{game}_{part}": NO_COOKIE for game in EVERY_GAME for part in ("endgame", "calendar")}
+
+
+def test_one_tool_that_takes_no_arguments_so_it_needs_no_strict(tmp_path):
+    [spec] = make_tools(tmp_path).specs()
+
+    assert spec.name == "weekly_report"
+    assert spec.input_schema == {"type": "object", "properties": {}, "additionalProperties": False}
+    claude_tool = to_anthropic(spec)
+    assert claude_tool["strict"] is False
+    assert claude_tool.keys() <= BetaToolParam.__optional_keys__ | BetaToolParam.__required_keys__
+    assert ollama.Tool.model_validate(to_ollama(spec)).function.name == "weekly_report"
+
+
+def test_the_description_says_what_it_holds_when_to_use_it_and_never_to_push_spending(tmp_path):
+    [spec] = make_tools(tmp_path).specs()
+
+    for guidance in [
+        "Honkai: Star Rail = hsr, Genshin Impact = genshin, Zenless Zone Zero = zzz",
+        "the pulls of the last 7 days",
+        "whether the 50/50 was won",
+        "pity",
+        "endgame",
+        "end within 7 days",
+        "your own weekly game report",
+        "when Master asks how their week in these games went",
+        "_problem",
+        "about an hour late",
+        "never suggest pulling, spending money, or topping up",
+    ]:
+        assert guidance in spec.description
+    assert "redeem codes" not in spec.description
+
+
+def test_the_description_names_only_the_configured_games_and_the_codes_when_tracked(tmp_path):
+    codes = CodeStore(tmp_path / "redeem_codes.json")
+    [spec] = make_tools(tmp_path, games=["zzz"], codes=codes).specs()
+
+    assert "Zenless Zone Zero = zzz" in spec.description
+    assert "Star Rail" not in spec.description and "Genshin" not in spec.description
+    assert "the redeem codes not redeemed yet" in spec.description
+
+
+def test_the_spec_is_the_same_at_every_call_for_prompt_caching(tmp_path):
+    tools = make_tools(tmp_path)
+    before = tools.specs()
+
+    tools.run("weekly_report", {})
+
+    assert tools.specs() == before
+
+
+def test_the_report_is_the_weeks_compact_json_up_to_the_clock(tmp_path):
+    result, is_error = make_tools(tmp_path).run("weekly_report", {})
+
+    data = json.loads(result)
+    assert is_error is False
+    assert (data["as_of"], data["since"]) == ("2026-10-18 19:00", "2026-10-11 19:00")
+    assert [game["game"] for game in data["games"]] == EVERY_GAME
+    assert data["games"][0]["pulls_this_week"]["count"] == 36
+    assert '"rarity":"5★"' in result
+
+
+def test_nothing_readable_is_an_error_result_so_her_apology_is_never_said_unasked(tmp_path):
+    tools = make_tools(
+        tmp_path,
+        store=GachaStore(tmp_path / "empty"),
+        source=FakeSource(failures=no_cookie_anywhere()),
+    )
+
+    result, is_error = tools.run("weekly_report", {})
+
+    assert is_error is True
+    data = json.loads(result)
+    assert data["ok"] is False
+    assert data["message"] == (
+        "Laporan game minggu ini tidak bisa dibuat: tidak ada riwayat pull tersimpan dan data "
+        "HoYoLAB tidak terbaca."
+    )
+    assert "Endgame HSR tidak terbaca: Cookie HoYoLAB belum diisi." in data["problems"]
+    assert len(data["problems"]) == len(set(data["problems"]))
+
+
+@pytest.mark.parametrize("arguments", [None, [], "minggu ini", {"game": "hsr"}])
+def test_arguments_are_an_error_result(tmp_path, arguments):
+    result, is_error = make_tools(tmp_path).run("weekly_report", arguments)
+
+    assert is_error is True
+    assert json.loads(result) == {
+        "ok": False,
+        "message": "Argumen weekly_report tidak valid: tool ini tidak menerima argumen; "
+        "kirim objek kosong {}.",
+    }
+
+
+def test_another_tools_name_is_an_error_result(tmp_path):
+    result, is_error = make_tools(tmp_path).run("game_status", {})
+
+    assert is_error is True
+    assert json.loads(result)["ok"] is False
+
+
+def test_a_failing_clock_is_an_error_result_never_an_exception(tmp_path, caplog):
+    def broken_clock() -> datetime:
+        raise OSError("the clock stopped")
+
+    store = make_store(tmp_path)
+    tools = WeeklyReportTools(
+        ["hsr"],
+        history=FakeHistory(store),
+        store=store,
+        source=FakeSource(),
+        codes=None,
+        server_utc_offset=8,
+        extra_standard={},
+        now=broken_clock,
+    )
+
+    with caplog.at_level(logging.ERROR, logger="waifu.gacha.weekly"):
+        result, is_error = tools.run("weekly_report", {})
+
+    assert is_error is True
+    assert json.loads(result) == {
+        "ok": False,
+        "message": "Laporan game minggu ini tidak bisa dibuat saat ini.",
+    }
+    assert "the clock stopped" in caplog.text
+
+
+# --- the prompt ----------------------------------------------------------------------------------
+
+
+def test_the_prompt_says_it_is_her_own_weekly_report_and_names_only_its_tool():
+    assert "bukan ucapan Master" in WEEKLY_REPORT_PROMPT
+    assert "sekali seminggu" in WEEKLY_REPORT_PROMPT
+    assert "Panggil weekly_report saja, tanpa tool lain" in WEEKLY_REPORT_PROMPT
+    assert "3-4 kalimat pendek" in WEEKLY_REPORT_PROMPT
+    for other_tool in ("game_status", "gacha_history", "game_endgame", "game_events"):
+        assert other_tool not in WEEKLY_REPORT_PROMPT
+
+
+def test_the_prompt_tells_only_information_and_never_a_reason_to_spend():
+    assert "jangan pernah menyarankan pull, belanja, atau top up" in WEEKLY_REPORT_PROMPT
+
+
+def test_the_prompt_never_counts_as_master_saying_yes():
+    # The brain hands the prompt to the confirmation gate as this turn's words: a yes here
+    # could confirm a PC shutdown Master was asked about just before the report.
+    assert is_yes(WEEKLY_REPORT_PROMPT, HER_NAMES) is False
+
+
+def test_the_prompt_never_lets_her_look_at_the_screen():
+    captured: list[int] = []
+
+    def capture(max_side: int) -> ScreenImage:
+        captured.append(max_side)
+        return ScreenImage(png=b"\x89PNG", width=1, height=1)
+
+    screen = ScreenTools(capture=capture, names=HER_NAMES)
+
+    screen.begin_turn(WEEKLY_REPORT_PROMPT)
+    result, is_error = screen.run("look_at_screen", {})
+    assert is_error is True
+    assert "tidak meminta melihat layar" in json.loads(result)["message"]
+    assert captured == []
+
+    # The same tools do look when Master's own words ask, so the check above is not vacuous.
+    screen.begin_turn("Cyrene, lihat layarku")
+    assert screen.run("look_at_screen", {})[1] is False
+    assert captured == [1280]
+
+
+def test_the_prompt_never_lets_her_open_a_song():
+    # The report starts by itself, maybe while Master plays a fullscreen game: a browser
+    # opening would take the focus from it (conftest also refuses the real os.startfile).
+    opened: list[str] = []
+    music = MusicTools(service="youtube", names=HER_NAMES, links=True, startfile=opened.append)
+
+    music.begin_turn(WEEKLY_REPORT_PROMPT)
+    result, is_error = music.run("play_youtube", {"query": "lofi"})
+    assert is_error is True
+    assert "tidak meminta lagu" in json.loads(result)["message"]
+    assert opened == []
+
+    # The same tools do open a song when Master's own words ask.
+    music.begin_turn("Cyrene, putar lagu lofi")
+    assert music.run("play_youtube", {"query": "lofi"})[1] is False
+    assert opened == ["https://www.youtube.com/results?search_query=lofi"]
+
+
+# --- the timer -----------------------------------------------------------------------------------
+
+
+class Clock:
+    def __init__(self, start: datetime) -> None:
+        self.current = start
+
+    def __call__(self) -> datetime:
+        return self.current
+
+
+class Requests:
+    """Stands in for `assistant.ask_aloud`: records each prompt and what the state file said
+    at that moment."""
+
+    def __init__(self, state_path, error: Exception | None = None) -> None:
+        self.state_path = state_path
+        self.error = error
+        self.prompts: list[str] = []
+        self.states_seen: list[object] = []
+
+    def __call__(self, prompt: str) -> None:
+        self.prompts.append(prompt)
+        self.states_seen.append(json.loads(self.state_path.read_text(encoding="utf-8")))
+        if self.error is not None:
+            raise self.error
+
+
+SUNDAY_EVENING = datetime(2026, 10, 18, 19, 0)  # the local wall clock, as datetime.now gives it
+
+
+class Weekly:
+    """A timer over a state file in tmp_path, a fake clock, and a fake request."""
+
+    def __init__(self, tmp_path, *, error: Exception | None = None, **config) -> None:
+        self.config = WeeklyReportConfig(state_path=tmp_path / "weekly_report.json", **config)
+        self.state_path = self.config.state_path
+        self.clock = Clock(SUNDAY_EVENING)
+        self.requests = Requests(self.state_path, error)
+        self.restart()
+
+    def restart(self) -> None:
+        """A new timer on the same state file, like `waifu run` started again."""
+        self.timer = WeeklyReportTimer(self.config, request=self.requests, now=self.clock)
+
+    def tick_at(self, moment: datetime) -> None:
+        self.clock.current = moment
+        self.timer.tick_once()
+
+    @property
+    def state(self) -> object:
+        return json.loads(self.state_path.read_text(encoding="utf-8"))
+
+
+def test_the_first_tick_on_sunday_evening_asks_for_the_report_once(tmp_path):
+    weekly = Weekly(tmp_path)
+
+    weekly.tick_at(datetime(2026, 10, 18, 19, 0))
+    weekly.tick_at(datetime(2026, 10, 18, 19, 0, 30))
+    weekly.tick_at(datetime(2026, 10, 18, 23, 59))
+
+    assert weekly.requests.prompts == [WEEKLY_REPORT_PROMPT]
+    assert weekly.state == {"version": 1, "last_date": "2026-10-18"}
+
+
+def test_the_day_is_written_before_the_request_so_a_crash_never_repeats_it(tmp_path):
+    weekly = Weekly(tmp_path)
+
+    weekly.tick_at(SUNDAY_EVENING)
+
+    assert weekly.requests.states_seen == [{"version": 1, "last_date": "2026-10-18"}]
+
+
+@pytest.mark.parametrize(
+    ("moment", "asks"),
+    [
+        (datetime(2026, 10, 18, 0, 0), False),
+        (datetime(2026, 10, 18, 18, 59, 59, 999999), False),
+        (datetime(2026, 10, 18, 19, 0), True),
+        (datetime(2026, 10, 18, 23, 59, 59, 999999), True),
+        (datetime(2026, 10, 19, 0, 0), False),
+        (datetime(2026, 10, 19, 19, 0), False),
+        (datetime(2026, 10, 17, 19, 0), False),
+        (datetime(2026, 10, 17, 23, 59), False),
+    ],
+    ids=[
+        "sunday midnight",
+        "just before time",
+        "exactly time",
+        "last moment of sunday",
+        "monday midnight",
+        "monday at time",
+        "saturday at time",
+        "saturday night",
+    ],
+)
+def test_it_asks_only_on_the_report_day_from_its_time_until_midnight(tmp_path, moment, asks):
+    weekly = Weekly(tmp_path)
+
+    weekly.tick_at(moment)
+
+    assert weekly.requests.prompts == ([WEEKLY_REPORT_PROMPT] if asks else [])
+
+
+def test_a_pc_started_later_on_the_report_day_gets_it_once_also_across_a_restart(tmp_path):
+    weekly = Weekly(tmp_path)
+
+    weekly.tick_at(datetime(2026, 10, 18, 22, 15))
+    weekly.restart()
+    weekly.tick_at(datetime(2026, 10, 18, 22, 45))
+
+    assert weekly.requests.prompts == [WEEKLY_REPORT_PROMPT]
+
+
+def test_a_report_day_the_pc_was_off_is_skipped_until_the_next_week(tmp_path):
+    weekly = Weekly(tmp_path)
+    weekly.state_path.write_text('{"version": 1, "last_date": "2026-10-11"}', encoding="utf-8")
+
+    for day in range(19, 25):  # Monday to Saturday, all day long
+        for hour in (0, 12, 19, 23):
+            weekly.tick_at(datetime(2026, 10, day, hour, 0))
+    assert weekly.requests.prompts == []
+
+    weekly.tick_at(datetime(2026, 10, 25, 19, 0))
+    assert weekly.requests.prompts == [WEEKLY_REPORT_PROMPT]
+
+
+def test_the_next_week_reports_again(tmp_path):
+    weekly = Weekly(tmp_path)
+    weekly.tick_at(datetime(2026, 10, 18, 19, 0))
+
+    weekly.tick_at(datetime(2026, 10, 25, 19, 0))
+    weekly.tick_at(datetime(2026, 10, 25, 19, 1))
+
+    assert weekly.requests.prompts == [WEEKLY_REPORT_PROMPT, WEEKLY_REPORT_PROMPT]
+    assert weekly.state == {"version": 1, "last_date": "2026-10-25"}
+
+
+def test_the_day_and_time_come_from_the_config(tmp_path):
+    weekly = Weekly(tmp_path, day="saturday", time="20:30")
+
+    weekly.tick_at(datetime(2026, 10, 18, 21, 0))  # Sunday
+    weekly.tick_at(datetime(2026, 10, 24, 20, 29))
+    assert weekly.requests.prompts == []
+    weekly.tick_at(datetime(2026, 10, 24, 20, 30))
+    assert weekly.requests.prompts == [WEEKLY_REPORT_PROMPT]
+
+
+def test_a_request_that_fails_is_logged_and_not_retried_that_week(tmp_path, caplog):
+    weekly = Weekly(tmp_path, error=RuntimeError("the voice loop is gone"))
+
+    with caplog.at_level(logging.ERROR):
+        weekly.tick_at(datetime(2026, 10, 18, 19, 0))
+        weekly.tick_at(datetime(2026, 10, 18, 20, 0))
+
+    assert weekly.requests.prompts == [WEEKLY_REPORT_PROMPT]
+    assert "the voice loop is gone" in caplog.text
+
+
+def test_a_corrupt_state_is_moved_aside_and_the_report_still_comes(tmp_path, caplog):
+    weekly = Weekly(tmp_path)
+    weekly.state_path.write_bytes(b"{not json")
+
+    with caplog.at_level(logging.ERROR):
+        weekly.tick_at(SUNDAY_EVENING)
+
+    corrupt = tmp_path / "weekly_report.json.corrupt-20261018-190000"
+    assert corrupt.read_bytes() == b"{not json"
+    assert corrupt.name in caplog.text
+    assert weekly.requests.prompts == [WEEKLY_REPORT_PROMPT]
+    assert weekly.state == {"version": 1, "last_date": "2026-10-18"}
+
+
+def test_a_state_that_cannot_be_saved_never_asks(tmp_path, monkeypatch):
+    weekly = Weekly(tmp_path)
+
+    def failing_replace(src, dst):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(os, "replace", failing_replace)
+    with pytest.raises(OSError, match="disk full"):
+        weekly.tick_at(SUNDAY_EVENING)
+
+    assert weekly.requests.prompts == []
+
+
+def test_the_thread_is_named_ticks_at_once_and_stop_wakes_it_at_once(tmp_path):
+    asked = threading.Event()
+    config = WeeklyReportConfig(state_path=tmp_path / "weekly_report.json")
+    timer = WeeklyReportTimer(
+        config, request=lambda prompt: asked.set(), now=Clock(SUNDAY_EVENING), tick_seconds=3600
+    )
+
+    with timer:
+        assert asked.wait(5)
+        assert any(thread.name == "weekly-report" for thread in threading.enumerate())
+        stopping = time.monotonic()
+
+    assert time.monotonic() - stopping < 1
+    assert not any(thread.name == "weekly-report" for thread in threading.enumerate())

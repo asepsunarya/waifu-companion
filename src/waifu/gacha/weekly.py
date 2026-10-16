@@ -1,5 +1,9 @@
 """Cyrene's weekly game report: Master's week in their HoYoverse games, gathered in code.
 
+`WeeklyReportTimer` asks for her own report once a week, on `weekly_report.day` from
+`weekly_report.time` until midnight, handing `WEEKLY_REPORT_PROMPT` to the brain; the one tool
+her turn calls, `weekly_report`, gives the facts below as compact JSON.
+
 `gather_weekly_report` reads, for each configured game, this week's pulls and the pity from the
 stored pull history (refreshed first, one game after another, and only for a game that already
 has one: a first import is far too slow for a voice turn), this season's endgame and the banners
@@ -13,15 +17,17 @@ the facts are Master's own.
 
 from __future__ import annotations
 
+import json
 import logging
 import math
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, Protocol, TypeVar, cast
+from typing import Any, Protocol, TypeVar, cast, get_args
 
-from waifu.config import GameId
+from waifu.brain.base import ToolSpec
+from waifu.config import GameId, Weekday, WeeklyReportConfig
 from waifu.gacha.codes import RedeemCode
 from waifu.gacha.game_data import (
     GAME_MODES,
@@ -46,11 +52,13 @@ from waifu.gacha.history import (
 from waifu.gacha.hoyolab import GachaError
 from waifu.gacha.starrail import HsrCalendar, HsrEndgame, HsrEvent, HsrWarp
 from waifu.gacha.tools import HISTORY_NOTE, LOCAL_TIME, HistorySource
+from waifu.prompt_timer import PromptTimer
 
 T = TypeVar("T")
 
 logger = logging.getLogger(__name__)
 
+WEEKLY_REPORT = "weekly_report"
 WEEK = timedelta(days=7)
 BUDGET_S = 30.0  # for every read together; one HoYoLAB call alone may take 20 s
 CODES_MAX = 5
@@ -73,6 +81,23 @@ _CALENDAR_FAILED = "Kalender event {short} tidak terbaca: {why}"
 _CODES_FAILED = "Kode redeem {short} tidak terbaca saat ini."
 _OUT_OF_TIME = "waktunya habis."
 _UNEXPECTED = "terjadi kesalahan."
+_NOTHING_READABLE = (
+    "Laporan game minggu ini tidak bisa dibuat: tidak ada riwayat pull tersimpan dan data "
+    "HoYoLAB tidak terbaca."
+)
+_FAILED = "Laporan game minggu ini tidak bisa dibuat saat ini."
+# Her own turn, not Master's words: it holds no look word (the screen tool stays shut), no
+# play verb or music word (the music tool stays shut), and does not start with a yes (the
+# confirmation gate stays shut). It names only weekly_report: the game data tools are for
+# Master's own questions.
+WEEKLY_REPORT_PROMPT = (
+    "Ini bukan ucapan Master: ini laporan game mingguanmu sendiri, yang kamu mulai sendiri "
+    "sekali seminggu. Panggil weekly_report saja, tanpa tool lain, lalu ceritakan minggu Master "
+    "di game-nya dalam 3-4 kalimat pendek yang hangat, seperti teman yang ikut bermain: hasil "
+    "pull minggu ini dan 50/50-nya, pity yang sudah dekat hard pity, progres endgame, dan yang "
+    "berakhir minggu ini. Itu hanya kabar, jadi jangan pernah menyarankan pull, belanja, atau "
+    "top up. Jangan membacakan datanya satu per satu."
+)
 
 
 class StoreSource(Protocol):
@@ -309,6 +334,145 @@ def _codes_section(
     return tuple(code.code for code in unredeemed[:CODES_MAX]), None
 
 
+class _InvalidArguments(Exception):
+    """The model's tool arguments do not match the tool's schema."""
+
+
+def _local_now() -> datetime:
+    return datetime.now().astimezone()
+
+
+class WeeklyReportTools:
+    """A `ToolProvider` for the brain: the week in Master's games in one call."""
+
+    def __init__(
+        self,
+        games: Sequence[str],
+        *,
+        history: HistorySource,
+        store: StoreSource,
+        source: GameDataSource,
+        codes: CodeSource | None,
+        server_utc_offset: int = 8,
+        extra_standard: Mapping[str, Sequence[str]] | None = None,
+        now: Callable[[], datetime] = _local_now,
+        budget_s: float = BUDGET_S,
+    ) -> None:
+        """Without `codes` (the redeem codes are off) the report holds no codes."""
+        self._games = list(games)
+        self._history = history
+        self._store = store
+        self._source = source
+        self._codes = codes
+        self._offset = server_utc_offset
+        self._extra = extra_standard or {}
+        self._now = now
+        self._budget_s = budget_s
+        self._spec = _spec(self._games, codes=codes is not None)
+
+    def specs(self) -> list[ToolSpec]:
+        return [self._spec]
+
+    def run(self, name: str, arguments: object) -> tuple[str, bool]:
+        try:
+            if name == WEEKLY_REPORT:
+                return self._report(arguments)
+        except _InvalidArguments as exc:
+            return _error(f"Argumen {name} tidak valid: {exc}")
+        except Exception:
+            logger.exception("Weekly report tool '%s' failed", name)
+            return _error(_FAILED)
+        return _error(f"Tool '{name}' bukan tool laporan game mingguan.")
+
+    def _report(self, arguments: object) -> tuple[str, bool]:
+        if not isinstance(arguments, Mapping) or arguments:
+            raise _InvalidArguments("tool ini tidak menerima argumen; kirim objek kosong {}.")
+        report = gather_weekly_report(
+            self._games,
+            history=self._history,
+            store=self._store,
+            source=self._source,
+            codes=self._codes,
+            now=self._now(),
+            offset=self._offset,
+            extra_standard=self._extra,
+            budget_s=self._budget_s,
+        )
+        if not report.readable:
+            # An error result: a reply without a successful call is never said by herself.
+            failed = {"ok": False, "message": _NOTHING_READABLE, "problems": _problems(report)}
+            return _to_json(failed), True
+        return _to_json(report_json(report)), False
+
+
+def _spec(games: list[str], *, codes: bool) -> ToolSpec:
+    """Built once from the configured games, so every request sends the same bytes and the
+    prompt cache holds."""
+    names = ", ".join(f"{GAMES[game].name} = {game}" for game in games)
+    unredeemed = ", and the redeem codes not redeemed yet" if codes else ""
+    return ToolSpec(
+        name=WEEKLY_REPORT,
+        description=(
+            f"Master's week in their HoYoverse games ({names}), read now in one call. For each "
+            "game: the pulls of the last 7 days (how many on each banner, and each 5-star, an "
+            "S-rank in ZZZ, with the pulls it took and whether the 50/50 was won, judged from "
+            "the standard pool, so it can be wrong), each banner's pity and whether the next "
+            "5-star is guaranteed, this season's endgame progress in every mode with the "
+            "seasons that end within 7 days, the banners and events that end within 7 days"
+            f"{unredeemed}. Use it for your own weekly game report and when Master asks how "
+            "their week in these games went. Times are local. A part with a `*_problem` could "
+            "not be read: say briefly that it is unavailable and tell the rest; `hint` says how "
+            "to read the whole history. HoYoverse lists pulls about an hour late. Present "
+            "banners and events only as information: never suggest pulling, spending money, or "
+            "topping up."
+        ),
+        input_schema={"type": "object", "properties": {}, "additionalProperties": False},
+    )
+
+
+def _problems(report: WeeklyReport) -> list[str]:
+    """Every problem of the report, each once, in the order of the games and their sections."""
+    found = [
+        problem
+        for week in report.games
+        for problem in (
+            week.pulls_problem,
+            week.endgame_problem,
+            week.calendar_problem,
+            week.codes_problem,
+        )
+        if problem is not None
+    ]
+    return list(dict.fromkeys(found))
+
+
+class WeeklyReportTimer(PromptTimer):
+    """Asks for her weekly game report once on the configured day, the first time `waifu run`
+    is on from the configured time until midnight, from a daemon thread. A report day the PC
+    was off is skipped: the week's report is never said on another day."""
+
+    def __init__(
+        self,
+        config: WeeklyReportConfig,
+        *,
+        request: Callable[[str], None],
+        now: Callable[[], datetime] = datetime.now,
+        tick_seconds: float = 30,
+    ) -> None:
+        day = get_args(Weekday).index(config.day)
+        super().__init__(
+            WEEKLY_REPORT_PROMPT,
+            due=lambda moment: moment.weekday() == day and moment.time() >= config.time,
+            state_path=config.state_path,
+            request=request,
+            what="weekly game report",
+            when=f"on {config.day.capitalize()} from {config.time:%H:%M}",
+            thread_name="weekly-report",
+            now=now,
+            tick_seconds=tick_seconds,
+        )
+
+
 # --- the JSON for the brain ----------------------------------------------------------------
 
 
@@ -443,3 +607,11 @@ def _moment(key: str, when: datetime | None, now: datetime) -> dict[str, object]
 
 def _local(when: datetime, now: datetime) -> str:
     return when.astimezone(now.tzinfo).strftime(LOCAL_TIME)
+
+
+def _error(message: str) -> tuple[str, bool]:
+    return _to_json({"ok": False, "message": message}), True
+
+
+def _to_json(payload: object) -> str:
+    return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
