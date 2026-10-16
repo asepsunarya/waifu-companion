@@ -101,6 +101,7 @@ _ENDGAME_KEYS = frozenset({"game", "mode"})
 _EVENTS_KEYS = frozenset({"game"})
 _ZZZ_RANKS = {"S": 2, "A": 1}  # S-rank agents first
 _WINDOW_GAMES = frozenset({"hsr", "genshin"})  # ZZZ's calendars carry no endgame windows
+_ENDED_GAMES = frozenset({"genshin", "zzz"})  # whose seasons say `ended`: HSR's stay as v1.16's
 
 # What each game's description adds; every one is built only from the configured games.
 _TERMS = {
@@ -458,6 +459,7 @@ def _specs(games: list[str], modes: list[str]) -> list[ToolSpec]:
                 "a name, when it ends with `ends_in_hours`, and whether Master has played it "
                 "this season as `has_data`. "
                 + _per_game(_ENDGAME_FRAGMENTS, games)
+                + _ended_rule(games)
                 + "A mode that could not be read is under `errors` with its message. "
                 + rules
             ),
@@ -500,6 +502,16 @@ def _character_uses(games: list[str]) -> str:
     return (
         f"Use it for a character's {_listing([*asked, 'level', 'stats'], 'or')}, or for which "
         "characters of an element Master owns. "
+    )
+
+
+def _ended_rule(games: list[str]) -> str:
+    """What `ended` means, for the games whose seasons carry it."""
+    if not _ENDED_GAMES.intersection(games):
+        return ""
+    return (
+        "A season already over, before the next one starts, has `ended` true instead of "
+        "`ends_in_hours`, and its figures are from that season. "
     )
 
 
@@ -808,7 +820,7 @@ def _endgame_json(mode: str, endgame: Endgame, now: datetime) -> dict[str, Any]:
         "mode": mode,
         "name": GAME_MODES[MODE_GAMES[mode]][mode],
         **_present(season=endgame.season),
-        **_moment("ends", endgame.ends_at, now),
+        **_season_end(endgame.ends_at, now),
         "has_data": endgame.has_data,
         **_present(
             stars=endgame.stars,
@@ -822,6 +834,15 @@ def _endgame_json(mode: str, endgame: Endgame, now: datetime) -> dict[str, Any]:
         ),
         "stages": [_stage_json(stage) for stage in endgame.stages[:STAGES_MAX]],
     }
+
+
+def _season_end(ends_at: datetime | None, now: datetime) -> dict[str, object]:
+    """When a Genshin or ZZZ season ends, or that it has ended. Between two seasons HoYoLAB may
+    still give the one that ended, with its figures, and a kept season can end before it is
+    read again: 0 hours left would make it a season ending within the hour."""
+    if ends_at is not None and is_over(ends_at, now):
+        return {"ends": _local(ends_at, now), "ended": True}
+    return _moment("ends", ends_at, now)
 
 
 def _stage_json(stage: EndgameStage) -> dict[str, Any]:

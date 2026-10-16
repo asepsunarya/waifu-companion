@@ -2504,6 +2504,44 @@ def test_an_unplayed_mode_gives_only_its_name_and_has_data():
     ]
 
 
+@pytest.mark.parametrize("ended_ago", [timedelta(hours=16), timedelta(0)])
+def test_a_season_already_over_says_it_ended_instead_of_hours_left(ended_ago):
+    """Between two Stygian Onslaught seasons HoYoLAB still gives the one that ended, with its
+    figures: hours left of 0 would make it a season ending within the hour."""
+    ends_at = NOW - ended_ago
+    source = FakeSource(endgames={"stygian_onslaught": replace(STYGIAN_ONSLAUGHT, ends_at=ends_at)})
+
+    data = answer(make_tools(source, ALL_GAMES), GAME_ENDGAME, {"mode": "stygian_onslaught"})
+
+    facts = {key: value for key, value in STYGIAN_ONSLAUGHT_JSON.items() if key != "ends_in_hours"}
+    ends = ends_at.strftime("%Y-%m-%d %H:%M")
+    assert data["modes"] == [{**facts, "ends": ends, "ended": True}]
+
+
+def test_a_season_kept_past_its_end_says_it_ended_when_answering():
+    clock = Clock()
+    ends_soon = replace(DEADLY_ASSAULT, ends_at=NOW + timedelta(minutes=5))
+    tools = GameDataTools(FakeSource(endgames={"deadly_assault": ends_soon}), ALL_GAMES, now=clock)
+
+    before = answer(tools, GAME_ENDGAME, {"mode": "deadly_assault"})["modes"][0]
+    clock.advance(minutes=6)
+    after = answer(tools, GAME_ENDGAME, {"mode": "deadly_assault"})["modes"][0]
+
+    assert (before["ends_in_hours"], "ended" in before) == (1, False)
+    assert ("ends_in_hours" in after, after["ended"]) == (False, True)
+
+
+@pytest.mark.parametrize(("games", "told"), [(HSR, False), (("genshin",), True), (ALL_GAMES, True)])
+def test_the_endgame_description_says_what_an_ended_season_is_for_genshin_and_zzz(games, told):
+    description = spec(make_tools(games=games), GAME_ENDGAME).description
+
+    rule = (
+        "A season already over, before the next one starts, has `ended` true instead of "
+        "`ends_in_hours`, and its figures are from that season. "
+    )
+    assert (rule in description) is told
+
+
 def test_a_mode_keeps_at_most_four_stages():
     stages = tuple(EndgameStage(f"Floor {12 - i}", 9, 9, None, None, None) for i in range(6))
     source = FakeSource(endgames={"spiral_abyss": replace(SPIRAL_ABYSS, stages=stages)})
