@@ -7458,6 +7458,19 @@ def test_run_records_what_it_runs_before_its_startup_delay(run_fakes, code_on_di
     assert code_on_disk.runs == [subprocess.run]  # with git, once, before anything else
 
 
+def test_a_refused_run_leaves_the_running_record_of_the_live_one_alone(
+    home, run_fakes, code_on_disk
+):
+    # Autostart and a manual start, or a double click: the second must not record itself.
+    record_a_run(home, DISK_CODE, pid=4321)
+
+    with InstanceLock(run_fakes.lock):
+        assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 2
+
+    assert read_running(running_file(home)).pid == 4321
+    assert code_on_disk.runs == []  # nor did it run git
+
+
 def test_run_logs_what_it_runs_and_each_part_it_could_not_read(run_fakes, code_on_disk, caplog):
     code_on_disk.disk = CodeVersion(
         (V125,), DISK_HASH, None, datetime(2026, 10, 17, 9, 12), ("Could not read the git commit",)
