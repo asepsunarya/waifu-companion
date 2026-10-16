@@ -1508,6 +1508,8 @@ Yang dia lakukan:
   Genshin dan ZZZ").
 - **Kode redeem.** Kode baru ketiga game diberitahukan lewat suara dan HP, dan ditukarkan
   di HoYoLAB hanya kalau Master minta (lihat "Kode redeem").
+- **Laporan mingguan.** Seminggu sekali dia bercerita sendiri tentang pull, pity, endgame,
+  dan yang segera berakhir di tiap game (lihat "Laporan game mingguan").
 - **Tidak pernah menyarankan top-up** atau membelanjakan uang.
 
 Semuanya hanya jalan selama PC menyala.
@@ -1580,12 +1582,14 @@ waifu gacha status                # stamina, daily, mingguan, ekspedisi, check-i
 waifu gacha checkin               # ambil check-in sekarang (biasanya otomatis)
 waifu gacha history hsr --full    # impor riwayat pertama (1100 pull HSR: sekitar 40 detik)
 waifu gacha codes                 # kode redeem tiap game: yang belum ditukarkan dan hasil terakhir
+waifu gacha report                # laporan 7 hari terakhir tiap game, seperti laporan mingguannya
 waifu gacha hsr characters        # data akun dari Battle Chronicle (juga genshin dan zzz; endgame, events)
 waifu notify-test                 # notifikasi tes ke HP
 ```
 
 Perintah `waifu gacha` tetap jalan walau `gacha.enabled: false`; yang dinyalakan
-`gacha.enabled` adalah tool game untuk otaknya dan pengingat saat `waifu run`.
+`gacha.enabled` adalah tool game untuk otaknya, pengingat, dan laporan mingguan saat
+`waifu run`.
 
 ### Riwayat pull, pity, dan 50/50
 
@@ -1887,6 +1891,106 @@ kosong.
 **Privasi.** Ke `hoyo-codes.seria.moe` hanya dikirim nama game, tanpa cookie atau data
 tentang Master. Penukaran ke HoYoLAB memakai cookie yang sama dengan bagian lain; cookie dan
 UID tidak pernah masuk log atau pesan.
+
+### Laporan game mingguan
+
+Seminggu sekali, bawaannya hari Minggu jam 19.00, selama `waifu run` dan teman main gacha
+menyala, Cyrene bercerita sendiri tentang minggu Master di game yang ada di `gacha.games`,
+dalam 3-4 kalimat seperti teman yang ikut main. Teks yang sama dikirim ke HP kalau notifikasi
+menyala.
+
+```text
+(Minggu 19.00)  Cyrene : "Minggu ini Master dapat Castorice di HSR, jatah guaranteed-nya
+                          dari minggu lalu! Pity Genshin sekarang 71. Memory of Chaos berakhir
+                          Senin dini hari dengan 30 bintang, dan banner Furina juga selesai
+                          Selasa."
+Master : "Cyrene, gimana minggu ini di game-ku?"
+```
+
+Isinya, untuk tiap game:
+
+- **Pull 7 hari terakhir** dari riwayat pull yang tersimpan di `data\gacha\`: jumlahnya per
+  banner, dan tiap 5★ (S-rank di ZZZ) dengan berapa pull-nya dan apakah menang 50/50 (dinilai
+  dari daftar karakter standar, lihat [Riwayat pull, pity, dan
+  50/50](#riwayat-pull-pity-dan-5050)).
+- **Pity** tiap banner dan apakah 5★ berikutnya pasti limited.
+- **Endgame musim ini** (bintang, lantai, skor) dan musim yang berakhir dalam 7 hari.
+- **Banner dan event yang berakhir dalam 7 hari.** Hanya kabar: dia tidak pernah menyarankan
+  pull, belanja, atau top up, dan tidak menyebut berapa yang sudah dihabiskan.
+- **Kode redeem yang belum ditukarkan**, kalau [kode redeem](#kode-redeem) menyala.
+
+Kapan dia melapor:
+
+- **Sekali seminggu, di hari dan jamnya:** dari `weekly_report.time` sampai tengah malam di
+  hari `weekly_report.day` (jam PC), dicek setiap 30 detik. PC dinyalakan jam 21.00 hari itu:
+  dia melapor begitu siap mendengarkan. PC mati seharian di hari itu: minggu itu dilewati, dan
+  tidak disusulkan hari Senin, sesudah reset mingguan game (Senin jam 03.00 WIB).
+- **Tidak pernah dua kali.** Hari laporan terakhir ditulis ke `data\weekly_report.json`
+  sebelum dia mulai, jadi restart di malam yang sama tidak mengulangnya. Untuk mendengarnya
+  lagi (misalnya untuk menguji), hapus file itu lalu jalankan ulang `waifu run` di hari dan
+  jamnya. File yang rusak dipindah ke `weekly_report.json.corrupt-<waktu>`.
+- **Tidak pernah memotong**, sama seperti sapaan pagi: diucapkan di sela kalimat Master,
+  sesudah jendela lanjutan tertutup. Sesudahnya jendela lanjutan terbuka, jadi Master bisa
+  langsung membalas.
+- **Di sesi obrolan baru**, dan tool keuangan menolak di giliran itu, jadi tidak ada angka
+  uang yang terucap atau terkirim ke HP.
+- **Riwayatnya diperbarui dulu**, seperti saat Master bertanya pity, tapi hanya untuk game yang
+  sudah punya riwayat tersimpan. Game yang belum pernah diimpor tidak diimpor di sini (terlalu
+  lama untuk satu giliran): jalankan `waifu gacha history <game> --full` sekali. HoYoverse
+  mencatat pull sekitar satu jam setelahnya, jadi pull barusan belum terhitung.
+- **Paling lama 30 detik** untuk semua bacaan. Bagian yang gagal (HoYoLAB tidak bisa
+  dihubungi, cookie belum diisi, riwayat di game belum dibuka) atau belum selesai dalam 30
+  detik disebut singkat, dan sisanya tetap diceritakan. Kalau tidak ada satu pun yang terbaca,
+  dia diam minggu itu dan tidak ada yang dikirim ke HP.
+- **Hanya selama `waifu run`.** `waifu chat` punya data yang sama untuk ditanya, tapi tidak
+  melapor sendiri.
+
+Dari terminal (juga saat `gacha.enabled: false` atau `weekly_report.enabled: false`), tanpa
+otak:
+
+```powershell
+waifu gacha report   # 7 hari terakhir tiap game; exit code 1 kalau ada bagian yang tidak terbaca
+```
+
+```text
+Laporan game 7 hari terakhir, sejak Minggu, 11-10-2026 19:00
+HSR (Honkai: Star Rail)
+  Pull minggu ini: 36 (Character Event Warp 35, Light Cone Event Warp 1)
+  5★ minggu ini: Castorice (30 pull)
+  Character Event Warp: pity 5/90, berikutnya 50/50, total 95 pull
+  Light Cone Event Warp: pity 1/80, total 1 pull
+  Memory of Chaos: 30 bintang (+2 ekstra), lantai terdalam Stage 12, segera berakhir 2026-10-20 03:00 (1 hari 8 jam lagi)
+  Pure Fiction: belum dimainkan musim ini, berakhir 2026-10-27 03:00 (8 hari 8 jam lagi)
+  Berakhir dalam 7 hari:
+    Bloom of Death (karakter): 5★ Castorice; 4★ Pela, Lynx; berakhir 2026-10-21 14:00 (2 hari 19 jam lagi)
+  Kode belum ditukarkan: tidak ada
+Genshin (Genshin Impact)
+  ✗ Belum ada riwayat Genshin yang tersimpan; jalankan 'waifu gacha history genshin --full' sekali.
+  ...
+Catatan: HoYoverse mencatat pull sekitar satu jam setelahnya, jadi pull barusan mungkin belum ada.
+```
+
+`waifu check` menampilkan `✓ Laporan game mingguan: tiap Minggu jam 19:00` (dengan
+`, juga ke HP` kalau notifikasi menyala), `! Laporan game mingguan: ...; cookie HoYoLAB belum
+diisi (gacha.cookie), jadi endgame dan event tidak terbaca`, atau `! Laporan game mingguan
+mati (...); 'waifu gacha report' tetap bisa dipakai`, tanpa menghubungi HoYoLAB.
+
+Pengaturan (tidak perlu ditulis untuk memakai bawaannya; contohnya ada di
+`config.example.yaml`, dan `waifu run` perlu dijalankan ulang setelah mengubahnya):
+
+```yaml
+weekly_report:
+  enabled: true                       # false: tanpa laporan sendiri dan tanpa tool-nya
+  day: sunday                         # monday, tuesday, wednesday, thursday, friday, saturday, atau sunday
+  time: "19:00"                       # jam PC; 19.00 WIB = 20.00 server Asia, sebelum reset mingguan
+  push: true                          # kirim laporannya juga ke HP (kalau notify menyala)
+  state_path: data/weekly_report.json
+```
+
+**Privasi.** Angka minggu itu (pull, pity, endgame, kode) dikirim ke otaknya (dengan Claude,
+ke API Anthropic, sama seperti saat Master bertanya pity) dan tidak pernah ditulis ke log
+biasa. Kalimat laporannya ke `ntfy.sh` kalau notifikasi HP dan `weekly_report.push` menyala.
+`data\weekly_report.json` hanya menyimpan tanggal laporan terakhir.
 
 ### Pengingat
 
@@ -4190,6 +4294,15 @@ mendengarkan"; jawaban pertama bisa lebih lama karena model Ollama baru dimuat)
 - [ ] Untuk kode yang belum pernah kamu pakai: "Cyrene, iya, tukarkan" (atau `waifu gacha
       codes hsr --redeem`) bilang berhasil, hadiahnya muncul di surat dalam game, dan
       `waifu gacha codes hsr` mencatatnya di "Terakhir dicoba".
+- [ ] `waifu check` menampilkan `✓ Laporan game mingguan: tiap Minggu jam 19:00`.
+- [ ] `waifu gacha report`: pull minggu ini, 50/50-nya, pity, dan bintang endgame tiap game
+      sama dengan di game; banner dan event yang disebut memang berakhir dalam 7 hari.
+- [ ] Laporan mingguan: tulis sementara `weekly_report.day` hari ini dan `time` beberapa menit
+      lagi, hapus `data\weekly_report.json`, lalu jalankan ulang `waifu run`. Pada jamnya dia
+      bercerita sekali dalam 3-4 kalimat tanpa menyuruh pull atau top up dan tanpa angka uang,
+      teksnya masuk ke HP, dan log menampilkan `Tool weekly_report` tanpa `Tool game_endgame`
+      atau `Tool finance_summary`. Restart sesudahnya tidak mengulangnya. Kembalikan
+      pengaturannya.
 
 **Data akun HSR** (lihat [Data akun HSR](#data-akun-hsr-karakter-endgame-dan-event))
 
@@ -4537,6 +4650,10 @@ di sampingnya)
   cookie milikmu, hanya saat Master minta (atau dengan `auto_redeem`). Kode, hadiah, dan hasil
   penukarannya ada di `data\redeem_codes.json`, hanya di PC ini; pemberitahuannya ke `ntfy.sh`
   kalau notifikasi HP menyala. Lihat [Kode redeem](#kode-redeem).
+- **Laporan game mingguan:** pull, pity, endgame, dan kode minggu itu ke otaknya (dengan
+  Claude, ke API Anthropic), tidak pernah ke log biasa; kalimat laporannya ke `ntfy.sh` kalau
+  notifikasi HP dan `weekly_report.push` menyala. `data\weekly_report.json` hanya menyimpan
+  tanggal laporan terakhir. Lihat [Laporan game mingguan](#laporan-game-mingguan).
 - **Ingatan Cyrene** (hal yang dia ketahui tentang Master) ada di `data\memory.json`,
   hanya di PC ini; rahasia seperti kata sandi atau nomor kartu tidak pernah disimpan.
   Lihat [Privasi ingatan](#privasi-ingatan).

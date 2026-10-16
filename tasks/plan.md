@@ -487,14 +487,14 @@ that already have one), this season's endgame and what ends within 7 days from t
 HoYoLAB calls the game data tools make, and the unredeemed codes, each section failing on its
 own inside a 30 s budget. The finance tools refuse in that turn as in the morning greeting.
 No new dependency; `waifu gacha report` prints the facts.
-- [ ] Task 126a: contract: SPEC, tasks, `WeeklyReportConfig`
-- [ ] Task 126: `pulls_since` and the facts gatherer (`gacha/weekly.py`)
-- [ ] Task 127: `PromptTimer` refactor, `weekly_report` tool, `WEEKLY_REPORT_PROMPT`, `WeeklyReportTimer`, finance guard
-- [ ] Task 128: wiring in `run`/`chat`, `waifu gacha report`, check line, example config
-- [ ] Task 129: README, CHANGELOG
+- [x] Task 126a: contract: SPEC, tasks, `WeeklyReportConfig`
+- [x] Task 126: `pulls_since` and the facts gatherer (`gacha/weekly.py`)
+- [x] Task 127: `PromptTimer` refactor, `weekly_report` tool, `WEEKLY_REPORT_PROMPT`, `WeeklyReportTimer`, finance guard
+- [x] Task 128: wiring in `run`/`chat`, `waifu gacha report`, check line, example config
+- [x] Task 129: README, CHANGELOG
 
 ### Checkpoint: Laporan game mingguan
-- [ ] Python suite and ruff clean; no test reached HoYoLAB or the history API, slept for real, spoke, or pushed
+- [x] Python suite and ruff clean; no test reached HoYoLAB or the history API, slept for real, spoke, or pushed (2026-10-17: 7495 pytest)
 - [ ] On the owner's PC: `waifu gacha report` agrees with the games' own history and endgame screens; on Sunday at 19:00 she says the round-up once (and the phone gets it), never names money, and a restart that evening stays quiet
 
 ## Risks and Mitigations

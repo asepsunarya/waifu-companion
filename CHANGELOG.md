@@ -4,6 +4,26 @@ Ringkasan per versi, yang terbaru di atas. Rinciannya ada di README (bagian yang
 setiap versi) dan di SPEC.md. Setelah memperbarui, **mulai ulang `waifu run`** supaya semuanya
 aktif, lalu jalankan `waifu check`.
 
+## v1.27: laporan game mingguan
+
+- Seminggu sekali, bawaannya Minggu jam 19.00, Cyrene bercerita sendiri tentang minggu Master
+  di HSR, Genshin, dan ZZZ dalam 3-4 kalimat seperti teman yang ikut main: pull 7 hari
+  terakhir dan 50/50-nya, pity yang sudah dekat, progres endgame musim ini, dan endgame,
+  banner, serta event yang berakhir dalam 7 hari. Kalimat yang sama dikirim ke HP kalau
+  notifikasi menyala (`weekly_report.push: true`). Hari dan jamnya bisa diatur di bagian
+  `weekly_report` baru; laporannya hanya ada kalau teman main gacha menyala.
+- Hanya kabar: dia tidak pernah menyarankan pull, belanja, atau top up, dan tool keuangan
+  menolak di giliran itu, jadi tidak ada angka uang yang terucap atau terkirim.
+- Sekali seminggu: restart di malam yang sama tidak mengulangnya, `waifu run` yang baru menyala
+  sesudah jamnya tetap melapor hari itu, dan hari yang terlewat seluruhnya tidak disusulkan.
+  Riwayat pull diperbarui dulu untuk game yang sudah punya riwayat tersimpan; bagian yang tidak
+  terbaca (HoYoLAB, cookie, riwayat yang belum diimpor) disebut singkat dan sisanya tetap
+  diceritakan, dengan semua bacaan dibatasi 30 detik.
+- "Cyrene, gimana minggu ini di game-ku?" memakai data yang sama, juga di `waifu chat`.
+- `waifu gacha report` baru menampilkan laporannya tanpa otak, juga saat `gacha.enabled:
+  false`; `waifu check` menampilkan hari dan jamnya.
+- README: "Laporan game mingguan".
+
 ## v1.26: versi baru
 
 - `waifu run` yang dibiarkan menyala berhari-hari kini memberi tahu sendiri kalau ada versi baru
