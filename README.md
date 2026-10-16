@@ -37,6 +37,7 @@ Cyrene : "Komputer mau kumatikan sekarang, Master? Jawab iya kalau jadi." (minta
 - [Jadwal, pengingat, dan rutinitas](#jadwal-pengingat-dan-rutinitas)
 - [Daftar tugas](#daftar-tugas)
 - [Musik, volume, dan aplikasi PC](#musik-volume-dan-aplikasi-pc)
+- [Lagu di YouTube](#lagu-di-youtube)
 - [Melihat layar](#melihat-layar)
 - [Sapaan pagi dan ringkasan harian](#sapaan-pagi-dan-ringkasan-harian)
 - [Biaya API Claude](#biaya-api-claude)
@@ -135,6 +136,10 @@ Daftar tugas menambah tool `add_task`, `list_tasks`, `complete_task`, `reopen_ta
 `remove_task`, dan `edit_task` yang mengubah `data\todo.json`; tugas yang tenggatnya hari ini
 atau sudah lewat ikut masuk ke `daily_briefing` untuk sapaan pagi.
 
+Lagu di YouTube menambah tool `play_youtube` yang membuka halaman lagu di YouTube di browser
+default, hanya di giliran yang kalimat Master-nya meminta lagu atau musik, dan hanya alamat
+YouTube.
+
 Cyrene di HP (opsional) menambah server kedua di `127.0.0.1` selama `waifu run`, yang
 dibagikan ke HP lewat `tailscale serve`: teks atau rekaman dari HP masuk ke otak yang sama
 (satu giliran pada satu waktu, bergantian dengan mic PC), dan jawabannya disuarakan untuk HP,
@@ -142,8 +147,9 @@ tidak di speaker PC. Selama kamera di halaman HP terbuka, pesan itu membawa satu
 masuk ke otak Claude bersama kalimatnya, hanya untuk giliran itu.
 
 Kode ada di `src/waifu/`: `devices/`, `brain/`, `voice/`, `avatar/`, `gacha/`, `phone/`, lalu
-`memory.py`, `schedule.py`, `routines.py`, `scheduler.py`, `todo.py`, `notify.py`, `gate.py`,
-`app.py`, dan `cli.py` yang menyatukan semuanya. Detail kontrak tiap modul ada di `SPEC.md`.
+`memory.py`, `schedule.py`, `routines.py`, `scheduler.py`, `todo.py`, `music.py`, `notify.py`,
+`gate.py`, `app.py`, dan `cli.py` yang menyatukan semuanya. Detail kontrak tiap modul ada di
+`SPEC.md`.
 
 ## Instalasi
 
@@ -621,8 +627,9 @@ waifu speaker-test    # skor kecocokan langsung, Ctrl+C untuk berhenti
 | `waifu usage` / `waifu usage --month 2026-09` | Perkiraan biaya API Claude per hari bulan ini atau bulan lain (lihat [Biaya API Claude](#biaya-api-claude)) |
 | `waifu phone setup` / `pair` / `devices` / `forget <id>` | Siapkan Cyrene di HP lewat Tailscale, pasangkan HP dengan kode, lihat dan lupakan HP (lihat [Cyrene di HP](#cyrene-di-hp)) |
 | `waifu pc` | Tampilkan kondisi PC saat ini: beban CPU, RAM, sisa disk, GPU NVIDIA, dan waktu sejak Windows terakhir di-restart (lihat [Kesehatan PC](#kesehatan-pc)) |
+| `waifu youtube <link atau judul lagu>` | Buka video atau playlist YouTube itu, atau halaman pencarian YouTube untuk judulnya, di browser default (lihat [Lagu di YouTube](#lagu-di-youtube)) |
 | `waifu offers` / `offers games` / `offers ai` | Game gratis dan promo AI yang tersimpan, dengan linknya; `waifu offers ai --scan` mencari promo AI sekarang dengan Claude (berbayar) (lihat [Pencarian web dan promo gratis](#pencarian-web-dan-promo-gratis)) |
-| `waifu check` | Periksa config, kode IR, aplikasi PC, rutinitas, voiceprint, otak, ingatan, jadwal, daftar tugas, sapaan pagi, biaya API, kesehatan PC, pencarian web, promo gratis, paket suara, CUDA, mic, suara anime, avatar, dan Cyrene di HP |
+| `waifu check` | Periksa config, kode IR, aplikasi PC, rutinitas, voiceprint, otak, ingatan, jadwal, daftar tugas, lagu YouTube, sapaan pagi, biaya API, kesehatan PC, pencarian web, promo gratis, paket suara, CUDA, mic, suara anime, avatar, dan Cyrene di HP |
 
 Opsi untuk semua perintah: `--config <file>` (default `config.yaml`), `--dry-run`
 (perangkat simulasi), `-v` (log lebih rinci), `--log-file <file>` (log juga ditulis
@@ -638,6 +645,8 @@ Contoh kalimat saat `waifu run`:
 - "Matikan TV, Cyrene." (nama boleh di mana saja dalam kalimat)
 - "Cyrene, pause musiknya." / "Cyrene, buka Spotify." (lihat
   [Musik, volume, dan aplikasi PC](#musik-volume-dan-aplikasi-pc))
+- "Cyrene, putar lagu Hope Is the Thing With Feathers." (lihat
+  [Lagu di YouTube](#lagu-di-youtube))
 - "Cyrene?" saja: dia menjawab "はい、Master?" dan menunggu perintah berikutnya.
 - Setelah dia menjawab, selama 8 detik (`assistant.followup_seconds`) kamu bisa
   lanjut tanpa memanggil namanya: "terus nyalakan TV juga".
@@ -2253,9 +2262,10 @@ routines:
   satu nama di daftar itu dan membuka isinya: program `.exe` atau URL launcher persis seperti
   tertulis, atau shortcut `.lnk`/`.url` beserta apa pun yang ditunjuknya. Jadi daftarkan
   hanya shortcut yang kamu buat sendiri atau percayai.
-- Dia tidak mengetik atau mengklik di dalam aplikasi, tidak memilih lagu atau playlist,
-  tidak mengatur volume per aplikasi, tidak membaca volume yang sedang dipakai, dan tidak
-  memainkan game (macro melanggar ketentuan HoYoverse).
+- Dia tidak mengetik atau mengklik di dalam aplikasi, tidak memilih lagu atau playlist di
+  dalam aplikasi (lagu di YouTube dibuka di browser; lihat
+  [Lagu di YouTube](#lagu-di-youtube)), tidak mengatur volume per aplikasi, tidak membaca
+  volume yang sedang dipakai, dan tidak memainkan game (macro melanggar ketentuan HoYoverse).
 
 ### Pemecahan masalah musik dan aplikasi
 
@@ -2286,6 +2296,148 @@ routines:
   atau jendela lain, lalu coba lagi.
 - **"Windows menolak tombol medianya".** Windows sedang memblokir input, misalnya layar
   terkunci atau jendela izin administrator sedang terbuka.
+
+## Lagu di YouTube
+
+Cyrene bisa memutarkan lagu: dia membuka halaman YouTube lagu itu di browser default PC ini,
+tempat lagunya langsung diputar. Fitur ini sudah menyala dari awal (`music.enabled: true`) di
+`waifu run` dan `waifu chat`, dengan otak Claude maupun Ollama. Spotify tidak didukung.
+
+```text
+Master : "Cyrene, putar lagu Hope Is the Thing With Feathers."
+Cyrene : "Sudah kubuka di YouTube, Master. Selamat mendengarkan!"
+Master : "Cyrene, puterin playlist lofi buat belajar."
+Master : "Cyrene, pause musiknya."             (tombol media, lewat perangkat musik)
+```
+
+### Contoh kalimat
+
+- **Memutar:** "Cyrene, putar lagu Hope Is the Thing With Feathers.", "Cyrene, puterin
+  playlist lofi buat belajar.", "Cyrene, play Hoyo-Mix Cyrene theme.", "Cyrene, mainkan OST
+  Honkai Star Rail."
+- **Jeda, lagu berikutnya, dan volume:** "Cyrene, pause musiknya.", "lagu berikutnya",
+  "kecilin volumenya", "pindah lagu". Ini tombol media dan volume Windows lewat perangkat musik
+  `type: media` (lihat [Musik, volume, dan aplikasi PC](#musik-volume-dan-aplikasi-pc)), jadi
+  tambahkan dulu perangkat itu di `config.yaml`. Chrome dan Edge menanggapi tombol media seperti
+  pemutar lain. Kalimat seperti ini tidak pernah membuka halaman lagu, juga kalau perangkat
+  musik belum ada; hanya kata putar di kalimat yang sama yang meminta lagu ("matiin musik ini,
+  puterin lofi aja"), dan tidak pernah bersama kata berikutnya atau sebelumnya ("putar lagu
+  berikutnya" tetap tombol media).
+
+### Dengan Claude atau Ollama
+
+- **Dengan otak Claude** dan [pencarian web](#pencarian-web) menyala, dia mencari dulu halaman
+  YouTube lagu itu di web, lalu membuka video atau playlist yang tepat. Biasanya cukup satu
+  pencarian web, yang biayanya biasanya beberapa sen dolar: 1 sen untuk pencariannya (10 dolar
+  per 1000 pencarian) ditambah token hasil pencarian (lihat biaya di
+  [Pencarian web](#pencarian-web)), tercatat di `waifu usage`.
+- **Dengan Ollama** (atau pencarian web mati), dia tidak bisa mencari link lagu, jadi dia tidak
+  pernah diberi link: yang dibuka selalu halaman pencarian YouTube untuk judul itu, dan dia
+  bilang begitu. Master yang memilih lagunya. Link yang otaknya karang sendiri tidak pernah
+  dibuka; link yang Master ketik di `waifu chat` atau dari HP juga hanya membuka halaman
+  pencarian, jadi untuk link pakai [`waifu youtube`](#dari-terminal-waifu-youtube).
+- **Dengan Claude**, kalau link yang tepat tidak ketemu, atau link yang dia berikan bukan video
+  atau playlist YouTube, yang dibuka juga halaman pencarian YouTube.
+- Link tidak pernah dibacakan; dia cukup bilang apa yang dibuka.
+
+### Hanya kalau diminta, hanya YouTube
+
+- Halaman hanya dibuka kalau **kalimat Master di giliran itu juga** lolos pemeriksaan kata ini:
+  - Kalimat yang mencari atau bertanya tidak pernah lolos, apa pun kata lainnya: `cari`,
+    `carikan`, `cariin`, `nyari`, `nyariin`, `mencari`, `search`, `info`, `berita`, `lirik`,
+    `lyrics`, `harga`, `judul`, `penyanyi`, `siapa`, `apa`, `apakah`, `kapan`, `kenapa`,
+    `mengapa`, `bagaimana`, `gimana`, `berapa`. Kalimat seperti ini membuatnya membaca web, dan
+    di situ `play` sering berarti main game dan `dengerin` berarti mendengarkan orang.
+  - Kalimat yang meminta lagu berikutnya atau sebelumnya juga tidak pernah lolos: `next`,
+    `berikutnya`, `selanjutnya`, `previous`, `prev`, `sebelumnya`.
+  - Selain itu, kalimat lolos kalau memuat kata putar (`putar`, `puterin`, `putarkan`,
+    `mainkan`, `mainin`, `setelin`, `play`, `dengerin`), atau menyebut `lagu`, `musik`, `music`,
+    `playlist`, atau `youtube` tanpa kata tombol media atau volume (`pause`, `jeda`, `jedain`,
+    `stop`, `berhenti`, `hentikan`, `matikan`, `matiin`, `off`, `lanjut`, `lanjutkan`,
+    `lanjutin`, `resume`, `skip`, `lewati`, `lewatin`, `pindah`, `volume`, `kecilkan`,
+    `kecilin`, `besarkan`, `besarin`, `gedein`, `pelankan`, `pelanin`, `keraskan`, `kerasin`,
+    `down`, `up`, `mute`).
+  - Kata pencarian, pertanyaan, berikutnya, dan tombol media juga dihitung dengan akhiran `-nya`
+    (`liriknya`, `volumenya`); kata putar dan kata lagu tidak, jadi "lagunya bagus ya" hanya
+    komentar.
+
+  Jadi "putar lagu ...", "setel lagu yang semangat", dan "aku mau musik" membuka lagu, tapi
+  "cari lirik lagu ...", "siapa yang nyanyi lagu ...", "lagu berikutnya", "pindah lagu",
+  "setel AC ke 24", dan "kamu dengar aku?" tidak. "Cari lagu lofi terus putar" dan "putar lagu
+  apa aja" tetap membuka lagu (kata cari bersama kata putar dan kata lagu berarti "carikan lalu
+  putar"; "apa aja" berarti "apa saja"), tapi "sebelum aku play Genshin, cari kode redeem" tidak.
+  Permintaan yang juga bertanya, misalnya "lagu apa yang lagi hits? putar", tidak membuka apa pun:
+  ulangi tanpa pertanyaannya. Namanya dan kata panggilannya (`assistant.wake_words`)
+  tidak dihitung, dan permintaan di kalimat sebelumnya tidak berlaku untuk kalimat berikutnya.
+- Kode Cyrene sendiri yang memeriksa kata-kata itu, apa pun keinginan otaknya. Pemeriksaannya
+  hanya mencocokkan kata, bukan arti. Di giliran yang kalimatnya tidak lolos (termasuk setiap
+  kalimat dengan kata pertanyaan di atas, dan kata pencarian tanpa kata putar dan kata lagu), halaman web yang dia baca tidak bisa
+  membuatnya membuka apa pun. Kalimat yang lolos bisa saja hanya komentar atau pertanyaan tanpa
+  kata-kata itu ("ada lagu yang enak nggak?"); di giliran seperti itu, sama seperti di
+  permintaan lagu, halaman web yang dia baca masih bisa memengaruhi halaman YouTube mana yang
+  dibuka, tapi tetap hanya satu halaman YouTube.
+- Paling banyak satu halaman untuk setiap kalimat. Kalau otaknya meminta halaman kedua di
+  kalimat yang sama, tidak ada yang dibuka lagi, dan itu tidak dihitung gagal.
+- **Hanya alamat YouTube yang dibuka:** video (`youtube.com/watch?v=...` atau `youtu.be/...`)
+  atau playlist (`youtube.com/playlist?list=...`) lewat `https` di `www.youtube.com`,
+  `youtube.com`, `m.youtube.com`, `music.youtube.com`, atau `youtu.be`, dan halaman pencarian
+  yang dibuat kode Cyrene sendiri. Situs lain, alamat yang mirip YouTube, Shorts, dan channel
+  tidak dibuka; halaman pencarian YouTube dibuka sebagai gantinya.
+- **Membuka browser mengambil fokus dari game** yang sedang dimainkan: jendela browser muncul
+  di depan, dan game layar penuh bisa ter-minimize. Karena itu dia hanya membukanya kalau
+  diminta.
+- Dia tidak mengunduh lagu, tidak memutarnya lewat suaranya sendiri, tidak memakai API key
+  YouTube, dan tidak mengendalikan browser selain membuka halaman; tab-nya ditutup sendiri.
+
+### YouTube Music
+
+Dengan `music.service: youtube_music`, lagu, playlist, dan pencariannya dibuka di YouTube Music
+(`music.youtube.com`), juga link `youtube.com` atau `youtu.be` yang dia temukan.
+
+### Dari terminal: `waifu youtube`
+
+```powershell
+waifu youtube https://youtu.be/<kode-video>      # buka video atau playlist YouTube itu
+waifu youtube hope is the thing with feathers    # buka halaman pencarian YouTube
+```
+
+Link video atau playlist YouTube dibuka langsung, tanpa bagian tambahan seperti `t=` atau
+`si=`; kata lain, juga link yang bukan YouTube, membuka halaman pencarian. Di PowerShell, link
+yang memuat `&` harus di antara tanda kutip. Perintahnya menampilkan alamat yang dibuka:
+
+```text
+✓ Pencarian dibuka di YouTube: https://www.youtube.com/results?search_query=hope+is+the+thing+with+feathers
+```
+
+Perintah ini tetap jalan walau `music.enabled: false` (yang dimatikan hanya tool lagu
+Cyrene). Kalau Windows gagal membuka browser, perintahnya menampilkan
+`✗ Browser tidak bisa dibuka: ...`.
+
+### Mengatur dan mematikannya
+
+`waifu check` menampilkan `✓ Lagu YouTube: aktif (YouTube)` (atau `(YouTube Music)`), atau
+`! Lagu YouTube mati`; tidak ada yang dibuka. Bagian ini tidak perlu ditulis untuk memakai
+bawaannya; untuk mengubahnya, tulis di `config.yaml` (contohnya ada di `config.example.yaml`):
+
+```yaml
+music:
+  enabled: true      # false: tanpa tool lagu (`waifu youtube` tetap jalan)
+  service: youtube   # youtube | youtube_music
+```
+
+Jalankan ulang `waifu run` setelah mengubahnya.
+
+### Privasi lagu
+
+- Dengan Claude, judul lagu yang Master minta menjadi kata kunci pencarian web Anthropic,
+  seperti pencarian web lainnya (lihat
+  [Privasi pencarian dan promo](#privasi-pencarian-dan-promo)).
+- Halamannya dibuka di browser default seperti saat Master membukanya sendiri: YouTube
+  melihatnya bersama akun Google yang login di browser itu, dan riwayat tontonannya tercatat di
+  sana.
+- Cyrene tidak menyimpan lagu yang diminta. Log mencatat kalimat Master (`Heard ...`) dan,
+  dengan Claude, setiap tool call beserta argumennya (`Tool play_youtube ...`: judul dan link
+  lagunya), seperti tool lainnya.
 
 ## Melihat layar
 
@@ -3083,8 +3235,8 @@ dan lainnya) yang bisa langsung diklaim gratis atau perlu mendaftar. Selama `wai
 sendiri saat ada yang baru, dan mengirim linknya ke HP kalau notifikasi menyala.
 
 **Dia hanya memberi tahu.** Cyrene tidak pernah mengklaim game, mendaftar program, login ke akun,
-atau membeli apa pun untuk Master, tidak pernah membuka link di PC, dan tidak pernah menyarankan
-membayar. Mengklaim dan mendaftar selalu dilakukan Master sendiri.
+atau membeli apa pun untuk Master, tidak pernah membuka link promo di PC, dan tidak pernah
+menyarankan membayar. Mengklaim dan mendaftar selalu dilakukan Master sendiri.
 
 **Setelah memperbarui ke versi ini, jalankan ulang `waifu run` dulu** sebelum memakai
 `waifu chat` dengan Claude atau `waifu offers ai --scan`. `waifu run` versi lama yang masih
@@ -3580,6 +3732,28 @@ untuk `ac` harus sudah dipelajari.)
 - [ ] "Cyrene, pause musiknya jam 11 malam": dia tidak menjadwalkan `play_pause`, tapi
       `stop` (cek dengan `waifu schedule list`, lalu batalkan).
 
+**Lagu di YouTube** (lihat [Lagu di YouTube](#lagu-di-youtube); jangan sedang main game)
+
+- [ ] `waifu check` menampilkan `✓ Lagu YouTube: aktif (YouTube)`.
+- [ ] `waifu youtube lofi buat belajar`: halaman pencarian YouTube terbuka di browser default.
+      `waifu youtube` dengan link video YouTube yang kamu salin dari tombol Share: video itu
+      terbuka dan diputar.
+- [ ] Dengan otak Claude: "Cyrene, putar lagu Hope Is the Thing With Feathers": video lagu itu
+      terbuka dan diputar, dia tidak membacakan linknya, dan `waifu usage` menghitung pencarian
+      webnya.
+- [ ] Dengan otak Ollama: kalimat yang sama membuka halaman pencarian YouTube, dan dia bilang
+      begitu.
+- [ ] Dengan perangkat musik (`type: media`): "Cyrene, pause musiknya" menjeda lagu di browser,
+      "lagu berikutnya" pindah lagu. Tanpa perangkat itu, "Cyrene, lagu berikutnya" tidak
+      membuka halaman apa pun.
+- [ ] "Cyrene, cari berita terbaru soal Hoyo-Mix" (tanpa kata putar, lagu, atau musik): tidak ada
+      halaman yang terbuka.
+- [ ] Dengan otak Claude: "Cyrene, cari lirik lagu Hope Is the Thing With Feathers" (bertanya
+      soal lagu, tanpa kata putar): dia mencari di web dan menjawab, dan tidak ada halaman yang
+      terbuka.
+- [ ] Dengan `music.service: youtube_music` dan `waifu run` yang dijalankan ulang, lagu yang
+      diminta terbuka di YouTube Music.
+
 **Melihat layar** (otak Claude; buka dulu sesuatu yang tidak pribadi di monitor utama, misalnya
 halaman tim di game atau sebuah error)
 
@@ -3746,6 +3920,10 @@ halaman tim di game atau sebuah error)
 - **Daftar tugas** ada di `data\todo.json`, hanya di PC ini; rahasia seperti kata sandi atau
   nomor kartu tidak pernah disimpan. Lihat
   [File data\todo.json dan privasi tugas](#file-datatodojson-dan-privasi-tugas).
+- **Lagu di YouTube:** dengan Claude, judul lagu yang diminta menjadi kata kunci pencarian web
+  Anthropic; halamannya dibuka di browser default seperti biasa, jadi YouTube melihatnya bersama
+  akun Google di browser itu. Lagunya tidak disimpan Cyrene. Lihat
+  [Privasi lagu](#privasi-lagu).
 - **Catatan biaya API** (jumlah token dan biaya per hari, tanpa isi obrolan) ada di
   `data\usage.json`, hanya di PC ini. Pemberitahuan anggaran juga dikirim ke `ntfy.sh` kalau
   notifikasi HP menyala. Lihat [File data\usage.json](#file-datausagejson).

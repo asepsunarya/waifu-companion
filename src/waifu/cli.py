@@ -55,6 +55,7 @@ from waifu.brain.attachments import CameraTurn, TurnImages
 from waifu.brain.base import Brain, ToolCallRecord
 from waifu.brain.factory import build_brain
 from waifu.brain.memory_tools import MemoryTools
+from waifu.brain.music_tools import MusicTools
 from waifu.brain.offers_tools import OffersTools
 from waifu.brain.pc_tools import PcTools
 from waifu.brain.persona import WEEKDAYS_ID
@@ -118,6 +119,7 @@ from waifu.gacha.tools import GachaTools
 from waifu.gacha.watcher import GachaWatcher
 from waifu.gate import WakeGate
 from waifu.memory import MemoryStore, memory_prompt_section
+from waifu.music import MusicService, open_in_browser, open_link, search_link, youtube_link
 from waifu.notify import Notifier, build_notifier
 from waifu.offers.checks import official_link
 from waifu.offers.errors import OffersError
@@ -337,6 +339,16 @@ AI_KIND_TEXT = {
     "other": "program lain",
 }
 AI_ACCESS_TEXT = {"claim": "bisa langsung diklaim", "apply": "perlu mendaftar"}
+YOUTUBE_DESCRIPTION = (
+    "Buka lagu di browser default: link video atau playlist YouTube (youtube.com atau youtu.be) "
+    "dibuka langsung, kata lain membuka halaman pencarian YouTube (YouTube Music dengan "
+    "music.service: youtube_music). Perintah ini jalan walau music.enabled: false; yang "
+    "dimatikan music.enabled hanyalah tool lagu Cyrene."
+)
+MUSIC_SERVICE_NAMES: dict[MusicService, str] = {
+    "youtube": "YouTube",
+    "youtube_music": "YouTube Music",
+}
 # Organization-level API keys must name a workspace on every request (see brain.claude).
 CLAUDE_WORKSPACE_HEADER = "anthropic-workspace-id"
 REPEAT_TEXT: dict[Repeat, str] = {
@@ -482,6 +494,19 @@ def build_parser() -> argparse.ArgumentParser:
         "pc",
         _pc,
         "Tampilkan kondisi PC: beban CPU, RAM, sisa disk, GPU NVIDIA, dan waktu sejak restart.",
+    )
+    youtube = commands.add_parser(
+        "youtube",
+        parents=[shared],
+        help="Buka lagu di YouTube: link video atau playlist, atau judul lagunya.",
+        description=YOUTUBE_DESCRIPTION,
+    )
+    youtube.set_defaults(handler=_youtube)
+    youtube.add_argument(
+        "words",
+        nargs="+",
+        metavar="lagu",
+        help="link video atau playlist YouTube, atau judul lagu dan penyanyinya",
     )
     offers_command = commands.add_parser(
         "offers",
@@ -1073,8 +1098,8 @@ def _companion_brain(
     """The brain with the game tools when they are on, her long-term memory when it is on,
     then her schedule when it is on, Master's to-do list when it is on, the day's briefing when
     it is on, with `pc` how the PC is doing, the free offers when they are on (their links
-    pushed through `notifier`), with Claude her eyes on the screen when vision is on, and with
-    `usage` what her requests cost.
+    pushed through `notifier`), songs on YouTube when they are on, with Claude her eyes on the
+    screen when vision is on, and with `usage` what her requests cost.
 
     With memory, every new session lists the notes as they are in the file at that moment.
     The to-do list is the real one also in a dry run (it moves no device), and the briefing
@@ -1104,6 +1129,18 @@ def _companion_brain(
         providers.append(PcTools(pc, owner_call=owner_call))
     if config.free_offers.enabled:
         providers.append(_offers_tools(config, notifier))
+    if config.music.enabled:
+        # Both backends: only Claude with her web search can look a song's link up, so only
+        # she is offered one; any other brain opens YouTube's search page, never a link it made
+        # up. Her name and wake words never ask for music.
+        providers.append(
+            MusicTools(
+                service=config.music.service,
+                names=[config.assistant.name, *config.assistant.wake_words],
+                links=config.brain.backend == "claude" and config.web_search.enabled,
+                startfile=open_in_browser,
+            )
+        )
     if config.vision.enabled and config.brain.backend == "claude":
         # Ollama's local model cannot see images, so it is never offered the screen. Her name,
         # wake words, and what she calls the owner are left out of Master's words, as for the
@@ -3400,6 +3437,31 @@ def _day_text(day: date) -> str:
     return f"{WEEKDAYS_ID[day.weekday()]} {day:%d-%m-%Y}"
 
 
+# --- songs on YouTube ------------------------------------------------------------------------
+
+
+def _youtube(args: argparse.Namespace) -> int:
+    """Open a YouTube video or playlist link as its canonical link, or else the search page for
+    the words, in the default browser on `music.service`. The owner typed it, so it works with
+    the music tool off too; exit 1 when nothing was opened."""
+    service = load_config(args.config).music.service
+    words = " ".join(args.words).strip()
+    if not words:
+        print(f"{FAIL} Tulis link YouTube atau judul lagunya.")
+        return 1
+    name = MUSIC_SERVICE_NAMES[service]
+    link, opened = youtube_link(words, service=service), f"Dibuka di {name}"
+    if link is None:
+        link, opened = search_link(words, service=service), f"Pencarian dibuka di {name}"
+    try:
+        open_link(link, startfile=open_in_browser)
+    except OSError as exc:
+        print(f"{FAIL} Browser tidak bisa dibuka: Windows gagal membuka halamannya ({exc}).")
+        return 1
+    print(f"{OK} {opened}: {link}")
+    return 0
+
+
 # --- check -----------------------------------------------------------------------------------
 
 
@@ -3427,6 +3489,7 @@ def _checks(config_path: Path) -> Iterator[Check]:
     yield _memory_check(config)
     yield _schedule_check(config)
     yield _todo_check(config)
+    yield _music_check(config)
     yield _briefing_check(config.briefing)
     yield _usage_check(config)
     yield _pc_health_check(config)
@@ -3659,6 +3722,13 @@ def _todo_check(config: AppConfig) -> Check:
             "(cara memulihkannya ada di README, bagian Daftar tugas)"
         )
     return OK, status
+
+
+def _music_check(config: AppConfig) -> Check:
+    """Whether she opens songs on YouTube when asked, and on which service; nothing is opened."""
+    if not config.music.enabled:
+        return WARN, "Lagu YouTube mati"
+    return OK, f"Lagu YouTube: aktif ({MUSIC_SERVICE_NAMES[config.music.service]})"
 
 
 def _briefing_check(briefing: BriefingConfig) -> Check:

@@ -43,6 +43,7 @@ from waifu.brain import claude as claude_module
 from waifu.brain.attachments import CameraTurn, TurnImages
 from waifu.brain.base import Brain, BrainReply, ToolCallRecord
 from waifu.brain.memory_tools import MemoryTools
+from waifu.brain.music_tools import MusicTools
 from waifu.brain.offers_tools import OffersTools
 from waifu.brain.pc_tools import PcTools
 from waifu.brain.persona import WEEKDAYS_ID
@@ -54,6 +55,7 @@ from waifu.briefing import BRIEFING_PROMPT, DAILY_BRIEFING, BriefingTimer, Brief
 from waifu.config import (
     AvatarConfig,
     FreeOffersConfig,
+    MusicConfig,
     PcHealthConfig,
     RedeemCodesConfig,
     RvcConfig,
@@ -4312,9 +4314,9 @@ def test_run_with_the_games_on_gives_the_brain_the_game_tools_and_watches_while_
 
     assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
 
-    [tools, hsr_tools, code_tools, memory_tools, schedule, todo, briefing, pc, offers] = brains[
-        0
-    ].providers
+    [tools, hsr_tools, code_tools, memory_tools, schedule, todo, briefing, pc, offers, music] = (
+        brains[0].providers
+    )
     assert (
         type(tools),
         type(memory_tools),
@@ -4323,7 +4325,17 @@ def test_run_with_the_games_on_gives_the_brain_the_game_tools_and_watches_while_
         type(briefing),
         type(pc),
         type(offers),
-    ) == (GachaTools, MemoryTools, ScheduleTools, TodoTools, BriefingTools, PcTools, OffersTools)
+        type(music),
+    ) == (
+        GachaTools,
+        MemoryTools,
+        ScheduleTools,
+        TodoTools,
+        BriefingTools,
+        PcTools,
+        OffersTools,
+        MusicTools,
+    )
     assert (type(hsr_tools), type(code_tools)) == (HsrTools, CodeTools)
     assert [spec.name for spec in tools.specs()] == ["game_status", "gacha_history"]
     [watcher] = watchers
@@ -4374,6 +4386,7 @@ def test_run_without_a_cookie_has_the_game_tools_but_no_watcher(
         BriefingTools,
         PcTools,
         OffersTools,
+        MusicTools,
     ]
     assert watchers == []
 
@@ -4389,6 +4402,7 @@ def test_run_with_the_games_off_builds_none_of_it(home, run_fakes, brains, games
         BriefingTools,
         PcTools,
         OffersTools,
+        MusicTools,
     ]
 
 
@@ -4408,6 +4422,7 @@ def test_chat_with_the_games_on_gives_the_brain_the_game_tools(home, brains, gam
         BriefingTools,
         PcTools,
         OffersTools,
+        MusicTools,
     ]
 
 
@@ -4472,6 +4487,7 @@ def test_without_hsr_among_the_games_there_are_no_hsr_tools(
         BriefingTools,
         PcTools,
         OffersTools,
+        MusicTools,
     ]
     assert hsr_sources == []
 
@@ -4869,7 +4885,8 @@ def test_run_gives_the_brain_her_memory_tools_and_the_notes_at_each_session_star
     assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
 
     brain = brains[0]
-    [tools, _, _, _, _, _] = brain.providers  # then the schedule, to-do, briefing, PC, and offers
+    # Then the schedule, to-do, briefing, PC, offers, and music.
+    [tools, _, _, _, _, _, _] = brain.providers
     assert isinstance(tools, MemoryTools)
     assert brain.memory_section() == memory_prompt_section([])
     assert tools.run("remember", {"text": "Master alergi udang."})[1] is False
@@ -4893,6 +4910,7 @@ def test_chat_gives_the_brain_the_notes_saved_in_data_memory_json(home, brains, 
         BriefingTools,
         PcTools,
         OffersTools,
+        MusicTools,
     ]
     assert "Master suka kopi." in brains[0].memory_section()
 
@@ -4912,6 +4930,7 @@ def test_with_the_memory_off_the_brain_gets_neither_the_tools_nor_the_notes(
         BriefingTools,
         PcTools,
         OffersTools,
+        MusicTools,
     ]
     assert brains[0].memory_section is None
     assert not memory_file(home).exists()
@@ -5225,6 +5244,7 @@ def test_run_gives_the_brain_the_schedule_tools_and_fires_her_schedule_while_she
         BriefingTools,
         PcTools,
         OffersTools,
+        MusicTools,
     ]
     [scheduler] = schedulers
     assert scheduler.states == ["started", "stopped"]
@@ -5381,6 +5401,7 @@ def test_with_the_schedule_off_she_gets_neither_the_tools_nor_a_scheduler(
         BriefingTools,
         PcTools,
         OffersTools,
+        MusicTools,
     ]
     assert schedulers == []
     assert not schedule_file(home).exists()
@@ -5853,6 +5874,7 @@ def test_with_claude_she_may_look_at_the_screen_at_the_configured_size(
         BriefingTools,
         PcTools,
         OffersTools,
+        MusicTools,
         ScreenTools,
         UsageTools,
     ]
@@ -6002,6 +6024,7 @@ def test_without_claude_or_with_vision_off_the_brain_gets_no_screen_tool(
         BriefingTools,
         PcTools,
         OffersTools,
+        MusicTools,
         *([UsageTools] if claude else []),  # what her requests cost, with Claude only
     ]
     assert capture.sizes == []
@@ -6154,10 +6177,11 @@ def test_run_greets_once_a_day_while_she_listens_and_pushes_the_greeting_to_the_
 
     assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
 
-    assert [type(tools) for tools in brains[0].providers][-3:] == [
+    assert [type(tools) for tools in brains[0].providers][-4:] == [
         BriefingTools,
         PcTools,
         OffersTools,
+        MusicTools,
     ]
     [timer] = briefing_timers
     assert timer.listening == [False, True]
@@ -6216,10 +6240,11 @@ def test_chat_gives_the_brain_the_briefing_tool_but_never_greets_by_herself(
 
     assert cli.main(["chat", "--dry-run"]) == 0
 
-    assert [type(tools) for tools in brains[0].providers][-3:] == [
+    assert [type(tools) for tools in brains[0].providers][-4:] == [
         BriefingTools,
         PcTools,
         OffersTools,
+        MusicTools,
     ]
     assert briefing_timers == []
 
@@ -6239,6 +6264,7 @@ def test_with_the_briefing_off_she_gets_neither_the_tool_nor_the_greeting(
         TodoTools,
         PcTools,
         OffersTools,
+        MusicTools,
     ]
     assert briefing_timers == []
 
@@ -7996,7 +8022,7 @@ def test_run_gives_the_brain_the_offers_tools_and_watches_for_offers_while_she_l
 
     assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
 
-    assert [type(tools) for tools in brains[0].providers][-2:] == [PcTools, OffersTools]
+    assert [type(tools) for tools in brains[0].providers][-3:] == [PcTools, OffersTools, MusicTools]
     [watcher] = offers_watchers
     assert watcher.config == FreeOffersConfig()  # the example config's settings
     assert (watcher.owner_call, watcher.title, watcher.notifier) == ("Master", "Cyrene", notifier)
@@ -9224,6 +9250,7 @@ def test_run_gives_the_brain_her_to_do_tools_and_the_tasks_due_today_in_the_brie
         BriefingTools,
         PcTools,
         OffersTools,
+        MusicTools,
     ]
     tools = todo_tools(brain)
     today = date.today()
@@ -9257,6 +9284,7 @@ def test_chat_gives_the_brain_the_tasks_saved_in_data_todo_json_with_either_back
         BriefingTools,
         PcTools,
         OffersTools,
+        MusicTools,
         *([ScreenTools, UsageTools] if claude else []),
     ]
     listed = json.loads(todo_tools(brains[0]).run("list_tasks", {})[0])
@@ -9283,6 +9311,7 @@ def test_with_the_todo_list_off_the_brain_gets_neither_the_tools_nor_the_tasks(
         BriefingTools,
         PcTools,
         OffersTools,
+        MusicTools,
     ]
     assert "tasks" not in daily_briefing(brains[0])
     assert not todo_file(home).exists()
@@ -9568,7 +9597,14 @@ def test_the_claude_request_with_every_tool_on_stays_within_the_strict_tool_limi
 
     [request] = sent
     names = {tool["name"] for tool in request["tools"]}
-    assert {"hsr_events", "run_routine", "add_task", "look_at_screen", "api_usage"} <= names
+    assert {
+        "hsr_events",
+        "run_routine",
+        "add_task",
+        "play_youtube",
+        "look_at_screen",
+        "api_usage",
+    } <= names
     strict = [tool for tool in request["tools"] if tool.get("strict")]
     schemas = [tool["input_schema"] for tool in strict]
     parameters = [parameter for schema in schemas for parameter in strict_parameters(schema)]
@@ -9591,4 +9627,290 @@ def test_the_claude_request_with_every_tool_on_stays_within_the_strict_tool_limi
         "remove_task",
         "edit_task",
         "send_offer_link",
+        "play_youtube",
     } <= {tool["name"] for tool in strict}
+
+
+# --- songs on YouTube ------------------------------------------------------------------------
+
+VIDEO = "dQw4w9WgXcQ"
+PLAYLIST = "PLFgquLnL59alCl_2TQvOiD5Vgm1hCaGSI"
+WATCH = f"https://www.youtube.com/watch?v={VIDEO}"
+
+
+class FakeOpener:
+    """Stands in for music.open_in_browser: records each link instead of opening it in the
+    browser (tests/conftest.py also refuses the real os.startfile). With `error`, raises it
+    after recording, as Windows does when it cannot open the link."""
+
+    def __init__(self) -> None:
+        self.links: list[str] = []
+        self.error: OSError | None = None
+
+    def __call__(self, link: str) -> None:
+        self.links.append(link)
+        if self.error is not None:
+            raise self.error
+
+
+@pytest.fixture
+def opener(monkeypatch) -> FakeOpener:
+    fake = FakeOpener()
+    monkeypatch.setattr(cli, "open_in_browser", fake)
+    return fake
+
+
+def disable_music(home: Path) -> None:
+    append_config(home, "music:\n  enabled: false\n")
+
+
+def music_tools(brain: HouseBrain) -> MusicTools:
+    [tools] = [provider for provider in brain.providers if isinstance(provider, MusicTools)]
+    return tools
+
+
+def play_song(tools: MusicTools, arguments: dict) -> tuple[dict, bool]:
+    result, is_error = tools.run("play_youtube", arguments)
+    return json.loads(result), is_error
+
+
+@pytest.mark.parametrize("claude", [False, True], ids=["ollama", "claude"])
+@pytest.mark.parametrize("argv", [["run", "--no-speaker-check"], ["chat"]])
+def test_run_and_chat_give_the_brain_the_music_tool_with_either_backend(
+    argv, claude, home, run_fakes, brains, opener, monkeypatch
+):
+    if claude:
+        use_claude(home)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main([*argv, "--dry-run"]) == 0
+
+    assert [type(tools) for tools in brains[0].providers] == [
+        MemoryTools,
+        ScheduleTools,
+        TodoTools,
+        BriefingTools,
+        PcTools,
+        OffersTools,
+        MusicTools,
+        *([ScreenTools, UsageTools] if claude else []),
+    ]
+    tools = music_tools(brains[0])
+    tools.begin_turn("Cyrene, putar lagu Hope Is the Thing With Feathers")
+    assert play_song(tools, {"query": "Hope Is the Thing With Feathers"}) == (
+        {"ok": True, "opened": "search", "service": "youtube"},
+        False,
+    )
+    # Through the opener `waifu youtube` uses too, never one bound elsewhere.
+    assert opener.links == [
+        "https://www.youtube.com/results?search_query=Hope+Is+the+Thing+With+Feathers"
+    ]
+
+
+@pytest.mark.parametrize(
+    ("claude", "block", "links"),
+    [
+        (False, "", False),
+        (True, "web_search:\n  enabled: false\n", False),
+        (True, "", True),
+    ],
+    ids=["ollama", "claude_without_web_search", "claude_with_web_search"],
+)
+def test_only_claude_with_her_web_search_may_pass_a_song_s_link(
+    claude, block, links, home, brains, opener, monkeypatch
+):
+    # A brain that cannot look the link up could only make one up: the search page opens.
+    if claude:
+        use_claude(home)
+    append_config(home, block)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main(["chat", "--dry-run"]) == 0
+
+    tools = music_tools(brains[0])
+    [spec] = tools.specs()
+    assert ("url" in spec.input_schema["properties"]) is links
+    tools.begin_turn("Cyrene, putar lagu lofi")
+    result = play_song(tools, {"query": "lofi", "url": f"https://youtu.be/{VIDEO}"})
+    assert result == (
+        {"ok": True, "opened": "video" if links else "search", "service": "youtube"},
+        False,
+    )
+    assert opener.links == [WATCH if links else "https://www.youtube.com/results?search_query=lofi"]
+
+
+def test_with_youtube_music_her_songs_open_on_youtube_music(home, brains, opener, monkeypatch):
+    use_claude(home)
+    append_config(home, "music:\n  service: youtube_music\n")
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main(["chat", "--dry-run"]) == 0
+
+    tools = music_tools(brains[0])
+    tools.begin_turn("Cyrene, play Hoyo-Mix")
+    assert play_song(tools, {"query": "Hoyo-Mix", "url": f"https://youtu.be/{VIDEO}"}) == (
+        {"ok": True, "opened": "video", "service": "youtube_music"},
+        False,
+    )
+    assert opener.links == [f"https://music.youtube.com/watch?v={VIDEO}"]
+
+
+def test_her_name_and_wake_words_never_ask_for_music(home, brains, opener, monkeypatch):
+    write_config(home, "assistant:\n  name: Lagu\n  wake_words: [lagu, hai musik]\n")
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main(["chat", "--dry-run"]) == 0
+
+    tools = music_tools(brains[0])
+    for words in ["Lagu, nyalakan lampu kamar.", "Hai musik, aku pulang."]:
+        tools.begin_turn(words)
+        assert play_song(tools, {"query": "lofi"})[1] is True
+    tools.begin_turn("Lagu, putar lofi.")
+    assert play_song(tools, {"query": "lofi"})[1] is False
+    assert opener.links == ["https://www.youtube.com/results?search_query=lofi"]
+
+
+@pytest.mark.parametrize("argv", [["run", "--no-speaker-check"], ["chat"]])
+def test_with_music_off_the_brain_gets_no_music_tool(
+    argv, home, run_fakes, brains, opener, monkeypatch
+):
+    disable_music(home)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main([*argv, "--dry-run"]) == 0
+
+    assert [type(tools) for tools in brains[0].providers] == [
+        MemoryTools,
+        ScheduleTools,
+        TodoTools,
+        BriefingTools,
+        PcTools,
+        OffersTools,
+    ]
+    assert opener.links == []
+
+
+@pytest.mark.parametrize(
+    ("url", "link"),
+    [
+        (f"https://youtu.be/{VIDEO}?si=Ab12-cd_EF34gh&t=42", WATCH),
+        (f"https://m.youtube.com/watch?v={VIDEO}&list={PLAYLIST}", f"{WATCH}&list={PLAYLIST}"),
+        (
+            f"https://youtube.com/playlist?list={PLAYLIST}&si=Ab12",
+            f"https://www.youtube.com/playlist?list={PLAYLIST}",
+        ),
+    ],
+    ids=["video", "video_in_a_playlist", "playlist"],
+)
+def test_youtube_opens_a_youtube_link_as_its_canonical_link(url, link, home, opener, capsys):
+    assert cli.main(["youtube", url]) == 0
+
+    assert opener.links == [link]
+    assert capsys.readouterr().out == f"✓ Dibuka di YouTube: {link}\n"
+
+
+def test_youtube_opens_the_search_page_for_the_words(home, opener, capsys):
+    assert cli.main(["youtube", "Hope", "Is", "the", "Thing", "With", "Feathers"]) == 0
+
+    search = "https://www.youtube.com/results?search_query=Hope+Is+the+Thing+With+Feathers"
+    assert opener.links == [search]
+    assert capsys.readouterr().out == f"✓ Pencarian dibuka di YouTube: {search}\n"
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        f"https://evil.example/watch?v={VIDEO}",
+        f"https://www.youtube.com.evil.example/watch?v={VIDEO}",
+        f"http://www.youtube.com/watch?v={VIDEO}",
+        f"https://www.youtube.com/shorts/{VIDEO}",
+        "file:///C:/Windows/System32/calc.exe",
+    ],
+)
+def test_youtube_only_searches_for_any_other_link_and_never_opens_it(url, home, opener, capsys):
+    assert cli.main(["youtube", url]) == 0
+
+    [link] = opener.links
+    parts = urllib.parse.urlsplit(link)
+    assert (parts.scheme, parts.netloc, parts.path) == ("https", "www.youtube.com", "/results")
+    assert urllib.parse.parse_qs(parts.query) == {"search_query": [url]}
+    assert capsys.readouterr().out.startswith("✓ Pencarian dibuka di YouTube: ")
+
+
+def test_youtube_opens_on_youtube_music_when_the_config_says_so(home, opener, capsys):
+    append_config(home, "music:\n  service: youtube_music\n")
+
+    assert cli.main(["youtube", WATCH]) == 0
+    assert cli.main(["youtube", "lofi"]) == 0
+
+    music_watch = f"https://music.youtube.com/watch?v={VIDEO}"
+    music_search = "https://music.youtube.com/search?q=lofi"
+    assert opener.links == [music_watch, music_search]
+    assert capsys.readouterr().out.splitlines() == [
+        f"✓ Dibuka di YouTube Music: {music_watch}",
+        f"✓ Pencarian dibuka di YouTube Music: {music_search}",
+    ]
+
+
+def test_youtube_works_with_the_music_tool_off(home, opener, capsys):
+    disable_music(home)
+
+    assert cli.main(["youtube", "lofi"]) == 0
+
+    assert opener.links == ["https://www.youtube.com/results?search_query=lofi"]
+
+
+def test_youtube_says_why_when_windows_cannot_open_the_browser(home, opener, capsys):
+    opener.error = OSError("no default browser")
+
+    assert cli.main(["youtube", "lofi"]) == 1
+
+    out = capsys.readouterr().out
+    assert out.startswith("✗ Browser tidak bisa dibuka") and "no default browser" in out
+    assert opener.links == ["https://www.youtube.com/results?search_query=lofi"]
+
+
+def test_youtube_with_only_spaces_opens_nothing(home, opener, capsys):
+    assert cli.main(["youtube", " ", ""]) == 1
+
+    assert capsys.readouterr().out.startswith("✗ ")
+    assert opener.links == []
+
+
+def test_youtube_needs_a_link_or_words(capsys):
+    with pytest.raises(SystemExit) as exited:
+        cli.build_parser().parse_args(["youtube"])
+
+    assert exited.value.code == 2
+    assert "required: lagu" in capsys.readouterr().err
+
+
+def music_line(out: str) -> str:
+    [line] = [line for line in out.splitlines() if "Lagu YouTube" in line]
+    return line
+
+
+@pytest.mark.parametrize(
+    ("block", "expected"),
+    [
+        ("", "✓ Lagu YouTube: aktif (YouTube)"),
+        ("music:\n  service: youtube_music\n", "✓ Lagu YouTube: aktif (YouTube Music)"),
+        ("music:\n  enabled: false\n", "! Lagu YouTube mati"),
+    ],
+    ids=["youtube", "youtube_music", "off"],
+)
+def test_check_reports_whether_she_opens_songs_on_youtube(
+    block, expected, home, nothing_installed, opener, capsys
+):
+    append_config(home, block)
+
+    cli.main(["check"])
+
+    assert music_line(capsys.readouterr().out) == expected
+    assert opener.links == []
+
+
+def test_the_example_music_block_is_valid_once_written_out(home):
+    write_out_example_block(home, "music")
+
+    assert cli.load_config(home / "config.yaml").music == MusicConfig()

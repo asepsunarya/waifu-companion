@@ -240,6 +240,21 @@ schedule:
 #   max_chars: 200         # panjang satu tugas paling banyak, dalam karakter (20-1000)
 #   keep_done_days: 7      # tugas yang selesai masih ditampilkan N hari, lalu dilupakan (0-90)
 
+# Lagu di YouTube (README, bagian "Lagu di YouTube"): "Cyrene, putar lagu Hope Is the Thing With
+# Feathers", "puterin playlist lofi buat belajar", atau "play Hoyo-Mix" membuka halaman lagunya di
+# browser default, tempat lagunya diputar. Dengan otak Claude dan pencarian web, dia mencari link
+# YouTube lagunya dulu (satu pencarian web: 1 sen dolar ditambah token hasil pencarian, biasanya
+# beberapa sen, tercatat di `waifu usage`); dengan Ollama atau pencarian web mati, atau kalau
+# linknya tidak ketemu, yang dibuka halaman pencarian YouTube dan Master memilih sendiri. Halaman
+# hanya dibuka kalau kalimat Master sendiri meminta memutar lagu (bukan mencari atau menanyakan
+# sesuatu, menjeda, atau pindah lagu), dan hanya alamat YouTube. Membuka browser mengambil
+# fokus dari game yang sedang dimainkan. Jeda, lagu berikutnya, dan volume lewat perangkat musik
+# (type: media, di bagian devices di bawah). Dari terminal: `waifu youtube <link atau judul lagu>`.
+# Sudah menyala tanpa ditulis; untuk mengubahnya, tulis bagian ini tanpa tanda # di depannya.
+# music:
+#   enabled: true      # false: tanpa tool lagu (`waifu youtube` tetap jalan)
+#   service: youtube   # youtube | youtube_music: lagu dan pencariannya dibuka di YouTube Music
+
 # Melihat layar (README, bagian "Melihat layar"): dengan otak Claude, Cyrene mengambil satu
 # tangkapan layar monitor utama hanya kalau kalimat Master sendiri memintanya ("Cyrene, lihat
 # layarku"), lalu menjawab tentang isinya. Gambarnya ikut dikirim ke API Anthropic bersama
