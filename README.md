@@ -2834,10 +2834,10 @@ tetap jalan walau sapaan paginya dimatikan (`briefing.enabled: false`), selama k
   60%), curahnya paling sedikit 0,5 mm, atau kodenya hujan, hujan lokal, atau badai petir.
   Gerimis saja tidak dihitung, kecuali peluang atau curahnya cukup.
 - **Jamnya bulat.** Prakiraannya per jam, jadi dia menyebut jam bulat ("sekitar jam tiga
-  sore"). Open-Meteo menghitung hujan satu jam *sebelum* jam yang tertulis, dan dia
-  membacanya sebagai hujan sekitar jam itu, seperti aplikasi cuaca menampilkannya; jadi hujan
-  bisa saja mulai sedikit lebih awal. Untuk jarak yang lebih aman, naikkan `lead_minutes`
-  (misalnya 90).
+  sore"): jam hujannya mulai. Open-Meteo mencatat hujan untuk satu jam *sebelum* jam yang
+  tertulis (angka jam 16.00 adalah hujan dari 15.00 sampai 16.00), jadi dia menyebut jam 15.00
+  dan menghitung `lead_minutes` sampai jam itu. Hujan bisa saja datang lebih cepat dari
+  prakiraannya; untuk jarak yang lebih aman, naikkan `lead_minutes` (misalnya 90).
 - **Sekali untuk satu hujan.** Dia tidak mengulang saat hujannya makin dekat, saat peluangnya
   naik-turun di sekitar batas, saat hujan sedang turun, atau saat hujannya berhenti sebentar.
   Hujan berikutnya baru diperingatkan sesudah paling sedikit tiga jam kering di prakiraan.
@@ -2886,8 +2886,8 @@ Prakiraan hujan di Cianjur, Jawa Barat, per 14:15 (peluang 60% ke atas):
 Hujan berikutnya: sekitar jam tiga sore (15:00-16:00, peluang 85%).
 ```
 
-"per 14:15" adalah waktu prakiraannya. Di dalam kurung ada jam pertama dan terakhir yang
-dihitung hujan (dengan `besok` di depannya kalau mulainya besok) dan peluang tertingginya.
+"per 14:15" adalah waktu prakiraannya. Di dalam kurung ada jam mulai dan selesainya hujan
+(dengan `besok` di depan jam yang jatuh besok) dan peluang tertingginya.
 Saat hujan sedang turun ada baris `Sekarang sedang hujan.`; tanpa hujan,
 `Tidak ada hujan dalam 24 jam ke depan.` Kalau kota belum diisi atau cuaca gagal dibaca,
 baris `✗ ...` menyebut sebabnya dan exit code-nya 1. Perintah ini juga jalan walau

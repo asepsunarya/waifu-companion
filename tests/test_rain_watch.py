@@ -1,9 +1,10 @@
 """Rain detection and the rain watcher: no test asks Open-Meteo, speaks, or pushes.
 
 Forecasts are built here as `weather.forecast()` returns them: two days of hourly entries
-from DAY 00:00, dry unless a test makes an hour rainy. Every `RainWatcher` gets a fake read,
-a fake local time, a fake announce, and a fake notifier; the thread tests run a real thread
-whose waits are real or last a few milliseconds.
+from DAY 00:00, dry unless a test makes an entry rainy. As in Open-Meteo, an entry holds the
+hour before its time: a rainy 16:00 entry is rain from 15:00 to 16:00. Every `RainWatcher` gets
+a fake read, a fake local time, a fake announce, and a fake notifier; the thread tests run a
+real thread whose waits are real or last a few milliseconds.
 """
 
 import logging
@@ -56,8 +57,8 @@ def forecast(
     current_code: int = DRY_CODE,
     changes: dict[int, Hour] | None = None,
 ) -> Forecast:
-    """The forecast at `now` (hours after DAY 00:00), rainy at the `rain` hours (80 %, 1.2 mm),
-    with `changes` replacing whole entries."""
+    """The forecast at `now` (hours after DAY 00:00), rainy at the `rain` entries (80 %, 1.2 mm;
+    each the hour before its time), with `changes` replacing whole entries."""
     rainy = set(rain)
     hours = [wet(at(h)) if h in rainy else dry(at(h)) for h in range(48)]
     for h, hour in (changes or {}).items():
@@ -104,14 +105,20 @@ def test_it_rains_now_when_the_current_code_is_rain():
     assert raining_now(forecast(14.25, current_code=63), THRESHOLD) is True
 
 
-def test_it_rains_now_when_the_hour_now_is_rainy_whatever_the_current_code():
-    assert raining_now(forecast(14.25, rain=[14]), THRESHOLD) is True
+def test_it_rains_now_when_the_hour_running_now_is_rainy_whatever_the_current_code():
+    # At 14:15 the hour running now is 14:00-15:00: the 15:00 entry.
+    assert raining_now(forecast(14.25, rain=[15]), THRESHOLD) is True
 
 
 @pytest.mark.parametrize(
     "dry_now",
-    [forecast(14.25, rain=[15]), forecast(14.25, current_code=51), forecast(14.0, rain=[13])],
-    ids=["rain next hour", "drizzle now", "rain the hour before"],
+    [
+        forecast(14.25, rain=[16]),
+        forecast(14.25, current_code=51),
+        forecast(14.5, rain=[14]),
+        forecast(15.0, rain=[15]),
+    ],
+    ids=["rain next hour", "drizzle now", "rain the hour before", "rain that just ended"],
 )
 def test_it_does_not_rain_now_otherwise(dry_now):
     assert raining_now(dry_now, THRESHOLD) is False
@@ -120,58 +127,66 @@ def test_it_does_not_rain_now_otherwise(dry_now):
 # --- the next rain ---------------------------------------------------------------------------
 
 
-def test_the_next_rain_runs_from_its_first_to_its_last_rainy_hour_with_its_highest_chance():
-    changes = {15: wet(at(15), 70), 16: wet(at(16), 90), 17: wet(at(17), None)}
+def test_the_next_rain_runs_from_the_start_of_its_first_rainy_hour_to_the_end_of_its_last():
+    # The 16:00 to 18:00 entries: rain from 15:00 to 18:00, at most 90 %.
+    changes = {16: wet(at(16), 70), 17: wet(at(17), 90), 18: wet(at(18), None)}
 
     window = rain_window(forecast(14.0, changes=changes), THRESHOLD, within=LEAD)
 
-    assert window == RainWindow(at(15), at(17), 90)
+    assert window == RainWindow(at(15), at(18), 90)
 
 
 def test_a_rain_whose_chance_is_unknown_has_no_chance():
-    window = rain_window(forecast(14.0, changes={15: wet(at(15), None)}), THRESHOLD, within=LEAD)
+    window = rain_window(forecast(14.0, changes={16: wet(at(16), None)}), THRESHOLD, within=LEAD)
 
-    assert window == RainWindow(at(15), at(15), None)
+    assert window == RainWindow(at(15), at(16), None)
 
 
 @pytest.mark.parametrize(
     ("now", "found"),
-    [(13 + 59 / 60, False), (14.0, True), (14 + 1 / 60, True), (14.75, True)],
-    ids=["61 minutes ahead", "60 minutes ahead", "59 minutes ahead", "15 minutes ahead"],
+    [(13 + 59 / 60, False), (14.0, True), (14 + 1 / 60, True), (14.75, True), (15.0, False)],
+    ids=[
+        "61 minutes ahead",
+        "60 minutes ahead",
+        "59 minutes ahead",
+        "15 minutes ahead",
+        "started",
+    ],
 )
 def test_only_a_rain_starting_within_the_lead_is_found(now, found):
-    window = rain_window(forecast(now, rain=[15]), THRESHOLD, within=LEAD)
+    # The 16:00 entry: rain from 15:00, the time the lead counts to.
+    window = rain_window(forecast(now, rain=[16]), THRESHOLD, within=LEAD)
 
     assert (window is not None) == found
 
 
 def test_a_rain_running_past_the_lead_keeps_its_whole_run():
-    window = rain_window(forecast(14.0, rain=[15, 16, 17, 18]), THRESHOLD, within=LEAD)
+    window = rain_window(forecast(14.0, rain=[16, 17, 18, 19]), THRESHOLD, within=LEAD)
 
-    assert window == RainWindow(at(15), at(18), 80)
+    assert window == RainWindow(at(15), at(19), 80)
 
 
 def test_the_rain_already_falling_is_not_the_next_rain():
-    # Rain now and on through 15:00, dry until 18:00: the next rain to start is at 18:00.
-    window = rain_window(forecast(14.25, rain=[14, 15, 18]), THRESHOLD, within=24 * HOUR)
+    # Rain now and on until 16:00, dry until 18:00: the next rain starts at 18:00.
+    window = rain_window(forecast(14.25, rain=[15, 16, 19]), THRESHOLD, within=24 * HOUR)
 
-    assert window == RainWindow(at(18), at(18), 80)
+    assert window == RainWindow(at(18), at(19), 80)
 
 
 def test_the_next_rain_may_start_after_midnight():
-    window = rain_window(forecast(23.5, rain=[24, 25]), THRESHOLD, within=LEAD)
+    window = rain_window(forecast(23.5, rain=[25, 26]), THRESHOLD, within=LEAD)
 
-    assert window == RainWindow(at(24), at(25), 80)
+    assert window == RainWindow(at(24), at(26), 80)
 
 
 def test_a_dry_forecast_has_no_next_rain():
     assert rain_window(forecast(14.0), THRESHOLD, within=24 * HOUR) is None
 
 
-def test_a_rain_in_the_first_entry_starts_there():
-    window = rain_window(forecast(-0.5, rain=[0]), THRESHOLD, within=LEAD)
+def test_a_rain_in_the_first_entry_starts_an_hour_before_it():
+    window = rain_window(forecast(-1.5, rain=[0]), THRESHOLD, within=LEAD)
 
-    assert window == RainWindow(at(0), at(0), 80)
+    assert window == RainWindow(at(-1), at(0), 80)
 
 
 # --- one rain, one alert -----------------------------------------------------------------------
@@ -184,54 +199,55 @@ def follow(
 
 
 def test_a_coming_rain_is_told_and_becomes_the_episode():
-    state = follow(forecast(14.0, rain=[15, 16]))
+    state = follow(forecast(14.0, rain=[16, 17]))
 
-    assert state == RainState(RainWindow(at(15), at(16), 80), at(16))
+    assert state == RainState(RainWindow(at(15), at(17), 80), at(17))
 
 
-def test_nothing_is_told_while_it_rains_and_the_episode_reaches_this_hour():
-    assert follow(forecast(14.25, rain=[14, 15])) == RainState(None, at(14))
+def test_nothing_is_told_while_it_rains_and_the_episode_reaches_the_end_of_this_hour():
+    assert follow(forecast(14.25, rain=[15, 16])) == RainState(None, at(15))
 
 
 def test_rain_falling_now_never_shortens_the_episode():
-    assert follow(forecast(14.25, current_code=63), at(16)) == RainState(None, at(16))
+    assert follow(forecast(14.25, current_code=63), at(17)) == RainState(None, at(17))
 
 
 def test_the_same_rain_coming_closer_is_not_told_again():
-    assert follow(forecast(14.5, rain=[15, 16]), at(16)) == RainState(None, at(16))
+    assert follow(forecast(14.5, rain=[16, 17]), at(17)) == RainState(None, at(17))
 
 
-def test_a_rain_after_a_break_of_three_hours_is_the_same_rain():
-    # Rainy at 16:00, dry at 17:00 and 18:00, rainy again at 19:00 and 20:00.
+def test_a_rain_after_two_dry_hours_is_the_same_rain():
+    # Rain until 16:00, dry from 16:00 to 18:00, rain again from 18:00 to 20:00.
     assert DRY_GAP == 3 * HOUR
-    assert follow(forecast(18.25, rain=[19, 20]), at(16)) == RainState(None, at(20))
+    assert follow(forecast(17.25, rain=[19, 20]), at(16)) == RainState(None, at(20))
 
 
 def test_a_rain_after_three_dry_hours_is_a_new_rain():
-    # Rainy at 16:00, dry from 17:00 through 19:00, rainy again at 20:00.
-    state = follow(forecast(19.25, rain=[20]), at(16))
+    # Rain until 16:00, dry from 16:00 to 19:00, rain again from 19:00 to 20:00.
+    state = follow(forecast(18.25, rain=[20]), at(16))
 
-    assert state == RainState(RainWindow(at(20), at(20), 80), at(20))
+    assert state == RainState(RainWindow(at(19), at(20), 80), at(20))
 
 
 def test_a_forecast_that_drops_the_rain_keeps_the_episode_so_it_is_not_told_twice():
-    told = follow(forecast(14.0, rain=[15]))
+    told = follow(forecast(14.0, rain=[16]))
     dropped = follow(forecast(14.25), told.episode_last)
-    back = follow(forecast(14.5, rain=[15]), dropped.episode_last)
+    back = follow(forecast(14.5, rain=[16]), dropped.episode_last)
 
     assert told.tell is not None
-    assert dropped == RainState(None, at(15))
-    assert back == RainState(None, at(15))
+    assert dropped == RainState(None, at(16))
+    assert back == RainState(None, at(16))
 
 
 def test_a_rain_beyond_the_lead_is_not_told_yet():
-    assert follow(forecast(13.0, rain=[15])) == RainState(None, None)
+    # From 15:00, two hours after 13:00.
+    assert follow(forecast(13.0, rain=[16])) == RainState(None, None)
 
 
 def test_the_lead_is_the_configured_one():
-    state = follow(forecast(13.0, rain=[15]), lead=2 * HOUR)
+    state = follow(forecast(13.0, rain=[16]), lead=2 * HOUR)
 
-    assert state.tell == RainWindow(at(15), at(15), 80)
+    assert state.tell == RainWindow(at(15), at(16), 80)
 
 
 # --- the hour she says -------------------------------------------------------------------------
@@ -336,7 +352,8 @@ class Rig:
 
 
 def test_a_rain_within_the_hour_is_said_calmly_and_pushed_with_an_umbrella():
-    rig = Rig(forecast(14.0, rain=[15, 16]))
+    # At 14:00, the rain from 15:00: the 16:00 and 17:00 entries.
+    rig = Rig(forecast(14.0, rain=[16, 17]))
 
     notices = rig.poll()
 
@@ -346,7 +363,7 @@ def test_a_rain_within_the_hour_is_said_calmly_and_pushed_with_an_umbrella():
 
 
 def test_she_says_it_as_the_owner_asked_calling_them_at_sentence_start():
-    rig = Rig(forecast(14.0, rain=[15]), owner_call="sayang")
+    rig = Rig(forecast(14.0, rain=[16]), owner_call="sayang")
 
     assert rig.poll() == [
         "Sayang, sekitar jam tiga sore kemungkinan hujan di Cianjur, angkat jemuran ya."
@@ -354,28 +371,30 @@ def test_she_says_it_as_the_owner_asked_calling_them_at_sentence_start():
 
 
 def test_without_a_city_she_names_no_place():
-    rig = Rig(forecast(14.0, rain=[15]), place=None)
+    rig = Rig(forecast(14.0, rain=[16]), place=None)
 
     assert rig.poll() == ["Master, sekitar jam tiga sore kemungkinan hujan, angkat jemuran ya."]
 
 
 def test_one_rain_is_told_once_as_it_comes_closer_falls_and_pauses():
-    rig = Rig(forecast(14.0, rain=[15, 16, 19]))
+    # Rain from 15:00 to 17:00 and from 19:00 to 20:00.
+    rig = Rig(forecast(14.0, rain=[16, 17, 20]))
     notices = rig.poll()
-    for now in (14.25, 14.5, 14.75, 15.25, 16.25, 17.25, 18.25, 19.25):
+    for now in (14.25, 14.5, 14.75, 15.25, 16.25, 17.25, 18.0, 18.25, 19.25):
         rig.now = at(now)
-        notices += rig.poll(forecast(now, rain=[15, 16, 19]))
+        notices += rig.poll(forecast(now, rain=[16, 17, 20]))
 
     assert notices == [THREE_PM]
     assert len(rig.notifier.sent) == 1
 
 
 def test_a_new_rain_after_three_dry_hours_is_told_again():
-    rig = Rig(forecast(14.0, rain=[15]))
+    # Rain from 15:00 to 16:00, then from 19:00.
+    rig = Rig(forecast(14.0, rain=[16]))
     rig.poll()
     rig.now = at(18.25)
 
-    notices = rig.poll(forecast(18.25, rain=[15, 19]))
+    notices = rig.poll(forecast(18.25, rain=[16, 20]))
 
     assert notices == [
         "Master, sekitar jam tujuh malam kemungkinan hujan di Cianjur, angkat jemuran ya."
@@ -383,24 +402,24 @@ def test_a_new_rain_after_three_dry_hours_is_told_again():
 
 
 def test_a_wavering_forecast_never_tells_the_same_rain_twice():
-    rig = Rig(forecast(14.0, changes={15: Hour(at(15), DRY_CODE, 62, 0.0)}))
+    rig = Rig(forecast(14.0, changes={16: Hour(at(16), DRY_CODE, 62, 0.0)}))
     notices = rig.poll()
-    notices += rig.poll(forecast(14.25, changes={15: Hour(at(15), DRY_CODE, 58, 0.0)}))
-    notices += rig.poll(forecast(14.5, changes={15: Hour(at(15), DRY_CODE, 61, 0.0)}))
+    notices += rig.poll(forecast(14.25, changes={16: Hour(at(16), DRY_CODE, 58, 0.0)}))
+    notices += rig.poll(forecast(14.5, changes={16: Hour(at(16), DRY_CODE, 61, 0.0)}))
 
     assert notices == [THREE_PM]
 
 
 def test_rain_already_falling_when_she_starts_is_never_told():
-    rig = Rig(forecast(14.25, rain=[14, 15, 16]))
+    rig = Rig(forecast(14.25, rain=[15, 16, 17]))
 
     assert rig.poll() == []
     assert rig.notifier.sent == []
 
 
 def test_the_lead_is_timed_on_the_forecasts_own_clock():
-    # The PC says 14:00, but the forecast is of 13:00: 15:00 is two hours ahead of it.
-    rig = Rig(forecast(13.0, rain=[15]))
+    # The PC says 14:00, but the forecast is of 13:00: the rain from 15:00 is two hours ahead.
+    rig = Rig(forecast(13.0, rain=[16]))
 
     assert rig.poll() == []
 
@@ -411,7 +430,7 @@ def test_the_lead_is_timed_on_the_forecasts_own_clock():
     ids=["05:59", "06:00", "20:59", "21:00"],
 )
 def test_she_speaks_only_in_the_active_hours_and_asks_nothing_outside_them(now, speaks):
-    rig = Rig(forecast(now.hour + now.minute / 60, rain=[now.hour + 1]))
+    rig = Rig(forecast(now.hour + now.minute / 60, rain=[now.hour + 2]))
     rig.now = now
 
     notices = rig.poll()
@@ -421,7 +440,7 @@ def test_she_speaks_only_in_the_active_hours_and_asks_nothing_outside_them(now, 
 
 def test_the_active_hours_lead_and_threshold_are_the_configured_ones():
     rig = Rig(
-        forecast(21.5, changes={23: Hour(at(23), DRY_CODE, 70, 0.0)}),
+        forecast(21.5, changes={24: Hour(at(24), DRY_CODE, 70, 0.0)}),
         active_from="07:00",
         active_until="23:00",
         lead_minutes=90,
@@ -433,7 +452,7 @@ def test_the_active_hours_lead_and_threshold_are_the_configured_ones():
         "Master, sekitar jam sebelas malam kemungkinan hujan di Cianjur, angkat jemuran ya."
     ]
     rig.now = at(6.5)
-    assert (rig.poll(forecast(6.5, rain=[7])), rig.read.calls) == ([], 1)
+    assert (rig.poll(forecast(6.5, rain=[8])), rig.read.calls) == ([], 1)
 
 
 def test_a_failed_read_is_never_said_and_logged_once_until_it_works_again(caplog):
@@ -441,7 +460,7 @@ def test_a_failed_read_is_never_said_and_logged_once_until_it_works_again(caplog
 
     with caplog.at_level(logging.DEBUG, logger="waifu.rain_watch"):
         failures = rig.poll() + rig.poll() + rig.poll()
-        told = rig.poll(forecast(14.0, rain=[15]))
+        told = rig.poll(forecast(14.0, rain=[16]))
         rig.poll(WeatherError(UNREACHABLE))
 
     assert failures == []
@@ -469,7 +488,7 @@ def test_an_unexpected_failure_is_logged_with_its_traceback_and_never_said(caplo
 
 
 def test_a_voice_that_fails_never_stops_the_push(caplog):
-    rig = Rig(forecast(14.0, rain=[15]))
+    rig = Rig(forecast(14.0, rain=[16]))
 
     def broken(text: str, emotion: str) -> None:
         raise RuntimeError("the avatar is gone")
@@ -484,7 +503,7 @@ def test_a_voice_that_fails_never_stops_the_push(caplog):
 
 
 def test_a_push_that_fails_is_logged_and_the_alert_still_said(caplog):
-    rig = Rig(forecast(14.0, rain=[15]))
+    rig = Rig(forecast(14.0, rain=[16]))
     rig.notifier.outcome = OSError("no internet")
 
     with caplog.at_level(logging.ERROR, logger="waifu.rain_watch"):
@@ -496,7 +515,7 @@ def test_a_push_that_fails_is_logged_and_the_alert_still_said(caplog):
 
 def test_without_a_voice_or_a_notifier_it_still_keeps_track():
     watcher = RainWatcher(
-        FakeForecasts(forecast(14.0, rain=[15])),
+        FakeForecasts(forecast(14.0, rain=[16])),
         RainAlertConfig(),
         announce=None,
         notifier=None,

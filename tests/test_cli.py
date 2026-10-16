@@ -7158,25 +7158,37 @@ def test_rain_prints_the_next_rain_as_she_would_say_it_without_the_brain(
     home, brains, open_meteo, capsys
 ):
     write_out_example_briefing(home)
-    forecast_hour(open_meteo, 15, code=3, chance=80, mm=1.2)
-    forecast_hour(open_meteo, 16, code=80, chance=90, mm=4.0)
+    # Open-Meteo's 16:00 and 17:00 entries hold the rain from 15:00 to 17:00.
+    forecast_hour(open_meteo, 16, code=3, chance=80, mm=1.2)
+    forecast_hour(open_meteo, 17, code=80, chance=90, mm=4.0)
 
     assert cli.main(["rain"]) == 0
 
     assert capsys.readouterr().out.splitlines() == [
         "Prakiraan hujan di Bandung, Jawa Barat, per 07:15 (peluang 60% ke atas):",
-        "Hujan berikutnya: sekitar jam tiga sore (15:00-16:00, peluang 90%).",
+        "Hujan berikutnya: sekitar jam tiga sore (15:00-17:00, peluang 90%).",
     ]
     assert brains == []
 
 
 def test_rain_tomorrow_shows_its_day(home, open_meteo, capsys):
     write_out_example_briefing(home)  # the fake rains all day tomorrow
+    forecast_hour(open_meteo, 24, code=2, chance=10)  # dry until tomorrow 00:00
 
     assert cli.main(["rain"]) == 0
 
     assert capsys.readouterr().out.splitlines()[1:] == [
         "Hujan berikutnya: sekitar jam dua belas malam (besok 00:00-23:00, peluang 70%)."
+    ]
+
+
+def test_rain_into_tomorrow_shows_the_day_it_ends(home, open_meteo, capsys):
+    write_out_example_briefing(home)  # tomorrow's 00:00 entry holds the rain from 23:00 today
+
+    assert cli.main(["rain"]) == 0
+
+    assert capsys.readouterr().out.splitlines()[1:] == [
+        "Hujan berikutnya: sekitar jam sebelas malam (23:00-besok 23:00, peluang 70%)."
     ]
 
 
@@ -7210,13 +7222,13 @@ def test_rain_counts_rain_by_the_configured_threshold_also_with_the_alerts_off(
     )
     dry_tomorrow(open_meteo)
     forecast_hour(open_meteo, 15, code=3, chance=80)  # under the line
-    forecast_hour(open_meteo, 18, code=95, chance=None, mm=None)  # a thunderstorm, chance unknown
+    forecast_hour(open_meteo, 19, code=95, chance=None, mm=None)  # a thunderstorm, chance unknown
 
     assert cli.main(["rain"]) == 0
 
     assert capsys.readouterr().out.splitlines() == [
         "Prakiraan hujan di Bandung, Jawa Barat, per 07:15 (peluang 90% ke atas):",
-        "Hujan berikutnya: sekitar jam enam sore (18:00).",
+        "Hujan berikutnya: sekitar jam enam sore (18:00-19:00).",
     ]
 
 

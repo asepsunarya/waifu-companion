@@ -10,12 +10,13 @@ lives only in this process, so a restart may tell a rain once more. Nothing is r
 
 An hourly entry is rain when its WMO code is rain, showers, or a thunderstorm, its
 precipitation probability reaches the threshold, or it holds at least `RAIN_MM`; drizzle
-counts only through its amount or probability. Open-Meteo sums an entry's rain over the hour
-before its time; she reads it as rain around that time, as weather apps show it.
+counts only through its amount or probability. Open-Meteo gives an entry's probability and
+sums its amount over the hour before its time, so a rainy 16:00 entry is rain from 15:00 to
+16:00: the lead counts to 15:00, and she says "jam tiga sore".
 
 A rain is told once: one starting within the lead while it is dry now. While it rains, while
-the same rain comes closer, and when a rain starts no more than `DRY_GAP` after the last
-rainy hour already known (fewer than three dry entries between), nothing more is said. A
+the same rain comes closer, and when a rain starts less than `DRY_GAP` after the end of the
+last rainy hour already known (fewer than three dry hours between), nothing more is said. A
 forecast that drops the rain keeps the episode, so a wavering forecast never tells it twice.
 """
 
@@ -40,7 +41,8 @@ NOTICE_EMOTION = NEUTRAL  # a calm heads-up
 RAIN_TAG = "umbrella"  # ntfy shows it as an umbrella with rain drops
 STOP_TIMEOUT_S = 5.0
 RAIN_MM = 0.5  # an hour with at least this much is rain, whatever its probability
-DRY_GAP = timedelta(hours=3)  # a rain starting this soon after the last rainy hour is the same
+DRY_GAP = timedelta(hours=3)  # a rain starting sooner after the last one ends is the same
+HOUR = timedelta(hours=1)  # what one entry covers, up to its time
 # Hour numbers as she says them, from "dua belas" (0 and 12) on.
 _NUMBERS = (
     "dua belas",
@@ -63,16 +65,17 @@ Wait = Callable[[threading.Event, float], bool]
 
 @dataclass(frozen=True)
 class RainWindow:
-    """A run of consecutive rainy entries."""
+    """A run of consecutive rainy entries: rain from `start` until `last`."""
 
-    start: datetime  # the first rainy entry's time
-    last: datetime  # the last one's
+    start: datetime  # when it starts: an hour before the first rainy entry's time
+    last: datetime  # when it ends: the last rainy entry's time
     chance: int | None  # the highest known probability in it, %
 
 
 @dataclass(frozen=True)
 class RainState:
-    """What one forecast means: the rain to tell, if any, and the episode's last rainy hour."""
+    """What one forecast means: the rain to tell, if any, and the end of the episode's last
+    rainy hour."""
 
     tell: RainWindow | None
     episode_last: datetime | None
@@ -88,26 +91,27 @@ def is_rainy(hour: Hour, threshold: int) -> bool:
 
 
 def raining_now(forecast: Forecast, threshold: int) -> bool:
-    """Whether the current code is rain or the entry of the current hour is."""
+    """Whether the current code is rain or the entry of the hour running now is."""
     if forecast.current_code in RAIN_CODES:
         return True
-    this_hour = _hour_of(forecast.now)
-    return any(hour.at == this_hour and is_rainy(hour, threshold) for hour in forecast.hours)
+    running = _running_entry(forecast.now)
+    return any(hour.at == running and is_rainy(hour, threshold) for hour in forecast.hours)
 
 
 def rain_window(forecast: Forecast, threshold: int, *, within: timedelta) -> RainWindow | None:
     """The first rain that starts after `forecast.now` and at most `within` later: a rainy
-    entry after a dry one (or the first entry), with the rainy entries that follow it."""
+    entry after a dry one (or the first entry), with the rainy entries that follow it. It
+    starts an hour before that entry's time."""
     rainy = [is_rainy(hour, threshold) for hour in forecast.hours]
     for first, hour in enumerate(forecast.hours):
         starts = rainy[first] and (first == 0 or not rainy[first - 1])
-        if starts and forecast.now < hour.at <= forecast.now + within:
+        if starts and forecast.now < hour.at - HOUR <= forecast.now + within:
             last = first
             while last + 1 < len(rainy) and rainy[last + 1]:
                 last += 1
             run = forecast.hours[first : last + 1]
             chances = [entry.rain_chance for entry in run if entry.rain_chance is not None]
-            return RainWindow(hour.at, run[-1].at, max(chances, default=None))
+            return RainWindow(hour.at - HOUR, run[-1].at, max(chances, default=None))
     return None
 
 
@@ -116,12 +120,12 @@ def follow_rain(
 ) -> RainState:
     """The rain to tell after this forecast, and how far the episode now reaches."""
     if raining_now(forecast, threshold):
-        this_hour = _hour_of(forecast.now)
-        return RainState(None, this_hour if episode_last is None else max(episode_last, this_hour))
+        running = _running_entry(forecast.now)
+        return RainState(None, running if episode_last is None else max(episode_last, running))
     window = rain_window(forecast, threshold, within=lead)
     if window is None:
         return RainState(None, episode_last)
-    if episode_last is not None and window.start - episode_last <= DRY_GAP:
+    if episode_last is not None and window.start - episode_last < DRY_GAP:
         return RainState(None, max(episode_last, window.last))
     return RainState(window, window.last)
 
@@ -143,8 +147,9 @@ def spoken_hour(hour: int) -> str:
     return f"jam {_NUMBERS[hour % 12]} {part}"
 
 
-def _hour_of(moment: datetime) -> datetime:
-    return moment.replace(minute=0, second=0, microsecond=0)
+def _running_entry(moment: datetime) -> datetime:
+    """The time of the entry holding the hour `moment` falls in: the next whole hour."""
+    return moment.replace(minute=0, second=0, microsecond=0) + HOUR
 
 
 class RainWatcher:
@@ -176,7 +181,7 @@ class RainWatcher:
         self._wait = wait
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
-        self._episode_last: datetime | None = None  # the last rainy hour of the rain told
+        self._episode_last: datetime | None = None  # the end of the rain told
         self._failing = False  # the last read failed
 
     def poll_once(self) -> list[str]:

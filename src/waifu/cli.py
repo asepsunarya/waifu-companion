@@ -2827,15 +2827,14 @@ def _rain(args: argparse.Namespace) -> int:
 
 
 def _rain_window_text(window: RainWindow, now: datetime) -> str:
-    """`sekitar jam tiga sore (15:00-16:00, peluang 80%)`: the hour as she would say it, then
-    the rainy entries' clock times (`besok` first when it starts on a later date) and the
-    highest known chance."""
-    clock = f"{window.start:%H:%M}"
-    if window.last != window.start:
-        clock = f"{clock}-{window.last:%H:%M}"
-    day = "besok " if window.start.date() > now.date() else ""
+    """`sekitar jam tiga sore (15:00-17:00, peluang 80%)`: the hour as she would say it, then
+    when the rain starts and ends (`besok` before either on a later date than the one before
+    it) and the highest known chance."""
+    start_day = "besok " if window.start.date() > now.date() else ""
+    end_day = "besok " if window.last.date() > window.start.date() else ""
+    clock = f"{start_day}{window.start:%H:%M}-{end_day}{window.last:%H:%M}"
     chance = "" if window.chance is None else f", peluang {window.chance}%"
-    return f"sekitar {spoken_hour(window.start.hour)} ({day}{clock}{chance})"
+    return f"sekitar {spoken_hour(window.start.hour)} ({clock}{chance})"
 
 
 # --- API cost monitor ------------------------------------------------------------------------
