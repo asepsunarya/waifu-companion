@@ -235,8 +235,8 @@ def server_time(month: int, day: int, hour: int, minute: int = 0) -> dict:
 
 
 SEASON_START = server_time(10, 6, 4)
-SEASON_END = server_time(11, 17, 3, 59)
-SEASON_END_AT = datetime(2026, 11, 17, 3, 59, tzinfo=SERVER_TZ)
+SEASON_END = server_time(11, 17, 3, 59)  # HoYoLAB's 03:59:59, which genshin.py keeps to the minute
+SEASON_END_AT = datetime(2026, 11, 17, 4, 0, tzinfo=SERVER_TZ)  # the 04:00 reset
 
 
 def group(name: str) -> dict:
@@ -460,6 +460,16 @@ def test_a_mode_not_played_this_season_has_no_floors_and_no_deepest_floor():
     assert (endgame.has_data, endgame.stars, endgame.deepest_floor) == (False, 0, None)
     assert endgame.floors == ()
     assert (endgame.season, endgame.ends_at) == ("Gleaming Treasure", SEASON_END_AT)
+
+
+@pytest.mark.parametrize("minute", [0, 58])
+def test_a_season_end_on_any_other_minute_stays_as_given(minute):
+    season = {**group("Gleaming Treasure"), "end_time": server_time(11, 17, 4, minute)}
+    payload = {**MEMORY_OF_CHAOS, "groups": [season]}
+
+    endgame = read_endgame("memory_of_chaos", build(StarRailChallenge, payload))
+
+    assert endgame.ends_at == datetime(2026, 11, 17, 4, minute, tzinfo=SERVER_TZ)
 
 
 def test_a_mode_without_a_season_has_no_season_or_end():
@@ -772,6 +782,22 @@ def test_calendar_times_on_a_minutes_last_second_read_as_the_next_whole_minute()
     assert calendar.events[0].ends_at == datetime(2026, 10, 20, 4, 0, tzinfo=SERVER_TZ)
     assert calendar.challenges[0].ends_at == datetime(2026, 11, 17, 4, 0, tzinfo=SERVER_TZ)
     assert calendar.warps[0].starts_at == FETCHED_AT - timedelta(days=6)  # a whole minute stays
+
+
+def test_an_endgame_season_ends_when_its_calendar_window_does():
+    # HoYoLAB ends both at 03:59:59 server time for the 04:00 reset: the calendar gives that
+    # second, the endgame only its minute (03:59), which printed "berakhir 02:59" WIB for the
+    # season where the calendar window said 03:00.
+    season_end = datetime(2026, 11, 17, 3, 59, 59, tzinfo=SERVER_TZ)
+    challenges = [
+        challenge("ChallengeTypeChasm", "Gleaming Treasure", API_NOW - DAY, unix(season_end))
+    ]
+    model = calendar_model({**CALENDAR, "challenge_list": challenges})
+
+    window = read_calendar(model, FETCHED_AT).challenges[0]
+    season = read_endgame("memory_of_chaos", build(StarRailChallenge, MEMORY_OF_CHAOS))
+
+    assert season.ends_at == window.ends_at
 
 
 @pytest.mark.parametrize("offset", [timedelta(hours=8), timedelta(hours=-5, minutes=-45)])

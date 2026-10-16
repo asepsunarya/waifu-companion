@@ -4,7 +4,8 @@ The readers at the bottom turn genshin.py's models (taken as `Any`) into these f
 dataclasses for the HoYoLAB side, and the brain's HSR tools turn them into compact
 JSON. Nothing here imports genshin.py, and nothing holds the uid, the nickname, ids,
 icons, or descriptions. Every datetime is aware, and a time on a minute's last second
-(HoYoLAB's 11:59:59 warp end) is read as the next whole minute.
+(HoYoLAB's 11:59:59 warp end) is read as the next whole minute, as is a season end that
+genshin.py keeps only to the minute (HoYoLAB's 03:59:59 as 03:59).
 """
 
 from __future__ import annotations
@@ -122,6 +123,9 @@ CHALLENGE_MODES = {
     "ChallengeTypeBoss": "apocalyptic_shadow",
     "ChallengeTypePeak": "anomaly_arbitration",
 }
+# genshin.py's `PartialTime` keeps only the minute of HoYoLAB's endgame season end, so the
+# 03:59:59 before the 04:00 reset arrives as minute 59.
+LAST_MINUTE = 59
 # Any offset of the calendar API's clock (a time zone, genshin.py's relabelling) is whole
 # quarter hours; latency and the PC clock's skew are seconds.
 CLOCK_STEP = timedelta(minutes=15)
@@ -150,8 +154,8 @@ def read_character(model: Any) -> HsrCharacter:
 def read_endgame(mode: str, model: Any) -> HsrEndgame:
     """This season of one endgame mode, from genshin.py's model of that mode.
 
-    Season times are already aware (genshin.py adds the uid's server offset to them) and
-    whole minutes (its `PartialTime` has no seconds), so none is on a minute's last second.
+    Season ends are already aware (genshin.py adds the uid's server offset to them) and read
+    through `_season_end`, so a season ends at the reset, as its calendar window does.
     """
     if mode == "anomaly_arbitration":
         return _anomaly_arbitration(model)
@@ -159,7 +163,7 @@ def read_endgame(mode: str, model: Any) -> HsrEndgame:
     return HsrEndgame(
         mode=mode,
         season=None if season is None else season.name,
-        ends_at=None if season is None else season.end_time.datetime,
+        ends_at=None if season is None else _season_end(season.end_time),
         has_data=model.has_data,
         stars=model.total_stars,
         extra_stars=model.starward_stars,
@@ -262,7 +266,7 @@ def _anomaly_arbitration(model: Any) -> HsrEndgame:
     return HsrEndgame(
         mode="anomaly_arbitration",
         season=record.season.name,
-        ends_at=record.season.end_time.datetime,
+        ends_at=_season_end(record.season.end_time),
         has_data=record.has_data,
         stars=record.boss_stars + record.mini_boss_stars,
         extra_stars=0,
@@ -270,6 +274,15 @@ def _anomaly_arbitration(model: Any) -> HsrEndgame:
         battles=record.cycles_used,  # genshin.py's name for the record's battle_num
         floors=(),
     )
+
+
+def _season_end(end_time: Any) -> datetime:
+    """A season's end as the game tells it, from genshin.py's `PartialTime`. HoYoLAB ends a
+    season on the last second before the reset (03:59:59 for 04:00) and `PartialTime` keeps
+    only its minute, so an end on minute 59 is the next whole minute, as `on_the_minute`
+    reads the same end in the calendar. Any other minute stays as given."""
+    moment = end_time.datetime
+    return moment + timedelta(minutes=1) if moment.minute == LAST_MINUTE else moment
 
 
 def _names(items: Iterable[Any], rarity: int) -> tuple[str, ...]:

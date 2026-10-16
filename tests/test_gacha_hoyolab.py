@@ -2467,3 +2467,15 @@ def test_game_events_tells_an_hsr_warp_ending_on_hoyolabs_last_second_on_the_who
     assert not is_error
     warp = json.loads(result)["warps"][0]
     assert (warp["ends"], warp["ends_in_hours"]) == ("2026-10-21 11:00", 135)
+
+
+def test_game_endgame_tells_an_hsr_season_ending_at_hoyolabs_0359_as_the_reset():
+    # HoYoLAB gives the season's end to the minute, 03:59 server time, for the 04:00 reset:
+    # the game says 03:00 for Master (UTC+7), as the season's calendar window does.
+    fake = FakeHoyolab()
+
+    result, is_error = game_data_tools(fake).run("game_endgame", {"mode": "memory_of_chaos"})
+
+    assert not is_error
+    (season,) = json.loads(result)["modes"]
+    assert (season["season"], season["ends"]) == ("Gleaming Treasure", "2026-11-17 03:00")

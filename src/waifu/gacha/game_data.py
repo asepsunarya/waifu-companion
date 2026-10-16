@@ -4,8 +4,8 @@ The endgame modes of each game, the Genshin and ZZZ endgame and calendar values 
 keeps its own in `starrail.py`), and `GameDataSource`, the HoYoLAB side the brain's game
 data tools read from. Nothing here imports genshin.py, and nothing holds the uid, a
 nickname, ids, icons, or descriptions. Every datetime is aware, and the Genshin and ZZZ readers
-read every time through `on_the_minute`, as the HSR reader does its calendar times (HSR's
-endgame season ends are whole minutes already).
+read every time through `on_the_minute`, as the HSR reader does its calendar times (its
+endgame season ends, which genshin.py keeps only to the minute, have their own rule there).
 """
 
 from __future__ import annotations
