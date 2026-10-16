@@ -5,12 +5,13 @@ running one never loaded. Every `check_minutes`, timed from the start of the pre
 first right after it starts, it reads the CHANGELOG and pyproject on disk (never git), but only
 between `active_from` and `active_until` on the PC's clock: at night it reads nothing and stays
 quiet, so a version found then is told in the morning. News is a CHANGELOG version above the one
-she started with, or core dependencies that changed since (then `pip install` comes first, and
-the push carries the command); a commit that adds no version is never news, so fixes and
-half-built versions stay quiet. Each news is said between utterances, once the follow-up window
-has closed, and pushed to the phone when notifications are on, once: a later version is told
-again with its own count. A failed read is never said: the first of a run of failures is logged
-at WARNING. She never restarts herself or runs pip. Nothing is raised.
+she started with; when the core dependencies changed since, `pip install` comes first, and the
+push carries the command. A commit that adds no version is never news, also when it changes the
+dependencies, so fixes and half-built versions stay quiet. Each news is said between utterances,
+once the follow-up window has closed, and pushed to the phone when notifications are on, once
+per version number: a later version is told again with its own count. A failed read is never
+said: the first of a run of failures is logged at WARNING. She never restarts herself or runs
+pip. Nothing is raised.
 """
 
 from __future__ import annotations
@@ -45,21 +46,20 @@ Wait = Callable[[threading.Event, float], bool]
 
 @dataclass(frozen=True)
 class VersionNews:
-    """What changed on disk since a run started: its newer releases, newest first, and whether
-    the core dependencies changed."""
+    """What changed on disk since a run started: its newer releases, newest first (at least
+    one), and whether the core dependencies changed too."""
 
     releases: tuple[Release, ...]
     dependencies_changed: bool
 
 
 def version_news(running: CodeVersion, disk: CodeVersion) -> VersionNews | None:
-    """The news of the code on `disk` for a run that started with `running`; None when there is
-    no newer release and the dependencies are not known on both sides to differ."""
+    """The news of the code on `disk` for a run that started with `running`; None without a
+    newer release, also when only the dependencies changed: a version still being built."""
     releases = newer_releases(running, disk)
-    changed = dependencies_changed(running, disk)
-    if not releases and not changed:
+    if not releases:
         return None
-    return VersionNews(releases, changed)
+    return VersionNews(releases, dependencies_changed(running, disk))
 
 
 def notice_text(news: VersionNews, *, owner: str, name: str, pushed: bool) -> str:
@@ -87,9 +87,7 @@ def push_text(news: VersionNews, *, owner: str, name: str) -> str:
 
 def _opening(news: VersionNews, owner: str, name: str) -> str:
     """`Sayang, ada versi baru Cyrene: v1.27, kamera HP, dan dua versi lain.`, and whether the
-    packages changed too; packages alone: `Sayang, paket Python Cyrene berubah.`"""
-    if not news.releases:
-        return f"{owner}, paket Python {name} berubah."
+    packages changed too."""
     newest, others = news.releases[0], len(news.releases) - 1
     more = f", dan {spoken_number(others)} versi lain" if others else ""
     packages = " Paket Python-nya juga berubah." if news.dependencies_changed else ""
@@ -126,8 +124,9 @@ class VersionWatcher:
         self._wait = wait
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
-        # The news told: its newest release and, when they changed, its dependencies.
-        self._told: set[tuple[Release | None, str | None]] = set()
+        # The newest release of each news told, by its version alone: a retitled heading, or a
+        # read that misses a part, is the same version.
+        self._told: set[str] = set()
         self._failing = False  # the last read failed or had problems
 
     def poll_once(self) -> list[str]:
@@ -151,18 +150,12 @@ class VersionWatcher:
             # An odd heading must not end the thread: the next poll reads the files again.
             logger.exception("Could not decide on a version notice")
             return []
-        if news is None:
+        if news is None or news.releases[0].version in self._told:
             return []
-        told = (
-            news.releases[0] if news.releases else None,
-            disk.dependencies if news.dependencies_changed else None,
-        )
-        if told in self._told:
-            return []
-        self._told.add(told)
+        self._told.add(news.releases[0].version)
         logger.info(
             "Newer code on disk (%s, dependencies %s); telling Master",
-            ", ".join(release.version for release in news.releases) or "no newer release",
+            ", ".join(release.version for release in news.releases),
             "changed" if news.dependencies_changed else "unchanged",
         )
         text = notice_text(

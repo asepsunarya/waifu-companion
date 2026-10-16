@@ -755,7 +755,8 @@ dia memberi tahu sendiri.
   `## v1.26: ...` yang lebih tinggi dari versi yang sedang berjalan. Perbaikan kecil tanpa
   versi baru di CHANGELOG tidak diberitahukan; `waifu check` menyebutnya (lihat di bawah).
 - **Sekali untuk setiap versi.** Kalau sesudah itu masuk versi yang lebih baru lagi, dia memberi
-  tahu sekali lagi, dengan hitungannya sendiri.
+  tahu sekali lagi, dengan hitungannya sendiri. Judul versi yang diganti tidak dihitung sebagai
+  versi baru.
 - **Hanya di jam aktif**, di antara `active_from` dan `active_until` (bawaan 08.00-22.00, jam
   PC). Di luar jam itu dia tidak memeriksa apa pun; versi yang masuk malam hari diberitahukan
   pagi berikutnya.
@@ -780,6 +781,10 @@ cd <folder proyek>
 .venv\Scripts\python -m pip install -e .
 waifu run
 ```
+
+Paket yang berubah tanpa versi baru di CHANGELOG tidak diberitahukan sendiri: biasanya versinya
+masih dikerjakan. Dia menyebutnya bersama versi baru berikutnya, dan `waifu check` sudah
+menampilkannya.
 
 Tanpa notifikasi HP dia bilang "perintahnya ada di waifu version": `waifu version` dan
 `waifu check` menampilkan perintah yang sama. Paket suara (`.[voice]`) tidak ikut dihitung;

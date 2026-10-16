@@ -50,11 +50,24 @@ def test_every_newer_release_is_in_the_news_newest_first():
     assert news == VersionNews((V127, V126), False)
 
 
-def test_changed_dependencies_are_news_with_or_without_a_newer_release():
+def test_changed_dependencies_join_a_newer_release():
     assert version_news(RUNNING, disk(V126, V125, dependencies=OTHER_HASH)) == VersionNews(
         (V126,), True
     )
-    assert version_news(RUNNING, disk(V125, dependencies=OTHER_HASH)) == VersionNews((), True)
+
+
+@pytest.mark.parametrize(
+    ("running", "on_disk"),
+    [
+        (RUNNING, disk(V126, V125, dependencies=None)),  # pyproject unreadable now
+        (CodeVersion((V125,), None), disk(V126, V125, dependencies=OTHER_HASH)),  # at start
+    ],
+    ids=["on_disk", "at_start"],
+)
+def test_an_unknown_dependency_hash_leaves_a_newer_release_without_changed_packages(
+    running, on_disk
+):
+    assert version_news(running, on_disk) == VersionNews((V126,), False)
 
 
 @pytest.mark.parametrize(
@@ -62,14 +75,13 @@ def test_changed_dependencies_are_news_with_or_without_a_newer_release():
     [
         (RUNNING, disk(V125, V124)),
         (RUNNING, disk(V124)),  # the CHANGELOG went back
-        (RUNNING, disk(V125, dependencies=None)),  # pyproject unreadable now
-        (CodeVersion((V125,), None), disk(V125, dependencies=OTHER_HASH)),  # unknown at start
+        (RUNNING, disk(V125, V124, dependencies=OTHER_HASH)),  # a version still being built
         (CodeVersion((), HASH), disk(V126)),  # no release known at start
         (RUNNING, disk()),  # no release on disk
     ],
-    ids=["same", "went_back", "disk_hash_unknown", "running_hash_unknown", "no_release", "none"],
+    ids=["same", "went_back", "packages_alone", "no_release", "none"],
 )
-def test_nothing_is_news_unless_both_sides_know_it_changed(running, on_disk):
+def test_nothing_is_news_without_a_newer_release(running, on_disk):
     assert version_news(running, on_disk) is None
 
 
@@ -109,13 +121,6 @@ def test_without_a_push_she_points_at_waifu_version_for_the_command():
     )
 
 
-def test_changed_packages_alone_are_told_without_a_version():
-    assert say(VersionNews((), True)) == (
-        "Sayang, paket Python Cyrene berubah. "
-        "Tutup aku dulu, jalankan pip install, lalu mulai ulang aku ya; perintahnya ada di HP."
-    )
-
-
 def test_she_says_her_own_name():
     text = notice_text(VersionNews((V125,), False), owner="Master", name="Kirin", pushed=False)
 
@@ -126,7 +131,6 @@ ALL_NEWS = [
     VersionNews((V125,), False),
     VersionNews((V127, V126), False),
     VersionNews((V126,), True),
-    VersionNews((), True),
 ]
 
 
@@ -148,9 +152,6 @@ def test_with_changed_packages_the_push_carries_the_exact_command():
         "Sayang, ada versi baru Cyrene: v1.26, versi baru. Paket Python-nya juga berubah. "
         f"Tutup Cyrene dulu, lalu di folder proyek jalankan:\n{INSTALL}\n"
         "Sesudah itu jalankan lagi waifu run."
-    )
-    assert push_text(VersionNews((), True), owner="Sayang", name="Cyrene").startswith(
-        "Sayang, paket Python Cyrene berubah. Tutup Cyrene dulu,"
     )
 
 
@@ -241,15 +242,54 @@ def test_a_later_version_is_told_again_with_its_own_count():
     assert rig.poll() == []
 
 
-def test_packages_that_change_after_a_told_version_are_told_with_the_command_in_the_push():
-    rig = Rig(disk(V126, V125))
-    rig.poll()
+def test_packages_alone_are_never_told_and_join_the_version_that_follows():
+    # A version is built task by task: its packages land first, its CHANGELOG heading last.
+    rig = Rig(disk(V125, V124, dependencies=OTHER_HASH))
+    assert rig.poll() == []
 
     [text] = rig.poll(disk(V126, V125, dependencies=OTHER_HASH))
 
-    assert "Paket Python-nya juga berubah" in text and text.endswith("ada di HP.")
+    assert text.startswith("Sayang, ada versi baru Cyrene: v1.26, versi baru. Paket Python-nya")
     assert INSTALL in rig.notifier.sent[-1][1]
     assert rig.poll() == []
+    assert len(rig.announced) == len(rig.notifier.sent) == 1
+
+
+def test_packages_that_change_after_a_told_version_are_told_with_the_next_version():
+    rig = Rig(disk(V126, V125))
+    rig.poll()
+
+    assert rig.poll(disk(V126, V125, dependencies=OTHER_HASH)) == []
+    [text] = rig.poll(disk(V127, V126, V125, dependencies=OTHER_HASH))
+
+    assert text.startswith("Sayang, ada versi baru Cyrene: v1.27, kamera HP, dan satu versi lain.")
+    assert "Paket Python-nya juga berubah" in text and text.endswith("ada di HP.")
+    assert INSTALL in rig.notifier.sent[-1][1]
+
+
+def test_a_told_version_given_a_new_title_is_not_told_again():
+    rig = Rig(disk(V126, V125))
+    rig.poll()
+
+    assert rig.poll(disk(Release("v1.26", "kabar versi baru"), V125)) == []
+    assert len(rig.announced) == len(rig.notifier.sent) == 1
+
+
+@pytest.mark.parametrize(
+    "half_read",
+    [
+        disk(V127, V126, V125, dependencies=None, problems=["pyproject.toml mid-write"]),
+        disk(dependencies=OTHER_HASH, problems=["CHANGELOG.md mid-write"]),
+    ],
+    ids=["pyproject", "changelog"],
+)
+def test_a_half_read_after_a_told_version_never_tells_it_again_with_less(half_read):
+    rig = Rig(disk(V127, V126, V125, dependencies=OTHER_HASH))
+    [told] = rig.poll()
+
+    assert rig.poll(half_read) == []
+    assert rig.poll(disk(V127, V126, V125, dependencies=OTHER_HASH)) == []
+    assert rig.announced == [(told, "happy")]
 
 
 def test_without_a_notifier_she_says_where_to_find_the_command():
