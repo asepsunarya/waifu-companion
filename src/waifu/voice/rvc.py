@@ -115,11 +115,20 @@ class RvcClient:
         model = payload.get("model")
         return model if isinstance(model, str) else None
 
-    def convert(self, audio: np.ndarray, sample_rate: int) -> tuple[np.ndarray, int]:
-        """Return `audio` in the model's voice as mono float32 at the server's sample rate."""
+    def convert(
+        self, audio: np.ndarray, sample_rate: int, *, pitch: int | None = None
+    ) -> tuple[np.ndarray, int]:
+        """Return `audio` in the model's voice as mono float32 at the server's sample rate.
+
+        `pitch` shifts this clip by that many semitones instead of `tts.rvc.pitch`.
+        """
         config = self._config
         query = urllib.parse.urlencode(
-            {"pitch": config.pitch, "index_rate": config.index_rate, "protect": config.protect}
+            {
+                "pitch": config.pitch if pitch is None else pitch,
+                "index_rate": config.index_rate,
+                "protect": config.protect,
+            }
         )
         url = f"{self.base_url}/convert?{query}"
         body = _encode_wav(audio, sample_rate)

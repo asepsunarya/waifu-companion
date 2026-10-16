@@ -109,6 +109,16 @@ def test_convert_posts_the_configured_parameters_to_the_configured_server():
     assert timeout == pytest.approx(5.05)
 
 
+def test_convert_sends_a_pitch_given_for_the_clip_instead_of_the_configured_one():
+    # The Windows fallback voice needs its own shift: a male base voice lies far below edge-tts.
+    post = FakeHttp((200, encode(tone(0.1, 16000), 16000)))
+
+    make_client(RvcConfig(pitch=4), post=post).convert(tone(0.1, 16000), 16000, pitch=18)
+
+    query = urllib.parse.parse_qs(urllib.parse.urlsplit(post.requests[0][0]).query)
+    assert query["pitch"] == ["18"]
+
+
 @pytest.mark.parametrize(
     ("seconds", "timeout"), [(0.0, 5.0), (10.0, 10.0), (50.0, 30.0), (100.0, 30.0)]
 )
