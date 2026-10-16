@@ -14,15 +14,10 @@ from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Literal
 
-from waifu.gacha.game_data import is_over
+from waifu.gacha.game_data import GAME_MODES, is_over
 
 # The endgame modes in display order: the tool argument and its official English name.
-ENDGAME_MODES: dict[str, str] = {
-    "memory_of_chaos": "Memory of Chaos",
-    "pure_fiction": "Pure Fiction",
-    "apocalyptic_shadow": "Apocalyptic Shadow",
-    "anomaly_arbitration": "Anomaly Arbitration",
-}
+ENDGAME_MODES: dict[str, str] = GAME_MODES["hsr"]
 
 WarpKind = Literal["character", "light_cone"]
 
