@@ -384,6 +384,18 @@ strict tools, the due and overdue tasks in her morning greeting, and `waifu todo
 - [x] Python suite and ruff clean (2026-10-16: 5543 pytest and 454 node tests on the committed tree plus tasks 103-105 and the review fixes; ruff check and format clean on src, tests, and tools. Every store lives under tmp_path with an injected clock; `test_cli.py` refuses a to-do file outside tmp_path. A test sends the Claude request with every tool on and checks Anthropic's strict tool limits: only the tools that require an argument are strict)
 - [ ] By voice or chat: add a task with a due day, list, finish one; the next morning greeting mentions a due task
 
+### Phase 26: songs on YouTube (v1.21, see SPEC → songs on YouTube)
+Decision: no API key and no scraping: with Claude she finds the song's YouTube link through her
+web search and opens it in the default browser; otherwise the search page opens. Only YouTube
+addresses, only when Master's words ask for music; pause and skip stay with the media device.
+- [x] Task 108a: `music` config
+- [ ] Task 108: `music.py` and `MusicTools`
+- [ ] Task 109: wiring, `waifu youtube`, check, README
+
+### Checkpoint: songs on YouTube
+- [ ] Python suite and ruff clean; no test opened anything
+- [ ] By voice or chat: "putar lagu ..." opens and plays the song; "pause" pauses it
+
 ## Risks and Mitigations
 
 | Risk | Impact | Mitigation |

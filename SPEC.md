@@ -841,6 +841,35 @@ CLI: `run` and `chat` add `TodoTools` when `todo.enabled` (both backends) and pa
 
 Safety: tests use tmp paths and injected clocks; nothing else is touched.
 
+### songs on YouTube (v1.21)
+
+User stories (one of the owner's wishes in Cyrene's memory: Spotify/YouTube songs; Spotify is not installed on the PC):
+
+1. "Cyrene, putar lagu Hope Is the Thing With Feathers", "puterin playlist lofi buat belajar", "play Hoyo-Mix Cyrene theme" → she finds the song's YouTube page (with Claude, through her web search) and opens it in the default browser, where it plays; with Ollama, or when no exact link was found, she opens YouTube's search page for it instead and says so.
+2. "Pause", "lagu berikutnya", "kecilin volumenya" → the existing `media` device (v1.8): Chrome and Edge answer the media keys.
+3. With `music.service: youtube_music`, a song opens on YouTube Music instead.
+
+Non-goals (v1.21): Spotify (not installed), downloading audio, playing through her own voice output, choosing among results by herself without a link, controlling the browser beyond opening a page, any YouTube API key.
+
+Safety: a page opens only when Master's own words in that turn ask for music (a play word, as the screen tool's look words: `putar`, `puterin`, `putarkan`, `mainkan`, `mainin`, `setel`, `setelin`, `play`, `lagu`, `musik`, `music`, `playlist`, `dengar`, `dengerin`, `youtube`, her names left out), so a web page she read cannot make her open anything; only YouTube addresses are ever opened: `https` on `www.youtube.com`, `youtube.com`, `m.youtube.com`, `music.youtube.com`, or `youtu.be`, as a video (`/watch?v=<11-character id>`, `youtu.be/<id>`), a playlist (`/playlist?list=<id>`), or the search page this code builds; everything else is refused. Opening a browser takes the focus from a fullscreen game: she only does it when asked.
+
+Config `music` (committed with its tests before the build): `enabled` (true), `service` (`youtube` or `youtube_music`, default `youtube`).
+
+`music.py` (no new dependency):
+- `youtube_link(url, *, service) -> str | None`: the canonical link for a YouTube video or playlist URL (any of the hosts above, `www.`/`m.` variants, `youtu.be`, extra query parameters such as `t` and `si` dropped except `v` and `list`), on `www.youtube.com` or `music.youtube.com` per `service`; None for anything else (another host, `http`, a user or port in the URL, a backslash, a malformed id). Video ids match `^[A-Za-z0-9_-]{11}$`, playlist ids `^[A-Za-z0-9_-]{10,64}$`.
+- `search_link(query, *, service) -> str`: `https://www.youtube.com/results?search_query=<urlencoded>` or `https://music.youtube.com/search?q=<urlencoded>`; the query is whitespace-collapsed and at most 120 characters.
+- `open_link(link, *, startfile=os.startfile)`: opens a link that `youtube_link` or `search_link` made, in the default browser; an `OSError` is raised to the caller.
+
+`brain/music_tools.py` — `MusicTools(*, service, names, startfile=os.startfile)`, a `ToolProvider` with one strict tool `play_youtube {query: string, url?: string}` and the `begin_turn(user_text)` hook (the play-word gate, tokenized like the screen tool):
+- Without a play word this turn: an error result (Master did not ask for music in this message). At most one page per turn.
+- With `url`: opened when `youtube_link` accepts it, otherwise an error result (only YouTube links); without `url` (or when refused, the model may retry with only `query`): the search page for `query` opens.
+- Result `{"ok": true, "opened": "video" | "playlist" | "search", "service"}` (no URL read aloud); an `OSError` is an Indonesian error result.
+- Description (static English): use it when Master asks to play a song or music; when you can search the web, first search for the song's YouTube page and pass its youtube.com or youtu.be link as `url`; otherwise pass only `query` (the search page opens and Master picks); say what you opened in one short sentence; never read a link aloud; pause, skip, and volume go through the media device when there is one; it takes the focus from a game, so only when asked.
+
+CLI: `run` and `chat` add `MusicTools(service=music.service, names=[assistant.name, *wake_words])` when `music.enabled` (both backends); `waifu youtube <url or words>` opens a link (when `youtube_link` accepts it) or the search page, from the terminal; `check` adds `✓ Lagu YouTube: aktif (YouTube|YouTube Music)` or `! Lagu YouTube mati`. README (Indonesian): examples, that with Claude she finds the exact song (a web search, about $0.01) and with Ollama the search page opens, the media keys, and the game-focus note.
+
+Safety: tests never open anything (`startfile` injected; conftest refuses `os.startfile`), never reach the network.
+
 ## Code Style
 
 See `CLAUDE.md` → Code Conventions and Patterns. Dataclasses for value

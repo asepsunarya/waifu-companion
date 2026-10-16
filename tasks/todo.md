@@ -979,3 +979,25 @@ named `tests/test_<package>_<module>.py`.
 - [x] With every tool on (Claude, the games, routines), one request stays within Anthropic's strict tool limits (20 strict tools, 24 optional and 16 union-typed parameters): `to_anthropic` makes only the tools that require an argument strict
 
 **Dependencies:** 103, 104 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py`, `README.md`, `config.example.yaml`; for the strict limit `src/waifu/brain/tools.py` and the strict assertions of the tool tests · **Scope:** S
+
+## Task 108a: Music config ✅
+
+**Acceptance criteria:**
+- [x] `AppConfig.music` (`enabled`, `service`: `youtube` | `youtube_music`)
+
+**Dependencies:** none · **Files:** `src/waifu/config.py`, `tests/test_config.py` · **Scope:** XS
+
+## Task 108: YouTube links and the tool
+
+**Acceptance criteria:**
+- [ ] `youtube_link`, `search_link`, `open_link` per SPEC (strict host and id rules, canonical links, service)
+- [ ] `MusicTools.play_youtube` with the play-word gate, one page per turn, url or query, Indonesian errors
+
+**Dependencies:** 108a · **Files:** `src/waifu/music.py`, `src/waifu/brain/music_tools.py`, `tests/test_music.py`, `tests/test_music_tools.py` · **Scope:** M
+
+## Task 109: Wiring, CLI, README
+
+**Acceptance criteria:**
+- [ ] `run`/`chat` wiring; `waifu youtube`; check line; README; `config.example.yaml`; the strict tool limits still hold
+
+**Dependencies:** 108 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py`, `README.md`, `config.example.yaml` · **Scope:** S
