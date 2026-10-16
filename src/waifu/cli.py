@@ -158,6 +158,7 @@ from waifu.pc_health import CpuLoad, Drive, GpuStatus, PcSnapshot, gpu_status, r
 from waifu.pc_watch import PcWatcher
 from waifu.phone.auth import CODE_LIFETIME, MAX_TRIES, PhoneAuth
 from waifu.phone.server import LOOPBACK, PhoneError, PhoneServer
+from waifu.rain_watch import RainWatcher, RainWindow, rain_window, raining_now, spoken_hour
 from waifu.routines import describe_routine, routine_problems, run_routine
 from waifu.schedule import (
     Action,
@@ -185,7 +186,7 @@ from waifu.voice.segmenter import EnergySegmenter, frame_db
 from waifu.voice.speaker import MIN_ENROLL_SAMPLES, EcapaEmbedder, SpeakerError, SpeakerVerifier
 from waifu.voice.stt import CUDA_HINT, SttError, WhisperStt, register_cuda_dll_dirs
 from waifu.voice.tts import SpeechRouter, TtsError, build_speech_router
-from waifu.weather import WeatherClient
+from waifu.weather import WeatherClient, WeatherError
 
 if TYPE_CHECKING:
     import anthropic
@@ -532,6 +533,12 @@ def build_parser() -> argparse.ArgumentParser:
     command("mics", _mics, "Daftar perangkat audio.")
     command(
         "briefing", _briefing, "Tampilkan ringkasan hari ini (tanggal, cuaca, jadwal) tanpa otak."
+    )
+    command(
+        "rain",
+        _rain,
+        f"Tampilkan kapan hujan berikutnya dalam {RAIN_LOOKAHEAD_HOURS} jam di kota "
+        "briefing.city, tanpa otak.",
     )
     usage = command(
         "usage",
@@ -1092,6 +1099,7 @@ def _listen(args: argparse.Namespace) -> int:
                         _gacha_watcher(config, gacha, assistant),
                         _code_watcher(config, gacha, assistant, notifier),
                         _pc_watcher(config, pc, assistant, notifier),
+                        _rain_watcher(config, assistant, notifier),
                         _offers_watcher(config, assistant, notifier, usage),
                         _scheduler(
                             config,
@@ -2753,6 +2761,83 @@ def _weather_text(weather: dict[str, object]) -> str:
     )
 
 
+# --- rain alerts -----------------------------------------------------------------------------
+
+RAIN_LOOKAHEAD_HOURS = 24  # how far `waifu rain` looks; the forecast covers today and tomorrow
+
+
+@contextmanager
+def _rain_watcher(
+    config: AppConfig, assistant: Assistant, notifier: Notifier | None
+) -> Iterator[None]:
+    """Her warnings shortly before rain at the briefing's place while the block runs, also pushed
+    to the phone when `rain_alert.push` and notifications are on; none with the alerts off or
+    without a place. She says one once the follow-up window has closed, so a conversation is
+    never interrupted, and names the city as written (none with coordinates only)."""
+    rain = config.rain_alert
+    weather = _weather_client(config.briefing) if rain.enabled else None
+    if weather is None:
+        yield
+        return
+    watcher = RainWatcher(
+        weather.forecast,
+        rain,
+        announce=lambda text, emotion: assistant.announce(text, emotion, wait_for_followup=True),
+        notifier=notifier if rain.push else None,
+        owner_call=config.assistant.owner_call,
+        place=config.briefing.city,
+        title=config.assistant.name,
+    )
+    watcher.start()
+    try:
+        yield
+    finally:
+        watcher.stop()
+
+
+def _rain(args: argparse.Namespace) -> int:
+    """Print when the next rain is expected at the briefing's place, read as the rain alerts read
+    it (`rain_alert.threshold`), without the brain; it works with the alerts off. Exit 1 when
+    there is no forecast."""
+    config = load_config(args.config)
+    weather = _weather_client(config.briefing)
+    if weather is None:
+        print(f"{FAIL} Cuaca belum diatur (isi briefing.city di config.yaml)")
+        return 1
+    try:
+        forecast = weather.forecast()
+    except WeatherError as exc:
+        print(f"{FAIL} {exc}")
+        return 1
+    threshold = config.rain_alert.threshold
+    print(
+        f"Prakiraan hujan di {forecast.place}, per {forecast.now:%H:%M} "
+        f"(peluang {threshold}% ke atas):"
+    )
+    rains_now = raining_now(forecast, threshold)
+    if rains_now:
+        print("Sekarang sedang hujan.")
+    window = rain_window(forecast, threshold, within=timedelta(hours=RAIN_LOOKAHEAD_HOURS))
+    if window is not None:
+        print(f"Hujan berikutnya: {_rain_window_text(window, forecast.now)}.")
+    else:
+        other = " lain" if rains_now else ""
+        print(f"Tidak ada hujan{other} dalam {RAIN_LOOKAHEAD_HOURS} jam ke depan.")
+    return 0
+
+
+def _rain_window_text(window: RainWindow, now: datetime) -> str:
+    """`sekitar jam tiga sore (15:00-16:00, peluang 80%)`: the hour as she would say it, then
+    the rainy entries' clock times (`besok` first when it starts on a later date) and the
+    highest known chance."""
+    clock = f"{window.start:%H:%M}"
+    if window.last != window.start:
+        clock = f"{clock}-{window.last:%H:%M}"
+    day = "besok " if window.start.date() > now.date() else ""
+    chance = "" if window.chance is None else f", peluang {window.chance}%"
+    return f"sekitar {spoken_hour(window.start.hour)} ({day}{clock}{chance})"
+
+
 # --- API cost monitor ------------------------------------------------------------------------
 
 
@@ -3953,6 +4038,7 @@ def _checks(config_path: Path) -> Iterator[Check]:
     yield _todo_check(config)
     yield _music_check(config)
     yield _briefing_check(config.briefing)
+    yield _rain_alert_check(config)
     yield _usage_check(config)
     yield _pc_health_check(config)
     yield _free_offers_check(config)
@@ -4204,6 +4290,22 @@ def _briefing_check(briefing: BriefingConfig) -> Check:
         return WARN, "Sapaan pagi: cuaca belum diatur (isi briefing.city)"
     hours = f"{briefing.time:%H:%M}-{briefing.until:%H:%M}"
     return OK, f"Sapaan pagi: jam {hours}, cuaca untuk {place}"
+
+
+def _rain_alert_check(config: AppConfig) -> Check:
+    """How long ahead, from what chance, in which hours, and where she warns of rain; Open-Meteo
+    is never asked."""
+    rain = config.rain_alert
+    if not rain.enabled:
+        return WARN, "Peringatan hujan mati"
+    place = _weather_place(config.briefing)
+    if place is None:
+        return WARN, "Peringatan hujan: cuaca belum diatur (isi briefing.city)"
+    hours = f"{rain.active_from:%H:%M}-{rain.active_until:%H:%M}"
+    return OK, (
+        f"Peringatan hujan: {rain.lead_minutes} menit sebelumnya, peluang {rain.threshold}% "
+        f"ke atas, jam {hours}, untuk {place}"
+    )
 
 
 def _weather_place(briefing: BriefingConfig) -> str | None:

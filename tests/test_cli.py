@@ -62,6 +62,7 @@ from waifu.config import (
     FreeOffersConfig,
     MusicConfig,
     PcHealthConfig,
+    RainAlertConfig,
     RedeemCodesConfig,
     RvcConfig,
     TodoConfig,
@@ -379,6 +380,52 @@ def pc_watchers(events, monkeypatch) -> list[FakePcWatcher]:
         return built[-1]
 
     monkeypatch.setattr(cli, "PcWatcher", build)
+    return built
+
+
+class FakeRainWatcher:
+    """Stands in for RainWatcher without a thread, remembering what it was given, whether
+    `waifu run` listened when it started and stopped, and the test's `events` up to then."""
+
+    def __init__(
+        self,
+        read_forecast,
+        config,
+        *,
+        announce,
+        notifier,
+        owner_call,
+        place,
+        title,
+        events: list[str],
+    ) -> None:
+        self.read_forecast, self.config, self.announce = read_forecast, config, announce
+        self.notifier, self.owner_call, self.place, self.title = notifier, owner_call, place, title
+        self._events = events
+        self.listening: list[bool] = []
+        self.events_when_started: list[str] | None = None
+        self.events_when_stopped: list[str] | None = None
+
+    def start(self) -> None:
+        self.listening.append(listening())
+        self.events_when_started = list(self._events)
+
+    def stop(self) -> None:
+        self.listening.append(listening())
+        self.events_when_stopped = list(self._events)
+
+
+@pytest.fixture(autouse=True)
+def rain_watchers(events, monkeypatch) -> list[FakeRainWatcher]:
+    """The real watcher would ask Open-Meteo in a thread through every `run` whose config names
+    a weather place (the alerts are on by default), so every test gets the fake."""
+    built: list[FakeRainWatcher] = []
+
+    def build(read_forecast, config, **arguments) -> FakeRainWatcher:
+        built.append(FakeRainWatcher(read_forecast, config, **arguments, events=events))
+        return built[-1]
+
+    monkeypatch.setattr(cli, "RainWatcher", build)
     return built
 
 
@@ -1005,6 +1052,7 @@ def event_player(events, monkeypatch) -> None:
         (["routine", "list"], "routine"),
         (["routine", "run", "tidur", "--dry-run"], "routine"),
         (["briefing"], "briefing"),
+        (["rain"], "rain"),
         (["usage"], "usage"),
         (["usage", "--month", "2026-10"], "usage"),
         (["phone", "setup"], "phone"),
@@ -5595,7 +5643,8 @@ def test_memory_clear_without_notes_has_nothing_to_delete(argv, home, capsys):
 
 
 def memory_line(out: str) -> str:
-    [line] = [line for line in out.splitlines() if "Ingatan" in line or "ingatan" in line]
+    # Whole words only: "Peringatan hujan" holds "ingatan" too.
+    [line] = [line for line in out.splitlines() if re.search(r"\b[Ii]ngatan\b", line)]
     return line
 
 
@@ -6626,11 +6675,13 @@ def open_meteo_forecast(today: date) -> dict:
 
 class FakeOpenMeteo:
     """The weather client's fetch: answers like Open-Meteo's geocoding and forecast APIs for
-    today, or raises `failure`; records every URL and never goes online."""
+    today (with `forecast`, which a test may change), or raises `failure`; records every URL
+    and never goes online."""
 
     def __init__(self) -> None:
         self.urls: list[str] = []
         self.failure: Exception | None = None
+        self.forecast = open_meteo_forecast(date.today())
 
     def __call__(self, url: str, timeout_s: float) -> object:
         self.urls.append(url)
@@ -6638,7 +6689,7 @@ class FakeOpenMeteo:
             raise self.failure
         if urllib.parse.urlsplit(url).hostname == GEOCODING_HOST:
             return {"results": [BANDUNG], "generationtime_ms": 0.6}
-        return open_meteo_forecast(date.today())
+        return self.forecast
 
     def queries(self, host: str) -> list[dict[str, list[str]]]:
         return [
@@ -6964,6 +7015,280 @@ def test_check_reports_when_she_greets_and_where_the_weather_is_for_without_aski
     cli.main(["check"])
 
     assert briefing_line(capsys.readouterr().out) == expected
+
+
+# --- rain alerts -------------------------------------------------------------------------------
+
+RAIN_TEXT = "Master, sekitar jam tiga sore kemungkinan hujan di Bandung, angkat jemuran ya."
+
+
+def forecast_hour(
+    open_meteo: FakeOpenMeteo, hour: int, *, code: int, chance: int | None, mm: float | None = 0.0
+) -> None:
+    """Sets today's `hour` (24 and on: tomorrow's) in the fake's forecast."""
+    hourly = open_meteo.forecast["hourly"]
+    hourly["weather_code"][hour] = code
+    hourly["precipitation_probability"][hour] = chance
+    hourly["precipitation"][hour] = mm
+
+
+def dry_tomorrow(open_meteo: FakeOpenMeteo) -> None:
+    """The fake rains all day tomorrow; this makes tomorrow as dry as today."""
+    for hour in range(24, 48):
+        forecast_hour(open_meteo, hour, code=2, chance=10)
+
+
+def test_run_watches_for_rain_at_the_briefing_s_city_while_she_listens_and_pushes_it(
+    home, run_fakes, brains, rain_watchers, open_meteo, monkeypatch
+):
+    write_out_example_briefing(home)
+    enable_notify(home)
+    notifier = FakeNotifier()
+    use_notifier(monkeypatch, notifier)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    [watcher] = rain_watchers
+    assert watcher.config == RainAlertConfig()  # the example config's settings
+    assert (watcher.owner_call, watcher.title, watcher.place, watcher.notifier) == (
+        "Master",
+        "Cyrene",
+        "Bandung",  # the city as written, not the geocoded "Bandung, Jawa Barat"
+        notifier,
+    )
+    assert watcher.listening == [False, True]
+    assert "mic opened" in watcher.events_when_started  # once she is ready to listen
+    assert "mic closed" not in watcher.events_when_stopped
+    assert watcher.read_forecast().place == "Bandung, Jawa Barat"  # the briefing's place
+    [query] = open_meteo.queries(FORECAST_HOST)
+    assert query["hourly"] == ["weather_code,precipitation_probability,precipitation"]
+    watcher.announce(RAIN_TEXT, "neutral")
+    assistant = RecordingAssistant.instances[0]
+    assert assistant.announced == [(RAIN_TEXT, "neutral")]
+    # Never inside a conversation: she says it once the follow-up window has closed.
+    assert assistant.waiting_for_followup == [RAIN_TEXT]
+
+
+def test_run_watches_for_rain_as_configured_also_with_the_greeting_off(
+    home, run_fakes, brains, rain_watchers
+):
+    call_the_owner(home, "Sayang")
+    append_config(
+        home,
+        "briefing:\n  enabled: false\n  latitude: -6.82\n  longitude: 107.14\n"
+        "rain_alert:\n  lead_minutes: 90\n  threshold: 70\n",
+    )
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    [watcher] = rain_watchers
+    assert watcher.config == RainAlertConfig(lead_minutes=90, threshold=70)
+    # The greeting's place is still where the weather is for; with coordinates only she names
+    # no place.
+    assert (watcher.owner_call, watcher.place, watcher.notifier) == ("Sayang", None, None)
+
+
+@pytest.mark.parametrize(
+    ("push", "notify"), [(False, True), (True, False)], ids=["push_off", "notify_off"]
+)
+def test_run_warns_of_rain_without_a_push_when_push_or_notifications_are_off(
+    push, notify, home, run_fakes, brains, rain_watchers, monkeypatch
+):
+    if notify:
+        enable_notify(home)
+    append_config(home, f"briefing:\n  city: Bandung\nrain_alert:\n  push: {str(push).lower()}\n")
+    use_notifier(monkeypatch, FakeNotifier())
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    [watcher] = rain_watchers
+    assert watcher.notifier is None
+
+
+def rain_alerts_off(home: Path) -> None:
+    write_out_example_briefing(home)
+    append_config(home, "rain_alert:\n  enabled: false\n")
+
+
+@pytest.mark.parametrize(
+    "configure", [lambda home: None, rain_alerts_off], ids=["no_place", "alerts_off"]
+)
+def test_run_watches_for_no_rain_without_a_place_or_with_the_alerts_off(
+    configure, home, run_fakes, brains, rain_watchers
+):
+    configure(home)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    assert rain_watchers == []
+
+
+@pytest.mark.parametrize(
+    ("failure", "exit_code"),
+    [(SttError("Whisper berhenti."), 1), (KeyboardInterrupt(), 130)],
+    ids=["whisper-fails", "ctrl-c"],
+)
+def test_run_stops_watching_for_rain_however_listening_ends(
+    failure, exit_code, home, run_fakes, brains, rain_watchers, monkeypatch
+):
+    write_out_example_briefing(home)
+
+    def listen_until_it_fails(self, mic, segmenter) -> None:
+        self.ran_with = (mic, segmenter)
+        raise failure
+
+    monkeypatch.setattr(RecordingAssistant, "run", listen_until_it_fails)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == exit_code
+
+    [watcher] = rain_watchers
+    assert watcher.listening == [False, True]
+
+
+def test_chat_never_watches_for_rain(home, brains, rain_watchers, monkeypatch):
+    write_out_example_briefing(home)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main(["chat", "--dry-run"]) == 0
+
+    assert rain_watchers == []
+
+
+def test_rain_prints_the_next_rain_as_she_would_say_it_without_the_brain(
+    home, brains, open_meteo, capsys
+):
+    write_out_example_briefing(home)
+    forecast_hour(open_meteo, 15, code=3, chance=80, mm=1.2)
+    forecast_hour(open_meteo, 16, code=80, chance=90, mm=4.0)
+
+    assert cli.main(["rain"]) == 0
+
+    assert capsys.readouterr().out.splitlines() == [
+        "Prakiraan hujan di Bandung, Jawa Barat, per 07:15 (peluang 60% ke atas):",
+        "Hujan berikutnya: sekitar jam tiga sore (15:00-16:00, peluang 90%).",
+    ]
+    assert brains == []
+
+
+def test_rain_tomorrow_shows_its_day(home, open_meteo, capsys):
+    write_out_example_briefing(home)  # the fake rains all day tomorrow
+
+    assert cli.main(["rain"]) == 0
+
+    assert capsys.readouterr().out.splitlines()[1:] == [
+        "Hujan berikutnya: sekitar jam dua belas malam (besok 00:00-23:00, peluang 70%)."
+    ]
+
+
+def test_rain_with_a_dry_day_ahead_says_so(home, open_meteo, capsys):
+    write_out_example_briefing(home)
+    dry_tomorrow(open_meteo)
+
+    assert cli.main(["rain"]) == 0
+
+    assert capsys.readouterr().out.splitlines()[1:] == ["Tidak ada hujan dalam 24 jam ke depan."]
+
+
+def test_rain_while_it_rains_says_so_and_looks_for_another_rain(home, open_meteo, capsys):
+    write_out_example_briefing(home)
+    dry_tomorrow(open_meteo)
+    open_meteo.forecast["current"]["weather_code"] = 63
+
+    assert cli.main(["rain"]) == 0
+
+    assert capsys.readouterr().out.splitlines()[1:] == [
+        "Sekarang sedang hujan.",
+        "Tidak ada hujan lain dalam 24 jam ke depan.",
+    ]
+
+
+def test_rain_counts_rain_by_the_configured_threshold_also_with_the_alerts_off(
+    home, open_meteo, capsys
+):
+    append_config(
+        home, "briefing:\n  city: Bandung\nrain_alert:\n  enabled: false\n  threshold: 90\n"
+    )
+    dry_tomorrow(open_meteo)
+    forecast_hour(open_meteo, 15, code=3, chance=80)  # under the line
+    forecast_hour(open_meteo, 18, code=95, chance=None, mm=None)  # a thunderstorm, chance unknown
+
+    assert cli.main(["rain"]) == 0
+
+    assert capsys.readouterr().out.splitlines() == [
+        "Prakiraan hujan di Bandung, Jawa Barat, per 07:15 (peluang 90% ke atas):",
+        "Hujan berikutnya: sekitar jam enam sore (18:00).",
+    ]
+
+
+def test_rain_without_a_place_says_how_to_set_one_and_exits_1(home, capsys):
+    assert cli.main(["rain"]) == 1
+
+    assert capsys.readouterr().out.splitlines() == [
+        "✗ Cuaca belum diatur (isi briefing.city di config.yaml)"
+    ]
+
+
+def test_rain_whose_forecast_fails_says_why_and_exits_1(home, open_meteo, capsys):
+    write_out_example_briefing(home)
+    open_meteo.failure = urllib.error.URLError("getaddrinfo failed")
+
+    assert cli.main(["rain"]) == 1
+
+    assert capsys.readouterr().out.splitlines() == [
+        "✗ Server cuaca tidak bisa dihubungi. Cek koneksi internet, lalu coba lagi."
+    ]
+
+
+def rain_alert_line(out: str) -> str:
+    [line] = [line for line in out.splitlines() if "Peringatan hujan" in line]
+    return line
+
+
+def rain_settings_and_coordinates(home: Path) -> None:
+    append_config(
+        home,
+        "briefing:\n  city: Bandung\n  latitude: -6.9175\n  longitude: 107.6191\n"
+        "rain_alert:\n  lead_minutes: 90\n  threshold: 70\n  active_from: '07:00'\n"
+        "  active_until: '20:00'\n",
+    )
+
+
+@pytest.mark.parametrize(
+    ("configure", "expected"),
+    [
+        (lambda home: None, "! Peringatan hujan: cuaca belum diatur (isi briefing.city)"),
+        (
+            write_out_example_briefing,
+            "✓ Peringatan hujan: 60 menit sebelumnya, peluang 60% ke atas, jam 06:00-21:00, "
+            "untuk Bandung",
+        ),
+        (
+            rain_settings_and_coordinates,
+            "✓ Peringatan hujan: 90 menit sebelumnya, peluang 70% ke atas, jam 07:00-20:00, "
+            "untuk Bandung (-6.9175, 107.6191)",
+        ),
+        (rain_alerts_off, "! Peringatan hujan mati"),
+    ],
+    ids=["example", "example_written_out", "settings_and_coordinates", "off"],
+)
+def test_check_reports_how_and_where_she_warns_of_rain_without_asking_anyone(
+    configure, expected, home, nothing_installed, capsys
+):
+    configure(home)
+
+    cli.main(["check"])
+
+    assert rain_alert_line(capsys.readouterr().out) == expected
+
+
+def test_check_reports_the_rain_alerts_right_after_the_morning_greeting(
+    home, nothing_installed, capsys
+):
+    cli.main(["check"])
+
+    lines = capsys.readouterr().out.splitlines()
+    greeting = next(index for index, line in enumerate(lines) if "Sapaan pagi" in line)
+    assert "Peringatan hujan" in lines[greeting + 1]
 
 
 # --- API cost monitor --------------------------------------------------------------------------

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from waifu.config import AppConfig, ConfigError, TepiraConfig, load_config
+from waifu.config import AppConfig, ConfigError, RainAlertConfig, TepiraConfig, load_config
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -600,6 +600,14 @@ ACTIVE_HOURS_REVERSED = "rain_alert.active_from must be before rain_alert.active
 def test_bad_rain_alert_settings_are_refused_naming_the_setting(tmp_path, lines, named):
     with pytest.raises(ConfigError, match=re.escape(named)):
         load_config(write_yaml(tmp_path, "rain_alert:\n" + lines))
+
+
+def test_the_example_rain_alert_block_written_out_holds_the_defaults(tmp_path):
+    example = (ROOT / "config.example.yaml").read_text(encoding="utf-8")
+    commented = example[example.index("\n# rain_alert:\n") + 1 :].split("\n\n", 1)[0]
+    written_out = "\n".join(line.removeprefix("# ") for line in commented.splitlines())
+
+    assert load_config(write_yaml(tmp_path, written_out)).rain_alert == RainAlertConfig()
 
 
 def test_she_calls_the_owner_master_unless_told_otherwise(tmp_path):

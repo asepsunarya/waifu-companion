@@ -320,6 +320,22 @@ schedule:
 #   push: true        # kirim sapaannya juga ke HP (kalau notify menyala)
 #   state_path: data/briefing.json   # hari sapaan terakhir, supaya restart tidak menyapa lagi
 
+# Peringatan hujan (README, bagian "Peringatan hujan"): selama `waifu run` menyala, Cyrene
+# memperingatkan sendiri sebelum hujan, misalnya "Master, sekitar jam tiga sore kemungkinan
+# hujan di Bandung, angkat jemuran ya." Tempatnya dari bagian briefing di atas (isi
+# briefing.city dulu; tanpa tempat peringatan ini diam), prakiraannya dari Open-Meteo yang
+# dibaca tiap 15 menit hanya di jam aktif, dan satu hujan hanya diperingatkan sekali. Kalau
+# kamu sedang ngobrol dengannya, dia menunggu sampai obrolannya selesai. Cek dengan `waifu rain`.
+# Sudah menyala tanpa ditulis; untuk mengubahnya, tulis bagian ini tanpa tanda # di depannya
+# (atau enabled: false untuk mematikannya).
+# rain_alert:
+#   enabled: true
+#   lead_minutes: 60       # beri tahu sekian menit sebelum hujan mulai (30-180); prakiraannya per jam
+#   threshold: 60          # peluang hujan per jam (%) yang dihitung sebagai hujan (30-100)
+#   active_from: "06:00"   # hanya mulai jam ini (jam PC)
+#   active_until: "21:00"  # dan sebelum jam ini; malam hari dia diam
+#   push: true             # kirim peringatannya juga ke HP (kalau notify menyala)
+
 # Biaya API Claude (README, bagian "Biaya API Claude"): dengan otak Claude, Cyrene mencatat token
 # setiap jawabannya dan menghitung biayanya dari harga per model. Tanyakan "Cyrene, biaya API
 # bulan ini berapa?" atau lihat `waifu usage`. Ini perkiraan dari catatannya sendiri, bukan
