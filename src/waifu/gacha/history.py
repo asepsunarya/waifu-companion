@@ -23,7 +23,7 @@ import urllib.parse
 import urllib.request
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -364,6 +364,42 @@ def banner_stats(
     return stats
 
 
+@dataclass(frozen=True)
+class BannerPulls:
+    """One banner's pulls made in a span of time, and the top-rarity items among them."""
+
+    banner: Banner
+    count: int
+    tops: tuple[TopPull, ...]  # newest first
+
+
+def pulls_since(
+    game: Game,
+    records: Iterable[GachaRecord],
+    since: datetime,
+    offset: int,
+    extra_standard: Iterable[str] = (),
+) -> list[BannerPulls]:
+    """Each banner's pulls made after `since` (aware), in display order, without the banners
+    that have none; a record's time is server time, `offset` hours from UTC. Each top's pulls
+    and 50/50 are worked out over the banner's whole history, as `banner_stats` does."""
+    extra = list(extra_standard)
+    zone = server_timezone(offset)
+    found = []
+    for banner, pulls in _by_banner(game, records):
+        recent = {record.id for record in pulls if _server_moment(record.time, zone) > since}
+        if not recent:
+            continue
+        tops = _walk(game, banner, pulls, extra)[0]
+        recent_tops = tuple(top for top in reversed(tops) if top.id in recent)
+        found.append(BannerPulls(banner, len(recent), recent_tops))
+    return found
+
+
+def _server_moment(server_time: str, zone: timezone) -> datetime:
+    return datetime.strptime(server_time, TIME_FORMAT).replace(tzinfo=zone)
+
+
 def _by_banner(
     game: Game, records: Iterable[GachaRecord]
 ) -> list[tuple[Banner, list[GachaRecord]]]:
@@ -419,6 +455,14 @@ class NewPull:
     won_5050: bool | None
 
 
+def partial_history_hint(game: Game) -> str:
+    """What to run once when only the newest pages of `game`'s history were read."""
+    return (
+        f"Riwayat {game.short} baru terbaca sebagian. Jalankan "
+        f"'waifu gacha history {game.id} --full' sekali untuk impor lengkap."
+    )
+
+
 @dataclass(frozen=True)
 class HistoryReport:
     game: Game
@@ -434,10 +478,7 @@ class HistoryReport:
     def hint(self) -> str | None:
         if self.complete or not self.stats:
             return None
-        return (
-            f"Riwayat {self.game.short} baru terbaca sebagian. Jalankan "
-            f"'waifu gacha history {self.game.id} --full' sekali untuk impor lengkap."
-        )
+        return partial_history_hint(self.game)
 
 
 def _local_now() -> datetime:
@@ -576,5 +617,5 @@ class GachaHistory:
         )
 
     def _local_time(self, server_time: str) -> datetime:
-        moment = datetime.strptime(server_time, TIME_FORMAT)
-        return moment.replace(tzinfo=server_timezone(self._offset)).astimezone(self._now().tzinfo)
+        moment = _server_moment(server_time, server_timezone(self._offset))
+        return moment.astimezone(self._now().tzinfo)

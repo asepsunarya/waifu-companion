@@ -1,3 +1,4 @@
+import dataclasses
 import http.server
 import json
 import logging
@@ -20,6 +21,8 @@ from waifu.gacha.history import (
     banner_stats,
     find_cached_gacha_url,
     get_json,
+    partial_history_hint,
+    pulls_since,
 )
 from waifu.gacha.hoyolab import GachaError
 
@@ -762,3 +765,98 @@ def test_switching_back_to_an_account_carries_on_from_its_own_history(
     assert (len(a.records), a.complete) == (305, True)
     assert (report.stats[0].total, report.complete) == (305, True)
     assert len(store.load(HSR, uid=800000009).records) == 5  # B's own history is untouched
+
+
+# --- this week's pulls ---------------------------------------------------------------------------
+
+WIB = timezone(timedelta(hours=7))
+# A week back from Sunday 18 October 2026, 19:00 WIB: 20:00 on the Asia server (UTC+8).
+WEEK_START = datetime(2026, 10, 11, 19, 0, tzinfo=WIB)
+
+
+def pulled_at(record_id: int, server_time: str, name: str = "Arrows", **kwargs) -> GachaRecord:
+    """A pull made at `server_time`, as the history API writes it (UTC+8)."""
+    return dataclasses.replace(pull(record_id, name, **kwargs), time=server_time)
+
+
+def test_this_weeks_pulls_count_each_banner_and_tell_each_top_and_its_fifty_fifty():
+    records = [
+        *[pulled_at(i, "2026-10-05 12:00:00") for i in range(1, 50)],
+        pulled_at(50, "2026-10-05 12:00:01", "Himeko", rarity=5),  # lost last week
+        *[pulled_at(i, "2026-10-12 21:00:00") for i in range(51, 80)],
+        pulled_at(80, "2026-10-12 21:00:01", "Castorice", rarity=5),  # guaranteed this week
+        *[pulled_at(i, "2026-10-13 09:00:00") for i in range(81, 100)],
+        pulled_at(100, "2026-10-13 09:00:01", "Anaxa", rarity=5),  # won this week
+        pulled_at(101, "2026-10-14 10:00:00", banner=12),
+        pulled_at(102, "2026-10-14 10:00:00", "Long May Rainbows Adorn", banner=12, rarity=5),
+        pulled_at(103, "2026-10-01 10:00:00", banner=1),  # no pull this week
+    ]
+
+    character, light_cone = pulls_since(HSR, records, WEEK_START, 8)
+
+    assert (character.banner.type, character.count) == (11, 50)
+    assert [(t.name, t.pulls, t.won_5050) for t in character.tops] == [
+        ("Anaxa", 20, True),
+        ("Castorice", 30, None),
+    ]
+    assert (light_cone.banner.type, light_cone.count) == (12, 2)
+    assert [(t.name, t.pulls, t.won_5050) for t in light_cone.tops] == [
+        ("Long May Rainbows Adorn", 2, None)
+    ]
+
+
+def test_the_week_starts_just_after_since_in_server_time():
+    records = [
+        pulled_at(1, "2026-10-11 20:00:00"),  # 19:00 WIB exactly: last week's report saw it
+        pulled_at(2, "2026-10-11 20:00:01"),
+        pulled_at(3, "2026-10-18 19:59:59"),
+    ]
+
+    [character] = pulls_since(HSR, records, WEEK_START, 8)
+
+    assert character.count == 2
+
+
+def test_the_server_offset_decides_when_a_pull_was_made():
+    records = [pulled_at(1, "2026-10-11 19:30:00")]  # 18:30 WIB on UTC+8, 20:30 WIB on UTC+6
+
+    assert pulls_since(HSR, records, WEEK_START, 8) == []
+    assert [banner.count for banner in pulls_since(HSR, records, WEEK_START, 6)] == [1]
+
+
+def test_a_week_without_pulls_has_no_banner():
+    records = pulls_until(1, 30, "Acheron")  # all on 2026-10-11 before 23:00 server time
+
+    assert pulls_since(HSR, records, datetime(2026, 10, 12, 0, 0, tzinfo=WIB), 8) == []
+    assert pulls_since(HSR, [], WEEK_START, 8) == []
+
+
+def test_the_owners_off_banner_pick_this_week_is_a_lost_fifty_fifty():
+    records = [*[pulled_at(i, "2026-10-12 21:00:00") for i in range(1, 40)]]
+    records.append(pulled_at(40, "2026-10-12 21:00:01", "Yunli", rarity=5))
+
+    [character] = pulls_since(HSR, records, WEEK_START, 8, ["Yunli"])
+
+    assert [(t.name, t.won_5050) for t in character.tops] == [("Yunli", False)]
+
+
+def test_a_zzz_s_rank_is_a_top_of_the_week():
+    zzz = GAMES["zzz"]
+    records = [
+        *[pulled_at(i, "2026-10-12 21:00:00", banner=2, rarity=3) for i in range(1, 10)],
+        pulled_at(10, "2026-10-12 21:00:00", "Lycaon", banner=2, rarity=3),  # an A-rank
+        pulled_at(11, "2026-10-12 21:00:01", "Ellen", banner=2, rarity=4),
+    ]
+
+    [exclusive] = pulls_since(zzz, records, WEEK_START, 8)
+
+    assert (exclusive.count, [(t.name, t.pulls) for t in exclusive.tops]) == (11, [("Ellen", 11)])
+
+
+def test_the_partial_history_hint_is_the_reports_own():
+    hint = partial_history_hint(HSR)
+
+    assert hint == (
+        "Riwayat HSR baru terbaca sebagian. Jalankan 'waifu gacha history hsr --full' sekali "
+        "untuk impor lengkap."
+    )
