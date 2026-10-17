@@ -13,7 +13,8 @@ the session ends without a word, and the block under way is dropped.
 Every finished block is logged in the focus log (`focus.py`), and so is the part of a block done
 before the session was stopped, when it lasted at least a minute. The session itself lives only
 in this process: `stop()`, so a restart, ends it. A failed write or a failing voice is logged and
-the session goes on; nothing is raised from the thread.
+the session goes on; a check that fails is logged and tried again a tick later, so nothing is
+raised from the thread.
 """
 
 from __future__ import annotations
@@ -285,9 +286,12 @@ class FocusTimer:
         while not self._stop.is_set():
             try:
                 self.tick_once()
+                wait = self._until_next_check()
             except Exception:
-                logger.exception("A focus timer check failed; trying again at the next one")
-            self._wait(self._stop, self._until_next_check())
+                # A whole tick: a check that keeps failing as a phase ends must not spin.
+                logger.exception("A focus timer check failed; trying again in a tick")
+                wait = self._tick_seconds
+            self._wait(self._stop, wait)
 
     def _until_next_check(self) -> float:
         """A tick, or less when the phase ends sooner."""

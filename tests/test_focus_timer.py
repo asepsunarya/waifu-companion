@@ -491,6 +491,50 @@ def test_the_thread_says_the_lines_when_a_phase_ends(tmp_path):
         timer.stop()
 
 
+class BreakingClock(Clock):
+    """A clock that raises once, the first time it is read at or after `breaks_at`;
+    `broke_after_waits` is how many waits the thread had asked for by then."""
+
+    def __init__(self, now: datetime, *, breaks_at: datetime, waits: ShortWaits) -> None:
+        super().__init__(now)
+        self.breaks_at = breaks_at
+        self.waits = waits
+        self.broke_after_waits: int | None = None
+
+    def __call__(self) -> datetime:
+        if self.broke_after_waits is None and self.now >= self.breaks_at:
+            self.broke_after_waits = len(self.waits.asked)
+            raise RuntimeError("the clock broke")
+        return self.now
+
+
+def test_a_failing_check_is_logged_and_the_thread_tries_again_a_tick_later(tmp_path, caplog):
+    waits = ShortWaits()
+    clock = BreakingClock(START, breaks_at=after(25), waits=waits)
+    said: list[str] = []
+    timer = FocusTimer(
+        FocusStore(tmp_path / "focus.json", keep_days=90, now=Clock(START)),
+        owner_call="Sayang",
+        now=clock,
+        wait=waits,
+    )
+
+    with caplog.at_level(logging.ERROR, logger="waifu.focus_timer"):
+        timer.start(lambda text, emotion: said.append(text))
+        try:
+            timer.begin(FocusPlan(rounds=2))
+            clock.now = after(25)  # the block ends, and the next reading of the clock fails
+            wait_for(lambda: said == [BLOCK_DONE])
+            assert len(timer_threads()) == 1  # the thread outlived the failure
+        finally:
+            timer.stop()
+
+    assert "A focus timer check failed" in caplog.text
+    assert "the clock broke" in caplog.text
+    # A whole tick, never at once: a check that keeps failing as a phase ends must not spin.
+    assert waits.asked[clock.broke_after_waits] == 15.0
+
+
 def test_starting_twice_runs_one_thread(rig):
     rig.timer.start(rig.say)
 
