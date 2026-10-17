@@ -14,7 +14,8 @@ Other threads make her speak up by herself, queued and handled by `run` between 
 utterances: `announce` says a fixed text (a game notice), `ask_aloud` has the brain answer a
 prompt (the morning greeting) and says the reply, and `remind` says what Master asked for
 himself (a reminder he set, the focus timer's lines). While `quiet` holds (a focus block is
-under way) only what `remind` queued is said; the rest waits for the break.
+under way, or in game mode a game runs) only what `remind` queued is said; the rest waits. An
+announcement or request still waiting at its expiry is dropped (a rain alert after its rain began).
 
 The owner's paired phone (`waifu.phone`) talks to her from the phone server's threads:
 `reply_for_phone` and `transcribe_for_phone`, handed to the server as `PhoneAnswers`. Brain
@@ -102,9 +103,9 @@ def _expired(expires_at: datetime | None, now: datetime) -> bool:
     return expires_at is not None and now.astimezone() >= expires_at.astimezone()
 
 
-def _take_all(announcements: queue.SimpleQueue[tuple[str, str]]) -> list[tuple[str, str]]:
-    """Every (text, emotion) queued so far, oldest first."""
-    taken: list[tuple[str, str]] = []
+def _take_all(announcements: queue.SimpleQueue[_Announcement]) -> list[_Announcement]:
+    """Every announcement queued so far, oldest first."""
+    taken: list[_Announcement] = []
     while True:
         try:
             taken.append(announcements.get_nowait())
@@ -196,6 +197,15 @@ ReplyHandler = Callable[[str], None]
 
 
 @dataclasses.dataclass(frozen=True)
+class _Announcement:
+    """A fixed text queued by `announce` or `remind`."""
+
+    text: str
+    emotion: str
+    expires_at: datetime | None
+
+
+@dataclasses.dataclass(frozen=True)
 class _Request:
     """A prompt queued by `ask_aloud`."""
 
@@ -225,8 +235,9 @@ class Assistant:
         camera_turn: CameraTurn | None = None,
         quiet: Callable[[], bool] | None = None,
     ) -> None:
-        """`quiet` (the focus timer's `in_block`) says when what she would say by herself
-        must wait: only `remind` is said then."""
+        """`quiet` (the focus timer's `in_block`, in game mode also whether a game holds her
+        announcements) says when what she would say by herself must wait: only `remind` is
+        said then."""
         self._name = config.assistant.name
         self._owner_call = config.assistant.owner_call
         self._followup_s = config.assistant.followup_seconds
@@ -249,11 +260,11 @@ class Assistant:
         self._segmenter: Segmenter | None = None
         self._speaker_error_logged = False
         self._avatar_failing = False
-        self._announcements: queue.SimpleQueue[tuple[str, str]] = queue.SimpleQueue()
+        self._announcements: queue.SimpleQueue[_Announcement] = queue.SimpleQueue()
         # Announcements that also wait while the follow-up window is open (`announce`).
-        self._patient_announcements: queue.SimpleQueue[tuple[str, str]] = queue.SimpleQueue()
+        self._patient_announcements: queue.SimpleQueue[_Announcement] = queue.SimpleQueue()
         # What Master asked for himself (`remind`): also said while `quiet` holds.
-        self._reminders: queue.SimpleQueue[tuple[str, str]] = queue.SimpleQueue()
+        self._reminders: queue.SimpleQueue[_Announcement] = queue.SimpleQueue()
         self._requests: queue.SimpleQueue[_Request] = queue.SimpleQueue()
         # After a cut, on `clock`: announcements and requests wait until then
         # (see `_hold_announcements`).
@@ -387,7 +398,12 @@ class Assistant:
         return text
 
     def announce(
-        self, text: str, emotion: str = NEUTRAL, *, wait_for_followup: bool = False
+        self,
+        text: str,
+        emotion: str = NEUTRAL,
+        *,
+        wait_for_followup: bool = False,
+        expires_at: datetime | None = None,
     ) -> None:
         """Queue something to say by herself; safe from any thread (the gacha watcher's).
 
@@ -395,12 +411,16 @@ class Assistant:
         while she listens for Master after being cut off. With `wait_for_followup` it also
         waits while the follow-up window is open, like an `ask_aloud` request: news that is
         not due at a set time (the budget notice, queued while she thinks up the reply that
-        crossed the budget) never uses up the window in which Master answers her.
+        crossed the budget) never uses up the window in which Master answers her. One still
+        waiting when `expires_at` (on `now`) has passed is dropped, logged and never said: a
+        rain alert held through a focus block or a game until its rain began. None never
+        expires.
         """
+        announcement = _Announcement(text, emotion, expires_at)
         if wait_for_followup:
-            self._patient_announcements.put((text, emotion))
+            self._patient_announcements.put(announcement)
         else:
-            self._announcements.put((text, emotion))
+            self._announcements.put(announcement)
 
     def remind(self, text: str, emotion: str = NEUTRAL) -> None:
         """Queue something Master asked for himself, a reminder he set or the focus timer's
@@ -409,7 +429,7 @@ class Assistant:
         Said like a plain `announce`ment (between utterances, also while the follow-up window
         is open, before the announcements queued with it), and also while `quiet` holds.
         """
-        self._reminders.put((text, emotion))
+        self._reminders.put(_Announcement(text, emotion, None))
 
     def ask_aloud(
         self,
@@ -568,19 +588,30 @@ class Assistant:
 
     def _say_announcements(self, followup_open: bool, quiet: bool) -> bool:
         """Say every queued reminder and announcement in one go, reminders first, with the
-        first one's emotion, except the announcements while `quiet` and those that wait while
-        the follow-up window is open; True when there was any."""
+        first one's emotion, except the announcements while `quiet`, those that wait while
+        the follow-up window is open, and those that have expired (dropped); True when there
+        was any to say."""
         queued = _take_all(self._reminders)
         if not quiet:
             queued += _take_all(self._announcements)
         if not (quiet or followup_open):
             queued += _take_all(self._patient_announcements)
-        if not queued:
+        due = [announcement for announcement in queued if self._in_date(announcement)]
+        if not due:
             return False
-        text = " ".join(queued_text for queued_text, _ in queued)
+        text = " ".join(announcement.text for announcement in due)
         logger.info("Announcing: %s", text)
-        self.speak(text, queued[0][1], followup=False)
+        self.speak(text, due[0].emotion, followup=False)
         return True
+
+    def _in_date(self, announcement: _Announcement) -> bool:
+        """Whether `announcement` has not expired; an expired one is logged, not its text."""
+        if not _expired(announcement.expires_at, self._now()):
+            return True
+        logger.info(
+            "Not saying an announcement held past %s: it is out of date", announcement.expires_at
+        )
+        return False
 
     def _answer_next_request(self) -> None:
         """Answer the oldest `ask_aloud` request aloud, if any.

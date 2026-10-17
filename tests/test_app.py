@@ -2650,3 +2650,83 @@ def test_the_naive_wall_clock_is_compared_with_an_aware_expiry_as_the_pc_s_local
     listen_once(rig)
 
     assert asked(rig) == ([JOURNAL_PROMPT] if answered else [])
+
+
+# Announcements held past their expiry: a rain alert said after its rain began
+
+RAIN_ALERT = "Master, sekitar jam sembilan malam kemungkinan hujan di Cianjur, angkat jemuran ya."
+
+
+def test_an_announcement_held_past_its_expiry_is_dropped_and_never_said(caplog):
+    quiet = Quiet()  # a focus block, or a game in game mode
+    rig = Rig(quiet=quiet, with_avatar=True)
+    rig.assistant.announce(RAIN_ALERT, wait_for_followup=True, expires_at=EXPIRY)
+    listen_once(rig)
+
+    rig.now = EXPIRY
+    quiet.on = False
+    with caplog.at_level(logging.INFO, logger="waifu.app"):
+        listen_once(rig)
+
+    assert rig.speech.texts == []
+    assert [event for event in rig.events if event.startswith("avatar")] == []
+    assert "Not saying an announcement held past 2026-10-12 21:00:00: it is out of date" in (
+        caplog.text
+    )
+    assert RAIN_ALERT not in caplog.text
+
+
+def test_a_patient_announcement_held_by_the_follow_up_window_past_its_expiry_is_dropped():
+    rig = Rig()
+    rig.assistant.listen_now()
+    rig.assistant.announce(RAIN_ALERT, wait_for_followup=True, expires_at=EXPIRY)
+    listen_once(rig)
+
+    rig.now = EXPIRY + timedelta(seconds=1)
+    rig.clock.now += 8  # followup_seconds
+    listen_once(rig)
+
+    assert rig.speech.texts == []
+
+
+def test_the_announcements_still_in_date_are_said_together_with_the_first_one_s_emotion():
+    quiet = Quiet()
+    rig = Rig(quiet=quiet, with_avatar=True)
+    rig.assistant.announce(RAIN_ALERT, "surprised", expires_at=EXPIRY)
+    rig.assistant.announce(ANNOUNCEMENT, "happy", expires_at=EXPIRY + timedelta(hours=1))
+    rig.assistant.announce(BUDGET_NOTICE, "sad", wait_for_followup=True)
+    listen_once(rig)
+
+    rig.now = EXPIRY
+    rig.assistant.remind(BLOCK_DONE, "neutral")
+    quiet.on = False
+    listen_once(rig)
+
+    assert rig.speech.texts == [f"{BLOCK_DONE} {ANNOUNCEMENT} {BUDGET_NOTICE}"]
+    assert "avatar.speak neutral" in rig.events
+
+
+def test_an_announcement_whose_expiry_has_not_passed_is_said_after_the_hold():
+    quiet = Quiet()
+    rig = Rig(quiet=quiet)
+    rig.assistant.announce(RAIN_ALERT, wait_for_followup=True, expires_at=EXPIRY)
+    listen_once(rig)
+
+    rig.now = EXPIRY - timedelta(seconds=1)
+    quiet.on = False
+    listen_once(rig)
+
+    assert rig.speech.texts == [RAIN_ALERT]
+
+
+def test_an_announcement_without_an_expiry_is_said_however_long_it_waited():
+    quiet = Quiet()
+    rig = Rig(quiet=quiet)
+    rig.assistant.announce(ANNOUNCEMENT, expires_at=None)
+    listen_once(rig)
+
+    rig.now = NOW + timedelta(days=400)
+    quiet.on = False
+    listen_once(rig)
+
+    assert rig.speech.texts == [ANNOUNCEMENT]
