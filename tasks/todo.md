@@ -1270,3 +1270,64 @@ named `tests/test_<package>_<module>.py`.
 - [x] README "Suara cadangan offline" with its command and check rows, a troubleshooting note, and checklist items; CHANGELOG v1.28; full suite and ruff clean
 
 **Dependencies:** 132 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
+
+## Task 134a: Play time contract
+
+**Acceptance criteria:**
+- [ ] SPEC "jam main (v1.29)" (stories, non-goals, anti-cheat, privacy, config, `processes.py`, the session rules with the two-poll end, the sleep gap, the restart resume and the day split, the store, the watcher and the bedtime nudge, the tool, the weekly report, CLI, check lines, safety); tasks 134a-139 in the plan and here
+- [ ] `PlayTimeConfig` as `AppConfig.play_time` (`enabled`, `poll_seconds`, `games` with their executable names, `bedtime` with bare YAML times read as clock times, `keep_days`, `path`) with tests
+
+**Dependencies:** none · **Files:** `SPEC.md`, `tasks/plan.md`, `tasks/todo.md`, `src/waifu/config.py`, `tests/test_config.py` · **Scope:** S
+
+## Task 134: The process lister
+
+**Acceptance criteria:**
+- [ ] `tests/conftest.py` refuses kernel32 `CreateToolhelp32Snapshot` and records the refusal (with guard tests); other kernel32 functions still load
+- [ ] `running_executables`: one process snapshot walked to its end, the names case-folded, the handle always closed; an invalid handle and a walk that stops with another error than `ERROR_NO_MORE_FILES` as `OSError`; the documented signatures; nothing but the snapshot functions
+
+**Dependencies:** 134a · **Files:** `tests/conftest.py`, `tests/test_safety_guard.py`, `src/waifu/processes.py`, `tests/test_processes.py` · **Scope:** S
+
+## Task 135: Sessions, periods, totals, and the store
+
+**Acceptance criteria:**
+- [ ] `games_running`: whole executable names ignoring case, never the launcher or a part of a name
+- [ ] `follow_games`: a start at the first poll that sees a game, one missed poll kept, an end at the last poll that saw it after two missed polls, a sleep or a clock set back ending every session at its last poll, a session of one poll dropped
+- [ ] `resume_games`: a game seen at most 5 minutes before goes on with its start (finished or open), a crash's open session otherwise ends at its last poll
+- [ ] `period_window` in WIB; `played_seconds` cut at the edges, across midnight, and the union of overlapping sessions; `play_totals` per game with session counts
+- [ ] `PlayTimeStore`: a missing file reads empty and stays missing, `save` replaces the open sessions and adds or replaces finished ones by game and start, `keep_days` on read and write, `mark_bedtime`, a broken file moved aside, a naive clock refused
+
+**Dependencies:** 134a · **Files:** `src/waifu/play_time.py`, `tests/test_play_time.py` · **Scope:** M
+
+## Task 136: The play time watcher and the bedtime nudge
+
+**Acceptance criteria:**
+- [ ] `spoken_clock`: whole hours, half past, other minutes
+- [ ] `PlayTimeWatcher.poll_once`: resumes at the first poll, follows after it, writes only when something changed, keeps unwritten sessions after a failed write, a failed listing or file logged once at WARNING and never said
+- [ ] Bedtime: once a night inside the window while a game runs, the night written before it is said, never again that night (also after a restart), never without a game or before bedtime, a failed write saying nothing
+- [ ] `stop()` ends the open sessions at their last poll in one write; the thread polls at once and every `poll_seconds`, and stops promptly
+
+**Dependencies:** 134, 135 · **Files:** `src/waifu/play_watch.py`, `tests/test_play_watch.py` · **Scope:** M
+
+## Task 137: The play time tool and the weekly report
+
+**Acceptance criteria:**
+- [ ] `play_time {period?, game?}`: non-strict, a static description, per game time and sessions with `playing_now`, the total as the union, `tracked_since`; today when left out; bad arguments and an unreadable file as error results; refused in the morning greeting and the weekly report turns
+- [ ] The weekly report: per game this week's play time or its problem when a source is given, nothing otherwise (every existing result unchanged); the description and prompt name it once; the prompt keeps its look, play, and yes rules
+
+**Dependencies:** 135 · **Files:** `src/waifu/brain/play_time_tools.py`, `tests/test_play_time_tools.py`, `src/waifu/gacha/weekly.py`, `tests/test_gacha_weekly.py` · **Scope:** M
+
+## Task 138: Wiring, `waifu playtime`, check
+
+**Acceptance criteria:**
+- [ ] `run` with play time on: the watcher for the voice loop's lifetime with the real lister and the patient announce; `run` and `chat` get the tool; none with it off; `chat` never watches; an autouse fake watcher and a tmp_path store guard in `test_cli.py`; the strict-tool budget still holds
+- [ ] `waifu playtime` and `waifu gacha report`'s play time line per SPEC; the check line right after the PC health line
+- [ ] `config.example.yaml` block, valid when written out
+
+**Dependencies:** 136, 137 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py`, `config.example.yaml`, `tests/test_config.py` · **Scope:** M
+
+## Task 139: Docs
+
+**Acceptance criteria:**
+- [ ] README "Jam main" with its command, check, checklist, and Privasi rows and a line in "Laporan game mingguan"; CHANGELOG v1.29; full suite and ruff clean
+
+**Dependencies:** 138 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S

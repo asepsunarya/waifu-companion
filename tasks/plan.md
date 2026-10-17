@@ -516,6 +516,29 @@ need different shifts), so the RVC client takes a pitch per request.
 - [x] Python suite and ruff clean; no test started PowerShell or played audio; one real synthesis with an installed voice to a scratch WAV by hand (2026-10-17: 7614 pytest)
 - [ ] On the owner's PC: after adding the Indonesian (and Japanese) voice in Settings, `waifu check` names them; with the network cable out she still answers aloud through the anime voice, and `waifu say --fallback` sounds right (tune `tts.fallback.rvc_pitch`)
 
+### Phase 33: Jam main (v1.29, see SPEC → jam main)
+Decision: a `PlayTimeWatcher` in `waifu run` lists the running processes every minute from
+the documented Toolhelp snapshot (kernel32 through ctypes, executable names only: never a
+handle on a game, which runs kernel anti-cheat) and follows HSR, Genshin, and ZZZ by their
+executable names into sessions: a start at the first poll that sees a game, an end after two
+polls without it, a break across a sleep, and a restart mid-game resumed when the game was
+seen at most 5 minutes before. Finished and open sessions live in `data/playtime.json` for
+90 days. A non-strict `play_time` tool answers per period in WIB (only when asked); an
+optional bedtime nudge, off by default, says once a night that it is late while a game is
+open. The weekly game report adds the week's play time. No new dependency; `waifu playtime`
+prints the totals.
+- [ ] Task 134a: contract: SPEC, tasks, `PlayTimeConfig`
+- [ ] Task 134: the conftest guard and the process lister (`processes.py`)
+- [ ] Task 135: sessions, periods, and totals (pure) and `PlayTimeStore` (`play_time.py`)
+- [ ] Task 136: `PlayTimeWatcher` with the bedtime nudge (`play_watch.py`)
+- [ ] Task 137: the `play_time` tool and the weekly report's play time
+- [ ] Task 138: wiring in `run`/`chat`, `waifu playtime`, check line, example config
+- [ ] Task 139: README, CHANGELOG
+
+### Checkpoint: Jam main
+- [ ] Python suite and ruff clean; no test listed the real processes, slept for real, or spoke; one real listing by hand
+- [ ] On the owner's PC: with Genshin and ZZZ each open once, `waifu playtime` shows them (confirming `GenshinImpact.exe` and `ZenlessZoneZero.exe`; else fix `play_time.games`), the HoYoPlay launcher alone counts nothing, a restart of `waifu run` mid-game keeps one session, and with `bedtime` set she says the nudge once that night
+
 ## Risks and Mitigations
 
 | Risk | Impact | Mitigation |
@@ -532,6 +555,7 @@ need different shifts), so the RVC client takes a pitch per request.
 | Whisper mishears an amount ("18 ribu" as "80 ribu") | A wrong expense and wallet balance in tepira | The code asks first, naming the amount, what for, and the wallet, and only Master's next plain yes records it; at most 5 juta; tepira deduplicates repeats for 2 minutes; `undo_expense` within 15 minutes |
 | Finance figures spoken or pushed when nobody asked | Money said in front of guests or sent to ntfy | Tools only when asked (descriptions, persona); the briefing turn gets an error from every finance tool in code; no finance in any notice; `tepira.enabled: false` with guests |
 | The weekly report's HoYoLAB and history reads hang | Her turn, and so the microphone, waits too long | One 30 s budget for every read: a late section says its time ran out and the rest is told; the history is refreshed only for games with a stored history, never imported for the first time |
+| Play time tracking touches a game's anti-cheat (mhyprot, HoYoKProtect) | An account flag or a game that refuses to start | Only the process snapshot, which names processes without opening them; never `OpenProcess`, a module or thread snapshot, or WMI on a game; written in SPEC and in `processes.py` |
 
 ## Open Questions
 
