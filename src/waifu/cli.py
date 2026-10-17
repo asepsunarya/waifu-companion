@@ -190,7 +190,7 @@ from waifu.play_time import (
 from waifu.play_watch import PlayTimeWatcher
 from waifu.processes import running_executables
 from waifu.rain_watch import RainWatcher, RainWindow, rain_window, raining_now, spoken_hour
-from waifu.routines import describe_routine, routine_problems, run_routine
+from waifu.routines import describe_routine, describe_step, routine_problems, run_routine
 from waifu.schedule import (
     Action,
     DeviceAction,
@@ -385,10 +385,20 @@ DRY_RUN_SCHEDULE = (
     "Mode simulasi: jadwal yang dibuat di sini hanya percobaan pada perangkat simulasi dan "
     "hilang saat ditutup. Jadwal asli ({path}) tidak disentuh."
 )
+DELAYED_STEPS_IN_RUN = (
+    "Langkah yang ditunda dijalankan pada jamnya oleh Cyrene yang sedang berjalan ('waifu run'): "
+    "biarkan PC dan 'waifu run' menyala sampai saat itu. Batalkan dengan "
+    "'waifu schedule cancel <id>'."
+)
+DRY_RUN_DELAYED_STEPS = (
+    "Mode simulasi: langkah yang ditunda hanya dicoba di jadwal sementara yang hilang saat "
+    "ditutup. Jadwal asli ({path}) tidak disentuh."
+)
 ROUTINE_DESCRIPTION = (
     "Rutinitas Master: daftar perintah perangkat yang ditulis di bagian routines di "
-    "config.yaml dan dijalankan sekaligus. Ubah rutinitas dengan mengedit config.yaml; "
-    "dengan --dry-run langkahnya dijalankan pada perangkat simulasi."
+    "config.yaml dan dijalankan sekaligus; langkah dengan after_minutes masuk jadwal dan jalan "
+    "nanti. Ubah rutinitas dengan mengedit config.yaml; dengan --dry-run langkahnya dijalankan "
+    "pada perangkat simulasi."
 )
 NO_ROUTINES = (
     "Belum ada rutinitas. Tulis di bagian routines di config.yaml "
@@ -2904,7 +2914,11 @@ def _routine_list(args: argparse.Namespace) -> int:
 
 
 def _routine_run(args: argparse.Namespace) -> int:
-    """Run one routine now on the devices (simulated with --dry-run), printing every step."""
+    """Run one routine now on the devices (simulated with --dry-run), printing every step.
+
+    Its delayed steps go into her schedule, for `waifu run` to run on time; a dry run puts
+    them in a schedule of its own that is gone when it ends, as `chat --dry-run` does.
+    """
     config = load_config(args.config)
     name = args.routine_name
     routine = config.routines.get(name)
@@ -2917,11 +2931,18 @@ def _routine_run(args: argparse.Namespace) -> int:
         return 1
     mode = " (perangkat simulasi)" if args.dry_run else ""
     print(f"Menjalankan rutinitas {name}{mode}...", flush=True)
-    results = run_routine(build_registry(config, dry_run=args.dry_run), routine, name=name)
+    registry = build_registry(config, dry_run=args.dry_run)
+    with _session_schedule(config, dry_run=args.dry_run) as schedule:
+        results = run_routine(registry, routine, name=name, schedule=schedule)
     for number, (step, result) in enumerate(zip(routine.steps, results, strict=True), start=1):
         mark = OK if result.ok else FAIL
-        step_text = _command_text(step.device, step.command, step.value)
-        print(f"{mark} Langkah {number} ({step_text}): {result.message}")
+        print(f"{mark} Langkah {number} ({describe_step(step)}): {result.message}")
+    steps = zip(routine.steps, results, strict=True)
+    if any(step.after_minutes is not None and result.ok for step, result in steps):
+        if args.dry_run:
+            print(DRY_RUN_DELAYED_STEPS.format(path=config.schedule.path))
+        else:
+            print(DELAYED_STEPS_IN_RUN)
     return 0 if all(result.ok for result in results) else 1
 
 
@@ -2934,7 +2955,8 @@ def _action_text(action: Action) -> str:
     if isinstance(action, Reminder):
         return f'pengingat "{action.text}"'
     if isinstance(action, DeviceAction):
-        return f"perangkat {_command_text(action.device, action.command, action.value)}"
+        routine = f" (rutinitas {action.routine})" if action.routine is not None else ""
+        return f"perangkat {_command_text(action.device, action.command, action.value)}{routine}"
     return f"rutinitas {action.name}"
 
 

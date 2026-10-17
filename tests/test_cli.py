@@ -6263,7 +6263,7 @@ def disable_schedule(home: Path) -> None:
 
 def enable_example_routines(home: Path) -> None:
     """The example config with its commented `routines` example written out (the `tidur`
-    routine: lampu_kamar off, ac temp 26)."""
+    routine: lampu_kamar off, ac temp 26, and ac off 180 minutes later)."""
     config = home / "config.yaml"
     text = config.read_text(encoding="utf-8")
     commented = text[text.index("# routines:\n") :].split("\n\n", 1)[0]
@@ -6344,7 +6344,7 @@ def test_run_gives_the_brain_the_schedule_tools_and_fires_her_schedule_while_she
     use_notifier(monkeypatch, notifier)
     at = tomorrow_at(15)
     refused: list[bool] = []
-    left: list[int] = []
+    left: list[list[object]] = []
 
     def listen(self, mic, segmenter) -> None:
         # A dry run's schedule lasts as long as the session, so everything happens in it.
@@ -6356,7 +6356,7 @@ def test_run_gives_the_brain_the_schedule_tools_and_fires_her_schedule_while_she
         ):
             refused.append(schedule_at(schedule_tools(brains[0]), at, **action)[1])
         schedulers[0].tick_at(at)
-        left.append(len(schedulers[0].store.entries()))
+        left.append([(entry.at, entry.action) for entry in schedulers[0].store.entries()])
 
     monkeypatch.setattr(RecordingAssistant, "run", listen)
 
@@ -6386,7 +6386,8 @@ def test_run_gives_the_brain_the_schedule_tools_and_fires_her_schedule_while_she
     assert notifier.sent == [("Cyrene", MEDICINE, ("alarm_clock",))]
     assert brain.registry.get("ac").calls == [("temp_24", 24), ("temp_26", 26)]
     assert brain.registry.get("lampu_kamar").calls == [("off", None)]
-    assert left == [0]
+    # The routine's last step waits three hours after it ran, in the same schedule.
+    assert left == [[(at + timedelta(hours=3), DeviceAction("ac", "off", routine="tidur"))]]
 
 
 def test_run_keeps_her_schedule_where_and_as_the_config_says(home, run_fakes, brains, schedulers):
@@ -6599,6 +6600,20 @@ def test_schedule_cancel_deletes_one_entry_and_says_which(home, capsys):
     assert scheduled_ids(schedule_file(home)) == ["j1", "j3", "j5", "j4"]
 
 
+def test_schedule_list_and_cancel_name_the_routine_of_a_delayed_step(home, capsys):
+    store = ScheduleStore(schedule_file(home), now=lambda: SAVED_ON)
+    store.add(datetime(2026, 10, 14, 1, 0), "none", DeviceAction("ac", "off", routine="tidur"))
+
+    assert cli.main(["schedule", "list"]) == 0
+    assert cli.main(["schedule", "cancel", "j1"]) == 0
+
+    assert capsys.readouterr().out.splitlines() == [
+        "ID  BERIKUTNYA             ULANG   ISI",
+        "j1  Rabu 14-10-2026 01:00  sekali  perangkat ac off (rutinitas tidur)",
+        "✓ Dibatalkan j1: perangkat ac off (rutinitas tidur), Rabu 14-10-2026 01:00, sekali",
+    ]
+
+
 def test_schedule_cancel_of_an_unknown_id_fails_with_the_reason(home, capsys):
     assert cli.main(["schedule", "cancel", "j9"]) == 1
 
@@ -6653,7 +6668,9 @@ def test_routine_list_describes_each_routine_of_the_config(home, capsys):
 
     assert cli.main(["routine", "list"]) == 0
 
-    assert capsys.readouterr().out == "tidur: Mode tidur (lampu_kamar off, ac temp 26)\n"
+    assert capsys.readouterr().out == (
+        "tidur: Mode tidur (lampu_kamar off, ac temp 26, ac off setelah 3 jam)\n"
+    )
 
 
 def test_routine_list_without_routines_says_where_to_write_them(home, capsys):
@@ -6674,11 +6691,19 @@ def test_routine_run_with_dry_run_runs_every_step_on_the_simulated_devices(
     assert dry_run is True
     assert registry.get("lampu_kamar").calls == [("off", None)]
     assert registry.get("ac").calls == [("temp_26", 26)]
-    assert capsys.readouterr().out.splitlines() == [
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[:3] == [
         "Menjalankan rutinitas tidur (perangkat simulasi)...",
         "✓ Langkah 1 (lampu_kamar off): Lampu kamar: perintah 'off' berhasil (simulasi).",
         "✓ Langkah 2 (ac temp 26): AC Samsung: perintah 'temp_26' berhasil (simulasi).",
     ]
+    # Scheduled in a schedule of its own that is gone now; the real one is never touched.
+    assert re.fullmatch(
+        r"✓ Langkah 3 \(ac off setelah 3 jam\): Dijadwalkan (besok )?jam \d\d\.\d\d \(j1\)\.",
+        lines[3],
+    )
+    assert lines[4:] == [cli.DRY_RUN_DELAYED_STEPS.format(path=Path("data/schedule.json"))]
+    assert not schedule_file(home).exists()
 
 
 def test_routine_run_goes_on_after_a_failed_step_and_exits_1(home, registries, capsys):
@@ -6717,6 +6742,52 @@ def test_routine_run_without_dry_run_uses_the_devices_of_the_config(home, regist
     assert dry_run is False
     assert registry.get("kipas").calls == [("on", None)]
     assert capsys.readouterr().out.splitlines()[0] == "Menjalankan rutinitas angin..."
+
+
+def test_routine_run_schedules_a_delayed_step_in_her_schedule(home, registries, capsys):
+    write_config(
+        home,
+        "devices:\n"
+        "  - {id: kipas, name: Kipas, type: mock}\n"
+        "routines:\n"
+        "  angin:\n"
+        "    steps:\n"
+        "      - {device: kipas, command: on}\n"
+        "      - {device: kipas, command: off, after_minutes: 60}\n",
+    )
+    before = datetime.now().replace(second=0, microsecond=0)
+
+    assert cli.main(["routine", "run", "angin"]) == 0
+
+    after = datetime.now().replace(second=0, microsecond=0)
+    [(registry, _)] = registries
+    assert registry.get("kipas").calls == [("on", None)]
+    [entry] = ScheduleStore(schedule_file(home)).entries()
+    assert entry.action == DeviceAction("kipas", "off", routine="angin")
+    assert before + timedelta(hours=1) <= entry.at <= after + timedelta(hours=1)
+    day = "besok " if entry.at.date() != before.date() else ""
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[2:] == [
+        f"✓ Langkah 2 (kipas off setelah 1 jam): Dijadwalkan {day}jam {entry.at:%H.%M} (j1).",
+        cli.DELAYED_STEPS_IN_RUN,
+    ]
+
+
+def test_routine_run_without_delayed_steps_leaves_her_schedule_alone(home, registries, capsys):
+    write_config(
+        home,
+        "devices:\n"
+        "  - {id: kipas, name: Kipas, type: mock}\n"
+        "routines:\n"
+        "  angin:\n"
+        "    steps:\n"
+        "      - {device: kipas, command: on}\n",
+    )
+
+    assert cli.main(["routine", "run", "angin"]) == 0
+
+    assert len(capsys.readouterr().out.splitlines()) == 2
+    assert not schedule_file(home).exists()
 
 
 def test_routine_run_of_an_unknown_routine_names_the_ones_there_are(home, registries, capsys):
@@ -6786,18 +6857,21 @@ def test_check_names_each_routine_step_the_real_devices_cannot_run(home, nothing
 
     assert routine_lines(capsys.readouterr().out) == [
         "✗ Rutinitas tidur: Langkah 2 (ac temp 26): AC Samsung tidak punya perintah 'temp' "
-        "dengan nilai 26."
+        "dengan nilai 26. Langkah 3 (ac off setelah 3 jam): AC Samsung tidak punya perintah "
+        "'off'."
     ]
 
 
 def test_check_marks_a_routine_whose_every_step_can_run(home, nothing_installed, capsys):
     enable_example_routines(home)
-    IrCodeStore(home / "data" / "ir_codes.json").put("ac", "temp_26", "JgBQAAABKJIUEhQ3")
+    codes = IrCodeStore(home / "data" / "ir_codes.json")
+    codes.put("ac", "temp_26", "JgBQAAABKJIUEhQ3")
+    codes.put("ac", "off", "JgBQAAABKJIUEhQ4")
 
     cli.main(["check"])
 
     assert routine_lines(capsys.readouterr().out) == [
-        "✓ Rutinitas tidur: Mode tidur (lampu_kamar off, ac temp 26)"
+        "✓ Rutinitas tidur: Mode tidur (lampu_kamar off, ac temp 26, ac off setelah 3 jam)"
     ]
 
 

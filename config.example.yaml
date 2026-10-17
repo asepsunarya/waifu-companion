@@ -267,6 +267,9 @@ schedule:
 # 1-20 langkah. Perangkatnya harus ada di `devices` di bawah, dan PC (type: pc) tidak boleh
 # jadi langkah: mematikan, me-restart, atau menidurkan PC hanya lewat perintah suara langsung.
 # Colokan yang mengalirkan listrik ke PC (powers_pc: true, misalnya colokan_pc) juga ditolak.
+# Langkah dengan `after_minutes` ditunda (README, bagian "Mode tidur"): masuk jadwal sebagai
+# perintah sekali, sekian menit setelah rutinitas dijalankan (1-1440; 180 = 3 jam), dan hanya
+# jalan kalau PC dan `waifu run` masih menyala saat itu. Di contoh ini AC mati 3 jam kemudian.
 # `waifu check` memeriksa apakah setiap perintahnya ada (untuk IR: sudah dipelajari).
 # routines:
 #   tidur:
@@ -274,6 +277,7 @@ schedule:
 #     steps:
 #       - {device: lampu_kamar, command: off}
 #       - {device: ac, command: temp, value: 26}
+#       - {device: ac, command: off, after_minutes: 180}   # 3 jam kemudian
 
 # Daftar tugas (README, bagian "Daftar tugas"): hal yang perlu dikerjakan tanpa jam tertentu,
 # dengan tenggat kalau ada ("Cyrene, tambah tugas: beli susu", "catat tugas kerjakan laporan,
