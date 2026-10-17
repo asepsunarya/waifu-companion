@@ -2263,8 +2263,10 @@ tenang: dia juga bicara di malam hari selama `waifu run` jalan.
 - **"Cookie HoYoLAB tidak bisa dipakai untuk menukarkan kode".** Penukaran butuh
   `cookie_token_v2` (dengan `account_id_v2` dan `account_mid_v2`): ambil ulang cookie-nya
   (langkah 1), lalu minta lagi.
-- **"HoYoLAB tidak memberi pendapatan ... untuk bulan itu".** HoYoLAB tidak lagi menyimpan bulan
-  itu, atau menjawab bulan lain. Tanyakan bulan ini atau salah satu dari dua bulan sebelumnya.
+- **"HoYoLAB menjawab bulan lain untuk pendapatan ...".** HoYoLAB mengirim catatan bulan lain
+  daripada yang ditanya, jadi angkanya sengaja tidak disebut. Di pergantian bulan, coba lagi
+  sebentar lagi. Kalau terus muncul untuk bulan sebelumnya di ZZZ, mungkin format bulan ZZZ
+  yang belum pernah dicoba: catat dan laporkan.
 - **"Kode redeem tidak bisa diambil".** `hoyo-codes.seria.moe` tidak bisa dihubungi; `waifu
   run` mencoba lagi di pemeriksaan berikutnya, dan `waifu gacha codes` tetap menampilkan kode
   yang tersimpan.
@@ -5015,7 +5017,7 @@ mendengarkan"; jawaban pertama bisa lebih lama karena model Ollama baru dimuat)
       Traveler's Diary, Trailblaze Monthly Calendar, dan Inter-Knot monthly report di HoYoLAB.
 - [ ] `waifu gacha income zzz --month <bulan lalu, YYYY-MM>`: angka bulan lalu yang muncul, sama
       dengan HoYoLAB (ini memastikan format bulan ZZZ yang belum pernah dicoba; kalau keluar
-      `HoYoLAB tidak memberi pendapatan ZZZ untuk bulan itu`, catat dan laporkan).
+      `HoYoLAB menjawab bulan lain untuk pendapatan ZZZ`, catat dan laporkan).
 - [ ] Di `waifu chat`: "bulan ini aku dapat berapa Primogem?" dijawab dengan angka yang sama,
       tanpa menyarankan pull atau top-up; sapaan pagi tidak menyebutnya.
 

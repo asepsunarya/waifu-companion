@@ -111,9 +111,10 @@ _INCOME_READERS: dict[str, Callable[..., GameIncome]] = {
     "zzz": read_zzz_income,
 }
 # Formatted with the game's short name: HoYoLAB answered another month than the one asked.
+# Only a month the window allows is ever asked, so it never blames the window.
 MONTH_NOT_GIVEN = (
-    "HoYoLAB tidak memberi pendapatan {game} untuk bulan itu; biasanya hanya bulan ini dan dua "
-    "bulan sebelumnya yang ada."
+    "HoYoLAB menjawab bulan lain untuk pendapatan {game}, jadi angkanya tidak disebut; coba "
+    "lagi nanti."
 )
 # A ZZZ agent's detail is one request: given a list, genshin.py gathers them without a limit.
 AGENT_DETAILS_AT_ONCE = 2

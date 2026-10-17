@@ -2562,9 +2562,9 @@ ZZZ_DIARY = {
     "role_info": {"nickname": DIARY_NICKNAME, "avatar": "kirana-avatar-icon"},
 }
 EVERY_DIARY = ["hsr", "genshin", "zzz"]
+# Only ever said for a month the window allows, so it never blames the window.
 NOT_GIVEN = (
-    "HoYoLAB tidak memberi pendapatan {} untuk bulan itu; biasanya hanya bulan ini dan dua "
-    "bulan sebelumnya yang ada."
+    "HoYoLAB menjawab bulan lain untuk pendapatan {}, jadi angkanya tidak disebut; coba lagi nanti."
 )
 
 
