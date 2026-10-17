@@ -624,6 +624,31 @@ confirmation comes from the step's result (`scheduled: {id, at}`) and the tool d
 - [x] Python suite and ruff clean; no test touched `data/schedule.json`, ran a real device, or slept; the strict-tool budget unchanged (2026-10-17: 8272 pytest after the fix pass; 18 of 20 strict tools, 17 of 24 optional parameters, no schema changed)
 - [ ] On the owner's PC: "mode tidur" turns the lamp off and the AC to 26 and she names the time the AC goes off; `waifu schedule list` shows it; "batalkan AC mati nanti" cancels it; run again with a delay of a few minutes, the AC goes off then without a word
 
+### Phase 37: Pendapatan gacha (v1.33, see SPEC → pendapatan gacha)
+Decision: HoYoLAB's monthly diaries (Genshin's Traveler's Diary, HSR's Trailblaze Monthly
+Calendar, ZZZ's Inter-Knot monthly report, all three in genshin.py 1.7.31) are read only, with
+the month always passed in server time and limited in code to this month and the two before
+(HoYoLAB's window). An answer for another month than the one asked is refused, never told under
+the wrong name; ZZZ's earlier months are sent as `YYYYMM`, assumed and checked. Pure readers turn
+the models into a frozen `GameIncome` (the premium currency, its worth in pulls at 160, the other
+currencies, the month before, the sources, today's and HSR's yesterday's figure). One
+`HoyolabClient.income(games, month, *, this_month)` call reads every game asked, a failing game
+not hiding the others. A non-strict `gacha_income {game?, month?}` in its own provider, kept 15
+minutes per game and month, answers only when asked, as information for planning pulls; the
+weekly report gets one more lane in the same 30 s budget, one short part a game. No new config
+key, strict tool, or dependency.
+- [x] Task 162a: contract: SPEC, tasks
+- [ ] Task 162: the income values and readers (`gacha/income.py`)
+- [ ] Task 163: `HoyolabClient.income`
+- [ ] Task 164: the `gacha_income` tool and the persona line
+- [ ] Task 165: wiring in `run`/`chat`, `waifu gacha income`
+- [ ] Task 166: the weekly report's income part
+- [ ] Task 167: README, CHANGELOG
+
+### Checkpoint: Pendapatan gacha
+- [ ] Python suite and ruff clean; no test reached HoYoLAB or built a real genshin.Client; the strict-tool budget unchanged (18 of 20 strict tools, 17 of 24 optional parameters)
+- [ ] On the owner's PC: "bulan ini aku dapat berapa Primogem?" matches the Traveler's Diary in HoYoLAB; `waifu gacha income` prints each game; `waifu gacha income zzz --month <last month>` reads ZZZ's earlier month (checks the assumed `YYYYMM` format); the weekly report names this month's income
+
 ## Risks and Mitigations
 
 | Risk | Impact | Mitigation |

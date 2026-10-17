@@ -1537,3 +1537,59 @@ named `tests/test_<package>_<module>.py`.
 - [x] Fix pass: the checklist and CHANGELOG tell an owner with a `tidur` routine to add the delayed AC step, and to restart `waifu run` again after the two-minute test; the desktop Power settings page; "Mengatur jadwal dari terminal" names `waifu routine run`
 
 **Dependencies:** 160 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
+
+## Task 162a: Pendapatan gacha contract ✅
+
+**Acceptance criteria:**
+- [x] SPEC "pendapatan gacha (v1.33)" (stories, non-goals, what each diary gives, the month window and the month check, the values and readers, `HoyolabClient.income`, the tool, the persona line, the weekly report's part, the CLI, privacy, safety); tasks 162a-167 in the plan and here
+
+**Dependencies:** none · **Files:** `SPEC.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
+
+## Task 162: The income values and readers
+
+**Acceptance criteria:**
+- [ ] `GameIncome` with `pulls` (earned // 160); the three readers turn real genshin.py models built from sample dicts into it with the month asked, sources most first, today and HSR's yesterday only for this month, and ZZZ's sources named in code
+- [ ] A ZZZ answer without Polychrome is a ValueError; `answers_month` tells a model of another month; `income_months` is this month and the two before in server time (midnight server time turns the month); `parse_month` takes exactly `YYYY-MM`
+- [ ] No genshin import, and no uid, nickname, avatar, or region in a value
+
+**Dependencies:** 162a · **Files:** `src/waifu/gacha/income.py`, `tests/test_gacha_income.py` · **Scope:** M
+
+## Task 163: `HoyolabClient.income`
+
+**Acceptance criteria:**
+- [ ] One call reads every game asked with its explicit uid and the month passed (Genshin 1-12, HSR `YYYYMM`, ZZZ `""` for this month and `YYYYMM` before), never `get_diary` or `update_settings`
+- [ ] A failing game does not hide the others; no cookie, a timeout, a hidden diary (chronicle_private), a model that does not parse (other), and an answer for another month (other, its own message) are each game's error; no result, error, or log holds the cookie, uid, or nickname
+
+**Dependencies:** 162 · **Files:** `src/waifu/gacha/hoyolab.py`, `tests/test_gacha_hoyolab.py` · **Scope:** M
+
+## Task 164: The `gacha_income` tool and the persona line
+
+**Acceptance criteria:**
+- [ ] A non-strict `gacha_income {game?, month?}` in its own provider; without `game` every configured game with failures under `errors`; without `month` this month with `today`; an earlier month without it; a month outside the window, a bad format, an unknown game or key are invalid without asking HoYoLAB; every game failing is an error result
+- [ ] Reads kept 15 minutes per game and month (this month's per server day); the description says what each game gives, pulls at 160 from the premium currency only, information for planning, never a push to pull, spend, or top up, only when asked
+- [ ] The persona names `gacha_income` under the game tools; the strict budget unchanged
+
+**Dependencies:** 163 · **Files:** `src/waifu/gacha/income_tools.py`, `tests/test_gacha_income_tools.py`, `config/persona.md`, `tests/test_brain_persona.py` · **Scope:** M
+
+## Task 165: Wiring and `waifu gacha income`
+
+**Acceptance criteria:**
+- [ ] `run` and `chat` add `IncomeTools` after the game data tools when the games are on; the budget test lists `gacha_income`
+- [ ] `waifu gacha income [game] [--month YYYY-MM]` prints each game's month (also with the games off), exits 1 when a game failed, and refuses a month outside the window with exit 2 before asking HoYoLAB
+
+**Dependencies:** 164 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** M
+
+## Task 166: The weekly report's income part
+
+**Acceptance criteria:**
+- [ ] With an income source, one more lane in the same budget reads this month for every game; each game's `income` or `income_problem`; a late read ran out of time; without a source nothing changes (the exact JSON and the calls stay as before)
+- [ ] `income_this_month` and `income_problem` in the JSON only with a source; the description and the prompt name it; `waifu gacha report` prints one line a game
+
+**Dependencies:** 163 · **Files:** `src/waifu/gacha/weekly.py`, `tests/test_gacha_weekly.py`, `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** M
+
+## Task 167: Docs
+
+**Acceptance criteria:**
+- [ ] README "Pendapatan gacha bulanan", a command row, a line in "Laporan game mingguan", checklist items; CHANGELOG v1.33; full suite and ruff clean
+
+**Dependencies:** 165, 166 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S

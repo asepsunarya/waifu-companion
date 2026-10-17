@@ -1456,6 +1456,57 @@ Docs: README (Indonesian) subsection "Mode tidur" in "Jadwal, pengingat, dan rut
 
 Safety: tests never touch `data/schedule.json` (every store under tmp_path, or a dry run's temporary folder), never run real devices, and never sleep (injected clocks).
 
+### pendapatan gacha (v1.33)
+
+The owner plans pulls around what a month brings in. HoYoLAB keeps a monthly diary of each game: Genshin's Traveler's Diary, HSR's Trailblaze Monthly Calendar, and ZZZ's Inter-Knot monthly report. Cyrene reads them, read-only, through genshin.py 1.7.31.
+
+User stories (the gacha buddy's cookie is set):
+
+1. "Cyrene, bulan ini aku dapat berapa Primogem?" → "Bulan ini Master sudah dapat sekitar lima ribu empat ratus Primogem, kira-kira tiga puluh tiga pull, paling banyak dari event." Information for planning pulls, never a push to pull, spend, or top up; only when asked, never in a greeting, the morning briefing, or anything she starts herself.
+2. "Stellar Jade bulan lalu berapa?" → last month's figure; "pendapatan gacha bulan ini?" → every configured game in one answer.
+3. Her weekly game report (v1.27) also tells this month's income so far per game, in one short part.
+4. `waifu gacha income [game] [--month YYYY-MM]` prints the same without the brain, also with `gacha.enabled: false`.
+
+Non-goals (v1.33): what was spent, top-ups, Genesis Crystals, Oneiric Shards, or Monochrome (the diaries do not count them); a pull plan or advice; months HoYoLAB no longer keeps (it gives this month and the two before); the per-action logs (`genshin_diary_log`, `starrail_diary_log`, `get_zzz_diary_detail`); a push or reminder of its own; keeping the figures on disk; a `waifu check` line (the cookie line already says HoYoLAB needs the cookie); a new config key, strict tool, or dependency.
+
+What each diary gives (genshin.py 1.7.31's models):
+
+| Game | `earned` | `others` | `last_month`, `change_percent` | `today`, `yesterday` | `sources` |
+|---|---|---|---|---|---|
+| Genshin | Primogem (`month_data.current_primogems`) | Mora | `last_primogems`, `primogem_rate` | today's `day_data.current_primogems` | the Primogem categories (`group_by`), with HoYoLAB's English names |
+| HSR | Stellar Jade (`current_hcoin`) | Star Rail Pass (`current_rails_pass`; HoYoLAB does not say whether Special or regular) | `last_hcoin`, `hcoin_rate` | `day_data.current_hcoin`, yesterday `day_data.last_hcoin` | the Stellar Jade categories, with HoYoLAB's names |
+| ZZZ | Polychrome (`PolychromesData`) | Master Tape and Boopon entries, each with HoYoLAB's `data_name` | none | none | `income_components`, named in code |
+
+Months:
+- This month is the month of `checkin_day(now, gacha.server_utc_offset)` (midnight server time, HoYoLAB's day). `income_months(now, offset)` gives this month and the two before, newest first, each as its 1st: HoYoLAB's `optional_month` usually lists those three (genshin.py drops that field for Genshin and HSR; what HoYoLAB answers outside them is unknown), so any other month is refused in code before HoYoLAB is asked.
+- The month is always passed: genshin.py's default would use the PC's clock. Requests: Genshin `get_genshin_diary(uid, month=<1-12>)`, HSR `get_starrail_diary(uid, month="YYYYMM")`, ZZZ `get_zzz_diary(uid, month="")` for this month (genshin.py's current month) and `month="YYYYMM"` for an earlier one (assumed: genshin.py does not state ZZZ's format, so the answer is checked). Never the deprecated `get_diary`.
+- An answer for another month than the one asked (Genshin's `month` 1-12, HSR's `month` YYYYMM, the digits of ZZZ's `data_month`) is refused as GachaError other `HoYoLAB tidak memberi pendapatan <short> untuk bulan itu; biasanya hanya bulan ini dan dua bulan sebelumnya yang ada.`, so a month is never told under another's name.
+
+`gacha/income.py` (no genshin import; nothing holds the uid, nickname, avatar, or region):
+- `IncomeCategory(name, amount, percent)`, `IncomeCurrency(name, amount)`, and `GameIncome(game, month: date, earned: int, others: tuple[IncomeCurrency, ...], last_month: int | None, change_percent: int | None, sources: tuple[IncomeCategory, ...], today: int | None, yesterday: int | None)` (frozen), with `pulls = earned // PULL_COST` (160): passes and tapes are listed under `others`, never added to `pulls`.
+- `read_genshin_income(model, month, *, this_month)`, `read_hsr_income(...)`, `read_zzz_income(...)`: `month` is the one asked, never the model's (Genshin says 10, HSR 202610); sources most first; `today` and `yesterday` only with `this_month`. ZZZ's sources are named in code: `daily_activity_rewards` Daily Activity, `growth_rewards` Growth, `shiyu_rewards` Shiyu Defense, `mail_rewards` Mail, `hollow_rewards` Hollow Zero, `event_rewards` Events, `other_rewards` Other. A ZZZ answer without a Polychrome entry cannot be read (ValueError, then other). genshin.py's ZZZ model refuses an action or currency type it does not know: the ZZZ read is then other ("Data HoYoLAB ZZZ tidak bisa dibaca saat ini."), the other games unaffected.
+- `answers_month(game_id, model, month) -> bool`, `income_months(now, offset) -> tuple[date, ...]`, `month_text(month) -> "YYYY-MM"`, `parse_month(text) -> date` (exactly `YYYY-MM`, else ValueError), and `IncomeSource`, the protocol `income(games, month, *, this_month) -> dict[str, GameIncome | GachaError]`.
+
+`HoyolabClient.income(games, month, *, this_month) -> dict[str, GameIncome | GachaError]`: one `asyncio.run` with one client for every game asked, as `status` (the uids resolved once, each request with its game's explicit uid), each request through `_chronicle` (a hidden diary is chronicle_private, never Real-Time Notes' notes_off), the whole bounded by the client's timeout (20 s). A failing game does not hide the others; a failure of the whole call (no cookie, the timeout) is every game's error, without a cookie before HoYoLAB is asked. Never `update_settings`.
+
+Tool `gacha_income` (`gacha/income_tools.py`: `IncomeTools(source, games, *, server_utc_offset=8, now=<local now>)`, a provider of its own, so the three game data tools stay as they are): non-strict, `{game?: enum[the configured games], month?: string}`, `additionalProperties: false`, every argument checked in code. `game` left out is every configured game, one failing game under `errors` while the others are still told; `month` left out is this month; a `month` that is not `YYYY-MM`, or not one of `income_months`, is invalid (`'month' harus YYYY-MM, salah satu dari: 2026-10, 2026-09, 2026-08.`) and nothing is asked; an unknown key is invalid. Reads are kept per process for 15 minutes under `income:<game>:<YYYY-MM>` (this month's key adds the server day, so `today` never outlives midnight); the stale games are asked in one call. Result: `{"as_of", "month": "YYYY-MM", "this_month": bool, "games": [{"game", "name", "currency", "earned", "pulls", "today"?, "yesterday"?, "last_month"?, "change_percent"?, "sources": [{"name", "amount", "percent"}] (at most 8), "others": [{"name", "amount"}]}], "errors"?: [{"game", "message"}]}`; every game failing is an error result with each distinct message once. The static English description, built once from the configured games: what each game's diary gives; `pulls` counts only the premium currency, at 160 a pull; `last_month` is the month before as HoYoLAB counts it (a month still running is mostly below it); HoYoLAB's diary may lag behind the game; information for planning pulls: never suggest pulling, spending money, or topping up, and never judge the amount; only when Master asks what they earned, never in her own greeting, the morning briefing, or anything she starts herself; one or two short sentences with the numbers rounded, no lists or parentheses; never saved with `remember` unless Master asks. `run` never raises.
+
+Persona: a line under "Game HoYoverse Master" names `gacha_income` for the Primogem, Stellar Jade, or Polychrome Master earned this month or an earlier month, with the game in its `game` argument, only when Master asks (not for a greeting or the morning briefing), as information for planning pulls, never an invitation to pull, spend, or top up.
+
+Weekly report (`gacha/weekly.py`):
+- `gather_weekly_report(..., income: IncomeSource | None = None)`: with a source, one more lane (`weekly-income`) makes one `income(games, this month, this_month=True)` call within the same 30 s budget (late: "waktunya habis"); `GameWeek.income: GameIncome | None` and `income_problem` (`Pendapatan <short> bulan ini tidak terbaca: <why>`), both None without a source; `problems` holds it; `readable` ignores it, as it does play time.
+- `report_json`: per game `"income_this_month": {"month", "currency", "earned", "pulls", "today"?} | null` and `"income_problem"`, only with a source. `WeeklyReportTools(..., income=None)`'s description then names this month's premium currency earned so far and its worth in pulls; `WEEKLY_REPORT_PROMPT` names "pendapatan bulan ini" once in its list (still no look word, play verb, or music word). Its facts now hold what was earned, never what was spent.
+- `waifu gacha report`: `Pendapatan bulan ini: 5.400 Primogem (33 pull), hari ini 120`, or `✗ <problem>`.
+
+CLI:
+- `run` and `chat` add `IncomeTools` right after `GameDataTools` when `gacha.enabled` (both backends); `_weekly_report_tools` passes `income=gacha.hoyolab`.
+- `waifu gacha income [game] [--month YYYY-MM]` (every configured game and this month by default; also with `gacha.enabled: false`): a header `Pendapatan gacha Oktober 2026, sampai sekarang:` (an earlier month: `Pendapatan gacha September 2026:`), then per game `HSR (Honkai: Star Rail)` with `Stellar Jade: 4.800 (30 pull), hari ini 60, kemarin 120` (today and yesterday only for this month), `Bulan sebelumnya: 10.000 (-52%)` when given, `Sumber: Daily Activity 1.800 (38%), ...` when given, `Lainnya: Star Rail Pass 5` when given, or `✗ <message>`; then `INCOME_NOTE` ("Catatan: pull dihitung 160 per pull dari Primogem, Stellar Jade, atau Polychrome saja, tanpa pass atau tape; catatan bulanan HoYoLAB bisa tertinggal dari game."). Numbers have a dot per thousand. Exit 1 when a game could not be read; a month outside the window prints `✗ Pendapatan hanya ada untuk bulan ini dan dua bulan sebelumnya: 2026-10, 2026-09, 2026-08.` and exits 2 without asking HoYoLAB. `GACHA_DESCRIPTION` names it.
+- Docs: README (Indonesian) section "Pendapatan gacha bulanan" in "Teman main gacha" after "Laporan game mingguan" (examples, what each game gives, the months, the command, privacy), a command row, a line in "Laporan game mingguan", checklist items; CHANGELOG v1.33.
+
+Privacy: the figures are read only when asked (or for the weekly report), kept in memory for 15 minutes, never written to disk or the INFO log; with the Claude backend they go to Anthropic as a tool result, and the weekly report's spoken sentence, which may name them, goes to ntfy as that report always does. No result or log holds the uid, nickname, avatar, or region.
+
+Safety: tests fake genshin.py's client with real genshin.py models (`Diary`, `StarRailDiary`, `ZZZDiary`) built from deep-copied sample dicts, assert that `update_settings` is never called and that the cookie, uid, and nickname are in no result or log, and never reach HoYoLAB (`tests/conftest.py`). The strict budget stays 18 of 20 strict tools and 17 of 24 optional parameters.
+
 ## Code Style
 
 See `CLAUDE.md` → Code Conventions and Patterns. Dataclasses for value
