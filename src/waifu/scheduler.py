@@ -8,7 +8,9 @@ one-shot entry and moves a repeating one on. An occurrence missed by more than t
 repeating one moves to its first occurrence still within the grace, so after days away
 today's still fires. A missed reminder is pushed; a missed one-shot reminder is also told,
 all of a tick's together in one announcement, so it is never lost when the phone gets no
-push (a repeating one comes again anyway). The PC itself never runs from a schedule.
+push (a repeating one comes again anyway). The PC itself never runs from a schedule. A
+routine's delayed steps ("mode tidur": the AC off three hours later) go into this schedule
+when the routine runs, counted from then, and fire later like any device command.
 
 It runs in a daemon thread. A failing entry is logged and the other entries go on; an
 occurrence that ran but could not be marked is marked again at the next tick, never run
@@ -26,7 +28,7 @@ from types import TracebackType
 from waifu.config import RoutineConfig, at_sentence_start
 from waifu.devices.registry import DeviceRegistry
 from waifu.notify import Notifier
-from waifu.routines import pc_power_refusal, run_routine
+from waifu.routines import describe_step, pc_power_refusal, run_routine
 from waifu.schedule import DeviceAction, Entry, Reminder, ScheduleStore, due
 
 logger = logging.getLogger(__name__)
@@ -188,6 +190,8 @@ class Scheduler:
             return
         if isinstance(action, DeviceAction):
             what = _command_words(action.device, action.command, action.value)
+            if action.routine is not None:  # a routine's delayed step: say where it came from
+                what = f"{what} dari rutinitas {action.routine}"
             problem = self._device_problem(action)
         else:
             what = f"rutinitas {action.name}"
@@ -235,14 +239,18 @@ class Scheduler:
         return None if result.ok else result.message
 
     def _routine_problem(self, name: str) -> str | None:
-        """The failed steps of the routine, or None when every step ran."""
+        """The failed steps of the routine, or None when every step ran or was scheduled.
+
+        Its delayed steps go into this schedule, counted from now: when it actually ran.
+        """
         routine = self._routines.get(name)
         if routine is None:
             return f"Rutinitas '{name}' tidak ada di config.yaml."
-        results = run_routine(self._registry, routine, name=name)
+        results = run_routine(
+            self._registry, routine, name=name, schedule=self._store, now=self._now
+        )
         failed = [
-            f"Langkah {number} ({_command_words(step.device, step.command, step.value)}): "
-            f"{result.message}"
+            f"Langkah {number} ({describe_step(step)}): {result.message}"
             for number, (step, result) in enumerate(zip(routine.steps, results, strict=True), 1)
             if not result.ok
         ]

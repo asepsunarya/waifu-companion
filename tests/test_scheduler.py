@@ -342,6 +342,77 @@ def test_a_routine_missing_from_the_config_is_a_failure(tmp_path):
     assert house.store.entries() == []
 
 
+# --- delayed routine steps (mode tidur) ----------------------------------------------------------
+
+
+def mode_tidur() -> RoutineConfig:
+    """Lamp off and AC to 26 now, the AC off three hours later."""
+    return RoutineConfig(
+        steps=[
+            RoutineStep(device="lampu_kamar", command="off"),
+            RoutineStep(device="ac", command="temp", value=26),
+            RoutineStep(device="ac", command="off", after_minutes=180),
+        ]
+    )
+
+
+def test_a_scheduled_routine_schedules_its_delayed_step_from_when_it_ran(tmp_path):
+    house = House(tmp_path, routines={"tidur": mode_tidur()})
+    house.add(RoutineAction("tidur"))
+
+    house.tick_at(datetime(2026, 10, 13, 15, 5, 30))  # five minutes late, within the grace
+
+    assert house.devices["lampu_kamar"].calls == [("off", None)]
+    assert house.devices["ac"].calls == [("temp_26", 26)]
+    assert house.told == ([], [])
+    [delayed] = house.store.entries()
+    assert (delayed.at, delayed.repeat, delayed.action) == (
+        datetime(2026, 10, 13, 18, 5),
+        "none",
+        DeviceAction("ac", "off", routine="tidur"),
+    )
+
+
+def test_a_routines_delayed_step_runs_later_without_a_word(tmp_path):
+    house = House(tmp_path, routines={"tidur": mode_tidur()})
+    house.add(RoutineAction("tidur"))
+    house.tick_at(TODAY_15)
+
+    house.tick_at(datetime(2026, 10, 13, 18, 0, 10))
+
+    assert house.devices["ac"].calls == [("temp_26", 26), ("off", None)]
+    assert house.told == ([], [])
+    assert house.store.entries() == []
+
+
+def test_a_delayed_step_that_fails_when_it_runs_names_its_routine(tmp_path):
+    house = House(tmp_path)
+    house.add(DeviceAction("tv", "off", routine="tidur"))
+
+    house.tick_at(TODAY_15)
+
+    text = "Master, jadwal tv off dari rutinitas tidur jam 15.00 gagal: TV tidak menjawab."
+    assert house.told == ([(text, "sad")], [("Cyrene", text, ("alarm_clock",))])
+
+
+def test_a_delayed_step_that_cannot_be_scheduled_is_a_failed_step(tmp_path):
+    def one_entry_store(path, **kwargs):
+        return ScheduleStore(path, max_entries=1, **kwargs)
+
+    house = House(tmp_path, store_class=one_entry_store, routines={"tidur": mode_tidur()})
+    house.add(RoutineAction("tidur"))  # the routine's own entry fills the schedule while it runs
+
+    house.tick_at(TODAY_15)
+
+    text = (
+        "Master, jadwal rutinitas tidur jam 15.00 gagal: Langkah 3 (ac off setelah 3 jam): "
+        "Jadwal sudah penuh, 1 entri. Batalkan jadwal lama dulu."
+    )
+    assert house.told == ([(text, "sad")], [("Cyrene", text, ("alarm_clock",))])
+    assert house.devices["ac"].calls == [("temp_26", 26)]
+    assert house.store.entries() == []
+
+
 # --- skipped entries -----------------------------------------------------------------------------
 
 

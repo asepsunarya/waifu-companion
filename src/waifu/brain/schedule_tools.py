@@ -2,12 +2,13 @@
 
 `schedule` saves an entry that the scheduler thread fires while `waifu run` is on;
 `list_schedules` and `cancel_schedule` manage the saved entries; `run_routine` runs one of
-the owner's routines from config.yaml right away. A device command is checked when it is
-scheduled, by the rule `registry.execute` uses, so an entry that could never run is
-refused while Master is still listening. The PC is never scheduled: turning it off,
-restarting it, or putting it to sleep stays a voice command with a confirmation. Nor are the
-media keys that toggle (play_pause, mute): run silently at night, they could restart music
-Master had paused, or unmute the PC.
+the owner's routines from config.yaml right away, scheduling its delayed steps ("mode
+tidur": the AC off three hours later) as one-shot device commands that can be cancelled.
+A device command is checked when it is scheduled, by the rule `registry.execute` uses, so
+an entry that could never run is refused while Master is still listening. The PC is never
+scheduled: turning it off, restarting it, or putting it to sleep stays a voice command with
+a confirmation. Nor are the media keys that toggle (play_pause, mute): run silently at
+night, they could restart music Master had paused, or unmute the PC.
 
 The specs carry no entries and no live state, so they stay byte-identical for the brain's
 lifetime and keep the prompt cache warm.
@@ -17,7 +18,8 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
+from datetime import datetime
 
 from waifu.avatar.emotion import split_emotion
 from waifu.brain.base import ToolSpec
@@ -75,10 +77,12 @@ class ScheduleTools:
         registry: DeviceRegistry,
         routines: Mapping[str, RoutineConfig],
         owner_call: str = "Master",
+        now: Callable[[], datetime] = datetime.now,
     ) -> None:
         self._store = store
         self._registry = registry
         self._routines = dict(routines)
+        self._now = now  # when a routine starts: its delayed steps count from then
         # In the reminder example, which she may copy, and in errors Ollama may read out.
         self._owner_call = owner_call
 
@@ -168,8 +172,13 @@ class ScheduleTools:
             description=(
                 "Run one of Master's routines now: a named list of device commands Master "
                 "wrote in config.yaml, such as a 'mode tidur'. Every step runs, also after a "
-                "failed one; tell Master honestly which steps failed. To run a routine later, "
-                f"use schedule with `routine`.\nRoutines:\n{routines}"
+                "failed one; tell Master honestly which steps failed. A step listed with "
+                "'setelah ...' (after a delay) is not run now: it is scheduled once for that "
+                "long after the routine starts, and its result has `scheduled` with its id and "
+                "time. Mention it briefly with its clock time, like 'AC akan mati jam satu "
+                "nanti'; Master can cancel it with cancel_schedule and that id. Running the "
+                "routine again replaces its delayed steps that have not run yet. To run a "
+                f"routine later, use schedule with `routine`.\nRoutines:\n{routines}"
             ),
             input_schema={
                 "type": "object",
@@ -267,7 +276,9 @@ class ScheduleTools:
         mapping = _arguments_mapping(arguments, allowed=_RUN_ROUTINE_KEYS)
         name = self._routine_name(_text(mapping, "name"))
         routine = self._routines[name]
-        results = run_routine(self._registry, routine, name=name)
+        results = run_routine(
+            self._registry, routine, name=name, schedule=self._store, now=self._now
+        )
         steps = [
             _step_json(step, result) for step, result in zip(routine.steps, results, strict=True)
         ]
@@ -341,7 +352,8 @@ def _describe_action(action: Action) -> str:
         return f"pengingat: {action.text}"
     if isinstance(action, DeviceAction):
         value = f" {action.value}" if action.value is not None else ""
-        return f"perangkat: {action.device} {action.command}{value}"
+        routine = f" (rutinitas {action.routine})" if action.routine is not None else ""
+        return f"perangkat: {action.device} {action.command}{value}{routine}"
     return f"rutinitas: {action.name}"
 
 
@@ -349,8 +361,12 @@ def _step_json(step: RoutineStep, result: DeviceResult) -> dict[str, object]:
     data: dict[str, object] = {"device": step.device, "command": step.command}
     if step.value is not None:
         data["value"] = step.value
+    if step.after_minutes is not None:
+        data["after_minutes"] = step.after_minutes
     data["ok"] = result.ok
     data["message"] = result.message
+    if step.after_minutes is not None and result.ok:
+        data["scheduled"] = result.state  # the id and time of its schedule entry
     return data
 
 

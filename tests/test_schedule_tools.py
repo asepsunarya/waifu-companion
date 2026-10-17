@@ -55,6 +55,15 @@ ROUTINES = {
     "tidur": routine(("lampu_kamar", "off"), ("ac", "temp", 26), description="Mode tidur"),
     "pagi": routine(("lampu_kamar", "on")),
 }
+# Mode tidur with its last step three hours later: the AC off at 17:30 when run at NOW.
+DELAYED_TIDUR = RoutineConfig(
+    description="Mode tidur",
+    steps=[
+        step("lampu_kamar", "off"),
+        step("ac", "temp", 26),
+        RoutineStep(device="ac", command="off", after_minutes=180),
+    ],
+)
 
 
 def make_house() -> tuple[DeviceRegistry, dict[str, MockDevice]]:
@@ -75,7 +84,8 @@ def make_tools(
 ) -> tuple[ScheduleTools, ScheduleStore, dict[str, MockDevice]]:
     registry, devices = make_house()
     store = make_store(tmp_path, **store_kwargs)
-    return ScheduleTools(store, registry=registry, routines=routines), store, devices
+    tools = ScheduleTools(store, registry=registry, routines=routines, now=lambda: NOW)
+    return tools, store, devices
 
 
 def spec(tools: ScheduleTools, name: str) -> ToolSpec:
@@ -960,6 +970,89 @@ def test_run_routine_with_an_unknown_name_is_an_error_result(tmp_path):
         True,
     )
     assert no_device_ran(devices)
+
+
+def test_run_routine_schedules_a_delayed_step_and_names_its_id_and_time(tmp_path):
+    tools, store, devices = make_tools(tmp_path, routines={"tidur": DELAYED_TIDUR})
+
+    data, is_error = run(tools, "run_routine", {"name": "tidur"})
+
+    assert is_error is False
+    assert data["ok"] is True
+    assert data["steps"][2] == {
+        "device": "ac",
+        "command": "off",
+        "after_minutes": 180,
+        "ok": True,
+        "message": "Dijadwalkan jam 17.30 (j1).",
+        "scheduled": {"id": "j1", "at": "2026-10-13 17:30"},
+    }
+    assert "after_minutes" not in data["steps"][1]
+    assert devices["ac"].calls == [("temp_26", 26)]
+    assert actions(store) == [
+        ("j1", datetime(2026, 10, 13, 17, 30), "none", DeviceAction("ac", "off", routine="tidur"))
+    ]
+
+
+def test_a_delayed_step_is_listed_with_its_routine_and_cancelled_by_its_id(tmp_path):
+    tools, store, devices = make_tools(tmp_path, routines={"tidur": DELAYED_TIDUR})
+    run(tools, "run_routine", {"name": "tidur"})
+
+    listed, _ = run(tools, "list_schedules", {})
+    cancelled, is_error = run(tools, "cancel_schedule", {"id": "j1"})
+
+    entry = {
+        "id": "j1",
+        "at": "2026-10-13 17:30",
+        "repeat": "none",
+        "action": "perangkat: ac off (rutinitas tidur)",
+    }
+    assert listed == {"ok": True, "entries": [entry]}
+    assert (cancelled, is_error) == ({"ok": True, "cancelled": entry}, False)
+    assert store.entries() == []
+    assert ("off", None) not in devices["ac"].calls
+
+
+def test_running_a_routine_again_replaces_its_pending_delayed_step(tmp_path):
+    tools, store, _ = make_tools(tmp_path, routines={"tidur": DELAYED_TIDUR})
+
+    run(tools, "run_routine", {"name": "tidur"})
+    data, _ = run(tools, "run_routine", {"name": "tidur"})
+
+    assert data["steps"][2]["scheduled"] == {"id": "j2", "at": "2026-10-13 17:30"}
+    assert [entry.id for entry in store.entries()] == ["j2"]
+
+
+def test_a_delayed_step_that_does_not_fit_in_the_schedule_is_an_honest_error(tmp_path):
+    tools, store, devices = make_tools(tmp_path, routines={"tidur": DELAYED_TIDUR}, max_entries=1)
+    store.add(datetime(2026, 10, 14, 7, 0), "daily", Reminder("Master, bangun!"))
+
+    data, is_error = run(tools, "run_routine", {"name": "tidur"})
+
+    assert is_error is True
+    assert data["steps"][2] == {
+        "device": "ac",
+        "command": "off",
+        "after_minutes": 180,
+        "ok": False,
+        "message": "Jadwal sudah penuh, 1 entri. Batalkan jadwal lama dulu.",
+    }
+    assert devices["ac"].calls == [("temp_26", 26)]
+
+
+def test_run_routine_says_how_to_mention_and_cancel_a_delayed_step(tmp_path):
+    tools, _, _ = make_tools(tmp_path, routines={"tidur": DELAYED_TIDUR})
+    description = spec(tools, "run_routine").description
+
+    assert "tidur: Mode tidur (lampu_kamar off, ac temp 26, ac off setelah 3 jam)" in description
+    for guidance in [
+        "setelah",
+        "not run now",
+        "AC akan mati jam satu nanti",
+        "cancel_schedule",
+        "replaces",
+    ]:
+        assert guidance in description
 
 
 @pytest.mark.parametrize("name", ["run_routine", "remember", "control_device"])
