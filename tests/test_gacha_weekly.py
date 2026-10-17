@@ -31,6 +31,7 @@ from waifu.gacha.hoyolab import GachaError
 from waifu.gacha.starrail import HsrCalendar, HsrEndgame, HsrEvent, HsrWarp
 from waifu.gacha.tools import HISTORY_NOTE
 from waifu.gacha.weekly import (
+    LISTING_LAG,
     WEEKLY_REPORT_PROMPT,
     WeeklyReportTimer,
     WeeklyReportTools,
@@ -38,6 +39,7 @@ from waifu.gacha.weekly import (
     report_json,
     week_start,
 )
+from waifu.play_time import PlayTimeStore, PlayTotal, Session
 from waifu.screen import ScreenImage
 
 WIB = timezone(timedelta(hours=7))
@@ -223,6 +225,7 @@ def gather(
     codes=None,
     budget_s: float = 5.0,
     extra=None,
+    play_time=None,
 ):
     store = store if store is not None else make_store(tmp_path)
     return gather_weekly_report(
@@ -236,6 +239,7 @@ def gather(
         offset=8,
         extra_standard=extra or {},
         budget_s=budget_s,
+        play_time=play_time,
     )
 
 
@@ -665,6 +669,91 @@ def test_a_read_not_started_within_the_budget_never_starts(tmp_path):
     )
 
 
+# --- the play time -------------------------------------------------------------------------------
+
+
+def play_store(tmp_path, games=("hsr", "genshin")) -> PlayTimeStore:
+    """HSR this week (one session reaching back over the week's start, one on Thursday, and
+    one open now) and Genshin only before the week, with HSR and Genshin tracked."""
+    store = PlayTimeStore(
+        tmp_path / "playtime.json", games=list(games), keep_days=90, now=lambda: NOW
+    )
+    week_starts = SINCE + LISTING_LAG  # Sunday 19:00: play time has no listing lag
+    thursday = datetime(2026, 10, 15, 21, 0, tzinfo=WIB)
+    store.save(
+        [Session("hsr", NOW - timedelta(hours=1), NOW - timedelta(minutes=1))],
+        [
+            Session("hsr", week_starts - timedelta(minutes=30), week_starts + timedelta(hours=2)),
+            Session("hsr", thursday, thursday + timedelta(minutes=140)),
+            Session("genshin", week_starts - timedelta(hours=3), week_starts - timedelta(hours=1)),
+        ],
+    )
+    return store
+
+
+def test_the_week_s_play_time_comes_per_tracked_game_when_a_source_is_given(tmp_path):
+    report = gather(tmp_path, games=EVERY_GAME, play_time=play_store(tmp_path))
+
+    # Two hours of the first, the whole second, and 59 minutes of the open one.
+    hsr = week_of(report, "hsr")
+    assert (hsr.play, hsr.play_problem) == (PlayTotal((120 + 140 + 59) * 60, 3), None)
+    assert week_of(report, "genshin").play == PlayTotal(0, 0)  # before the week only
+    zzz = week_of(report, "zzz")
+    assert (zzz.play, zzz.play_problem) == (None, None)  # not tracked
+    assert hsr.problems == ()
+
+
+def test_without_a_play_time_source_there_is_no_play_time(tmp_path):
+    week = week_of(gather(tmp_path), "hsr")
+
+    assert (week.play, week.play_problem) == (None, None)
+
+
+def test_play_time_that_cannot_be_read_is_each_tracked_game_s_problem(tmp_path, caplog):
+    class UnreadablePlayTime:
+        games = ("hsr", "zzz")
+
+        def totals(self, since, until):
+            raise OSError("the disk is gone")
+
+    with caplog.at_level(logging.ERROR, logger="waifu.gacha.weekly"):
+        report = gather(tmp_path, games=EVERY_GAME, play_time=UnreadablePlayTime())
+
+    hsr, genshin = week_of(report, "hsr"), week_of(report, "genshin")
+    assert (hsr.play, hsr.play_problem) == (None, "Jam main HSR tidak terbaca saat ini.")
+    assert "Jam main HSR tidak terbaca saat ini." in hsr.problems
+    assert (genshin.play, genshin.play_problem) == (None, None)
+    assert week_of(report, "zzz").play_problem == "Jam main ZZZ tidak terbaca saat ini."
+    assert "the disk is gone" in caplog.text
+
+
+def test_play_time_alone_is_nothing_to_report(tmp_path):
+    report = gather(
+        tmp_path,
+        store=GachaStore(tmp_path / "empty"),
+        source=FakeSource(failures=no_cookie_anywhere()),
+        play_time=play_store(tmp_path),
+    )
+
+    assert report.readable is False
+
+
+def test_the_json_holds_the_play_time_only_for_a_tracked_game(tmp_path):
+    data = report_json(gather(tmp_path, games=EVERY_GAME, play_time=play_store(tmp_path)))
+    hsr, genshin, zzz = data["games"]
+
+    assert hsr["play_time"] == {"hours": 5, "minutes": 19, "sessions": 3}
+    assert hsr["play_time_problem"] is None
+    assert genshin["play_time"] == {"hours": 0, "minutes": 0, "sessions": 0}
+    assert "play_time" not in zzz and "play_time_problem" not in zzz
+
+
+def test_the_json_holds_no_play_time_without_a_source(tmp_path):
+    [data] = report_json(gather(tmp_path))["games"]
+
+    assert "play_time" not in data and "play_time_problem" not in data
+
+
 # --- the redeem codes ----------------------------------------------------------------------------
 
 
@@ -971,7 +1060,9 @@ def test_the_json_keeps_each_game_small(tmp_path):
 # --- the tool ------------------------------------------------------------------------------------
 
 
-def make_tools(tmp_path, *, games=EVERY_GAME, store=None, source=None, codes=None, now=NOW):
+def make_tools(
+    tmp_path, *, games=EVERY_GAME, store=None, source=None, codes=None, now=NOW, play_time=None
+):
     store = store if store is not None else make_store(tmp_path)
     return WeeklyReportTools(
         games,
@@ -985,6 +1076,7 @@ def make_tools(tmp_path, *, games=EVERY_GAME, store=None, source=None, codes=Non
         extra_standard={},
         now=lambda: now,
         budget_s=5.0,
+        play_time=play_time,
     )
 
 
@@ -1021,6 +1113,24 @@ def test_the_description_says_what_it_holds_when_to_use_it_and_never_to_push_spe
     ]:
         assert guidance in spec.description
     assert "redeem codes" not in spec.description
+    assert "the time each game was open" not in spec.description
+
+
+def test_the_description_names_the_play_time_when_it_is_counted(tmp_path):
+    [spec] = make_tools(tmp_path, play_time=play_store(tmp_path)).specs()
+
+    assert "the time each game was open in the last 7 days" in spec.description
+    assert "minimized or idle" in spec.description
+
+
+def test_the_tool_s_report_holds_the_play_time_when_it_is_counted(tmp_path):
+    tools = make_tools(tmp_path, play_time=play_store(tmp_path))
+
+    result, is_error = tools.run("weekly_report", {})
+
+    assert is_error is False
+    hsr = json.loads(result)["games"][0]
+    assert hsr["play_time"] == {"hours": 5, "minutes": 19, "sessions": 3}
 
 
 def test_the_description_names_only_the_configured_games_and_the_codes_when_tracked(tmp_path):
@@ -1151,6 +1261,10 @@ def test_the_prompt_says_it_is_her_own_weekly_report_and_names_only_its_tool():
     assert "3-4 kalimat pendek" in WEEKLY_REPORT_PROMPT
     for other_tool in ("game_status", "gacha_history", "game_endgame", "game_events"):
         assert other_tool not in WEEKLY_REPORT_PROMPT
+
+
+def test_the_prompt_names_the_week_s_play_time_once():
+    assert WEEKLY_REPORT_PROMPT.count("jam main") == 1
 
 
 def test_the_prompt_tells_only_information_and_never_a_reason_to_spend():

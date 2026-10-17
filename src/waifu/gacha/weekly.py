@@ -8,7 +8,8 @@ her turn calls, `weekly_report`, gives the facts below as compact JSON.
 and the pity from the stored pull history (refreshed first, one game after another, and only
 for a game that already has one: a first import is far too slow for a voice turn), this
 season's endgame and the banners and events that end within 7 days from HoYoLAB (the same calls
-the game data tools make, one worker per game), and the redeem codes not redeemed yet. Every
+the game data tools make, one worker per game), the redeem codes not redeemed yet, and with play
+time counted, how long each tracked game was open in the week (a local file, read at once). Every
 section fails on its own into a short Indonesian problem, and all the reads share one time
 budget, so a slow HoYoLAB never holds her turn for long: a late section says that its time ran
 out. `report_json` is what the brain gets; `waifu gacha report` prints the same `WeeklyReport`.
@@ -54,6 +55,7 @@ from waifu.gacha.history import (
 from waifu.gacha.hoyolab import GachaError
 from waifu.gacha.starrail import HsrCalendar, HsrEndgame, HsrEvent, HsrWarp
 from waifu.gacha.tools import HISTORY_NOTE, LOCAL_TIME, HistorySource
+from waifu.play_time import PlayTotal, whole_minutes
 from waifu.prompt_timer import PromptTimer
 
 T = TypeVar("T")
@@ -82,6 +84,7 @@ _ENDGAME_FAILED = "Endgame {short} tidak terbaca: {why}"
 _MODES_FAILED = "{names} tidak terbaca: {why}"
 _CALENDAR_FAILED = "Kalender event {short} tidak terbaca: {why}"
 _CODES_FAILED = "Kode redeem {short} tidak terbaca saat ini."
+_PLAY_FAILED = "Jam main {short} tidak terbaca saat ini."
 _OUT_OF_TIME = "waktunya habis."
 _UNEXPECTED = "terjadi kesalahan."
 _NOTHING_READABLE = (
@@ -97,9 +100,9 @@ WEEKLY_REPORT_PROMPT = (
     "Ini bukan ucapan Master: ini laporan game mingguanmu sendiri, yang kamu mulai sendiri "
     "sekali seminggu. Panggil weekly_report saja, tanpa tool lain, lalu ceritakan minggu Master "
     "di game-nya dalam 3-4 kalimat pendek yang hangat, seperti teman yang ikut bermain: hasil "
-    "pull minggu ini dan 50/50-nya, pity yang sudah dekat hard pity, progres endgame, dan yang "
-    "berakhir dalam 7 hari ke depan. Itu hanya kabar, jadi jangan pernah menyarankan pull, "
-    "belanja, atau top up. Jangan membacakan datanya satu per satu."
+    "pull minggu ini dan 50/50-nya, pity yang sudah dekat hard pity, progres endgame, jam main "
+    "kalau ada, dan yang berakhir dalam 7 hari ke depan. Itu hanya kabar, jadi jangan pernah "
+    "menyarankan pull, belanja, atau top up. Jangan membacakan datanya satu per satu."
 )
 
 
@@ -113,6 +116,15 @@ class CodeSource(Protocol):
     """The part of `CodeStore` the report reads."""
 
     def unredeemed(self, game: GameId) -> list[RedeemCode]: ...
+
+
+class PlayTimeSource(Protocol):
+    """The part of `PlayTimeStore` the report reads: the tracked games, and their totals."""
+
+    @property
+    def games(self) -> Sequence[str]: ...
+
+    def totals(self, since: datetime, until: datetime) -> Mapping[str, PlayTotal]: ...
 
 
 @dataclass(frozen=True)
@@ -131,6 +143,9 @@ class GameWeek:
     calendar_problem: str | None
     codes: tuple[str, ...] | None  # None: the redeem codes are not tracked
     codes_problem: str | None
+    # Both None: play time is not counted for this game.
+    play: PlayTotal | None = None
+    play_problem: str | None = None
 
     @property
     def hint(self) -> str | None:
@@ -141,7 +156,8 @@ class GameWeek:
     def problems(self) -> tuple[str, ...]:
         """The problem of each section that has one, in the sections' order."""
         sections = (self.pulls_problem, self.endgame_problem, self.calendar_problem)
-        return tuple(problem for problem in (*sections, self.codes_problem) if problem)
+        own = (*sections, self.codes_problem, self.play_problem)
+        return tuple(problem for problem in own if problem)
 
     @property
     def readable(self) -> bool:
@@ -186,12 +202,16 @@ def gather_weekly_report(
     offset: int,
     extra_standard: Mapping[str, Sequence[str]],
     budget_s: float = BUDGET_S,
+    play_time: PlayTimeSource | None = None,
 ) -> WeeklyReport:
-    """The week `(since, now]` (aware) in each of `games`, in that order. Never raises: each
-    section that fails or is not read within `budget_s` seconds carries its problem. A read
-    still running then is left to finish on its daemon thread, bounded by its own timeout,
-    and never holds up the process's exit; a read not started by then never starts."""
+    """The week `(since, now]` (aware) in each of `games`, in that order, with `play_time`
+    each tracked game's play time in the 7 days up to `now`. Never raises: each section that
+    fails or is not read within `budget_s` seconds carries its problem. A read still running
+    then is left to finish on its daemon thread, bounded by its own timeout, and never holds
+    up the process's exit; a read not started by then never starts."""
     chosen = [GAMES[game_id] for game_id in games]
+    # Play time has no listing lag: its week is the 7 days up to now.
+    plays = None if play_time is None else _read_play_time(play_time, since + LISTING_LAG, now)
     before = {game.id: _load(store, game) for game in chosen}
     refreshes: dict[str, Future[HistoryReport]] = {
         game.id: Future()
@@ -233,7 +253,16 @@ def gather_weekly_report(
         calendar = _calendar_section(
             game, _outcome(calendars[game.id], done, f"{game.short} calendar"), now
         )
-        weeks.append(GameWeek(game, *pulls, *endgame, *calendar, *_codes_section(game, codes)))
+        weeks.append(
+            GameWeek(
+                game,
+                *pulls,
+                *endgame,
+                *calendar,
+                *_codes_section(game, codes),
+                *_play_section(game, play_time, plays),
+            )
+        )
     return WeeklyReport(now, since, tuple(weeks))
 
 
@@ -385,6 +414,27 @@ def _codes_section(
     return tuple(code.code for code in unredeemed[:CODES_MAX]), None
 
 
+def _read_play_time(
+    play_time: PlayTimeSource, since: datetime, now: datetime
+) -> Mapping[str, PlayTotal] | None:
+    """The tracked games' play time in `[since, now]`; None when it cannot be read."""
+    try:
+        return play_time.totals(since, now)
+    except Exception:
+        logger.exception("Could not read the play time for the weekly report")
+        return None
+
+
+def _play_section(
+    game: Game, play_time: PlayTimeSource | None, plays: Mapping[str, PlayTotal] | None
+) -> tuple[PlayTotal | None, str | None]:
+    if play_time is None or game.id not in play_time.games:
+        return None, None
+    if plays is None:
+        return None, _PLAY_FAILED.format(short=game.short)
+    return plays[game.id], None
+
+
 class _InvalidArguments(Exception):
     """The model's tool arguments do not match the tool's schema."""
 
@@ -410,10 +460,11 @@ class WeeklyReportTools:
         extra_standard: Mapping[str, Sequence[str]] | None = None,
         now: Callable[[], datetime] = _local_now,
         budget_s: float = BUDGET_S,
+        play_time: PlayTimeSource | None = None,
     ) -> None:
-        """Without `codes` (the redeem codes are off) the report holds no codes; the week
-        starts as `week_start` says from her weekly report's slot, `report_day` at
-        `report_time`."""
+        """Without `codes` (the redeem codes are off) the report holds no codes, and without
+        `play_time` (play time is off) no play time; the week starts as `week_start` says from
+        her weekly report's slot, `report_day` at `report_time`."""
         self._games = list(games)
         self._history = history
         self._store = store
@@ -425,7 +476,8 @@ class WeeklyReportTools:
         self._extra = extra_standard or {}
         self._now = now
         self._budget_s = budget_s
-        self._spec = _spec(self._games, codes=codes is not None)
+        self._play_time = play_time
+        self._spec = _spec(self._games, codes=codes is not None, play=play_time is not None)
 
     def specs(self) -> list[ToolSpec]:
         return [self._spec]
@@ -455,6 +507,7 @@ class WeeklyReportTools:
             offset=self._offset,
             extra_standard=self._extra,
             budget_s=self._budget_s,
+            play_time=self._play_time,
         )
 
     def _report(self, arguments: object) -> tuple[str, bool]:
@@ -468,11 +521,19 @@ class WeeklyReportTools:
         return _to_json(report_json(report)), False
 
 
-def _spec(games: list[str], *, codes: bool) -> ToolSpec:
+def _spec(games: list[str], *, codes: bool, play: bool) -> ToolSpec:
     """Built once from the configured games, so every request sends the same bytes and the
     prompt cache holds."""
     names = ", ".join(f"{GAMES[game].name} = {game}" for game in games)
-    unredeemed = ", and the redeem codes not redeemed yet" if codes else ""
+    sections = ["the banners and events that end within 7 days"]
+    if codes:
+        sections.append("the redeem codes not redeemed yet")
+    if play:
+        sections.append(
+            "the time each game was open in the last 7 days by your own count while `waifu "
+            "run` was on (`play_time`; minimized or idle counts too)"
+        )
+    last = f"{', '.join(sections[:-1])}, and {sections[-1]}" if len(sections) > 1 else sections[0]
     return ToolSpec(
         name=WEEKLY_REPORT,
         description=(
@@ -481,10 +542,10 @@ def _spec(games: list[str], *, codes: bool) -> ToolSpec:
             "S-rank in ZZZ, with the pulls it took and whether the 50/50 was won, judged from "
             "the standard pool, so it can be wrong), each banner's pity and whether the next "
             "5-star is guaranteed, this season's endgame progress in every mode with the "
-            "seasons that end within 7 days, the banners and events that end within 7 days"
-            f"{unredeemed}. Use it for your own weekly game report and when Master asks how "
-            "their week in these games went. Times are local. A part with a `*_problem` could "
-            "not be read: say briefly that it is unavailable and tell the rest; `hint` says how "
+            f"seasons that end within 7 days, {last}. Use it for your own weekly game report "
+            "and when Master asks how their week in these games went. Times are local. A part "
+            "with a `*_problem` could not be read: say briefly that it is unavailable and tell "
+            "the rest; `hint` says how "
             "to read the whole history. HoYoverse lists pulls about an hour late. Present "
             "banners and events only as information: never suggest pulling, spending money, or "
             "topping up."
@@ -560,7 +621,15 @@ def _game_json(week: GameWeek, now: datetime) -> dict[str, Any]:
     if week.codes is not None:
         data["unredeemed_codes"] = list(week.codes)
         data["codes_problem"] = week.codes_problem
+    if week.play is not None or week.play_problem is not None:
+        data["play_time"] = None if week.play is None else _play_json(week.play)
+        data["play_time_problem"] = week.play_problem
     return data
+
+
+def _play_json(play: PlayTotal) -> dict[str, int]:
+    hours, minutes = divmod(whole_minutes(play.seconds), 60)
+    return {"hours": hours, "minutes": minutes, "sessions": play.sessions}
 
 
 def _pulls_json(game: Game, pulls: tuple[BannerPulls, ...]) -> dict[str, Any]:
