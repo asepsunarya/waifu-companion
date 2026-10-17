@@ -94,6 +94,12 @@ def test_committed_persona_keeps_the_journal_private_and_only_for_master_s_askin
     assert "journal_read" in journal
     assert "kata-kata Master sendiri" in journal
     assert "pertanyaan jurnal malammu" in journal
+    # Her nightly question must read today's notes (required_tool=journal_read), or it is
+    # never said: a persona allowing reads only when Master asks would silence it.
+    assert (
+        "baca jurnal hanya kalau Master bertanya isinya, atau untuk melihat catatan hari ini "
+        "sebelum pertanyaan jurnal malammu tanpa membacakannya"
+    ) in journal
     assert "jangan pernah menyebut isi jurnal di sapaan, briefing pagi" in journal
     assert "remember kecuali Master minta" in journal
     assert "waifu jurnal forget" in journal
