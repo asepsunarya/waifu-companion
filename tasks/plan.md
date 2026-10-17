@@ -539,6 +539,27 @@ prints the totals.
 - [x] Python suite and ruff clean; no test listed the real processes, slept for real, or spoke; one real listing by hand (2026-10-17: 7830 pytest; the listing saw StarRail.exe, and later the HoYoPlay launcher alone counted nothing)
 - [ ] On the owner's PC: with Genshin and ZZZ each open once, `waifu playtime` shows them (confirming `GenshinImpact.exe` and `ZenlessZoneZero.exe`; else fix `play_time.games`), the HoYoPlay launcher alone counts nothing, a restart of `waifu run` mid-game keeps one session, and with `bedtime` set she says the nudge once that night
 
+### Phase 34: Teman fokus (v1.30, see SPEC → teman fokus)
+Decision: a `FocusTimer` thread in `waifu run` keeps one pomodoro session at a time (blocks of
+5-120 minutes, breaks of 1-60, up to 8 rounds) against the wall clock, in memory only: a restart
+ends it. A non-strict `focus_timer` tool starts, stops, and reads it when Master asks. During a
+focus block the Assistant holds what she would say by herself (announcements and her own turns)
+and says it at the break, while the owner's own reminders, through a new `remind` queue, and his
+own words go on as always. Focus blocks are logged in `data/focus.json` for 90 days, so she can
+tell today's and this week's focus time, and `waifu focus` prints them. No push by default, no
+new dependency. The Scheduler is not reused: it is minute-precise, persistent, and has no phases.
+- [x] Task 140a: contract: SPEC, tasks
+- [ ] Task 140: the focus log (`focus.py`)
+- [ ] Task 141: `FocusTimer` (`focus_timer.py`)
+- [ ] Task 142: quiet during a block (`Assistant(quiet=...)`, `remind`)
+- [ ] Task 143: the `focus_timer` tool and the persona line
+- [ ] Task 144: wiring in `run`, `waifu focus`, check line, config and example
+- [ ] Task 145: README, CHANGELOG
+
+### Checkpoint: Teman fokus
+- [ ] Python suite and ruff clean; no test slept for real, spoke, or pushed
+- [ ] On the owner's PC: "temani aku fokus 25 menit" starts a block; a reminder set for that time still speaks; a gacha or rain notice waits for the break and comes with its line; "sisa berapa menit?" and "berhenti fokusnya" work; `waifu focus` shows the block
+
 ## Risks and Mitigations
 
 | Risk | Impact | Mitigation |

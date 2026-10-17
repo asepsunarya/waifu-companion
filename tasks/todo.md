@@ -1331,3 +1331,59 @@ named `tests/test_<package>_<module>.py`.
 - [x] README "Jam main" with its command, check, checklist, and Privasi rows and a line in "Laporan game mingguan"; CHANGELOG v1.29; full suite and ruff clean
 
 **Dependencies:** 138 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
+
+## Task 140a: Teman fokus contract ✅
+
+**Acceptance criteria:**
+- [x] SPEC "teman fokus (v1.30)" (stories, non-goals, privacy, config, the log, the timer with its phases, lines, and the sleep rule, holding her own speech during a block, the tool, CLI, check line, safety); tasks 140a-145 in the plan and here
+
+**Dependencies:** none · **Files:** `SPEC.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
+
+## Task 140: The focus log
+
+**Acceptance criteria:**
+- [ ] `focus_totals`: blocks cut at the period's edges, a block across midnight on each day, the blocks with time in the period counted
+- [ ] `FocusStore`: a missing file reads empty and stays missing, `add` keeps the blocks by start, `keep_days` on read and write, every call re-reads, a byte order mark is read, a broken file moved aside and never overwritten, a naive clock refused
+
+**Dependencies:** 140a · **Files:** `src/waifu/focus.py`, `tests/test_focus.py` · **Scope:** S
+
+## Task 141: The focus timer
+
+**Acceptance criteria:**
+- [ ] `FocusPlan` ranges; `spoken_duration`
+- [ ] `begin` only while started and without a session; `tick_once`: a block logged and its line said before the break starts, the break's end and the next block, the last block's praise with the total, several phases since the last check, a phase that ended more than 2 minutes ago ending the session quietly, a failed write or voice logged
+- [ ] `end`: the block under way logged when at least a minute, the session's total; `in_block`, `state`, `focused_seconds`
+- [ ] The thread checks at once, waits at most `tick_seconds` or until the phase ends, stops promptly, and `stop()` ends the session; a second `start()` is a no-op
+
+**Dependencies:** 140 · **Files:** `src/waifu/focus_timer.py`, `tests/test_focus_timer.py` · **Scope:** M
+
+## Task 142: Quiet during a focus block
+
+**Acceptance criteria:**
+- [ ] `Assistant(quiet=...)`: while it holds, plain and patient announcements and requests wait and come out after it, merged as always; `remind` is said while it holds and while the follow-up window is open; Master's utterances are answered as always; without `quiet` nothing changes
+
+**Dependencies:** none · **Files:** `src/waifu/app.py`, `tests/test_app.py` · **Scope:** S
+
+## Task 143: The focus tool and the persona line
+
+**Acceptance criteria:**
+- [ ] `focus_timer {action?, minutes?, break_minutes?, rounds?}`: non-strict, a static description; start with the defaults and with given lengths, stop, status with today's and this week's time; bad arguments, a `FocusError`, and an unreadable log as error results; refused in the morning greeting and the weekly report turns
+- [ ] One identical line in both personas
+
+**Dependencies:** 141 · **Files:** `src/waifu/brain/focus_tools.py`, `tests/test_focus_tools.py`, `config/persona.md`, `config/persona_hsr.md`, `tests/test_brain_persona.py` · **Scope:** M
+
+## Task 144: Wiring, `waifu focus`, check
+
+**Acceptance criteria:**
+- [ ] `FocusConfig` as `AppConfig.focus` with tests; `config.example.yaml` block, valid when written out
+- [ ] `run` with focus on: one timer for the voice loop's lifetime, the tool, `quiet`, the scheduler through `remind`, a push only with `focus.push`; none with it off; `chat` never gets the timer or the tool; a tmp_path store guard and a timer whose thread only waits to be stopped in `test_cli.py`; the strict-tool budget still holds
+- [ ] `waifu focus` and the check line per SPEC
+
+**Dependencies:** 142, 143 · **Files:** `src/waifu/config.py`, `tests/test_config.py`, `src/waifu/cli.py`, `tests/test_cli.py`, `config.example.yaml` · **Scope:** M
+
+## Task 145: Docs
+
+**Acceptance criteria:**
+- [ ] README "Teman fokus" with its command, check, checklist, and Privasi rows; CHANGELOG v1.30; full suite and ruff clean
+
+**Dependencies:** 144 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
