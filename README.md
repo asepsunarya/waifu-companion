@@ -1129,6 +1129,12 @@ tts:
 - **`! Suara Windows tidak terbaca (...)`.** PowerShell tidak bisa membaca daftar suara;
   alasannya ada di dalam kurung. Kebijakan Windows yang mengunci PowerShell (biasanya hanya di
   PC kantor) bisa menyebabkannya.
+- **Suaranya datar terus, lebih dari 10 menit, padahal internet menyala.** edge-tts masih
+  gagal, dan peringatannya hanya ditulis sekali di awal gangguan, jadi gampang terlewat.
+  Jalankan `waifu say "Halo Master"` (tanpa `--fallback`) dan baca baris
+  `The id voice failed ...`: alasannya ada di ujung baris itu. Kalau isinya
+  "Microsoft menolak suara ... (403)", edge-tts di PC ini sudah usang dan tidak pulih sendiri:
+  jalankan `.venv\Scripts\python -m pip install -U edge-tts`, lalu mulai ulang `waifu run`.
 - Suara "natural" Narrator tidak bisa dipakai: Windows tidak membukanya untuk aplikasi lain.
 
 ## Avatar 3D (つくよみちゃん)
