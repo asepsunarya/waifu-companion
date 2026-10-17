@@ -1489,49 +1489,49 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** none · **Files:** `SPEC.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
 
-## Task 156: The step delay in the config
+## Task 156: The step delay in the config ✅
 
 **Acceptance criteria:**
-- [ ] `RoutineStep.after_minutes` (None by default) takes a whole number from 1 to 1440; 0, 1441, a boolean, text ("3h", "180"), and a fraction are ConfigErrors that say how to write it
-- [ ] A delayed step on the PC or a `powers_pc` plug is refused, as every step is; a delayed step with `schedule.enabled: false` and a delayed `play_pause` or `mute` on a media device are refused at load; `MEDIA_TOGGLES` shared with `ScheduleTools`
+- [x] `RoutineStep.after_minutes` (None by default) takes a whole number from 1 to 1440; 0, 1441, a boolean, text ("3h", "180"), and a fraction are ConfigErrors that say how to write it
+- [x] A delayed step on the PC or a `powers_pc` plug is refused, as every step is; a delayed step with `schedule.enabled: false` and a delayed `play_pause` or `mute` on a media device are refused at load; `MEDIA_TOGGLES` shared with `ScheduleTools`
 
 **Dependencies:** 156a · **Files:** `src/waifu/config.py`, `src/waifu/brain/schedule_tools.py`, `tests/test_config.py` · **Scope:** S
 
-## Task 157: The routine's tag on a scheduled device action
+## Task 157: The routine's tag on a scheduled device action ✅
 
 **Acceptance criteria:**
-- [ ] `DeviceAction(..., routine=None)`; the file gets `routine` only when it is set, so an untagged action is written as before; a tagged one reads back; a non-text `routine` in the file is a corrupt file; `add` refuses an empty or non-text one
+- [x] `DeviceAction(..., routine=None)`; the file gets `routine` only when it is set, so an untagged action is written as before; a tagged one reads back; a non-text `routine` in the file is a corrupt file; `add` refuses an empty or non-text one
 
 **Dependencies:** 156a · **Files:** `src/waifu/schedule.py`, `tests/test_schedule.py` · **Scope:** S
 
-## Task 158: A routine schedules its delayed steps
+## Task 158: A routine schedules its delayed steps ✅
 
 **Acceptance criteria:**
-- [ ] `run_routine(registry, routine, *, name, schedule=None, now=datetime.now)`: the steps of now run; a delayed step never runs then and is added as a one-shot tagged device entry at the start plus its delay, cut to the minute, with a result naming the time and id (`besok` on the next day) and `state` {id, at}
-- [ ] A delayed step with a problem (unknown device, PC, command) is not scheduled; a full schedule, an unreadable file, or no schedule fails just that step; a new run cancels the routine's own pending delayed entries and nothing else; a routine without delayed steps never creates the file
-- [ ] `describe_step` and `describe_routine` name the delay (`ac off setelah 3 jam`)
+- [x] `run_routine(registry, routine, *, name, schedule=None, now=datetime.now)`: the steps of now run; a delayed step never runs then and is added as a one-shot tagged device entry at the start plus its delay, cut to the minute, with a result naming the time and id (`besok` on the next day) and `state` {id, at}
+- [x] A delayed step with a problem (unknown device, PC, command) is not scheduled; a full schedule, an unreadable file, or no schedule fails just that step; a new run cancels the routine's own pending delayed entries and nothing else; a routine without delayed steps never creates the file
+- [x] `describe_step` and `describe_routine` name the delay (`ac off setelah 3 jam`)
 
 **Dependencies:** 156, 157 · **Files:** `src/waifu/routines.py`, `tests/test_routines.py` · **Scope:** M
 
-## Task 159: The tool and the scheduler run delayed steps
+## Task 159: The tool and the scheduler run delayed steps ✅
 
 **Acceptance criteria:**
-- [ ] `ScheduleTools(now=...)`: `run_routine` schedules a delayed step and its result names `after_minutes` and `scheduled` {id, at}; `cancel_schedule` with that id cancels it; a full schedule is an honest error; the description says how to mention and cancel it; `list_schedules` names the routine; schemas and the strict budget unchanged
-- [ ] A scheduled routine schedules its delayed steps from the moment it fired, silently; the delayed step later fires silently; its failure names the routine
+- [x] `ScheduleTools(now=...)`: `run_routine` schedules a delayed step and its result names `after_minutes` and `scheduled` {id, at}; `cancel_schedule` with that id cancels it; a full schedule is an honest error; the description says how to mention and cancel it; `list_schedules` names the routine; schemas and the strict budget unchanged
+- [x] A scheduled routine schedules its delayed steps from the moment it fired, silently; the delayed step later fires silently; its failure names the routine
 
 **Dependencies:** 158 · **Files:** `src/waifu/brain/schedule_tools.py`, `src/waifu/scheduler.py`, `tests/test_schedule_tools.py`, `tests/test_scheduler.py` · **Scope:** M
 
-## Task 160: `waifu routine`, `waifu schedule list`, check, example config
+## Task 160: `waifu routine`, `waifu schedule list`, check, example config ✅
 
 **Acceptance criteria:**
-- [ ] `waifu routine list` and the check line show delays; `waifu routine run` schedules a delayed step in the real schedule (in a temporary one with `--dry-run`) and says who runs it; `waifu schedule list` and `cancel` name the routine
-- [ ] The example `tidur` routine ends with `ac off` after 180 minutes and stays valid when written out
+- [x] `waifu routine list` and the check line show delays; `waifu routine run` schedules a delayed step in the real schedule (in a temporary one with `--dry-run`) and says who runs it; `waifu schedule list` and `cancel` name the routine
+- [x] The example `tidur` routine ends with `ac off` after 180 minutes and stays valid when written out
 
 **Dependencies:** 159 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py`, `config.example.yaml` · **Scope:** M
 
-## Task 161: Docs
+## Task 161: Docs ✅
 
 **Acceptance criteria:**
-- [ ] README "Mode tidur" with a full example routine, cancelling, running again, and what must stay on; the routine bullets name `after_minutes`; CHANGELOG v1.32; full suite and ruff clean
+- [x] README "Mode tidur" with a full example routine, cancelling, running again, and what must stay on; the routine bullets name `after_minutes`; CHANGELOG v1.32; full suite and ruff clean
 
 **Dependencies:** 160 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S

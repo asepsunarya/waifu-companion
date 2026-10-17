@@ -4,6 +4,30 @@ Ringkasan per versi, yang terbaru di atas. Rinciannya ada di README (bagian yang
 setiap versi) dan di SPEC.md. Setelah memperbarui, **mulai ulang `waifu run`** supaya semuanya
 aktif, lalu jalankan `waifu check`.
 
+## v1.32: mode tidur
+
+- Langkah rutinitas sekarang bisa ditunda dengan `after_minutes`, jadi "Cyrene, mode tidur" bisa
+  mematikan lampu, menyetel AC ke 26, lalu mematikan AC tiga jam kemudian. Dia menyebut jamnya
+  ("AC akan mati jam satu nanti"), dan langkah itu masuk jadwal: tetap ada walau `waifu run`
+  dijalankan ulang, terlihat di `waifu schedule list` sebagai `perangkat ac off (rutinitas
+  tidur)`, dan bisa dibatalkan ("Cyrene, batalkan AC mati nanti" atau
+  `waifu schedule cancel <id>`). Saat jamnya tiba, AC dimatikan diam-diam seperti jadwal
+  perangkat lain; dia hanya bicara kalau gagal.
+- Menjalankan rutinitas yang sama lagi menggantikan langkah yang ditunda dari jalannya yang
+  sebelumnya, jadi AC tidak dimatikan dua kali. Jadwal yang Master buat sendiri tidak disentuh.
+- `after_minutes` adalah bilangan bulat menit, 1-1440. `config.yaml` ditolak saat start untuk
+  langkah yang ditunda pada PC atau colokan PC (seperti langkah biasa), `play_pause` atau `mute`
+  musik yang ditunda, dan langkah yang ditunda saat `schedule.enabled: false`.
+- PC dan `waifu run` harus tetap menyala sampai jamnya: atur Windows supaya tidak tidur sendiri
+  sebelum itu.
+- `waifu routine list`, `waifu routine run`, dan `waifu check` menampilkan jedanya (`ac off
+  setelah 3 jam`). Contoh rutinitas `tidur` di `config.example.yaml` sekarang ikut mematikan AC
+  3 jam kemudian; rutinitas yang sudah ada di `config.yaml` tidak berubah.
+- Turun lagi ke versi sebelum v1.32 selagi ada langkah yang ditunda di jadwal membuat versi lama
+  menganggap `data\schedule.json` rusak dan memindahkannya ke samping (`.corrupt-...`); batalkan
+  dulu langkah itu sebelum turun versi.
+- README: "Mode tidur" (di bagian "Jadwal, pengingat, dan rutinitas").
+
 ## v1.31.1: pertanyaan yang tertahan
 
 - Pertanyaan malam jurnal yang tertahan sampai tengah malam (blok fokus, obrolan lewat HP, atau

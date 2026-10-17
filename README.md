@@ -2342,9 +2342,10 @@ Cyrene : "Lampu kamar sudah mati dan AC di dua puluh enam derajat. おやすみ�
 - **Perangkat pada jamnya:** "Cyrene, matikan AC jam 2 pagi.", "Cyrene, nyalakan lampu kamar
   setiap hari jam 6 sore."
 - **Rutinitas sekarang:** "Cyrene, mode tidur." **Rutinitas pada jamnya:** "Cyrene, jalankan
-  mode tidur jam 11 malam."
+  mode tidur jam 11 malam." Langkah rutinitas juga bisa ditunda, misalnya AC mati tiga jam
+  kemudian (lihat [Mode tidur](#mode-tidur)).
 - **Daftar jadwal:** "Cyrene, ada jadwal apa saja?" (dijawab dengan ringkasan singkat).
-- **Membatalkan:** "Cyrene, batalkan pengingat obat."
+- **Membatalkan:** "Cyrene, batalkan pengingat obat.", "Cyrene, batalkan AC mati nanti."
 
 Jam yang sudah lewat hari ini biasanya berarti besok: "jam 7 pagi" yang diucapkan malam hari
 dijadwalkan besok pagi. Dia selalu menyebut jam yang dia jadwalkan; kalau salah, minta
@@ -2422,6 +2423,9 @@ routines:
   `temp_26` yang sudah dipelajari).
 - Langkah dijalankan berurutan. Langkah yang gagal tidak menghentikan langkah berikutnya, dan
   dia bilang langkah mana yang gagal.
+- `after_minutes` (boleh tidak ditulis) menunda satu langkah sekian menit setelah rutinitas
+  dijalankan, misalnya `{device: ac, command: off, after_minutes: 180}`. Lihat
+  [Mode tidur](#mode-tidur).
 - Perangkat yang tidak ada di `devices`, atau PC (`type: pc`), membuat `config.yaml` ditolak
   saat start.
 - Colokan yang ditandai `powers_pc: true` (misalnya `colokan_pc`) juga membuat
@@ -2430,6 +2434,88 @@ routines:
 - Setelah mengubah `config.yaml`, jalankan ulang `waifu run`. Cek dengan `waifu check`
   (`✓ Rutinitas tidur: ...`, atau `✗` dengan langkah yang tidak bisa jalan, misalnya kode IR
   yang belum dipelajari), lalu coba dengan `waifu routine run tidur --dry-run`.
+
+### Mode tidur
+
+Satu langkah rutinitas bisa **ditunda** dengan `after_minutes`: langkah itu tidak dijalankan
+sekarang, tapi masuk jadwal sebagai perintah sekali, sekian menit setelah rutinitasnya
+dijalankan. Cocok untuk tidur dengan AC menyala, lalu AC mati sendiri tiga jam kemudian:
+
+```yaml
+routines:
+  tidur:
+    description: Mode tidur
+    steps:
+      - {device: lampu_kamar, command: off}
+      - {device: ac, command: temp, value: 26}
+      - {device: ac, command: off, after_minutes: 180}   # 3 jam kemudian
+```
+
+```text
+(22.00)  Master : "Cyrene, mode tidur."
+         Cyrene : "Lampu sudah mati, AC di dua puluh enam derajat, dan AC akan mati jam satu
+                   nanti. おやすみなさい, Master."
+(01.00)  AC mati tanpa suara apa pun.
+```
+
+- `after_minutes` adalah bilangan bulat menit dari 1 sampai 1440 (24 jam): `90` untuk satu
+  setengah jam, `180` untuk tiga jam. Tulisan seperti `3h` atau `"180"` (pakai tanda kutip)
+  membuat `config.yaml` ditolak saat start, dengan pesan cara menulisnya.
+- Jedanya dihitung dari saat rutinitas dijalankan, bukan dari langkah sebelumnya: dua langkah
+  dengan `after_minutes: 180` jalan pada menit yang sama. Rutinitas yang dijadwalkan
+  ("jalankan mode tidur jam 11 malam") menghitungnya dari jam rutinitas itu jalan.
+- Langkah yang ditunda jalan diam-diam, seperti [perintah perangkat terjadwal](#cara-jadwal-dijalankan):
+  dia hanya bicara (dan mengirim notifikasi kalau `notify.enabled: true`) kalau gagal, misalnya
+  "Master, jadwal ac off dari rutinitas tidur jam 01.00 gagal: ...".
+- Langkahnya tersimpan di `data\schedule.json`, jadi tetap ada walau `waifu run` dijalankan
+  ulang, dan terlihat di `waifu schedule list` (dan saat Master bertanya "ada jadwal apa
+  saja?"):
+
+  ```text
+  ID   BERIKUTNYA               ULANG   ISI
+  j12  Minggu 18-10-2026 01:00  sekali  perangkat ac off (rutinitas tidur)
+  ```
+
+- **Membatalkan:** "Cyrene, batalkan AC mati nanti.", atau `waifu schedule cancel j12` dari
+  terminal. Lampu dan AC 26 yang sudah jalan tidak berubah.
+- **Menjalankan lagi** menggantikan langkah yang ditunda dari jalannya yang sebelumnya: "mode
+  tidur" jam 22.00 lalu sekali lagi jam 23.00 membuat AC mati jam 02.00 saja, tidak dua kali.
+  Jadwal yang Master buat sendiri ("matikan AC jam 2") tidak ikut dibatalkan.
+- Setiap langkah yang ditunda memakai satu tempat di `schedule.max_entries` (bawaan 50) sampai
+  jalan. Kalau jadwal penuh, hanya langkah itu yang gagal (dia bilang jadwalnya penuh); langkah
+  lain sudah jalan.
+- `waifu routine run tidur` menjalankan langkah yang sekarang dan menjadwalkan yang ditunda:
+
+  ```text
+  Menjalankan rutinitas tidur...
+  ✓ Langkah 1 (lampu_kamar off): Lampu kamar dimatikan.
+  ✓ Langkah 2 (ac temp 26): AC Samsung: sinyal 'temp_26' sudah dikirim.
+  ✓ Langkah 3 (ac off setelah 3 jam): Dijadwalkan besok jam 01.00 (j12).
+  Langkah yang ditunda dijalankan pada jamnya oleh Cyrene yang sedang berjalan ('waifu run'): ...
+  ```
+
+  Dengan `--dry-run` langkah yang ditunda hanya dicoba di jadwal sementara yang hilang saat
+  ditutup; `data\schedule.json` tidak disentuh.
+
+**PC dan `waifu run` harus tetap menyala sampai jamnya.** Mode tidur tidak menidurkan PC dan
+tidak mencegah Windows tidur. Kalau Windows diatur tidur sendiri (Settings → System → Power &
+battery, bagian layar dan sleep), pilih **Never** untuk sleep, atau waktu yang lebih lama dari
+jeda terlama; layar boleh mati. Langkah yang terlewat lebih dari
+`schedule.late_grace_minutes` menit (bawaan 30) dibuang dan hanya dicatat di log (WARNING),
+tanpa suara atau notifikasi.
+
+Yang tidak bisa ditunda (`config.yaml` ditolak saat start):
+
+- PC (`type: pc`) dan colokan `powers_pc: true`, sama seperti langkah biasa.
+- `play_pause` dan `mute` pada perangkat musik (`type: media`): tombolnya bolak-balik, jadi bisa
+  malah memutar musik atau menyalakan suara saat Master tidur. Tunda `stop` atau `volume`.
+- Langkah apa pun kalau `schedule.enabled: false`: langkah yang ditunda jalan lewat jadwal.
+
+Jangan menunda perintah IR yang bolak-balik, seperti `power` proyektor atau TV: Cyrene tidak
+bisa membedakannya dari `off`, jadi kalau perangkatnya sudah mati, perintah itu malah
+menyalakannya. Untuk AC, pelajari tombol mati sebagai `off` (`waifu learn-ir ac off`). Perangkat
+yang dihapus atau diganti id-nya di `config.yaml` sebelum jamnya membuat langkah itu gagal saat
+jamnya tiba (diucapkan dan dikirim ke HP seperti jadwal lain yang gagal).
 
 ### Mengatur jadwal dari terminal
 
@@ -4903,14 +4989,19 @@ ZZZ](#data-akun-genshin-dan-zzz-karakter-endgame-dan-event))
 **Jadwal dan rutinitas** (tulis dulu rutinitas `tidur` di `config.yaml`: contohnya ada di
 `config.example.yaml`, hapus tanda `#` di depannya, lalu jalankan ulang `waifu run`; lihat
 [Menulis rutinitas di config.yaml](#menulis-rutinitas-di-configyaml). Kode IR `temp_26`
-untuk `ac` harus sudah dipelajari.)
+dan `off` untuk `ac` harus sudah dipelajari.)
 
 - [ ] `waifu check` menampilkan `✓ Jadwal: 0 entri` dan `✓ Rutinitas tidur: ...`.
 - [ ] "Cyrene, dua menit lagi ingatkan aku minum air": dia menyebut jamnya, `waifu schedule
       list` menampilkannya, dan dua menit kemudian dia mengucapkannya sendiri dan HP
       menerima notifikasinya.
 - [ ] "Cyrene, matikan lampu kamar satu menit lagi": lampunya mati tanpa dia berkata apa-apa.
-- [ ] "Cyrene, mode tidur": lampu mati dan AC ke 26 derajat. `waifu routine run tidur` sama.
+- [ ] "Cyrene, mode tidur": lampu mati, AC ke 26 derajat, dan dia menyebut jam AC akan mati.
+      `waifu schedule list` menampilkan `perangkat ac off (rutinitas tidur)`. "Cyrene,
+      batalkan AC mati nanti": jadwal itu hilang dari `waifu schedule list`.
+- [ ] Ubah sementara `after_minutes: 180` menjadi `2`, jalankan ulang `waifu run`, lalu
+      "Cyrene, mode tidur": dua menit kemudian AC mati tanpa dia berkata apa-apa. Kembalikan
+      ke `180` setelahnya. `waifu routine run tidur` sama, dengan baris `Dijadwalkan ...`.
 - [ ] "Cyrene, matikan komputer jam 11 malam": dia menolak menjadwalkannya dan tidak
       menawarkan mematikan `colokan_pc` sebagai gantinya.
 - [ ] "Cyrene, matikan semua perangkat jam 2 pagi": `waifu schedule list` tidak berisi
