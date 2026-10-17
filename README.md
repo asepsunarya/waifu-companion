@@ -1111,9 +1111,12 @@ tts:
 
 - `rvc_pitch`: berapa semitone RVC menaikkan suara Windows; edge-tts tetap memakai
   `tts.rvc.pitch`. Korpus つくよみちゃん sekitar 351 Hz; suara perempuan Windows yang diukur
-  sekitar 188 Hz (+11), suara laki-laki 95–165 Hz (+13 sampai +22). Nada Andika belum
-  diukur: kalau `waifu say --fallback` terdengar terlalu berat, naikkan `male`; terlalu
-  cempreng, turunkan, 1–2 sekaligus.
+  (Zira) sekitar 188 Hz (+11), suara laki-laki 95–165 Hz (+13 sampai +22). Dengan pengaturan
+  bawaan, `male` dipakai Andika dan `female` dipakai suara Jepang (Haruka, Ayumi, atau
+  Sayaka), dan nada keduanya belum diukur. Setel masing-masing dengan kalimat satu bahasa:
+  `male` dengan `waifu say --fallback "Halo Master, lampunya sudah menyala."`, `female`
+  dengan `waifu say --fallback "おかえりなさい、マスター"`. Terlalu berat, naikkan; terlalu
+  cempreng, turunkan, 1–2 sekaligus, sampai bagian Indonesia dan Jepang senada.
 - `enabled: false` mematikan suara cadangan: kalau edge-tts gagal, dia diam lagi seperti
   dulu (teksnya tetap tampil).
 
