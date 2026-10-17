@@ -1381,9 +1381,9 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 142, 143 · **Files:** `src/waifu/config.py`, `tests/test_config.py`, `src/waifu/cli.py`, `tests/test_cli.py`, `config.example.yaml` · **Scope:** M
 
-## Task 145: Docs
+## Task 145: Docs ✅
 
 **Acceptance criteria:**
-- [ ] README "Teman fokus" with its command, check, checklist, and Privasi rows; CHANGELOG v1.30; full suite and ruff clean
+- [x] README "Teman fokus" with its command, check, checklist, and Privasi rows; CHANGELOG v1.30; full suite and ruff clean
 
 **Dependencies:** 144 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S

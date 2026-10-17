@@ -554,10 +554,10 @@ new dependency. The Scheduler is not reused: it is minute-precise, persistent, a
 - [x] Task 142: quiet during a block (`Assistant(quiet=...)`, `remind`)
 - [x] Task 143: the `focus_timer` tool and the persona line
 - [x] Task 144: wiring in `run`, `waifu focus`, check line, config and example
-- [ ] Task 145: README, CHANGELOG
+- [x] Task 145: README, CHANGELOG
 
 ### Checkpoint: Teman fokus
-- [ ] Python suite and ruff clean; no test slept for real, spoke, or pushed
+- [x] Python suite and ruff clean; no test slept for real, spoke, or pushed (2026-10-17: 7977 pytest)
 - [ ] On the owner's PC: "temani aku fokus 25 menit" starts a block; a reminder set for that time still speaks; a gacha or rain notice waits for the break and comes with its line; "sisa berapa menit?" and "berhenti fokusnya" work; `waifu focus` shows the block
 
 ## Risks and Mitigations

@@ -49,6 +49,7 @@ Cyrene : "Komputer mau kumatikan sekarang, Master? Jawab iya kalau jadi." (minta
 - [Cyrene di HP](#cyrene-di-hp)
 - [Kesehatan PC](#kesehatan-pc)
 - [Jam main](#jam-main)
+- [Teman fokus](#teman-fokus)
 - [Pencarian web dan promo gratis](#pencarian-web-dan-promo-gratis)
 - [Keuangan dari tepira](#keuangan-dari-tepira)
 - [Pemecahan masalah](#pemecahan-masalah)
@@ -655,10 +656,11 @@ waifu speaker-test    # skor kecocokan langsung, Ctrl+C untuk berhenti
 | `waifu phone setup` / `pair` / `devices` / `forget <id>` | Siapkan Cyrene di HP lewat Tailscale, pasangkan HP dengan kode, lihat dan lupakan HP (lihat [Cyrene di HP](#cyrene-di-hp)) |
 | `waifu pc` | Tampilkan kondisi PC saat ini: beban CPU, RAM, sisa disk, GPU NVIDIA, dan waktu sejak Windows terakhir di-restart (lihat [Kesehatan PC](#kesehatan-pc)) |
 | `waifu playtime` / `playtime yesterday` / `week` / `month` | Berapa lama HSR, Genshin, dan ZZZ terbuka hari ini, kemarin, minggu ini, atau bulan ini, dari catatan Cyrene selama `waifu run` menyala (lihat [Jam main](#jam-main)) |
+| `waifu focus` | Waktu fokus hari ini dan minggu ini dari catatan teman fokus (pomodoro) Cyrene selama `waifu run` menyala (lihat [Teman fokus](#teman-fokus)) |
 | `waifu youtube <link atau judul lagu>` | Buka video atau playlist YouTube itu, atau halaman pencarian YouTube untuk judulnya, di browser default (lihat [Lagu di YouTube](#lagu-di-youtube)) |
 | `waifu offers` / `offers games` / `offers ai` | Game gratis dan promo AI yang tersimpan, dengan linknya; `waifu offers ai --scan` mencari promo AI sekarang dengan Claude (berbayar) (lihat [Pencarian web dan promo gratis](#pencarian-web-dan-promo-gratis)) |
 | `waifu tepira` / `tepira dompet` / `tujuan [nama]` / `transaksi [-n N]` / `token` | Keuangan dari tepira: ringkasan bulan ini, saldo dompet, tujuan tabungan, dan transaksi terbaru; `token` membuat token API Cyrene baru tanpa internet (lihat [Keuangan dari tepira](#keuangan-dari-tepira)) |
-| `waifu check` | Periksa config, versi `waifu run` yang berjalan, kabar versi baru, kode IR, aplikasi PC, rutinitas, voiceprint, otak, ingatan, jadwal, daftar tugas, lagu YouTube, sapaan pagi, peringatan hujan, biaya API, kesehatan PC, jam main, pencarian web, promo gratis, paket suara, CUDA, mic, suara cadangan offline, suara anime, avatar, keuangan tepira, dan Cyrene di HP |
+| `waifu check` | Periksa config, versi `waifu run` yang berjalan, kabar versi baru, kode IR, aplikasi PC, rutinitas, voiceprint, otak, ingatan, jadwal, daftar tugas, lagu YouTube, sapaan pagi, peringatan hujan, biaya API, kesehatan PC, jam main, teman fokus, pencarian web, promo gratis, paket suara, CUDA, mic, suara cadangan offline, suara anime, avatar, keuangan tepira, dan Cyrene di HP |
 
 Opsi untuk semua perintah: `--config <file>` (default `config.yaml`), `--dry-run`
 (perangkat simulasi), `-v` (log lebih rinci), `--log-file <file>` (log juga ditulis
@@ -3954,6 +3956,107 @@ sesinya.
 Untuk berhenti mencatat, tulis `enabled: false` di bagian `play_time`; catatan lama hilang kalau
 `data\playtime.json` dihapus.
 
+## Teman fokus
+
+Selama `waifu run`, Cyrene bisa menemani Master fokus belajar atau kerja dengan cara pomodoro: dia
+menjaga waktu blok fokus dan istirahat, diam selama blok fokus, dan memberi tahu kapan istirahat
+dan kapan lanjut. Fitur ini sudah menyala dari awal (`focus.enabled: true`), dengan otak Ollama
+maupun Claude, tanpa paket tambahan.
+
+```text
+Master : "Cyrene, temani aku fokus 25 menit."
+Cyrene : "Siap, Sayang. Aku temani sampai jam sembilan lewat dua puluh lima."
+Master : "Cyrene, pomodoro empat kali."          (empat blok 25 menit, istirahat 5 menit)
+Master : "Cyrene, fokus 50 menit, istirahat 10, tiga kali."
+Master : "Cyrene, sisa berapa menit?"
+Master : "Cyrene, hari ini sudah fokus berapa lama?"
+Master : "Cyrene, udah, berhenti fokusnya."
+```
+
+Panjang blok 5-120 menit (bawaan 25), istirahat 1-60 menit (bawaan 5), dan 1-8 blok (bawaan 1).
+Hanya satu sesi sekaligus: untuk mengganti panjangnya, hentikan dulu lalu mulai lagi. Dia hanya
+memulai atau menghentikan sesi kalau Master minta.
+
+### Selama blok fokus
+
+- **Dia diam.** Yang biasanya dia ucapkan sendiri menunggu sampai istirahat: peringatan hujan,
+  kabar versi baru, pengingat tidur jam main, pemberitahuan game, kode redeem, kesehatan PC,
+  promo gratis, dan anggaran biaya API, juga sapaan pagi dan laporan game mingguan. Saat istirahat
+  dimulai, pemberitahuan yang tertunda diucapkan sekaligus sesudah kalimat istirahatnya; sapaan
+  pagi atau laporan mingguan menyusul sesudahnya.
+- **Pengingat dan jadwal yang Master pasang sendiri tetap berbunyi tepat waktu** (lihat
+  [Jadwal, pengingat, dan rutinitas](#jadwal-pengingat-dan-rutinitas)).
+- **Master tetap bisa bicara dengannya** seperti biasa: panggil namanya, klik dua kali avatarnya,
+  atau lewat [Cyrene di HP](#cyrene-di-hp).
+- Notifikasi HP dari fitur lain (misalnya game atau kesehatan PC) tetap terkirim seperti biasa;
+  hanya suaranya di PC yang menunggu. Karena itu, peringatan hujan yang tertunda bisa terucap
+  sesudah hujannya mulai.
+
+### Kalimatnya
+
+```text
+Cyrene : "Sayang, dua puluh lima menit selesai. Istirahat lima menit dulu ya."   (akhir blok)
+Cyrene : "Yuk, lanjut fokus lagi."                                             (akhir istirahat)
+Cyrene : "Sayang, fokusnya selesai. Hebat, total satu jam empat puluh menit!"  (akhir sesi)
+```
+
+Kalimat ini tidak dikirim ke HP, kecuali `focus.push: true` dan notifikasi HP menyala.
+
+### Sesi berakhir saat restart
+
+Sesinya hanya ada di `waifu run` yang sedang berjalan. Kalau `waifu run` dihentikan atau
+di-restart, sesinya selesai tanpa kata, dan bagian blok yang sudah berjalan minimal satu menit
+tetap dicatat. Kalau PC sleep melewati akhir blok atau istirahat lebih dari 2 menit, sesinya juga
+selesai diam-diam, dan blok yang sedang berjalan tidak dicatat. `waifu chat` tidak punya timer
+fokus.
+
+### Pengaturan teman fokus
+
+```yaml
+focus:
+  enabled: true          # false: tanpa timer fokus (`waifu focus` tetap membaca catatan lama)
+  push: false            # true: kalimat akhir blok, istirahat, dan sesi juga dikirim ke HP (butuh notify)
+  keep_days: 90          # catatan lebih lama dari N hari dihapus (1-366)
+  path: data/focus.json
+```
+
+Bagian ini tidak perlu ditulis untuk memakai bawaannya; contohnya ada di `config.example.yaml`.
+Panjang blok dan istirahat diminta lewat suara, bukan di sini. Jalankan ulang `waifu run` setelah
+mengubahnya.
+
+### Melihat catatan: `waifu focus`
+
+```powershell
+waifu focus
+```
+
+```text
+Fokus hari ini, Sabtu 17-10-2026: 1 jam 40 menit dalam 4 blok
+Fokus minggu ini, sejak Senin 12-10-2026: 2 jam 40 menit dalam 5 blok
+Dicatat hanya selama 'waifu run' menyala; sesi fokus dimulai dan dihentikan lewat Cyrene.
+```
+
+Perintah ini hanya membaca catatan: tidak bisa memulai, menghentikan, atau melihat sesi yang
+sedang berjalan (tanya Cyrene saja). Jalan juga saat `focus.enabled: false` (membaca catatan
+lama) dan selagi `waifu run` berjalan; exit code 1 kalau filenya tidak bisa dibaca.
+
+`waifu check` menampilkan `✓ Teman fokus: aktif` (dengan `, juga ke HP` kalau `focus.push` dan
+notifikasi HP menyala) atau `! Teman fokus mati`. File `data\focus.json` yang rusak dipindah ke
+`focus.json.corrupt-<waktu>` (catatan baru dimulai dari kosong), dan `check` menunjuknya sampai
+Master memperbaiki atau menghapusnya.
+
+### Privasi teman fokus
+
+`data\focus.json` hanya berisi kapan tiap blok fokus mulai dan selesai (`keep_days`, bawaan 90
+hari), hanya di PC ini; apa yang Master kerjakan tidak dicatat. Dengan Claude, panjang sesi,
+jamnya, dan waktu fokus hari ini dan minggu ini ikut ke API Anthropic sebagai hasil tool saat
+Master bertanya (dengan Ollama, semuanya lokal). Kalimatnya ke `ntfy.sh` hanya kalau
+`focus.push` dan notifikasi HP menyala. Log INFO mencatat panggilan tool `focus_timer` dengan
+panjang sesinya, dan kalimat Master yang terdengar, seperti biasa.
+
+Untuk mematikannya, tulis `enabled: false` di bagian `focus`; catatan lama hilang kalau
+`data\focus.json` dihapus.
+
 ## Pencarian web dan promo gratis
 
 Dengan otak Claude, Cyrene bisa mencari di web untuk pertanyaan yang jawabannya baru atau berubah,
@@ -4864,6 +4967,22 @@ halaman tim di game atau sebuah error)
       `waifu run` dengan game terbuka: dia mengingatkan sekali; restart `waifu run`: tidak
       diulang malam itu. Setelah itu kosongkan lagi.
 
+**Teman fokus** (lihat [Teman fokus](#teman-fokus))
+
+- [ ] `waifu check` menampilkan `✓ Teman fokus: aktif`.
+- [ ] "Cyrene, temani aku fokus 5 menit": dia menjawab singkat, dan "sisa berapa menit?" dijawab
+      sesuai. Setelah 5 menit dia bilang fokusnya selesai dan memuji; `waifu focus` menampilkan
+      blok itu.
+- [ ] "Cyrene, fokus 5 menit, istirahat 1 menit, dua kali": di akhir blok pertama dia bilang
+      istirahat, dan satu menit kemudian "Yuk, lanjut fokus lagi."
+- [ ] Sebelum mulai, pasang pengingat untuk beberapa menit lagi: pengingatnya tetap berbunyi di
+      tengah blok. Pemberitahuan lain yang datang selama blok (misalnya pengingat tidur jam main
+      dengan `play_time.bedtime` beberapa menit ke depan dan game terbuka) menunggu sampai
+      istirahat dan diucapkan sesudah kalimat istirahatnya.
+- [ ] Selama blok, panggil "Cyrene?": dia menjawab seperti biasa.
+- [ ] "Cyrene, berhenti fokusnya": sesinya berhenti. Restart `waifu run` di tengah sesi: dia
+      tidak melanjutkannya, dan `waifu focus` mencatat bagian blok yang sudah berjalan.
+
 **Pencarian web dan promo gratis** (lihat
 [Pencarian web dan promo gratis](#pencarian-web-dan-promo-gratis))
 
@@ -4975,6 +5094,10 @@ di sampingnya)
   main ke `ntfy.sh` kalau notifikasi HP dan `weekly_report.push` menyala; dengan Claude, totalnya
   ke API Anthropic saat Master bertanya dan di laporan game mingguan. Lihat
   [Privasi jam main](#privasi-jam-main).
+- **Teman fokus:** `data\focus.json` hanya berisi kapan tiap blok fokus mulai dan selesai, hanya
+  di PC ini (90 hari). Dengan Claude, waktunya ke API Anthropic saat Master bertanya; kalimatnya
+  ke `ntfy.sh` hanya dengan `focus.push` dan notifikasi HP menyala. Lihat
+  [Privasi teman fokus](#privasi-teman-fokus).
 - **Pencarian web dan promo gratis:** dengan Claude, kata kunci pencarian (ditambah negara,
   zona waktu, dan kota) ke pencarian Anthropic; permintaan daftar game ke Epic dan
   GamerPower.com tanpa data tentang Master; pencarian promo AI mingguan ke API Anthropic

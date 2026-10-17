@@ -4,6 +4,26 @@ Ringkasan per versi, yang terbaru di atas. Rinciannya ada di README (bagian yang
 setiap versi) dan di SPEC.md. Setelah memperbarui, **mulai ulang `waifu run`** supaya semuanya
 aktif, lalu jalankan `waifu check`.
 
+## v1.30: teman fokus
+
+- Cyrene bisa menemani Master fokus belajar atau kerja dengan cara pomodoro, selama `waifu run`:
+  "temani aku fokus 25 menit", "pomodoro empat kali", atau "fokus 50 menit, istirahat 10, tiga
+  kali". "Sisa berapa menit?", "hari ini sudah fokus berapa lama?", dan "berhenti fokusnya" juga
+  bisa. Blok 5-120 menit, istirahat 1-60 menit, sampai 8 blok.
+- Di akhir blok dia bilang "Sayang, dua puluh lima menit selesai. Istirahat lima menit dulu ya.",
+  di akhir istirahat "Yuk, lanjut fokus lagi.", dan di akhir sesi memuji dengan totalnya.
+- Selama blok fokus dia diam: peringatan hujan, kabar versi baru, pengingat tidur, pemberitahuan
+  game, kode, PC, promo, dan anggaran, juga sapaan pagi dan laporan mingguan, menunggu sampai
+  istirahat lalu diucapkan sekaligus. Pengingat dan jadwal yang Master pasang sendiri tetap
+  berbunyi tepat waktu, dan Master tetap bisa memanggilnya seperti biasa.
+- Sesinya hanya ada di `waifu run` yang sedang berjalan: restart mengakhirinya. Bagian blok yang
+  sudah berjalan minimal satu menit tetap dicatat.
+- `waifu focus` menampilkan waktu fokus hari ini dan minggu ini, dan `waifu check` menyebut teman
+  fokus. Bagian baru `focus` di `config.yaml` opsional: tanpa itu sudah menyala, tanpa kiriman ke
+  HP (`focus.push: true` untuk mengirim kalimatnya ke HP). Catatannya di `data\focus.json`, hanya
+  di PC ini.
+- README: "Teman fokus".
+
 ## v1.29: jam main
 
 - Selama `waifu run`, Cyrene mencatat berapa lama HSR, Genshin, dan ZZZ terbuka, dari nama
