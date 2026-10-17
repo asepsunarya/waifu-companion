@@ -4185,8 +4185,10 @@ Jalankan ulang `waifu run` setelah mengubahnya.
   Pertanyaan malam ikut membaca catatan hari itu. Dengan Ollama, semuanya tetap di PC.
 - Dengan engine `edge`, jawaban yang menyebut isi jurnal dikirim ke edge-tts Microsoft untuk
   dijadikan suara, seperti semua jawaban.
-- Jurnal tidak pernah dikirim ke HP dan tidak pernah disebut di sapaan pagi atau laporan
-  mingguan.
+- Jurnal tidak pernah dikirim sebagai notifikasi HP (`ntfy.sh`) dan tidak pernah disebut di
+  sapaan pagi atau laporan mingguan. Tapi kalau Master menulis atau bertanya tentang jurnal lewat
+  [Cyrene di HP](#cyrene-di-hp), jawabannya, termasuk isi jurnal yang dia baca, sampai ke HP itu
+  lewat Tailscale seperti semua jawaban di HP.
 - Log INFO mencatat panggilan `journal_write` dan `journal_read` tanpa isinya, tapi kalimat
   Master yang terdengar (`Heard ...`) tetap tercatat seperti biasa (lihat [Privasi](#privasi)).
 - `data\journal_question.json` hanya menyimpan tanggal pertanyaan malam terakhir.

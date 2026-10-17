@@ -457,12 +457,12 @@ schedule:
 # Jurnal harian (README, bagian "Jurnal harian"): "Cyrene, catat di jurnal: hari ini laporannya
 # selesai" menyimpan catatan hari itu dengan kata-kata Master sendiri, dan "kemarin aku nulis apa
 # di jurnal?" dia rangkum singkat. Hanya kalau Master minta: tidak pernah di sapaan pagi, laporan
-# mingguan, atau ke HP. Dengan ask_at, sekali sehari mulai jam itu sampai tengah malam dia bertanya
-# bagaimana hari Master, dan jawaban Master (langsung sesudah pertanyaannya, tanpa memanggil
-# namanya) dicatat. Menghapus hanya lewat `waifu jurnal forget <tanggal> --yes`, tidak lewat
-# suara. Catatannya disimpan di PC ini (path) sampai dihapus; rahasia (kata sandi, PIN, OTP,
-# token, nomor kartu) selalu ditolak. Dengan Claude, catatan yang ditulis atau dibaca ikut ke API
-# Anthropic. Lihat dan ubah dengan `waifu jurnal [list|show|add|forget]`.
+# mingguan, atau notifikasi HP. Dengan ask_at, sekali sehari mulai jam itu sampai tengah malam
+# dia bertanya bagaimana hari Master, dan jawaban Master (langsung sesudah pertanyaannya, tanpa
+# memanggil namanya) dicatat. Menghapus hanya lewat `waifu jurnal forget <tanggal> --yes`,
+# tidak lewat suara. Catatannya disimpan di PC ini (path) sampai dihapus; rahasia (kata sandi,
+# PIN, OTP, token, nomor kartu) selalu ditolak. Dengan Claude, catatan yang ditulis atau dibaca
+# ikut ke API Anthropic. Lihat dan ubah dengan `waifu jurnal [list|show|add|forget]`.
 # Sudah menyala tanpa ditulis; untuk mengubahnya, tulis bagian ini tanpa tanda # di depannya.
 # journal:
 #   enabled: true          # false: tanpa tool dan tanpa pertanyaan malam (`waifu jurnal` tetap jalan)
