@@ -141,6 +141,8 @@ from waifu.gacha.hoyolab import (
     HoyolabClient,
     preferred_uids,
 )
+from waifu.gacha.income import GameIncome, income_months, month_text
+from waifu.gacha.income_tools import IncomeTools
 from waifu.gacha.reminders import duration_text
 from waifu.gacha.starrail import (
     ENDGAME_MODES,
@@ -334,9 +336,15 @@ NOTIFY_TAG = "video_game"  # ntfy shows it as a game controller emoji
 GACHA_DESCRIPTION = (
     "Teman main game HoYoverse: status stamina dan daily, check-in harian HoYoLAB, "
     "riwayat pull (pity, 50/50), data akun game (karakter, endgame, kalender event), kode "
-    "redeem, dan laporan mingguan. Perintah ini jalan walau gacha.enabled: false; yang "
+    "redeem, pendapatan bulanan, dan laporan mingguan. Perintah ini jalan walau "
+    "gacha.enabled: false; yang "
     "dinyalakan gacha.enabled hanyalah tool game, pengingat, dan laporan mingguan saat "
     "'waifu run'."
+)
+# What `waifu gacha income` ends with.
+INCOME_NOTE = (
+    "Catatan: pull dihitung 160 per pull dari mata uang premium saja, tanpa pass atau tape; "
+    "catatan bulanan HoYoLAB bisa tertinggal dari game."
 )
 # What `waifu gacha report` ends with: HoYoverse lists a pull about an hour late.
 WEEKLY_REPORT_NOTE = (
@@ -756,7 +764,7 @@ def build_parser() -> argparse.ArgumentParser:
         "gacha",
         parents=[shared],
         help="Teman main game HoYoverse: status, check-in, riwayat pull, data akun game, kode "
-        "redeem, laporan mingguan.",
+        "redeem, pendapatan bulanan, laporan mingguan.",
         description=GACHA_DESCRIPTION,
     )
     gacha_actions = gacha_command.add_subparsers(dest="action", required=True, metavar="<aksi>")
@@ -806,6 +814,20 @@ def build_parser() -> argparse.ArgumentParser:
         "--redeem",
         action="store_true",
         help="tukarkan kode game itu yang belum ditukarkan di akun HoYoLAB Master",
+    )
+    income = command(
+        "income",
+        _gacha_income,
+        "Pendapatan Primogem, Stellar Jade, dan Polychrome sebulan dari catatan bulanan HoYoLAB.",
+        gacha_actions,
+    )
+    income.add_argument("game", nargs="?", choices=list(GAMES), help="satu game saja")
+    income.add_argument(
+        "--month",
+        type=_year_month,
+        metavar="YYYY-MM",
+        help="bulan yang ditampilkan, misalnya 2026-09 (default bulan ini; HoYoLAB hanya "
+        "menyimpan bulan ini dan dua bulan sebelumnya)",
     )
     command(
         "report",
@@ -2064,6 +2086,11 @@ def _game_tools(config: AppConfig, gacha: GachaParts | None) -> list[ToolProvide
             server_utc_offset=config.gacha.server_utc_offset,
         ),
         GameDataTools(gacha.hoyolab, config.gacha.games),
+        IncomeTools(
+            gacha.hoyolab,
+            config.gacha.games,
+            server_utc_offset=config.gacha.server_utc_offset,
+        ),
     ]
     if config.redeem_codes.enabled:
         tools.append(CodeTools(_code_store(config), gacha.hoyolab, config.gacha.games))
@@ -2532,6 +2559,65 @@ def _time_left(left: timedelta) -> str:
 
 def _labelled(label: str, parts: list[str], *, separator: str = ", ") -> str:
     return f"{label}: {separator.join(parts)}" if parts else label
+
+
+def _gacha_income(args: argparse.Namespace) -> int:
+    """Print what each game's monthly diary on HoYoLAB says Master earned in a month, read on
+    every call, without the brain; it works whether or not `gacha.enabled` is on. A month
+    HoYoLAB no longer keeps is refused (exit 2) without asking it; exit 1 when a game could not
+    be read, the others printed all the same."""
+    config = load_config(args.config)
+    months = income_months(datetime.now().astimezone(), config.gacha.server_utc_offset)
+    month = date(*args.month, 1) if args.month else months[0]
+    if month not in months:
+        kept = ", ".join(month_text(each) for each in months)
+        print(f"{FAIL} Pendapatan hanya ada untuk bulan ini dan dua bulan sebelumnya: {kept}.")
+        return 2
+    this_month = month == months[0]
+    games = [args.game] if args.game else config.gacha.games
+    results = build_gacha(config).hoyolab.income(games, month, this_month=this_month)
+    so_far = ", sampai sekarang" if this_month else ""
+    print(f"Pendapatan gacha {MONTHS_ID[month.month - 1]} {month.year}{so_far}:")
+    failed = False
+    for game_id, result in results.items():
+        game = GAMES[game_id]
+        print(f"{game.short} ({game.name})")
+        if isinstance(result, GachaError):
+            print(f"  {FAIL} {result.message}")
+            failed = True
+            continue
+        for line in _income_lines(game, result):
+            print(f"  {line}")
+    print(INCOME_NOTE)
+    return 1 if failed else 0
+
+
+def _income_lines(game: Game, income: GameIncome) -> list[str]:
+    """The premium currency with its pulls and day figures, then the month before, the sources,
+    and the other currencies, each when the diary gives it."""
+    days = [f"hari ini {_thousands(income.today)}"] if income.today is not None else []
+    if income.yesterday is not None:
+        days.append(f"kemarin {_thousands(income.yesterday)}")
+    earned = f"{_thousands(income.earned)} ({income.pulls} pull)"
+    lines = [", ".join([f"{game.currency}: {earned}", *days])]
+    if income.last_month is not None:
+        change = income.change_percent
+        compared = "" if change is None else f" ({change:+d}%)" if change else " (0%)"
+        lines.append(f"Bulan sebelumnya: {_thousands(income.last_month)}{compared}")
+    if income.sources:
+        sources = (
+            f"{each.name} {_thousands(each.amount)} ({each.percent}%)" for each in income.sources
+        )
+        lines.append(f"Sumber: {', '.join(sources)}")
+    if income.others:
+        others = (f"{each.name} {_thousands(each.amount)}" for each in income.others)
+        lines.append(f"Lainnya: {', '.join(others)}")
+    return lines
+
+
+def _thousands(amount: int) -> str:
+    """`1.234.567`: a dot per thousand, as Indonesian writes numbers."""
+    return f"{amount:,}".replace(",", ".")
 
 
 def _gacha_report(args: argparse.Namespace) -> int:

@@ -1571,11 +1571,11 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 163 · **Files:** `src/waifu/gacha/income_tools.py`, `tests/test_gacha_income_tools.py`, `config/persona.md`, `config/persona_hsr.md`, `tests/test_brain_persona.py` · **Scope:** M
 
-## Task 165: Wiring and `waifu gacha income`
+## Task 165: Wiring and `waifu gacha income` ✅
 
 **Acceptance criteria:**
-- [ ] `run` and `chat` add `IncomeTools` after the game data tools when the games are on; the budget test lists `gacha_income`
-- [ ] `waifu gacha income [game] [--month YYYY-MM]` prints each game's month (also with the games off), exits 1 when a game failed, and refuses a month outside the window with exit 2 before asking HoYoLAB
+- [x] `run` and `chat` add `IncomeTools` after the game data tools when the games are on; the budget test lists `gacha_income`
+- [x] `waifu gacha income [game] [--month YYYY-MM]` prints each game's month (also with the games off), exits 1 when a game failed, and refuses a month outside the window with exit 2 before asking HoYoLAB
 
 **Dependencies:** 164 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** M
 

@@ -19,7 +19,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime, time, timedelta, timezone
 from importlib.machinery import ModuleSpec
 from pathlib import Path, PureWindowsPath
@@ -124,6 +124,14 @@ from waifu.gacha.hoyolab import (
     HoyolabClient,
     WeeklyTask,
 )
+from waifu.gacha.income import (
+    GameIncome,
+    IncomeCategory,
+    IncomeCurrency,
+    income_months,
+    month_text,
+)
+from waifu.gacha.income_tools import IncomeTools
 from waifu.gacha.starrail import (
     ENDGAME_MODES,
     HsrCalendar,
@@ -4937,6 +4945,7 @@ def test_run_with_the_games_on_gives_the_brain_the_game_tools_and_watches_while_
     [
         tools,
         data_tools,
+        income,
         code_tools,
         weekly,
         memory_tools,
@@ -4975,8 +4984,9 @@ def test_run_with_the_games_on_gives_the_brain_the_game_tools_and_watches_while_
         OffersTools,
         MusicTools,
     )
-    assert (type(data_tools), type(code_tools), type(weekly)) == (
+    assert (type(data_tools), type(income), type(code_tools), type(weekly)) == (
         GameDataTools,
+        IncomeTools,
         CodeTools,
         WeeklyReportTools,
     )
@@ -5022,6 +5032,7 @@ def test_run_without_a_cookie_has_the_game_tools_but_no_watcher(
     assert [type(tools) for tools in brains[0].providers] == [
         GachaTools,
         GameDataTools,
+        IncomeTools,
         CodeTools,
         WeeklyReportTools,
         MemoryTools,
@@ -5065,6 +5076,7 @@ def test_chat_with_the_games_on_gives_the_brain_the_game_tools(home, brains, gam
     assert [type(tools) for tools in brains[0].providers] == [
         GachaTools,
         GameDataTools,
+        IncomeTools,
         CodeTools,
         WeeklyReportTools,
         MemoryTools,
@@ -5120,10 +5132,11 @@ def test_the_data_tools_follow_the_game_tools_and_read_hoyolab_for_the_configure
 
     assert cli.main([*argv, "--dry-run"]) == 0
 
-    [tools, data_tools, code_tools, *_] = brains[0].providers
-    assert (type(tools), type(data_tools), type(code_tools)) == (
+    [tools, data_tools, income, code_tools, *_] = brains[0].providers
+    assert (type(tools), type(data_tools), type(income), type(code_tools)) == (
         GachaTools,
         GameDataTools,
+        IncomeTools,
         CodeTools,
     )
     assert [spec.name for spec in data_tools.specs()] == [
@@ -5166,6 +5179,27 @@ def test_with_the_games_off_there_are_no_data_tools(
 
     assert not any(isinstance(tools, GameDataTools) for tools in brains[0].providers)
     assert (games.built, data_sources) == ([], [])
+
+
+@pytest.mark.parametrize("argv", [["run", "--no-speaker-check"], ["chat"]])
+def test_the_income_tool_follows_the_data_tools_and_reads_hoyolab_for_the_configured_games(
+    argv, home, run_fakes, brains, game_data, watchers, monkeypatch
+):
+    enable_gacha(home)
+    play_only(home, "[genshin, zzz]")
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+    assert cli.main([*argv, "--dry-run"]) == 0
+    [income] = [p for p in brains[0].providers if isinstance(p, IncomeTools)]
+
+    result, is_error = income.run("gacha_income", {})
+
+    assert is_error is False
+    assert [game["game"] for game in json.loads(result)["games"]] == ["genshin", "zzz"]
+    [(games, month, this_month)] = game_data.income_asked
+    assert (games, this_month) == (["genshin", "zzz"], True)
+    assert month == income_months(datetime.now().astimezone(), 8)[0]
+    [spec] = income.specs()
+    assert spec.input_schema["properties"]["game"]["enum"] == ["genshin", "zzz"]
 
 
 def test_check_reports_the_games_off(home, nothing_installed, capsys):
@@ -5544,6 +5578,50 @@ def test_genshin_model_parsing_warnings_stay_off_the_console_but_cyrenes_own_gac
 # --- Genshin and ZZZ account data views (v1.23) ------------------------------------------------
 
 
+MONTHLY_INCOME = {
+    "hsr": GameIncome(
+        game="hsr",
+        month=date(2026, 10, 1),
+        earned=4800,
+        others=(IncomeCurrency("Star Rail Pass", 5),),
+        last_month=10000,
+        change_percent=-52,
+        sources=(IncomeCategory("Daily Activity", 1800, 38), IncomeCategory("Events", 1200, 25)),
+        today=60,
+        yesterday=120,
+    ),
+    "genshin": GameIncome(
+        game="genshin",
+        month=date(2026, 10, 1),
+        earned=5400,
+        others=(IncomeCurrency("Mora", 1234567),),
+        last_month=9000,
+        change_percent=12,
+        sources=(IncomeCategory("Events", 1600, 30),),
+        today=0,
+        yesterday=None,
+    ),
+    "zzz": GameIncome(
+        game="zzz",
+        month=date(2026, 10, 1),
+        earned=3200,
+        others=(IncomeCurrency("Encrypted Master Tape", 3), IncomeCurrency("Boopon", 12)),
+        last_month=None,
+        change_percent=None,
+        sources=(IncomeCategory("Daily Activity", 1200, 38),),
+        today=None,
+        yesterday=None,
+    ),
+}
+
+
+def income_of(game: str, month: date, this_month: bool) -> GameIncome:
+    """A game's income in `month`, as HoyolabClient.income reads it: the day figures only for
+    this month."""
+    income = replace(MONTHLY_INCOME[game], month=month)
+    return income if this_month else replace(income, today=None, yesterday=None)
+
+
 class FakeGameDataClient(FakeGameClient):
     """FakeGameClient with Master's Genshin and ZZZ accounts too: what the views read of
     GameDataSource beside the HSR methods."""
@@ -5555,6 +5633,8 @@ class FakeGameDataClient(FakeGameClient):
         self.calendars = dict.fromkeys(("genshin", "zzz"), GameCalendar(None, (), (), ()))
         self.data_failure: GachaError | None = None
         self.asked: list[object] = []
+        self.income_failures: dict[str, GachaError] = {}
+        self.income_asked: list[tuple[list[str], date, bool]] = []
 
     def genshin_characters(self):
         return self._roster("genshin")
@@ -5573,6 +5653,14 @@ class FakeGameDataClient(FakeGameClient):
 
     def zzz_calendar(self):
         return self._calendar("zzz")
+
+    def income(self, games, month, *, this_month):
+        games = list(games)
+        self.income_asked.append((games, month, this_month))
+        return {
+            game: self.income_failures.get(game) or income_of(game, month, this_month)
+            for game in games
+        }
 
     def _roster(self, game: str) -> tuple[object, ...]:
         self.asked.append((game, "characters"))
@@ -11971,9 +12059,10 @@ def test_run_gives_the_weekly_report_once_a_week_while_she_listens_and_pushes_it
 
     assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
 
-    assert [type(tools) for tools in brains[0].providers][:4] == [
+    assert [type(tools) for tools in brains[0].providers][:5] == [
         GachaTools,
         GameDataTools,
+        IncomeTools,
         CodeTools,
         WeeklyReportTools,
     ]
@@ -12271,6 +12360,110 @@ def test_gacha_help_offers_the_weekly_report(monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "report" in out
     assert "laporan mingguan" in out
+
+
+def income_header(month: date, *, so_far: bool) -> str:
+    return f"Pendapatan gacha {MONTHS_ID[month.month - 1]} {month.year}" + (
+        ", sampai sekarang:" if so_far else ":"
+    )
+
+
+def test_gacha_income_prints_this_month_of_each_game_without_the_brain_also_with_the_games_off(
+    home, game_data, capsys
+):
+    this_month = income_months(datetime.now().astimezone(), 8)[0]
+
+    assert cli.main(["gacha", "income"]) == 0
+
+    assert game_data.income_asked == [(["hsr", "genshin", "zzz"], this_month, True)]
+    assert capsys.readouterr().out.splitlines() == [
+        income_header(this_month, so_far=True),
+        "HSR (Honkai: Star Rail)",
+        "  Stellar Jade: 4.800 (30 pull), hari ini 60, kemarin 120",
+        "  Bulan sebelumnya: 10.000 (-52%)",
+        "  Sumber: Daily Activity 1.800 (38%), Events 1.200 (25%)",
+        "  Lainnya: Star Rail Pass 5",
+        "Genshin (Genshin Impact)",
+        "  Primogem: 5.400 (33 pull), hari ini 0",
+        "  Bulan sebelumnya: 9.000 (+12%)",
+        "  Sumber: Events 1.600 (30%)",
+        "  Lainnya: Mora 1.234.567",
+        "ZZZ (Zenless Zone Zero)",
+        "  Polychrome: 3.200 (20 pull)",
+        "  Sumber: Daily Activity 1.200 (38%)",
+        "  Lainnya: Encrypted Master Tape 3, Boopon 12",
+        "Catatan: pull dihitung 160 per pull dari mata uang premium saja, tanpa pass atau tape; "
+        "catatan bulanan HoYoLAB bisa tertinggal dari game.",
+    ]
+
+
+def test_gacha_income_of_one_game_in_an_earlier_month_has_no_day_figures(home, game_data, capsys):
+    last_month = income_months(datetime.now().astimezone(), 8)[1]
+
+    assert cli.main(["gacha", "income", "hsr", "--month", month_text(last_month)]) == 0
+
+    assert game_data.income_asked == [(["hsr"], last_month, False)]
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[:3] == [
+        income_header(last_month, so_far=False),
+        "HSR (Honkai: Star Rail)",
+        "  Stellar Jade: 4.800 (30 pull)",
+    ]
+    assert not any("Genshin" in line or "ZZZ" in line for line in lines)
+
+
+def test_gacha_income_refuses_a_month_hoyolab_no_longer_keeps_without_asking_it(
+    home, game_data, capsys
+):
+    months = ", ".join(map(month_text, income_months(datetime.now().astimezone(), 8)))
+
+    assert cli.main(["gacha", "income", "--month", "2020-01"]) == 2
+
+    assert capsys.readouterr().out == (
+        f"✗ Pendapatan hanya ada untuk bulan ini dan dua bulan sebelumnya: {months}.\n"
+    )
+    assert game_data.income_asked == []
+
+
+def test_gacha_income_refuses_a_month_written_otherwise(home, game_data, capsys):
+    with pytest.raises(SystemExit) as stopped:
+        cli.main(["gacha", "income", "--month", "Oktober"])
+
+    assert stopped.value.code == 2
+    assert "tulis bulannya YYYY-MM" in capsys.readouterr().err
+    assert game_data.income_asked == []
+
+
+def test_gacha_income_prints_what_it_could_read_and_exits_1_when_a_game_failed(
+    home, game_data, capsys
+):
+    game_data.income_failures["zzz"] = GachaError("network", "HoYoLAB tidak bisa dihubungi.")
+
+    assert cli.main(["gacha", "income"]) == 1
+
+    out = capsys.readouterr().out
+    assert "  Stellar Jade: 4.800 (30 pull), hari ini 60, kemarin 120\n" in out
+    assert "ZZZ (Zenless Zone Zero)\n  ✗ HoYoLAB tidak bisa dihubungi.\nCatatan:" in out
+
+
+def test_gacha_income_never_prints_the_uid_or_nickname(home, game_data, capsys):
+    cli.main(["gacha", "income"])
+
+    out = capsys.readouterr().out
+    for secret in ("800000001", "1300000003", "Master"):
+        assert secret not in out.replace("Master Tape", "")
+
+
+def test_gacha_help_offers_the_monthly_income(monkeypatch, capsys):
+    monkeypatch.setenv("COLUMNS", "300")
+    monkeypatch.setenv("PYTHON_COLORS", "0")
+
+    with pytest.raises(SystemExit):
+        cli.main(["gacha", "--help"])
+
+    out = capsys.readouterr().out
+    assert "income" in out
+    assert "pendapatan bulanan" in out
 
 
 def weekly_report_line(out: str) -> str:
@@ -13145,6 +13338,7 @@ def test_the_claude_request_with_every_tool_on_stays_within_the_strict_tool_limi
         "api_usage",
         "play_time",
         "journal_read",
+        "gacha_income",
         *FINANCE_TOOLS,
     } <= names
     strict = [tool for tool in request["tools"] if tool.get("strict")]
