@@ -432,6 +432,44 @@ def test_a_failed_poll_tells_nothing(tmp_path):
     assert rig.polled == [(True, False)]
 
 
+def test_a_restart_mid_game_whose_first_write_fails_tells_the_resume_at_the_next_poll(tmp_path):
+    # Game mode would otherwise take the game for one just opened and run on_start again.
+    rig = Rig(tmp_path)
+    rig.polls(HSR, at(20), 11)
+    rig.watcher.stop()
+
+    rig.watcher = rig.new_watcher()
+    rig.polled.clear()
+    rig.store.failing_saves = 1
+    rig.polls(HSR, at(20) + 12 * MINUTE, 3)
+
+    assert rig.polled == [(True, True), (True, False)]
+
+
+def test_a_restart_mid_game_whose_first_bedtime_write_fails_tells_the_resume_at_the_next_poll(
+    tmp_path,
+):
+    rig = Rig(tmp_path, bedtime=time(20, 11))
+    rig.polls(HSR, at(20), 11)  # 20:00 until 20:10, before bedtime
+    rig.watcher.stop()
+
+    rig.watcher = rig.new_watcher()
+    rig.polled.clear()
+    rig.store.failing_marks = 1
+    rig.polls(HSR, at(20) + 12 * MINUTE, 3)
+
+    assert rig.polled == [(True, True), (True, False)]
+
+
+def test_a_game_first_seen_at_a_first_poll_whose_write_fails_is_no_resume(tmp_path):
+    rig = Rig(tmp_path)
+    rig.store.failing_saves = 1
+
+    rig.polls(HSR, at(20), 2)
+
+    assert rig.polled == [(True, False)]
+
+
 def test_stopping_tells_nothing_and_a_poll_after_it_neither(tmp_path):
     rig = Rig(tmp_path)
     rig.polls(HSR, at(20), 2)

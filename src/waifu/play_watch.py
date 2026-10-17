@@ -20,7 +20,8 @@ write that fails says nothing, and the next poll tries again.
 After each poll that worked it tells game mode (`on_poll`) whether a tracked game is running,
 one missed at a single poll still counting (the two-poll rule: alt-tab or a launcher restart
 changes nothing), and whether the run's first poll went on with a session from before a restart
-of `waifu run`. Never for a failed poll, and never from `stop()`.
+of `waifu run` (a first poll whose write fails leaves that to the next poll that works). Never for
+a failed poll, and never from `stop()`.
 
 A failed listing, read, or write is never said: the first of a run of failures is logged at
 WARNING and the next poll tries again. What she sees is Master's own: sessions are logged only
@@ -96,11 +97,10 @@ def _opened_late_before(now: datetime, bedtime: ClockTime) -> datetime:
     return datetime.combine(night_of(now) + timedelta(days=1), clock, tzinfo=now.tzinfo)
 
 
-def _running(tracking: Tracking, *, first: bool) -> tuple[bool, bool]:
-    """Whether a tracked game has an open session after a poll, and, at the run's first poll,
-    whether one went on with a session from before the restart (its start is earlier)."""
-    resumed = first and any(t.session.start < tracking.last_poll for t in tracking.open)
-    return bool(tracking.open), resumed
+def _resumed(tracking: Tracking) -> bool:
+    """Whether a game the run's first poll found running went on with a session from before
+    the restart (its start is earlier)."""
+    return any(t.session.start < tracking.last_poll for t in tracking.open)
 
 
 class PlayTimeWatcher:
@@ -136,6 +136,10 @@ class PlayTimeWatcher:
         self._lock = threading.Lock()
         self._stopped = False
         self._tracking: Tracking | None = None  # None until the run's first poll
+        # The run's first poll resumed a session, and game mode has not heard it yet: kept
+        # through a poll that fails after following the games (a write), or it would hear of a
+        # game just opened and run on_start again.
+        self._resumed = False
         self._written: tuple[Session, ...] = ()  # the open sessions the file holds
         self._unwritten: list[Session] = []  # finished, waiting for a write that works
         self._told: date | None = None  # the night the nudge was told
@@ -151,11 +155,11 @@ class PlayTimeWatcher:
                     return []
                 now = self._now()
                 seen = games_running(names, self._config.games)
-                first = self._tracking is None
                 tracking = self._follow(seen, now)
                 playing = [session for session in tracking.sessions if session.game in seen]
                 said = self._bedtime(playing, now)
-                running = _running(tracking, first=first)
+                running = bool(tracking.open), self._resumed
+                self._resumed = False  # told below
         except Exception as exc:
             self._log_failure(exc)
             return []
@@ -218,6 +222,7 @@ class PlayTimeWatcher:
             record = self._store.record()
             self._written = record.open
             tracking, finished = resume_games(record, seen, now)
+            self._resumed = _resumed(tracking)
         else:
             tracking, finished = follow_games(self._tracking, seen, now, poll=self._poll)
         self._tracking = tracking
