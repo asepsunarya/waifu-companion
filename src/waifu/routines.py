@@ -32,6 +32,7 @@ logger = logging.getLogger(__name__)
 _NO_SCHEDULE = "Langkah yang ditunda butuh jadwal, tapi jadwal mati (schedule.enabled: false)."
 _UNSAVED = "File jadwal tidak bisa dibuka, jadi langkah ini tidak dijadwalkan."
 _LOCAL_TIME = "%Y-%m-%d %H:%M"
+_SMALL_HOURS_END = 5  # 00:00-04:59 is "dini hari": the end of the night before, not "besok"
 
 
 def run_routine(
@@ -45,9 +46,10 @@ def run_routine(
     """Run every step in order, one result per step; a failed step never stops the rest.
 
     A delayed step is never run now: it is scheduled in `schedule` for its delay after the
-    routine starts (`now`, read once), and its result says when, with the entry's id and
-    time in `state`. Before that, the delayed steps an earlier run of `name` left pending
-    are cancelled. A routine without delayed steps never reads the schedule.
+    routine starts (`now`, read once), and its result says when, as she would say it, with
+    the entry's id and time in `state`. Before that, the delayed steps an earlier run of
+    `name` left pending are cancelled. A routine without delayed steps never reads the
+    schedule.
     """
     started = now()
     if schedule is not None and any(step.after_minutes is not None for step in routine.steps):
@@ -118,12 +120,27 @@ def _schedule_later(
         entry.id,
         entry.at.strftime(_LOCAL_TIME),
     )
-    day = "besok " if entry.at.date() != started.date() else ""
     return DeviceResult(
         ok=True,
-        message=f"Dijadwalkan {day}jam {entry.at:%H.%M} ({entry.id}).",
+        message=f"Dijadwalkan {_spoken_when(entry.at, started)}.",
         state={"id": entry.id, "at": entry.at.strftime(_LOCAL_TIME)},
     )
+
+
+def _spoken_when(at: datetime, started: datetime) -> str:
+    """When a delayed step runs, as she says it at `started`; the model copies it into her reply.
+
+    `jam 16.00 nanti`; `jam 01.00 dini hari nanti` for the night after an evening start, since
+    "besok jam satu" said at 22:00 sounds like 13:00 tomorrow; `besok jam 08.00` (`besok jam
+    03.00 dini hari` from a start in the small hours) once that night has passed. No id: it
+    would be read out, and `state` has it.
+    """
+    small_hours = at.hour < _SMALL_HOURS_END
+    part = " dini hari" if small_hours else ""
+    coming_night = small_hours and started.hour >= _SMALL_HOURS_END
+    if at.date() != started.date() and not coming_night:
+        return f"besok jam {at:%H.%M}{part}"
+    return f"jam {at:%H.%M}{part} nanti"
 
 
 def _cancel_pending_steps(schedule: ScheduleStore, name: str) -> None:

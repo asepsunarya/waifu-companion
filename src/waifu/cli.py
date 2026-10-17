@@ -83,13 +83,14 @@ from waifu.config import (
     GameId,
     OllamaConfig,
     PhoneConfig,
+    RoutineStep,
     RvcConfig,
     VersionNoticeConfig,
     Weekday,
     cookie_names,
     load_config,
 )
-from waifu.devices.base import DeviceError
+from waifu.devices.base import DeviceError, DeviceResult
 from waifu.devices.ir_codes import COMMAND_PATTERN, IrCodeStoreError
 from waifu.devices.ir_device import IrDevice
 from waifu.devices.registry import DeviceRegistry, build_registry
@@ -2932,11 +2933,13 @@ def _routine_run(args: argparse.Namespace) -> int:
     mode = " (perangkat simulasi)" if args.dry_run else ""
     print(f"Menjalankan rutinitas {name}{mode}...", flush=True)
     registry = build_registry(config, dry_run=args.dry_run)
+    started = datetime.now()
     with _session_schedule(config, dry_run=args.dry_run) as schedule:
-        results = run_routine(registry, routine, name=name, schedule=schedule)
+        results = run_routine(registry, routine, name=name, schedule=schedule, now=lambda: started)
     for number, (step, result) in enumerate(zip(routine.steps, results, strict=True), start=1):
         mark = OK if result.ok else FAIL
-        print(f"{mark} Langkah {number} ({describe_step(step)}): {result.message}")
+        outcome = _step_outcome(step, result, started)
+        print(f"{mark} Langkah {number} ({describe_step(step)}): {outcome}")
     steps = zip(routine.steps, results, strict=True)
     if any(step.after_minutes is not None and result.ok for step, result in steps):
         if args.dry_run:
@@ -2944,6 +2947,19 @@ def _routine_run(args: argparse.Namespace) -> int:
         else:
             print(DELAYED_STEPS_IN_RUN)
     return 0 if all(result.ok for result in results) else 1
+
+
+def _step_outcome(step: RoutineStep, result: DeviceResult, started: datetime) -> str:
+    """What one step of `waifu routine run` did; a scheduled one names its day and its id.
+
+    `Dijadwalkan besok jam 01.00 (j12).`: on screen `besok` and a 24-hour time cannot be
+    misheard, and the id is what `waifu schedule cancel` takes. Her spoken result has neither.
+    """
+    if step.after_minutes is None or not result.ok:
+        return result.message
+    at = datetime.fromisoformat(result.state["at"])
+    day = "besok " if at.date() != started.date() else ""
+    return f"Dijadwalkan {day}jam {at:%H.%M} ({result.state['id']})."
 
 
 def _schedule_time(moment: datetime) -> str:

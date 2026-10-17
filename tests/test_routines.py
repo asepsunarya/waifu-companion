@@ -223,9 +223,11 @@ def test_a_delayed_step_is_scheduled_once_for_its_delay_and_never_run_now(tmp_pa
     assert [(entry.id, entry.at, entry.repeat, entry.action) for entry in store.entries()] == [
         ("j1", datetime(2026, 10, 18, 1, 0), "none", DeviceAction("ac", "off", routine="tidur"))
     ]
+    # Her reply reads this: "besok jam 01.00" said at 22:00 sounds like 13:00 tomorrow, and
+    # the id stays in `state`, where she cannot read it out as "j satu".
     assert results[2] == DeviceResult(
         ok=True,
-        message="Dijadwalkan besok jam 01.00 (j1).",
+        message="Dijadwalkan jam 01.00 dini hari nanti.",
         state={"id": "j1", "at": "2026-10-18 01:00"},
     )
     assert [result.ok for result in results] == [True, True, True]
@@ -239,10 +241,36 @@ def test_a_delayed_step_later_the_same_day_names_just_the_clock_time(tmp_path):
         AFTERNOON, registry, routine(later("ac", "temp", 90, value=24)), store, "sore"
     )
 
-    assert result.message == "Dijadwalkan jam 16.00 (j1)."
+    assert result.message == "Dijadwalkan jam 16.00 nanti."
     assert result.state == {"id": "j1", "at": "2026-10-17 16:00"}
     [entry] = store.entries()
     assert entry.action == DeviceAction("ac", "temp", 24, routine="sore")
+
+
+@pytest.mark.parametrize(
+    ("started", "after", "message"),
+    [
+        (datetime(2026, 10, 17, 1, 0, 40), 180, "Dijadwalkan jam 04.00 dini hari nanti."),
+        (BEDTIME, 600, "Dijadwalkan besok jam 08.00."),
+        (datetime(2026, 10, 17, 5, 0, 40), 1320, "Dijadwalkan jam 03.00 dini hari nanti."),
+        (datetime(2026, 10, 17, 3, 0, 40), 1440, "Dijadwalkan besok jam 03.00 dini hari."),
+    ],
+    ids=[
+        "the same small hours",
+        "the next morning",
+        "the night after a morning start",
+        "the next small hours",
+    ],
+)
+def test_a_delayed_step_names_its_day_only_when_the_night_has_passed(
+    tmp_path, started, after, message
+):
+    registry, _ = make_house()
+    store = make_store(tmp_path, started)
+
+    [result] = run_at(started, registry, routine(later("ac", "off", after)), store)
+
+    assert result.message == message
 
 
 def test_every_delay_counts_from_the_start_of_the_routine(tmp_path):

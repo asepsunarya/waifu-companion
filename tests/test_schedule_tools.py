@@ -984,7 +984,7 @@ def test_run_routine_schedules_a_delayed_step_and_names_its_id_and_time(tmp_path
         "command": "off",
         "after_minutes": 180,
         "ok": True,
-        "message": "Dijadwalkan jam 17.30 (j1).",
+        "message": "Dijadwalkan jam 17.30 nanti.",
         "scheduled": {"id": "j1", "at": "2026-10-13 17:30"},
     }
     assert "after_minutes" not in data["steps"][1]
@@ -992,6 +992,23 @@ def test_run_routine_schedules_a_delayed_step_and_names_its_id_and_time(tmp_path
     assert actions(store) == [
         ("j1", datetime(2026, 10, 13, 17, 30), "none", DeviceAction("ac", "off", routine="tidur"))
     ]
+
+
+def test_run_routine_at_bedtime_names_the_coming_night_without_besok_or_the_id(tmp_path):
+    bedtime = datetime(2026, 10, 17, 22, 0)
+    registry, _ = make_house()
+    store = ScheduleStore(tmp_path / "schedule.json", now=lambda: bedtime)
+    tools = ScheduleTools(
+        store, registry=registry, routines={"tidur": DELAYED_TIDUR}, now=lambda: bedtime
+    )
+
+    data, _ = run(tools, "run_routine", {"name": "tidur"})
+
+    # She copies this into her reply: "besok jam satu" sounds like 13:00 tomorrow, and an id
+    # in the sentence gets read out. The id is in `scheduled`, for cancel_schedule.
+    delayed = data["steps"][2]
+    assert delayed["message"] == "Dijadwalkan jam 01.00 dini hari nanti."
+    assert delayed["scheduled"] == {"id": "j1", "at": "2026-10-18 01:00"}
 
 
 def test_a_delayed_step_is_listed_with_its_routine_and_cancelled_by_its_id(tmp_path):
