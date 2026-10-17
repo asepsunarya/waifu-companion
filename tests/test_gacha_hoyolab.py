@@ -4,7 +4,7 @@ import json
 import logging
 import time
 from collections.abc import Callable
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import aiohttp
@@ -645,6 +645,26 @@ class FakeHoyolab:
     async def get_zzz_gacha_calendar(self, uid=None, *, lang=None):
         model = genshin.models.ZZZGachaCalendar(**copy.deepcopy(ZZZ_GACHA_CALENDAR))
         return await self._answer(("zzz_gacha", uid, {"lang": lang}), model)
+
+    # The three monthly diaries, with genshin.py's signatures, recording every argument and
+    # answering for the month asked as HoYoLAB does (ZZZ's "" is its current month); their
+    # payloads are with the income tests at the end of this file.
+    async def get_diary(self, uid=None, *, month=None, lang=None):
+        return await self._answer(("deprecated_diary", uid, {"month": month}), None)
+
+    async def get_genshin_diary(self, uid=None, *, month=None, lang=None):
+        payload = copy.deepcopy(GENSHIN_DIARY) | {"data_month": month}
+        model = genshin.models.Diary(**payload)
+        return await self._answer(("genshin_diary", uid, {"month": month, "lang": lang}), model)
+
+    async def get_starrail_diary(self, uid=None, *, month=None, lang=None):
+        model = genshin.models.StarRailDiary(**copy.deepcopy(HSR_DIARY) | {"data_month": month})
+        return await self._answer(("hsr_diary", uid, {"month": month, "lang": lang}), model)
+
+    async def get_zzz_diary(self, uid=None, *, month=None, lang=None):
+        payload = copy.deepcopy(ZZZ_DIARY) | {"data_month": month or ZZZ_DIARY["current_month"]}
+        model = genshin.models.ZZZDiary(**payload)
+        return await self._answer(("zzz_diary", uid, {"month": month, "lang": lang}), model)
 
 
 def make_client(fake: FakeHoyolab, *, cookie=COOKIE, uids=UIDS, **kwargs) -> HoyolabClient:
@@ -2479,3 +2499,224 @@ def test_game_endgame_tells_an_hsr_season_ending_at_hoyolabs_0359_as_the_reset()
     assert not is_error
     (season,) = json.loads(result)["modes"]
     assert (season["season"], season["ends"]) == ("Gleaming Treasure", "2026-11-17 03:00")
+
+
+# ---- monthly income (v1.33) ---------------------------------------------------------------------
+
+OCTOBER = date(2026, 10, 1)
+SEPTEMBER = date(2026, 9, 1)
+DIARY_NICKNAME = "Kirana"  # never "Master": ZZZ names a currency Encrypted Master Tape
+# HoYoLAB's three monthly diaries for October 2026; the fake sets each answer's month.
+GENSHIN_DIARY = {
+    "uid": UIDS["genshin"],
+    "region": "os_asia",
+    "nickname": DIARY_NICKNAME,
+    "data_month": 10,
+    "day_data": {"current_primogems": 120, "current_mora": 35000},
+    "month_data": {
+        "current_primogems": 5400,
+        "current_mora": 1234567,
+        "last_primogems": 9000,
+        "last_mora": 2000000,
+        "primogem_rate": -40,
+        "mora_rate": -38,
+        "group_by": [{"action_id": 1, "action": "Daily Activity", "num": 1800, "percent": 33}],
+    },
+}
+HSR_DIARY = {
+    "uid": UIDS["hsr"],
+    "region": "prod_official_asia",
+    "nickname": DIARY_NICKNAME,
+    "data_month": "202610",
+    "month_data": {
+        "current_hcoin": 4800,
+        "current_rails_pass": 5,
+        "last_hcoin": 10000,
+        "last_rails_pass": 12,
+        "hcoin_rate": -52,
+        "rails_rate": -58,
+        "group_by": [
+            {"action": "daily_reward", "action_name": "Daily Activity", "num": 1800, "percent": 38}
+        ],
+    },
+    "day_data": {
+        "current_hcoin": 60,
+        "current_rails_pass": 0,
+        "last_hcoin": 120,
+        "last_rails_pass": 1,
+    },
+}
+ZZZ_DIARY = {
+    "uid": UIDS["zzz"],
+    "region": "prod_gf_jp",
+    "current_month": "202610",
+    "data_month": "202610",
+    "month_data": {
+        "list": [
+            {"data_type": "PolychromesData", "count": 3200, "data_name": "Polychrome"},
+            {"data_type": "MatserTapeData", "count": 3, "data_name": "Encrypted Master Tape"},
+        ],
+        "income_components": [{"action": "event_rewards", "num": 1000, "percent": 31}],
+    },
+    "optional_month": ["202608", "202609", "202610"],
+    "role_info": {"nickname": DIARY_NICKNAME, "avatar": "kirana-avatar-icon"},
+}
+EVERY_DIARY = ["hsr", "genshin", "zzz"]
+NOT_GIVEN = (
+    "HoYoLAB tidak memberi pendapatan {} untuk bulan itu; biasanya hanya bulan ini dan dua "
+    "bulan sebelumnya yang ada."
+)
+
+
+def diary_calls(fake: FakeHoyolab) -> list[tuple]:
+    return [call for call in fake.calls if call[0].endswith("_diary")]
+
+
+def test_income_reads_each_games_diary_of_this_month_with_its_uid_and_the_month_passed():
+    fake = FakeHoyolab()
+
+    results = make_client(fake).income(EVERY_DIARY, OCTOBER, this_month=True)
+
+    assert sorted(diary_calls(fake)) == [
+        ("genshin_diary", UIDS["genshin"], {"month": 10, "lang": None}),
+        ("hsr_diary", UIDS["hsr"], {"month": "202610", "lang": None}),
+        ("zzz_diary", UIDS["zzz"], {"month": "", "lang": None}),  # genshin.py's current month
+    ]
+    assert list(results) == EVERY_DIARY
+    hsr, genshin_income, zzz = results.values()
+    assert (hsr.game, hsr.month, hsr.earned, hsr.pulls, hsr.today, hsr.yesterday) == (
+        "hsr",
+        OCTOBER,
+        4800,
+        30,
+        60,
+        120,
+    )
+    assert (genshin_income.earned, genshin_income.today) == (5400, 120)
+    assert (zzz.earned, zzz.others[0].name) == (3200, "Encrypted Master Tape")
+
+
+def test_an_earlier_month_is_asked_by_its_year_and_month_and_has_no_today():
+    fake = FakeHoyolab()
+
+    results = make_client(fake).income(EVERY_DIARY, SEPTEMBER, this_month=False)
+
+    assert sorted(diary_calls(fake)) == [
+        ("genshin_diary", UIDS["genshin"], {"month": 9, "lang": None}),
+        ("hsr_diary", UIDS["hsr"], {"month": "202609", "lang": None}),
+        ("zzz_diary", UIDS["zzz"], {"month": "202609", "lang": None}),
+    ]
+    assert {(each.month, each.today, each.yesterday) for each in results.values()} == {
+        (SEPTEMBER, None, None)
+    }
+
+
+def test_income_never_asks_the_deprecated_diary_nor_changes_a_hoyolab_setting():
+    fake = FakeHoyolab()
+
+    make_client(fake).income(EVERY_DIARY, OCTOBER, this_month=True)
+
+    assert not [call for call in fake.calls if call[0] == "deprecated_diary"]
+    assert ("update_settings",) not in fake.calls
+    assert fake.cookies == [COOKIE]  # one client for every game
+
+
+def test_a_game_whose_diary_fails_does_not_hide_the_others():
+    hidden = errors.DataNotPublic({"retcode": 10102})
+    fake = FakeHoyolab(failures={"zzz_diary": hidden, "hsr_diary": errors.InvalidCookies()})
+
+    results = make_client(fake).income(EVERY_DIARY, OCTOBER, this_month=True)
+
+    assert results["genshin"].earned == 5400
+    # A hidden diary is the Battle Chronicle's setting, never the Real-Time Notes'.
+    assert (results["zzz"].kind, results["zzz"].message) == (
+        "chronicle_private",
+        CHRONICLE_PRIVATE.replace("Data HSR", "Data ZZZ"),
+    )
+    assert results["hsr"].kind == "cookie"
+
+
+def test_a_diary_genshin_py_cannot_read_is_other():
+    payload = copy.deepcopy(ZZZ_DIARY)
+    payload["month_data"]["income_components"].append(
+        {"action": "battle_pass_rewards", "num": 10, "percent": 1}
+    )
+    unknown = parse_error(lambda: genshin.models.ZZZDiary(**payload))
+    without_polychrome = copy.deepcopy(ZZZ_DIARY)
+    without_polychrome["month_data"]["list"] = without_polychrome["month_data"]["list"][1:]
+
+    for fake in (
+        FakeHoyolab(failures={"zzz_diary": unknown}),
+        FakeHoyolab(answers={"zzz_diary": genshin.models.ZZZDiary(**without_polychrome)}),
+    ):
+        results = make_client(fake).income(EVERY_DIARY, OCTOBER, this_month=True)
+
+        assert (results["zzz"].kind, results["zzz"].message) == (
+            "other",
+            "Data HoYoLAB ZZZ tidak bisa dibaca saat ini.",
+        )
+        assert results["hsr"].earned == 4800
+
+
+@pytest.mark.parametrize(
+    ("game_id", "name", "payload", "model_type"),
+    [
+        ("hsr", "hsr_diary", HSR_DIARY, genshin.models.StarRailDiary),
+        ("genshin", "genshin_diary", GENSHIN_DIARY, genshin.models.Diary),
+        ("zzz", "zzz_diary", ZZZ_DIARY, genshin.models.ZZZDiary),
+    ],
+    ids=["hsr", "genshin", "zzz"],
+)
+def test_an_answer_for_another_month_than_the_one_asked_is_refused(
+    game_id, name, payload, model_type
+):
+    # HoYoLAB answering October when September was asked must never be told as September.
+    fake = FakeHoyolab(answers={name: model_type(**copy.deepcopy(payload))})
+
+    [(game, result)] = make_client(fake).income([game_id], SEPTEMBER, this_month=False).items()
+
+    assert game == game_id
+    assert (result.kind, result.message) == ("other", NOT_GIVEN.format(GAMES[game_id].short))
+
+
+def test_income_without_a_cookie_is_every_games_no_cookie_before_hoyolab_is_asked():
+    fake = FakeHoyolab()
+    client = HoyolabClient(None, client_factory=lambda cookie: fake)
+
+    results = client.income(EVERY_DIARY, OCTOBER, this_month=True)
+
+    assert {game: result.kind for game, result in results.items()} == dict.fromkeys(
+        EVERY_DIARY, "no_cookie"
+    )
+    assert fake.calls == []
+
+
+def test_income_that_runs_out_of_time_is_every_games_network_error():
+    fake = FakeHoyolab(delay_s=1.0)
+
+    results = make_client(fake, timeout_s=0.05).income(EVERY_DIARY, OCTOBER, this_month=True)
+
+    assert {result.kind for result in results.values()} == {"network"}
+
+
+def test_income_without_configured_uids_looks_the_accounts_up_once():
+    fake = FakeHoyolab()
+
+    results = make_client(fake, uids={}).income(EVERY_DIARY, OCTOBER, this_month=True)
+
+    assert [call for call in fake.calls if call[0] == "accounts"] == [("accounts",)]
+    assert ("hsr_diary", 800000001, {"month": "202610", "lang": None}) in fake.calls
+    assert all(not isinstance(result, GachaError) for result in results.values())
+
+
+def test_income_results_errors_and_logs_never_hold_the_cookie_uid_nickname_or_avatar(caplog):
+    failures = {"zzz_diary": aiohttp.ClientConnectionError("down")}
+    client = make_client(FakeHoyolab(failures=failures))
+
+    with caplog.at_level(logging.DEBUG):
+        texts = [repr(client.income(EVERY_DIARY, OCTOBER, this_month=True))]
+
+    secrets = ["SECRETCOOKIE", "SECRETTOKEN", *map(str, UIDS.values()), DIARY_NICKNAME, "avatar"]
+    for secret in secrets:
+        assert all(secret not in text for text in texts)
+        assert secret not in caplog.text

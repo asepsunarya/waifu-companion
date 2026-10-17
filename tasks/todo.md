@@ -1554,11 +1554,11 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 162a · **Files:** `src/waifu/gacha/income.py`, `tests/test_gacha_income.py` · **Scope:** M
 
-## Task 163: `HoyolabClient.income`
+## Task 163: `HoyolabClient.income` ✅
 
 **Acceptance criteria:**
-- [ ] One call reads every game asked with its explicit uid and the month passed (Genshin 1-12, HSR `YYYYMM`, ZZZ `""` for this month and `YYYYMM` before), never `get_diary` or `update_settings`
-- [ ] A failing game does not hide the others; no cookie, a timeout, a hidden diary (chronicle_private), a model that does not parse (other), and an answer for another month (other, its own message) are each game's error; no result, error, or log holds the cookie, uid, or nickname
+- [x] One call reads every game asked with its explicit uid and the month passed (Genshin 1-12, HSR `YYYYMM`, ZZZ `""` for this month and `YYYYMM` before), never `get_diary` or `update_settings`
+- [x] A failing game does not hide the others; no cookie, a timeout, a hidden diary (chronicle_private), a model that does not parse (other), and an answer for another month (other, its own message) are each game's error; no result, error, or log holds the cookie, uid, or nickname
 
 **Dependencies:** 162 · **Files:** `src/waifu/gacha/hoyolab.py`, `tests/test_gacha_hoyolab.py` · **Scope:** M
 

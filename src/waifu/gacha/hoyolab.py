@@ -1,4 +1,5 @@
-"""HoYoLAB for the owner's games via genshin.py: accounts, notes, check-in, game data, redeem codes.
+"""HoYoLAB for the owner's games via genshin.py: accounts, notes, check-in, game data, monthly
+income, redeem codes.
 
 genshin.py is async (aiohttp). Each public call here is one `asyncio.run` with a new
 `genshin.Client`, so the voice loop (the brain's tool calls) and the watcher thread
@@ -15,7 +16,7 @@ import logging
 import threading
 from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any, Literal, TypeVar
 
 from waifu.config import cookie_names
@@ -24,6 +25,13 @@ from waifu.gacha.codes import RedeemResult
 from waifu.gacha.game_data import Endgame, GameCalendar
 from waifu.gacha.games import GAMES, Game
 from waifu.gacha.genshin_impact import GenshinCharacter, GenshinCharacterDetail
+from waifu.gacha.income import (
+    GameIncome,
+    answers_month,
+    read_genshin_income,
+    read_hsr_income,
+    read_zzz_income,
+)
 from waifu.gacha.starrail import (
     HsrCalendar,
     HsrCharacter,
@@ -83,6 +91,30 @@ _ENDGAME_REQUESTS: dict[str, Callable[[Any, int], Awaitable[Any]]] = {
     "deadly_assault": lambda client, uid: client.get_deadly_assault(uid),
 }
 ZZZ = GAMES["zzz"]
+# Each game's monthly diary of one month: always passed, since genshin.py's default month is the
+# PC's. Genshin takes the month's number, HSR YYYYMM; ZZZ's "" is genshin.py's current month, and
+# its earlier months are sent as YYYYMM (genshin.py does not say: the answer's month is checked).
+_DIARY_REQUESTS: dict[str, Callable[[Any, int, date, bool], Awaitable[Any]]] = {
+    "genshin": lambda client, uid, month, this_month: client.get_genshin_diary(
+        uid, month=month.month
+    ),
+    "hsr": lambda client, uid, month, this_month: client.get_starrail_diary(
+        uid, month=f"{month:%Y%m}"
+    ),
+    "zzz": lambda client, uid, month, this_month: client.get_zzz_diary(
+        uid, month="" if this_month else f"{month:%Y%m}"
+    ),
+}
+_INCOME_READERS: dict[str, Callable[..., GameIncome]] = {
+    "genshin": read_genshin_income,
+    "hsr": read_hsr_income,
+    "zzz": read_zzz_income,
+}
+# Formatted with the game's short name: HoYoLAB answered another month than the one asked.
+MONTH_NOT_GIVEN = (
+    "HoYoLAB tidak memberi pendapatan {game} untuk bulan itu; biasanya hanya bulan ini dan dua "
+    "bulan sebelumnya yang ada."
+)
 # A ZZZ agent's detail is one request: given a list, genshin.py gathers them without a limit.
 AGENT_DETAILS_AT_ONCE = 2
 # Codes tried per redeem_codes call; the rest are left out of its results for a later call.
@@ -320,6 +352,30 @@ class HoyolabClient:
 
         return self._run(calendar, GENSHIN)
 
+    def income(
+        self, games: Iterable[str], month: date, *, this_month: bool
+    ) -> dict[str, GameIncome | GachaError]:
+        """What each game's monthly diary says Master earned in `month` (its first day, server
+        time), in one call; a failing game does not hide the others. `this_month` says that
+        `month` is the server's current month: only then are today's figures kept."""
+        games = list(games)
+
+        async def all_games(client: Any) -> list[GameIncome | BaseException]:
+            await self._resolve_uids(client, games)
+            return await asyncio.gather(
+                *(self._income(client, GAMES[game], month, this_month) for game in games),
+                return_exceptions=True,
+            )
+
+        try:
+            results = self._run(all_games, None)
+        except GachaError as error:
+            return dict.fromkeys(games, error)
+        return {
+            game: _to_error(result, GAMES[game]) if isinstance(result, BaseException) else result
+            for game, result in zip(games, results, strict=True)
+        }
+
     def redeem_codes(
         self,
         game_id: str,
@@ -525,6 +581,16 @@ class HoyolabClient:
         if uid is None:
             raise GachaError("account", f"Akun {game.short} tidak ditemukan di HoYoLAB ini.")
         return uid
+
+    async def _income(self, client: Any, game: Game, month: date, this_month: bool) -> GameIncome:
+        """One game's diary of `month`; an answer for another month is refused, so a month is
+        never told under another's name."""
+        uid = await self._game_uid(client, game)
+        request = _DIARY_REQUESTS[game.id](client, uid, month, this_month)
+        model = await _chronicle(request, game)
+        if not answers_month(game.id, model, month):
+            raise GachaError("other", MONTH_NOT_GIVEN.format(game=game.short))
+        return _INCOME_READERS[game.id](model, month, this_month=this_month)
 
     async def _redeem(
         self, client: Any, game: Game, uid: int, code: str, stopped: Callable[[], bool]
