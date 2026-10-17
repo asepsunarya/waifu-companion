@@ -47,6 +47,7 @@ from waifu.brain import claude as claude_module
 from waifu.brain.attachments import CameraTurn, TurnImages
 from waifu.brain.base import Brain, BrainReply, ToolCallRecord
 from waifu.brain.finance_tools import FinanceTools
+from waifu.brain.focus_tools import FocusTools
 from waifu.brain.memory_tools import MemoryTools
 from waifu.brain.music_tools import MusicTools
 from waifu.brain.offers_tools import OffersTools
@@ -56,6 +57,7 @@ from waifu.brain.play_time_tools import PlayTimeTools
 from waifu.brain.schedule_tools import ScheduleTools
 from waifu.brain.screen_tools import ScreenTools
 from waifu.brain.todo_tools import TodoTools
+from waifu.brain.tools import to_anthropic
 from waifu.brain.usage_tools import UsageTools
 from waifu.briefing import BRIEFING_PROMPT, DAILY_BRIEFING, BriefingTimer, BriefingTools
 from waifu.config import (
@@ -86,6 +88,8 @@ from waifu.finance.values import (
     RecordedExpense,
     UndoneExpense,
 )
+from waifu.focus import FocusBlock, FocusStore
+from waifu.focus_timer import FocusTimer
 from waifu.gacha.code_store import CodeStore
 from waifu.gacha.code_tools import CodeTools
 from waifu.gacha.codes import CodesError, RedeemResult
@@ -556,6 +560,33 @@ def no_real_play_time(tmp_path, monkeypatch):
     working directory at the repository fails instead of reading the owner's sessions in
     data/playtime.json (building a store touches no file, so the refusal comes first)."""
     monkeypatch.setattr(cli, "PlayTimeStore", only_under(tmp_path, cli.PlayTimeStore))
+
+
+@pytest.fixture(autouse=True)
+def no_real_focus_log(tmp_path, monkeypatch):
+    """Every focus log a command builds lives under tmp_path: a test that leaves the working
+    directory at the repository fails instead of reading or writing the owner's focus blocks in
+    data/focus.json (building a store touches no file, so the refusal comes first)."""
+    monkeypatch.setattr(cli, "FocusStore", only_under(tmp_path, cli.FocusStore))
+
+
+def wait_until_stopped(stop: threading.Event, timeout: float) -> bool:
+    return stop.wait()
+
+
+@pytest.fixture(autouse=True)
+def focus_timers(monkeypatch) -> list[FocusTimer]:
+    """The real focus timer checks the wall clock from a thread through every `run` (focus is on
+    by default): every test gets one whose thread checks once and then waits until it is
+    stopped, so a test moves time itself (`tick_once`). Holds every timer a command built."""
+    built: list[FocusTimer] = []
+
+    def build(store, **options) -> FocusTimer:
+        built.append(FocusTimer(store, **options, wait=wait_until_stopped))
+        return built[-1]
+
+    monkeypatch.setattr(cli, "FocusTimer", build)
+    return built
 
 
 V124 = Release("v1.24", "keuangan dari tepira")
@@ -2300,9 +2331,9 @@ class RecordingAssistant:
     (`speak_reaction` or `listen_now`); `asked` holds each `ask_aloud` with its `on_reply` and
     `required_tool`, and `new_sessions` whether each starts a new session;
     `waiting_for_followup` the texts of announcements that wait while the follow-up window is
-    open; `phone_messages`, `phone_photos` (None for a message without
-    one), `phone_cameras` (whether each was sent through the camera), and `phone_recordings`
-    what the phone asked."""
+    open; `reminded` what `remind` queued (Master's own lines); `phone_messages`, `phone_photos`
+    (None for a message without one), `phone_cameras` (whether each was sent through the
+    camera), and `phone_recordings` what the phone asked."""
 
     instances: list["RecordingAssistant"] = []
 
@@ -2311,6 +2342,7 @@ class RecordingAssistant:
         self.ran_with: tuple | None = None
         self.announced: list[tuple[str, str]] = []
         self.waiting_for_followup: list[str] = []
+        self.reminded: list[tuple[str, str]] = []
         self.asked: list[tuple[str, Callable[[str], None] | None, str | None]] = []
         self.new_sessions: list[bool] = []
         self.busy_answers: list[bool] = []
@@ -2351,6 +2383,9 @@ class RecordingAssistant:
         self.announced.append((text, emotion))
         if wait_for_followup:
             self.waiting_for_followup.append(text)
+
+    def remind(self, text: str, emotion: str = "neutral") -> None:
+        self.reminded.append((text, emotion))
 
     def ask_aloud(self, prompt: str, *, on_reply=None, required_tool=None, new_session=False):
         self.asked.append((prompt, on_reply, required_tool))
@@ -4856,6 +4891,7 @@ def test_run_with_the_games_on_gives_the_brain_the_game_tools_and_watches_while_
         memory_tools,
         schedule,
         todo,
+        focus,
         briefing,
         pc,
         play_time,
@@ -4867,6 +4903,7 @@ def test_run_with_the_games_on_gives_the_brain_the_game_tools_and_watches_while_
         type(memory_tools),
         type(schedule),
         type(todo),
+        type(focus),
         type(briefing),
         type(pc),
         type(play_time),
@@ -4877,6 +4914,7 @@ def test_run_with_the_games_on_gives_the_brain_the_game_tools_and_watches_while_
         MemoryTools,
         ScheduleTools,
         TodoTools,
+        FocusTools,
         BriefingTools,
         PcTools,
         PlayTimeTools,
@@ -4935,6 +4973,7 @@ def test_run_without_a_cookie_has_the_game_tools_but_no_watcher(
         MemoryTools,
         ScheduleTools,
         TodoTools,
+        FocusTools,
         BriefingTools,
         PcTools,
         PlayTimeTools,
@@ -4952,6 +4991,7 @@ def test_run_with_the_games_off_builds_none_of_it(home, run_fakes, brains, games
         MemoryTools,
         ScheduleTools,
         TodoTools,
+        FocusTools,
         BriefingTools,
         PcTools,
         PlayTimeTools,
@@ -5908,8 +5948,8 @@ def test_run_gives_the_brain_her_memory_tools_and_the_notes_at_each_session_star
     assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
 
     brain = brains[0]
-    # Then the schedule, to-do, briefing, PC, play time, offers, and music.
-    [tools, _, _, _, _, _, _, _] = brain.providers
+    # Then the schedule, to-do, focus, briefing, PC, play time, offers, and music.
+    [tools, _, _, _, _, _, _, _, _] = brain.providers
     assert isinstance(tools, MemoryTools)
     assert brain.memory_section() == memory_prompt_section([])
     assert tools.run("remember", {"text": "Master alergi udang."})[1] is False
@@ -5951,6 +5991,7 @@ def test_with_the_memory_off_the_brain_gets_neither_the_tools_nor_the_notes(
     assert [type(tools) for tools in brains[0].providers] == [
         ScheduleTools,
         TodoTools,
+        *([FocusTools] if argv[0] == "run" else []),
         BriefingTools,
         PcTools,
         PlayTimeTools,
@@ -6267,6 +6308,7 @@ def test_run_gives_the_brain_the_schedule_tools_and_fires_her_schedule_while_she
         MemoryTools,
         ScheduleTools,
         TodoTools,
+        FocusTools,
         BriefingTools,
         PcTools,
         PlayTimeTools,
@@ -6278,7 +6320,9 @@ def test_run_gives_the_brain_the_schedule_tools_and_fires_her_schedule_while_she
     assert scheduler.listening == [False, True]
     assert refused == [False, False, False]
     # The reminder is said and pushed; the device command and the routine run without a word.
-    assert RecordingAssistant.instances[0].announced == [(MEDICINE, "happy")]
+    # Master set it himself, so it is said through `remind`, also during a focus block.
+    assert RecordingAssistant.instances[0].reminded == [(MEDICINE, "happy")]
+    assert RecordingAssistant.instances[0].announced == []
     assert notifier.sent == [("Cyrene", MEDICINE, ("alarm_clock",))]
     assert brain.registry.get("ac").calls == [("temp_24", 24), ("temp_26", 26)]
     assert brain.registry.get("lampu_kamar").calls == [("off", None)]
@@ -6301,7 +6345,7 @@ def test_run_keeps_her_schedule_where_and_as_the_config_says(home, run_fakes, br
     store = ScheduleStore(home / "jadwal" / "jadwal.json")
     assert [entry.action for entry in store.entries()] == [Reminder("Master, bangun!")]
     schedulers[0].tick_at(at + timedelta(minutes=6))  # later than the 5 minutes of grace
-    assert RecordingAssistant.instances[0].announced == [
+    assert RecordingAssistant.instances[0].reminded == [
         ("Master, ada pengingat yang terlewat jam 07.00: Master, bangun!", "sad")
     ]
     assert store.entries() == []
@@ -6323,7 +6367,7 @@ def test_run_gives_her_tools_and_schedule_what_she_calls_the_owner(
     at = tomorrow_at(7)
     assert schedule_at(tools, at, reminder="Bangun!")[1] is False
     schedulers[0].tick_at(at + timedelta(minutes=6))  # later than the 5 minutes of grace
-    assert RecordingAssistant.instances[0].announced == [
+    assert RecordingAssistant.instances[0].reminded == [
         ("Sayang, ada pengingat yang terlewat jam 07.00: Bangun!", "sad")
     ]
 
@@ -6425,6 +6469,7 @@ def test_with_the_schedule_off_she_gets_neither_the_tools_nor_a_scheduler(
     assert [type(tools) for tools in brains[0].providers] == [
         MemoryTools,
         TodoTools,
+        *([FocusTools] if argv[0] == "run" else []),
         BriefingTools,
         PcTools,
         PlayTimeTools,
@@ -6899,6 +6944,7 @@ def test_with_claude_she_may_look_at_the_screen_at_the_configured_size(
         MemoryTools,
         ScheduleTools,
         TodoTools,
+        *([FocusTools] if argv[0] == "run" else []),
         BriefingTools,
         PcTools,
         PlayTimeTools,
@@ -7301,6 +7347,7 @@ def test_with_the_briefing_off_she_gets_neither_the_tool_nor_the_greeting(
         MemoryTools,
         ScheduleTools,
         TodoTools,
+        *([FocusTools] if argv[0] == "run" else []),
         PcTools,
         PlayTimeTools,
         OffersTools,
@@ -9992,6 +10039,304 @@ def test_check_fails_when_the_play_time_file_cannot_be_read(
     )
 
 
+# --- focus companion ---------------------------------------------------------------------------
+
+# Saturday 17 October 2026, 22:00 WIB: `run`'s focus timer and `waifu focus` read this clock.
+FOCUS_NOW = datetime(2026, 10, 17, 22, 0, tzinfo=timezone(timedelta(hours=7)))
+BLOCK_DONE = "Master, dua puluh lima menit selesai. Istirahat lima menit dulu ya."
+FOCUS_PUSH = "focus-push"
+
+
+class FocusClock:
+    def __init__(self, now: datetime) -> None:
+        self.now = now
+
+    def __call__(self) -> datetime:
+        return self.now
+
+
+@pytest.fixture
+def focus_clock(monkeypatch) -> FocusClock:
+    """The WIB clock of `run`'s focus timer and tool and of `waifu focus`, at FOCUS_NOW."""
+    clock = FocusClock(FOCUS_NOW)
+    monkeypatch.setattr(cli, "wib_now", clock)
+    return clock
+
+
+def focus_tools(brain: HouseBrain) -> FocusTools:
+    [tools] = [provider for provider in brain.providers if isinstance(provider, FocusTools)]
+    return tools
+
+
+def start_focus(brain: HouseBrain, **lengths) -> dict:
+    result, is_error = focus_tools(brain).run("focus_timer", {"action": "start", **lengths})
+    assert is_error is False, result
+    return json.loads(result)
+
+
+def focus_threads() -> list[threading.Thread]:
+    return [thread for thread in threading.enumerate() if thread.name == "focus-timer"]
+
+
+def await_focus_pushes() -> None:
+    for thread in threading.enumerate():
+        if thread.name == FOCUS_PUSH:
+            thread.join(WAIT_S)
+
+
+def focus_log(home: Path, clock: FocusClock) -> FocusStore:
+    """The example config's focus log, inside the test's working directory."""
+    return FocusStore(home / "data" / "focus.json", keep_days=90, now=clock)
+
+
+def test_run_keeps_one_focus_timer_while_she_listens_and_holds_her_own_speech_in_a_block(
+    home, run_fakes, brains, focus_timers, focus_clock, monkeypatch
+):
+    seen: dict[str, object] = {}
+
+    def listen(self, mic, segmenter) -> None:
+        self.ran_with = (mic, segmenter)
+        quiet = self.collaborators["quiet"]
+        seen["before"] = quiet()
+        seen["started"] = start_focus(brains[0], rounds=2)
+        seen["in_block"] = quiet()
+        focus_clock.now += timedelta(minutes=25)
+        seen["said"] = focus_timers[0].tick_once()
+        seen["at_the_break"] = quiet()
+        focus_clock.now += timedelta(minutes=5)
+        focus_timers[0].tick_once()
+        focus_clock.now += timedelta(minutes=5)  # five minutes into the second block
+
+    monkeypatch.setattr(RecordingAssistant, "run", listen)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    [timer] = focus_timers
+    assistant = RecordingAssistant.instances[0]
+    assert assistant.collaborators["quiet"] == timer.in_block
+    assert (seen["before"], seen["in_block"], seen["at_the_break"]) == (False, True, False)
+    assert seen["started"]["block_ends_at"] == "22:25"
+    assert seen["said"] == [BLOCK_DONE]
+    # Master asked for the session, so its lines are never held back like her own notices.
+    assert assistant.reminded == [(BLOCK_DONE, "happy"), ("Yuk, lanjut fokus lagi.", "happy")]
+    assert assistant.announced == []
+    # Stopping `run` ends the session without a word, logging the part of the block done.
+    assert timer.state() is None
+    assert focus_threads() == []
+    assert focus_log(home, focus_clock).blocks() == (
+        FocusBlock(FOCUS_NOW, FOCUS_NOW + timedelta(minutes=25)),
+        FocusBlock(FOCUS_NOW + timedelta(minutes=30), FOCUS_NOW + timedelta(minutes=35)),
+    )
+    assert to_anthropic(focus_tools(brains[0]).specs()[0])["strict"] is False
+
+
+@pytest.mark.parametrize("push", [True, False], ids=["push", "no-push"])
+def test_run_pushes_her_focus_lines_to_the_phone_only_with_focus_push(
+    push, home, run_fakes, brains, focus_timers, focus_clock, monkeypatch
+):
+    call_the_owner(home, "Sayang")
+    enable_notify(home)
+    notifier = FakeNotifier()
+    use_notifier(monkeypatch, notifier)
+    if push:
+        append_config(home, "focus:\n  push: true\n")
+
+    def listen(self, mic, segmenter) -> None:
+        self.ran_with = (mic, segmenter)
+        start_focus(brains[0])
+        focus_clock.now += timedelta(minutes=25)
+        focus_timers[0].tick_once()
+        await_focus_pushes()
+
+    monkeypatch.setattr(RecordingAssistant, "run", listen)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    done = "Sayang, fokusnya selesai. Hebat, total dua puluh lima menit!"
+    assert RecordingAssistant.instances[0].reminded == [(done, "happy")]
+    assert notifier.sent == ([("Cyrene", done, ("hourglass_flowing_sand",))] if push else [])
+
+
+@pytest.mark.parametrize(
+    ("failure", "exit_code"),
+    [(SttError("Whisper berhenti."), 1), (KeyboardInterrupt(), 130)],
+    ids=["whisper-fails", "ctrl-c"],
+)
+def test_run_ends_the_focus_session_however_listening_ends(
+    failure, exit_code, home, run_fakes, brains, focus_timers, monkeypatch
+):
+    def listen_until_it_fails(self, mic, segmenter) -> None:
+        self.ran_with = (mic, segmenter)
+        start_focus(brains[0])
+        raise failure
+
+    monkeypatch.setattr(RecordingAssistant, "run", listen_until_it_fails)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == exit_code
+
+    [timer] = focus_timers
+    assert timer.state() is None
+    assert focus_threads() == []
+
+
+def test_chat_gets_neither_the_focus_timer_nor_its_tool(home, brains, focus_timers, monkeypatch):
+    # No voice to keep quiet, and `run` stays the only writer of the focus log.
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main(["chat", "--dry-run"]) == 0
+
+    assert not any(isinstance(tools, FocusTools) for tools in brains[0].providers)
+    assert focus_timers == []
+
+
+def test_with_focus_off_run_has_neither_the_timer_nor_its_tool_and_is_never_quiet(
+    home, run_fakes, brains, focus_timers
+):
+    append_config(home, "focus:\n  enabled: false\n")
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    assert not any(isinstance(tools, FocusTools) for tools in brains[0].providers)
+    assert focus_timers == []
+    assert RecordingAssistant.instances[0].collaborators["quiet"] is None
+
+
+def at_focus(day_offset: int, hour: int, minute: int = 0) -> datetime:
+    """`day_offset` days from Saturday (FOCUS_NOW's day) at `hour`:`minute` WIB."""
+    return FOCUS_NOW.replace(hour=hour, minute=minute) + timedelta(days=day_offset)
+
+
+@pytest.fixture
+def focused(home, focus_clock) -> FocusStore:
+    """The clock at FOCUS_NOW and the example config's focus log: four blocks of 25 minutes on
+    Saturday morning, an hour on Thursday evening, and an hour on the Sunday before this week."""
+    store = focus_log(home, focus_clock)
+    for start in (0, 30, 60, 90):
+        store.add(
+            FocusBlock(
+                at_focus(0, 8) + timedelta(minutes=start),
+                at_focus(0, 8) + timedelta(minutes=start + 25),
+            )
+        )
+    store.add(FocusBlock(at_focus(-2, 20), at_focus(-2, 21)))
+    store.add(FocusBlock(at_focus(-6, 10), at_focus(-6, 11)))
+    return store
+
+
+FOCUS_NOTE = (
+    "Dicatat hanya selama 'waifu run' menyala; sesi fokus dimulai dan dihentikan lewat Cyrene."
+)
+
+
+def test_focus_prints_today_s_and_this_week_s_focus_time(home, focused, capsys):
+    assert cli.main(["focus"]) == 0
+
+    assert capsys.readouterr().out.splitlines() == [
+        "Fokus hari ini, Sabtu 17-10-2026: 1 jam 40 menit dalam 4 blok",
+        "Fokus minggu ini, sejak Senin 12-10-2026: 2 jam 40 menit dalam 5 blok",
+        FOCUS_NOTE,
+    ]
+
+
+def test_focus_says_belum_ada_for_a_period_without_a_block(home, focus_clock, capsys):
+    focus_log(home, focus_clock).add(FocusBlock(at_focus(-2, 20), at_focus(-2, 21)))
+
+    assert cli.main(["focus"]) == 0
+
+    assert capsys.readouterr().out.splitlines()[:2] == [
+        "Fokus hari ini, Sabtu 17-10-2026: belum ada",
+        "Fokus minggu ini, sejak Senin 12-10-2026: 1 jam dalam 1 blok",
+    ]
+
+
+def test_focus_says_when_nothing_is_logged_and_makes_no_file(home, focus_clock, capsys):
+    assert cli.main(["focus"]) == 0
+
+    assert capsys.readouterr().out.splitlines() == ["Belum ada catatan fokus."]
+    assert not (home / "data" / "focus.json").exists()
+
+
+def test_focus_reads_the_log_with_focus_off_and_says_so(home, focused, capsys):
+    append_config(home, "focus:\n  enabled: false\n")
+
+    assert cli.main(["focus"]) == 0
+
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0] == "! Teman fokus mati (focus.enabled: false): ini catatan lama."
+    assert lines[1] == "Fokus hari ini, Sabtu 17-10-2026: 1 jam 40 menit dalam 4 blok"
+
+
+def test_focus_exits_1_when_the_log_cannot_be_read(home, focused, monkeypatch, capsys):
+    def unreadable(self):
+        raise PermissionError("access denied")
+
+    monkeypatch.setattr(FocusStore, "blocks", unreadable)
+
+    assert cli.main(["focus"]) == 1
+
+    assert capsys.readouterr().out.splitlines() == [
+        f"✗ File fokus {Path('data') / 'focus.json'} tidak bisa dibaca: access denied"
+    ]
+
+
+def focus_line(out: str) -> str:
+    [line] = [line for line in out.splitlines() if "fokus" in line.lower()]
+    return line
+
+
+@pytest.mark.parametrize(
+    ("settings", "notify", "expected"),
+    [
+        (None, False, "✓ Teman fokus: aktif"),
+        ("focus:\n  push: true\n", True, "✓ Teman fokus: aktif, juga ke HP"),
+        ("focus:\n  push: true\n", False, "✓ Teman fokus: aktif"),
+        ("focus:\n  enabled: false\n", False, "! Teman fokus mati"),
+    ],
+    ids=["default", "push", "push-without-notify", "off"],
+)
+def test_check_says_whether_the_focus_companion_is_on(
+    settings, notify, expected, home, nothing_installed, capsys
+):
+    if notify:
+        enable_notify(home)
+    if settings is not None:
+        append_config(home, settings)
+
+    cli.main(["check"])
+
+    assert focus_line(capsys.readouterr().out) == expected
+    assert not (home / "data" / "focus.json").exists()
+
+
+def test_check_moves_a_broken_focus_log_aside_and_points_at_it(home, nothing_installed, capsys):
+    (home / "data").mkdir(exist_ok=True)
+    (home / "data" / "focus.json").write_text("broken", encoding="utf-8")
+
+    cli.main(["check"])
+
+    line = focus_line(capsys.readouterr().out)
+    [moved] = (home / "data").glob("focus.json.corrupt-*")
+    assert line == (
+        f"! Teman fokus: aktif; file fokus yang rusak dipindah ke {Path('data') / moved.name} "
+        "(lihat README, bagian Teman fokus)"
+    )
+
+
+def test_check_fails_when_the_focus_log_cannot_be_read(
+    home, nothing_installed, monkeypatch, capsys
+):
+    def unreadable(self):
+        raise PermissionError("access denied")
+
+    monkeypatch.setattr(FocusStore, "blocks", unreadable)
+
+    assert cli.main(["check"]) == 1
+
+    assert focus_line(capsys.readouterr().out) == (
+        f"✗ File fokus {Path('data') / 'focus.json'} tidak bisa dibaca: access denied"
+    )
+
+
 # --- web search and free offers ----------------------------------------------------------------
 
 
@@ -11880,6 +12225,7 @@ def test_run_gives_the_brain_her_to_do_tools_and_the_tasks_due_today_in_the_brie
         MemoryTools,
         ScheduleTools,
         TodoTools,
+        FocusTools,
         BriefingTools,
         PcTools,
         PlayTimeTools,
@@ -11943,6 +12289,7 @@ def test_with_the_todo_list_off_the_brain_gets_neither_the_tools_nor_the_tasks(
     assert [type(tools) for tools in brains[0].providers] == [
         MemoryTools,
         ScheduleTools,
+        *([FocusTools] if argv[0] == "run" else []),
         BriefingTools,
         PcTools,
         PlayTimeTools,
@@ -12330,6 +12677,7 @@ def test_run_and_chat_give_the_brain_the_music_tool_with_either_backend(
         MemoryTools,
         ScheduleTools,
         TodoTools,
+        *([FocusTools] if argv[0] == "run" else []),
         BriefingTools,
         PcTools,
         PlayTimeTools,
@@ -12425,6 +12773,7 @@ def test_with_music_off_the_brain_gets_no_music_tool(
         MemoryTools,
         ScheduleTools,
         TodoTools,
+        *([FocusTools] if argv[0] == "run" else []),
         BriefingTools,
         PcTools,
         PlayTimeTools,

@@ -8,6 +8,7 @@ from waifu.config import (
     AppConfig,
     ConfigError,
     FallbackTtsConfig,
+    FocusConfig,
     PlayTimeConfig,
     RainAlertConfig,
     TepiraConfig,
@@ -907,6 +908,40 @@ def test_an_executable_name_of_64_characters_with_spaces_is_accepted(tmp_path):
     play = load_config(write_yaml(tmp_path, f"play_time:\n  games:\n    genshin: [{name}]\n"))
 
     assert play.play_time.games == {"genshin": [name]}
+
+
+def test_the_focus_companion_is_on_without_a_push_by_default():
+    focus = AppConfig().focus
+    assert (focus.enabled, focus.push, focus.keep_days) == (True, False, 90)
+    assert focus.path == Path("data/focus.json")
+
+
+def test_focus_settings_load_from_yaml(tmp_path):
+    text = "focus:\n  enabled: false\n  push: true\n  keep_days: 30\n  path: data/fokus.json\n"
+    focus = load_config(write_yaml(tmp_path, text)).focus
+    assert (focus.enabled, focus.push, focus.keep_days) == (False, True, 30)
+    assert focus.path == Path("data/fokus.json")
+
+
+@pytest.mark.parametrize(
+    ("lines", "named"),
+    [
+        ("  keep_days: 0\n", "focus.keep_days"),
+        ("  keep_days: 367\n", "focus.keep_days"),
+        ("  minutes: 50\n", "focus.minutes"),  # the lengths are asked for by voice
+    ],
+)
+def test_bad_focus_settings_are_refused_naming_the_setting(tmp_path, lines, named):
+    with pytest.raises(ConfigError, match=re.escape(named)):
+        load_config(write_yaml(tmp_path, "focus:\n" + lines))
+
+
+def test_the_example_focus_block_written_out_holds_the_defaults(tmp_path):
+    example = (ROOT / "config.example.yaml").read_text(encoding="utf-8")
+    commented = example[example.index("\n# focus:\n") + 1 :].split("\n\n", 1)[0]
+    written_out = "\n".join(line.removeprefix("# ") for line in commented.splitlines())
+
+    assert load_config(write_yaml(tmp_path, written_out)).focus == FocusConfig()
 
 
 def test_web_search_is_on_for_indonesia_by_default():

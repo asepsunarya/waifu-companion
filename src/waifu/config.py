@@ -848,6 +848,17 @@ def _is_executable_name(name: str) -> bool:
     )
 
 
+class FocusConfig(_Strict):
+    """The focus timer (pomodoro) she keeps while `waifu run` runs, and its log. The lengths of a
+    session are asked for by voice."""
+
+    enabled: bool = True
+    # With notifications on, also push each of her focus lines to the phone.
+    push: bool = False
+    keep_days: int = Field(default=90, ge=1, le=366)
+    path: Path = Path("data/focus.json")
+
+
 class MusicConfig(_Strict):
     """Songs on YouTube, opened in the default browser when Master asks."""
 
@@ -1018,6 +1029,7 @@ class AppConfig(_Strict):
     music: MusicConfig = Field(default_factory=MusicConfig)
     pc_health: PcHealthConfig = Field(default_factory=PcHealthConfig)
     play_time: PlayTimeConfig = Field(default_factory=PlayTimeConfig)
+    focus: FocusConfig = Field(default_factory=FocusConfig)
     web_search: WebSearchConfig = Field(default_factory=WebSearchConfig)
     free_offers: FreeOffersConfig = Field(default_factory=FreeOffersConfig)
     vision: VisionConfig = Field(default_factory=VisionConfig)

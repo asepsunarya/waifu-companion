@@ -439,6 +439,21 @@ schedule:
 #   keep_days: 90          # catatan lebih lama dari N hari dihapus (1-366)
 #   path: data/playtime.json
 
+# Teman fokus (README, bagian "Teman fokus"): selama `waifu run`, "temani aku fokus 25 menit" atau
+# "pomodoro empat kali" membuatnya menjaga waktu fokus dan istirahat (blok 5-120 menit, istirahat
+# 1-60 menit, sampai 8 kali; panjangnya diminta lewat suara). Selama blok fokus dia diam:
+# pemberitahuannya sendiri (hujan, game, PC, promo, biaya, versi baru) dan sapaan pagi menunggu
+# istirahat, tapi pengingat dan jadwal yang Master pasang tetap berbunyi. "Sisa berapa menit?" dan
+# "berhenti fokusnya" juga bisa. Sesinya hilang kalau `waifu run` dimulai ulang. Lihat waktu fokus
+# hari ini dan minggu ini dengan `waifu focus`. Yang disimpan hanya kapan tiap blok fokus mulai
+# dan selesai, di PC ini (path); dengan Claude, waktunya ikut ke API Anthropic saat ditanya.
+# Sudah menyala tanpa ditulis; untuk mengubahnya, tulis bagian ini tanpa tanda # di depannya.
+# focus:
+#   enabled: true          # false: tanpa timer fokus (`waifu focus` tetap membaca catatan lama)
+#   push: false            # true: kalimat akhir blok, istirahat, dan sesi juga dikirim ke HP (butuh notify)
+#   keep_days: 90          # catatan lebih lama dari N hari dihapus (1-366)
+#   path: data/focus.json
+
 # Promo gratis (README, bagian "Pencarian web dan promo gratis"): "Ada game gratis apa sekarang?"
 # membuatnya membaca game yang gratis untuk disimpan di Epic Games Store (dari Epic sendiri) dan
 # di Steam, GOG, dan lainnya (dari GamerPower.com). "Ada promo AI gratis nggak?" membacakan promo

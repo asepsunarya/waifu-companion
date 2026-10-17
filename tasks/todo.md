@@ -1372,12 +1372,12 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 141 · **Files:** `src/waifu/brain/focus_tools.py`, `tests/test_focus_tools.py`, `config/persona.md`, `config/persona_hsr.md`, `tests/test_brain_persona.py` · **Scope:** M
 
-## Task 144: Wiring, `waifu focus`, check
+## Task 144: Wiring, `waifu focus`, check ✅
 
 **Acceptance criteria:**
-- [ ] `FocusConfig` as `AppConfig.focus` with tests; `config.example.yaml` block, valid when written out
-- [ ] `run` with focus on: one timer for the voice loop's lifetime, the tool, `quiet`, the scheduler through `remind`, a push only with `focus.push`; none with it off; `chat` never gets the timer or the tool; a tmp_path store guard and a timer whose thread only waits to be stopped in `test_cli.py`; the strict-tool budget still holds
-- [ ] `waifu focus` and the check line per SPEC
+- [x] `FocusConfig` as `AppConfig.focus` with tests; `config.example.yaml` block, valid when written out
+- [x] `run` with focus on: one timer for the voice loop's lifetime, the tool, `quiet`, the scheduler through `remind`, a push only with `focus.push`; none with it off; `chat` never gets the timer or the tool; a tmp_path store guard and a timer whose thread only waits to be stopped in `test_cli.py`; the strict-tool budget still holds
+- [x] `waifu focus` and the check line per SPEC
 
 **Dependencies:** 142, 143 · **Files:** `src/waifu/config.py`, `tests/test_config.py`, `src/waifu/cli.py`, `tests/test_cli.py`, `config.example.yaml` · **Scope:** M
 

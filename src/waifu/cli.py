@@ -58,6 +58,7 @@ from waifu.brain.base import Brain, ToolCallRecord
 from waifu.brain.confirm import ConfirmationGate
 from waifu.brain.factory import build_brain, confirmation_gate
 from waifu.brain.finance_tools import FinanceTools
+from waifu.brain.focus_tools import FocusTools
 from waifu.brain.memory_tools import MemoryTools
 from waifu.brain.music_tools import MusicTools
 from waifu.brain.offers_tools import OffersTools
@@ -102,6 +103,8 @@ from waifu.finance.values import (
     FinanceError,
     FinanceSource,
 )
+from waifu.focus import FocusStore, focus_totals
+from waifu.focus_timer import FocusTimer
 from waifu.gacha.code_store import CodeStore
 from waifu.gacha.code_tools import RECENT_CODES, CodeTools
 from waifu.gacha.code_watcher import OUTCOME_TEXT, CodeWatcher, ReadCodes
@@ -645,6 +648,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="today (hari ini, bawaan), yesterday (kemarin), week (minggu ini, sejak Senin), "
         "atau month (bulan ini)",
     )
+    command(
+        "focus",
+        _focus,
+        "Tampilkan waktu fokus hari ini dan minggu ini, dari catatan teman fokus Cyrene selama "
+        "'waifu run' menyala.",
+    )
     youtube = commands.add_parser(
         "youtube",
         parents=[shared],
@@ -1132,9 +1141,21 @@ def _listen(args: argparse.Namespace) -> int:
     camera_offered = _camera_offered(config)
     turn_images = TurnImages() if camera_offered else None
     camera_turn = CameraTurn() if camera_offered else None
+    # One focus timer for this run: her tool starts and stops it, and while a block is under way
+    # the Assistant says only what Master asked for himself.
+    focus = _focus_timer(config)
     with _session_schedule(config, dry_run=args.dry_run) as schedule:
         brain = _companion_brain(
-            config, registry, gacha, schedule, usage, pc, notifier, turn_images, camera_turn
+            config,
+            registry,
+            gacha,
+            schedule,
+            usage,
+            pc,
+            notifier,
+            turn_images,
+            camera_turn,
+            focus=focus,
         )
         stt = WhisperStt(config.stt, name)
         gate = WakeGate(config.assistant.wake_words, config.assistant.followup_seconds)
@@ -1169,6 +1190,7 @@ def _listen(args: argparse.Namespace) -> int:
                 avatar=avatar,
                 turn_images=turn_images,
                 camera_turn=camera_turn,
+                quiet=None if focus is None else focus.in_block,
             )
             reactions = InteractionHandler(
                 config.avatar.interactions,
@@ -1203,14 +1225,16 @@ def _listen(args: argparse.Namespace) -> int:
                         _code_watcher(config, gacha, assistant, notifier),
                         _pc_watcher(config, pc, assistant, notifier),
                         _play_time_watcher(config, assistant),
+                        _focus_session(config, focus, assistant, notifier),
                         _rain_watcher(config, assistant, notifier),
                         _version_watcher(config, running, assistant, notifier),
                         _offers_watcher(config, assistant, notifier, usage),
+                        # Master set the reminders himself: they speak during a focus block too.
                         _scheduler(
                             config,
                             schedule,
                             registry,
-                            announce=assistant.announce,
+                            announce=assistant.remind,
                             notifier=notifier,
                         ),
                         _briefing_timer(config, assistant, notifier),
@@ -1308,13 +1332,16 @@ def _companion_brain(
     notifier: Notifier | None,
     turn_images: TurnImages | None = None,
     camera_turn: CameraTurn | None = None,
+    *,
+    focus: FocusTimer | None = None,
 ) -> Brain:
     """The brain with the game tools when they are on, her long-term memory when it is on,
-    then her schedule when it is on, Master's to-do list when it is on, the day's briefing when
-    it is on, with `pc` how the PC is doing, how long Master's games were open when play time
-    is on, the free offers when they are on (their links pushed through `notifier`), Master's
-    money from tepira when it is on, songs on YouTube when they are on, with Claude her eyes on
-    the screen when vision is on, and with `usage` what her requests cost.
+    then her schedule when it is on, Master's to-do list when it is on, with `focus` (only
+    `run` has one) Master's focus timer, the day's briefing when it is on, with `pc` how the PC
+    is doing, how long Master's games were open when play time is on, the free offers when
+    they are on (their links pushed through `notifier`), Master's money from tepira when it is
+    on, songs on YouTube when they are on, with Claude her eyes on the screen when vision is
+    on, and with `usage` what her requests cost.
 
     With memory, every new session lists the notes as they are in the file at that moment.
     The to-do list is the real one also in a dry run (it moves no device), and the briefing
@@ -1341,6 +1368,8 @@ def _companion_brain(
         )
     if todo is not None:
         providers.append(TodoTools(todo))
+    if focus is not None:
+        providers.append(FocusTools(focus, now=wib_now))
     if config.briefing.enabled:
         providers.append(_briefing_tools(config.briefing, schedule, todo=todo))
     if pc is not None:
@@ -4076,6 +4105,94 @@ def _play_duration(seconds: int) -> str:
     return duration_text(whole_minutes(seconds))
 
 
+# --- focus companion -------------------------------------------------------------------------
+
+FOCUS_TAG = "hourglass_flowing_sand"  # ntfy shows it as an hourglass emoji
+FOCUS_NOTE = (
+    "Dicatat hanya selama 'waifu run' menyala; sesi fokus dimulai dan dihentikan lewat {name}."
+)
+
+
+def _focus_store(config: AppConfig) -> FocusStore:
+    """The focus blocks, in the file `focus.path` names (`run` writes it; `waifu focus` and
+    `check` read it)."""
+    return FocusStore(config.focus.path, keep_days=config.focus.keep_days, now=wib_now)
+
+
+def _focus_timer(config: AppConfig) -> FocusTimer | None:
+    """The focus timer of one `run`, or None with the focus companion off."""
+    if not config.focus.enabled:
+        return None
+    return FocusTimer(_focus_store(config), owner_call=config.assistant.owner_call, now=wib_now)
+
+
+@contextmanager
+def _focus_session(
+    config: AppConfig, focus: FocusTimer | None, assistant: Assistant, notifier: Notifier | None
+) -> Iterator[None]:
+    """The focus timer runs while the block runs, saying its lines through `assistant.remind`
+    (Master asked for the session, so they come during a block too) and, with `focus.push` and
+    notifications on, pushing them as well. Stopping ends a session in progress, so a restart
+    ends it; nothing without a timer."""
+    if focus is None:
+        yield
+        return
+    focus.start(_focus_teller(config, assistant, notifier))
+    try:
+        yield
+    finally:
+        focus.stop()
+
+
+def _focus_teller(
+    config: AppConfig, assistant: Assistant, notifier: Notifier | None
+) -> Callable[[str, str], None]:
+    """Queues a focus line for her to say and, with `focus.push` and notifications on, pushes it
+    from a thread of its own: the timer calls this under its lock, which must never wait for a
+    push."""
+    push = (
+        _phone_push(notifier, config.assistant.name, FOCUS_TAG)
+        if config.focus.push and notifier is not None
+        else None
+    )
+
+    def tell(text: str, emotion: str) -> None:
+        assistant.remind(text, emotion)
+        if push is not None:
+            threading.Thread(target=push, args=(text,), name="focus-push", daemon=True).start()
+
+    return tell
+
+
+def _focus(args: argparse.Namespace) -> int:
+    """Print today's and this week's focus time from the focus log alone: it works with the focus
+    companion off too. Exit 1 when the log cannot be read."""
+    config = load_config(args.config)
+    store = _focus_store(config)
+    try:
+        blocks = store.blocks()
+    except OSError as exc:
+        print(f"{FAIL} File fokus {store.path} tidak bisa dibaca: {exc}")
+        return 1
+    if not config.focus.enabled:
+        print(f"{WARN} Teman fokus mati (focus.enabled: false): ini catatan lama.")
+    if not blocks:
+        print("Belum ada catatan fokus.")
+        return 0
+    now = wib_now()
+    for period in ("today", "week"):
+        since, until = period_window(period, now)
+        total = focus_totals(blocks, since, until)
+        focused = (
+            f"{_play_duration(total.seconds)} dalam {total.blocks} blok"
+            if total.blocks
+            else "belum ada"
+        )
+        print(f"Fokus {_period_text(period, since)}: {focused}")
+    print(FOCUS_NOTE.format(name=config.assistant.name))
+    return 0
+
+
 # --- free offers -----------------------------------------------------------------------------
 
 
@@ -4634,6 +4751,7 @@ def _checks(config_path: Path) -> Iterator[Check]:
     yield _usage_check(config)
     yield _pc_health_check(config)
     yield _play_time_check(config)
+    yield _focus_check(config)
     yield _free_offers_check(config)
     yield from _voice_package_checks(config)
     yield _microphone_check(config)
@@ -4970,6 +5088,28 @@ def _play_time_check(config: AppConfig) -> Check:
     return OK, status
 
 
+def _focus_check(config: AppConfig) -> Check:
+    """Whether she keeps Master company while they focus, whether her focus lines go to the phone
+    too, and where a broken focus log was moved, if one was."""
+    focus = config.focus
+    if not focus.enabled:
+        return WARN, "Teman fokus mati"
+    try:
+        _focus_store(config).blocks()  # moves a broken file aside, as `run` would
+    except OSError as exc:
+        return FAIL, f"File fokus {focus.path} tidak bisa dibaca: {exc}"
+    status = "Teman fokus: aktif"
+    if focus.push and config.notify.enabled:
+        status += ", juga ke HP"
+    moved = _set_aside_files(focus.path)
+    if moved:
+        return WARN, (
+            f"{status}; file fokus yang rusak dipindah ke {', '.join(map(str, moved))} "
+            "(lihat README, bagian Teman fokus)"
+        )
+    return OK, status
+
+
 def _free_offers_check(config: AppConfig) -> Check:
     """Which stores she reads the free games of, when the AI offers were last searched for,
     and where a broken offers file was moved, if one was; nothing is asked of the internet."""
@@ -5007,7 +5147,7 @@ def _free_offers_check(config: AppConfig) -> Check:
 
 
 def _set_aside_files(path: Path) -> list[Path]:
-    """The copies a broken memory, schedule, to-do, usage, offers, or play time file was
+    """The copies a broken memory, schedule, to-do, usage, offers, play time, or focus file was
     renamed to (`<name>.corrupt-<time>`), oldest first.
 
     They stay until the owner repairs or deletes them, so `check` points at them every time.
