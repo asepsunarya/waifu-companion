@@ -129,10 +129,9 @@ def test_writing_says_whose_words_which_day_and_what_it_cannot_do(rig):
         "in Master's own words",
         "only what Master said for the journal",
         "Leave `date` out for today",
-        "and for Master's answer to your nightly journal question, which goes on the day you "
-        "asked about",
         "[weekday, DD-MM-YYYY HH:MM]",
-        "after midnight about the day that just ended",
+        "after midnight about the day that just ended, also in an answer to your nightly "
+        "journal question asked before midnight",
         "never a day after today",
         "`already_there`",
         "Secrets",
@@ -141,6 +140,15 @@ def test_writing_says_whose_words_which_day_and_what_it_cannot_do(rig):
         "waifu jurnal forget",
     ]:
         assert guidance in description
+
+
+def test_an_answer_after_midnight_is_dated_by_her_not_left_to_the_answer_window(rig):
+    # The window lasts session_idle_minutes from her question; an answer after it, told to
+    # leave `date` out, would go on the new date with nothing in the log.
+    description = spec(rig, JOURNAL_WRITE).description
+
+    assert "which goes on the day you asked about" not in description
+    assert "Leave `date` out for today." in description
 
 
 def test_reading_says_what_comes_back_and_how_to_say_it(rig):

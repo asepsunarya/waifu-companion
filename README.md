@@ -4133,9 +4133,9 @@ Cyrene : "Sudah kucatat. Istirahat yang cukup ya."
   masih mengobrol dengannya) dilewati malam itu, supaya dia tidak bertanya tentang "hari ini"
   di tanggal yang baru. Log mencatatnya dengan `Not saying a request held past`.
 - Kalau dia bertanya tepat sebelum tengah malam dan Master menjawab sesudahnya, jawabannya tetap
-  dicatat di tanggal dia bertanya, asal dijawab dalam sekitar 10 menit sejak pertanyaannya
-  (`assistant.session_idle_minutes`). Catatan sesudah itu masuk ke tanggal hari ini seperti
-  biasa.
+  dicatat di tanggal dia bertanya, bukan tanggal yang baru. Dalam sekitar 10 menit sejak
+  pertanyaannya (`assistant.session_idle_minutes`) ini pasti; lewat dari itu, tanggalnya dia
+  tentukan sendiri dari cerita Master, seperti cerita lewat tengah malam lainnya.
 
 ### Menghapus catatan
 
