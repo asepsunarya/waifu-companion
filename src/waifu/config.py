@@ -53,6 +53,12 @@ IANA_TIMEZONE_PATTERN = re.compile(
     r"(/[A-Za-z0-9_+-]+){1,2})$"
 )
 GamePlatform = Literal["epic", "steam", "gog", "itchio", "pc"]
+# A program's file name as the process list shows it: no folder, drive, or wildcard.
+EXECUTABLE_NAME_PATTERN = re.compile(r'[^\\/:*?"<>|]+\.exe', re.IGNORECASE)
+MAX_EXECUTABLE_CHARS = 64
+# The bedtime nudge's night: a bedtime from NIGHT_EARLIEST, or after midnight, until NIGHT_ENDS.
+NIGHT_EARLIEST = time(18, 0)
+NIGHT_ENDS = time(6, 0)
 
 
 def cookie_names(cookie: str) -> set[str]:
@@ -772,6 +778,73 @@ class PcHealthConfig(_Strict):
     gpu_warn_minutes: int = Field(default=3, ge=1, le=60)
 
 
+def _default_game_executables() -> dict[GameId, list[str]]:
+    """The games' executable names: StarRail.exe seen running on the owner's PC; the others
+    from the Unity data folders gacha/games.py names (Unity names the folder after the
+    executable). YuanShen.exe is Genshin's Chinese client."""
+    return {
+        "hsr": ["StarRail.exe"],
+        "genshin": ["GenshinImpact.exe", "YuanShen.exe"],
+        "zzz": ["ZenlessZoneZero.exe"],
+    }
+
+
+class PlayTimeConfig(_Strict):
+    """How long Master's games were open while `waifu run` ran, and the bedtime nudge."""
+
+    enabled: bool = True
+    poll_seconds: int = Field(default=60, ge=15, le=600)
+    # A game -> its executable names, as the process list shows them; only these are counted.
+    games: dict[GameId, list[str]] = Field(default_factory=_default_game_executables)
+    # None: no nudge. The night runs from here until 06:00.
+    bedtime: _Clock | None = None
+    keep_days: int = Field(default=90, ge=1, le=366)
+    path: Path = Path("data/playtime.json")
+
+    @field_validator("bedtime", mode="before")
+    @classmethod
+    def _yaml_sexagesimal_is_hh_mm(cls, value: object) -> object:
+        return _clock_from_yaml(value)
+
+    @field_validator("bedtime")
+    @classmethod
+    def _bedtime_at_night(cls, value: _Clock | None) -> _Clock | None:
+        if value is not None and NIGHT_ENDS <= value < NIGHT_EARLIEST:
+            raise ValueError("bedtime must be from 18:00 through 05:59")
+        return value
+
+    @field_validator("games")
+    @classmethod
+    def _bare_executable_names_each_of_one_game(
+        cls, value: dict[GameId, list[str]]
+    ) -> dict[GameId, list[str]]:
+        if not value:
+            raise ValueError("at least one game is required")
+        seen: set[str] = set()
+        for game, names in value.items():
+            if not names:
+                raise ValueError(f"{game} needs at least one executable name")
+            for name in names:
+                if not _is_executable_name(name):
+                    raise ValueError(
+                        f"'{name}' must be a bare file name ending in .exe, at most "
+                        f"{MAX_EXECUTABLE_CHARS} characters, without a folder or wildcard"
+                    )
+                if name.casefold() in seen:
+                    raise ValueError(f"'{name}' is listed more than once")
+                seen.add(name.casefold())
+        return value
+
+
+def _is_executable_name(name: str) -> bool:
+    return (
+        len(name) <= MAX_EXECUTABLE_CHARS
+        and name == name.strip()
+        and name.isprintable()
+        and EXECUTABLE_NAME_PATTERN.fullmatch(name) is not None
+    )
+
+
 class MusicConfig(_Strict):
     """Songs on YouTube, opened in the default browser when Master asks."""
 
@@ -941,6 +1014,7 @@ class AppConfig(_Strict):
     todo: TodoConfig = Field(default_factory=TodoConfig)
     music: MusicConfig = Field(default_factory=MusicConfig)
     pc_health: PcHealthConfig = Field(default_factory=PcHealthConfig)
+    play_time: PlayTimeConfig = Field(default_factory=PlayTimeConfig)
     web_search: WebSearchConfig = Field(default_factory=WebSearchConfig)
     free_offers: FreeOffersConfig = Field(default_factory=FreeOffersConfig)
     vision: VisionConfig = Field(default_factory=VisionConfig)

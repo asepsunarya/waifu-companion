@@ -825,6 +825,78 @@ def test_bad_pc_health_settings_are_refused(tmp_path, lines):
         load_config(write_yaml(tmp_path, "pc_health:\n" + lines))
 
 
+def test_play_time_counts_the_three_games_every_minute_without_a_bedtime_by_default():
+    play = AppConfig().play_time
+    assert (play.enabled, play.poll_seconds, play.bedtime) == (True, 60, None)
+    assert play.games == {
+        "hsr": ["StarRail.exe"],
+        "genshin": ["GenshinImpact.exe", "YuanShen.exe"],
+        "zzz": ["ZenlessZoneZero.exe"],
+    }
+    assert (play.keep_days, play.path) == (90, Path("data/playtime.json"))
+
+
+def test_play_time_settings_load_from_yaml_with_a_bare_bedtime(tmp_path):
+    text = (
+        "play_time:\n  enabled: false\n  poll_seconds: 120\n  games:\n"
+        "    hsr: [StarRail.exe]\n    zzz: [ZenlessZoneZero.exe, ZZZ Beta.exe]\n"
+        "  bedtime: 23:30\n  keep_days: 30\n  path: data/main.json\n"
+    )
+    play = load_config(write_yaml(tmp_path, text)).play_time
+    assert (play.enabled, play.poll_seconds, play.keep_days) == (False, 120, 30)
+    assert play.games == {"hsr": ["StarRail.exe"], "zzz": ["ZenlessZoneZero.exe", "ZZZ Beta.exe"]}
+    assert (play.bedtime, play.path) == (time(23, 30), Path("data/main.json"))
+
+
+@pytest.mark.parametrize("bedtime", ["'18:00'", "'23:59'", "'00:00'", "'01:30'", "'05:59'"])
+def test_a_bedtime_from_six_in_the_evening_until_six_in_the_morning_is_accepted(tmp_path, bedtime):
+    play = load_config(write_yaml(tmp_path, f"play_time:\n  bedtime: {bedtime}\n")).play_time
+    assert play.bedtime == time.fromisoformat(bedtime.strip("'"))
+
+
+GAMES_LINE = "play_time.games"
+
+
+@pytest.mark.parametrize(
+    ("lines", "named"),
+    [
+        ("  poll_seconds: 14\n", "play_time.poll_seconds"),
+        ("  poll_seconds: 601\n", "play_time.poll_seconds"),
+        ("  keep_days: 0\n", "play_time.keep_days"),
+        ("  keep_days: 367\n", "play_time.keep_days"),
+        ("  bedtime: '06:00'\n", "play_time.bedtime"),  # the night is over
+        ("  bedtime: '12:00'\n", "play_time.bedtime"),
+        ("  bedtime: '17:59'\n", "play_time.bedtime"),
+        ("  games: {}\n", GAMES_LINE),
+        ("  games:\n    hsr: []\n", GAMES_LINE),
+        ("  games:\n    wuwa: [Client-Win64-Shipping.exe]\n", GAMES_LINE),
+        ("  games:\n    hsr: [StarRail]\n", GAMES_LINE),  # no .exe
+        ("  games:\n    hsr: [StarRail.exe.lnk]\n", GAMES_LINE),
+        ("  games:\n    hsr: [.exe]\n", GAMES_LINE),
+        ("  games:\n    hsr: ['C:\\Games\\StarRail.exe']\n", GAMES_LINE),  # a path
+        ("  games:\n    hsr: [Games/StarRail.exe]\n", GAMES_LINE),
+        ("  games:\n    hsr: ['Star*.exe']\n", GAMES_LINE),  # a wildcard
+        ("  games:\n    hsr: [' StarRail.exe']\n", GAMES_LINE),
+        (f"  games:\n    hsr: [{'S' * 61}.exe]\n", GAMES_LINE),  # 65 characters
+        ("  games:\n    hsr: [Game.exe]\n    zzz: [game.EXE]\n", GAMES_LINE),  # one name, two games
+        ("  games:\n    hsr: [StarRail.exe, starrail.exe]\n", GAMES_LINE),
+        ("  foreground_only: true\n", "play_time.foreground_only"),
+    ],
+)
+def test_bad_play_time_settings_are_refused_naming_the_setting(tmp_path, lines, named):
+    with pytest.raises(ConfigError, match=re.escape(named)):
+        load_config(write_yaml(tmp_path, "play_time:\n" + lines))
+
+
+def test_an_executable_name_of_64_characters_with_spaces_is_accepted(tmp_path):
+    name = "Genshin Impact " + "x" * 45 + ".exe"
+    assert len(name) == 64
+
+    play = load_config(write_yaml(tmp_path, f"play_time:\n  games:\n    genshin: [{name}]\n"))
+
+    assert play.play_time.games == {"genshin": [name]}
+
+
 def test_web_search_is_on_for_indonesia_by_default():
     search = AppConfig().web_search
     assert (search.enabled, search.max_uses) == (True, 3)
