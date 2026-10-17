@@ -1597,3 +1597,65 @@ named `tests/test_<package>_<module>.py`.
 - [x] README "Pendapatan gacha bulanan", a command row, a line in "Laporan game mingguan", checklist items; CHANGELOG v1.33; full suite and ruff clean
 
 **Dependencies:** 165, 166 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
+
+## Task 168a: Mode game contract ✅
+
+**Acceptance criteria:**
+- [x] SPEC "mode game (v1.34)" (stories, non-goals, config and its errors, `on_poll`, `GameMode`, the hold through the v1.30 quiet, phone mode without a push of its own, the bedtime nudge, the staleness of held items, the CLI, known limits, privacy, safety); tasks 168a-174 in the plan and here
+
+**Dependencies:** none · **Files:** `SPEC.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
+
+## Task 168: `GameModeConfig` and its validation
+
+**Acceptance criteria:**
+- [ ] `game_mode` with `announcements` (`normal` by default, `hold`, `phone`), `on_start` and `on_stop` (none by default); another word is refused naming the setting
+- [ ] A routine name not in `routines` is a ConfigError naming it; a game mode other than the default with `play_time.enabled: false` is a ConfigError; the default loads with play time off
+
+**Dependencies:** 168a · **Files:** `src/waifu/config.py`, `tests/test_config.py` · **Scope:** S
+
+## Task 169: The play time watcher's `on_poll`
+
+**Acceptance criteria:**
+- [ ] After each good poll `on_poll(playing, resumed)`: playing while a tracked game has an open session (one missed poll keeps it, a sleep keeps it), resumed only at the first poll of a run that went on with a session from before
+- [ ] Never for a failed poll, from `stop()`, or after it; a failing `on_poll` is logged and polling goes on; without one nothing changes
+
+**Dependencies:** 168a · **Files:** `src/waifu/play_watch.py`, `tests/test_play_watch.py` · **Scope:** S
+
+## Task 170: `GameMode`
+
+**Acceptance criteria:**
+- [ ] `on_start` on not playing → playing, `on_stop` on the reverse, once per transition, through `run_routine` with the schedule (delayed steps scheduled); the first observation runs `on_start` only when playing and not resumed, never `on_stop`; nothing said; failures logged at WARNING, exceptions with their traceback
+- [ ] `playing()` only while the last observation saw a game at most three polls ago; `holding()` in `hold` and `phone`, `diverting()` in `phone`, each only while playing
+
+**Dependencies:** 168 · **Files:** `src/waifu/game_mode.py`, `tests/test_game_mode.py` · **Scope:** M
+
+## Task 171: Announcements that expire
+
+**Acceptance criteria:**
+- [ ] `announce(..., expires_at=None)`; an announcement still queued at its expiry is dropped with an INFO log, the rest said as before; reminders never expire
+- [ ] The rain alert is announced with its rain's start as `expires_at`; held past it (a focus block), it is never said
+
+**Dependencies:** 168a · **Files:** `src/waifu/app.py`, `tests/test_app.py`, `src/waifu/rain_watch.py`, `tests/test_rain_watch.py` · **Scope:** S
+
+## Task 172: Wiring in `run`
+
+**Acceptance criteria:**
+- [ ] With a game mode other than the default, one `GameMode` built with the run's registry and schedule, its `observe` the watcher's `on_poll`; the quiet of the Assistant and the avatar holds while a game holds (and during a focus block); with `normal` they stay `focus.in_block`
+- [ ] With `phone` while a game runs, a notice that was pushed is not queued and one that was not is; the rain alert keeps its expiry; the bedtime nudge goes through `remind` in game mode; `chat` has no game mode
+
+**Dependencies:** 169, 170, 171 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** M
+
+## Task 173: Check line and example config
+
+**Acceptance criteria:**
+- [ ] `waifu check` says the mode, the routines, and warns about `phone` without notifications; the default says `! Mode game mati`
+- [ ] `config.example.yaml` documents `game_mode`; written out it holds the defaults
+
+**Dependencies:** 172 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py`, `config.example.yaml`, `tests/test_config.py` · **Scope:** S
+
+## Task 174: Docs
+
+**Acceptance criteria:**
+- [ ] README "Mode game" with a contents entry, checklist items, and a Privasi bullet; "Teman fokus" no longer says a held rain alert may come after the rain; CHANGELOG v1.34; full suite and ruff clean
+
+**Dependencies:** 173 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S

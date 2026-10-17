@@ -649,6 +649,31 @@ key, strict tool, or dependency.
 - [x] Python suite and ruff clean; no test reached HoYoLAB or built a real genshin.Client; the strict-tool budget unchanged (2026-10-18: 8377 pytest after the fix pass; 18 of 20 strict tools, 17 of 24 optional parameters, `gacha_income` non-strict)
 - [ ] On the owner's PC: "bulan ini aku dapat berapa Primogem?" matches the Traveler's Diary in HoYoLAB; `waifu gacha income` prints each game; `waifu gacha income zzz --month <last month>` reads ZZZ's earlier month (checks the assumed `YYYYMM` format); the weekly report names this month's income
 
+### Phase 38: Mode game (v1.34, see SPEC → mode game)
+Decision: the play time watcher tells a `GameMode` after every good poll whether a tracked game
+runs (the two-poll rule already debounces alt-tab and launcher restarts) and whether its first
+poll resumed a session from before a restart. `GameMode` runs `on_start`/`on_stop` once per
+transition and answers `holding()`/`diverting()`, a game counting only while its last observation
+is at most three polls old. The hold reuses the v1.30 quiet: the Assistant's and the avatar's
+`quiet` become `focus.in_block() or game_mode.holding()` (unchanged with `normal`), so Master's
+reminders still speak and her own turns wait with their v1.31.1 expiry. Phone mode pushes
+nothing new: every watcher pushes on its own, so a notice already pushed is just not spoken while
+a game runs and the rest is held. The bedtime nudge goes through `remind` in game mode (it is due
+only while a game is open). Announcements gain `expires_at`, set only by the rain alert (its
+rain's start), which also ends the v1.30 known limit. No new tool, tool parameter, or dependency.
+- [x] Task 168a: contract: SPEC, tasks
+- [ ] Task 168: `GameModeConfig` and its validation
+- [ ] Task 169: the play time watcher's `on_poll` (playing, resumed)
+- [ ] Task 170: `GameMode` (transitions, routines once, staleness, holding/diverting)
+- [ ] Task 171: announcements that expire; the rain alert expires at its rain's start
+- [ ] Task 172: wiring in `run` (game mode, combined quiet, phone announcer, bedtime nudge)
+- [ ] Task 173: `waifu check` line, `config.example.yaml`
+- [ ] Task 174: README "Mode game", CHANGELOG
+
+### Checkpoint: Mode game
+- [ ] Python suite and ruff clean; no test listed the real processes, ran a real device, slept, or pushed; the strict-tool budget unchanged
+- [ ] On the owner's PC: with `hold`, a notice queued while HSR runs is said once it has been closed for two polls; a reminder still speaks during the game; with `on_start`/`on_stop` routines the lamp dims at launch and comes back after closing, and alt-tab or restarting `waifu run` mid-game changes nothing
+
 ## Risks and Mitigations
 
 | Risk | Impact | Mitigation |
