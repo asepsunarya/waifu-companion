@@ -1545,12 +1545,12 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** none · **Files:** `SPEC.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
 
-## Task 162: The income values and readers
+## Task 162: The income values and readers ✅
 
 **Acceptance criteria:**
-- [ ] `GameIncome` with `pulls` (earned // 160); the three readers turn real genshin.py models built from sample dicts into it with the month asked, sources most first, today and HSR's yesterday only for this month, and ZZZ's sources named in code
-- [ ] A ZZZ answer without Polychrome is a ValueError; `answers_month` tells a model of another month; `income_months` is this month and the two before in server time (midnight server time turns the month); `parse_month` takes exactly `YYYY-MM`
-- [ ] No genshin import, and no uid, nickname, avatar, or region in a value
+- [x] `GameIncome` with `pulls` (earned // 160); the three readers turn real genshin.py models built from sample dicts into it with the month asked, sources most first, today and HSR's yesterday only for this month, and ZZZ's sources named in code
+- [x] A ZZZ answer without Polychrome is a ValueError; `answers_month` tells a model of another month; `income_months` is this month and the two before in server time (midnight server time turns the month); `parse_month` takes exactly `YYYY-MM`
+- [x] No genshin import, and no uid, nickname, avatar, or region in a value
 
 **Dependencies:** 162a · **Files:** `src/waifu/gacha/income.py`, `tests/test_gacha_income.py` · **Scope:** M
 

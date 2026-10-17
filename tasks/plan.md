@@ -638,7 +638,7 @@ minutes per game and month, answers only when asked, as information for planning
 weekly report gets one more lane in the same 30 s budget, one short part a game. No new config
 key, strict tool, or dependency.
 - [x] Task 162a: contract: SPEC, tasks
-- [ ] Task 162: the income values and readers (`gacha/income.py`)
+- [x] Task 162: the income values and readers (`gacha/income.py`)
 - [ ] Task 163: `HoyolabClient.income`
 - [ ] Task 164: the `gacha_income` tool and the persona line
 - [ ] Task 165: wiring in `run`/`chat`, `waifu gacha income`
