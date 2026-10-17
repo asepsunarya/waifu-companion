@@ -206,6 +206,12 @@ def play_totals(
     return totals
 
 
+def playing_now(record: PlayRecord, now: datetime, *, poll: timedelta) -> frozenset[GameId]:
+    """The games with an open session seen within `SLEEP_POLLS` polls of `now`: older, the
+    `waifu run` that followed it stopped without closing it."""
+    return frozenset(s.game for s in record.open if now - s.end <= SLEEP_POLLS * poll)
+
+
 def whole_minutes(seconds: int) -> int:
     """`seconds` rounded to the nearest minute, a half minute up."""
     return (seconds + 30) // 60

@@ -26,6 +26,7 @@ from waifu.play_time import (
     period_window,
     play_totals,
     played_seconds,
+    playing_now,
     resume_games,
     whole_minutes,
 )
@@ -360,6 +361,16 @@ def test_a_session_touching_the_period_only_at_its_edge_is_not_in_it():
     record = PlayRecord(sessions=(Session("hsr", at(22), at(24)),))
 
     assert play_totals(record, ["hsr"], at(24), at(48)) == {"hsr": PlayTotal(0, 0)}
+
+
+def test_a_game_is_playing_now_while_its_open_session_was_seen_within_three_polls():
+    record = PlayRecord(
+        sessions=(Session("zzz", at(21), at(22)),),  # finished: not open, however recent
+        open=(Session("hsr", at(20), at(22) - 3 * POLL), Session("genshin", at(20), at(21))),
+    )
+
+    assert playing_now(record, at(22), poll=POLL) == frozenset({"hsr"})
+    assert playing_now(record, at(22) + timedelta(seconds=1), poll=POLL) == frozenset()
 
 
 def test_games_not_tracked_are_left_out_of_the_totals():

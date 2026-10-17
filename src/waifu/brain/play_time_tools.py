@@ -27,11 +27,11 @@ from waifu.gacha.tools import LOCAL_TIME
 from waifu.gacha.weekly import WEEKLY_REPORT_PROMPT
 from waifu.play_time import (
     PERIODS,
-    SLEEP_POLLS,
     PlayRecord,
     period_window,
     play_totals,
     played_seconds,
+    playing_now,
     whole_minutes,
     wib_now,
 )
@@ -73,9 +73,7 @@ class PlayTimeTools:
         """`now` is aware WIB time."""
         self._store = store
         self._games: list[GameId] = list(config.games)
-        # An open session seen within this is a game open now; older, `waifu run` stopped
-        # following it.
-        self._fresh = timedelta(seconds=SLEEP_POLLS * config.poll_seconds)
+        self._poll = timedelta(seconds=config.poll_seconds)
         self._now = now
         self._spec = _spec(self._games)
         self._refusal: str | None = None
@@ -111,7 +109,7 @@ class PlayTimeTools:
         record = self._store.record()
         mine = [s for s in (*record.sessions, *record.open) if s.game in games]
         tracked = [s for s in (*record.sessions, *record.open) if s.game in self._games]
-        playing = {s.game for s in record.open if now - s.end <= self._fresh}
+        playing = playing_now(record, now, poll=self._poll)
         result = {
             "period": period,
             "from": _local(since),
