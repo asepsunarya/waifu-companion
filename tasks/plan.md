@@ -659,8 +659,11 @@ is at most three polls old. The hold reuses the v1.30 quiet: the Assistant's and
 reminders still speak and her own turns wait with their v1.31.1 expiry. Phone mode pushes
 nothing new: every watcher pushes on its own, so a notice already pushed is just not spoken while
 a game runs and the rest is held. The bedtime nudge goes through `remind` in game mode (it is due
-only while a game is open). Announcements gain `expires_at`, set only by the rain alert (its
-rain's start), which also ends the v1.30 known limit. No new tool, tool parameter, or dependency.
+only while a game is open). Announcements gain `expires_at`, set by the rain alert (its
+rain's start), which also ends the v1.30 known limit, and after the fix pass by the gacha
+reminders about a game's state (the next poll) and the hot-GPU notice (an hour); what a game
+held comes out after "Tadi selama main ada kabar.", a repeated text once. No new tool, tool
+parameter, or dependency.
 - [x] Task 168a: contract: SPEC, tasks
 - [x] Task 168: `GameModeConfig` and its validation
 - [x] Task 169: the play time watcher's `on_poll` (playing, resumed)
@@ -671,7 +674,7 @@ rain's start), which also ends the v1.30 known limit. No new tool, tool paramete
 - [x] Task 174: README "Mode game", CHANGELOG
 
 ### Checkpoint: Mode game
-- [x] Python suite and ruff clean; no test listed the real processes, ran a real device, slept, or pushed; the strict-tool budget unchanged (2026-10-18: 8449 pytest; 18 of 20 strict tools, 17 of 24 optional parameters, no tool or schema changed)
+- [x] Python suite and ruff clean; no test listed the real processes, ran a real device, slept, or pushed; the strict-tool budget unchanged (2026-10-18: 8463 pytest after the fix pass; 18 of 20 strict tools, 17 of 24 optional parameters, no tool or schema changed)
 - [ ] On the owner's PC: with `hold`, a notice queued while HSR runs is said once it has been closed for two polls; a reminder still speaks during the game; with `on_start`/`on_stop` routines the lamp dims at launch and comes back after closing, and alt-tab or restarting `waifu run` mid-game changes nothing
 
 ## Risks and Mitigations

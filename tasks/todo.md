@@ -1618,6 +1618,7 @@ named `tests/test_<package>_<module>.py`.
 **Acceptance criteria:**
 - [x] After each good poll `on_poll(playing, resumed)`: playing while a tracked game has an open session (one missed poll keeps it, a sleep keeps it), resumed only at the first poll of a run that went on with a session from before
 - [x] Never for a failed poll, from `stop()`, or after it; a failing `on_poll` is logged and polling goes on; without one nothing changes
+- [x] Fix pass: a restart mid-game whose first poll fails after following the games (the file's write or the bedtime nudge's) tells the resume at the next good poll, so `on_start` never runs again; a game first seen at a failed first poll is still no resume
 
 **Dependencies:** 168a · **Files:** `src/waifu/play_watch.py`, `tests/test_play_watch.py` · **Scope:** S
 
@@ -1626,6 +1627,7 @@ named `tests/test_<package>_<module>.py`.
 **Acceptance criteria:**
 - [x] `on_start` on not playing → playing, `on_stop` on the reverse, once per transition, through `run_routine` with the schedule (delayed steps scheduled); the first observation runs `on_start` only when playing and not resumed, never `on_stop`; nothing said; failed steps logged at WARNING (anything raised is logged with its traceback by the watcher)
 - [x] `playing()` only while the last observation saw a game at most three polls ago; `holding()` in `hold` and `phone`, `diverting()` in `phone`, each only while playing
+- [x] Fix pass: the three polls count from the end of the routine the poll ran, and never run out while it runs, so a slow routine (lamps out of reach) never lets the hold lapse mid-game; a routine that raises still records the time
 
 **Dependencies:** 168 · **Files:** `src/waifu/game_mode.py`, `tests/test_game_mode.py` · **Scope:** M
 
@@ -1634,6 +1636,7 @@ named `tests/test_<package>_<module>.py`.
 **Acceptance criteria:**
 - [x] `announce(..., expires_at=None)`; an announcement still queued at its expiry is dropped with an INFO log, the rest said as before; reminders never expire
 - [x] The rain alert is announced with its rain's start as `expires_at`; held past it (a focus block), it is never said
+- [x] Fix pass: a text queued more than once is said once; the announcements a game held come out after `GAME_HELD` ("Tadi selama main ada kabar."), once, not when all expired, never for a focus block alone; the gacha reminders about a game's state expire at the next poll (problems and the check-in apart, without), the hot-GPU notice an hour after it was told (the disk notice never)
 
 **Dependencies:** 168a · **Files:** `src/waifu/app.py`, `tests/test_app.py`, `src/waifu/rain_watch.py`, `tests/test_rain_watch.py` · **Scope:** S
 
@@ -1642,6 +1645,7 @@ named `tests/test_<package>_<module>.py`.
 **Acceptance criteria:**
 - [x] With a game mode other than the default, one `GameMode` built with the run's registry and schedule, its `observe` the watcher's `on_poll`; the quiet of the Assistant and the avatar holds while a game holds (and during a focus block); with `normal` they stay `focus.in_block`
 - [x] With `phone` while a game runs, a notice that was pushed is not queued and one that was not is; the rain alert keeps its expiry; the bedtime nudge goes through `remind` in game mode; `chat` has no game mode
+- [x] Fix pass: the Assistant gets game mode's `holding` as `game_holding` (None without a game mode)
 
 **Dependencies:** 169, 170, 171 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** M
 
@@ -1657,5 +1661,6 @@ named `tests/test_<package>_<module>.py`.
 
 **Acceptance criteria:**
 - [x] README "Mode game" with a contents entry, checklist items, and a Privasi bullet; "Teman fokus" no longer says a held rain alert may come after the rain; CHANGELOG v1.34; full suite and ruff clean
+- [x] Fix pass: a crash at launch leaves the room as `on_stop` sets it (not restored; `brightness` lights a lamp that was off); held notices are lost when `waifu run` stops, also in the 1-2 polls after the game closes (known limits, "Yang dilewati"); the checklist and `config.example.yaml` describe the lead-in and what is dropped as stale
 
 **Dependencies:** 173 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
