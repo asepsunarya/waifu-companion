@@ -809,6 +809,9 @@ class PlayTimeConfig(_Strict):
     @field_validator("bedtime")
     @classmethod
     def _bedtime_at_night(cls, value: _Clock | None) -> _Clock | None:
+        # Pydantic reads 1440 or more (24:00, 2330) as seconds in UTC, an aware time.
+        if value is not None and value.tzinfo is not None:
+            raise ValueError("bedtime must be a clock time HH:MM without a time zone")
         if value is not None and NIGHT_ENDS <= value < NIGHT_EARLIEST:
             raise ValueError("bedtime must be from 18:00 through 05:59")
         return value

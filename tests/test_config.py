@@ -868,6 +868,9 @@ GAMES_LINE = "play_time.games"
         ("  bedtime: '06:00'\n", "play_time.bedtime"),  # the night is over
         ("  bedtime: '12:00'\n", "play_time.bedtime"),
         ("  bedtime: '17:59'\n", "play_time.bedtime"),
+        ("  bedtime: 24:00\n", "play_time.bedtime"),  # YAML base 60: 1440 minutes
+        ("  bedtime: 2330\n", "play_time.bedtime"),  # the colon forgotten
+        ("  bedtime: '23:30+07:00'\n", "play_time.bedtime"),  # a clock with a time zone
         ("  games: {}\n", GAMES_LINE),
         ("  games:\n    hsr: []\n", GAMES_LINE),
         ("  games:\n    wuwa: [Client-Win64-Shipping.exe]\n", GAMES_LINE),
