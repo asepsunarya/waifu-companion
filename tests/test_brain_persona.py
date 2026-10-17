@@ -85,6 +85,20 @@ def test_committed_persona_keeps_master_company_with_the_focus_timer_only_when_a
     assert "kecuali Master minta" in focus
 
 
+def test_committed_persona_keeps_the_journal_private_and_only_for_master_s_asking():
+    persona = load_persona(ROOT / "config" / "persona.md")
+
+    journal = persona.split("Jurnal harian:", 1)[1].split("\n\n", 1)[0]
+
+    assert "journal_write" in journal
+    assert "journal_read" in journal
+    assert "kata-kata Master sendiri" in journal
+    assert "pertanyaan jurnal malammu" in journal
+    assert "jangan pernah menyebut isi jurnal di sapaan, briefing pagi" in journal
+    assert "remember kecuali Master minta" in journal
+    assert "waifu jurnal forget" in journal
+
+
 @pytest.mark.parametrize("persona_file", ["persona.md", "persona_hsr.md"])
 def test_committed_personas_name_none_of_the_v1_16_hsr_tools(persona_file):
     # The model calls a tool by the name the persona gives it, and the v1.16 names are gone:

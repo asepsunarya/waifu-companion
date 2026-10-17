@@ -1420,10 +1420,10 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 147 · **Files:** `src/waifu/config.py`, `tests/test_config.py`, `src/waifu/journal.py`, `tests/test_journal.py`, `src/waifu/brain/journal_tools.py`, `src/waifu/brain/finance_tools.py`, `src/waifu/brain/play_time_tools.py`, `src/waifu/brain/focus_tools.py` and their tests · **Scope:** M
 
-## Task 149: The persona line
+## Task 149: The persona line ✅
 
 **Acceptance criteria:**
-- [ ] One identical line in both personas naming the journal tools, only when asked or answering the nightly question
+- [x] One identical line in both personas naming the journal tools, only when asked or answering the nightly question
 
 **Dependencies:** 147 · **Files:** `config/persona.md`, `config/persona_hsr.md`, `tests/test_brain_persona.py` · **Scope:** S
 
