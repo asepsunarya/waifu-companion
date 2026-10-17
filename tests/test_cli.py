@@ -10853,6 +10853,68 @@ def test_run_in_game_mode_says_the_bedtime_nudge_while_the_game_runs(
         assert (assistant.reminded, assistant.waiting_for_followup) == ([], [LATE])
 
 
+def game_mode_line(out: str) -> str:
+    [line] = [line for line in out.splitlines() if "Mode game" in line]
+    return line
+
+
+@pytest.mark.parametrize(
+    ("announcements", "routines", "notify", "expected"),
+    [
+        (None, {}, False, "! Mode game mati"),
+        ("hold", {}, False, "✓ Mode game: pengumuman ditahan selama main"),
+        ("phone", {}, True, "✓ Mode game: pengumuman ke HP selama main"),
+        (
+            "phone",
+            {},
+            False,
+            "! Mode game: ke HP, tapi notify mati: pengumuman ditahan sampai game ditutup",
+        ),
+        (
+            "normal",
+            {"on_start": "redup", "on_stop": "terang"},
+            False,
+            "✓ Mode game: pengumuman tetap diucapkan saat main; rutinitas redup saat game "
+            "dibuka, terang saat game ditutup",
+        ),
+        (
+            "hold",
+            {"on_stop": "terang"},
+            False,
+            "✓ Mode game: pengumuman ditahan selama main; rutinitas terang saat game ditutup",
+        ),
+    ],
+    ids=["default", "hold", "phone", "phone-without-notify", "routines", "stop-routine"],
+)
+def test_check_says_which_game_mode_is_on(
+    announcements, routines, notify, expected, home, nothing_installed, capsys
+):
+    if notify:
+        enable_notify(home)
+    if announcements is not None:
+        use_game_mode(home, announcements, **routines)
+
+    cli.main(["check"])
+
+    assert game_mode_line(capsys.readouterr().out) == expected
+
+
+def test_check_says_game_mode_is_off_with_play_time_off(home, nothing_installed, capsys):
+    append_config(home, "play_time:\n  enabled: false\n")
+
+    cli.main(["check"])
+
+    assert game_mode_line(capsys.readouterr().out) == "! Mode game mati"
+
+
+def test_check_says_the_game_mode_right_after_the_focus_companion(home, nothing_installed, capsys):
+    cli.main(["check"])
+
+    lines = capsys.readouterr().out.splitlines()
+    focus = lines.index(focus_line("\n".join(lines)))
+    assert lines[focus + 1] == "! Mode game mati"
+
+
 # --- web search and free offers ----------------------------------------------------------------
 
 

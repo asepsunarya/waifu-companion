@@ -458,6 +458,21 @@ schedule:
 #   keep_days: 90          # catatan lebih lama dari N hari dihapus (1-366)
 #   path: data/focus.json
 
+# Mode game (README, bagian "Mode game"): selama HSR, Genshin, atau ZZZ terbuka (dia tahu dari jam
+# main, jadi play_time harus menyala), dia bisa diam. Dengan announcements: hold, pemberitahuannya
+# sendiri (hujan, game, kode redeem, PC, promo, biaya, versi baru), sapaan pagi, laporan mingguan,
+# dan pertanyaan jurnal menunggu sampai game terakhir ditutup, lalu diucapkan singkat sekaligus;
+# pengingat dan jadwal yang Master pasang, juga pengingat tidur, tetap berbunyi. Dengan phone,
+# pemberitahuan yang memang dikirim ke HP tidak diucapkan selama main, sisanya ditahan seperti
+# hold (tanpa notify, semuanya ditahan). on_start dan on_stop menjalankan rutinitas dari bagian
+# routines sekali saat game pertama dibuka dan saat game terakhir ditutup, tanpa bicara.
+# Tidak ada yang disimpan. Mati tanpa ditulis: tulis bagian ini tanpa tanda # di depannya, lalu
+# ganti announcements atau isi on_start/on_stop dengan nama rutinitasmu.
+# game_mode:
+#   announcements: normal  # normal: tetap diucapkan; hold: ditahan sampai game ditutup; phone: yang sudah ke HP tidak diucapkan
+#   on_start:              # nama rutinitas saat game pertama dibuka, misalnya redup (kosong = tidak ada)
+#   on_stop:               # nama rutinitas saat game terakhir ditutup, misalnya terang (kosong = tidak ada)
+
 # Jurnal harian (README, bagian "Jurnal harian"): "Cyrene, catat di jurnal: hari ini laporannya
 # selesai" menyimpan catatan hari itu dengan kata-kata Master sendiri, dan "kemarin aku nulis apa
 # di jurnal?" dia rangkum singkat. Hanya kalau Master minta: tidak pernah di sapaan pagi, laporan

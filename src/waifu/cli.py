@@ -5143,6 +5143,7 @@ def _checks(config_path: Path) -> Iterator[Check]:
     yield _pc_health_check(config)
     yield _play_time_check(config)
     yield _focus_check(config)
+    yield _game_mode_check(config)
     yield _free_offers_check(config)
     yield from _voice_package_checks(config)
     yield _microphone_check(config)
@@ -5524,6 +5525,34 @@ def _focus_check(config: AppConfig) -> Check:
             "(lihat README, bagian Teman fokus)"
         )
     return OK, status
+
+
+# What each game mode does with her own announcements while a game runs.
+GAME_MODE_TEXT = {
+    "normal": "pengumuman tetap diucapkan saat main",
+    "hold": "pengumuman ditahan selama main",
+    "phone": "pengumuman ke HP selama main",
+}
+
+
+def _game_mode_check(config: AppConfig) -> Check:
+    """What game mode does with her announcements while a game runs and which routines it runs;
+    `phone` without notifications holds them instead, which the owner may not expect."""
+    game = config.game_mode
+    if game == GameModeConfig():
+        return WARN, "Mode game mati"
+    routines = [
+        f"{name} saat game {when}"
+        for name, when in ((game.on_start, "dibuka"), (game.on_stop, "ditutup"))
+        if name is not None
+    ]
+    routine_text = f"; rutinitas {', '.join(routines)}" if routines else ""
+    if game.announcements == "phone" and not config.notify.enabled:
+        return WARN, (
+            "Mode game: ke HP, tapi notify mati: pengumuman ditahan sampai game ditutup"
+            + routine_text
+        )
+    return OK, f"Mode game: {GAME_MODE_TEXT[game.announcements]}{routine_text}"
 
 
 def _free_offers_check(config: AppConfig) -> Check:

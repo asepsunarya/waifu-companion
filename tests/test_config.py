@@ -1127,6 +1127,14 @@ def test_the_default_game_mode_loads_with_play_time_off(tmp_path):
     assert load_config(write_yaml(tmp_path, text)).game_mode == GameModeConfig()
 
 
+def test_the_example_game_mode_block_written_out_holds_the_defaults(tmp_path):
+    example = (ROOT / "config.example.yaml").read_text(encoding="utf-8")
+    commented = example[example.index("\n# game_mode:\n") + 1 :].split("\n\n", 1)[0]
+    written_out = "\n".join(line.removeprefix("# ") for line in commented.splitlines())
+
+    assert load_config(write_yaml(tmp_path, written_out)).game_mode == GameModeConfig()
+
+
 def test_the_journal_is_on_without_the_nightly_question_by_default():
     journal = AppConfig().journal
     assert (journal.enabled, journal.max_chars, journal.max_notes_per_day) == (True, 500, 20)
