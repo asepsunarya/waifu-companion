@@ -550,7 +550,7 @@ tell today's and this week's focus time, and `waifu focus` prints them. No push 
 new dependency. The Scheduler is not reused: it is minute-precise, persistent, and has no phases.
 - [x] Task 140a: contract: SPEC, tasks
 - [x] Task 140: the focus log (`focus.py`)
-- [ ] Task 141: `FocusTimer` (`focus_timer.py`)
+- [x] Task 141: `FocusTimer` (`focus_timer.py`)
 - [ ] Task 142: quiet during a block (`Assistant(quiet=...)`, `remind`)
 - [ ] Task 143: the `focus_timer` tool and the persona line
 - [ ] Task 144: wiring in `run`, `waifu focus`, check line, config and example

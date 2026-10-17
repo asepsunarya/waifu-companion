@@ -1347,13 +1347,13 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 140a · **Files:** `src/waifu/focus.py`, `tests/test_focus.py` · **Scope:** S
 
-## Task 141: The focus timer
+## Task 141: The focus timer ✅
 
 **Acceptance criteria:**
-- [ ] `FocusPlan` ranges; `spoken_duration`
-- [ ] `begin` only while started and without a session; `tick_once`: a block logged and its line said before the break starts, the break's end and the next block, the last block's praise with the total, several phases since the last check, a phase that ended more than 2 minutes ago ending the session quietly, a failed write or voice logged
-- [ ] `end`: the block under way logged when at least a minute, the session's total; `in_block`, `state`, `focused_seconds`
-- [ ] The thread checks at once, waits at most `tick_seconds` or until the phase ends, stops promptly, and `stop()` ends the session; a second `start()` is a no-op
+- [x] `FocusPlan` ranges; `spoken_duration`
+- [x] `begin` only while started and without a session; `tick_once`: a block logged and its line said before the break starts, the break's end and the next block, the last block's praise with the total, several phases since the last check, a phase that ended more than 2 minutes ago ending the session quietly, a failed write or voice logged
+- [x] `end`: the block under way logged when at least a minute, the session's total; `in_block`, `state`, `focused_seconds`
+- [x] The thread checks at once, waits at most `tick_seconds` or until the phase ends, stops promptly, and `stop()` ends the session; a second `start()` is a no-op
 
 **Dependencies:** 140 · **Files:** `src/waifu/focus_timer.py`, `tests/test_focus_timer.py` · **Scope:** M
 
