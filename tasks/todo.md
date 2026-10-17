@@ -1559,6 +1559,7 @@ named `tests/test_<package>_<module>.py`.
 **Acceptance criteria:**
 - [x] One call reads every game asked with its explicit uid and the month passed (Genshin 1-12, HSR `YYYYMM`, ZZZ `""` for this month and `YYYYMM` before), never `get_diary` or `update_settings`
 - [x] A failing game does not hide the others; no cookie, a timeout, a hidden diary (chronicle_private), a model that does not parse (other), and an answer for another month (other, its own message) are each game's error; no result, error, or log holds the cookie, uid, or nickname
+- [x] Fix pass: the answer-for-another-month message says HoYoLAB answered another month (`HoYoLAB menjawab bulan lain untuk pendapatan <short>, ...`) instead of naming the window, which only months inside it ever reach; the README troubleshooting entry follows
 
 **Dependencies:** 162 · **Files:** `src/waifu/gacha/hoyolab.py`, `tests/test_gacha_hoyolab.py` · **Scope:** M
 
@@ -1568,6 +1569,7 @@ named `tests/test_<package>_<module>.py`.
 - [x] A non-strict `gacha_income {game?, month?}` in its own provider; without `game` every configured game with failures under `errors`; without `month` this month with `today`; an earlier month without it; a month outside the window, a bad format, an unknown game or key are invalid without asking HoYoLAB; every game failing is an error result
 - [x] Reads kept 15 minutes per game and month (this month's per server day); the description says what each game gives, pulls at 160 from the premium currency only, information for planning, never a push to pull, spend, or top up, only when asked
 - [x] The persona (and the HSR persona, word for word) names `gacha_income` under the game tools
+- [x] Fix pass: a null `game` or `month` counts as left out, as local models send it (it was refused as invalid)
 
 **Dependencies:** 163 · **Files:** `src/waifu/gacha/income_tools.py`, `tests/test_gacha_income_tools.py`, `config/persona.md`, `config/persona_hsr.md`, `tests/test_brain_persona.py` · **Scope:** M
 
@@ -1576,6 +1578,7 @@ named `tests/test_<package>_<module>.py`.
 **Acceptance criteria:**
 - [x] `run` and `chat` add `IncomeTools` after the game data tools when the games are on; the budget test lists `gacha_income`
 - [x] `waifu gacha income [game] [--month YYYY-MM]` prints each game's month (also with the games off), exits 1 when a game failed, and refuses a month outside the window with exit 2 before asking HoYoLAB
+- [x] Fix pass: HoYoLAB's change names the month it belongs to (`Bulan sebelumnya: 10.000; bulan ini -52% dibanding itu`, the month's name for an earlier month) instead of reading as last month's drop
 
 **Dependencies:** 164 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** M
 
@@ -1584,6 +1587,7 @@ named `tests/test_<package>_<module>.py`.
 **Acceptance criteria:**
 - [x] With an income source, one more lane in the same budget reads this month for every game; each game's `income` or `income_problem`; a late read ran out of time; without a source nothing changes (the exact JSON and the calls stay as before)
 - [x] `income_this_month` and `income_problem` in the JSON only with a source; the description and the prompt name it; `waifu gacha report` prints one line a game
+- [x] Fix pass: with a source, the description's information-only rule covers this month's income too and never judges the amount earned; without one it stays byte-identical
 
 **Dependencies:** 163 · **Files:** `src/waifu/gacha/weekly.py`, `tests/test_gacha_weekly.py`, `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** M
 

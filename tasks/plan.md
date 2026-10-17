@@ -646,7 +646,7 @@ key, strict tool, or dependency.
 - [x] Task 167: README, CHANGELOG
 
 ### Checkpoint: Pendapatan gacha
-- [x] Python suite and ruff clean; no test reached HoYoLAB or built a real genshin.Client; the strict-tool budget unchanged (2026-10-18: 8374 pytest; 18 of 20 strict tools, 17 of 24 optional parameters, `gacha_income` non-strict)
+- [x] Python suite and ruff clean; no test reached HoYoLAB or built a real genshin.Client; the strict-tool budget unchanged (2026-10-18: 8377 pytest after the fix pass; 18 of 20 strict tools, 17 of 24 optional parameters, `gacha_income` non-strict)
 - [ ] On the owner's PC: "bulan ini aku dapat berapa Primogem?" matches the Traveler's Diary in HoYoLAB; `waifu gacha income` prints each game; `waifu gacha income zzz --month <last month>` reads ZZZ's earlier month (checks the assumed `YYYYMM` format); the weekly report names this month's income
 
 ## Risks and Mitigations
