@@ -71,6 +71,22 @@ def test_committed_persona_names_the_game_data_tools_and_brings_banners_up_only_
     assert "jangan untuk sapaan atau briefing pagi" in games
 
 
+def test_committed_persona_tells_the_monthly_income_only_when_asked_and_never_as_a_push():
+    persona = load_persona(ROOT / "config" / "persona.md")
+
+    games = persona.split("Game HoYoverse", 1)[1].split("\n\n", 1)[0]
+    [line] = [line for line in games.splitlines() if "gacha_income" in line]
+
+    for currency in ("Primogem", "Stellar Jade", "Polychrome"):
+        assert currency in line
+    assert "bulan lalu" in line
+    assert "argumen game" in line
+    assert "hanya kalau Master bertanya" in line
+    assert "jangan untuk sapaan atau briefing pagi" in line
+    assert "merencanakan pull" in line
+    assert "bukan ajakan untuk pull, belanja, atau top-up" in line
+
+
 def test_committed_persona_keeps_master_company_with_the_focus_timer_only_when_asked():
     persona = load_persona(ROOT / "config" / "persona.md")
 

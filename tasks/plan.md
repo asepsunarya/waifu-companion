@@ -640,7 +640,7 @@ key, strict tool, or dependency.
 - [x] Task 162a: contract: SPEC, tasks
 - [x] Task 162: the income values and readers (`gacha/income.py`)
 - [x] Task 163: `HoyolabClient.income`
-- [ ] Task 164: the `gacha_income` tool and the persona line
+- [x] Task 164: the `gacha_income` tool and the persona line
 - [ ] Task 165: wiring in `run`/`chat`, `waifu gacha income`
 - [ ] Task 166: the weekly report's income part
 - [ ] Task 167: README, CHANGELOG

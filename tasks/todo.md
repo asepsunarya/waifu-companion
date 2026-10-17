@@ -1562,14 +1562,14 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 162 · **Files:** `src/waifu/gacha/hoyolab.py`, `tests/test_gacha_hoyolab.py` · **Scope:** M
 
-## Task 164: The `gacha_income` tool and the persona line
+## Task 164: The `gacha_income` tool and the persona line ✅
 
 **Acceptance criteria:**
-- [ ] A non-strict `gacha_income {game?, month?}` in its own provider; without `game` every configured game with failures under `errors`; without `month` this month with `today`; an earlier month without it; a month outside the window, a bad format, an unknown game or key are invalid without asking HoYoLAB; every game failing is an error result
-- [ ] Reads kept 15 minutes per game and month (this month's per server day); the description says what each game gives, pulls at 160 from the premium currency only, information for planning, never a push to pull, spend, or top up, only when asked
-- [ ] The persona names `gacha_income` under the game tools; the strict budget unchanged
+- [x] A non-strict `gacha_income {game?, month?}` in its own provider; without `game` every configured game with failures under `errors`; without `month` this month with `today`; an earlier month without it; a month outside the window, a bad format, an unknown game or key are invalid without asking HoYoLAB; every game failing is an error result
+- [x] Reads kept 15 minutes per game and month (this month's per server day); the description says what each game gives, pulls at 160 from the premium currency only, information for planning, never a push to pull, spend, or top up, only when asked
+- [x] The persona (and the HSR persona, word for word) names `gacha_income` under the game tools
 
-**Dependencies:** 163 · **Files:** `src/waifu/gacha/income_tools.py`, `tests/test_gacha_income_tools.py`, `config/persona.md`, `tests/test_brain_persona.py` · **Scope:** M
+**Dependencies:** 163 · **Files:** `src/waifu/gacha/income_tools.py`, `tests/test_gacha_income_tools.py`, `config/persona.md`, `config/persona_hsr.md`, `tests/test_brain_persona.py` · **Scope:** M
 
 ## Task 165: Wiring and `waifu gacha income`
 
