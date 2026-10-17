@@ -19,6 +19,7 @@ from yarl import URL
 from waifu.config import (
     EdgeVoiceConfig,
     FallbackPitchConfig,
+    FallbackTtsConfig,
     GptSovitsVoiceConfig,
     RvcConfig,
     TtsConfig,
@@ -1161,3 +1162,34 @@ def test_build_speech_router_passes_the_converter_through():
 
 def test_build_speech_router_has_no_converter_by_default():
     assert build_speech_router(TtsConfig()).converter is None
+
+
+def test_build_speech_router_gives_each_configured_language_a_windows_fallback():
+    # Building one starts no PowerShell: tests/conftest.py would refuse it.
+    router = build_speech_router(TtsConfig())
+
+    assert set(router.fallbacks) == {"id", "ja"}
+    assert all(isinstance(fallback, WindowsTts) for fallback in router.fallbacks.values())
+    assert [fallback.language for fallback in router.fallbacks.values()] == ["id", "ja"]
+    assert router.fallback_retry_s == 600
+    assert router.fallback_only is False
+
+
+def test_build_speech_router_passes_the_named_fallback_voice_and_its_pause():
+    fallback = FallbackTtsConfig(voices={"id": "Microsoft Zira"}, retry_s=120)
+
+    router = build_speech_router(TtsConfig(fallback=fallback))
+
+    assert set(router.fallbacks) == {"id"}
+    assert router.fallbacks["id"].wanted == "Microsoft Zira"
+    assert router.fallback_retry_s == 120
+
+
+def test_build_speech_router_has_no_fallback_when_it_is_off():
+    router = build_speech_router(TtsConfig(fallback=FallbackTtsConfig(enabled=False)))
+
+    assert router.fallbacks == {}
+
+
+def test_build_speech_router_can_speak_only_through_the_fallback():
+    assert build_speech_router(TtsConfig(), fallback_only=True).fallback_only is True

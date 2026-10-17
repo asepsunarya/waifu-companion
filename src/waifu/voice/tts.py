@@ -213,8 +213,8 @@ class WindowsTts(TextToSpeech):
         pitches: FallbackPitchConfig,
         run: Run = subprocess.run,
     ) -> None:
-        self._language = language
-        self._wanted = wanted
+        self.language = language
+        self.wanted = wanted
         self._pitches = pitches
         self._run = run
         self._listed = False
@@ -249,23 +249,23 @@ class WindowsTts(TextToSpeech):
                 voices = list_windows_voices(run=self._run)
             except WindowsVoiceError as exc:
                 raise TtsError(str(exc)) from exc
-            self._voice = choose_voice(voices, self._language, self._wanted)
+            self._voice = choose_voice(voices, self.language, self.wanted)
             self._listed = True
             if self._voice is not None:
                 logger.info(
                     "Offline fallback voice for %s: %s (%s)",
-                    self._language,
+                    self.language,
                     self._voice.name,
                     self._voice.language,
                 )
         if self._voice is not None:
             return self._voice
-        if self._wanted:
+        if self.wanted:
             raise TtsError(
-                f"Suara Windows '{self._wanted}' (tts.fallback.voices.{self._language}) "
+                f"Suara Windows '{self.wanted}' (tts.fallback.voices.{self.language}) "
                 "tidak terpasang; lihat 'waifu voices'."
             )
-        raise TtsError(f"{at_sentence_start(missing_voice_hint(self._language))}.")
+        raise TtsError(f"{at_sentence_start(missing_voice_hint(self.language))}.")
 
 
 class FallbackVoice(Protocol):
@@ -321,7 +321,7 @@ class SpeechRouter:
         self.fallbacks = dict(fallbacks or {})
         self.fallback_only = fallback_only
         self.converter = converter
-        self._fallback_retry_s = fallback_retry_s
+        self.fallback_retry_s = fallback_retry_s
         self._clock = clock
         # A language whose engine is failing -> its last error, until the engine works again.
         self._engine_errors: dict[str, TtsError] = {}
@@ -375,7 +375,7 @@ class SpeechRouter:
         except TtsError as exc:
             self._engine_failed(language, exc)
             piece = self._stand_in(fallback, text, language)
-            self._skip_engine_until[language] = self._clock() + self._fallback_retry_s
+            self._skip_engine_until[language] = self._clock() + self.fallback_retry_s
             return piece
         if self._engine_errors.pop(language, None) is not None:
             logger.info("The %s voice works again", language)
@@ -438,13 +438,27 @@ class SpeechRouter:
 
 
 def build_speech_router(
-    config: TtsConfig, *, converter: VoiceConverter | None = None
+    config: TtsConfig, *, converter: VoiceConverter | None = None, fallback_only: bool = False
 ) -> SpeechRouter:
+    """The router for `config`; `fallback_only` speaks only through the offline fallback."""
     engines: dict[str, TextToSpeech] = {
         language: EdgeTts(voice) if isinstance(voice, EdgeVoiceConfig) else GptSovitsTts(voice)
         for language, voice in config.voices.items()
     }
-    return SpeechRouter(engines, config.default_language, converter=converter)
+    fallback = config.fallback
+    fallbacks = {
+        language: WindowsTts(language, wanted, pitches=fallback.rvc_pitch)
+        for language, wanted in fallback.voices.items()
+        if fallback.enabled
+    }
+    return SpeechRouter(
+        engines,
+        config.default_language,
+        fallbacks=fallbacks,
+        fallback_retry_s=fallback.retry_s,
+        fallback_only=fallback_only,
+        converter=converter,
+    )
 
 
 def _fallback_piece(fallback: FallbackVoice, text: str, language: str) -> _Piece:
