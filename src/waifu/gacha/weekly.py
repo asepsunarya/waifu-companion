@@ -581,6 +581,14 @@ def _spec(games: list[str], *, codes: bool, play: bool, income: bool) -> ToolSpe
             "what it is worth in pulls at 160 each (`income_this_month`)"
         )
     last = f"{', '.join(sections[:-1])}, and {sections[-1]}" if len(sections) > 1 else sections[0]
+    # gacha_income's no-judging rule is not here when Master asks how the week went.
+    information = (
+        "Present banners, events, and this month's income only as information for planning: "
+        "never suggest pulling, spending money, or topping up, and never judge the amount earned."
+        if income
+        else "Present banners and events only as information: never suggest pulling, spending "
+        "money, or topping up."
+    )
     # The play_time tool's own no-lecture rule is shut out of her report turn with that tool.
     news = (
         " Tell the play time only as news: never judge whether it is too much, and never scold "
@@ -600,9 +608,8 @@ def _spec(games: list[str], *, codes: bool, play: bool, income: bool) -> ToolSpe
             "and when Master asks how their week in these games went. Times are local. A part "
             "with a `*_problem` could not be read: say briefly that it is unavailable and tell "
             "the rest; `hint` says how "
-            "to read the whole history. HoYoverse lists pulls about an hour late. Present "
-            "banners and events only as information: never suggest pulling, spending money, or "
-            f"topping up.{news}"
+            "to read the whole history. HoYoverse lists pulls about an hour late. "
+            f"{information}{news}"
         ),
         input_schema={"type": "object", "properties": {}, "additionalProperties": False},
     )

@@ -939,6 +939,17 @@ def test_the_description_names_this_month_s_income_when_it_is_read(tmp_path):
     assert "worth in pulls" in spec.description
 
 
+def test_the_description_tells_the_income_only_for_planning_never_judging_the_amount(tmp_path):
+    # gacha_income's own rule is not in this tool's description, and Master asking how the
+    # week went has no WEEKLY_REPORT_PROMPT around it.
+    [spec] = make_tools(tmp_path, income=FakeIncome()).specs()
+
+    assert (
+        "Present banners, events, and this month's income only as information for planning: "
+        "never suggest pulling, spending money, or topping up, and never judge the amount earned."
+    ) in spec.description
+
+
 def test_the_description_leaves_the_income_out_without_a_source(tmp_path):
     [spec] = make_tools(tmp_path).specs()
 
