@@ -1,16 +1,29 @@
-"""Master's journal: the store in tmp_path at a WIB clock moved by the test."""
+"""Master's journal: the store in tmp_path at a WIB clock moved by the test, her nightly
+question, and its timer."""
 
 import dataclasses
 import json
 import logging
 import threading
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 
 import pytest
 
 from waifu import journal
+from waifu.brain.confirm import is_yes
+from waifu.brain.music_tools import MusicTools
+from waifu.brain.screen_tools import ScreenTools
+from waifu.config import AssistantConfig, JournalConfig
 from waifu.finance.values import WIB
-from waifu.journal import JournalError, JournalStore, Note, Saved
+from waifu.journal import (
+    JOURNAL_PROMPT,
+    JournalError,
+    JournalStore,
+    JournalTimer,
+    Note,
+    Saved,
+)
+from waifu.screen import ScreenImage
 
 NOW = datetime(2026, 10, 17, 21, 30, 15, 123456, tzinfo=WIB)  # a Saturday night
 TODAY = NOW.date()
@@ -550,3 +563,191 @@ def test_nothing_is_written_when_a_corrupt_file_cannot_be_moved(tmp_path, monkey
 
     assert store.path.read_bytes() == b"{not json"
     assert [path.name for path in tmp_path.iterdir()] == ["journal.json"]
+
+
+# --- the nightly question ------------------------------------------------------------------------
+
+HER_NAMES = [AssistantConfig().name, *AssistantConfig().wake_words]
+
+
+def test_the_question_says_it_is_hers_and_how_the_answer_is_written():
+    assert JOURNAL_PROMPT.startswith("Ini bukan ucapan Master:")
+    for guidance in [
+        "sekali sehari",
+        "journal_read untuk hari ini saja, tanpa tool lain",
+        "satu kalimat pendek bagaimana hari Master",
+        "apakah ada yang mau ditambahkan",
+        "jangan menulis apa pun dulu",
+        "Kalau Master menjawab pertanyaan ini di ucapan berikutnya",
+        "kata-kata Master sendiri lewat journal_write",
+        "kalau Master tidak mau bercerita, jangan simpan apa pun",
+    ]:
+        assert guidance in JOURNAL_PROMPT
+
+
+def test_the_question_never_counts_as_master_saying_yes():
+    # The brain hands the prompt to the confirmation gate as this turn's words: a yes here
+    # could confirm a PC shutdown Master was asked about just before the question.
+    assert is_yes(JOURNAL_PROMPT, HER_NAMES) is False
+
+
+def test_the_question_never_lets_her_look_at_the_screen():
+    captured: list[int] = []
+
+    def capture(max_side: int) -> ScreenImage:
+        captured.append(max_side)
+        return ScreenImage(png=b"\x89PNG", width=1, height=1)
+
+    screen = ScreenTools(capture=capture, names=HER_NAMES)
+
+    screen.begin_turn(JOURNAL_PROMPT)
+    result, is_error = screen.run("look_at_screen", {})
+    assert is_error is True
+    assert "tidak meminta melihat layar" in json.loads(result)["message"]
+    assert captured == []
+
+    # The same tools do look when Master's own words ask, so the check above is not vacuous.
+    screen.begin_turn("Cyrene, lihat layarku")
+    assert screen.run("look_at_screen", {})[1] is False
+
+
+def test_the_question_never_lets_her_open_a_song():
+    # The question comes by itself, maybe while Master plays a fullscreen game: a browser
+    # opening would take the focus from it. The opener only records.
+    opened: list[str] = []
+    music = MusicTools(service="youtube", names=HER_NAMES, links=True, startfile=opened.append)
+
+    music.begin_turn(JOURNAL_PROMPT)
+    result, is_error = music.run("play_youtube", {"query": "lofi"})
+    assert is_error is True
+    assert "tidak meminta lagu" in json.loads(result)["message"]
+    assert opened == []
+
+    music.begin_turn("Cyrene, putar lagu lofi")
+    assert music.run("play_youtube", {"query": "lofi"})[1] is False
+
+
+class Requests:
+    """Stands in for `assistant.ask_aloud`: records each prompt and what the state file said
+    at that moment."""
+
+    def __init__(self, state_path, error: Exception | None = None) -> None:
+        self.state_path = state_path
+        self.error = error
+        self.prompts: list[str] = []
+        self.states_seen: list[object] = []
+
+    def __call__(self, prompt: str) -> None:
+        self.prompts.append(prompt)
+        self.states_seen.append(read_json(self.state_path))
+        if self.error is not None:
+            raise self.error
+
+
+class Evening:
+    """A timer over a state file in tmp_path, a fake WIB clock, and a fake request."""
+
+    def __init__(self, tmp_path, *, ask_at=time(21, 0), error: Exception | None = None) -> None:
+        self.config = JournalConfig(ask_at=ask_at, state_path=tmp_path / "journal_question.json")
+        self.state_path = self.config.state_path
+        self.clock = Clock()
+        self.requests = Requests(self.state_path, error)
+        self.restart()
+
+    def restart(self) -> None:
+        """A new timer on the same state file, like `waifu run` started again."""
+        self.timer = JournalTimer(self.config, request=self.requests, now=self.clock)
+
+    def tick_at(self, hour: int, minute: int = 0, *, day: int = 17) -> None:
+        self.clock.current = datetime(2026, 10, day, hour, minute, tzinfo=WIB)
+        self.timer.tick_once()
+
+
+def test_the_first_tick_from_ask_at_asks_once_that_day(tmp_path):
+    evening = Evening(tmp_path)
+
+    evening.tick_at(21, 0)
+    evening.tick_at(21, 1)
+    evening.tick_at(23, 59)
+
+    assert evening.requests.prompts == [JOURNAL_PROMPT]
+    assert read_json(evening.state_path) == {"version": 1, "last_date": "2026-10-17"}
+
+
+def test_the_day_is_saved_before_the_question_so_a_crash_never_asks_twice(tmp_path):
+    evening = Evening(tmp_path)
+
+    evening.tick_at(21, 30)
+
+    assert evening.requests.states_seen == [{"version": 1, "last_date": "2026-10-17"}]
+
+
+@pytest.mark.parametrize(
+    ("hour", "minute", "asks"),
+    [(0, 30, False), (12, 0, False), (20, 59, False), (21, 0, True), (23, 59, True)],
+    ids=["after midnight", "noon", "just before", "exactly ask_at", "just before midnight"],
+)
+def test_it_asks_only_from_ask_at_until_midnight(tmp_path, hour, minute, asks):
+    evening = Evening(tmp_path)
+
+    evening.tick_at(hour, minute)
+
+    assert evening.requests.prompts == ([JOURNAL_PROMPT] if asks else [])
+    assert evening.state_path.exists() is asks
+
+
+def test_a_pc_turned_on_late_asks_when_it_comes(tmp_path):
+    evening = Evening(tmp_path, ask_at=time(19, 0))
+
+    evening.tick_at(22, 45)
+
+    assert evening.requests.prompts == [JOURNAL_PROMPT]
+
+
+def test_a_restart_the_same_night_never_asks_again(tmp_path):
+    evening = Evening(tmp_path)
+    evening.tick_at(21, 0)
+
+    evening.restart()
+    evening.tick_at(22, 0)
+
+    assert evening.requests.prompts == [JOURNAL_PROMPT]
+
+
+def test_the_next_night_asks_again_and_not_after_midnight(tmp_path):
+    evening = Evening(tmp_path)
+    evening.tick_at(21, 0)
+
+    evening.tick_at(0, 30, day=18)
+    assert evening.requests.prompts == [JOURNAL_PROMPT]
+    evening.tick_at(21, 0, day=18)
+
+    assert evening.requests.prompts == [JOURNAL_PROMPT, JOURNAL_PROMPT]
+
+
+def test_a_question_that_fails_is_logged_and_not_asked_again_that_day(tmp_path, caplog):
+    evening = Evening(tmp_path, error=RuntimeError("the voice loop is gone"))
+
+    with caplog.at_level(logging.ERROR, logger="waifu.prompt_timer"):
+        evening.tick_at(21, 0)
+        evening.tick_at(21, 1)
+
+    assert evening.requests.prompts == [JOURNAL_PROMPT]
+    assert "nightly journal question" in caplog.text
+
+
+def test_the_timer_needs_ask_at():
+    with pytest.raises(ValueError, match="ask_at"):
+        JournalTimer(JournalConfig(), request=lambda prompt: None)
+
+
+def test_the_thread_is_named_journal_and_stops_at_once(tmp_path):
+    asked = threading.Event()
+    config = JournalConfig(ask_at=time(21, 0), state_path=tmp_path / "journal_question.json")
+    timer = JournalTimer(config, request=lambda prompt: asked.set(), now=Clock(), tick_seconds=3600)
+
+    with timer:
+        assert asked.wait(5)
+        assert any(thread.name == "journal" for thread in threading.enumerate())
+
+    assert not any(thread.name == "journal" for thread in threading.enumerate())

@@ -6,8 +6,8 @@ fokusnya": the tool starts, stops, and reads the focus timer (`focus_timer.py`) 
 block under way included. Its arguments may all be left out (they are checked here), so it takes
 no strict slot. The spec is static English built once, so it stays byte-identical for the
 brain's lifetime and keeps the prompt cache warm. In the turns she starts herself (the morning
-greeting and the weekly game report) it refuses: the focus timer is Master's to start and stop.
-`run` never raises.
+greeting, the weekly game report, and the nightly journal question) it refuses: the focus timer
+is Master's to start and stop. `run` never raises.
 """
 
 from __future__ import annotations
@@ -31,6 +31,7 @@ from waifu.focus_timer import (
     FocusState,
 )
 from waifu.gacha.weekly import WEEKLY_REPORT_PROMPT
+from waifu.journal import JOURNAL_PROMPT
 from waifu.play_time import period_window, whole_minutes, wib_now
 
 logger = logging.getLogger(__name__)
@@ -44,6 +45,9 @@ _OWN_TURN_REFUSALS = {
     BRIEFING_PROMPT: "Timer fokus hanya untuk permintaan Master, bukan untuk sapaan pagi.",
     WEEKLY_REPORT_PROMPT: (
         "Timer fokus hanya untuk permintaan Master, bukan untuk laporan game mingguan."
+    ),
+    JOURNAL_PROMPT: (
+        "Timer fokus hanya untuk permintaan Master, bukan untuk pertanyaan jurnal malam."
     ),
 }
 _FAILED = "Catatan fokus tidak bisa dibaca saat ini."
@@ -82,7 +86,8 @@ class FocusTools:
 
     def begin_turn(self, user_text: str) -> None:
         """Start a turn with its words as heard: a turn she starts herself, the morning
-        greeting or the weekly game report, gets no focus timer."""
+        greeting, the weekly game report, or the nightly journal question, gets no focus
+        timer."""
         self._refusal = _OWN_TURN_REFUSALS.get(user_text)
 
     def run(self, name: str, arguments: object) -> tuple[str, bool]:

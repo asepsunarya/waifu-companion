@@ -8,9 +8,9 @@ with the PC, so one question per turn covers both), and `undo_expense` deletes t
 recorded last, within 15 minutes. The specs are static English built once, so they stay
 byte-identical for the brain's lifetime and keep the prompt cache warm. A successful read is
 kept in memory for 60 seconds, never on disk, and so is her last recorded expense: a restart
-forgets it. In the morning greeting and the weekly game report she starts herself every tool
-refuses without asking tepira, and `waifu run` starts both in a new session, so no figure
-reaches them or their push. `run` never raises.
+forgets it. In the morning greeting, the weekly game report, and the nightly journal question she
+starts herself every tool refuses without asking tepira, and `waifu run` starts each in a new
+session, so no figure reaches them or their push. `run` never raises.
 """
 
 from __future__ import annotations
@@ -58,6 +58,7 @@ from waifu.finance.values import (
     spoken_text,
 )
 from waifu.gacha.weekly import WEEKLY_REPORT_PROMPT
+from waifu.journal import JOURNAL_PROMPT
 from waifu.memory import looks_secret
 
 logger = logging.getLogger(__name__)
@@ -76,6 +77,9 @@ _OWN_TURN_REFUSALS = {
     BRIEFING_PROMPT: "Data keuangan hanya untuk pertanyaan Master, bukan untuk sapaan pagi.",
     WEEKLY_REPORT_PROMPT: (
         "Data keuangan hanya untuk pertanyaan Master, bukan untuk laporan game mingguan."
+    ),
+    JOURNAL_PROMPT: (
+        "Data keuangan hanya untuk pertanyaan Master, bukan untuk pertanyaan jurnal malam."
     ),
 }
 _FAILED = "Tool keuangan gagal dijalankan."
@@ -244,8 +248,8 @@ class FinanceTools:
 
     def begin_turn(self, user_text: str) -> None:
         """Start a turn with its words as heard: a turn she starts herself, the morning
-        greeting (`BRIEFING_PROMPT`) or the weekly game report (`WEEKLY_REPORT_PROMPT`), gets
-        no finance tool."""
+        greeting (`BRIEFING_PROMPT`), the weekly game report (`WEEKLY_REPORT_PROMPT`), or the
+        nightly journal question (`JOURNAL_PROMPT`), gets no finance tool."""
         self._refusal = _OWN_TURN_REFUSALS.get(user_text)
 
     def run(self, name: str, arguments: object) -> tuple[str, bool]:

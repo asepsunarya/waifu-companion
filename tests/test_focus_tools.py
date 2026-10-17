@@ -18,6 +18,7 @@ from waifu.finance.values import WIB
 from waifu.focus import FocusBlock, FocusStore
 from waifu.focus_timer import FocusPlan, FocusTimer
 from waifu.gacha.weekly import WEEKLY_REPORT_PROMPT
+from waifu.journal import JOURNAL_PROMPT
 
 NOW = datetime(2026, 10, 17, 20, 0, tzinfo=WIB)  # Saturday 20:00
 NOTHING = {"hours": 0, "minutes": 0}
@@ -306,8 +307,12 @@ def test_another_tool_name_is_an_error_result(rig):
             WEEKLY_REPORT_PROMPT,
             "Timer fokus hanya untuk permintaan Master, bukan untuk laporan game mingguan.",
         ),
+        (
+            JOURNAL_PROMPT,
+            "Timer fokus hanya untuk permintaan Master, bukan untuk pertanyaan jurnal malam.",
+        ),
     ],
-    ids=["briefing", "weekly_report"],
+    ids=["briefing", "weekly_report", "journal_question"],
 )
 def test_her_own_turns_get_no_focus_timer_and_master_s_next_turn_does(rig, prompt, message):
     rig.tools.begin_turn(prompt)

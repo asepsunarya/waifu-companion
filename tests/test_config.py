@@ -944,6 +944,56 @@ def test_the_example_focus_block_written_out_holds_the_defaults(tmp_path):
     assert load_config(write_yaml(tmp_path, written_out)).focus == FocusConfig()
 
 
+def test_the_journal_is_on_without_the_nightly_question_by_default():
+    journal = AppConfig().journal
+    assert (journal.enabled, journal.max_chars, journal.max_notes_per_day) == (True, 500, 20)
+    assert journal.ask_at is None
+    assert (journal.path, journal.state_path) == (
+        Path("data/journal.json"),
+        Path("data/journal_question.json"),
+    )
+
+
+def test_journal_settings_load_from_yaml_with_a_bare_ask_at(tmp_path):
+    text = (
+        "journal:\n  enabled: false\n  path: data/jurnal.json\n  max_chars: 300\n"
+        "  max_notes_per_day: 5\n  ask_at: 21:30\n  state_path: data/tanya.json\n"
+    )
+    journal = load_config(write_yaml(tmp_path, text)).journal
+    assert (journal.enabled, journal.max_chars, journal.max_notes_per_day) == (False, 300, 5)
+    assert journal.ask_at == time(21, 30)
+    assert (journal.path, journal.state_path) == (
+        Path("data/jurnal.json"),
+        Path("data/tanya.json"),
+    )
+
+
+@pytest.mark.parametrize("ask_at", ["'12:00'", "'20:00'", "'23:59'"])
+def test_a_nightly_question_from_noon_until_midnight_is_accepted(tmp_path, ask_at):
+    journal = load_config(write_yaml(tmp_path, f"journal:\n  ask_at: {ask_at}\n")).journal
+    assert journal.ask_at == time.fromisoformat(ask_at.strip("'"))
+
+
+@pytest.mark.parametrize(
+    ("lines", "named"),
+    [
+        ("  max_chars: 19\n", "journal.max_chars"),
+        ("  max_chars: 2001\n", "journal.max_chars"),
+        ("  max_notes_per_day: 0\n", "journal.max_notes_per_day"),
+        ("  max_notes_per_day: 101\n", "journal.max_notes_per_day"),
+        ("  ask_at: '00:30'\n", "journal.ask_at"),  # after midnight: the day is over
+        ("  ask_at: '11:59'\n", "journal.ask_at"),
+        ("  ask_at: 24:00\n", "journal.ask_at"),  # YAML base 60: 1440 minutes
+        ("  ask_at: 2130\n", "journal.ask_at"),  # the colon forgotten
+        ("  ask_at: '21:30+07:00'\n", "journal.ask_at"),  # a clock with a time zone
+        ("  push: true\n", "journal.push"),  # the journal is never pushed
+    ],
+)
+def test_bad_journal_settings_are_refused_naming_the_setting(tmp_path, lines, named):
+    with pytest.raises(ConfigError, match=re.escape(named)):
+        load_config(write_yaml(tmp_path, "journal:\n" + lines))
+
+
 def test_web_search_is_on_for_indonesia_by_default():
     search = AppConfig().web_search
     assert (search.enabled, search.max_uses) == (True, 3)

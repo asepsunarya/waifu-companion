@@ -6,8 +6,9 @@ whether it is open now, and the total, in which time two games were open togethe
 It is her own count: only while `waifu run` was on, and the time a game was open, minimized or
 idle too. The spec is static English built once from the configured games, so it stays
 byte-identical for the brain's lifetime and keeps the prompt cache warm. In the turns she starts
-herself (the morning greeting and the weekly game report) it refuses: play time is told only
-when Master asks, and the weekly report already holds it. `run` never raises.
+herself (the morning greeting, the weekly game report, and the nightly journal question) it
+refuses: play time is told only when Master asks, and the weekly report already holds it. `run`
+never raises.
 """
 
 from __future__ import annotations
@@ -25,6 +26,7 @@ from waifu.finance.values import WIB
 from waifu.gacha.games import GAMES
 from waifu.gacha.tools import LOCAL_TIME
 from waifu.gacha.weekly import WEEKLY_REPORT_PROMPT
+from waifu.journal import JOURNAL_PROMPT
 from waifu.play_time import (
     PERIODS,
     PlayRecord,
@@ -46,6 +48,7 @@ _OWN_TURN_REFUSALS = {
     WEEKLY_REPORT_PROMPT: (
         "Jam main minggu ini sudah ada di weekly_report; jangan panggil tool lain."
     ),
+    JOURNAL_PROMPT: "Jam main hanya untuk pertanyaan Master, bukan untuk pertanyaan jurnal malam.",
 }
 _FAILED = "Catatan jam main tidak bisa dibaca saat ini."
 
@@ -83,7 +86,8 @@ class PlayTimeTools:
 
     def begin_turn(self, user_text: str) -> None:
         """Start a turn with its words as heard: a turn she starts herself, the morning
-        greeting or the weekly game report, gets no play time."""
+        greeting, the weekly game report, or the nightly journal question, gets no play
+        time."""
         self._refusal = _OWN_TURN_REFUSALS.get(user_text)
 
     def run(self, name: str, arguments: object) -> tuple[str, bool]:

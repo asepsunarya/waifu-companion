@@ -47,6 +47,7 @@ from waifu.finance.values import (
     UndoneExpense,
 )
 from waifu.gacha.weekly import WEEKLY_REPORT_PROMPT
+from waifu.journal import JOURNAL_PROMPT
 
 NOW = datetime(2026, 10, 16, 9, 12, tzinfo=WIB)
 NAMES = ("Cyrene", "cyrene", "hai cyrene", "hei cyrene")
@@ -69,6 +70,9 @@ NOTHING_TO_UNDO = (
 BRIEFING_REFUSAL = "Data keuangan hanya untuk pertanyaan Master, bukan untuk sapaan pagi."
 WEEKLY_REPORT_REFUSAL = (
     "Data keuangan hanya untuk pertanyaan Master, bukan untuk laporan game mingguan."
+)
+JOURNAL_QUESTION_REFUSAL = (
+    "Data keuangan hanya untuk pertanyaan Master, bukan untuk pertanyaan jurnal malam."
 )
 
 SUMMARY = {
@@ -833,6 +837,19 @@ def test_the_weekly_game_report_gets_no_figure_and_asks_tepira_nothing(name):
     result, is_error = run(tools, name, COFFEE if name == RECORD_EXPENSE else {})
 
     assert (result, is_error) == ({"ok": False, "message": WEEKLY_REPORT_REFUSAL}, True)
+    assert source.calls == []
+    assert gate.with_question("") == ""
+
+
+@pytest.mark.parametrize("name", FINANCE_TOOLS)
+def test_the_nightly_journal_question_gets_no_figure_and_asks_tepira_nothing(name):
+    source = FakeSource()
+    tools, gate = writing(source)
+    turn(tools, gate, JOURNAL_PROMPT)
+
+    result, is_error = run(tools, name, COFFEE if name == RECORD_EXPENSE else {})
+
+    assert (result, is_error) == ({"ok": False, "message": JOURNAL_QUESTION_REFUSAL}, True)
     assert source.calls == []
     assert gate.with_question("") == ""
 

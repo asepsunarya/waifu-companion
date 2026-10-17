@@ -59,6 +59,8 @@ MAX_EXECUTABLE_CHARS = 64
 # The bedtime nudge's night: a bedtime from NIGHT_EARLIEST, or after midnight, until NIGHT_ENDS.
 NIGHT_EARLIEST = time(18, 0)
 NIGHT_ENDS = time(6, 0)
+# Her question about Master's day: asked from noon on, never after midnight, when the day is over.
+JOURNAL_QUESTION_EARLIEST = time(12, 0)
 
 
 def cookie_names(cookie: str) -> set[str]:
@@ -859,6 +861,33 @@ class FocusConfig(_Strict):
     path: Path = Path("data/focus.json")
 
 
+class JournalConfig(_Strict):
+    """Master's daily journal, and her optional question about the day once a night."""
+
+    enabled: bool = True
+    path: Path = Path("data/journal.json")
+    max_chars: int = Field(default=500, ge=20, le=2000)  # one note
+    max_notes_per_day: int = Field(default=20, ge=1, le=100)
+    # None: no nightly question. Asked once a day from here until midnight.
+    ask_at: _Clock | None = None
+    state_path: Path = Path("data/journal_question.json")
+
+    @field_validator("ask_at", mode="before")
+    @classmethod
+    def _yaml_sexagesimal_is_hh_mm(cls, value: object) -> object:
+        return _clock_from_yaml(value)
+
+    @field_validator("ask_at")
+    @classmethod
+    def _ask_at_before_midnight(cls, value: _Clock | None) -> _Clock | None:
+        # Pydantic reads 1440 or more (24:00, 2130) as seconds in UTC, an aware time.
+        if value is not None and value.tzinfo is not None:
+            raise ValueError("ask_at must be a clock time HH:MM without a time zone")
+        if value is not None and value < JOURNAL_QUESTION_EARLIEST:
+            raise ValueError("ask_at must be from 12:00 through 23:59")
+        return value
+
+
 class MusicConfig(_Strict):
     """Songs on YouTube, opened in the default browser when Master asks."""
 
@@ -1030,6 +1059,7 @@ class AppConfig(_Strict):
     pc_health: PcHealthConfig = Field(default_factory=PcHealthConfig)
     play_time: PlayTimeConfig = Field(default_factory=PlayTimeConfig)
     focus: FocusConfig = Field(default_factory=FocusConfig)
+    journal: JournalConfig = Field(default_factory=JournalConfig)
     web_search: WebSearchConfig = Field(default_factory=WebSearchConfig)
     free_offers: FreeOffersConfig = Field(default_factory=FreeOffersConfig)
     vision: VisionConfig = Field(default_factory=VisionConfig)

@@ -1411,12 +1411,12 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 146 · **Files:** `src/waifu/brain/journal_tools.py`, `tests/test_journal_tools.py`, `src/waifu/brain/tools.py`, `src/waifu/app.py` · **Scope:** M
 
-## Task 148: The nightly question
+## Task 148: The nightly question ✅
 
 **Acceptance criteria:**
-- [ ] `JournalConfig` as `AppConfig.journal` (`ask_at` none, or 12:00-23:59, bare YAML times read)
-- [ ] `JOURNAL_PROMPT` is not a yes, opens no screen, and plays no song; `journal_write` refuses in its turn and `journal_read` runs; the finance, play time, and focus tools refuse in it
-- [ ] `JournalTimer` asks once a day from `ask_at` until midnight, the day saved first; a restart never asks twice
+- [x] `JournalConfig` as `AppConfig.journal` (`ask_at` none, or 12:00-23:59, bare YAML times read)
+- [x] `JOURNAL_PROMPT` is not a yes, opens no screen, and plays no song; `journal_write` refuses in its turn and `journal_read` runs; the finance, play time, and focus tools refuse in it
+- [x] `JournalTimer` asks once a day from `ask_at` until midnight, the day saved first; a restart never asks twice
 
 **Dependencies:** 147 · **Files:** `src/waifu/config.py`, `tests/test_config.py`, `src/waifu/journal.py`, `tests/test_journal.py`, `src/waifu/brain/journal_tools.py`, `src/waifu/brain/finance_tools.py`, `src/waifu/brain/play_time_tools.py`, `src/waifu/brain/focus_tools.py` and their tests · **Scope:** M
 

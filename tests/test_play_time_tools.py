@@ -15,6 +15,7 @@ from waifu.briefing import BRIEFING_PROMPT
 from waifu.config import PlayTimeConfig
 from waifu.finance.values import WIB
 from waifu.gacha.weekly import WEEKLY_REPORT_PROMPT
+from waifu.journal import JOURNAL_PROMPT
 from waifu.play_time import PlayTimeStore, Session
 
 DAY = datetime(2026, 10, 17, tzinfo=WIB)  # a Saturday
@@ -292,8 +293,12 @@ def test_another_tool_name_is_an_error_result(tmp_path):
             WEEKLY_REPORT_PROMPT,
             "Jam main minggu ini sudah ada di weekly_report; jangan panggil tool lain.",
         ),
+        (
+            JOURNAL_PROMPT,
+            "Jam main hanya untuk pertanyaan Master, bukan untuk pertanyaan jurnal malam.",
+        ),
     ],
-    ids=["briefing", "weekly_report"],
+    ids=["briefing", "weekly_report", "journal_question"],
 )
 def test_her_own_turns_get_no_play_time_and_master_s_next_turn_does(tmp_path, prompt, message):
     tools = make_tools(tmp_path)

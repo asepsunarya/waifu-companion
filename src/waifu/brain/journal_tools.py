@@ -9,7 +9,9 @@ is; reading takes only optional arguments, checked here. Nothing deletes by voic
 deletion cannot be undone, so `waifu jurnal forget` does it. The specs are static English built
 once, so they stay byte-identical for the brain's lifetime and keep the prompt cache warm. In the
 turns she starts herself (the morning greeting and the weekly game report) both tools refuse:
-the journal is told only when Master asks. `run` never raises.
+the journal is told only when Master asks. Her nightly question (`JOURNAL_PROMPT`) may read
+today's notes but never writes: only Master's answer, in the next turn, is written. `run` never
+raises.
 """
 
 from __future__ import annotations
@@ -27,6 +29,7 @@ from waifu.briefing import BRIEFING_PROMPT
 from waifu.finance.values import WIB
 from waifu.gacha.weekly import WEEKLY_REPORT_PROMPT
 from waifu.journal import (
+    JOURNAL_PROMPT,
     JOURNAL_READ,
     JOURNAL_TOOLS,
     JOURNAL_WRITE,
@@ -46,10 +49,14 @@ _READ_KEYS = frozenset({"date", "period"})
 _ISO_DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 _GREETING = "Jurnal hanya untuk permintaan Master, bukan untuk sapaan pagi."
 _WEEKLY_REPORT = "Jurnal hanya untuk permintaan Master, bukan untuk laporan game mingguan."
-# The turns she starts herself, each with what each journal tool answers in it.
+_ASK_FIRST = "Tanyakan dulu; jawaban Master disimpan di giliran berikutnya."
+# The turns she starts herself, each with what each journal tool answers in it. Her nightly
+# question reads today's notes but writes nothing: only Master's answer is written, in the next
+# turn.
 _OWN_TURN_REFUSALS: dict[str, dict[str, str]] = {
     BRIEFING_PROMPT: dict.fromkeys(JOURNAL_TOOLS, _GREETING),
     WEEKLY_REPORT_PROMPT: dict.fromkeys(JOURNAL_TOOLS, _WEEKLY_REPORT),
+    JOURNAL_PROMPT: {JOURNAL_WRITE: _ASK_FIRST},
 }
 _FAILED = "Jurnal tidak bisa dibuka saat ini."
 _NOT_YET = "Tanggal itu belum lewat, jadi belum ada catatan jurnalnya."
@@ -121,7 +128,8 @@ class JournalTools:
 
     def begin_turn(self, user_text: str) -> None:
         """Start a turn with its words as heard: a turn she starts herself, the morning
-        greeting or the weekly game report, gets no journal."""
+        greeting or the weekly game report, gets no journal, and her nightly question writes
+        nothing."""
         self._refusals = _OWN_TURN_REFUSALS.get(user_text, {})
 
     def run(self, name: str, arguments: object) -> tuple[str, bool]:

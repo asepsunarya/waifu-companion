@@ -14,7 +14,13 @@ from waifu.brain.tools import logged_arguments, to_anthropic, to_ollama
 from waifu.briefing import BRIEFING_PROMPT
 from waifu.finance.values import WIB
 from waifu.gacha.weekly import WEEKLY_REPORT_PROMPT
-from waifu.journal import JOURNAL_READ, JOURNAL_TOOLS, JOURNAL_WRITE, JournalStore
+from waifu.journal import (
+    JOURNAL_PROMPT,
+    JOURNAL_READ,
+    JOURNAL_TOOLS,
+    JOURNAL_WRITE,
+    JournalStore,
+)
 
 NOW = datetime(2026, 10, 17, 21, 30, tzinfo=WIB)  # a Saturday night
 TODAY = NOW.date()
@@ -434,6 +440,27 @@ def test_her_own_turns_get_no_journal_and_master_s_next_turn_does(rig, prompt, m
 
     assert rig.read()["days"][0]["notes"] == ["catatan pribadi"]
     assert rig.write(text="catatan lain")["saved"] is True
+
+
+def test_her_nightly_question_reads_today_but_never_writes(rig):
+    # The question's turn only asks: the note is Master's answer, written in the next turn.
+    fill(rig, {TODAY: ["pagi ke kampus"]})
+    rig.tools.begin_turn(JOURNAL_PROMPT)
+
+    assert rig.read()["days"][0]["notes"] == ["pagi ke kampus"]
+    assert rig.failed(JOURNAL_WRITE, {"text": "hari ini menyenangkan"}) == (
+        "Tanyakan dulu; jawaban Master disimpan di giliran berikutnya."
+    )
+    assert rig.texts() == ["pagi ke kampus"]
+
+
+def test_master_s_answer_to_the_nightly_question_is_written(rig):
+    rig.tools.begin_turn(JOURNAL_PROMPT)
+    rig.read()
+    rig.tools.begin_turn("capek, tapi laporannya akhirnya selesai")
+
+    assert rig.write(text="capek, tapi laporannya akhirnya selesai")["saved"] is True
+    assert rig.texts() == ["capek, tapi laporannya akhirnya selesai"]
 
 
 # --- the log ------------------------------------------------------------------------------------

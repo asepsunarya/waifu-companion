@@ -14,6 +14,14 @@ atomically, reading never creates it, and a file that is not a journal is moved 
 overwritten. Times are aware WIB, to the second.
 
 A note that looks like a secret is refused here, whatever the model asks for.
+
+`JournalTimer` asks for her question about Master's day once a day, the first time `waifu run`
+is on from `journal.ask_at` until midnight: a `PromptTimer` that hands `JOURNAL_PROMPT` to
+`request`, which has the brain answer it between Master's utterances. The day goes into the
+state file before the request, so a crash or a restart never asks twice; a question that fails
+or is never said is not asked again that day.
+
+This module imports no `waifu.brain` module: `brain/tools.py` names the journal tools from here.
 """
 
 from __future__ import annotations
@@ -28,10 +36,12 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
 
+from waifu.config import JournalConfig
 from waifu.finance.values import WIB
 from waifu.gacha.files import write_json_atomic
 from waifu.memory import looks_secret
 from waifu.play_time import wib_now
+from waifu.prompt_timer import PromptTimer
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +50,19 @@ logger = logging.getLogger(__name__)
 JOURNAL_WRITE = "journal_write"
 JOURNAL_READ = "journal_read"
 JOURNAL_TOOLS = (JOURNAL_WRITE, JOURNAL_READ)
+# Her own turn, not Master's words: it holds no look word (the screen tool stays shut), no
+# play verb or music word (the music tool stays shut), and does not start with a yes (the
+# confirmation gate stays shut). journal_read is the turn's sign of success, as daily_briefing
+# is the greeting's; journal_write refuses in it, so only Master's answer is ever written.
+JOURNAL_PROMPT = (
+    "Ini bukan ucapan Master: ini pertanyaan jurnal malammu sendiri, yang kamu mulai sendiri "
+    "sekali sehari. Panggil journal_read untuk hari ini saja, tanpa tool lain, lalu tanyakan "
+    "dengan hangat dalam satu kalimat pendek bagaimana hari Master; kalau hari ini sudah ada "
+    "catatan, tanyakan apakah ada yang mau ditambahkan. Jangan membacakan catatannya dan "
+    "jangan menulis apa pun dulu. Kalau Master menjawab pertanyaan ini di ucapan berikutnya, "
+    "simpan jawabannya dengan kata-kata Master sendiri lewat journal_write, lalu balas dengan "
+    "satu kalimat pendek; kalau Master tidak mau bercerita, jangan simpan apa pun."
+)
 
 FILE_VERSION = 1
 _FILE_KEYS = {"version", "days"}
@@ -209,6 +232,35 @@ class JournalStore:
                     if notes
                 },
             },
+        )
+
+
+class JournalTimer(PromptTimer):
+    """Asks for her question about Master's day once a day from `ask_at` until midnight, from a
+    daemon thread. A day the PC was off at night is skipped."""
+
+    def __init__(
+        self,
+        config: JournalConfig,
+        *,
+        request: Callable[[str], None],
+        now: Callable[[], datetime] = wib_now,
+        tick_seconds: float = 30,
+    ) -> None:
+        """`now` is aware WIB time. ValueError without `config.ask_at`: no question is asked."""
+        ask_at = config.ask_at
+        if ask_at is None:
+            raise ValueError("the nightly journal question needs journal.ask_at")
+        super().__init__(
+            JOURNAL_PROMPT,
+            due=lambda moment: moment.time() >= ask_at,
+            state_path=config.state_path,
+            request=request,
+            what="nightly journal question",
+            when=f"from {ask_at:%H:%M} until midnight",
+            thread_name="journal",
+            now=now,
+            tick_seconds=tick_seconds,
         )
 
 
