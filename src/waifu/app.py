@@ -219,6 +219,7 @@ class Assistant:
         self._name = config.assistant.name
         self._owner_call = config.assistant.owner_call
         self._followup_s = config.assistant.followup_seconds
+        self._session_idle_s = config.assistant.session_idle_minutes * 60
         self._brain = brain
         self._stt = stt
         self._speech = speech
@@ -249,6 +250,9 @@ class Assistant:
         # When the follow-up window last opened by `_open_followup` ends, on `clock`: requests
         # wait until then, since Master may still answer her.
         self._followup_until: float | None = None
+        # Until when, on `clock`, the brain's conversation may still be Master's phone chat
+        # (`session_idle_minutes` after his last phone message): requests wait until then.
+        self._phone_chat_until: float | None = None
         self._voice = threading.Lock()  # one voice: replies, announcements, and reactions
         # One brain turn at a time, the voice loop's or the phone's; never held while speaking.
         self._turn = threading.Lock()
@@ -331,11 +335,13 @@ class Assistant:
         that the message was sent with the viewfinder open, also when its photo could not be
         taken (a photo always was): that turn is a camera turn, in which only words naming the
         screen let her look at the PC's. Nothing is said on the PC, whose microphone,
-        follow-up window, and avatar stay as they are. Her voice comes back as a 16-bit WAV at
-        PHONE_SAMPLE_RATE with the avatar's mouth track; when it cannot be made (the logs say
-        why), the reply is only its text. Safe from any thread.
+        follow-up window, and avatar stay as they are, but `ask_aloud` requests wait until
+        `session_idle_minutes` after the message (`_speak_up`). Her voice comes back as a
+        16-bit WAV at PHONE_SAMPLE_RATE with the avatar's mouth track; when it cannot be made
+        (the logs say why), the reply is only its text. Safe from any thread.
         """
         logger.info("Phone message: %s", text)
+        self._phone_chat_until = self._clock() + self._session_idle_s
         emotion, reply = self._think(text, photo=image, camera=camera or image is not None)
         try:
             audio, sample_rate = self._speech.synthesize(reply.text)
@@ -406,10 +412,11 @@ class Assistant:
 
         `run` handles it between utterances under the same conditions as announcements,
         on a later frame than any announcements queued with it, never while a follow-up
-        window is open (Master may still answer her) or `quiet` holds, and one request at a
-        time: she thinks up the reply, says it like a reply (the follow-up window opens, so
-        Master can answer without the wake word), and hands the spoken text to `on_reply` on
-        a thread of its own, so a slow push never keeps `run` from the microphone.
+        window is open (Master may still answer her), Master chats on the phone (`_speak_up`),
+        or `quiet` holds, and one request at a time: she thinks up the reply, says it like a
+        reply (the follow-up window opens, so Master can answer without the wake word), and
+        hands the spoken text to `on_reply` on a thread of its own, so a slow push never keeps
+        `run` from the microphone.
 
         A brain answers a failure (no connection, a refusal) with an apology, never an
         exception. With `required_tool`, a reply whose turn has no successful call of that
@@ -521,18 +528,27 @@ class Assistant:
         followup_until = self._followup_until
         return followup_until is not None and self._clock() < followup_until
 
+    def _phone_chatting(self) -> bool:
+        phone_chat_until = self._phone_chat_until
+        return phone_chat_until is not None and self._clock() < phone_chat_until
+
     def _speak_up(self) -> None:
         """Say the queued announcements, or else answer a request once Master has had his say.
 
         A request never follows announcements in the same pass: the next frame checks again
         that Master has not started talking and did not cut them short to talk. Nor does it,
         or an announcement that waits for the window, come while the follow-up window is
-        open, so a conversation is never taken over. While `quiet` holds, only reminders are
-        said: the rest waits in its queue.
+        open, so a conversation is never taken over. Nor does a request come while Master
+        chats on the phone (until `session_idle_minutes` after his last phone message): its
+        new session would wipe that conversation, and he would not hear it on the PC, so his
+        next phone message would answer a question he never heard. While `quiet` holds, only
+        reminders are said: the rest waits in its queue.
         """
         followup_open = self._followup_open()
         quiet = self._quiet is not None and self._quiet()
-        if not self._say_announcements(followup_open, quiet) and not (followup_open or quiet):
+        if not self._say_announcements(followup_open, quiet) and not (
+            followup_open or quiet or self._phone_chatting()
+        ):
             self._answer_next_request()
 
     def _say_announcements(self, followup_open: bool, quiet: bool) -> bool:

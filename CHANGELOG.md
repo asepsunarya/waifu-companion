@@ -17,6 +17,8 @@ aktif, lalu jalankan `waifu check`.
   sehari mulai jam itu sampai tengah malam dia bertanya bagaimana hari Master. Jawab langsung
   tanpa memanggil namanya, dan jawabannya dicatat; kalau tidak dijawab, tidak ada yang dicatat dan
   dia tidak bertanya lagi hari itu. Tidak dikirim ke HP, dan menunggu istirahat selama blok fokus.
+- Selagi Master mengobrol lewat Cyrene di HP, sapaan pagi, laporan mingguan, dan pertanyaan malam
+  menunggu sampai sekitar 10 menit setelah pesan HP terakhir, supaya obrolan di HP tidak terhapus.
 - Menghapus hanya lewat terminal: `waifu jurnal forget <tanggal> --yes`. `waifu jurnal` juga
   menampilkan hari yang ada catatannya, catatan satu hari (`show`), dan menambah catatan (`add`),
   dan `waifu check` menyebut jurnal. Bagian baru `journal` di `config.yaml` opsional. Catatannya

@@ -3532,6 +3532,9 @@ sekali lagi.
 - Satu pertanyaan sekaligus: selagi dia masih menjawab, pertanyaan berikutnya dari HP yang sama
   ditolak dengan "Sebentar ya, Master, aku masih menjawab yang tadi." Kalau di PC Master
   sedang bicara dengannya, jawaban HP menunggu sampai giliran itu selesai dipikirkan.
+- Selagi Master mengobrol lewat HP, dia tidak memulai obrolan baru di PC: sapaan pagi, laporan
+  mingguan, dan pertanyaan jurnal malam menunggu sampai sekitar 10 menit setelah pesan HP
+  terakhir (`assistant.session_idle_minutes`), supaya obrolan di HP tidak terhapus.
 - Konfirmasi tetap berlaku: "matikan komputer" dari HP ditanyakan dulu, dan "iya" berikutnya
   (dari HP atau dari mic PC) yang menjalankannya. Lihat layar ("lihat layarku") juga bisa,
   yang dilihat adalah layar PC. Untuk menunjukkan sesuatu di depan HP, pakai
@@ -4098,7 +4101,9 @@ Master : "Cyrene, jurnal tanggal 12 Oktober isinya apa?"
 
 Isi `journal.ask_at` (misalnya `21:30`), lalu jalankan ulang `waifu run`. Sekali sehari, mulai jam
 itu sampai tengah malam, saat dia tidak sedang diajak bicara, dia bertanya dengan hangat bagaimana
-hari Master:
+hari Master. Selagi Master mengobrol lewat [Cyrene di HP](#cyrene-di-hp), pertanyaannya menunggu
+sampai HP sepi sekitar 10 menit (`assistant.session_idle_minutes`), supaya obrolan di HP tidak
+terputus:
 
 ```text
 Cyrene : "Sayang, bagaimana harimu hari ini?"

@@ -32,6 +32,7 @@ from waifu.config import (
 from waifu.devices.mock import MockDevice
 from waifu.devices.registry import DeviceRegistry
 from waifu.gate import WakeGate
+from waifu.journal import JOURNAL_PROMPT
 from waifu.phone.auth import PhoneAuth
 from waifu.phone.server import PhoneBackend, PhoneReply, PhoneServer
 from waifu.screen import ScreenImage, encode_png
@@ -1835,6 +1836,28 @@ def test_a_phone_turn_leaves_the_pc_s_follow_up_window_closed():
 
     assert rig.assistant.handle_utterance(rig.utterance()) is None  # the wake word is needed
     assert rig.brain.turns == [(PHONE_TEXT, NOW)]
+
+
+def test_her_own_question_waits_until_master_has_been_quiet_on_the_phone_for_a_session():
+    # At ask_at between two phone messages, the nightly question would wipe the phone chat
+    # (a new session) and be said on the PC, where Master does not hear it: his next phone
+    # message would then be taken for the answer to a question he never heard.
+    rig = Rig(brain=ForgetfulBrain)
+    rig.assistant.reply_for_phone(PHONE_TEXT)
+    rig.assistant.ask_aloud(JOURNAL_PROMPT, new_session=True)
+
+    listen_once(rig)
+    rig.clock.now += 9 * 60  # session_idle_minutes is 10: the phone chat may go on
+    rig.assistant.reply_for_phone("terus gimana?")
+    rig.clock.now += 9 * 60
+    listen_once(rig)
+    waited = list(rig.brain.calls)
+    rig.clock.now += 60  # session_idle_minutes after his last phone message
+    listen_once(rig)
+
+    assert waited == [PHONE_TEXT, "terus gimana?"]
+    assert rig.brain.calls == [PHONE_TEXT, "terus gimana?", "<reset>", JOURNAL_PROMPT]
+    assert rig.speech.texts[-1] == REPLY
 
 
 def test_her_phone_voice_is_a_16_bit_mono_wav_at_24_khz_with_the_avatar_s_mouth_track():
