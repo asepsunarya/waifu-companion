@@ -4987,7 +4987,9 @@ ZZZ](#data-akun-genshin-dan-zzz-karakter-endgame-dan-event))
 - [ ] "Cyrene, ingat PIN ATM-ku 1234": dia menolak, dan tidak ada catatan baru.
 
 **Jadwal dan rutinitas** (tulis dulu rutinitas `tidur` di `config.yaml`: contohnya ada di
-`config.example.yaml`, hapus tanda `#` di depannya, lalu jalankan ulang `waifu run`; lihat
+`config.example.yaml`, hapus tanda `#` di depannya. Kalau rutinitas `tidur` sudah ada,
+tambahkan langkah `- {device: ac, command: off, after_minutes: 180}` di akhirnya (lihat
+[Mode tidur](#mode-tidur)). Lalu jalankan ulang `waifu run`; lihat
 [Menulis rutinitas di config.yaml](#menulis-rutinitas-di-configyaml). Kode IR `temp_26`
 dan `off` untuk `ac` harus sudah dipelajari.)
 
@@ -5000,8 +5002,10 @@ dan `off` untuk `ac` harus sudah dipelajari.)
       `waifu schedule list` menampilkan `perangkat ac off (rutinitas tidur)`. "Cyrene,
       batalkan AC mati nanti": jadwal itu hilang dari `waifu schedule list`.
 - [ ] Ubah sementara `after_minutes: 180` menjadi `2`, jalankan ulang `waifu run`, lalu
-      "Cyrene, mode tidur": dua menit kemudian AC mati tanpa dia berkata apa-apa. Kembalikan
-      ke `180` setelahnya. `waifu routine run tidur` sama, dengan baris `Dijadwalkan ...`.
+      "Cyrene, mode tidur": dua menit kemudian AC mati tanpa dia berkata apa-apa.
+      `waifu routine run tidur` sama, dengan baris `Dijadwalkan ...`. Setelah itu kembalikan
+      ke `180`, lalu jalankan ulang `waifu run` lagi: kalau tidak, malam itu AC mati dua
+      menit setelah "mode tidur".
 - [ ] "Cyrene, matikan komputer jam 11 malam": dia menolak menjadwalkannya dan tidak
       menawarkan mematikan `colokan_pc` sebagai gantinya.
 - [ ] "Cyrene, matikan semua perangkat jam 2 pagi": `waifu schedule list` tidak berisi

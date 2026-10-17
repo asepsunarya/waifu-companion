@@ -22,7 +22,9 @@ aktif, lalu jalankan `waifu check`.
   sebelum itu.
 - `waifu routine list`, `waifu routine run`, dan `waifu check` menampilkan jedanya (`ac off
   setelah 3 jam`). Contoh rutinitas `tidur` di `config.example.yaml` sekarang ikut mematikan AC
-  3 jam kemudian; rutinitas yang sudah ada di `config.yaml` tidak berubah.
+  3 jam kemudian; rutinitas yang sudah ada di `config.yaml` tidak berubah. Kalau rutinitas
+  `tidur` sudah ada, tambahkan langkah `- {device: ac, command: off, after_minutes: 180}` di
+  akhirnya (lihat Mode tidur), lalu mulai ulang `waifu run`.
 - Turun lagi ke versi sebelum v1.32 selagi ada langkah yang ditunda di jadwal membuat versi lama
   menganggap `data\schedule.json` rusak dan memindahkannya ke samping (`.corrupt-...`); batalkan
   dulu langkah itu sebelum turun versi.
