@@ -12,13 +12,14 @@ import time as clock_time
 from collections.abc import Iterable
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
+from typing import get_type_hints
 
 import pytest
 
 from waifu.config import PlayTimeConfig
 from waifu.finance.values import WIB
 from waifu.play_time import PlayRecord, PlayTimeStore, PlayTotal, Session
-from waifu.play_watch import PlayTimeWatcher, spoken_clock
+from waifu.play_watch import PlayTimeWatcher, in_night, spoken_clock
 
 DAY = datetime(2026, 10, 17, tzinfo=WIB)  # a Saturday
 MINUTE = timedelta(minutes=1)
@@ -49,6 +50,11 @@ def at(hour: float) -> datetime:
 )
 def test_a_clock_time_is_said_with_whole_hours_half_hours_and_minutes(clock, said):
     assert spoken_clock(clock) == said
+
+
+def test_the_clock_times_are_hinted_as_datetime_times_not_the_time_module():
+    assert get_type_hints(spoken_clock)["at"] is time
+    assert get_type_hints(in_night)["bedtime"] is time
 
 
 # --- the watcher, one poll at a time -------------------------------------------------------------

@@ -27,6 +27,7 @@ import threading
 import time
 from collections.abc import Callable, Collection
 from datetime import date, datetime, timedelta
+from datetime import time as ClockTime  # the module `time` gives time.monotonic
 
 from waifu.avatar.emotion import NEUTRAL
 from waifu.config import NIGHT_EARLIEST, NIGHT_ENDS, GameId, PlayTimeConfig, at_sentence_start
@@ -50,7 +51,7 @@ STOP_TIMEOUT_S = 5.0
 _NIGHT_SHIFT = timedelta(hours=12)
 
 
-def spoken_clock(at: time) -> str:
+def spoken_clock(at: ClockTime) -> str:
     """`jam setengah dua belas`: a clock time as she says it, whole hours with their part of
     the day."""
     if at.minute == 0:
@@ -65,7 +66,7 @@ def _hour_word(hour: int) -> str:
     return spoken_number(hour % 12 or 12)
 
 
-def in_night(now: datetime, bedtime: time) -> bool:
+def in_night(now: datetime, bedtime: ClockTime) -> bool:
     """Whether `now` is from `bedtime` until the morning's NIGHT_ENDS."""
     moment = now.time()
     if bedtime >= NIGHT_EARLIEST:
