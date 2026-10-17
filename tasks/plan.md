@@ -621,7 +621,7 @@ confirmation comes from the step's result (`scheduled: {id, at}`) and the tool d
 - [x] Task 161: README "Mode tidur", CHANGELOG
 
 ### Checkpoint: Mode tidur
-- [x] Python suite and ruff clean; no test touched `data/schedule.json`, ran a real device, or slept; the strict-tool budget unchanged (2026-10-17: 8267 pytest; 18 of 20 strict tools, 17 of 24 optional parameters, no schema changed)
+- [x] Python suite and ruff clean; no test touched `data/schedule.json`, ran a real device, or slept; the strict-tool budget unchanged (2026-10-17: 8272 pytest after the fix pass; 18 of 20 strict tools, 17 of 24 optional parameters, no schema changed)
 - [ ] On the owner's PC: "mode tidur" turns the lamp off and the AC to 26 and she names the time the AC goes off; `waifu schedule list` shows it; "batalkan AC mati nanti" cancels it; run again with a delay of a few minutes, the AC goes off then without a word
 
 ## Risks and Mitigations

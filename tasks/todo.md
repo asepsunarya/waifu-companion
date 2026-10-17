@@ -1510,6 +1510,7 @@ named `tests/test_<package>_<module>.py`.
 - [x] `run_routine(registry, routine, *, name, schedule=None, now=datetime.now)`: the steps of now run; a delayed step never runs then and is added as a one-shot tagged device entry at the start plus its delay, cut to the minute, with a result naming the time and id (`besok` on the next day) and `state` {id, at}
 - [x] A delayed step with a problem (unknown device, PC, command) is not scheduled; a full schedule, an unreadable file, or no schedule fails just that step; a new run cancels the routine's own pending delayed entries and nothing else; a routine without delayed steps never creates the file
 - [x] `describe_step` and `describe_routine` name the delay (`ac off setelah 3 jam`)
+- [x] Fix pass: the result says the time as she would say it, without the id (`jam 01.00 dini hari nanti` for the night after an evening start, `besok` only once that night has passed); `waifu routine run` builds its `Dijadwalkan besok jam 01.00 (j12).` line from `state`
 
 **Dependencies:** 156, 157 · **Files:** `src/waifu/routines.py`, `tests/test_routines.py` · **Scope:** M
 
@@ -1533,5 +1534,6 @@ named `tests/test_<package>_<module>.py`.
 
 **Acceptance criteria:**
 - [x] README "Mode tidur" with a full example routine, cancelling, running again, and what must stay on; the routine bullets name `after_minutes`; CHANGELOG v1.32; full suite and ruff clean
+- [x] Fix pass: the checklist and CHANGELOG tell an owner with a `tidur` routine to add the delayed AC step, and to restart `waifu run` again after the two-minute test; the desktop Power settings page; "Mengatur jadwal dari terminal" names `waifu routine run`
 
 **Dependencies:** 160 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
