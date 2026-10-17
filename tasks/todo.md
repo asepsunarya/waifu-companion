@@ -1357,10 +1357,10 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 140 · **Files:** `src/waifu/focus_timer.py`, `tests/test_focus_timer.py` · **Scope:** M
 
-## Task 142: Quiet during a focus block
+## Task 142: Quiet during a focus block ✅
 
 **Acceptance criteria:**
-- [ ] `Assistant(quiet=...)`: while it holds, plain and patient announcements and requests wait and come out after it, merged as always; `remind` is said while it holds and while the follow-up window is open; Master's utterances are answered as always; without `quiet` nothing changes
+- [x] `Assistant(quiet=...)`: while it holds, plain and patient announcements and requests wait and come out after it, merged as always; `remind` is said while it holds and while the follow-up window is open; Master's utterances are answered as always; without `quiet` nothing changes
 
 **Dependencies:** none · **Files:** `src/waifu/app.py`, `tests/test_app.py` · **Scope:** S
 

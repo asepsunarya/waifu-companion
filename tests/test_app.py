@@ -220,6 +220,7 @@ class Rig:
         avatar_error: Exception | None = None,
         turn_images: TurnImages | None = None,
         camera_turn: CameraTurn | None = None,
+        quiet: Callable[[], bool] | None = None,
     ) -> None:
         config = config or AppConfig()
         self.events: list[str] = []
@@ -247,6 +248,7 @@ class Rig:
             clock=self.clock,
             turn_images=turn_images,
             camera_turn=camera_turn,
+            quiet=quiet,
         )
 
     def utterance(self) -> Utterance:
@@ -1642,6 +1644,134 @@ def test_a_request_whose_turn_did_not_call_its_tool_is_neither_said_nor_passed_o
 class BrokenBrain(FakeBrain):
     def respond(self, user_text: str, *, now: datetime | None = None) -> BrainReply:
         raise RuntimeError("brain crashed")
+
+
+# Quiet during a focus block: what she says by herself waits; Master's own reminders do not
+
+BLOCK_DONE = "Sayang, dua puluh lima menit selesai. Istirahat lima menit dulu ya."
+MEDICINE = "Master, waktunya minum obat."
+
+
+class Quiet:
+    """Stands in for the focus timer's `in_block`: quiet while `on`."""
+
+    def __init__(self, on: bool = True) -> None:
+        self.on = on
+
+    def __call__(self) -> bool:
+        return self.on
+
+
+def listen_once(rig: Rig, *outputs: Utterance | None) -> None:
+    """Run the voice loop over one frame per output (a silent frame for None)."""
+    frames = [SILENT_FRAME] * max(1, len(outputs))
+    rig.assistant.run(
+        FakeMic(rig.events, frames), FakeSegmenter(rig.events, list(outputs) or [None])
+    )
+
+
+def test_while_quiet_her_announcements_wait_and_come_out_with_the_block_s_end_line():
+    quiet = Quiet()
+    rig = Rig(quiet=quiet, with_avatar=True)
+    rig.assistant.announce(ANNOUNCEMENT)
+    rig.assistant.announce(BUDGET_NOTICE, "surprised", wait_for_followup=True)
+
+    listen_once(rig)
+    held = list(rig.speech.texts)
+    rig.assistant.remind(BLOCK_DONE, "happy")  # the timer queues its line, then the break starts
+    quiet.on = False
+    listen_once(rig)
+
+    assert held == []
+    assert rig.speech.texts == [f"{BLOCK_DONE} {ANNOUNCEMENT} {BUDGET_NOTICE}"]
+    assert "avatar.speak happy" in rig.events
+    assert rig.gate.check("matikan lampu").accepted is False  # no follow-up window
+
+
+def test_a_reminder_master_set_is_said_while_quiet():
+    rig = Rig(quiet=Quiet())
+    rig.assistant.announce(ANNOUNCEMENT)
+    rig.assistant.remind(MEDICINE, "happy")
+
+    listen_once(rig)
+
+    assert rig.speech.texts == [MEDICINE]
+
+
+def test_a_reminder_is_said_like_an_announcement_without_quiet():
+    rig = Rig(with_avatar=True)
+    rig.assistant.remind(MEDICINE, "happy")
+    rig.assistant.announce(ANNOUNCEMENT)
+
+    listen_once(rig)
+
+    assert rig.speech.texts == [f"{MEDICINE} {ANNOUNCEMENT}"]
+    assert "avatar.speak happy" in rig.events
+    assert rig.gate.check("matikan lampu").accepted is False  # no follow-up window
+
+
+def test_a_reminder_is_said_while_the_follow_up_window_is_open():
+    rig = Rig("Cyrene, nyalakan lampu kamar", quiet=Quiet())
+    rig.assistant.handle_utterance(rig.utterance())
+    rig.assistant.remind(MEDICINE, "happy")
+
+    listen_once(rig)
+
+    assert rig.speech.texts == [REPLY, MEDICINE]
+
+
+def test_a_reminder_waits_while_master_is_still_speaking():
+    rig = Rig(quiet=Quiet())
+    rig.assistant.remind(MEDICINE, "happy")
+
+    rig.assistant.run(
+        FakeMic(rig.events, [SILENT_FRAME]), FakeSegmenter(rig.events, [None], busy=[True])
+    )
+    waited = list(rig.speech.texts)
+    listen_once(rig)
+
+    assert waited == []
+    assert rig.speech.texts == [MEDICINE]
+
+
+def test_while_quiet_master_is_answered_as_always():
+    rig = Rig("Cyrene, nyalakan lampu kamar", quiet=Quiet())
+
+    listen_once(rig, rig.utterance())
+
+    assert rig.brain.turns == [("nyalakan lampu kamar", NOW)]
+    assert rig.speech.texts == [REPLY]
+
+
+def test_while_quiet_a_request_waits_and_is_answered_after_it():
+    quiet = Quiet()
+    rig = Rig(quiet=quiet)
+    rig.assistant.ask_aloud(GREETING_PROMPT)
+
+    listen_once(rig, None, None)
+    waited = [text for text, _ in rig.brain.turns]
+    quiet.on = False
+    listen_once(rig)
+
+    assert waited == []
+    assert [text for text, _ in rig.brain.turns] == [GREETING_PROMPT]
+    assert rig.speech.texts == [REPLY]
+
+
+def test_after_quiet_her_patient_announcements_still_wait_for_the_follow_up_window():
+    quiet = Quiet()
+    rig = Rig("Cyrene, nyalakan lampu kamar", quiet=quiet)
+    rig.assistant.announce(BUDGET_NOTICE, "surprised", wait_for_followup=True)
+    rig.assistant.handle_utterance(rig.utterance())
+    quiet.on = False
+
+    listen_once(rig)
+    inside_the_window = list(rig.speech.texts)
+    rig.clock.now += 8  # followup_seconds
+    listen_once(rig)
+
+    assert inside_the_window == [REPLY]
+    assert rig.speech.texts == [REPLY, BUDGET_NOTICE]
 
 
 def test_a_request_that_fails_is_logged_and_she_keeps_listening(caplog):

@@ -10,9 +10,11 @@ The avatar's interactions (`waifu.avatar.interactions`) speak from their own
 thread, so she says one thing at a time: replies, announcements, and reactions
 share one voice lock, and `busy` tells the interaction handler when to stay quiet.
 
-Other threads make her speak up by herself in two ways, both queued and handled by
-`run` between Master's utterances: `announce` says a fixed text (a reminder), and
-`ask_aloud` has the brain answer a prompt (the morning greeting) and says the reply.
+Other threads make her speak up by herself, queued and handled by `run` between Master's
+utterances: `announce` says a fixed text (a game notice), `ask_aloud` has the brain answer a
+prompt (the morning greeting) and says the reply, and `remind` says what Master asked for
+himself (a reminder he set, the focus timer's lines). While `quiet` holds (a focus block is
+under way) only what `remind` queued is said; the rest waits for the break.
 
 The owner's paired phone (`waifu.phone`) talks to her from the phone server's threads:
 `reply_for_phone` and `transcribe_for_phone`, handed to the server as `PhoneAnswers`. Brain
@@ -210,7 +212,10 @@ class Assistant:
         clock: Callable[[], float] = time.monotonic,
         turn_images: TurnImages | None = None,
         camera_turn: CameraTurn | None = None,
+        quiet: Callable[[], bool] | None = None,
     ) -> None:
+        """`quiet` (the focus timer's `in_block`) says when what she would say by herself
+        must wait: only `remind` is said then."""
         self._name = config.assistant.name
         self._owner_call = config.assistant.owner_call
         self._followup_s = config.assistant.followup_seconds
@@ -227,6 +232,7 @@ class Assistant:
         self._turn_images = turn_images
         # Shared with the screen tool while the phone camera is offered; None otherwise.
         self._camera_turn = camera_turn
+        self._quiet = quiet
         self._mic: Microphone | None = None
         self._segmenter: Segmenter | None = None
         self._speaker_error_logged = False
@@ -234,6 +240,8 @@ class Assistant:
         self._announcements: queue.SimpleQueue[tuple[str, str]] = queue.SimpleQueue()
         # Announcements that also wait while the follow-up window is open (`announce`).
         self._patient_announcements: queue.SimpleQueue[tuple[str, str]] = queue.SimpleQueue()
+        # What Master asked for himself (`remind`): also said while `quiet` holds.
+        self._reminders: queue.SimpleQueue[tuple[str, str]] = queue.SimpleQueue()
         self._requests: queue.SimpleQueue[_Request] = queue.SimpleQueue()
         # After a cut, on `clock`: announcements and requests wait until then
         # (see `_hold_announcements`).
@@ -377,6 +385,15 @@ class Assistant:
         else:
             self._announcements.put((text, emotion))
 
+    def remind(self, text: str, emotion: str = NEUTRAL) -> None:
+        """Queue something Master asked for himself, a reminder he set or the focus timer's
+        line; safe from any thread.
+
+        Said like a plain `announce`ment (between utterances, also while the follow-up window
+        is open, before the announcements queued with it), and also while `quiet` holds.
+        """
+        self._reminders.put((text, emotion))
+
     def ask_aloud(
         self,
         prompt: str,
@@ -389,10 +406,10 @@ class Assistant:
 
         `run` handles it between utterances under the same conditions as announcements,
         on a later frame than any announcements queued with it, never while a follow-up
-        window is open (Master may still answer her), and one request at a time: she thinks
-        up the reply, says it like a reply (the follow-up window opens, so Master can
-        answer without the wake word), and hands the spoken text to `on_reply` on a thread
-        of its own, so a slow push never keeps `run` from the microphone.
+        window is open (Master may still answer her) or `quiet` holds, and one request at a
+        time: she thinks up the reply, says it like a reply (the follow-up window opens, so
+        Master can answer without the wake word), and hands the spoken text to `on_reply` on
+        a thread of its own, so a slow push never keeps `run` from the microphone.
 
         A brain answers a failure (no connection, a refusal) with an apology, never an
         exception. With `required_tool`, a reply whose turn has no successful call of that
@@ -510,17 +527,22 @@ class Assistant:
         A request never follows announcements in the same pass: the next frame checks again
         that Master has not started talking and did not cut them short to talk. Nor does it,
         or an announcement that waits for the window, come while the follow-up window is
-        open, so a conversation is never taken over.
+        open, so a conversation is never taken over. While `quiet` holds, only reminders are
+        said: the rest waits in its queue.
         """
         followup_open = self._followup_open()
-        if not self._say_announcements(followup_open) and not followup_open:
+        quiet = self._quiet is not None and self._quiet()
+        if not self._say_announcements(followup_open, quiet) and not (followup_open or quiet):
             self._answer_next_request()
 
-    def _say_announcements(self, followup_open: bool) -> bool:
-        """Say every queued announcement in one go, with the first one's emotion, except those
-        that wait while the follow-up window is open; True when there was any."""
-        queued = _take_all(self._announcements)
-        if not followup_open:
+    def _say_announcements(self, followup_open: bool, quiet: bool) -> bool:
+        """Say every queued reminder and announcement in one go, reminders first, with the
+        first one's emotion, except the announcements while `quiet` and those that wait while
+        the follow-up window is open; True when there was any."""
+        queued = _take_all(self._reminders)
+        if not quiet:
+            queued += _take_all(self._announcements)
+        if not (quiet or followup_open):
             queued += _take_all(self._patient_announcements)
         if not queued:
             return False
