@@ -583,6 +583,24 @@ question lets Master answer without her name, and that answer is written. No new
 - [x] Python suite and ruff clean; no test asked a real brain, spoke, or pushed; the strict-tool budget keeps 2 slots free (2026-10-17: 8176 pytest; 18 of 20 strict tools, 17 of 24 optional parameters, no union)
 - [ ] On the owner's PC: "catat di jurnal: ..." writes a note `waifu jurnal show` prints; "kemarin aku nulis apa di jurnal?" is summed up; with `ask_at` a few minutes ahead she asks once, the answer within the follow-up window is written, and a restart does not ask again that day
 
+### Phase 35.1: pertanyaan yang tertahan (v1.31.1, bug fix, see SPEC → pertanyaan yang tertahan)
+Decision: every `ask_aloud` request may carry an `expires_at`; one still held when it passes is
+dropped (logged at INFO), never thought up or said. Each `PromptTimer` hands its own: the greeting
+`briefing.until` that day, the weekly report and the journal question the midnight that ends
+their day. The journal question is not cut earlier, because an undated `journal_write` in a turn
+that begins within `session_idle_minutes` of the question goes on the question's WIB day, so an
+answer just after midnight is never put on the new date. No new tool, tool parameter, config key,
+or dependency.
+- [x] Task 152a: contract: SPEC, tasks
+- [ ] Task 152: requests that expire (`app.ask_aloud(expires_at=...)`)
+- [ ] Task 153: each timer's expiry (`PromptTimer(expires=...)`, the three timers, `run` wiring)
+- [ ] Task 154: a late answer goes on the question's day (`JournalTools(answer_window=...)`)
+- [ ] Task 155: README, CHANGELOG
+
+### Checkpoint: pertanyaan yang tertahan
+- [ ] Python suite and ruff clean; no test asked a real brain, spoke, or pushed; the strict-tool budget unchanged (18 of 20 strict tools, 17 of 24 optional parameters)
+- [ ] On the owner's PC: with `ask_at` a few minutes before midnight and a focus block running past it, the question is not asked and the log says why; asked a minute before midnight, an answer just after it shows under that day in `waifu jurnal show`
+
 ## Risks and Mitigations
 
 | Risk | Impact | Mitigation |

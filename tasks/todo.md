@@ -1441,3 +1441,42 @@ named `tests/test_<package>_<module>.py`.
 - [x] README "Jurnal harian" with its contents entry, command, check, checklist, and Privasi rows; CHANGELOG v1.31; full suite and ruff clean
 
 **Dependencies:** 150 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
+
+## Task 152a: Pertanyaan yang tertahan contract ✅
+
+**Acceptance criteria:**
+- [x] SPEC "pertanyaan yang tertahan (v1.31.1)" (the bug, stories, non-goals, the expiry of a request and of each timer's, the answer's day, known limits, docs) and the paragraphs it changes; tasks 152a-155 in the plan and here
+
+**Dependencies:** none · **Files:** `SPEC.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
+
+## Task 152: Requests that expire
+
+**Acceptance criteria:**
+- [ ] `ask_aloud(..., expires_at=None)`; a request held past its expiry by the follow-up window, a cut, `quiet`, or a phone chat is dropped with an INFO log: never thought up, said, or passed on, the avatar untouched
+- [ ] One not yet expired is answered after the hold; None never expires; every expired request at the head of the queue goes in one pass and the next live one is answered; a naive `now` against an aware WIB expiry never raises
+
+**Dependencies:** 152a · **Files:** `src/waifu/app.py`, `tests/test_app.py` · **Scope:** S
+
+## Task 153: Each timer's expiry
+
+**Acceptance criteria:**
+- [ ] `PromptTimer(expires=...)` calls `request(prompt, expires(now))` and logs the expiry; `end_of_day` keeps the time zone
+- [ ] The greeting asked at 07:30 expires at `until` that day; the weekly report asked Sunday 21:00 at Monday 00:00; the journal question asked 23:59 WIB on the 17th at 18-10 00:00 WIB
+- [ ] `run` passes each timer's expiry to `ask_aloud`
+
+**Dependencies:** 152 · **Files:** `src/waifu/prompt_timer.py`, `src/waifu/briefing.py`, `src/waifu/gacha/weekly.py`, `src/waifu/journal.py`, `src/waifu/cli.py`, `tests/test_briefing.py`, `tests/test_gacha_weekly.py`, `tests/test_journal.py`, `tests/test_cli.py` · **Scope:** M
+
+## Task 154: A late answer goes on the question's day
+
+**Acceptance criteria:**
+- [ ] After her question at 23:59:50 WIB on the 17th, an undated answer at 00:00:20 is written on the 17th (logged without the note); an explicit date of the 18th stays the 18th; an answer after the window goes on today; a second question replaces the day; an answer before midnight is as before
+- [ ] `run` and `chat` pass `session_idle_minutes` as the answer window; the strict-tool budget unchanged
+
+**Dependencies:** 152a · **Files:** `src/waifu/brain/journal_tools.py`, `tests/test_journal_tools.py`, `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** S
+
+## Task 155: Docs
+
+**Acceptance criteria:**
+- [ ] README "Sapaan pagi dan ringkasan harian", "Laporan game mingguan", and "Jurnal harian" say what happens to a held request; CHANGELOG v1.31.1; full suite and ruff clean
+
+**Dependencies:** 153, 154 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
