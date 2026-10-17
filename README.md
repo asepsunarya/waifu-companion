@@ -2228,7 +2228,11 @@ HoYoLAB dicek tiap `poll_minutes` (bawaan 15). Pengingat daily, mingguan, masala
 check-in disimpan di `data\gacha\reminders.json`, jadi Cyrene yang di-restart tidak
 mengulangnya. Stamina dan ekspedisi yang masih penuh disampaikan sekali lagi setelah
 restart, karena selama PC mati dia tidak tahu apakah sempat kamu pakai. Tidak ada jam
-tenang: dia juga bicara di malam hari selama `waifu run` jalan.
+tenang: dia juga bicara di malam hari selama `waifu run` jalan. Pengingat stamina, daily,
+mingguan, dan ekspedisi yang tertahan (blok fokus atau [Mode game](#mode-game)) sampai
+pengecekan berikutnya tidak diucapkan lagi, karena isinya mungkin sudah berubah (resin sudah
+dipakai, daily sudah selesai); notifikasi HP-nya, kalau menyala, sudah terkirim. Masalah dan
+check-in tetap diucapkan.
 
 ### Ketentuan dan risiko
 
@@ -4184,7 +4188,9 @@ memulai atau menghentikan sesi kalau Master minta.
   atau lewat [Cyrene di HP](#cyrene-di-hp).
 - Notifikasi HP dari fitur lain (misalnya game atau kesehatan PC) tetap terkirim seperti biasa;
   hanya suaranya di PC yang menunggu. Peringatan hujan yang tertunda sampai hujannya mulai tidak
-  diucapkan lagi.
+  diucapkan lagi, begitu juga pengingat stamina, daily, mingguan, atau ekspedisi yang tertunda
+  lebih dari `gacha.poll_minutes` (bawaan 15 menit) dan pemberitahuan GPU panas yang tertunda
+  lebih dari sejam.
 
 ### Kalimatnya
 
@@ -4277,7 +4283,9 @@ Jalankan ulang `waifu run` setelah mengubahnya. `waifu chat` tidak punya mode ga
   peringatan hujan, kabar versi baru, pemberitahuan game, kode redeem, kesehatan PC, promo
   gratis, dan anggaran biaya API, juga sapaan pagi, laporan game mingguan, dan pertanyaan malam
   jurnal. Setelah game terakhir ditutup, pemberitahuan yang tertunda diucapkan sekaligus; sapaan
-  pagi, laporan mingguan, atau pertanyaan jurnal menyusul satu per satu.
+  pagi, laporan mingguan, atau pertanyaan jurnal menyusul satu per satu. Pemberitahuan yang
+  tertunda dibuka dengan "Tadi selama main ada kabar.", dan yang sama persis hanya diucapkan
+  sekali.
 - **`phone`**: pemberitahuan yang memang dikirim ke HP (notifikasi HP menyala; untuk peringatan
   hujan dan kabar versi baru juga `push`-nya) tidak diucapkan sama sekali selama main, karena
   sudah ada di HP. Yang tidak dikirim ke HP ditahan seperti `hold`, begitu juga sapaan pagi,
@@ -4301,6 +4309,11 @@ Jalankan ulang `waifu run` setelah mengubahnya. `waifu chat` tidak punya mode ga
   kalau menyala, sudah terkirim saat itu).
 - Sapaan pagi yang tertahan sampai `briefing.until`, dan laporan mingguan atau pertanyaan jurnal
   yang tertahan sampai tengah malam, dilewati hari itu, seperti saat tertahan blok fokus.
+- Pengingat game tentang keadaan game (stamina atau resin penuh, daily, mingguan, ekspedisi)
+  yang tertahan lebih dari `gacha.poll_minutes` (bawaan 15 menit) dilewati: game yang baru
+  dimainkan mungkin sudah mengubahnya. Tanpa notifikasi HP, pengingat untuk game yang tidak
+  dimainkan juga ikut terlewat, dan tidak diulang. Masalah HoYoLAB (misalnya cookie) dan
+  check-in tetap diucapkan.
 - Pemberitahuan lain tetap disimpan sampai game ditutup, berapa lama pun: game yang dibiarkan
   terbuka semalaman (diminimalkan pun) menahannya semalaman.
 - Pemberitahuan GPU panas yang tertahan sampai sejam dilewati: dari main lama yang membuat GPU
@@ -5460,10 +5473,10 @@ halaman tim di game atau sebuah error)
 - [ ] Buka HSR: dalam semenit lampu meredup tanpa kata. Alt-tab ke aplikasi lain dan
       minimalkan game beberapa menit: lampunya tetap.
 - [ ] Selama main, pasang pengingat untuk dua menit lagi: tetap berbunyi tepat waktu.
-      Pemberitahuan lain yang datang selama main (misalnya resin penuh atau kode redeem baru)
-      belum diucapkan.
+      Pemberitahuan lain yang datang selama main (misalnya kode redeem baru) belum diucapkan.
 - [ ] Tutup game: sekitar 1-2 menit kemudian lampu terang lagi, dan pemberitahuan yang tertunda
-      diucapkan sekaligus.
+      diucapkan sekaligus, dibuka dengan "Tadi selama main ada kabar.". Pengingat resin penuh
+      yang datang lebih dari 15 menit sebelumnya tidak ikut diucapkan.
 - [ ] Buka game lagi, restart `waifu run` selagi main: lampu tidak diubah lagi. Tutup game:
       lampu terang.
 

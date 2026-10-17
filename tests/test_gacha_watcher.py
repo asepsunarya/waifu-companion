@@ -64,6 +64,19 @@ class Clock:
         return self.now
 
 
+class Announced(list):
+    """Stands in for her voice: records each announcement as (text, emotion), and in
+    `expiries` until when each may be said."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.expiries: list[datetime | None] = []
+
+    def __call__(self, text: str, emotion: str, *, expires_at: datetime | None) -> None:
+        self.append((text, emotion))
+        self.expiries.append(expires_at)
+
+
 @pytest.fixture
 def clock() -> Clock:
     return Clock(datetime(2026, 10, 12, 12, 0, tzinfo=WIB))
@@ -71,13 +84,13 @@ def clock() -> Clock:
 
 def make_watcher(tmp_path, hoyolab, clock, *, games=("hsr",), **config) -> tuple:
     notifier = FakeNotifier()
-    announced: list[tuple[str, str]] = []
+    announced = Announced()
     gacha = GachaConfig(enabled=True, games=list(games), data_dir=tmp_path / "gacha", **config)
     watcher = GachaWatcher(
         hoyolab,
         gacha,
         notifier=notifier,
-        announce=lambda text, emotion: announced.append((text, emotion)),
+        announce=announced,
         title="Cyrene",
         now=clock,
     )
@@ -95,9 +108,7 @@ def test_a_reminder_is_pushed_and_announced_once(tmp_path, clock):
     assert announced == [(text, "surprised")]
 
 
-def test_several_notices_are_one_push_and_one_announcement_with_the_strongest_emotion(
-    tmp_path, clock
-):
+def test_several_notices_are_one_push_and_said_in_order_with_the_strongest_emotion(tmp_path, clock):
     statuses = {
         "hsr": NEAR_FULL,
         "zzz": GachaError("captcha", "HoYoLAB minta verifikasi captcha ZZZ."),
@@ -110,20 +121,43 @@ def test_several_notices_are_one_push_and_one_announcement_with_the_strongest_em
     assert [n.kind for n in notices] == ["stamina", "problem", "checkin"]
     [(_, message, _)] = notifier.sent
     assert message.split("\n") == [n.text for n in notices]
-    [(spoken, emotion)] = announced
-    assert spoken == " ".join(n.text for n in notices)
-    assert emotion == "sad"
+    # The reminder, which may go out of date, apart from the problem and the check-in.
+    assert " ".join(text for text, _ in announced) == " ".join(n.text for n in notices)
+    assert [emotion for _, emotion in announced] == ["sad", "sad"]
+
+
+def test_a_reminder_about_a_game_s_state_may_be_said_only_until_the_next_poll(tmp_path, clock):
+    # Held through a game (or a focus block), it would tell a state play has likely changed.
+    clock.now = datetime(2026, 10, 12, 20, 30, tzinfo=WIB)  # evening, dailies still open
+    open_dailies = replace(NEAR_FULL, daily_current=300, daily_done=False)
+    watcher, _, announced = make_watcher(tmp_path, FakeHoyolab({"hsr": open_dailies}), clock)
+
+    watcher.poll_once()
+
+    assert len(announced) == 1
+    assert announced.expiries == [clock.now + timedelta(minutes=15)]  # poll_minutes
+
+
+def test_a_problem_and_the_checkin_are_said_however_long_they_wait(tmp_path, clock):
+    statuses = {"hsr": GachaError("captcha", "HoYoLAB minta verifikasi captcha HSR.")}
+    hoyolab = FakeHoyolab(statuses, {"hsr": CheckinResult("hsr", True, "20 Stellar Jade")})
+    watcher, _, announced = make_watcher(tmp_path, hoyolab, clock, poll_minutes=30)
+
+    watcher.poll_once()
+
+    assert len(announced) == 1
+    assert announced.expiries == [None]
 
 
 def test_reminders_and_problems_call_the_owner_what_she_calls_them(tmp_path, clock):
     statuses = {"hsr": NEAR_FULL, "zzz": GachaError("captcha", "HoYoLAB minta captcha ZZZ.")}
     checkins = {"hsr": GachaError("captcha", "HoYoLAB minta captcha untuk check-in HSR.")}
-    announced: list[tuple[str, str]] = []
+    announced = Announced()
     watcher = GachaWatcher(
         FakeHoyolab(statuses, checkins),
         GachaConfig(enabled=True, games=["hsr", "zzz"], data_dir=tmp_path / "gacha"),
         notifier=None,
-        announce=lambda text, emotion: announced.append((text, emotion)),
+        announce=announced,
         owner_call="Sayang",
         now=clock,
     )
