@@ -2498,9 +2498,10 @@ routines:
   ditutup; `data\schedule.json` tidak disentuh.
 
 **PC dan `waifu run` harus tetap menyala sampai jamnya.** Mode tidur tidak menidurkan PC dan
-tidak mencegah Windows tidur. Kalau Windows diatur tidur sendiri (Settings → System → Power &
-battery, bagian layar dan sleep), pilih **Never** untuk sleep, atau waktu yang lebih lama dari
-jeda terlama; layar boleh mati. Langkah yang terlewat lebih dari
+tidak mencegah Windows tidur. Kalau Windows diatur tidur sendiri (Settings → System → Power,
+di laptop Power & battery; lalu bagian Screen and sleep, di Windows 11 24H2 ke atas Screen,
+sleep, & hibernate timeouts), pilih **Never** untuk pilihan sleep (*... sleep after*), atau
+waktu yang lebih lama dari jeda terlama; layar boleh mati. Langkah yang terlewat lebih dari
 `schedule.late_grace_minutes` menit (bawaan 30) dibuang dan hanya dicatat di log (WARNING),
 tanpa suara atau notifikasi.
 
