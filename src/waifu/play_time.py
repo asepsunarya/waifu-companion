@@ -383,7 +383,7 @@ def _parse_sessions(entries: object, where: str, keys: set[str], end_key: str) -
         if not isinstance(entry, dict) or entry.keys() != keys:
             raise ValueError(f"{at} must be an object with exactly the keys {sorted(keys)}")
         game = entry["game"]
-        if game not in _GAME_IDS:
+        if not isinstance(game, str) or game not in _GAME_IDS:
             raise ValueError(f"{at}.game must be one of {sorted(_GAME_IDS)}")
         start = _parse_time(entry["start"], f"{at}.start")
         end = _parse_time(entry[end_key], f"{at}.{end_key}")
