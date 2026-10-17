@@ -1587,9 +1587,9 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 163 · **Files:** `src/waifu/gacha/weekly.py`, `tests/test_gacha_weekly.py`, `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** M
 
-## Task 167: Docs
+## Task 167: Docs ✅
 
 **Acceptance criteria:**
-- [ ] README "Pendapatan gacha bulanan", a command row, a line in "Laporan game mingguan", checklist items; CHANGELOG v1.33; full suite and ruff clean
+- [x] README "Pendapatan gacha bulanan", a command row, a line in "Laporan game mingguan", checklist items; CHANGELOG v1.33; full suite and ruff clean
 
 **Dependencies:** 165, 166 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S

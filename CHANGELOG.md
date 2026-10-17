@@ -4,6 +4,24 @@ Ringkasan per versi, yang terbaru di atas. Rinciannya ada di README (bagian yang
 setiap versi) dan di SPEC.md. Setelah memperbarui, **mulai ulang `waifu run`** supaya semuanya
 aktif, lalu jalankan `waifu check`.
 
+## v1.33: pendapatan gacha
+
+- Cyrene bisa menjawab "bulan ini aku dapat berapa Primogem?" atau "Stellar Jade bulan lalu
+  berapa?" dari catatan bulanan HoYoLAB: Traveler's Diary (Genshin), Trailblaze Monthly Calendar
+  (HSR), dan Inter-Knot monthly report (ZZZ). Dia menyebut jumlah mata uang premium, kira-kira
+  berapa pull (160 per pull), dari mana paling banyak, dan untuk Genshin dan HSR juga hari ini
+  dan bulan sebelumnya. Hanya kalau ditanya, sebagai informasi untuk merencanakan pull: dia tidak
+  pernah menyarankan pull, belanja, atau top-up.
+- Hanya bulan ini dan dua bulan sebelumnya, karena hanya itu yang disimpan HoYoLAB; bulan baru
+  dihitung dari tengah malam server Asia (jam 23.00 WIB).
+- `waifu gacha income [game] [--month YYYY-MM]` menampilkan hal yang sama di terminal, juga
+  saat `gacha.enabled: false`.
+- Laporan game mingguan ikut menyebut pendapatan bulan ini per game, dan `waifu gacha report`
+  menambah baris `Pendapatan bulan ini: ...`.
+- Kedua persona bawaan mendapat baris `gacha_income` di bagian "Game HoYoverse Master". Kalau
+  kamu memakai persona buatan sendiri, salin baris itu dari `config/persona.md`.
+- Tidak ada pengaturan baru; mulai ulang `waifu run`. README: "Pendapatan gacha bulanan".
+
 ## v1.32: mode tidur
 
 - Langkah rutinitas sekarang bisa ditunda dengan `after_minutes`, jadi "Cyrene, mode tidur" bisa

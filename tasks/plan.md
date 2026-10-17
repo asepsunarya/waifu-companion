@@ -643,10 +643,10 @@ key, strict tool, or dependency.
 - [x] Task 164: the `gacha_income` tool and the persona line
 - [x] Task 165: wiring in `run`/`chat`, `waifu gacha income`
 - [x] Task 166: the weekly report's income part
-- [ ] Task 167: README, CHANGELOG
+- [x] Task 167: README, CHANGELOG
 
 ### Checkpoint: Pendapatan gacha
-- [ ] Python suite and ruff clean; no test reached HoYoLAB or built a real genshin.Client; the strict-tool budget unchanged (18 of 20 strict tools, 17 of 24 optional parameters)
+- [x] Python suite and ruff clean; no test reached HoYoLAB or built a real genshin.Client; the strict-tool budget unchanged (2026-10-18: 8374 pytest; 18 of 20 strict tools, 17 of 24 optional parameters, `gacha_income` non-strict)
 - [ ] On the owner's PC: "bulan ini aku dapat berapa Primogem?" matches the Traveler's Diary in HoYoLAB; `waifu gacha income` prints each game; `waifu gacha income zzz --month <last month>` reads ZZZ's earlier month (checks the assumed `YYYYMM` format); the weekly report names this month's income
 
 ## Risks and Mitigations

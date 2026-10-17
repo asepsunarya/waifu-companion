@@ -1616,6 +1616,9 @@ Yang dia lakukan:
   Genshin dan ZZZ").
 - **Kode redeem.** Kode baru ketiga game diberitahukan lewat suara dan HP, dan ditukarkan
   di HoYoLAB hanya kalau Master minta (lihat "Kode redeem").
+- **Pendapatan bulanan.** Primogem, Stellar Jade, dan Polychrome yang didapat bulan ini atau dua
+  bulan sebelumnya, dari catatan bulanan HoYoLAB, hanya kalau ditanya (lihat "Pendapatan gacha
+  bulanan").
 - **Laporan mingguan.** Seminggu sekali dia bercerita sendiri tentang pull, pity, endgame,
   dan yang segera berakhir di tiap game (lihat "Laporan game mingguan").
 - **Tidak pernah menyarankan top-up** atau membelanjakan uang.
@@ -1691,6 +1694,7 @@ waifu gacha checkin               # ambil check-in sekarang (biasanya otomatis)
 waifu gacha history hsr --full    # impor riwayat pertama (1100 pull HSR: sekitar 40 detik)
 waifu gacha codes                 # kode redeem tiap game: yang belum ditukarkan dan hasil terakhir
 waifu gacha report                # laporan 7 hari terakhir tiap game, seperti laporan mingguannya
+waifu gacha income                # pendapatan Primogem, Stellar Jade, Polychrome bulan ini (--month 2026-09)
 waifu gacha hsr characters        # data akun dari Battle Chronicle (juga genshin dan zzz; endgame, events)
 waifu notify-test                 # notifikasi tes ke HP
 ```
@@ -2028,6 +2032,8 @@ Isinya, untuk tiap game:
 - **Kode redeem yang belum ditukarkan**, kalau [kode redeem](#kode-redeem) menyala.
 - **Jam main 7 hari terakhir**, kalau [jam main](#jam-main) menyala: berapa lama game itu
   terbuka dan dalam berapa sesi, menurut catatannya sendiri selama `waifu run` menyala.
+- **Pendapatan bulan ini sejauh ini**: mata uang premium yang didapat dan kira-kira berapa pull,
+  dari catatan bulanan HoYoLAB (lihat [Pendapatan gacha bulanan](#pendapatan-gacha-bulanan)).
 
 Kapan dia melapor:
 
@@ -2086,6 +2092,7 @@ HSR (Honkai: Star Rail)
     Planar Fissure: 3/7, berakhir 2026-10-19 03:00 (8 jam lagi)
   Kode belum ditukarkan: tidak ada
   Jam main minggu ini: 9 jam 40 menit dalam 6 sesi
+  Pendapatan bulan ini: 4.800 Stellar Jade (30 pull), hari ini 60
 Genshin (Genshin Impact)
   Pull minggu ini: 12 (Character Event Wish 12)
   Character Event Wish: pity 71/90, berikutnya 50/50, total 131 pull
@@ -2096,6 +2103,7 @@ Genshin (Genshin Impact)
     Banner karakter: 5★ Furina; 4★ Charlotte, Chongyun, Kirara; berakhir 2026-10-20 17:00 (1 hari 21 jam lagi)
   Kode belum ditukarkan: tidak ada
   Jam main minggu ini: 2 jam 15 menit dalam 3 sesi
+  Pendapatan bulan ini: 5.400 Primogem (33 pull), hari ini 120
 ZZZ (Zenless Zone Zero)
   ✗ Belum ada riwayat ZZZ yang tersimpan; jalankan 'waifu gacha history zzz --full' sekali.
   ...
@@ -2123,10 +2131,86 @@ weekly_report:
   state_path: data/weekly_report.json
 ```
 
-**Privasi.** Angka minggu itu (pull, pity, endgame, kode, jam main) dikirim ke otaknya (dengan
-Claude, ke API Anthropic, sama seperti saat Master bertanya pity) dan tidak pernah ditulis ke
-log biasa. Kalimat laporannya ke `ntfy.sh` kalau notifikasi HP dan `weekly_report.push` menyala.
-`data\weekly_report.json` hanya menyimpan tanggal laporan terakhir.
+**Privasi.** Angka minggu itu (pull, pity, endgame, kode, jam main, pendapatan bulan ini)
+dikirim ke otaknya (dengan Claude, ke API Anthropic, sama seperti saat Master bertanya pity) dan
+tidak pernah ditulis ke log biasa. Kalimat laporannya ke `ntfy.sh` kalau notifikasi HP dan
+`weekly_report.push` menyala. `data\weekly_report.json` hanya menyimpan tanggal laporan terakhir.
+
+### Pendapatan gacha bulanan
+
+HoYoLAB mencatat apa yang Master dapat tiap bulan di tiap game: **Traveler's Diary** (Genshin),
+**Trailblaze Monthly Calendar** (HSR), dan **Inter-Knot monthly report** (ZZZ). Cyrene
+membacanya saat ditanya, sebagai bahan untuk merencanakan pull.
+
+```text
+Master : "Cyrene, bulan ini aku dapat berapa Primogem?"
+Cyrene : "Bulan ini Master sudah dapat sekitar lima ribu empat ratus Primogem, kira-kira tiga
+          puluh tiga pull, paling banyak dari Daily Activity."
+Master : "Stellar Jade bulan lalu berapa?"
+Master : "Pendapatan gacha bulan ini gimana?"      (semua game di gacha.games)
+```
+
+Yang dibaca, per game:
+
+| Game | Mata uang premium | Lainnya | Bulan sebelumnya | Hari ini |
+|---|---|---|---|---|
+| Genshin | Primogem | Mora | ya, dengan persentasenya | ya |
+| HSR | Stellar Jade | Star Rail Pass | ya, dengan persentasenya | ya, juga kemarin |
+| ZZZ | Polychrome | Master Tape, Boopon | tidak ada | tidak ada |
+
+- **Pull** dihitung 160 per pull dari mata uang premium saja. Pass dan tape yang didapat disebut
+  terpisah dan tidak ditambahkan (HoYoLAB juga tidak bilang apakah Star Rail Pass-nya Special
+  atau biasa).
+- **Sumber**: dari mana mata uang premium itu datang (Daily Activity, Events, Spiral Abyss,
+  Memory of Chaos, Shiyu Defense, ...), yang terbanyak dulu.
+- **Bulan sebelumnya** seperti yang dihitung HoYoLAB; bulan yang masih berjalan biasanya masih di
+  bawahnya, jadi persentase minus di tengah bulan itu wajar.
+- **Hanya bulan ini dan dua bulan sebelumnya**, karena hanya itu yang disimpan HoYoLAB. Bulan
+  dihitung dengan jam server Asia, jadi bulan baru mulai jam 23.00 WIB di hari terakhir bulan.
+  Bulan lain ditolak tanpa bertanya ke HoYoLAB, dan jawaban HoYoLAB untuk bulan lain dari yang
+  diminta tidak pernah disebut sebagai bulan itu.
+- **Hanya kalau ditanya.** Tidak disebut di sapaan pagi atau hal lain yang dia mulai sendiri,
+  kecuali satu bagian singkat di [laporan game mingguan](#laporan-game-mingguan). Angkanya
+  informasi untuk merencanakan pull: dia tidak pernah menyarankan pull, belanja, atau top-up, dan
+  tidak menilai banyak sedikitnya.
+- Catatan HoYoLAB bisa **tertinggal** dari game. Yang sudah dibaca disimpan di memori 15 menit,
+  jadi pertanyaan berikutnya dalam waktu itu tidak bertanya ke HoYoLAB lagi; angka hari ini
+  dibaca ulang setelah tengah malam server.
+
+Dari terminal (juga saat `gacha.enabled: false`), tanpa otak:
+
+```powershell
+waifu gacha income                      # bulan ini, semua game di gacha.games
+waifu gacha income zzz --month 2026-09  # satu game, salah satu dari dua bulan sebelumnya
+```
+
+```text
+Pendapatan gacha Oktober 2026, sampai sekarang:
+HSR (Honkai: Star Rail)
+  Stellar Jade: 4.800 (30 pull), hari ini 60, kemarin 120
+  Bulan sebelumnya: 10.000 (-52%)
+  Sumber: Daily Activity 1.800 (38%), Events 1.200 (25%), Memory of Chaos 1.000 (21%), Mail 800 (16%)
+  Lainnya: Star Rail Pass 5
+Genshin (Genshin Impact)
+  Primogem: 5.400 (33 pull), hari ini 120
+  Bulan sebelumnya: 9.000 (-40%)
+  Sumber: Daily Activity 1.800 (33%), Events 1.600 (30%), Spiral Abyss 1.200 (22%), Mail 800 (15%)
+  Lainnya: Mora 1.234.567
+ZZZ (Zenless Zone Zero)
+  Polychrome: 3.200 (20 pull)
+  Sumber: Daily Activity 1.200 (38%), Events 1.000 (31%), Shiyu Defense 600 (19%), Growth 400 (12%)
+  Lainnya: Encrypted Master Tape 3, Boopon 12
+Catatan: pull dihitung 160 per pull dari mata uang premium saja, tanpa pass atau tape; catatan bulanan HoYoLAB bisa tertinggal dari game.
+```
+
+Exit code 1 kalau ada game yang tidak terbaca (sisanya tetap ditampilkan); bulan di luar tiga
+bulan itu ditolak dengan exit code 2. Tidak ada baris `waifu check` tersendiri: cookie-nya sudah
+dicek di baris cookie HoYoLAB.
+
+**Privasi.** Dibaca hanya saat Master bertanya (dan untuk laporan mingguan), disimpan di memori
+15 menit, dan tidak pernah ditulis ke disk atau ke log biasa. Dengan Claude, angkanya dikirim ke
+API Anthropic sebagai hasil tool, sama seperti data akun game lainnya. Jawaban untuk otaknya dan
+keluaran terminal tidak memuat UID, nickname, atau avatar.
 
 ### Pengingat
 
@@ -2179,6 +2263,8 @@ tenang: dia juga bicara di malam hari selama `waifu run` jalan.
 - **"Cookie HoYoLAB tidak bisa dipakai untuk menukarkan kode".** Penukaran butuh
   `cookie_token_v2` (dengan `account_id_v2` dan `account_mid_v2`): ambil ulang cookie-nya
   (langkah 1), lalu minta lagi.
+- **"HoYoLAB tidak memberi pendapatan ... untuk bulan itu".** HoYoLAB tidak lagi menyimpan bulan
+  itu, atau menjawab bulan lain. Tanyakan bulan ini atau salah satu dari dua bulan sebelumnya.
 - **"Kode redeem tidak bisa diambil".** `hoyo-codes.seria.moe` tidak bisa dihubungi; `waifu
   run` mencoba lagi di pemeriksaan berikutnya, dan `waifu gacha codes` tetap menampilkan kode
   yang tersimpan.
@@ -4925,6 +5011,13 @@ mendengarkan"; jawaban pertama bisa lebih lama karena model Ollama baru dimuat)
       teksnya masuk ke HP, dan log menampilkan `Tool weekly_report` tanpa `Tool game_endgame`
       atau `Tool finance_summary`. Restart sesudahnya tidak mengulangnya. Kembalikan
       pengaturannya.
+- [ ] `waifu gacha income`: Primogem, Stellar Jade, dan Polychrome bulan ini sama dengan
+      Traveler's Diary, Trailblaze Monthly Calendar, dan Inter-Knot monthly report di HoYoLAB.
+- [ ] `waifu gacha income zzz --month <bulan lalu, YYYY-MM>`: angka bulan lalu yang muncul, sama
+      dengan HoYoLAB (ini memastikan format bulan ZZZ yang belum pernah dicoba; kalau keluar
+      `HoYoLAB tidak memberi pendapatan ZZZ untuk bulan itu`, catat dan laporkan).
+- [ ] Di `waifu chat`: "bulan ini aku dapat berapa Primogem?" dijawab dengan angka yang sama,
+      tanpa menyarankan pull atau top-up; sapaan pagi tidak menyebutnya.
 
 **Data akun HSR** (lihat [Data akun HSR](#data-akun-hsr-karakter-endgame-dan-event))
 
@@ -5327,10 +5420,13 @@ di sampingnya)
   cookie milikmu, hanya saat Master minta (atau dengan `auto_redeem`). Kode, hadiah, dan hasil
   penukarannya ada di `data\redeem_codes.json`, hanya di PC ini; pemberitahuannya ke `ntfy.sh`
   kalau notifikasi HP menyala. Lihat [Kode redeem](#kode-redeem).
-- **Laporan game mingguan:** pull, pity, endgame, kode, dan jam main minggu itu ke otaknya
-  (dengan Claude, ke API Anthropic), tidak pernah ke log biasa; kalimat laporannya ke `ntfy.sh` kalau
-  notifikasi HP dan `weekly_report.push` menyala. `data\weekly_report.json` hanya menyimpan
+- **Laporan game mingguan:** pull, pity, endgame, kode, jam main, dan pendapatan bulan ini
+  minggu itu ke otaknya (dengan Claude, ke API Anthropic), tidak pernah ke log biasa; kalimat
+  laporannya ke `ntfy.sh` kalau notifikasi HP dan `weekly_report.push` menyala. `data\weekly_report.json` hanya menyimpan
   tanggal laporan terakhir. Lihat [Laporan game mingguan](#laporan-game-mingguan).
+- **Pendapatan gacha bulanan:** dibaca dari HoYoLAB hanya saat ditanya (dan untuk laporan
+  mingguan), disimpan di memori 15 menit, tidak pernah ke disk atau log biasa; dengan Claude,
+  angkanya ke API Anthropic. Lihat [Pendapatan gacha bulanan](#pendapatan-gacha-bulanan).
 - **Ingatan Cyrene** (hal yang dia ketahui tentang Master) ada di `data\memory.json`,
   hanya di PC ini; rahasia seperti kata sandi atau nomor kartu tidak pernah disimpan.
   Lihat [Privasi ingatan](#privasi-ingatan).
