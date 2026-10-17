@@ -16,7 +16,7 @@ import json
 import logging
 import math
 from collections.abc import Callable, Mapping, Sequence
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Protocol
 
 from waifu.brain.base import ToolSpec
@@ -114,14 +114,13 @@ class FocusTools:
 
     def _start(self, plan: FocusPlan) -> dict[str, object]:
         state = self._timer.begin(plan)
-        whole = plan.minutes * plan.rounds + plan.break_minutes * (plan.rounds - 1)
         return {
             "started": True,
             "minutes": plan.minutes,
             "break_minutes": plan.break_minutes,
             "rounds": plan.rounds,
             "block_ends_at": _local(state.ends_at),
-            "session_ends_at": _local(state.phase_start + timedelta(minutes=whole)),
+            "session_ends_at": _local(state.session_ends_at),
         }
 
     def _stop(self) -> dict[str, object]:
@@ -139,7 +138,7 @@ class FocusTools:
         }
         if state is None:
             return {"active": False, **totals}
-        left = math.ceil((state.ends_at - now).total_seconds() / 60)
+        session_ends_at = state.session_ends_at
         return {
             "active": True,
             "phase": state.phase,
@@ -147,8 +146,10 @@ class FocusTools:
             "rounds": state.plan.rounds,
             "minutes": state.plan.minutes,
             "break_minutes": state.plan.break_minutes,
-            "minutes_left": max(0, left),
+            "minutes_left": _minutes_left(state.ends_at, now),
             "ends_at": _local(state.ends_at),
+            "session_minutes_left": _minutes_left(session_ends_at, now),
+            "session_ends_at": _local(session_ends_at),
             **totals,
         }
 
@@ -167,7 +168,8 @@ def _spec() -> ToolSpec:
             "times). Give the lengths only with `start`. `stop` ends the session when Master "
             "asks; `stopped` false means none was running. `status`, the default, tells the "
             "phase (`focus` or `break`), the round, the phase's `minutes_left` and `ends_at`, "
-            "and `today` and `week`, how long Master focused, the block under way included. "
+            "the whole session's `session_minutes_left` and `session_ends_at`, and `today` "
+            "and `week`, how long Master focused, the block under way included. "
             "While a block runs you say nothing by yourself: your own notices wait for the "
             "break, and Master's own reminders still speak. You say a short line yourself "
             "when each block, each break, and the session end, so never promise anything "
@@ -209,6 +211,11 @@ def _length(arguments: Mapping[str, object], key: str) -> int | None:
     if isinstance(value, bool) or not isinstance(value, int) or not low <= value <= high:
         raise _InvalidArguments(f"'{key}' harus bilangan bulat dari {low} sampai {high}.")
     return value
+
+
+def _minutes_left(until: datetime, now: datetime) -> int:
+    """Whole minutes from `now` to `until`, rounded up, never below zero."""
+    return max(0, math.ceil((until - now).total_seconds() / 60))
 
 
 def _hours_minutes(seconds: int) -> dict[str, int]:

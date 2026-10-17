@@ -3969,6 +3969,7 @@ Cyrene : "Siap, Sayang. Aku temani sampai jam sembilan lewat dua puluh lima."
 Master : "Cyrene, pomodoro empat kali."          (empat blok 25 menit, istirahat 5 menit)
 Master : "Cyrene, fokus 50 menit, istirahat 10, tiga kali."
 Master : "Cyrene, sisa berapa menit?"
+Master : "Cyrene, kapan selesai semuanya?"
 Master : "Cyrene, hari ini sudah fokus berapa lama?"
 Master : "Cyrene, udah, berhenti fokusnya."
 ```

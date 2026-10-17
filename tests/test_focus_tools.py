@@ -105,6 +105,7 @@ def test_the_description_says_when_to_use_it_and_how_to_say_it(rig):
         "only with `start`",
         "`stopped` false",
         "`minutes_left`",
+        "`session_minutes_left` and `session_ends_at`",
         "the block under way included",
         "say nothing by yourself",
         "Master's own reminders still speak",
@@ -173,6 +174,8 @@ def test_status_in_a_block_tells_the_round_and_the_minutes_left_rounded_up(rig):
         "break_minutes": 5,
         "minutes_left": 13,
         "ends_at": "20:25",
+        "session_minutes_left": 103,  # four blocks and three breaks end at 21:55
+        "session_ends_at": "21:55",
         "today": {"hours": 1, "minutes": 12},
         "week": {"hours": 1, "minutes": 12},
     }
@@ -189,6 +192,35 @@ def test_status_in_a_break_tells_the_break(rig):
     assert (status["phase"], status["round"], status["minutes_left"]) == ("break", 1, 3)
     assert status["ends_at"] == "20:30"
     assert status["today"] == {"hours": 0, "minutes": 25}
+
+
+def test_status_in_a_later_break_tells_when_the_whole_session_ends(rig):
+    rig.ask({"action": "start", "rounds": 4})
+    for minutes in (25, 30, 55):  # the first block, its break, and the second block end
+        rig.at(minutes)
+        rig.timer.tick_once()
+    rig.at(57)
+
+    status = rig.ask()
+
+    assert (status["phase"], status["round"], status["minutes_left"]) == ("break", 2, 3)
+    assert status["ends_at"] == "21:00"
+    # Two blocks of 25 and the break between them after this break: never left to the model.
+    assert (status["session_minutes_left"], status["session_ends_at"]) == (58, "21:55")
+
+
+def test_status_in_the_last_block_ends_the_session_with_the_block(rig):
+    rig.ask({"action": "start", "rounds": 2})
+    for minutes in (25, 30):
+        rig.at(minutes)
+        rig.timer.tick_once()
+    rig.at(40)
+
+    status = rig.ask()
+
+    assert (status["phase"], status["round"]) == ("focus", 2)
+    assert status["session_ends_at"] == status["ends_at"] == "20:55"
+    assert status["session_minutes_left"] == status["minutes_left"] == 15
 
 
 def test_stop_ends_the_session_and_tells_its_focus(rig):

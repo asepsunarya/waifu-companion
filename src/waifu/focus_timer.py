@@ -91,6 +91,16 @@ class FocusState:
     ends_at: datetime
     focused_seconds: int
 
+    @property
+    def session_ends_at(self) -> datetime:
+        """When the session's last block ends: the phases left follow the plan exactly."""
+        plan = self.plan
+        blocks_left = plan.rounds - self.round  # after this phase, each with a break before it
+        later = blocks_left * (plan.minutes + plan.break_minutes)
+        if self.phase == BREAK:
+            later -= plan.break_minutes  # this break is the one before the next block
+        return self.ends_at + _minutes(later)
+
 
 class BlockLog(Protocol):
     """The part of `FocusStore` the timer uses."""
