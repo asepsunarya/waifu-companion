@@ -534,6 +534,13 @@ def _spec(games: list[str], *, codes: bool, play: bool) -> ToolSpec:
             "run` was on (`play_time`; minimized or idle counts too)"
         )
     last = f"{', '.join(sections[:-1])}, and {sections[-1]}" if len(sections) > 1 else sections[0]
+    # The play_time tool's own no-lecture rule is shut out of her report turn with that tool.
+    news = (
+        " Tell the play time only as news: never judge whether it is too much, and never scold "
+        "or lecture Master about how long they play."
+        if play
+        else ""
+    )
     return ToolSpec(
         name=WEEKLY_REPORT,
         description=(
@@ -548,7 +555,7 @@ def _spec(games: list[str], *, codes: bool, play: bool) -> ToolSpec:
             "the rest; `hint` says how "
             "to read the whole history. HoYoverse lists pulls about an hour late. Present "
             "banners and events only as information: never suggest pulling, spending money, or "
-            "topping up."
+            f"topping up.{news}"
         ),
         input_schema={"type": "object", "properties": {}, "additionalProperties": False},
     )

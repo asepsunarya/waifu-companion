@@ -1285,7 +1285,7 @@ Config `play_time` (committed with its tests in the contract task): `enabled` (t
 
 Weekly report (`gacha/weekly.py`):
 - `PlayTimeSource` (`totals(since, until)`); `gather_weekly_report(..., play_time=None)` reads it once, synchronously (a local file needs no lane of the time budget), for the week's 7 days up to now (`since` without the listing lag: play time has none); `GameWeek.play: PlayTotal | None` and `play_problem` (`"Jam main <short> tidak terbaca saat ini."`), both None for a game that is not tracked or without a source; `problems` holds it; `readable` ignores it (play time alone is no report).
-- `report_json`: per game `"play_time": {"hours", "minutes", "sessions"} | null` and `"play_time_problem"`, only for a game with play time; `WeeklyReportTools(..., play_time=None)`'s description then names it; `WEEKLY_REPORT_PROMPT` names "jam main" once in its list (still no look word, play verb, or music word).
+- `report_json`: per game `"play_time": {"hours", "minutes", "sessions"} | null` and `"play_time_problem"`, only for a game with play time; `WeeklyReportTools(..., play_time=None)`'s description then names it and says to tell it only as news, never judging whether it is too much and never scolding or lecturing (the play_time tool's own rule is shut out of her report turn with that tool); `WEEKLY_REPORT_PROMPT` names "jam main" once in its list (still no look word, play verb, or music word).
 - `waifu gacha report`: `Jam main minggu ini: 5 jam 20 menit dalam 6 sesi` (`belum main`), or `✗ <problem>`.
 
 CLI:

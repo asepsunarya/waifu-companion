@@ -1114,6 +1114,7 @@ def test_the_description_says_what_it_holds_when_to_use_it_and_never_to_push_spe
         assert guidance in spec.description
     assert "redeem codes" not in spec.description
     assert "the time each game was open" not in spec.description
+    assert "lecture" not in spec.description
 
 
 def test_the_description_names_the_play_time_when_it_is_counted(tmp_path):
@@ -1121,6 +1122,15 @@ def test_the_description_names_the_play_time_when_it_is_counted(tmp_path):
 
     assert "the time each game was open in the last 7 days" in spec.description
     assert "minimized or idle" in spec.description
+
+
+def test_the_description_tells_the_play_time_as_news_never_as_a_lecture(tmp_path):
+    # The play_time tool's own rule never reaches her report turn: that tool is shut there.
+    [spec] = make_tools(tmp_path, play_time=play_store(tmp_path)).specs()
+
+    assert "Tell the play time only as news" in spec.description
+    assert "never judge whether it is too much" in spec.description
+    assert "never scold or lecture Master about how long they play" in spec.description
 
 
 def test_the_tool_s_report_holds_the_play_time_when_it_is_counted(tmp_path):
