@@ -71,6 +71,20 @@ def test_committed_persona_names_the_game_data_tools_and_brings_banners_up_only_
     assert "jangan untuk sapaan atau briefing pagi" in games
 
 
+def test_committed_persona_keeps_master_company_with_the_focus_timer_only_when_asked():
+    persona = load_persona(ROOT / "config" / "persona.md")
+
+    focus = persona.split("Teman fokus:", 1)[1].split("\n\n", 1)[0]
+
+    assert "focus_timer" in focus
+    assert "pomodoro" in focus
+    assert "action start" in focus
+    assert "action stop" in focus
+    assert "status" in focus
+    assert "jangan pernah menebak" in focus
+    assert "kecuali Master minta" in focus
+
+
 @pytest.mark.parametrize("persona_file", ["persona.md", "persona_hsr.md"])
 def test_committed_personas_name_none_of_the_v1_16_hsr_tools(persona_file):
     # The model calls a tool by the name the persona gives it, and the v1.16 names are gone:

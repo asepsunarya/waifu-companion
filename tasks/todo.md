@@ -1364,11 +1364,11 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** none · **Files:** `src/waifu/app.py`, `tests/test_app.py` · **Scope:** S
 
-## Task 143: The focus tool and the persona line
+## Task 143: The focus tool and the persona line ✅
 
 **Acceptance criteria:**
-- [ ] `focus_timer {action?, minutes?, break_minutes?, rounds?}`: non-strict, a static description; start with the defaults and with given lengths, stop, status with today's and this week's time; bad arguments, a `FocusError`, and an unreadable log as error results; refused in the morning greeting and the weekly report turns
-- [ ] One identical line in both personas
+- [x] `focus_timer {action?, minutes?, break_minutes?, rounds?}`: non-strict, a static description; start with the defaults and with given lengths, stop, status with today's and this week's time; bad arguments, a `FocusError`, and an unreadable log as error results; refused in the morning greeting and the weekly report turns
+- [x] One identical line in both personas
 
 **Dependencies:** 141 · **Files:** `src/waifu/brain/focus_tools.py`, `tests/test_focus_tools.py`, `config/persona.md`, `config/persona_hsr.md`, `tests/test_brain_persona.py` · **Scope:** M
 
