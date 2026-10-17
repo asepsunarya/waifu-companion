@@ -27,6 +27,7 @@ from waifu.play_time import (
     play_totals,
     played_seconds,
     resume_games,
+    whole_minutes,
 )
 
 DAY = datetime(2026, 10, 17, tzinfo=WIB)  # a Saturday
@@ -320,6 +321,11 @@ def test_sessions_outside_the_period_count_nothing():
     sessions = [Session("hsr", at(10), at(11)), Session("hsr", at(30), at(31))]
 
     assert played_seconds(sessions, at(12), at(24)) == 0
+
+
+@pytest.mark.parametrize(("seconds", "minutes"), [(0, 0), (29, 0), (30, 1), (89, 1), (3600, 60)])
+def test_whole_minutes_round_to_the_nearest_with_a_half_minute_up(seconds, minutes):
+    assert whole_minutes(seconds) == minutes
 
 
 def test_totals_give_every_game_its_time_and_sessions_in_order():

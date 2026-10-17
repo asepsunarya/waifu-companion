@@ -206,6 +206,11 @@ def play_totals(
     return totals
 
 
+def whole_minutes(seconds: int) -> int:
+    """`seconds` rounded to the nearest minute, a half minute up."""
+    return (seconds + 30) // 60
+
+
 def _overlap(session: Session, since: datetime, until: datetime) -> timedelta:
     return min(session.end, until) - max(session.start, since)
 
