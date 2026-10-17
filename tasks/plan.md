@@ -573,7 +573,7 @@ cannot be undone. The nightly question is off by default: `journal.ask_at` (12:0
 question lets Master answer without her name, and that answer is written. No new dependency.
 - [x] Task 146a: contract: SPEC, tasks
 - [x] Task 146: the journal store (`journal.py`)
-- [ ] Task 147: the journal tools and the refusal in her own turns
+- [x] Task 147: the journal tools and the refusal in her own turns
 - [ ] Task 148: the nightly question (`JournalConfig`, `JOURNAL_PROMPT`, `JournalTimer`)
 - [ ] Task 149: the persona line
 - [ ] Task 150: wiring in `run`/`chat`, `waifu jurnal`, check line, example config

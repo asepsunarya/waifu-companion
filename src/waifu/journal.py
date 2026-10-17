@@ -35,6 +35,12 @@ from waifu.play_time import wib_now
 
 logger = logging.getLogger(__name__)
 
+# Her journal tools (`brain/journal_tools.py`), named here so `brain/tools.py` can keep their
+# arguments out of the INFO log without importing the brain's providers.
+JOURNAL_WRITE = "journal_write"
+JOURNAL_READ = "journal_read"
+JOURNAL_TOOLS = (JOURNAL_WRITE, JOURNAL_READ)
+
 FILE_VERSION = 1
 _FILE_KEYS = {"version", "days"}
 _NOTE_KEYS = {"text", "at"}

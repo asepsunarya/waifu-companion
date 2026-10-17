@@ -21,15 +21,16 @@ from waifu.brain.confirm import ConfirmationGate
 from waifu.devices.base import Device
 from waifu.devices.registry import KIND_VALUE_RANGES, DeviceRegistry
 from waifu.finance.values import FINANCE_TOOLS
+from waifu.journal import JOURNAL_TOOLS
 
 logger = logging.getLogger(__name__)
 
 CONTROL_DEVICE = "control_device"
 LIST_DEVICES = "list_devices"
 TOOL_NAMES = (CONTROL_DEVICE, LIST_DEVICES)
-# Tools whose arguments are Master's money (an amount, what it was for, a wallet, a goal): the
-# INFO log, logs\waifu.log under autostart, shows them as "…".
-PRIVATE_ARGUMENT_TOOLS = frozenset(FINANCE_TOOLS)
+# Tools whose arguments are Master's money (an amount, what it was for, a wallet, a goal) or
+# Master's journal: the INFO log, logs\waifu.log under autostart, shows them as "…".
+PRIVATE_ARGUMENT_TOOLS = frozenset(FINANCE_TOOLS + JOURNAL_TOOLS)
 
 # A trailing number without leading zeros, so command `temp` + value 24 selects `temp_24`.
 _NUMBERED_COMMAND = re.compile(r"^(?P<base>.+)_(?P<value>0|[1-9][0-9]*)$")

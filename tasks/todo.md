@@ -1403,13 +1403,13 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 146a · **Files:** `src/waifu/journal.py`, `tests/test_journal.py` · **Scope:** M
 
-## Task 147: The journal tools and the refusal in her own turns
+## Task 147: The journal tools and the refusal in her own turns ✅
 
 **Acceptance criteria:**
-- [ ] `journal_write {text, date?}` strict and `journal_read {date?, period?}` non-strict, static descriptions; dates checked in code; the read capped to the newest 40 notes and 6000 characters; bad arguments, a `JournalError`, and an unreadable file as error results
-- [ ] Both refused in the morning greeting and weekly report turns; their arguments hidden from the INFO log
+- [x] `journal_write {text, date?}` strict and `journal_read {date?, period?}` non-strict, static descriptions; dates checked in code; the read capped to the newest 40 notes and 6000 characters; bad arguments, a `JournalError`, and an unreadable file as error results
+- [x] Both refused in the morning greeting and weekly report turns; their arguments hidden from the INFO log
 
-**Dependencies:** 146 · **Files:** `src/waifu/brain/journal_tools.py`, `tests/test_journal_tools.py`, `src/waifu/brain/tools.py`, `tests/test_brain_tools.py` · **Scope:** M
+**Dependencies:** 146 · **Files:** `src/waifu/brain/journal_tools.py`, `tests/test_journal_tools.py`, `src/waifu/brain/tools.py`, `src/waifu/app.py` · **Scope:** M
 
 ## Task 148: The nightly question
 

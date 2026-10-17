@@ -609,7 +609,7 @@ class Assistant:
             reply = self._brain.respond(text, now=self._now())
         for call in reply.tool_calls:
             # The result itself only at DEBUG: the INFO log (logs\waifu.log under autostart)
-            # must not collect the owner's pull history, nor a finance call's arguments.
+            # must not collect the owner's pull history, nor a finance or journal call's arguments.
             outcome = "error" if call.is_error else "ok"
             arguments = logged_arguments(call.name, call.arguments)
             logger.info("Tool %s(%s) -> %s", call.name, arguments, outcome)
