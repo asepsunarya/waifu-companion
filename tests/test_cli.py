@@ -12233,10 +12233,13 @@ def test_gacha_report_prints_the_week_of_each_game_without_the_brain_also_with_t
         "  Kode belum ditukarkan (daftar tersimpan, perbarui dengan 'waifu gacha codes'): "
         "tidak ada",
         "  Jam main minggu ini: belum main",
+        "  Pendapatan bulan ini: 4.800 Stellar Jade (30 pull), hari ini 60",
         "Catatan: HoYoverse mencatat pull sekitar satu jam setelahnya, jadi pull barusan "
         "mungkin belum ada.",
     ]
     assert games.history.asked == [("hsr", False)]
+    this_month = income_months(datetime.now().astimezone(), 8)[0]
+    assert game_data.income_asked == [(["hsr"], this_month, True)]
 
 
 def test_gacha_report_counts_from_an_hour_before_last_weeks_report_slot_on_the_report_day(
@@ -12346,8 +12349,45 @@ def test_gacha_report_never_prints_what_was_spent(home, game_data, games, capsys
     cli.main(["gacha", "report"])
 
     out = capsys.readouterr().out
-    for word in ("Stellar Jade", "160", "habis dipakai", "top up"):
+    # The currency is named only for what this month brought in, never for what was spent.
+    named = [line for line in out.splitlines() if "Stellar Jade" in line]
+    assert named == ["  Pendapatan bulan ini: 4.800 Stellar Jade (30 pull), hari ini 60"]
+    for word in ("160", "habis dipakai", "top up"):
         assert word not in out
+
+
+def test_gacha_report_tells_why_this_month_s_income_could_not_be_read(
+    home, game_data, games, capsys
+):
+    play_only(home, "[hsr, zzz]")
+    save_hsr_week(home)
+    hsr_week_on_hoyolab(game_data)
+    every_genshin_and_zzz_mode_unplayed(game_data)
+    game_data.income_failures["hsr"] = GachaError("network", "HoYoLAB tidak bisa dihubungi.")
+
+    assert cli.main(["gacha", "report"]) == 1
+
+    lines = capsys.readouterr().out.splitlines()
+    assert "  ✗ Pendapatan HSR bulan ini tidak terbaca: HoYoLAB tidak bisa dihubungi." in lines
+    assert "  Pendapatan bulan ini: 3.200 Polychrome (20 pull)" in lines
+
+
+def test_the_weekly_report_tool_tells_this_month_s_income_from_hoyolab(
+    home, brains, game_data, games, monkeypatch
+):
+    enable_gacha(home)
+    play_only(home, "[hsr]")
+    save_hsr_week(home)
+    hsr_week_on_hoyolab(game_data)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+    assert cli.main(["chat", "--dry-run"]) == 0
+
+    result, is_error = weekly_report_tools(brains[0]).run("weekly_report", {})
+
+    assert is_error is False
+    [hsr] = json.loads(result)["games"]
+    assert hsr["income_this_month"]["currency"] == "Stellar Jade"
+    assert (hsr["income_this_month"]["earned"], hsr["income_problem"]) == (4800, None)
 
 
 def test_gacha_help_offers_the_weekly_report(monkeypatch, capsys):

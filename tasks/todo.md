@@ -1579,11 +1579,11 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 164 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** M
 
-## Task 166: The weekly report's income part
+## Task 166: The weekly report's income part ✅
 
 **Acceptance criteria:**
-- [ ] With an income source, one more lane in the same budget reads this month for every game; each game's `income` or `income_problem`; a late read ran out of time; without a source nothing changes (the exact JSON and the calls stay as before)
-- [ ] `income_this_month` and `income_problem` in the JSON only with a source; the description and the prompt name it; `waifu gacha report` prints one line a game
+- [x] With an income source, one more lane in the same budget reads this month for every game; each game's `income` or `income_problem`; a late read ran out of time; without a source nothing changes (the exact JSON and the calls stay as before)
+- [x] `income_this_month` and `income_problem` in the JSON only with a source; the description and the prompt name it; `waifu gacha report` prints one line a game
 
 **Dependencies:** 163 · **Files:** `src/waifu/gacha/weekly.py`, `tests/test_gacha_weekly.py`, `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** M
 

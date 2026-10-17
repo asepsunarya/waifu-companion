@@ -2100,10 +2100,10 @@ def _game_tools(config: AppConfig, gacha: GachaParts | None) -> list[ToolProvide
 
 
 def _weekly_report_tools(config: AppConfig, gacha: GachaParts) -> WeeklyReportTools:
-    """The week in the configured games from the pull history in `gacha.data_dir`, HoYoLAB,
-    with the redeem codes on, the codes `waifu run` keeps, and with play time on, how long each
-    game was open; the week starts from the report's slot even when the report is off, so
-    `waifu gacha report` shows her week."""
+    """The week in the configured games from the pull history in `gacha.data_dir`, HoYoLAB
+    (this month's income too), with the redeem codes on, the codes `waifu run` keeps, and with
+    play time on, how long each game was open; the week starts from the report's slot even when
+    the report is off, so `waifu gacha report` shows her week."""
     return WeeklyReportTools(
         config.gacha.games,
         history=gacha.history,
@@ -2115,6 +2115,7 @@ def _weekly_report_tools(config: AppConfig, gacha: GachaParts) -> WeeklyReportTo
         server_utc_offset=config.gacha.server_utc_offset,
         extra_standard=config.gacha.off_banner,
         play_time=_play_time_store(config) if config.play_time.enabled else None,
+        income=gacha.hoyolab,
     )
 
 
@@ -2645,7 +2646,8 @@ def _gacha_report(args: argparse.Namespace) -> int:
 
 def _game_week_lines(week: GameWeek, now: datetime, codes_label: str) -> list[str]:
     """One game's week: its pulls and pity, its endgame, what ends within 7 days, its codes
-    after `codes_label`, and its play time, each problem marked where its part would be."""
+    after `codes_label`, its play time, and this month's income, each problem marked where its
+    part would be."""
     lines = []
     if week.pulls_problem is not None:
         # With a pity the stored history still answered; without one nothing did.
@@ -2671,7 +2673,17 @@ def _game_week_lines(week: GameWeek, now: datetime, codes_label: str) -> list[st
         lines.append(f"{FAIL} {week.play_problem}")
     elif week.play is not None:
         lines.append(f"Jam main minggu ini: {_week_play_text(week.play)}")
+    if week.income_problem is not None:
+        lines.append(f"{FAIL} {week.income_problem}")
+    elif week.income is not None:
+        lines.append(f"Pendapatan bulan ini: {_month_income_text(week.game, week.income)}")
     return lines
+
+
+def _month_income_text(game: Game, income: GameIncome) -> str:
+    """`5.400 Primogem (33 pull), hari ini 120`."""
+    text = f"{_thousands(income.earned)} {game.currency} ({income.pulls} pull)"
+    return text if income.today is None else f"{text}, hari ini {_thousands(income.today)}"
 
 
 def _week_play_text(play: PlayTotal) -> str:

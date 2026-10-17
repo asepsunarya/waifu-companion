@@ -11,7 +11,7 @@ import logging
 import os
 import threading
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from datetime import time as clock
 
 import ollama
@@ -28,6 +28,7 @@ from waifu.gacha.game_data import GAME_MODES, Banner, Endgame, GameCalendar, Gam
 from waifu.gacha.games import GAMES
 from waifu.gacha.history import GachaRecord, GachaStore, HistoryReport
 from waifu.gacha.hoyolab import GachaError
+from waifu.gacha.income import GameIncome, IncomeCategory, IncomeCurrency
 from waifu.gacha.starrail import HsrCalendar, HsrEndgame, HsrEvent, HsrWarp
 from waifu.gacha.tools import HISTORY_NOTE
 from waifu.gacha.weekly import (
@@ -226,6 +227,7 @@ def gather(
     budget_s: float = 5.0,
     extra=None,
     play_time=None,
+    income=None,
 ):
     store = store if store is not None else make_store(tmp_path)
     return gather_weekly_report(
@@ -240,6 +242,7 @@ def gather(
         extra_standard=extra or {},
         budget_s=budget_s,
         play_time=play_time,
+        income=income,
     )
 
 
@@ -754,6 +757,202 @@ def test_the_json_holds_no_play_time_without_a_source(tmp_path):
     assert "play_time" not in data and "play_time_problem" not in data
 
 
+# --- this month's income -------------------------------------------------------------------------
+
+OCTOBER = date(2026, 10, 1)
+
+
+def monthly_income(game: str, month: date) -> GameIncome:
+    earned = {"hsr": 4800, "genshin": 5400, "zzz": 3200}[game]
+    return GameIncome(
+        game=game,
+        month=month,
+        earned=earned,
+        others=(IncomeCurrency("Mora", 1234567),) if game == "genshin" else (),
+        last_month=None if game == "zzz" else 9000,
+        change_percent=None if game == "zzz" else -40,
+        sources=(IncomeCategory("Events", 1600, 30),),
+        today=None if game == "zzz" else 60,
+        yesterday=120 if game == "hsr" else None,
+    )
+
+
+class FakeIncome:
+    """HoyolabClient.income with fixed answers: each game's income, or the GachaError in
+    `failures`; `failure` is an exception raised by the whole call, and `blocked` an event the
+    call waits for. Each call is recorded with the thread it ran on."""
+
+    def __init__(self, *, failures=None, failure=None, blocked=None) -> None:
+        self.failures: dict[str, GachaError] = failures or {}
+        self.failure: Exception | None = failure
+        self.blocked: threading.Event | None = blocked
+        self.calls: list[tuple[list[str], date, bool]] = []
+        self.threads: list[threading.Thread] = []
+
+    def income(self, games, month, *, this_month):
+        games = list(games)
+        self.calls.append((games, month, this_month))
+        self.threads.append(threading.current_thread())
+        if self.blocked is not None:
+            self.blocked.wait(5)
+        if self.failure is not None:
+            raise self.failure
+        return {game: self.failures.get(game) or monthly_income(game, month) for game in games}
+
+
+def test_this_month_s_income_comes_per_game_from_one_call_when_a_source_is_given(tmp_path):
+    income = FakeIncome()
+
+    report = gather(tmp_path, games=EVERY_GAME, income=income)
+
+    assert income.calls == [(EVERY_GAME, OCTOBER, True)]
+    hsr = week_of(report, "hsr")
+    assert (hsr.income, hsr.income_problem) == (monthly_income("hsr", OCTOBER), None)
+    assert week_of(report, "zzz").income.earned == 3200
+    assert hsr.problems == ()
+
+
+def test_the_income_is_read_on_its_own_worker_beside_the_hoyolab_lanes(tmp_path):
+    income = FakeIncome()
+    source = FakeSource()
+
+    gather(tmp_path, source=source, income=income)
+
+    [worker] = income.threads
+    assert worker.name == "weekly-income" and worker.daemon
+    assert worker is not source.threads["hsr_endgame"]
+
+
+def test_the_income_month_turns_at_midnight_server_time():
+    # 23:30 WIB on 31 October is already 1 November on the Asia server.
+    income = FakeIncome()
+    now = datetime(2026, 10, 31, 23, 30, tzinfo=WIB)
+
+    gather_weekly_report(
+        [],
+        history=None,
+        store=None,
+        source=None,
+        codes=None,
+        now=now,
+        since=now - timedelta(days=7),
+        offset=8,
+        extra_standard={},
+        income=income,
+    )
+
+    assert income.calls == [([], date(2026, 11, 1), True)]
+
+
+def test_without_an_income_source_there_is_no_income(tmp_path):
+    week = week_of(gather(tmp_path), "hsr")
+
+    assert (week.income, week.income_problem) == (None, None)
+
+
+def test_a_game_whose_income_could_not_be_read_has_its_problem_and_the_others_still_come(
+    tmp_path,
+):
+    income = FakeIncome(failures={"zzz": OFFLINE})
+
+    report = gather(tmp_path, games=EVERY_GAME, income=income)
+
+    zzz = week_of(report, "zzz")
+    problem = "Pendapatan ZZZ bulan ini tidak terbaca: " + OFFLINE.message
+    assert (zzz.income, zzz.income_problem) == (None, problem)
+    assert problem in zzz.problems
+    assert week_of(report, "hsr").income.earned == 4800
+
+
+def test_an_income_call_that_fails_as_a_whole_is_every_game_s_problem(tmp_path, caplog):
+    with caplog.at_level(logging.ERROR, logger="waifu.gacha.weekly"):
+        report = gather(
+            tmp_path, games=["hsr", "zzz"], income=FakeIncome(failure=RuntimeError("boom"))
+        )
+
+    assert [week.income_problem for week in report.games] == [
+        "Pendapatan HSR bulan ini tidak terbaca: terjadi kesalahan.",
+        "Pendapatan ZZZ bulan ini tidak terbaca: terjadi kesalahan.",
+    ]
+    assert "boom" in caplog.text
+
+
+def test_income_not_read_within_the_budget_ran_out_of_time_and_the_rest_is_told(tmp_path):
+    hanging = threading.Event()
+    try:
+        report = gather(tmp_path, income=FakeIncome(blocked=hanging), budget_s=0.2)
+    finally:
+        hanging.set()
+
+    hsr = week_of(report, "hsr")
+    assert hsr.income_problem == "Pendapatan HSR bulan ini tidak terbaca: waktunya habis."
+    assert (hsr.endgame_problem, hsr.calendar_problem) == (None, None)
+
+
+def test_income_alone_is_nothing_to_report(tmp_path):
+    report = gather(
+        tmp_path,
+        store=GachaStore(tmp_path / "empty"),
+        source=FakeSource(failures=no_cookie_anywhere()),
+        income=FakeIncome(),
+    )
+
+    assert report.readable is False
+
+
+def test_the_json_holds_this_month_s_income_only_with_a_source(tmp_path):
+    income = FakeIncome(failures={"genshin": OFFLINE})
+
+    hsr, genshin, zzz = report_json(gather(tmp_path, games=EVERY_GAME, income=income))["games"]
+
+    assert hsr["income_this_month"] == {
+        "month": "2026-10",
+        "currency": "Stellar Jade",
+        "earned": 4800,
+        "pulls": 30,
+        "today": 60,
+    }
+    assert hsr["income_problem"] is None
+    assert genshin["income_this_month"] is None
+    assert genshin["income_problem"] == "Pendapatan Genshin bulan ini tidak terbaca: " + (
+        OFFLINE.message
+    )
+    assert zzz["income_this_month"] == {
+        "month": "2026-10",
+        "currency": "Polychrome",
+        "earned": 3200,
+        "pulls": 20,
+    }
+
+
+def test_the_json_holds_no_income_without_a_source(tmp_path):
+    [data] = report_json(gather(tmp_path))["games"]
+
+    assert "income_this_month" not in data and "income_problem" not in data
+
+
+def test_the_description_names_this_month_s_income_when_it_is_read(tmp_path):
+    [spec] = make_tools(tmp_path, income=FakeIncome()).specs()
+
+    assert "premium currency earned so far this month" in spec.description
+    assert "`income_this_month`" in spec.description
+    assert "worth in pulls" in spec.description
+
+
+def test_the_description_leaves_the_income_out_without_a_source(tmp_path):
+    [spec] = make_tools(tmp_path).specs()
+
+    assert "income" not in spec.description
+
+
+def test_the_tool_s_report_holds_this_month_s_income_when_it_is_read(tmp_path):
+    result, is_error = make_tools(tmp_path, income=FakeIncome()).run("weekly_report", {})
+
+    assert is_error is False
+    hsr = json.loads(result)["games"][0]
+    assert hsr["income_this_month"]["earned"] == 4800
+
+
 # --- the redeem codes ----------------------------------------------------------------------------
 
 
@@ -1061,7 +1260,15 @@ def test_the_json_keeps_each_game_small(tmp_path):
 
 
 def make_tools(
-    tmp_path, *, games=EVERY_GAME, store=None, source=None, codes=None, now=NOW, play_time=None
+    tmp_path,
+    *,
+    games=EVERY_GAME,
+    store=None,
+    source=None,
+    codes=None,
+    now=NOW,
+    play_time=None,
+    income=None,
 ):
     store = store if store is not None else make_store(tmp_path)
     return WeeklyReportTools(
@@ -1077,6 +1284,7 @@ def make_tools(
         now=lambda: now,
         budget_s=5.0,
         play_time=play_time,
+        income=income,
     )
 
 
@@ -1275,6 +1483,10 @@ def test_the_prompt_says_it_is_her_own_weekly_report_and_names_only_its_tool():
 
 def test_the_prompt_names_the_week_s_play_time_once():
     assert WEEKLY_REPORT_PROMPT.count("jam main") == 1
+
+
+def test_the_prompt_names_this_month_s_income_once():
+    assert WEEKLY_REPORT_PROMPT.count("pendapatan bulan ini") == 1
 
 
 def test_the_prompt_tells_only_information_and_never_a_reason_to_spend():

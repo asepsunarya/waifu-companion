@@ -8,8 +8,10 @@ her turn calls, `weekly_report`, gives the facts below as compact JSON.
 and the pity from the stored pull history (refreshed first, one game after another, and only
 for a game that already has one: a first import is far too slow for a voice turn), this
 season's endgame and the banners and events that end within 7 days from HoYoLAB (the same calls
-the game data tools make, one worker per game), the redeem codes not redeemed yet, and with play
-time counted, how long each tracked game was open in the week (a local file, read at once). Every
+the game data tools make, one worker per game), the redeem codes not redeemed yet, with play
+time counted, how long each tracked game was open in the week (a local file, read at once), and
+with an income source, this month's premium currency earned so far (HoYoLAB's monthly diaries,
+one more worker for every game). Every
 section fails on its own into a short Indonesian problem, and all the reads share one time
 budget, so a slow HoYoLAB never holds her turn for long: a late section says that its time ran
 out. `report_json` is what the brain gets; `waifu gacha report` prints the same `WeeklyReport`.
@@ -42,7 +44,7 @@ from waifu.gacha.game_data import (
     is_over,
     is_running,
 )
-from waifu.gacha.games import GAMES, Game
+from waifu.gacha.games import GAMES, Game, checkin_day
 from waifu.gacha.history import (
     BannerPulls,
     BannerStats,
@@ -53,6 +55,7 @@ from waifu.gacha.history import (
     pulls_since,
 )
 from waifu.gacha.hoyolab import GachaError
+from waifu.gacha.income import GameIncome, IncomeSource, month_text
 from waifu.gacha.starrail import HsrCalendar, HsrEndgame, HsrEvent, HsrWarp
 from waifu.gacha.tools import HISTORY_NOTE, LOCAL_TIME, HistorySource
 from waifu.play_time import PlayTotal, whole_minutes
@@ -85,6 +88,7 @@ _MODES_FAILED = "{names} tidak terbaca: {why}"
 _CALENDAR_FAILED = "Kalender event {short} tidak terbaca: {why}"
 _CODES_FAILED = "Kode redeem {short} tidak terbaca saat ini."
 _PLAY_FAILED = "Jam main {short} tidak terbaca saat ini."
+_INCOME_FAILED = "Pendapatan {short} bulan ini tidak terbaca: {why}"
 _OUT_OF_TIME = "waktunya habis."
 _UNEXPECTED = "terjadi kesalahan."
 _NOTHING_READABLE = (
@@ -101,8 +105,9 @@ WEEKLY_REPORT_PROMPT = (
     "sekali seminggu. Panggil weekly_report saja, tanpa tool lain, lalu ceritakan minggu Master "
     "di game-nya dalam 3-4 kalimat pendek yang hangat, seperti teman yang ikut bermain: hasil "
     "pull minggu ini dan 50/50-nya, pity yang sudah dekat hard pity, progres endgame, jam main "
-    "kalau ada, dan yang berakhir dalam 7 hari ke depan. Itu hanya kabar, jadi jangan pernah "
-    "menyarankan pull, belanja, atau top up. Jangan membacakan datanya satu per satu."
+    "dan pendapatan bulan ini kalau ada, dan yang berakhir dalam 7 hari ke depan. Itu hanya "
+    "kabar, jadi jangan pernah menyarankan pull, belanja, atau top up. Jangan membacakan datanya "
+    "satu per satu."
 )
 
 
@@ -146,6 +151,9 @@ class GameWeek:
     # Both None: play time is not counted for this game.
     play: PlayTotal | None = None
     play_problem: str | None = None
+    # Both None: the income is not read (no source).
+    income: GameIncome | None = None
+    income_problem: str | None = None
 
     @property
     def hint(self) -> str | None:
@@ -156,7 +164,7 @@ class GameWeek:
     def problems(self) -> tuple[str, ...]:
         """The problem of each section that has one, in the sections' order."""
         sections = (self.pulls_problem, self.endgame_problem, self.calendar_problem)
-        own = (*sections, self.codes_problem, self.play_problem)
+        own = (*sections, self.codes_problem, self.play_problem, self.income_problem)
         return tuple(problem for problem in own if problem)
 
     @property
@@ -203,9 +211,11 @@ def gather_weekly_report(
     extra_standard: Mapping[str, Sequence[str]],
     budget_s: float = BUDGET_S,
     play_time: PlayTimeSource | None = None,
+    income: IncomeSource | None = None,
 ) -> WeeklyReport:
     """The week `(since, now]` (aware) in each of `games`, in that order, with `play_time`
-    each tracked game's play time in the 7 days up to `now`. Never raises: each section that
+    each tracked game's play time in the 7 days up to `now`, and with `income` each game's
+    premium currency earned so far this month (server time). Never raises: each section that
     fails or is not read within `budget_s` seconds carries its problem. A read still running
     then is left to finish on its daemon thread, bounded by its own timeout, and never holds
     up the process's exit; a read not started by then never starts."""
@@ -234,9 +244,17 @@ def gather_weekly_report(
                 (calendars[game.id], _calendar_reader(source, game.id)),
             ],
         )
-    done, late = wait([*refreshes.values(), *endgames.values(), *calendars.values()], budget_s)
+    reads: list[Future[Any]] = [*refreshes.values(), *endgames.values(), *calendars.values()]
+    incomes: Future[Mapping[str, Any]] = Future()
+    if income is not None:  # one call for every game, on a worker of its own
+        month = checkin_day(now, offset).replace(day=1)
+        read = partial(income.income, [game.id for game in chosen], month, this_month=True)
+        _start_lane("weekly-income", [(incomes, read)])
+        reads.append(incomes)
+    done, late = wait(reads, budget_s)
     for future in late:
         future.cancel()  # only a read not started yet can be cancelled
+    earned = None if income is None else _outcome(incomes, done, "income")
     weeks = []
     for game in chosen:
         refresh = refreshes.get(game.id)
@@ -261,6 +279,7 @@ def gather_weekly_report(
                 *calendar,
                 *_codes_section(game, codes),
                 *_play_section(game, play_time, plays),
+                *_income_section(game, earned),
             )
         )
     return WeeklyReport(now, since, tuple(weeks))
@@ -435,6 +454,20 @@ def _play_section(
     return plays[game.id], None
 
 
+def _income_section(
+    game: Game, read: tuple[Mapping[str, Any] | None, str | None] | None
+) -> tuple[GameIncome | None, str | None]:
+    """This game's income this month and its problem; both None when it is not read."""
+    if read is None:
+        return None, None
+    results, failure = read
+    result = None if results is None else results.get(game.id)
+    if isinstance(result, GameIncome):
+        return result, None
+    why = result.message if isinstance(result, GachaError) else failure or _UNEXPECTED
+    return None, _INCOME_FAILED.format(short=game.short, why=why)
+
+
 class _InvalidArguments(Exception):
     """The model's tool arguments do not match the tool's schema."""
 
@@ -461,10 +494,12 @@ class WeeklyReportTools:
         now: Callable[[], datetime] = _local_now,
         budget_s: float = BUDGET_S,
         play_time: PlayTimeSource | None = None,
+        income: IncomeSource | None = None,
     ) -> None:
-        """Without `codes` (the redeem codes are off) the report holds no codes, and without
-        `play_time` (play time is off) no play time; the week starts as `week_start` says from
-        her weekly report's slot, `report_day` at `report_time`."""
+        """Without `codes` (the redeem codes are off) the report holds no codes, without
+        `play_time` (play time is off) no play time, and without `income` no monthly income;
+        the week starts as `week_start` says from her weekly report's slot, `report_day` at
+        `report_time`."""
         self._games = list(games)
         self._history = history
         self._store = store
@@ -477,7 +512,13 @@ class WeeklyReportTools:
         self._now = now
         self._budget_s = budget_s
         self._play_time = play_time
-        self._spec = _spec(self._games, codes=codes is not None, play=play_time is not None)
+        self._income = income
+        self._spec = _spec(
+            self._games,
+            codes=codes is not None,
+            play=play_time is not None,
+            income=income is not None,
+        )
 
     def specs(self) -> list[ToolSpec]:
         return [self._spec]
@@ -508,6 +549,7 @@ class WeeklyReportTools:
             extra_standard=self._extra,
             budget_s=self._budget_s,
             play_time=self._play_time,
+            income=self._income,
         )
 
     def _report(self, arguments: object) -> tuple[str, bool]:
@@ -521,7 +563,7 @@ class WeeklyReportTools:
         return _to_json(report_json(report)), False
 
 
-def _spec(games: list[str], *, codes: bool, play: bool) -> ToolSpec:
+def _spec(games: list[str], *, codes: bool, play: bool, income: bool) -> ToolSpec:
     """Built once from the configured games, so every request sends the same bytes and the
     prompt cache holds."""
     names = ", ".join(f"{GAMES[game].name} = {game}" for game in games)
@@ -532,6 +574,11 @@ def _spec(games: list[str], *, codes: bool, play: bool) -> ToolSpec:
         sections.append(
             "the time each game was open in the last 7 days by your own count while `waifu "
             "run` was on (`play_time`; minimized or idle counts too)"
+        )
+    if income:
+        sections.append(
+            "the premium currency earned so far this month by HoYoLAB's monthly diary, with "
+            "what it is worth in pulls at 160 each (`income_this_month`)"
         )
     last = f"{', '.join(sections[:-1])}, and {sections[-1]}" if len(sections) > 1 else sections[0]
     # The play_time tool's own no-lecture rule is shut out of her report turn with that tool.
@@ -633,7 +680,20 @@ def _game_json(week: GameWeek, now: datetime) -> dict[str, Any]:
     if week.play is not None or week.play_problem is not None:
         data["play_time"] = None if week.play is None else _play_json(week.play)
         data["play_time_problem"] = week.play_problem
+    if week.income is not None or week.income_problem is not None:
+        data["income_this_month"] = None if week.income is None else _income_json(week.income)
+        data["income_problem"] = week.income_problem
     return data
+
+
+def _income_json(income: GameIncome) -> dict[str, Any]:
+    return {
+        "month": month_text(income.month),
+        "currency": GAMES[income.game].currency,
+        "earned": income.earned,
+        "pulls": income.pulls,
+        **_present(today=income.today),
+    }
 
 
 def _play_json(play: PlayTotal) -> dict[str, int]:
