@@ -424,7 +424,8 @@ schedule:
 # "minggu ini Genshin berapa jam?" dijawab dari catatannya; laporan game mingguan ikut
 # menyebutnya. Yang dihitung adalah waktu game terbuka (diminimalkan atau ditinggal pun ikut),
 # dan hanya selama `waifu run` menyala. Lihat angkanya dengan `waifu playtime`.
-# Hanya nama tiga game dan jamnya, disimpan di komputer ini (path), tidak dikirim ke mana pun.
+# Hanya nama tiga game dan jamnya, disimpan di PC ini (path); tidak dikirim ke HP, dan dengan
+# Claude totalnya ikut ke API Anthropic hanya saat ditanya dan di laporan mingguan.
 # Sudah menyala tanpa ditulis; untuk mengubahnya, tulis bagian ini tanpa tanda # di depannya.
 # play_time:
 #   enabled: true          # false: tidak mencatat dan tanpa tool (`waifu playtime` tetap membaca catatan lama)

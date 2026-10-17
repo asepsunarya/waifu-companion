@@ -48,6 +48,7 @@ Cyrene : "Komputer mau kumatikan sekarang, Master? Jawab iya kalau jadi." (minta
 - [Biaya API Claude](#biaya-api-claude)
 - [Cyrene di HP](#cyrene-di-hp)
 - [Kesehatan PC](#kesehatan-pc)
+- [Jam main](#jam-main)
 - [Pencarian web dan promo gratis](#pencarian-web-dan-promo-gratis)
 - [Keuangan dari tepira](#keuangan-dari-tepira)
 - [Pemecahan masalah](#pemecahan-masalah)
@@ -653,10 +654,11 @@ waifu speaker-test    # skor kecocokan langsung, Ctrl+C untuk berhenti
 | `waifu usage` / `waifu usage --month 2026-09` | Perkiraan biaya API Claude per hari bulan ini atau bulan lain (lihat [Biaya API Claude](#biaya-api-claude)) |
 | `waifu phone setup` / `pair` / `devices` / `forget <id>` | Siapkan Cyrene di HP lewat Tailscale, pasangkan HP dengan kode, lihat dan lupakan HP (lihat [Cyrene di HP](#cyrene-di-hp)) |
 | `waifu pc` | Tampilkan kondisi PC saat ini: beban CPU, RAM, sisa disk, GPU NVIDIA, dan waktu sejak Windows terakhir di-restart (lihat [Kesehatan PC](#kesehatan-pc)) |
+| `waifu playtime` / `playtime yesterday` / `week` / `month` | Berapa lama HSR, Genshin, dan ZZZ terbuka hari ini, kemarin, minggu ini, atau bulan ini, dari catatan Cyrene selama `waifu run` menyala (lihat [Jam main](#jam-main)) |
 | `waifu youtube <link atau judul lagu>` | Buka video atau playlist YouTube itu, atau halaman pencarian YouTube untuk judulnya, di browser default (lihat [Lagu di YouTube](#lagu-di-youtube)) |
 | `waifu offers` / `offers games` / `offers ai` | Game gratis dan promo AI yang tersimpan, dengan linknya; `waifu offers ai --scan` mencari promo AI sekarang dengan Claude (berbayar) (lihat [Pencarian web dan promo gratis](#pencarian-web-dan-promo-gratis)) |
 | `waifu tepira` / `tepira dompet` / `tujuan [nama]` / `transaksi [-n N]` / `token` | Keuangan dari tepira: ringkasan bulan ini, saldo dompet, tujuan tabungan, dan transaksi terbaru; `token` membuat token API Cyrene baru tanpa internet (lihat [Keuangan dari tepira](#keuangan-dari-tepira)) |
-| `waifu check` | Periksa config, versi `waifu run` yang berjalan, kabar versi baru, kode IR, aplikasi PC, rutinitas, voiceprint, otak, ingatan, jadwal, daftar tugas, lagu YouTube, sapaan pagi, peringatan hujan, biaya API, kesehatan PC, pencarian web, promo gratis, paket suara, CUDA, mic, suara cadangan offline, suara anime, avatar, keuangan tepira, dan Cyrene di HP |
+| `waifu check` | Periksa config, versi `waifu run` yang berjalan, kabar versi baru, kode IR, aplikasi PC, rutinitas, voiceprint, otak, ingatan, jadwal, daftar tugas, lagu YouTube, sapaan pagi, peringatan hujan, biaya API, kesehatan PC, jam main, pencarian web, promo gratis, paket suara, CUDA, mic, suara cadangan offline, suara anime, avatar, keuangan tepira, dan Cyrene di HP |
 
 Opsi untuk semua perintah: `--config <file>` (default `config.yaml`), `--dry-run`
 (perangkat simulasi), `-v` (log lebih rinci), `--log-file <file>` (log juga ditulis
@@ -2020,6 +2022,8 @@ Isinya, untuk tiap game:
 - **Banner dan event yang berakhir dalam 7 hari.** Hanya kabar: dia tidak pernah menyarankan
   pull, belanja, atau top up, dan tidak menyebut berapa yang sudah dihabiskan.
 - **Kode redeem yang belum ditukarkan**, kalau [kode redeem](#kode-redeem) menyala.
+- **Jam main 7 hari terakhir**, kalau [jam main](#jam-main) menyala: berapa lama game itu
+  terbuka dan dalam berapa sesi, menurut catatannya sendiri selama `waifu run` menyala.
 
 Kapan dia melapor:
 
@@ -2074,6 +2078,7 @@ HSR (Honkai: Star Rail)
     Bloom of Death (karakter): 5★ Castorice; 4★ Pela, Lynx; berakhir 2026-10-21 14:00 (2 hari 19 jam lagi)
     Planar Fissure: 3/7, berakhir 2026-10-19 03:00 (8 jam lagi)
   Kode belum ditukarkan: tidak ada
+  Jam main minggu ini: 9 jam 40 menit dalam 6 sesi
 Genshin (Genshin Impact)
   Pull minggu ini: 12 (Character Event Wish 12)
   Character Event Wish: pity 71/90, berikutnya 50/50, total 131 pull
@@ -2083,6 +2088,7 @@ Genshin (Genshin Impact)
   Berakhir dalam 7 hari:
     Banner karakter: 5★ Furina; 4★ Charlotte, Chongyun, Kirara; berakhir 2026-10-20 17:00 (1 hari 21 jam lagi)
   Kode belum ditukarkan: tidak ada
+  Jam main minggu ini: 2 jam 15 menit dalam 3 sesi
 ZZZ (Zenless Zone Zero)
   ✗ Belum ada riwayat ZZZ yang tersimpan; jalankan 'waifu gacha history zzz --full' sekali.
   ...
@@ -2110,9 +2116,9 @@ weekly_report:
   state_path: data/weekly_report.json
 ```
 
-**Privasi.** Angka minggu itu (pull, pity, endgame, kode) dikirim ke otaknya (dengan Claude,
-ke API Anthropic, sama seperti saat Master bertanya pity) dan tidak pernah ditulis ke log
-biasa. Kalimat laporannya ke `ntfy.sh` kalau notifikasi HP dan `weekly_report.push` menyala.
+**Privasi.** Angka minggu itu (pull, pity, endgame, kode, jam main) dikirim ke otaknya (dengan
+Claude, ke API Anthropic, sama seperti saat Master bertanya pity) dan tidak pernah ditulis ke
+log biasa. Kalimat laporannya ke `ntfy.sh` kalau notifikasi HP dan `weekly_report.push` menyala.
 `data\weekly_report.json` hanya menyimpan tanggal laporan terakhir.
 
 ### Pengingat
@@ -3798,8 +3804,9 @@ ditanya sekali.
   yang pertama.
 - **Flashdisk, kartu memori, drive jaringan, dan CD/DVD** tidak dihitung, dan disk BitLocker yang
   masih terkunci dilewati.
-- **Program yang sedang berjalan** tidak pernah dibaca (namanya bisa ikut terkirim ke otaknya),
-  jadi dia tidak tahu program mana yang berat. Dia boleh menyarankan menutup program berat atau
+- **Program yang sedang berjalan** tidak pernah dibaca untuk kesehatan PC (namanya bisa ikut
+  terkirim ke otaknya), jadi dia tidak tahu program mana yang berat. [Jam main](#jam-main) hanya
+  mencocokkan nama tiga game dan melupakan sisanya. Dia boleh menyarankan menutup program berat atau
   membersihkan disk, tapi tidak pernah menutup program atau menghapus file sendiri, dan tidak
   pernah menyarankan membeli perangkat keras.
 
@@ -3812,6 +3819,131 @@ pemberitahuannya ke `ntfy.sh` kalau notifikasi HP menyala.
 
 Untuk tetap bisa bertanya tapi tanpa pemberitahuan, tulis `notices: false` di bagian
 `pc_health`; untuk mematikan semuanya, `enabled: false`.
+
+## Jam main
+
+Selama `waifu run`, Cyrene mencatat berapa lama Honkai: Star Rail, Genshin Impact, dan Zenless
+Zone Zero terbuka di PC ini, lalu menjawab kalau Master bertanya. Fitur ini sudah menyala dari
+awal (`play_time.enabled: true`), dengan otak Ollama maupun Claude, tanpa paket tambahan.
+
+```text
+Master : "Cyrene, hari ini aku main berapa lama?"
+Cyrene : "Hari ini HSR dua jam empat puluh menit dalam tiga sesi, Genshin setengah jam, Master."
+Master : "Minggu ini Genshin berapa jam?"          (tanpa memanggil nama, masih dalam jendela lanjutan)
+Master : "Cyrene, kemarin main ZZZ berapa lama?"
+Master : "Cyrene, bulan ini total main game berapa jam?"
+```
+
+Dia hanya menyebutnya kalau ditanya: tidak di sapaan pagi atau obrolan yang dia mulai sendiri,
+dan tidak pernah menceramahi. [Laporan game mingguan](#laporan-game-mingguan) ikut menyebut jam
+main minggu itu.
+
+### Yang dihitung
+
+- **Game dikenali dari nama programnya** di daftar proses Windows, yang dibaca setiap
+  `poll_seconds` (bawaan 60 detik), sepanjang hari: `StarRail.exe` (HSR), `GenshinImpact.exe`
+  atau `YuanShen.exe` (Genshin versi Tiongkok), dan `ZenlessZoneZero.exe` (ZZZ). Launcher
+  HoYoPlay (`HYP.exe`) dan `UnityCrashHandler64.exe` tidak dihitung, jadi launcher yang terbuka
+  seharian bukan main. Nama HSR sudah terlihat langsung di PC ini; nama Genshin dan ZZZ diambil
+  dari folder datanya dan belum. Kalau `waifu playtime` tidak mencatat game yang jelas terbuka,
+  buka Task Manager → Details, lihat nama programnya, dan tulis di `play_time.games`.
+- **Waktu game terbuka, bukan waktu benar-benar main.** Diminimalkan, ditinggal, atau di belakang
+  jendela lain tetap terhitung.
+- **Hanya selama `waifu run` menyala.** Main saat Cyrene mati tidak tercatat, dan `waifu chat`
+  tidak mencatat.
+- **Satu sesi** dimulai di pembacaan pertama yang melihat game, dan selesai di pembacaan
+  terakhir yang melihatnya, setelah dua pembacaan berturut-turut tidak menemukannya (satu kali
+  hilang tidak memotongnya). Sesi sependek satu pembacaan tidak dihitung.
+- **Sleep tidak dihitung.** Kalau jarak dua pembacaan lebih dari tiga kali `poll_seconds` (PC
+  sleep, jam PC berubah), sesi yang terbuka ditutup di pembacaan terakhirnya, lalu dimulai baru.
+- **Restart Cyrene di tengah main tidak memecah sesi.** Saat berhenti, `waifu run` menutup
+  sesinya di pembacaan terakhir; kalau game masih terbuka dan terakhir terlihat paling lama 5
+  menit sebelum `waifu run` berikutnya siap, sesinya dilanjutkan, dan jeda restart ikut
+  terhitung. Kalau `waifu run` mati mendadak, sesinya ditutup di pembacaan terakhirnya.
+- **Hari dihitung WIB.** Sesi yang melewati tengah malam dihitung di kedua hari. "Minggu ini"
+  sejak Senin 00.00, "bulan ini" sejak tanggal 1. Di total, waktu dua game terbuka bersamaan
+  dihitung sekali.
+
+### Pengingat tidur (pilihan)
+
+Mati dari awal. Isi `play_time.bedtime`, misalnya `23:30`: lewat jam itu, kalau masih ada game
+yang terbuka, dia bilang sekali semalam dengan lembut, tanpa ceramah:
+
+```text
+Cyrene : "Sayang, sudah lewat jam setengah dua belas, jangan terlalu malam ya."
+```
+
+- **Sekali semalam** (malamnya dari `bedtime` sampai jam 06.00), juga kalau `waifu run`
+  di-restart: malam yang sudah diingatkan ditulis ke `data\playtime.json` sebelum dia bicara.
+- **Tidak pernah memotong**: diucapkan di sela kalimat Master, setelah jendela lanjutan
+  tertutup. Karena itu, kalau dia sedang menunggu, kalimatnya bisa terucap sesudah game baru
+  saja ditutup. Tidak dikirim ke HP.
+- Jamnya dari 18:00 sampai 05:59; jam lewat tengah malam (misalnya `01:00`) dihitung untuk
+  malam sebelumnya.
+
+### Pengaturan jam main
+
+```yaml
+play_time:
+  enabled: true          # false: tidak mencatat dan tanpa tool (`waifu playtime` tetap membaca catatan lama)
+  poll_seconds: 60       # baca daftar proses tiap N detik selama `waifu run` (15-600)
+  games:                 # nama program tiap game; hanya game yang ditulis yang dihitung
+    hsr: [StarRail.exe]
+    genshin: [GenshinImpact.exe, YuanShen.exe]
+    zzz: [ZenlessZoneZero.exe]
+  bedtime: "23:30"       # pengingat tidur; kosongkan atau hapus baris ini untuk mematikannya
+  keep_days: 90          # catatan lebih lama dari N hari dihapus (1-366)
+  path: data/playtime.json
+```
+
+Bagian ini tidak perlu ditulis untuk memakai bawaannya (tanpa pengingat tidur); contohnya ada di
+`config.example.yaml`. Jalankan ulang `waifu run` setelah mengubahnya.
+
+### Melihat catatan: `waifu playtime`
+
+```powershell
+waifu playtime          # hari ini
+waifu playtime week     # minggu ini, sejak Senin; juga yesterday dan month
+```
+
+```text
+Jam main hari ini, Sabtu 17-10-2026, dari catatan Cyrene:
+GAME               WAKTU           SESI
+Honkai: Star Rail  2 jam 39 menit  3     sedang main
+Genshin Impact     30 menit        1
+Zenless Zone Zero  45 menit        1
+Total              3 jam 24 menit  5
+Dihitung hanya selama 'waifu run' menyala, sejak Jumat 16-10-2026 22:00; game yang terbuka tapi tidak dimainkan ikut terhitung.
+```
+
+`-` berarti tidak ada waktu di periode itu, dan `sedang main` berarti game itu terlihat di
+pembacaan terakhir `waifu run`. Total adalah waktu ada game yang terbuka, jadi bisa lebih kecil
+dari jumlah per game. Perintah ini jalan juga saat `play_time.enabled: false` (membaca catatan
+lama) dan selagi `waifu run` berjalan; exit code 1 kalau filenya tidak bisa dibaca.
+
+`waifu check` menampilkan `✓ Jam main: aktif (HSR, Genshin, ZZZ)` (dengan
+`, pengingat tidur 23:30` kalau diisi) atau `! Jam main mati`, tanpa membaca daftar proses.
+File `data\playtime.json` yang rusak dipindah ke `playtime.json.corrupt-<waktu>` (catatan baru
+dimulai dari kosong), dan `check` menunjuknya sampai Master memperbaiki atau menghapusnya.
+
+### Aman untuk anti-cheat
+
+HSR, Genshin, dan ZZZ memakai anti-cheat (mhyprot, HoYoKProtect). Cyrene hanya membaca daftar
+nama proses yang Windows sediakan untuk semua program (seperti tab Details di Task Manager), dan
+tidak pernah membuka, membaca memori, atau menyentuh proses game. Tidak ada yang dipasang dan
+tidak ada driver.
+
+### Privasi jam main
+
+Dari daftar proses hanya nama tiga game yang dipakai; nama program lain tidak disimpan, tidak
+ditulis ke log, dan tidak dikirim. `data\playtime.json` hanya berisi game mana yang terbuka dari
+jam berapa sampai jam berapa (`keep_days`, bawaan 90 hari) dan malam terakhir pengingat tidur
+diucapkan, hanya di PC ini. Tidak ada yang dikirim ke HP. Dengan Claude, totalnya ikut ke API
+Anthropic sebagai hasil tool saat Master bertanya dan di laporan game mingguan (dengan Ollama,
+semuanya lokal). Log biasa tidak mencatat sesinya.
+
+Untuk berhenti mencatat, tulis `enabled: false` di bagian `play_time`; catatan lama hilang kalau
+`data\playtime.json` dihapus.
 
 ## Pencarian web dan promo gratis
 
@@ -4708,6 +4840,21 @@ halaman tim di game atau sebuah error)
       game yang berat: setelah sekitar 1-2 menit dia bilang GPU-nya panas, dan tidak diulang
       dalam satu jam. Setelah itu kembalikan nilainya.
 
+**Jam main** (lihat [Jam main](#jam-main))
+
+- [ ] Dengan `waifu run` menyala, buka HSR beberapa menit lalu tutup: `waifu playtime`
+      menampilkan HSR dengan waktunya, dan selagi masih terbuka `sedang main`. Hanya launcher
+      HoYoPlay yang terbuka: tidak ada yang tercatat. `waifu check` menampilkan
+      `✓ Jam main: aktif (HSR, Genshin, ZZZ)`.
+- [ ] Buka Genshin dan ZZZ masing-masing sekali: keduanya tercatat. Kalau tidak, lihat nama
+      programnya di Task Manager → Details dan tulis di `play_time.games`.
+- [ ] Restart `waifu run` selagi main: `waifu playtime` tetap menampilkan satu sesi. Sleep PC
+      beberapa menit dengan game terbuka: waktu sleep tidak terhitung.
+- [ ] "Cyrene, hari ini aku main berapa lama?": dijawab singkat, sesuai `waifu playtime`.
+- [ ] Isi `play_time.bedtime` beberapa menit ke depan (antara 18:00 dan 05:59), jalankan ulang
+      `waifu run` dengan game terbuka: dia mengingatkan sekali; restart `waifu run`: tidak
+      diulang malam itu. Setelah itu kosongkan lagi.
+
 **Pencarian web dan promo gratis** (lihat
 [Pencarian web dan promo gratis](#pencarian-web-dan-promo-gratis))
 
@@ -4789,8 +4936,8 @@ di sampingnya)
   cookie milikmu, hanya saat Master minta (atau dengan `auto_redeem`). Kode, hadiah, dan hasil
   penukarannya ada di `data\redeem_codes.json`, hanya di PC ini; pemberitahuannya ke `ntfy.sh`
   kalau notifikasi HP menyala. Lihat [Kode redeem](#kode-redeem).
-- **Laporan game mingguan:** pull, pity, endgame, dan kode minggu itu ke otaknya (dengan
-  Claude, ke API Anthropic), tidak pernah ke log biasa; kalimat laporannya ke `ntfy.sh` kalau
+- **Laporan game mingguan:** pull, pity, endgame, kode, dan jam main minggu itu ke otaknya
+  (dengan Claude, ke API Anthropic), tidak pernah ke log biasa; kalimat laporannya ke `ntfy.sh` kalau
   notifikasi HP dan `weekly_report.push` menyala. `data\weekly_report.json` hanya menyimpan
   tanggal laporan terakhir. Lihat [Laporan game mingguan](#laporan-game-mingguan).
 - **Ingatan Cyrene** (hal yang dia ketahui tentang Master) ada di `data\memory.json`,
@@ -4813,6 +4960,10 @@ di sampingnya)
   file, atau user) dan tidak disimpan. Dengan Claude, angkanya ikut ke API Anthropic saat Master
   bertanya; pemberitahuannya ke `ntfy.sh` kalau notifikasi HP menyala. Lihat
   [Privasi kesehatan PC](#privasi-kesehatan-pc).
+- **Jam main:** dari daftar proses Windows hanya nama tiga game yang dipakai; game mana yang
+  terbuka dari jam berapa sampai jam berapa ada di `data\playtime.json`, hanya di PC ini (90
+  hari). Tidak dikirim ke HP; dengan Claude, totalnya ke API Anthropic saat Master bertanya dan
+  di laporan game mingguan. Lihat [Privasi jam main](#privasi-jam-main).
 - **Pencarian web dan promo gratis:** dengan Claude, kata kunci pencarian (ditambah negara,
   zona waktu, dan kota) ke pencarian Anthropic; permintaan daftar game ke Epic dan
   GamerPower.com tanpa data tentang Master; pencarian promo AI mingguan ke API Anthropic

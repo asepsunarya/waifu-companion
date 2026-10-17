@@ -4,6 +4,27 @@ Ringkasan per versi, yang terbaru di atas. Rinciannya ada di README (bagian yang
 setiap versi) dan di SPEC.md. Setelah memperbarui, **mulai ulang `waifu run`** supaya semuanya
 aktif, lalu jalankan `waifu check`.
 
+## v1.29: jam main
+
+- Selama `waifu run`, Cyrene mencatat berapa lama HSR, Genshin, dan ZZZ terbuka, dari nama
+  programnya di daftar proses Windows; dia tidak pernah membuka atau menyentuh proses game, jadi
+  aman untuk anti-cheat. "Hari ini aku main berapa lama?" atau "minggu ini Genshin berapa jam?"
+  dijawab dari catatannya, singkat, dan hanya kalau ditanya.
+- Yang dihitung adalah waktu game terbuka (diminimalkan atau ditinggal ikut terhitung), hanya
+  selama `waifu run` menyala. Sleep tidak dihitung, restart Cyrene di tengah main tidak memecah
+  sesi, dan hari dihitung WIB.
+- Pengingat tidur pilihan, mati dari awal: isi `play_time.bedtime` (misalnya `23:30`), dan lewat
+  jam itu dia bilang sekali semalam kalau game masih terbuka: "Sayang, sudah lewat jam setengah
+  dua belas, jangan terlalu malam ya." Tidak pernah memotong obrolan dan tidak dikirim ke HP.
+- Laporan game mingguan ikut menyebut jam main minggu itu per game, juga `waifu gacha report`.
+- `waifu playtime [today|yesterday|week|month]` menampilkan catatannya, dan `waifu check`
+  menyebut game yang dicatat. Bagian baru `play_time` di `config.yaml` opsional: tanpa itu
+  pencatatan sudah menyala. Catatannya di `data\playtime.json`, hanya di PC ini.
+- Nama program Genshin (`GenshinImpact.exe`) dan ZZZ (`ZenlessZoneZero.exe`) belum pernah
+  terlihat langsung di PC ini (HSR sudah): kalau keduanya tidak tercatat, lihat Task Manager →
+  Details dan tulis namanya di `play_time.games`.
+- README: "Jam main".
+
 ## v1.28: suara cadangan offline
 
 - Kalau edge-tts gagal (tanpa internet, atau ditolak Microsoft seperti 403 pada 16 Oktober),

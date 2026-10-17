@@ -527,16 +527,16 @@ seen at most 5 minutes before. Finished and open sessions live in `data/playtime
 optional bedtime nudge, off by default, says once a night that it is late while a game is
 open. The weekly game report adds the week's play time. No new dependency; `waifu playtime`
 prints the totals.
-- [ ] Task 134a: contract: SPEC, tasks, `PlayTimeConfig`
-- [ ] Task 134: the conftest guard and the process lister (`processes.py`)
-- [ ] Task 135: sessions, periods, and totals (pure) and `PlayTimeStore` (`play_time.py`)
-- [ ] Task 136: `PlayTimeWatcher` with the bedtime nudge (`play_watch.py`)
-- [ ] Task 137: the `play_time` tool and the weekly report's play time
-- [ ] Task 138: wiring in `run`/`chat`, `waifu playtime`, check line, example config
-- [ ] Task 139: README, CHANGELOG
+- [x] Task 134a: contract: SPEC, tasks, `PlayTimeConfig`
+- [x] Task 134: the conftest guard and the process lister (`processes.py`)
+- [x] Task 135: sessions, periods, and totals (pure) and `PlayTimeStore` (`play_time.py`)
+- [x] Task 136: `PlayTimeWatcher` with the bedtime nudge (`play_watch.py`)
+- [x] Task 137: the `play_time` tool and the weekly report's play time
+- [x] Task 138: wiring in `run`/`chat`, `waifu playtime`, check line, example config
+- [x] Task 139: README, CHANGELOG
 
 ### Checkpoint: Jam main
-- [ ] Python suite and ruff clean; no test listed the real processes, slept for real, or spoke; one real listing by hand
+- [x] Python suite and ruff clean; no test listed the real processes, slept for real, or spoke; one real listing by hand (2026-10-17: 7830 pytest; the listing saw StarRail.exe, and later the HoYoPlay launcher alone counted nothing)
 - [ ] On the owner's PC: with Genshin and ZZZ each open once, `waifu playtime` shows them (confirming `GenshinImpact.exe` and `ZenlessZoneZero.exe`; else fix `play_time.games`), the HoYoPlay launcher alone counts nothing, a restart of `waifu run` mid-game keeps one session, and with `bedtime` set she says the nudge once that night
 
 ## Risks and Mitigations
