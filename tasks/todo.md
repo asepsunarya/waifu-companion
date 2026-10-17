@@ -1449,11 +1449,11 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** none · **Files:** `SPEC.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
 
-## Task 152: Requests that expire
+## Task 152: Requests that expire ✅
 
 **Acceptance criteria:**
-- [ ] `ask_aloud(..., expires_at=None)`; a request held past its expiry by the follow-up window, a cut, `quiet`, or a phone chat is dropped with an INFO log: never thought up, said, or passed on, the avatar untouched
-- [ ] One not yet expired is answered after the hold; None never expires; every expired request at the head of the queue goes in one pass and the next live one is answered; a naive `now` against an aware WIB expiry never raises
+- [x] `ask_aloud(..., expires_at=None)`; a request held past its expiry by the follow-up window, a cut, `quiet`, or a phone chat is dropped with an INFO log: never thought up, said, or passed on, the avatar untouched
+- [x] One not yet expired is answered after the hold; None never expires; every expired request at the head of the queue goes in one pass and the next live one is answered; a naive `now` against an aware WIB expiry never raises
 
 **Dependencies:** 152a · **Files:** `src/waifu/app.py`, `tests/test_app.py` · **Scope:** S
 

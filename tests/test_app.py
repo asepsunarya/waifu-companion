@@ -7,7 +7,7 @@ import struct
 import threading
 import wave
 from collections.abc import Callable, Iterator
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -31,6 +31,7 @@ from waifu.config import (
 )
 from waifu.devices.mock import MockDevice
 from waifu.devices.registry import DeviceRegistry
+from waifu.finance.values import WIB
 from waifu.gate import WakeGate
 from waifu.journal import JOURNAL_PROMPT
 from waifu.phone.auth import PhoneAuth
@@ -226,6 +227,7 @@ class Rig:
         config = config or AppConfig()
         self.events: list[str] = []
         self.clock = FakeClock()
+        self.now = NOW  # the wall clock the brain's turns are stamped with
         self.brain = brain(reply)
         self.stt = FakeStt(*heard)
         self.verifier = FakeVerifier(owner)
@@ -245,7 +247,7 @@ class Rig:
             verifier=self.verifier if with_verifier else None,
             speaker_check=speaker_check,
             avatar=self.avatar if with_avatar or avatar_error else None,
-            now=lambda: NOW,
+            now=lambda: self.now,
             clock=self.clock,
             turn_images=turn_images,
             camera_turn=camera_turn,
@@ -2501,3 +2503,150 @@ def test_after_a_camera_turn_a_bare_look_word_on_the_pc_looks_at_the_screen_agai
     rig.assistant.handle_text("coba lihat ini")
 
     assert capture.captures == 1
+
+
+# Requests held past their expiry: what she would have asked about a day that has ended
+
+EXPIRY = datetime(2026, 10, 12, 21, 0)  # on the rig's wall clock, which starts at NOW (19:30)
+
+
+def held_by_the_follow_up_window(rig: Rig, quiet: Quiet) -> Callable[[], None]:
+    """Master may still answer her (a double-click opened the window); returns its end."""
+    rig.assistant.listen_now()
+
+    def lift() -> None:
+        rig.clock.now += 8  # followup_seconds
+
+    return lift
+
+
+def held_by_a_cut(rig: Rig, quiet: Quiet) -> Callable[[], None]:
+    """Master cut an announcement short to talk; returns the end of the hold."""
+    cut_the_first_clip(rig)
+    rig.assistant.announce(ANNOUNCEMENT)
+
+    def lift() -> None:
+        rig.clock.now += 8  # followup_seconds: Master said nothing
+
+    return lift
+
+
+def held_by_a_focus_block(rig: Rig, quiet: Quiet) -> Callable[[], None]:
+    """A focus block is under way; returns its end."""
+    quiet.on = True
+
+    def lift() -> None:
+        quiet.on = False
+
+    return lift
+
+
+def held_by_a_phone_chat(rig: Rig, quiet: Quiet) -> Callable[[], None]:
+    """Master chats on the phone; returns the end of his session."""
+    rig.assistant.reply_for_phone(PHONE_TEXT)
+
+    def lift() -> None:
+        rig.clock.now += 10 * 60  # session_idle_minutes after his last phone message
+
+    return lift
+
+
+HOLDS = pytest.mark.parametrize(
+    "hold",
+    [held_by_the_follow_up_window, held_by_a_cut, held_by_a_focus_block, held_by_a_phone_chat],
+    ids=["follow_up_window", "cut", "focus_block", "phone_chat"],
+)
+
+
+def asked(rig: Rig) -> list[str]:
+    return [text for text, _ in rig.brain.turns]
+
+
+@HOLDS
+def test_a_request_held_past_its_expiry_is_dropped_and_never_said(hold, caplog):
+    # Her nightly question held past midnight would ask about "hari ini" on the new date.
+    quiet = Quiet(on=False)
+    rig = Rig(quiet=quiet, with_avatar=True)
+    replies = PassedOn()
+    rig.assistant.ask_aloud(GREETING_PROMPT, on_reply=replies, expires_at=EXPIRY)
+    lift = hold(rig, quiet)
+    listen_once(rig, None, None)  # the second frame would answer it, but for the hold
+    said, shown = list(rig.speech.texts), len(rig.events)
+
+    rig.now = EXPIRY
+    lift()
+    with caplog.at_level(logging.INFO, logger="waifu.app"):
+        listen_once(rig)
+
+    assert GREETING_PROMPT not in asked(rig)
+    assert rig.speech.texts == said
+    assert replies.texts == []
+    assert [event for event in rig.events[shown:] if event.startswith("avatar")] == []
+    assert "Not saying a request held past 2026-10-12 21:00:00: it is out of date" in caplog.text
+    assert "Speaking up by herself" not in caplog.text
+
+
+@HOLDS
+def test_a_request_whose_expiry_has_not_passed_is_answered_after_the_hold(hold):
+    quiet = Quiet(on=False)
+    rig = Rig(quiet=quiet)
+    replies = PassedOn()
+    rig.assistant.ask_aloud(GREETING_PROMPT, on_reply=replies, expires_at=EXPIRY)
+    lift = hold(rig, quiet)
+    listen_once(rig, None, None)  # the second frame would answer it, but for the hold
+    waited = asked(rig)
+
+    rig.now = EXPIRY - timedelta(seconds=1)
+    lift()
+    listen_once(rig)
+
+    assert GREETING_PROMPT not in waited
+    assert asked(rig)[-1] == GREETING_PROMPT
+    assert replies.wait() == [REPLY]
+
+
+def test_a_request_without_an_expiry_is_answered_however_long_it_waited():
+    rig = Rig()
+    rig.assistant.ask_aloud(GREETING_PROMPT, expires_at=None)
+    rig.now = NOW + timedelta(days=400)
+
+    listen_once(rig)
+
+    assert rig.brain.turns == [(GREETING_PROMPT, rig.now)]
+    assert rig.speech.texts == [REPLY]
+
+
+def test_every_expired_request_goes_in_one_pass_and_the_next_one_in_date_is_answered(caplog):
+    # The phone held the weekly report and the journal question past midnight.
+    midnight = datetime(2026, 10, 13)
+    rig = Rig()
+    rig.assistant.ask_aloud("Ini laporan game mingguanmu sendiri.", expires_at=midnight)
+    rig.assistant.ask_aloud(JOURNAL_PROMPT, expires_at=midnight)
+    rig.assistant.ask_aloud(GREETING_PROMPT, expires_at=midnight + timedelta(hours=12))
+    rig.now = midnight + timedelta(minutes=5)
+
+    with caplog.at_level(logging.INFO, logger="waifu.app"):
+        listen_once(rig)
+
+    assert asked(rig) == [GREETING_PROMPT]
+    assert rig.speech.texts == [REPLY]
+    assert caplog.text.count("Not saying a request held past 2026-10-13 00:00:00") == 2
+
+
+@pytest.mark.parametrize(
+    ("offset", "answered"),
+    [(timedelta(minutes=-1), True), (timedelta(seconds=1), False)],
+    ids=["before", "after"],
+)
+def test_the_naive_wall_clock_is_compared_with_an_aware_expiry_as_the_pc_s_local_time(
+    offset, answered
+):
+    # datetime.now is naive, while the journal question expires at midnight WIB.
+    midnight_wib = datetime(2026, 10, 18, tzinfo=WIB)
+    rig = Rig()
+    rig.assistant.ask_aloud(JOURNAL_PROMPT, expires_at=midnight_wib)
+    rig.now = (midnight_wib + offset).astimezone().replace(tzinfo=None)
+
+    listen_once(rig)
+
+    assert asked(rig) == ([JOURNAL_PROMPT] if answered else [])

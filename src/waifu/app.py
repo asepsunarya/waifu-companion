@@ -92,6 +92,16 @@ def _called_successfully(reply: BrainReply, tool: str) -> bool:
     return any(call.name == tool and not call.is_error for call in reply.tool_calls)
 
 
+def _expired(expires_at: datetime | None, now: datetime) -> bool:
+    """Whether `expires_at` (None: never) has passed at `now`.
+
+    Both are compared as aware times, a naive one read as the PC's local time: the wall clock
+    (`datetime.now`) is naive while the journal question expires in WIB, and comparing those
+    directly raises TypeError.
+    """
+    return expires_at is not None and now.astimezone() >= expires_at.astimezone()
+
+
 def _take_all(announcements: queue.SimpleQueue[tuple[str, str]]) -> list[tuple[str, str]]:
     """Every (text, emotion) queued so far, oldest first."""
     taken: list[tuple[str, str]] = []
@@ -193,6 +203,7 @@ class _Request:
     on_reply: ReplyHandler | None
     required_tool: str | None
     new_session: bool
+    expires_at: datetime | None
 
 
 class Assistant:
@@ -407,6 +418,7 @@ class Assistant:
         on_reply: ReplyHandler | None = None,
         required_tool: str | None = None,
         new_session: bool = False,
+        expires_at: datetime | None = None,
     ) -> None:
         """Queue a prompt for the brain whose reply she says by herself; safe from any thread.
 
@@ -423,8 +435,11 @@ class Assistant:
         tool counts as such a failure: nobody asked, so it is logged, not said or passed on.
         With `new_session` the brain forgets the conversation first, so the reply sees nothing
         said before it: the morning greeting never repeats an earlier finance answer's figures.
+        A request still waiting when `expires_at` (on `now`) has passed is dropped, logged and
+        never said: her nightly question held past midnight would ask about a day that has
+        ended. None never expires.
         """
-        self._requests.put(_Request(prompt, on_reply, required_tool, new_session))
+        self._requests.put(_Request(prompt, on_reply, required_tool, new_session, expires_at))
 
     def speak(self, text: str, emotion: str = NEUTRAL, *, followup: bool = True) -> None:
         """Say `text` with the microphone paused and the avatar mouthing it with `emotion`.
@@ -574,9 +589,8 @@ class Assistant:
         (its follow-up window has closed). A failure is logged and listening goes on, as for
         an utterance.
         """
-        try:
-            request = self._requests.get_nowait()
-        except queue.Empty:
+        request = self._next_request_in_date()
+        if request is None:
             return
         logger.info("Speaking up by herself in answer to a request")
         try:
@@ -602,6 +616,19 @@ class Assistant:
             threading.Thread(
                 target=_pass_on, args=(request.on_reply, reply.text), name="pass-on", daemon=True
             ).start()
+
+    def _next_request_in_date(self) -> _Request | None:
+        """The oldest queued request that has not expired, if any; the expired ones before it
+        are dropped. Checked once, before the turn: a reply thought up in time is said even
+        when its speech ends after the expiry, since its turn saw the old day."""
+        while True:
+            try:
+                request = self._requests.get_nowait()
+            except queue.Empty:
+                return None
+            if not _expired(request.expires_at, self._now()):
+                return request
+            logger.info("Not saying a request held past %s: it is out of date", request.expires_at)
 
     def _think(
         self,

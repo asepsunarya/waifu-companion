@@ -592,7 +592,7 @@ that begins within `session_idle_minutes` of the question goes on the question's
 answer just after midnight is never put on the new date. No new tool, tool parameter, config key,
 or dependency.
 - [x] Task 152a: contract: SPEC, tasks
-- [ ] Task 152: requests that expire (`app.ask_aloud(expires_at=...)`)
+- [x] Task 152: requests that expire (`app.ask_aloud(expires_at=...)`)
 - [ ] Task 153: each timer's expiry (`PromptTimer(expires=...)`, the three timers, `run` wiring)
 - [ ] Task 154: a late answer goes on the question's day (`JournalTools(answer_window=...)`)
 - [ ] Task 155: README, CHANGELOG
