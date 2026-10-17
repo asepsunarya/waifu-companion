@@ -1339,11 +1339,11 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** none · **Files:** `SPEC.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
 
-## Task 140: The focus log
+## Task 140: The focus log ✅
 
 **Acceptance criteria:**
-- [ ] `focus_totals`: blocks cut at the period's edges, a block across midnight on each day, the blocks with time in the period counted
-- [ ] `FocusStore`: a missing file reads empty and stays missing, `add` keeps the blocks by start, `keep_days` on read and write, every call re-reads, a byte order mark is read, a broken file moved aside and never overwritten, a naive clock refused
+- [x] `focus_totals`: blocks cut at the period's edges, a block across midnight on each day, the blocks with time in the period counted
+- [x] `FocusStore`: a missing file reads empty and stays missing, `add` keeps the blocks by start, `keep_days` on read and write, every call re-reads, a byte order mark is read, a broken file moved aside and never overwritten, a naive clock refused
 
 **Dependencies:** 140a · **Files:** `src/waifu/focus.py`, `tests/test_focus.py` · **Scope:** S
 
