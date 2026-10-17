@@ -2375,7 +2375,8 @@ class RecordingAssistant:
     check (then False), and `cut_answers` what `interrupt` says, one per call (then False:
     nothing was playing); `cuts` counts those calls; `reacted` counts each reaction
     (`speak_reaction` or `listen_now`); `asked` holds each `ask_aloud` with its `on_reply` and
-    `required_tool`, and `new_sessions` whether each starts a new session;
+    `required_tool`, `new_sessions` whether each starts a new session, and `expiries` until
+    when each may be said;
     `waiting_for_followup` the texts of announcements that wait while the follow-up window is
     open; `reminded` what `remind` queued (Master's own lines); `phone_messages`, `phone_photos`
     (None for a message without one), `phone_cameras` (whether each was sent through the
@@ -2391,6 +2392,7 @@ class RecordingAssistant:
         self.reminded: list[tuple[str, str]] = []
         self.asked: list[tuple[str, Callable[[str], None] | None, str | None]] = []
         self.new_sessions: list[bool] = []
+        self.expiries: list[datetime | None] = []
         self.busy_answers: list[bool] = []
         self.cut_answers: list[bool] = []
         self.cuts = 0
@@ -2433,9 +2435,12 @@ class RecordingAssistant:
     def remind(self, text: str, emotion: str = "neutral") -> None:
         self.reminded.append((text, emotion))
 
-    def ask_aloud(self, prompt: str, *, on_reply=None, required_tool=None, new_session=False):
+    def ask_aloud(
+        self, prompt: str, *, on_reply=None, required_tool=None, new_session=False, expires_at=None
+    ):
         self.asked.append((prompt, on_reply, required_tool))
         self.new_sessions.append(new_session)
+        self.expiries.append(expires_at)
 
     def reply_for_phone(
         self, text: str, image: bytes | None = None, *, camera: bool = False
@@ -7332,6 +7337,8 @@ def test_run_greets_once_a_day_while_she_listens_and_pushes_the_greeting_to_the_
     # In a new session, so no figure from an earlier finance answer reaches the greeting or its
     # push.
     assert RecordingAssistant.instances[0].new_sessions == [True]
+    # Still waiting at the window's end, the greeting is not said.
+    assert RecordingAssistant.instances[0].expiries == [datetime(2026, 10, 14, 12, 0)]
     on_reply("Selamat pagi, Master! Hari ini cerah.")
     assert notifier.sent == [("Cyrene", "Selamat pagi, Master! Hari ini cerah.", ("sunrise",))]
 
@@ -7369,7 +7376,7 @@ def test_run_greets_without_a_push_when_push_or_notifications_are_off(
 
     assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
 
-    briefing_timers[0].request(BRIEFING_PROMPT)
+    briefing_timers[0].request(BRIEFING_PROMPT, datetime(2026, 10, 14, 12, 0))
     [(_, on_reply, _)] = RecordingAssistant.instances[0].asked
     assert on_reply is None
     assert notifier.sent == []
@@ -11907,6 +11914,7 @@ def test_run_gives_the_weekly_report_once_a_week_while_she_listens_and_pushes_it
     assert required_tool == "weekly_report"  # a turn that never read the week is never said
     # In a new session, so no figure from an earlier finance answer reaches the report.
     assert assistant.new_sessions == [True]
+    assert assistant.expiries == [datetime(2026, 10, 19, 0, 0)]  # never said on Monday
     on_reply("Minggu ini Master dapat Castorice!")
     assert notifier.sent == [("Cyrene", "Minggu ini Master dapat Castorice!", ("video_game",))]
 
@@ -11947,7 +11955,7 @@ def test_run_gives_the_weekly_report_without_a_push_when_push_or_notifications_a
 
     assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
 
-    weekly_report_timers[0].request(WEEKLY_REPORT_PROMPT)
+    weekly_report_timers[0].request(WEEKLY_REPORT_PROMPT, datetime(2026, 10, 19, 0, 0))
     [(_, on_reply, _)] = RecordingAssistant.instances[0].asked
     assert on_reply is None
 
@@ -12732,6 +12740,8 @@ def test_run_asks_about_master_s_day_once_a_night_in_a_new_session_without_a_pus
     assert assistant.asked == [(JOURNAL_PROMPT, None, "journal_read")]
     # A new session: the question never repeats an earlier answer's figures.
     assert assistant.new_sessions == [True]
+    # Held past midnight, it would ask about "hari ini" on the new date.
+    assert assistant.expiries == [datetime(2026, 10, 18, 0, 0, tzinfo=WIB)]
     saved = json.loads((home / "tanya" / "terakhir.json").read_text(encoding="utf-8"))
     assert saved["last_date"] == "2026-10-17"
     assert notifier.sent == []

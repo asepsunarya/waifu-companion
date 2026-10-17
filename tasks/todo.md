@@ -1457,12 +1457,12 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 152a · **Files:** `src/waifu/app.py`, `tests/test_app.py` · **Scope:** S
 
-## Task 153: Each timer's expiry
+## Task 153: Each timer's expiry ✅
 
 **Acceptance criteria:**
-- [ ] `PromptTimer(expires=...)` calls `request(prompt, expires(now))` and logs the expiry; `end_of_day` keeps the time zone
-- [ ] The greeting asked at 07:30 expires at `until` that day; the weekly report asked Sunday 21:00 at Monday 00:00; the journal question asked 23:59 WIB on the 17th at 18-10 00:00 WIB
-- [ ] `run` passes each timer's expiry to `ask_aloud`
+- [x] `PromptTimer(expires=...)` calls `request(prompt, expires(now))` and logs the expiry; `end_of_day` keeps the time zone
+- [x] The greeting asked at 07:30 expires at `until` that day; the weekly report asked Sunday 21:00 at Monday 00:00; the journal question asked 23:59 WIB on the 17th at 18-10 00:00 WIB
+- [x] `run` passes each timer's expiry to `ask_aloud`
 
 **Dependencies:** 152 · **Files:** `src/waifu/prompt_timer.py`, `src/waifu/briefing.py`, `src/waifu/gacha/weekly.py`, `src/waifu/journal.py`, `src/waifu/cli.py`, `tests/test_briefing.py`, `tests/test_gacha_weekly.py`, `tests/test_journal.py`, `tests/test_cli.py` · **Scope:** M
 

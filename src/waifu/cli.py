@@ -3045,8 +3045,8 @@ def _journal_timer(config: AppConfig, assistant: Assistant) -> AbstractContextMa
         return nullcontext()
     return JournalTimer(
         journal,
-        request=lambda prompt: assistant.ask_aloud(
-            prompt, required_tool=JOURNAL_READ, new_session=True
+        request=lambda prompt, expires_at: assistant.ask_aloud(
+            prompt, required_tool=JOURNAL_READ, new_session=True, expires_at=expires_at
         ),
     )
 
@@ -3178,8 +3178,12 @@ def _briefing_timer(
     )
     return BriefingTimer(
         briefing,
-        request=lambda prompt: assistant.ask_aloud(
-            prompt, on_reply=on_reply, required_tool=DAILY_BRIEFING, new_session=True
+        request=lambda prompt, expires_at: assistant.ask_aloud(
+            prompt,
+            on_reply=on_reply,
+            required_tool=DAILY_BRIEFING,
+            new_session=True,
+            expires_at=expires_at,
         ),
     )
 
@@ -3202,8 +3206,12 @@ def _weekly_report_timer(
     )
     return WeeklyReportTimer(
         weekly,
-        request=lambda prompt: assistant.ask_aloud(
-            prompt, on_reply=on_reply, required_tool=WEEKLY_REPORT, new_session=True
+        request=lambda prompt, expires_at: assistant.ask_aloud(
+            prompt,
+            on_reply=on_reply,
+            required_tool=WEEKLY_REPORT,
+            new_session=True,
+            expires_at=expires_at,
         ),
     )
 

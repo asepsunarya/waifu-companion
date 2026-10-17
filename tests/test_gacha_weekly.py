@@ -1345,17 +1345,19 @@ class Clock:
 
 
 class Requests:
-    """Stands in for `assistant.ask_aloud`: records each prompt and what the state file said
-    at that moment."""
+    """Stands in for `assistant.ask_aloud`: records each prompt, until when it may be said, and
+    what the state file said at that moment."""
 
     def __init__(self, state_path, error: Exception | None = None) -> None:
         self.state_path = state_path
         self.error = error
         self.prompts: list[str] = []
+        self.expiries: list[datetime] = []
         self.states_seen: list[object] = []
 
-    def __call__(self, prompt: str) -> None:
+    def __call__(self, prompt: str, expires_at: datetime) -> None:
         self.prompts.append(prompt)
+        self.expiries.append(expires_at)
         self.states_seen.append(json.loads(self.state_path.read_text(encoding="utf-8")))
         if self.error is not None:
             raise self.error
@@ -1396,6 +1398,17 @@ def test_the_first_tick_on_sunday_evening_asks_for_the_report_once(tmp_path):
 
     assert weekly.requests.prompts == [WEEKLY_REPORT_PROMPT]
     assert weekly.state == {"version": 1, "last_date": "2026-10-18"}
+
+
+def test_the_report_may_be_said_until_midnight_of_the_report_day(tmp_path):
+    # Held into Monday, the report would be told on the wrong day, about the wrong week.
+    weekly = Weekly(tmp_path)
+
+    weekly.tick_at(datetime(2026, 10, 18, 21, 0))
+
+    [expiry] = weekly.requests.expiries
+    assert expiry == datetime(2026, 10, 19, 0, 0)
+    assert expiry.tzinfo is None  # the naive wall clock's midnight
 
 
 def test_the_day_is_written_before_the_request_so_a_crash_never_repeats_it(tmp_path):
@@ -1523,7 +1536,10 @@ def test_the_thread_is_named_ticks_at_once_and_stop_wakes_it_at_once(tmp_path):
     asked = threading.Event()
     config = WeeklyReportConfig(state_path=tmp_path / "weekly_report.json")
     timer = WeeklyReportTimer(
-        config, request=lambda prompt: asked.set(), now=Clock(SUNDAY_EVENING), tick_seconds=3600
+        config,
+        request=lambda prompt, expires_at: asked.set(),
+        now=Clock(SUNDAY_EVENING),
+        tick_seconds=3600,
     )
 
     with timer:

@@ -17,9 +17,9 @@ A note that looks like a secret is refused here, whatever the model asks for.
 
 `JournalTimer` asks for her question about Master's day once a day, the first time `waifu run`
 is on from `journal.ask_at` until midnight: a `PromptTimer` that hands `JOURNAL_PROMPT` to
-`request`, which has the brain answer it between Master's utterances. The day goes into the
-state file before the request, so a crash or a restart never asks twice; a question that fails
-or is never said is not asked again that day.
+`request`, which has the brain answer it between Master's utterances, said only until the
+midnight that ends its day. The day goes into the state file before the request, so a crash or
+a restart never asks twice; a question that fails or is never said is not asked again that day.
 
 This module imports no `waifu.brain` module: `brain/tools.py` names the journal tools from here.
 """
@@ -41,7 +41,7 @@ from waifu.finance.values import WIB
 from waifu.gacha.files import write_json_atomic
 from waifu.memory import looks_secret
 from waifu.play_time import wib_now
-from waifu.prompt_timer import PromptTimer
+from waifu.prompt_timer import PromptTimer, end_of_day
 
 logger = logging.getLogger(__name__)
 
@@ -237,13 +237,13 @@ class JournalStore:
 
 class JournalTimer(PromptTimer):
     """Asks for her question about Master's day once a day from `ask_at` until midnight, from a
-    daemon thread. A day the PC was off at night is skipped."""
+    daemon thread, to be said by midnight WIB. A day the PC was off at night is skipped."""
 
     def __init__(
         self,
         config: JournalConfig,
         *,
-        request: Callable[[str], None],
+        request: Callable[[str, datetime], None],
         now: Callable[[], datetime] = wib_now,
         tick_seconds: float = 30,
     ) -> None:
@@ -254,6 +254,7 @@ class JournalTimer(PromptTimer):
         super().__init__(
             JOURNAL_PROMPT,
             due=lambda moment: moment.time() >= ask_at,
+            expires=end_of_day,
             state_path=config.state_path,
             request=request,
             what="nightly journal question",

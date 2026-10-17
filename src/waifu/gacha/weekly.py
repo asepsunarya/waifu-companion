@@ -56,7 +56,7 @@ from waifu.gacha.hoyolab import GachaError
 from waifu.gacha.starrail import HsrCalendar, HsrEndgame, HsrEvent, HsrWarp
 from waifu.gacha.tools import HISTORY_NOTE, LOCAL_TIME, HistorySource
 from waifu.play_time import PlayTotal, whole_minutes
-from waifu.prompt_timer import PromptTimer
+from waifu.prompt_timer import PromptTimer, end_of_day
 
 T = TypeVar("T")
 
@@ -569,13 +569,14 @@ def _problems(report: WeeklyReport) -> list[str]:
 class WeeklyReportTimer(PromptTimer):
     """Asks for her weekly game report once on the configured day, the first time `waifu run`
     is on from the configured time until midnight, from a daemon thread. A report day the PC
-    was off is skipped: the week's report is never said on another day."""
+    was off is skipped, and a report still waiting at midnight is not said: the week's report
+    is never said on another day."""
 
     def __init__(
         self,
         config: WeeklyReportConfig,
         *,
-        request: Callable[[str], None],
+        request: Callable[[str, datetime], None],
         now: Callable[[], datetime] = datetime.now,
         tick_seconds: float = 30,
     ) -> None:
@@ -583,6 +584,7 @@ class WeeklyReportTimer(PromptTimer):
         super().__init__(
             WEEKLY_REPORT_PROMPT,
             due=lambda moment: moment.weekday() == day and moment.time() >= config.time,
+            expires=end_of_day,
             state_path=config.state_path,
             request=request,
             what="weekly game report",

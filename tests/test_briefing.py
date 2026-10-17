@@ -499,17 +499,19 @@ def test_the_prompt_never_lets_her_open_a_song():
 
 
 class Requests:
-    """Stands in for `assistant.ask_aloud`: records each prompt and what the state file said
-    at that moment."""
+    """Stands in for `assistant.ask_aloud`: records each prompt, until when it may be said, and
+    what the state file said at that moment."""
 
     def __init__(self, state_path, error: Exception | None = None) -> None:
         self.state_path = state_path
         self.error = error
         self.prompts: list[str] = []
+        self.expiries: list[datetime] = []
         self.states_seen: list[object] = []
 
-    def __call__(self, prompt: str) -> None:
+    def __call__(self, prompt: str, expires_at: datetime) -> None:
         self.prompts.append(prompt)
+        self.expiries.append(expires_at)
         self.states_seen.append(json.loads(self.state_path.read_text(encoding="utf-8")))
         if self.error is not None:
             raise self.error
@@ -591,6 +593,15 @@ def test_the_window_comes_from_the_config(tmp_path):
     assert morning.requests.prompts == []
     morning.tick_at(datetime(2026, 10, 13, 5, 30))
     assert morning.requests.prompts == [BRIEFING_PROMPT]
+
+
+def test_the_greeting_may_be_said_until_the_window_ends_that_day(tmp_path):
+    # Held by a phone chat into the afternoon, a morning greeting would be out of place.
+    morning = Morning(tmp_path, until="10:00")
+
+    morning.tick_at(NOW)
+
+    assert morning.requests.expiries == [datetime(2026, 10, 13, 10, 0)]
 
 
 def test_outside_the_window_the_state_file_is_never_created(tmp_path):
@@ -773,7 +784,7 @@ def test_the_thread_ticks_at_once_and_stop_wakes_it_at_once(tmp_path):
     asked = threading.Event()
     config = BriefingConfig(state_path=tmp_path / "briefing.json")
     timer = BriefingTimer(
-        config, request=lambda prompt: asked.set(), now=Clock(), tick_seconds=3600
+        config, request=lambda prompt, expires_at: asked.set(), now=Clock(), tick_seconds=3600
     )
 
     with timer:
@@ -795,7 +806,9 @@ def test_a_failing_tick_is_logged_and_the_thread_goes_on(tmp_path, caplog):
         return NOW
 
     config = BriefingConfig(state_path=tmp_path / "briefing.json")
-    timer = BriefingTimer(config, request=lambda prompt: asked.set(), now=clock, tick_seconds=0)
+    timer = BriefingTimer(
+        config, request=lambda prompt, expires_at: asked.set(), now=clock, tick_seconds=0
+    )
 
     with caplog.at_level(logging.ERROR, logger="waifu.briefing"), timer:
         assert asked.wait(5)

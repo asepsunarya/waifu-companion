@@ -9,9 +9,10 @@ cache warm.
 
 `BriefingTimer` asks for her greeting once a day, the first time `waifu run` is on between
 `briefing.time` and `briefing.until`: a `PromptTimer` that hands `BRIEFING_PROMPT` to
-`request`, which has the brain answer it between Master's utterances. The day goes into the
-state file before the request, so a crash, a restart, or a second PC start the same morning
-never greets twice; a request that fails is not retried until the next day.
+`request`, which has the brain answer it between Master's utterances, said only until
+`briefing.until` that day. The day goes into the state file before the request, so a crash, a
+restart, or a second PC start the same morning never greets twice; a request that fails is not
+retried until the next day.
 """
 
 from __future__ import annotations
@@ -153,13 +154,14 @@ class BriefingTimer(PromptTimer):
         self,
         config: BriefingConfig,
         *,
-        request: Callable[[str], None],
+        request: Callable[[str, datetime], None],
         now: Callable[[], datetime] = datetime.now,
         tick_seconds: float = 30,
     ) -> None:
         super().__init__(
             BRIEFING_PROMPT,
             due=lambda moment: config.time <= moment.time() < config.until,
+            expires=lambda moment: datetime.combine(moment.date(), config.until, moment.tzinfo),
             state_path=config.state_path,
             request=request,
             what="morning briefing",

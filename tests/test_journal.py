@@ -628,17 +628,19 @@ def test_the_question_never_lets_her_open_a_song():
 
 
 class Requests:
-    """Stands in for `assistant.ask_aloud`: records each prompt and what the state file said
-    at that moment."""
+    """Stands in for `assistant.ask_aloud`: records each prompt, until when it may be said, and
+    what the state file said at that moment."""
 
     def __init__(self, state_path, error: Exception | None = None) -> None:
         self.state_path = state_path
         self.error = error
         self.prompts: list[str] = []
+        self.expiries: list[datetime] = []
         self.states_seen: list[object] = []
 
-    def __call__(self, prompt: str) -> None:
+    def __call__(self, prompt: str, expires_at: datetime) -> None:
         self.prompts.append(prompt)
+        self.expiries.append(expires_at)
         self.states_seen.append(read_json(self.state_path))
         if self.error is not None:
             raise self.error
@@ -672,6 +674,22 @@ def test_the_first_tick_from_ask_at_asks_once_that_day(tmp_path):
 
     assert evening.requests.prompts == [JOURNAL_PROMPT]
     assert read_json(evening.state_path) == {"version": 1, "last_date": "2026-10-17"}
+
+
+def test_the_question_may_be_asked_until_midnight_wib_that_ends_its_day(tmp_path, caplog):
+    # Held past midnight, she would ask about "hari ini" on the new date.
+    evening = Evening(tmp_path)
+
+    with caplog.at_level(logging.INFO, logger="waifu.prompt_timer"):
+        evening.tick_at(23, 59)
+
+    [expiry] = evening.requests.expiries
+    assert expiry == datetime(2026, 10, 18, 0, 0, tzinfo=WIB)
+    assert expiry.tzinfo is WIB
+    assert (
+        "Asking for the nightly journal question of 2026-10-17 (said until 2026-10-18 00:00)"
+        in caplog.text
+    )
 
 
 def test_the_day_is_saved_before_the_question_so_a_crash_never_asks_twice(tmp_path):
@@ -738,13 +756,15 @@ def test_a_question_that_fails_is_logged_and_not_asked_again_that_day(tmp_path, 
 
 def test_the_timer_needs_ask_at():
     with pytest.raises(ValueError, match="ask_at"):
-        JournalTimer(JournalConfig(), request=lambda prompt: None)
+        JournalTimer(JournalConfig(), request=lambda prompt, expires_at: None)
 
 
 def test_the_thread_is_named_journal_and_stops_at_once(tmp_path):
     asked = threading.Event()
     config = JournalConfig(ask_at=time(21, 0), state_path=tmp_path / "journal_question.json")
-    timer = JournalTimer(config, request=lambda prompt: asked.set(), now=Clock(), tick_seconds=3600)
+    timer = JournalTimer(
+        config, request=lambda prompt, expires_at: asked.set(), now=Clock(), tick_seconds=3600
+    )
 
     with timer:
         assert asked.wait(5)
