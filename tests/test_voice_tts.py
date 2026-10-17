@@ -343,7 +343,8 @@ ANDIKA = WindowsVoice("Microsoft Andika", "id-ID", "Male", "onecore")
 ZIRA = WindowsVoice("Microsoft Zira", "en-US", "Female", "onecore")
 DAVID = WindowsVoice("Microsoft David", "en-US", "Male", "onecore")
 HARUKA = WindowsVoice("Microsoft Haruka", "ja-JP", "Female", "onecore")
-PITCHES = FallbackPitchConfig(female=11, male=18)
+# Not the config defaults (11, 18), so a WindowsTts that ignored its pitches would show.
+PITCHES = FallbackPitchConfig(female=7, male=15)
 
 
 class FakePowerShell:
@@ -482,8 +483,8 @@ def test_windows_tts_refuses_a_clip_without_sound():
 @pytest.mark.parametrize(
     ("voice", "pitch"),
     [
-        (HARUKA, 11),
-        (WindowsVoice("Microsoft Ichiro", "ja-JP", "Male", "onecore"), 18),
+        (HARUKA, 7),
+        (WindowsVoice("Microsoft Ichiro", "ja-JP", "Male", "onecore"), 15),
         (WindowsVoice("Microsoft Aoi", "ja-JP", "Neutral", "onecore"), None),
     ],
     ids=["female", "male", "other"],
@@ -1186,6 +1187,19 @@ def test_build_speech_router_passes_the_named_fallback_voice_and_its_pause():
     assert set(router.fallbacks) == {"id"}
     assert router.fallbacks["id"].wanted == "Microsoft Zira"
     assert router.fallback_retry_s == 120
+
+
+def test_build_speech_router_converts_the_fallback_voices_with_the_configured_pitch(monkeypatch):
+    pitches = FallbackPitchConfig(female=5, male=9)
+    converter = FakeConverter(CONVERTED)
+    config = TtsConfig(fallback=FallbackTtsConfig(rvc_pitch=pitches))
+    router = build_speech_router(config, converter=converter, fallback_only=True)
+    for fallback in router.fallbacks.values():  # the builder gives them the real PowerShell
+        monkeypatch.setattr(fallback, "_run", FakePowerShell(voices=(ANDIKA, HARUKA)))
+
+    router.synthesize("Halo, はい")
+
+    assert converter.pitches == [9, 5]  # Andika is male, Haruka female
 
 
 def test_build_speech_router_has_no_fallback_when_it_is_off():
