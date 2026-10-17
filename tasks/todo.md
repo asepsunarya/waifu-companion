@@ -1435,9 +1435,9 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 148, 149 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py`, `config.example.yaml`, `tests/test_config.py` · **Scope:** M
 
-## Task 151: Docs
+## Task 151: Docs ✅
 
 **Acceptance criteria:**
-- [ ] README "Jurnal harian" with its contents entry, command, check, checklist, and Privasi rows; CHANGELOG v1.31; full suite and ruff clean
+- [x] README "Jurnal harian" with its contents entry, command, check, checklist, and Privasi rows; CHANGELOG v1.31; full suite and ruff clean
 
 **Dependencies:** 150 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S

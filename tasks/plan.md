@@ -577,10 +577,10 @@ question lets Master answer without her name, and that answer is written. No new
 - [x] Task 148: the nightly question (`JournalConfig`, `JOURNAL_PROMPT`, `JournalTimer`)
 - [x] Task 149: the persona line
 - [x] Task 150: wiring in `run`/`chat`, `waifu jurnal`, check line, example config
-- [ ] Task 151: README, CHANGELOG
+- [x] Task 151: README, CHANGELOG
 
 ### Checkpoint: Jurnal harian
-- [ ] Python suite and ruff clean; no test asked a real brain, spoke, or pushed; the strict-tool budget keeps 2 slots free
+- [x] Python suite and ruff clean; no test asked a real brain, spoke, or pushed; the strict-tool budget keeps 2 slots free (2026-10-17: 8176 pytest; 18 of 20 strict tools, 17 of 24 optional parameters, no union)
 - [ ] On the owner's PC: "catat di jurnal: ..." writes a note `waifu jurnal show` prints; "kemarin aku nulis apa di jurnal?" is summed up; with `ask_at` a few minutes ahead she asks once, the answer within the follow-up window is written, and a restart does not ask again that day
 
 ## Risks and Mitigations

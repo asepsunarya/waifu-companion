@@ -4,6 +4,25 @@ Ringkasan per versi, yang terbaru di atas. Rinciannya ada di README (bagian yang
 setiap versi) dan di SPEC.md. Setelah memperbarui, **mulai ulang `waifu run`** supaya semuanya
 aktif, lalu jalankan `waifu check`.
 
+## v1.31: jurnal harian
+
+- Cyrene bisa menyimpan jurnal harian Master: "catat di jurnal: hari ini laporannya selesai"
+  mencatatnya di tanggal hari ini dengan kata-kata Master sendiri, beberapa catatan sehari. Lewat
+  tengah malam, cerita tentang hari yang baru lewat dicatat di tanggal kemarin.
+- "Kemarin aku nulis apa di jurnal?", "jurnal minggu ini apa aja?", atau "jurnal tanggal 12
+  Oktober" dirangkum singkat; dia membacakan catatan kata per kata hanya kalau diminta.
+- Hanya kalau Master minta: jurnal tidak pernah disebut di sapaan pagi, laporan game mingguan,
+  atau notifikasi HP, dan rahasia seperti kata sandi atau nomor kartu selalu ditolak.
+- Pertanyaan malam pilihan, mati dari awal: isi `journal.ask_at` (misalnya `21:30`), dan sekali
+  sehari mulai jam itu sampai tengah malam dia bertanya bagaimana hari Master. Jawab langsung
+  tanpa memanggil namanya, dan jawabannya dicatat; kalau tidak dijawab, tidak ada yang dicatat dan
+  dia tidak bertanya lagi hari itu. Tidak dikirim ke HP, dan menunggu istirahat selama blok fokus.
+- Menghapus hanya lewat terminal: `waifu jurnal forget <tanggal> --yes`. `waifu jurnal` juga
+  menampilkan hari yang ada catatannya, catatan satu hari (`show`), dan menambah catatan (`add`),
+  dan `waifu check` menyebut jurnal. Bagian baru `journal` di `config.yaml` opsional. Catatannya
+  di `data\journal.json`, hanya di PC ini.
+- README: "Jurnal harian".
+
 ## v1.30: teman fokus
 
 - Cyrene bisa menemani Master fokus belajar atau kerja dengan cara pomodoro, selama `waifu run`:

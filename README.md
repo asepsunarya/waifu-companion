@@ -50,6 +50,7 @@ Cyrene : "Komputer mau kumatikan sekarang, Master? Jawab iya kalau jadi." (minta
 - [Kesehatan PC](#kesehatan-pc)
 - [Jam main](#jam-main)
 - [Teman fokus](#teman-fokus)
+- [Jurnal harian](#jurnal-harian)
 - [Pencarian web dan promo gratis](#pencarian-web-dan-promo-gratis)
 - [Keuangan dari tepira](#keuangan-dari-tepira)
 - [Pemecahan masalah](#pemecahan-masalah)
@@ -657,10 +658,11 @@ waifu speaker-test    # skor kecocokan langsung, Ctrl+C untuk berhenti
 | `waifu pc` | Tampilkan kondisi PC saat ini: beban CPU, RAM, sisa disk, GPU NVIDIA, dan waktu sejak Windows terakhir di-restart (lihat [Kesehatan PC](#kesehatan-pc)) |
 | `waifu playtime` / `playtime yesterday` / `week` / `month` | Berapa lama HSR, Genshin, dan ZZZ terbuka hari ini, kemarin, minggu ini, atau bulan ini, dari catatan Cyrene selama `waifu run` menyala (lihat [Jam main](#jam-main)) |
 | `waifu focus` | Waktu fokus hari ini dan minggu ini dari catatan teman fokus (pomodoro) Cyrene selama `waifu run` menyala (lihat [Teman fokus](#teman-fokus)) |
+| `waifu jurnal` / `jurnal show <tanggal>` / `add <teks> [--date YYYY-MM-DD]` / `forget <tanggal> [--yes]` | Lihat hari yang ada catatannya, catatan satu hari, tambah catatan, dan hapus catatan satu hari di jurnal harian (lihat [Jurnal harian](#jurnal-harian)) |
 | `waifu youtube <link atau judul lagu>` | Buka video atau playlist YouTube itu, atau halaman pencarian YouTube untuk judulnya, di browser default (lihat [Lagu di YouTube](#lagu-di-youtube)) |
 | `waifu offers` / `offers games` / `offers ai` | Game gratis dan promo AI yang tersimpan, dengan linknya; `waifu offers ai --scan` mencari promo AI sekarang dengan Claude (berbayar) (lihat [Pencarian web dan promo gratis](#pencarian-web-dan-promo-gratis)) |
 | `waifu tepira` / `tepira dompet` / `tujuan [nama]` / `transaksi [-n N]` / `token` | Keuangan dari tepira: ringkasan bulan ini, saldo dompet, tujuan tabungan, dan transaksi terbaru; `token` membuat token API Cyrene baru tanpa internet (lihat [Keuangan dari tepira](#keuangan-dari-tepira)) |
-| `waifu check` | Periksa config, versi `waifu run` yang berjalan, kabar versi baru, kode IR, aplikasi PC, rutinitas, voiceprint, otak, ingatan, jadwal, daftar tugas, lagu YouTube, sapaan pagi, peringatan hujan, biaya API, kesehatan PC, jam main, teman fokus, pencarian web, promo gratis, paket suara, CUDA, mic, suara cadangan offline, suara anime, avatar, keuangan tepira, dan Cyrene di HP |
+| `waifu check` | Periksa config, versi `waifu run` yang berjalan, kabar versi baru, kode IR, aplikasi PC, rutinitas, voiceprint, otak, ingatan, jadwal, daftar tugas, jurnal, lagu YouTube, sapaan pagi, peringatan hujan, biaya API, kesehatan PC, jam main, teman fokus, pencarian web, promo gratis, paket suara, CUDA, mic, suara cadangan offline, suara anime, avatar, keuangan tepira, dan Cyrene di HP |
 
 Opsi untuk semua perintah: `--config <file>` (default `config.yaml`), `--dry-run`
 (perangkat simulasi), `-v` (log lebih rinci), `--log-file <file>` (log juga ditulis
@@ -4063,6 +4065,130 @@ panjang sesinya, dan kalimat Master yang terdengar, seperti biasa.
 Untuk mematikannya, tulis `enabled: false` di bagian `focus`; catatan lama hilang kalau
 `data\focus.json` dihapus.
 
+## Jurnal harian
+
+Cyrene bisa menyimpan jurnal harian Master: catatan singkat per tanggal, dengan kata-kata Master
+sendiri. Fitur ini sudah menyala dari awal (`journal.enabled: true`), dengan otak Ollama maupun
+Claude, tanpa paket tambahan. Pertanyaan malamnya mati sampai `journal.ask_at` diisi.
+
+```text
+Master : "Cyrene, catat di jurnal: hari ini laporannya selesai dan aku main HSR sama Rina."
+Cyrene : "Sudah kucatat di jurnal hari ini, Sayang."
+Master : "Cyrene, tulis di jurnal, tadi siang hujan deras."    (hari yang sama: catatan kedua)
+Master : "Cyrene, hari ini aku nulis apa di jurnal?"
+Master : "Cyrene, kemarin aku nulis apa di jurnal?"
+Master : "Cyrene, jurnal minggu ini apa aja?"
+Master : "Cyrene, jurnal tanggal 12 Oktober isinya apa?"
+```
+
+- Satu hari bisa berisi beberapa catatan (bawaan paling banyak 20, masing-masing paling panjang
+  500 karakter), disimpan berurutan. Catatan yang sama persis di hari yang sama hanya disimpan
+  sekali.
+- Kalau Master bercerita lewat tengah malam tentang hari yang baru lewat, dia mencatatnya di
+  tanggal kemarin.
+- Saat ditanya, dia merangkum catatannya dalam satu-dua kalimat; dia membacakan catatan kata per
+  kata hanya kalau Master minta. Untuk minggu atau bulan yang panjang, dia hanya membaca 40
+  catatan terbaru.
+- Rahasia seperti kata sandi, PIN, OTP, token, atau nomor kartu selalu ditolak.
+- Dia hanya menulis atau membaca jurnal kalau Master minta, atau saat Master menjawab pertanyaan
+  malamnya: tidak pernah di sapaan pagi, laporan game mingguan, atau notifikasi HP. Isi jurnal
+  juga tidak masuk ke [ingatannya](#ingatan-cyrene) kecuali Master minta.
+
+### Pertanyaan malam (pilihan)
+
+Isi `journal.ask_at` (misalnya `21:30`), lalu jalankan ulang `waifu run`. Sekali sehari, mulai jam
+itu sampai tengah malam, saat dia tidak sedang diajak bicara, dia bertanya dengan hangat bagaimana
+hari Master:
+
+```text
+Cyrene : "Sayang, bagaimana harimu hari ini?"
+Master : "Capek, tapi laporannya akhirnya selesai."   (langsung, tanpa memanggil namanya)
+Cyrene : "Sudah kucatat. Istirahat yang cukup ya."
+```
+
+- Jawab dalam beberapa detik setelah dia selesai bertanya (`assistant.followup_seconds`, bawaan 8
+  detik), supaya tidak perlu memanggil namanya. Setelah itu, panggil namanya dulu ("Cyrene,
+  hari ini ...") selama obrolannya masih berlangsung (sekitar 10 menit).
+- Satu ucapan paling lama 15 detik, jadi cerita panjang tercatat sebagai beberapa catatan, dan
+  kata-kata yang diucapkan selagi dia menjawab tidak terdengar. Untuk cerita panjang, pakai
+  `waifu jurnal add` atau chat di [Cyrene di HP](#cyrene-di-hp).
+- Kalau hari ini sudah ada catatan, dia menanyakan apakah ada yang mau ditambahkan.
+- Kalau Master tidak menjawab atau bilang tidak mau cerita, tidak ada yang dicatat, dan dia tidak
+  bertanya lagi hari itu, juga setelah `waifu run` dimulai ulang.
+- Pertanyaannya tidak dikirim ke HP. Selama [blok fokus](#teman-fokus), pertanyaannya menunggu
+  sampai istirahat. Kalau PC baru menyala setelah jam itu, dia bertanya saat itu, asal belum
+  tengah malam. `waifu chat` tidak pernah bertanya.
+
+### Menghapus catatan
+
+Menghapus jurnal tidak bisa lewat suara, karena salah dengar tidak bisa dibatalkan: kalau Master
+minta, dia memberi tahu caranya. Hapus semua catatan satu hari di terminal:
+
+```powershell
+waifu jurnal forget 2026-10-16          # hanya menghitung
+waifu jurnal forget 2026-10-16 --yes    # benar-benar menghapus
+```
+
+Untuk mengubah atau menghapus satu catatan saja, edit `data\journal.json` dengan Notepad saat
+`waifu run` mati.
+
+### Dari terminal: `waifu jurnal`
+
+```powershell
+waifu jurnal                                       # hari yang ada catatannya
+waifu jurnal show 2026-10-17                       # catatan satu hari, dengan jamnya
+waifu jurnal add ketemu Rina di kampus             # tambah catatan hari ini
+waifu jurnal add kemarin hujan --date 2026-10-16   # tambah catatan hari lain yang sudah lewat
+```
+
+```text
+TANGGAL           CATATAN  ISI
+Jumat 16-10-2026  1        kemarin hujan
+Sabtu 17-10-2026  2        hari ini laporannya selesai dan aku main HSR sama…
+```
+
+Perintah ini jalan juga saat `journal.enabled: false` dan selagi `waifu run` berjalan (Cyrene
+langsung melihat perubahannya); exit code 1 kalau filenya tidak bisa dibuka atau catatannya
+ditolak.
+
+`waifu check` menampilkan `✓ Jurnal: 12 hari tercatat, pertanyaan malam jam 21:30` (atau
+`pertanyaan malam mati`) atau `! Jurnal mati`. File `data\journal.json` yang rusak dipindah ke
+`journal.json.corrupt-<waktu>` (jurnal baru dimulai dari kosong), dan `check` menunjuknya sampai
+Master memperbaiki atau menghapusnya.
+
+### Pengaturan jurnal
+
+```yaml
+journal:
+  enabled: true                 # false: tanpa tool dan tanpa pertanyaan malam (`waifu jurnal` tetap jalan)
+  path: data/journal.json
+  max_chars: 500                # panjang satu catatan paling banyak (20-2000)
+  max_notes_per_day: 20         # catatan sehari paling banyak (1-100)
+  ask_at: "21:30"               # kosong = tanpa pertanyaan malam (12:00-23:59)
+  state_path: data/journal_question.json
+```
+
+Bagian ini tidak perlu ditulis untuk memakai bawaannya; contohnya ada di `config.example.yaml`.
+Jalankan ulang `waifu run` setelah mengubahnya.
+
+### Privasi jurnal
+
+- `data\journal.json` hanya ada di PC ini (tidak di-commit) dan disimpan sampai Master menghapus
+  harinya: tidak ada yang terhapus otomatis.
+- Dengan Claude, teks yang dia tulis ke jurnal dan catatan yang dia baca (termasuk catatan dari
+  `waifu jurnal add`) ikut ke API Anthropic dan tetap di riwayat obrolan sampai sesinya berakhir.
+  Pertanyaan malam ikut membaca catatan hari itu. Dengan Ollama, semuanya tetap di PC.
+- Dengan engine `edge`, jawaban yang menyebut isi jurnal dikirim ke edge-tts Microsoft untuk
+  dijadikan suara, seperti semua jawaban.
+- Jurnal tidak pernah dikirim ke HP dan tidak pernah disebut di sapaan pagi atau laporan
+  mingguan.
+- Log INFO mencatat panggilan `journal_write` dan `journal_read` tanpa isinya, tapi kalimat
+  Master yang terdengar (`Heard ...`) tetap tercatat seperti biasa (lihat [Privasi](#privasi)).
+- `data\journal_question.json` hanya menyimpan tanggal pertanyaan malam terakhir.
+
+Untuk mematikannya, tulis `enabled: false` di bagian `journal`; catatan lama hilang kalau
+`data\journal.json` dihapus.
+
 ## Pencarian web dan promo gratis
 
 Dengan otak Claude, Cyrene bisa mencari di web untuk pertanyaan yang jawabannya baru atau berubah,
@@ -4990,6 +5116,20 @@ halaman tim di game atau sebuah error)
       tengah blok lalu jalankan lagi: dia tidak melanjutkan sesinya, dan `waifu focus` mencatat
       bagian blok yang sudah berjalan.
 
+**Jurnal harian** (lihat [Jurnal harian](#jurnal-harian))
+
+- [ ] `waifu check` menampilkan `✓ Jurnal: 0 hari tercatat, pertanyaan malam mati`.
+- [ ] "Cyrene, catat di jurnal: hari ini aku mencoba jurnal": dia menjawab singkat tanpa
+      membacakannya, dan `waifu jurnal show` dengan tanggal hari ini menampilkannya. "Cyrene,
+      hari ini aku nulis apa di jurnal?": dirangkum singkat.
+- [ ] "Cyrene, hapus jurnal hari ini": dia tidak menghapus apa pun, tapi memberi tahu
+      `waifu jurnal forget`.
+- [ ] Isi `journal.ask_at` beberapa menit ke depan dan jalankan ulang `waifu run`: dia bertanya
+      sekali bagaimana hari Master. Jawab langsung tanpa memanggil namanya: jawabannya muncul di
+      `waifu jurnal show`. Restart `waifu run`: dia tidak bertanya lagi hari itu. Setelah itu
+      kosongkan lagi, atau isi dengan jam yang Master suka.
+- [ ] Sapaan pagi berikutnya tidak menyebut isi jurnal.
+
 **Pencarian web dan promo gratis** (lihat
 [Pencarian web dan promo gratis](#pencarian-web-dan-promo-gratis))
 
@@ -5105,6 +5245,10 @@ di sampingnya)
   di PC ini (90 hari). Dengan Claude, waktunya ke API Anthropic saat Master bertanya; kalimatnya
   ke `ntfy.sh` hanya dengan `focus.push` dan notifikasi HP menyala. Lihat
   [Privasi teman fokus](#privasi-teman-fokus).
+- **Jurnal harian:** `data\journal.json` hanya di PC ini, disimpan sampai Master menghapus
+  harinya; rahasia seperti kata sandi atau nomor kartu tidak pernah disimpan. Dengan Claude,
+  catatan yang ditulis atau dibaca ikut ke API Anthropic; tidak pernah ke `ntfy.sh`, sapaan pagi,
+  atau laporan mingguan. Lihat [Privasi jurnal](#privasi-jurnal).
 - **Pencarian web dan promo gratis:** dengan Claude, kata kunci pencarian (ditambah negara,
   zona waktu, dan kota) ke pencarian Anthropic; permintaan daftar game ke Epic dan
   GamerPower.com tanpa data tentang Master; pencarian promo AI mingguan ke API Anthropic
