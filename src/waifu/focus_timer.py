@@ -12,9 +12,11 @@ the session ends without a word, and the block under way is dropped.
 
 Every finished block is logged in the focus log (`focus.py`), and so is the part of a block done
 before the session was stopped, when it lasted at least a minute. The session itself lives only
-in this process: `stop()`, so a restart, ends it. A failed write or a failing voice is logged and
-the session goes on; a check that fails is logged and tried again a tick later, so nothing is
-raised from the thread.
+in this process: `stop()`, so a restart, ends it. Only a stop that unwinds `waifu run` (Ctrl+C)
+calls `stop()`: a process ended at once (its console window closed, Windows signing out or
+shutting down) loses the part of the block under way. A failed write or a failing voice is
+logged and the session goes on; a check that fails is logged and tried again a tick later, so
+nothing is raised from the thread.
 """
 
 from __future__ import annotations

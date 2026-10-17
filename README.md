@@ -4008,11 +4008,13 @@ Kalimat ini tidak dikirim ke HP, kecuali `focus.push: true` dan notifikasi HP me
 
 ### Sesi berakhir saat restart
 
-Sesinya hanya ada di `waifu run` yang sedang berjalan. Kalau `waifu run` dihentikan atau
-di-restart, sesinya selesai tanpa kata, dan bagian blok yang sudah berjalan minimal satu menit
-tetap dicatat. Kalau PC sleep melewati akhir blok atau istirahat lebih dari 2 menit, sesinya juga
-selesai diam-diam, dan blok yang sedang berjalan tidak dicatat. `waifu chat` tidak punya timer
-fokus.
+Sesinya hanya ada di `waifu run` yang sedang berjalan: kalau `waifu run` berhenti, sesinya selesai
+tanpa kata dan tidak dilanjutkan saat dia jalan lagi. Blok yang sudah selesai selalu tercatat.
+Bagian blok yang sedang berjalan (minimal satu menit) hanya ikut dicatat kalau `waifu run`
+dihentikan dengan Ctrl+C. Menutup jendela konsol "Cyrene" (cara menghentikan autostart), sign out,
+atau mematikan PC langsung mengakhiri prosesnya, jadi bagian blok itu hilang. Kalau PC sleep
+melewati akhir blok atau istirahat lebih dari 2 menit, sesinya juga selesai diam-diam, dan blok
+yang sedang berjalan tidak dicatat. `waifu chat` tidak punya timer fokus.
 
 ### Pengaturan teman fokus
 
@@ -4984,8 +4986,9 @@ halaman tim di game atau sebuah error)
       dengan `play_time.bedtime` beberapa menit ke depan dan game terbuka) menunggu sampai
       istirahat dan diucapkan sesudah kalimat istirahatnya.
 - [ ] Selama blok, panggil "Cyrene?": dia menjawab seperti biasa.
-- [ ] "Cyrene, berhenti fokusnya": sesinya berhenti. Restart `waifu run` di tengah sesi: dia
-      tidak melanjutkannya, dan `waifu focus` mencatat bagian blok yang sudah berjalan.
+- [ ] "Cyrene, berhenti fokusnya": sesinya berhenti. Hentikan `waifu run` dengan Ctrl+C di
+      tengah blok lalu jalankan lagi: dia tidak melanjutkan sesinya, dan `waifu focus` mencatat
+      bagian blok yang sudah berjalan.
 
 **Pencarian web dan promo gratis** (lihat
 [Pencarian web dan promo gratis](#pencarian-web-dan-promo-gratis))

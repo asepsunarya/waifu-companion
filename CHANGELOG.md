@@ -17,8 +17,10 @@ aktif, lalu jalankan `waifu check`.
   istirahat lalu diucapkan sekaligus; sapaan "sudah kembali" dari maskot dilewati. Pengingat dan
   jadwal yang Master pasang sendiri tetap berbunyi tepat waktu, dan Master tetap bisa
   memanggilnya seperti biasa.
-- Sesinya hanya ada di `waifu run` yang sedang berjalan: restart mengakhirinya. Bagian blok yang
-  sudah berjalan minimal satu menit tetap dicatat.
+- Sesinya hanya ada di `waifu run` yang sedang berjalan: restart mengakhirinya. Kalau dihentikan
+  dengan Ctrl+C, bagian blok yang sudah berjalan minimal satu menit tetap dicatat; menutup jendela
+  "Cyrene", sign out, atau mematikan PC di tengah blok membuang bagian blok itu (blok yang sudah
+  selesai tetap tercatat).
 - `waifu focus` menampilkan waktu fokus hari ini dan minggu ini, dan `waifu check` menyebut teman
   fokus. Bagian baru `focus` di `config.yaml` opsional: tanpa itu sudah menyala, tanpa kiriman ke
   HP (`focus.push: true` untuk mengirim kalimatnya ke HP). Catatannya di `data\focus.json`, hanya
