@@ -427,6 +427,46 @@ def test_she_says_nothing_outside_the_night_or_without_a_game(tmp_path, names, w
     assert rig.store.marks == []
 
 
+@pytest.mark.parametrize("opened", [at(28), at(29.25)], ids=["at_four", "at_a_quarter_past_five"])
+def test_a_game_first_opened_at_dawn_is_an_early_morning_not_a_late_night(tmp_path, opened):
+    rig = bedtime_rig(tmp_path)
+    rig.polls(HSR, at(23), 21)  # closed at 23:20, before bedtime: Master went to sleep
+    rig.polls(IDLE, at(23) + 21 * MINUTE, 3)
+
+    rig.polls(HSR, opened, 3)  # up again for the dailies after the 03:00 reset
+
+    assert rig.said == []
+    assert rig.store.marks == []
+
+
+def test_a_game_opened_late_in_the_night_before_dawn_still_hears_it(tmp_path):
+    rig = bedtime_rig(tmp_path)
+
+    assert rig.poll(HSR, at(28) - MINUTE) == [LATE]  # 03:59
+
+
+def test_a_game_open_since_before_dawn_still_hears_it_after_dawn(tmp_path):
+    rig = bedtime_rig(tmp_path)
+    rig.store.failing_marks = 15  # the night could not be written from 03:50 until 04:04
+    rig.polls(HSR, at(28) - 10 * MINUTE, 15)
+
+    assert rig.poll(HSR, at(28) + 5 * MINUTE) == [LATE]
+
+
+def test_with_a_bedtime_after_dawn_a_game_open_at_bedtime_still_hears_it(tmp_path):
+    rig = bedtime_rig(tmp_path, bedtime=time(5, 0))
+    rig.polls(HSR, at(28.5), 30)  # opened at 04:30, still open at 05:00
+
+    assert rig.poll(HSR, at(29)) == ["Master, sudah lewat jam lima pagi, jangan terlalu malam ya."]
+
+
+def test_with_a_bedtime_after_dawn_a_game_opened_after_it_is_no_late_night(tmp_path):
+    rig = bedtime_rig(tmp_path, bedtime=time(5, 0))
+
+    assert rig.poll(HSR, at(29.25)) == []
+    assert rig.store.marks == []
+
+
 def test_without_a_bedtime_she_never_says_it(tmp_path):
     rig = Rig(tmp_path)
 

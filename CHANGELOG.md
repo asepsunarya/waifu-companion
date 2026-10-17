@@ -16,6 +16,7 @@ aktif, lalu jalankan `waifu check`.
 - Pengingat tidur pilihan, mati dari awal: isi `play_time.bedtime` (misalnya `23:30`), dan lewat
   jam itu dia bilang sekali semalam kalau game masih terbuka: "Sayang, sudah lewat jam setengah
   dua belas, jangan terlalu malam ya." Tidak pernah memotong obrolan dan tidak dikirim ke HP.
+  Game yang baru dibuka mulai jam 04.00 (daily sesudah bangun) tidak diingatkan.
 - Laporan game mingguan ikut menyebut jam main minggu itu per game, juga `waifu gacha report`.
 - `waifu playtime [today|yesterday|week|month]` menampilkan catatannya, dan `waifu check`
   menyebut game yang dicatat. Bagian baru `play_time` di `config.yaml` opsional: tanpa itu

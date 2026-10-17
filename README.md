@@ -3880,6 +3880,10 @@ Cyrene : "Sayang, sudah lewat jam setengah dua belas, jangan terlalu malam ya."
   saja ditutup. Tidak dikirim ke HP.
 - Jamnya dari 18:00 sampai 05:59; jam lewat tengah malam (misalnya `01:00`) dihitung untuk
   malam sebelumnya.
+- **Bukan untuk bangun pagi**: game yang baru dibuka mulai jam 04.00 (misalnya untuk daily
+  sesudah reset jam 03.00) tidak diingatkan, karena Master baru bangun, bukan begadang. Game
+  yang sudah terbuka sebelum itu tetap diingatkan. Kalau `bedtime` sesudah 04:00, batasnya jam
+  `bedtime` itu sendiri.
 
 ### Pengaturan jam main
 

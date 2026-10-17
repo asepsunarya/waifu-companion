@@ -10,10 +10,12 @@ never while none is. It polls all day: play is often late at night. `stop()` end
 session at its last poll in one write.
 
 With `play_time.bedtime` set, the night runs from that time until 06:00. At a poll inside it that
-sees a game, she says once that night, through the patient announce queue (never while Master
-speaks or the follow-up window is open): "{owner}, sudah lewat jam setengah dua belas, jangan
-terlalu malam ya." The night is written to the file before she says it, so a restart never
-repeats it; a write that fails says nothing, and the next poll tries again.
+sees a game opened before the night's 04:00 (or before bedtime, when that is later), she says once
+that night, through the patient announce queue (never while Master speaks or the follow-up window
+is open): "{owner}, sudah lewat jam setengah dua belas, jangan terlalu malam ya." A game first
+opened after that is an early morning, such as the dailies after the 03:00 reset, not a late
+night. The night is written to the file before she says it, so a restart never repeats it; a
+write that fails says nothing, and the next poll tries again.
 
 A failed listing, read, or write is never said: the first of a run of failures is logged at
 WARNING and the next poll tries again. What she sees is Master's own: sessions are logged only
@@ -49,6 +51,9 @@ NOTICE_EMOTION = NEUTRAL  # a gentle word, not a scolding
 STOP_TIMEOUT_S = 5.0
 # A night's key is its evening's date: 12 hours back from any moment of it, 18:00 until 06:00.
 _NIGHT_SHIFT = timedelta(hours=12)
+# A game first opened from here on, after bedtime, is an early morning (the Asia servers' daily
+# reset is at 03:00 WIB), not a late night: no nudge.
+_DAWN = ClockTime(4, 0)
 
 
 def spoken_clock(at: ClockTime) -> str:
@@ -77,6 +82,13 @@ def in_night(now: datetime, bedtime: ClockTime) -> bool:
 def night_of(now: datetime) -> date:
     """The evening's date of the night `now` is in: Sunday 01:00 is Saturday's night."""
     return (now - _NIGHT_SHIFT).date()
+
+
+def _opened_late_before(now: datetime, bedtime: ClockTime) -> datetime:
+    """The moment a game must have been opened before to get the nudge in the night `now` is
+    in: that night's 04:00, or its bedtime when that is later."""
+    clock = bedtime if _DAWN <= bedtime < NIGHT_ENDS else _DAWN
+    return datetime.combine(night_of(now) + timedelta(days=1), clock, tzinfo=now.tzinfo)
 
 
 class PlayTimeWatcher:
@@ -124,8 +136,8 @@ class PlayTimeWatcher:
                     return []
                 now = self._now()
                 seen = games_running(names, self._config.games)
-                self._follow(seen, now)
-                said = self._bedtime(seen, now)
+                playing = self._follow(seen, now)
+                said = self._bedtime(playing, now)
         except Exception as exc:
             self._log_failure(exc)
             return []
@@ -170,7 +182,9 @@ class PlayTimeWatcher:
             self.poll_once()
             self._wait(self._stop, max(0.0, started + self._config.poll_seconds - self._clock()))
 
-    def _follow(self, seen: Collection[GameId], now: datetime) -> None:
+    def _follow(self, seen: Collection[GameId], now: datetime) -> list[Session]:
+        """Follow the games into sessions and write what changed; returns the open sessions
+        of the games `seen`."""
         if self._tracking is None:
             record = self._store.record()
             self._written = record.open
@@ -184,11 +198,15 @@ class PlayTimeWatcher:
         if tracking.sessions != self._written or self._unwritten:
             self._store.save(tracking.sessions, self._unwritten)
             self._written, self._unwritten = tracking.sessions, []
+        return [session for session in tracking.sessions if session.game in seen]
 
-    def _bedtime(self, seen: Collection[GameId], now: datetime) -> list[str]:
-        """The nudge, once a night, while a game is open past bedtime."""
+    def _bedtime(self, playing: Collection[Session], now: datetime) -> list[str]:
+        """The nudge, once a night, while a game opened before dawn is open past bedtime."""
         bedtime = self._config.bedtime
-        if bedtime is None or not seen or not in_night(now, bedtime):
+        if bedtime is None or not in_night(now, bedtime):
+            return []
+        before = _opened_late_before(now, bedtime)
+        if not any(session.start < before for session in playing):
             return []
         night = night_of(now)
         if self._told == night:
