@@ -1387,3 +1387,57 @@ named `tests/test_<package>_<module>.py`.
 - [x] README "Teman fokus" with its command, check, checklist, and Privasi rows; CHANGELOG v1.30; full suite and ruff clean
 
 **Dependencies:** 144 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
+
+## Task 146a: Jurnal harian contract ✅
+
+**Acceptance criteria:**
+- [x] SPEC "jurnal harian (v1.31)" (stories, non-goals, privacy, config, the store and its file, the tools and their budget, the refusal in her own turns, the nightly question and its follow-up, CLI, check line, known limits, safety); tasks 146a-151 in the plan and here
+
+**Dependencies:** none · **Files:** `SPEC.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
+
+## Task 146: The journal store
+
+**Acceptance criteria:**
+- [ ] `JournalStore.add`: today (WIB) by default or a past day, several notes a day in order, stamped to the second; empty, too long, and secret texts refused without repeating them; a day after today refused; the same note that day kept once and not written again; a full day refused
+- [ ] `notes(since, until)` and `forget(day)`; a missing file reads empty and stays missing, every call re-reads, a byte order mark is read, a broken file moved aside and never overwritten, a naive clock refused, two stores in one process lose nothing
+
+**Dependencies:** 146a · **Files:** `src/waifu/journal.py`, `tests/test_journal.py` · **Scope:** M
+
+## Task 147: The journal tools and the refusal in her own turns
+
+**Acceptance criteria:**
+- [ ] `journal_write {text, date?}` strict and `journal_read {date?, period?}` non-strict, static descriptions; dates checked in code; the read capped to the newest 40 notes and 6000 characters; bad arguments, a `JournalError`, and an unreadable file as error results
+- [ ] Both refused in the morning greeting and weekly report turns; their arguments hidden from the INFO log
+
+**Dependencies:** 146 · **Files:** `src/waifu/brain/journal_tools.py`, `tests/test_journal_tools.py`, `src/waifu/brain/tools.py`, `tests/test_brain_tools.py` · **Scope:** M
+
+## Task 148: The nightly question
+
+**Acceptance criteria:**
+- [ ] `JournalConfig` as `AppConfig.journal` (`ask_at` none, or 12:00-23:59, bare YAML times read)
+- [ ] `JOURNAL_PROMPT` is not a yes, opens no screen, and plays no song; `journal_write` refuses in its turn and `journal_read` runs; the finance, play time, and focus tools refuse in it
+- [ ] `JournalTimer` asks once a day from `ask_at` until midnight, the day saved first; a restart never asks twice
+
+**Dependencies:** 147 · **Files:** `src/waifu/config.py`, `tests/test_config.py`, `src/waifu/journal.py`, `tests/test_journal.py`, `src/waifu/brain/journal_tools.py`, `src/waifu/brain/finance_tools.py`, `src/waifu/brain/play_time_tools.py`, `src/waifu/brain/focus_tools.py` and their tests · **Scope:** M
+
+## Task 149: The persona line
+
+**Acceptance criteria:**
+- [ ] One identical line in both personas naming the journal tools, only when asked or answering the nightly question
+
+**Dependencies:** 147 · **Files:** `config/persona.md`, `config/persona_hsr.md`, `tests/test_brain_persona.py` · **Scope:** S
+
+## Task 150: Wiring, `waifu jurnal`, check
+
+**Acceptance criteria:**
+- [ ] `run` and `chat` get `JournalTools` after the to-do tools when the journal is on; `run` with `ask_at` asks through `ask_aloud` with `journal_read` required, in a new session, without a push; `chat` never asks; the strict-tool budget keeps 2 slots free
+- [ ] `waifu jurnal [list|show|add|forget --yes]` and the check line per SPEC; `config.example.yaml` block, valid when written out; every store under tmp_path in `test_cli.py`
+
+**Dependencies:** 148, 149 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py`, `config.example.yaml` · **Scope:** M
+
+## Task 151: Docs
+
+**Acceptance criteria:**
+- [ ] README "Jurnal harian" with its contents entry, command, check, checklist, and Privasi rows; CHANGELOG v1.31; full suite and ruff clean
+
+**Dependencies:** 150 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S

@@ -560,6 +560,29 @@ new dependency. The Scheduler is not reused: it is minute-precise, persistent, a
 - [x] Python suite and ruff clean; no test slept for real, spoke, or pushed (2026-10-17: 7977 pytest)
 - [ ] On the owner's PC: "temani aku fokus 25 menit" starts a block; a reminder set for that time still speaks; a gacha or rain notice waits for the break and comes with its line; "sisa berapa menit?" and "berhenti fokusnya" work; `waifu focus` shows the block
 
+### Phase 35: Jurnal harian (v1.31, see SPEC → jurnal harian)
+Decision: a `JournalStore` keeps Master's notes by WIB date in `data/journal.json` (several short
+notes a day, in order, kept until the owner forgets a day; secrets refused as for memory and the
+to-do list). A strict `journal_write` (the one new strict tool: 18 of 20 with every feature on)
+and a non-strict `journal_read` (a day or a WIB period, newest 40 notes at most) work only when
+Master asks or answers her nightly question, and refuse in the turns she starts herself, as the
+finance, play time, and focus tools do, which now also refuse in the journal question's turn.
+Deleting is only in the terminal (`waifu jurnal forget <tanggal> --yes`): a misheard deletion
+cannot be undone. The nightly question is off by default: `journal.ask_at` (12:00-23:59) makes a
+`PromptTimer` ask once a day, in a new session, without a push; the follow-up window after her
+question lets Master answer without her name, and that answer is written. No new dependency.
+- [x] Task 146a: contract: SPEC, tasks
+- [ ] Task 146: the journal store (`journal.py`)
+- [ ] Task 147: the journal tools and the refusal in her own turns
+- [ ] Task 148: the nightly question (`JournalConfig`, `JOURNAL_PROMPT`, `JournalTimer`)
+- [ ] Task 149: the persona line
+- [ ] Task 150: wiring in `run`/`chat`, `waifu jurnal`, check line, example config
+- [ ] Task 151: README, CHANGELOG
+
+### Checkpoint: Jurnal harian
+- [ ] Python suite and ruff clean; no test asked a real brain, spoke, or pushed; the strict-tool budget keeps 2 slots free
+- [ ] On the owner's PC: "catat di jurnal: ..." writes a note `waifu jurnal show` prints; "kemarin aku nulis apa di jurnal?" is summed up; with `ask_at` a few minutes ahead she asks once, the answer within the follow-up window is written, and a restart does not ask again that day
+
 ## Risks and Mitigations
 
 | Risk | Impact | Mitigation |
@@ -577,6 +600,7 @@ new dependency. The Scheduler is not reused: it is minute-precise, persistent, a
 | Finance figures spoken or pushed when nobody asked | Money said in front of guests or sent to ntfy | Tools only when asked (descriptions, persona); the briefing turn gets an error from every finance tool in code; no finance in any notice; `tepira.enabled: false` with guests |
 | The weekly report's HoYoLAB and history reads hang | Her turn, and so the microphone, waits too long | One 30 s budget for every read: a late section says its time ran out and the rest is told; the history is refreshed only for games with a stored history, never imported for the first time |
 | Play time tracking touches a game's anti-cheat (mhyprot, HoYoKProtect) | An account flag or a game that refuses to start | Only the process snapshot, which names processes without opening them; never `OpenProcess`, a module or thread snapshot, or WMI on a game; written in SPEC and in `processes.py` |
+| Journal entries spoken, pushed, or remembered when nobody asked | Private notes said in front of guests or sent away | Tools only when asked (descriptions, persona); the greeting and weekly report turns get an error from both tools in code; the nightly question has no push and cannot write; never in the system prompt or memory unless Master asks |
 
 ## Open Questions
 
