@@ -10130,6 +10130,31 @@ def test_run_keeps_one_focus_timer_while_she_listens_and_holds_her_own_speech_in
     assert to_anthropic(focus_tools(brains[0]).specs()[0])["strict"] is False
 
 
+def test_run_skips_her_welcome_back_during_a_focus_block_but_answers_a_pat(
+    home, run_fakes, avatar, brains, focus_timers, focus_clock, monkeypatch
+):
+    enable_avatar(home, extra=TOUCH_LINES)
+
+    def listen(self, mic, segmenter) -> None:
+        self.ran_with = (mic, segmenter)
+        start_focus(brains[0])
+        touch(avatar, "welcome_back", "head_pat")  # Master touches the mouse again mid-block
+        self.await_reactions(1)
+        focus_clock.now += timedelta(minutes=25)
+        focus_timers[0].tick_once()
+        touch(avatar, "welcome_back")
+        self.await_reactions(1)
+
+    monkeypatch.setattr(RecordingAssistant, "run", listen)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    assert RecordingAssistant.instances[0].reactions == [
+        ("speak", "Elusannya enak", "happy"),
+        ("speak", "Selamat datang", "happy"),
+    ]
+
+
 @pytest.mark.parametrize("push", [True, False], ids=["push", "no-push"])
 def test_run_pushes_her_focus_lines_to_the_phone_only_with_focus_push(
     push, home, run_fakes, brains, focus_timers, focus_clock, monkeypatch

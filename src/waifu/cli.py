@@ -1198,6 +1198,7 @@ def _listen(args: argparse.Namespace) -> int:
                 listen=assistant.listen_now,
                 is_busy=lambda: assistant.busy,
                 interrupt=assistant.interrupt,
+                quiet=None if focus is None else focus.in_block,
                 owner_call=config.assistant.owner_call,
             )
             with _open_mic(config) as mic, touches.answered_by(reactions):

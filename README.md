@@ -3984,6 +3984,9 @@ memulai atau menghentikan sesi kalau Master minta.
   promo gratis, dan anggaran biaya API, juga sapaan pagi dan laporan game mingguan. Saat istirahat
   dimulai, pemberitahuan yang tertunda diucapkan sekaligus sesudah kalimat istirahatnya; sapaan
   pagi atau laporan mingguan menyusul sesudahnya.
+- **Sapaan "sudah kembali" dari maskot avatar dilewati**, tidak disimpan untuk istirahat: kalau
+  Master lama tidak menyentuh mouse lalu kembali di tengah blok, dia tetap diam. Elusan, colekan,
+  dan klik dua kali tetap dia jawab seperti biasa.
 - **Pengingat dan jadwal yang Master pasang sendiri tetap berbunyi tepat waktu** (lihat
   [Jadwal, pengingat, dan rutinitas](#jadwal-pengingat-dan-rutinitas)).
 - **Master tetap bisa bicara dengannya** seperti biasa: panggil namanya, klik dua kali avatarnya,

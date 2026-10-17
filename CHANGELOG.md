@@ -14,8 +14,9 @@ aktif, lalu jalankan `waifu check`.
   di akhir istirahat "Yuk, lanjut fokus lagi.", dan di akhir sesi memuji dengan totalnya.
 - Selama blok fokus dia diam: peringatan hujan, kabar versi baru, pengingat tidur, pemberitahuan
   game, kode, PC, promo, dan anggaran, juga sapaan pagi dan laporan mingguan, menunggu sampai
-  istirahat lalu diucapkan sekaligus. Pengingat dan jadwal yang Master pasang sendiri tetap
-  berbunyi tepat waktu, dan Master tetap bisa memanggilnya seperti biasa.
+  istirahat lalu diucapkan sekaligus; sapaan "sudah kembali" dari maskot dilewati. Pengingat dan
+  jadwal yang Master pasang sendiri tetap berbunyi tepat waktu, dan Master tetap bisa
+  memanggilnya seperti biasa.
 - Sesinya hanya ada di `waifu run` yang sedang berjalan: restart mengakhirinya. Bagian blok yang
   sudah berjalan minimal satu menit tetap dicatat.
 - `waifu focus` menampilkan waktu fokus hari ini dan minggu ini, dan `waifu check` menyebut teman

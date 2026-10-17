@@ -13,6 +13,11 @@ replies. A double-click always opens the follow-up window when she is free
 `speak` like any reaction, so line choice, repeat avoidance, and the cooldown
 live here and the window opens even when that line is skipped.
 
+During a focus block (`quiet`) she never welcomes Master back: the greeting is
+the one reaction she starts herself, and it would open the follow-up window. The
+skipped greeting is dropped, not saved for the break. Pats, pokes, and a
+double-click are Master's own and are answered as always.
+
 A double-click while she speaks cuts her off: `handle` calls `interrupt`
 (`Assistant.interrupt`) at once on the server's thread. When that stopped her
 speech, the worker only opens listening and says no line; it does so although she
@@ -62,15 +67,19 @@ class InteractionHandler:
         listen: Callable[[], None],
         is_busy: Callable[[], bool],
         interrupt: Callable[[], bool] = _nothing_to_interrupt,
+        quiet: Callable[[], bool] | None = None,
         clock: Callable[[], float] = time.monotonic,
         rng: random.Random | None = None,
         owner_call: str = "Master",
     ) -> None:
+        """`quiet` (the focus timer's `in_block`) says when she keeps her welcome-back to
+        herself."""
         self._config = config
         self._speak = speak
         self._listen = listen
         self._is_busy = is_busy
         self._interrupt = interrupt
+        self._quiet = quiet
         self._owner_call = owner_call
         self._clock = clock
         self._rng = rng or random.Random()
@@ -195,6 +204,9 @@ class InteractionHandler:
             # She is still busy ending the cut speech: `listen` waits for it, so neither
             # the busy check nor the cooldown applies, and no line follows.
             self._listen()
+            return
+        if kind == "welcome_back" and self._quiet is not None and self._quiet():
+            logger.debug("Not welcoming Master back: a focus block is under way")
             return
         if self._is_busy():
             logger.debug("Ignoring %s: she is busy", kind)

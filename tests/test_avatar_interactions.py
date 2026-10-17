@@ -1,6 +1,7 @@
 import logging
 import random
 import threading
+from collections.abc import Callable
 
 import pytest
 
@@ -73,7 +74,10 @@ class Assistant:
 
 
 def make_handler(
-    *, rng: random.Random | None = None, **config: object
+    *,
+    rng: random.Random | None = None,
+    quiet: Callable[[], bool] | None = None,
+    **config: object,
 ) -> tuple[InteractionHandler, Assistant, FakeClock]:
     clock = FakeClock()
     assistant = Assistant(clock)
@@ -83,6 +87,7 @@ def make_handler(
         listen=assistant.listen,
         is_busy=assistant.is_busy,
         interrupt=assistant.interrupt,
+        quiet=quiet,
         clock=clock,
         rng=rng or random.Random(7),
     )
@@ -334,6 +339,57 @@ def test_a_welcome_back_skipped_while_busy_does_not_count_against_the_limit():
     react(handler, "welcome_back")  # the spoken welcome does count
 
     assert spoken_at == [1060.0]
+
+
+# A focus block
+
+
+class FocusBlock:
+    """Stands in for the focus timer's `in_block`."""
+
+    def __init__(self, under_way: bool) -> None:
+        self.under_way = under_way
+
+    def __call__(self) -> bool:
+        return self.under_way
+
+
+def test_she_does_not_welcome_master_back_during_a_focus_block(caplog):
+    handler, assistant, _ = make_handler(quiet=FocusBlock(True))
+
+    with caplog.at_level(logging.DEBUG, logger=LOGGER):
+        react(handler, "welcome_back")
+
+    assert assistant.events == []
+    assert "focus block" in caplog.text
+
+
+def test_a_welcome_back_skipped_during_a_focus_block_does_not_count_against_the_limit():
+    focus = FocusBlock(True)
+    handler, assistant, clock = make_handler(reaction_cooldown_s=0, quiet=focus)
+    react(handler, "welcome_back")
+
+    focus.under_way = False  # the break
+    clock.now += 60
+    react(handler, "welcome_back")
+
+    assert assistant.events == ["speak happy"]
+
+
+@pytest.mark.parametrize(
+    ("kind", "events"),
+    [
+        ("head_pat", ["speak happy"]),
+        ("body_touch", ["speak surprised"]),
+        ("double_click", ["listen", "speak happy"]),
+    ],
+)
+def test_a_focus_block_leaves_master_s_own_pats_pokes_and_double_clicks_alone(kind, events):
+    handler, assistant, _ = make_handler(quiet=FocusBlock(True))
+
+    react(handler, kind)
+
+    assert assistant.events == events
 
 
 # Cutting her off with a double-click
