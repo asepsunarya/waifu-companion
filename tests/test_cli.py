@@ -149,6 +149,7 @@ from waifu.voice.rvc import RvcError
 from waifu.voice.speaker import SpeakerVerifier
 from waifu.voice.stt import SttError, WhisperStt
 from waifu.voice.tts import TtsError
+from waifu.voice.windows_voices import WindowsVoice, WindowsVoiceError
 from waifu.weather import WeatherClient, WeatherError
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -352,6 +353,39 @@ def weekly_report_timers(monkeypatch) -> list[FakeWeeklyReportTimer]:
 
     monkeypatch.setattr(cli, "WeeklyReportTimer", build)
     return built
+
+
+# The voices on the owner's PC before any language was added in Settings.
+DAVID = WindowsVoice("Microsoft David", "en-US", "Male", "onecore")
+ZIRA = WindowsVoice("Microsoft Zira", "en-US", "Female", "onecore")
+MARK = WindowsVoice("Microsoft Mark", "en-US", "Male", "onecore")
+ANDIKA = WindowsVoice("Microsoft Andika", "id-ID", "Male", "onecore")
+HARUKA = WindowsVoice("Microsoft Haruka", "ja-JP", "Female", "onecore")
+
+
+@dataclass
+class FakeWindowsVoices:
+    """Stands in for list_windows_voices, which would run PowerShell: answers with `voices`
+    (the owner's English voices) or raises `error`, and counts the listings."""
+
+    voices: list[WindowsVoice] = field(default_factory=lambda: [DAVID, ZIRA, MARK])
+    error: Exception | None = None
+    listings: int = 0
+
+    def __call__(self) -> list[WindowsVoice]:
+        self.listings += 1
+        if self.error is not None:
+            raise self.error
+        return list(self.voices)
+
+
+@pytest.fixture(autouse=True)
+def windows_voices(monkeypatch) -> FakeWindowsVoices:
+    """`check` and `waifu voices` list Windows' voices through PowerShell, which no test may
+    start (tests/conftest.py refuses it too): every test gets this fake."""
+    fake = FakeWindowsVoices()
+    monkeypatch.setattr(cli, "list_windows_voices", fake)
+    return fake
 
 
 QUIET_PC = PcSnapshot(12.0, 9.5, 31.9, (Drive("C:", 120.0, 465.1),), None, 3600)
@@ -886,11 +920,12 @@ def events() -> list[str]:
 
 @pytest.fixture
 def speech(events, monkeypatch) -> list["SpeakingRouter"]:
-    """Every speech router a command builds, each remembering the voice converter it got."""
+    """Every speech router a command builds, each remembering the voice converter it got and
+    whether it speaks only through the offline fallback."""
     built: list[SpeakingRouter] = []
 
-    def build(tts, *, converter=None):
-        built.append(SpeakingRouter(events, converter))
+    def build(tts, *, converter=None, fallback_only=False):
+        built.append(SpeakingRouter(events, converter, fallback_only))
         return built[-1]
 
     monkeypatch.setattr(cli, "build_speech_router", build)
@@ -1180,7 +1215,9 @@ def event_player(events, monkeypatch) -> None:
         (["learn-ir", "ac", "--missing", "--timeout", "30"], "learn-ir"),
         (["say", "Halo", "Master"], "say"),
         (["say", "--raw", "Halo"], "say"),
+        (["say", "--fallback", "--raw", "Halo"], "say"),
         (["mics"], "mics"),
+        (["voices"], "voices"),
         (["check"], "check"),
         (["avatar"], "avatar"),
         (["avatar", "--demo"], "avatar"),
@@ -1872,7 +1909,9 @@ def test_check_flags_an_invalid_declared_ir_name_instead_of_suggesting_learn_ir(
 
 def test_say_speaks_the_joined_words_through_the_router_and_player(home, player, monkeypatch):
     router = FakeRouter()
-    monkeypatch.setattr(cli, "build_speech_router", lambda tts, converter=None: router)
+    monkeypatch.setattr(
+        cli, "build_speech_router", lambda tts, converter=None, fallback_only=False: router
+    )
 
     assert cli.main(["say", "Halo", "Master,", "おかえりなさい!"]) == 0
 
@@ -1886,6 +1925,53 @@ def test_say_with_the_anime_voice_off_starts_no_rvc_server(home, player, rvc, sp
     assert rvc.servers == [] and rvc.clients == []
     assert speech[0].converter is None
     assert events == ["say Halo"]
+
+
+def test_say_speaks_with_her_voice_keeping_the_fallback_for_its_failures(home, player, speech):
+    assert cli.main(["say", "Halo"]) == 0
+
+    assert speech[0].fallback_only is False
+
+
+def test_say_fallback_speaks_only_through_the_offline_fallback(home, player, rvc, speech, events):
+    assert cli.main(["say", "--fallback", "Halo", "Master"]) == 0
+
+    assert speech[0].fallback_only is True
+    assert events == ["say Halo Master"]
+    assert len(player.played) == 1
+
+
+def test_say_fallback_goes_through_the_anime_voice(home, player, rvc, speech, events):
+    # To hear the fallback as she would sound with edge-tts down, and tune its pitch.
+    enable_rvc(home)
+
+    assert cli.main(["say", "--fallback", "Halo"]) == 0
+
+    assert speech[0].fallback_only is True
+    assert speech[0].converter is rvc.clients[0]
+    assert events == ["rvc started", "say Halo", "rvc stopped"]
+
+
+def test_say_fallback_raw_speaks_the_fallback_without_the_anime_voice(
+    home, player, rvc, speech, events
+):
+    enable_rvc(home)
+
+    assert cli.main(["say", "--fallback", "--raw", "Halo"]) == 0
+
+    assert speech[0].fallback_only is True and speech[0].converter is None
+    assert rvc.servers == []
+
+
+def test_say_fallback_refuses_while_the_fallback_is_off(home, player, rvc, speech, capsys):
+    write_config(home, "tts:\n  fallback:\n    enabled: false\n")
+
+    assert cli.main(["say", "--fallback", "Halo"]) == 1
+
+    assert capsys.readouterr().out.splitlines() == [
+        "! Suara cadangan mati (tts.fallback.enabled: false)."
+    ]
+    assert speech == [] and player.played == []
 
 
 def test_say_converts_with_the_anime_voice_and_stops_the_server_afterwards(
@@ -2090,6 +2176,71 @@ def test_mics_prints_the_audio_device_list(monkeypatch, capsys):
     assert "> 1 USB Mic" in capsys.readouterr().out
 
 
+ADD_INDONESIAN = (
+    "belum ada suara Windows bahasa Indonesia; tambahkan gratis di Settings → "
+    "Time & language → Speech → Add voices (Indonesian)"
+)
+ADD_JAPANESE = (
+    "belum ada suara Windows bahasa Jepang; tambahkan gratis di Settings → "
+    "Time & language → Speech → Add voices (Japanese)"
+)
+
+
+def test_voices_lists_windows_voices_per_language_then_each_fallback(home, windows_voices, capsys):
+    windows_voices.voices = [DAVID, ZIRA, HARUKA, MARK]
+
+    assert cli.main(["voices"]) == 0
+
+    assert capsys.readouterr().out.splitlines() == [
+        "Suara Windows di PC ini (OneCore):",
+        "  en-US: Microsoft David (laki-laki), Microsoft Mark (laki-laki), "
+        "Microsoft Zira (perempuan)",
+        "  ja-JP: Microsoft Haruka (perempuan)",
+        f"! Suara cadangan bahasa Indonesia: {ADD_INDONESIAN}",
+        "✓ Suara cadangan bahasa Jepang: Microsoft Haruka (ja-JP, perempuan)",
+    ]
+
+
+def test_voices_names_the_desktop_voices_when_only_those_can_be_read(home, windows_voices, capsys):
+    windows_voices.voices = [WindowsVoice("Microsoft Zira Desktop", "en-US", "Female", "sapi")]
+
+    cli.main(["voices"])
+
+    assert capsys.readouterr().out.splitlines()[:2] == [
+        "Suara Windows di PC ini (SAPI desktop):",
+        "  en-US: Microsoft Zira Desktop (perempuan)",
+    ]
+
+
+def test_voices_says_when_windows_has_none(home, windows_voices, capsys):
+    windows_voices.voices = []
+
+    assert cli.main(["voices"]) == 0
+
+    assert capsys.readouterr().out.splitlines()[0] == "Belum ada suara Windows di PC ini."
+
+
+def test_voices_fails_when_windows_cannot_list_them(home, windows_voices, capsys):
+    windows_voices.error = WindowsVoiceError("PowerShell tidak selesai dalam 20 detik.")
+
+    assert cli.main(["voices"]) == 1
+
+    assert capsys.readouterr().out.splitlines() == [
+        "✗ Suara Windows tidak terbaca: PowerShell tidak selesai dalam 20 detik."
+    ]
+
+
+def test_voices_says_when_the_fallback_is_off(home, windows_voices, capsys):
+    write_config(home, "tts:\n  fallback:\n    enabled: false\n")
+
+    assert cli.main(["voices"]) == 0
+
+    assert capsys.readouterr().out.splitlines()[-1] == (
+        "! Suara cadangan offline mati (tts.fallback.enabled: false); "
+        "kalau edge-tts gagal, Cyrene diam"
+    )
+
+
 # --- run -------------------------------------------------------------------------------------
 
 
@@ -2220,10 +2371,11 @@ class EventMic(FakeMic):
 
 
 class SpeakingRouter(FakeRouter):
-    def __init__(self, events: list[str], converter=None) -> None:
+    def __init__(self, events: list[str], converter=None, fallback_only: bool = False) -> None:
         super().__init__()
         self.events = events
         self.converter = converter
+        self.fallback_only = fallback_only
 
     def synthesize(self, text: str) -> tuple[np.ndarray, int]:
         self.events.append(f"say {text}")
@@ -3812,6 +3964,91 @@ def test_check_leaves_out_the_index_when_none_is_configured(
     cli.main(["check"])
 
     assert not any("Index" in line for line in rvc_lines(capsys.readouterr().out))
+
+
+def fallback_lines(out: str) -> list[str]:
+    return [line for line in out.splitlines() if "cadangan" in line or "Suara Windows" in line]
+
+
+def test_check_names_the_fallback_voice_of_each_language_before_the_anime_voice(
+    home, nothing_installed, windows_voices, capsys
+):
+    windows_voices.voices = [ZIRA, ANDIKA, HARUKA]
+
+    cli.main(["check"])
+
+    out = capsys.readouterr().out
+    assert fallback_lines(out) == [
+        "✓ Suara cadangan bahasa Indonesia: Microsoft Andika (id-ID, laki-laki)",
+        "✓ Suara cadangan bahasa Jepang: Microsoft Haruka (ja-JP, perempuan)",
+    ]
+    lines = out.splitlines()
+    assert lines.index(fallback_lines(out)[-1]) + 1 == lines.index(rvc_lines(out)[0])
+    assert windows_voices.listings == 1
+
+
+def test_check_says_where_to_add_the_missing_fallback_voices(
+    home, nothing_installed, windows_voices, capsys
+):
+    # The owner's PC: English voices only.
+    assert cli.main(["check"]) == 1  # Ollama and the voice extra are missing, not the voices
+
+    assert fallback_lines(capsys.readouterr().out) == [
+        f"! Suara cadangan bahasa Indonesia: {ADD_INDONESIAN}",
+        f"! Suara cadangan bahasa Jepang: {ADD_JAPANESE}",
+    ]
+
+
+def test_check_points_out_a_named_fallback_voice_that_is_not_installed(
+    home, nothing_installed, windows_voices, capsys
+):
+    write_config(home, "tts:\n  fallback:\n    voices:\n      id: Microsoft Andika\n")
+
+    cli.main(["check"])
+
+    assert fallback_lines(capsys.readouterr().out) == [
+        "! Suara cadangan bahasa Indonesia: 'Microsoft Andika' (tts.fallback.voices.id) "
+        "tidak terpasang; lihat 'waifu voices'"
+    ]
+
+
+def test_check_accepts_a_named_fallback_voice_of_another_language(
+    home, nothing_installed, windows_voices, capsys
+):
+    write_config(home, "tts:\n  fallback:\n    voices:\n      id: Zira\n")
+
+    cli.main(["check"])
+
+    assert fallback_lines(capsys.readouterr().out) == [
+        "✓ Suara cadangan bahasa Indonesia: Microsoft Zira (en-US, perempuan)"
+    ]
+
+
+def test_check_reports_the_fallback_off_without_listing_voices(
+    home, nothing_installed, windows_voices, capsys
+):
+    write_config(home, "tts:\n  fallback:\n    enabled: false\n")
+
+    cli.main(["check"])
+
+    assert fallback_lines(capsys.readouterr().out) == [
+        "! Suara cadangan offline mati (tts.fallback.enabled: false); "
+        "kalau edge-tts gagal, Cyrene diam"
+    ]
+    assert windows_voices.listings == 0
+
+
+def test_check_warns_when_windows_voices_cannot_be_read(
+    home, nothing_installed, windows_voices, capsys
+):
+    windows_voices.error = WindowsVoiceError("PowerShell tidak selesai dalam 20 detik.")
+
+    cli.main(["check"])
+
+    assert fallback_lines(capsys.readouterr().out) == [
+        "! Suara Windows tidak terbaca (PowerShell tidak selesai dalam 20 detik); "
+        "suara cadangan offline tidak bisa dipakai"
+    ]
 
 
 def avatar_lines(out: str) -> list[str]:

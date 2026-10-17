@@ -7,6 +7,7 @@ import pytest
 from waifu.config import (
     AppConfig,
     ConfigError,
+    FallbackTtsConfig,
     RainAlertConfig,
     TepiraConfig,
     VersionNoticeConfig,
@@ -177,6 +178,12 @@ def test_the_fallback_rvc_pitch_is_bounded(tmp_path, gender):
     text = f"tts:\n  fallback:\n    rvc_pitch:\n      {gender}: 25\n"
     with pytest.raises(ConfigError, match=gender):
         load_config(write_yaml(tmp_path, text))
+
+
+def test_the_example_config_spells_out_the_fallback_voice_defaults():
+    fallback = load_config(ROOT / "config.example.yaml").tts.fallback
+    assert fallback == FallbackTtsConfig()
+    assert "  fallback:\n" in (ROOT / "config.example.yaml").read_text(encoding="utf-8")
 
 
 def test_the_fallback_pause_must_be_positive(tmp_path):

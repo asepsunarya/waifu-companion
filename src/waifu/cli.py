@@ -33,7 +33,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from importlib import import_module
 from importlib.util import find_spec
-from itertools import count
+from itertools import count, groupby
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from time import sleep
@@ -76,6 +76,7 @@ from waifu.config import (
     AvatarConfig,
     BriefingConfig,
     ConfigError,
+    FallbackTtsConfig,
     GameId,
     OllamaConfig,
     PhoneConfig,
@@ -210,6 +211,14 @@ from waifu.voice.segmenter import EnergySegmenter, frame_db
 from waifu.voice.speaker import MIN_ENROLL_SAMPLES, EcapaEmbedder, SpeakerError, SpeakerVerifier
 from waifu.voice.stt import CUDA_HINT, SttError, WhisperStt, register_cuda_dll_dirs
 from waifu.voice.tts import SpeechRouter, TtsError, build_speech_router
+from waifu.voice.windows_voices import (
+    WindowsVoice,
+    WindowsVoiceError,
+    choose_voice,
+    language_name,
+    list_windows_voices,
+    missing_voice_hint,
+)
 from waifu.weather import WeatherClient, WeatherError
 
 if TYPE_CHECKING:
@@ -219,6 +228,9 @@ logger = logging.getLogger(__name__)
 
 OK, FAIL, WARN = "✓", "✗", "!"
 Check = tuple[str, str]
+# How `waifu voices` names the speech APIs and genders Windows reports.
+_VOICE_APIS = {"onecore": "OneCore", "sapi": "SAPI desktop"}
+_GENDERS = {"female": "perempuan", "male": "laki-laki"}
 
 LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
 LOG_FILE_MAX_BYTES = 1_000_000
@@ -568,7 +580,17 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="tanpa suara anime (RVC), untuk membandingkan dengan suara biasa",
     )
+    say.add_argument(
+        "--fallback",
+        action="store_true",
+        help="dengan suara cadangan offline (suara Windows), yang dipakai kalau edge-tts gagal",
+    )
     command("mics", _mics, "Daftar perangkat audio.")
+    command(
+        "voices",
+        _voices,
+        "Daftar suara Windows per bahasa dan suara cadangan offline yang dipakai Cyrene.",
+    )
     command(
         "briefing", _briefing, "Tampilkan ringkasan hari ini (tanggal, cuaca, jadwal) tanpa otak."
     )
@@ -1718,6 +1740,9 @@ def _learn_commands(device: IrDevice, commands: list[str], timeout_s: float) -> 
 
 def _say(args: argparse.Namespace) -> int:
     config = load_config(args.config)
+    if args.fallback and not config.tts.fallback.enabled:
+        print(f"{WARN} Suara cadangan mati (tts.fallback.enabled: false).")
+        return 1
     rvc = config.tts.rvc
     if not (args.raw or rvc.enabled) and rvc.model is not None:
         # Comparing checkpoints this way would play the same plain voice for each one.
@@ -1727,7 +1752,7 @@ def _say(args: argparse.Namespace) -> int:
     emotion, text = split_emotion(" ".join(args.text))
     with _avatar_bus(config) as avatar, _voice_converter(config, wanted=not args.raw) as converter:
         spoken = _speak(
-            build_speech_router(config.tts, converter=converter),
+            build_speech_router(config.tts, converter=converter, fallback_only=args.fallback),
             Player(config.audio.output_device),
             text,
             avatar=avatar,
@@ -1740,6 +1765,36 @@ def _say(args: argparse.Namespace) -> int:
 def _mics(args: argparse.Namespace) -> int:
     print(list_devices())
     return 0
+
+
+def _voices(args: argparse.Namespace) -> int:
+    """The speech voices installed in Windows per language, then each language's fallback."""
+    config = load_config(args.config)
+    try:
+        voices = list_windows_voices()
+    except WindowsVoiceError as exc:
+        print(f"{FAIL} Suara Windows tidak terbaca: {exc}")
+        return 1
+    if voices:
+        print(f"Suara Windows di PC ini ({_VOICE_APIS.get(voices[0].api, voices[0].api)}):")
+        in_order = sorted(voices, key=lambda voice: (voice.language, voice.name))
+        for language, group in groupby(in_order, key=lambda voice: voice.language):
+            print(f"  {language}: {', '.join(_voice_with_gender(voice) for voice in group)}")
+    else:
+        print("Belum ada suara Windows di PC ini.")
+    if config.tts.fallback.enabled:
+        lines = list(_fallback_voice_lines(config.tts.fallback, voices))
+    else:
+        lines = [_fallback_off_check(config)]
+    for mark, text in lines:
+        print(f"{mark} {text}")
+    return 0
+
+
+def _voice_with_gender(voice: WindowsVoice) -> str:
+    """`Microsoft Zira (perempuan)`; a voice of another gender by its name alone."""
+    gender = _GENDERS.get(voice.gender.lower())
+    return f"{voice.name} ({gender})" if gender else voice.name
 
 
 # --- avatar ----------------------------------------------------------------------------------
@@ -4426,6 +4481,7 @@ def _checks(config_path: Path) -> Iterator[Check]:
     yield _free_offers_check(config)
     yield from _voice_package_checks(config)
     yield _microphone_check(config)
+    yield from _fallback_voice_checks(config)
     yield from _anime_voice_checks(config)
     yield from _avatar_checks(config)
     yield from _gacha_checks(config)
@@ -4840,6 +4896,46 @@ def _microphone_check(config: AppConfig) -> Check:
     except Exception as exc:  # missing package or PortAudio, no input device, bad device name
         return FAIL, f"Mikrofon tidak ditemukan: {exc}"
     return OK, f"Mikrofon: {info['name']}"
+
+
+def _fallback_voice_checks(config: AppConfig) -> Iterator[Check]:
+    """The Windows voice that speaks each language when her voice fails; one listing."""
+    if not config.tts.fallback.enabled:
+        yield _fallback_off_check(config)
+        return
+    try:
+        voices = list_windows_voices()
+    except WindowsVoiceError as exc:
+        reason = str(exc).rstrip(".")
+        unusable = "suara cadangan offline tidak bisa dipakai"
+        yield WARN, f"Suara Windows tidak terbaca ({reason}); {unusable}"
+        return
+    yield from _fallback_voice_lines(config.tts.fallback, voices)
+
+
+def _fallback_off_check(config: AppConfig) -> Check:
+    return WARN, (
+        "Suara cadangan offline mati (tts.fallback.enabled: false); "
+        f"kalau edge-tts gagal, {config.assistant.name} diam"
+    )
+
+
+def _fallback_voice_lines(
+    fallback: FallbackTtsConfig, voices: list[WindowsVoice]
+) -> Iterator[Check]:
+    """A bonus, so a missing voice is a warning: she still shows her text without it."""
+    for language, wanted in fallback.voices.items():
+        label = f"Suara cadangan bahasa {language_name(language)}"
+        voice = choose_voice(voices, language, wanted)
+        if voice is not None:
+            gender = _GENDERS.get(voice.gender.lower())
+            details = f"{voice.language}, {gender}" if gender else voice.language
+            yield OK, f"{label}: {voice.name} ({details})"
+        elif wanted:
+            setting = f"tts.fallback.voices.{language}"
+            yield WARN, f"{label}: '{wanted}' ({setting}) tidak terpasang; lihat 'waifu voices'"
+        else:
+            yield WARN, f"{label}: {missing_voice_hint(language)}"
 
 
 def _anime_voice_checks(config: AppConfig) -> Iterator[Check]:

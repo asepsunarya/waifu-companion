@@ -71,6 +71,22 @@ tts:
     #   ref_audio_path: D:/voices/cyrene_ref.wav
     #   prompt_text: "参照音声で話している日本語の文"
     #   prompt_lang: ja
+  # Suara cadangan offline (README, bagian "Suara cadangan offline"): kalau edge-tts gagal
+  # (tanpa internet, atau Microsoft menolaknya), bagian itu diucapkan suara bawaan Windows,
+  # lalu edge-tts dicoba lagi setelah retry_s detik. Tambahkan suaranya gratis di Settings →
+  # Time & language → Speech → Add voices (Indonesian, Japanese); 'waifu voices' menampilkan
+  # suara yang sudah ada, 'waifu say --fallback Halo' memperdengarkannya.
+  fallback:
+    enabled: true
+    voices:
+      id: ""     # kosong = suara Indonesia yang terpasang (Microsoft Andika)
+      ja: ""     # kosong = suara Jepang yang terpasang, perempuan lebih dulu (mis. Haruka)
+    retry_s: 600
+    # Semitone untuk suara anime (RVC) per jenis suara Windows; tts.rvc.pitch untuk edge-tts.
+    # Diukur: suara perempuan sekitar 188 Hz, pria 95-165 Hz, korpus Tsukuyomi sekitar 351 Hz.
+    rvc_pitch:
+      female: 11
+      male: 18
   # Suara anime つくよみちゃん (README, bagian "Suara anime"): setiap jawaban, Indonesia dan
   # Jepang, diubah ke satu suara karakter oleh model RVC yang dijalankan Applio di PC ini.
   # Kalau server RVC gagal jalan, dia tetap bicara dengan suara di atas.
