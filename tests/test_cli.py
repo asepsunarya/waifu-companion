@@ -2386,7 +2386,8 @@ class RecordingAssistant:
     `required_tool`, `new_sessions` whether each starts a new session, and `expiries` until
     when each may be said;
     `waiting_for_followup` the texts of announcements that wait while the follow-up window is
-    open; `reminded` what `remind` queued (Master's own lines); `phone_messages`, `phone_photos`
+    open, and `announced_until` until when each announcement may be said; `reminded` what
+    `remind` queued (Master's own lines); `phone_messages`, `phone_photos`
     (None for a message without one), `phone_cameras` (whether each was sent through the
     camera), and `phone_recordings` what the phone asked."""
 
@@ -2397,6 +2398,7 @@ class RecordingAssistant:
         self.ran_with: tuple | None = None
         self.announced: list[tuple[str, str]] = []
         self.waiting_for_followup: list[str] = []
+        self.announced_until: list[datetime | None] = []
         self.reminded: list[tuple[str, str]] = []
         self.asked: list[tuple[str, Callable[[str], None] | None, str | None]] = []
         self.new_sessions: list[bool] = []
@@ -2435,8 +2437,11 @@ class RecordingAssistant:
         for _ in range(count):
             assert self.reacted.acquire(timeout=WAIT_S), f"only {self.reactions} after {WAIT_S} s"
 
-    def announce(self, text: str, emotion: str = "neutral", *, wait_for_followup=False) -> None:
+    def announce(
+        self, text: str, emotion: str = "neutral", *, wait_for_followup=False, expires_at=None
+    ) -> None:
         self.announced.append((text, emotion))
+        self.announced_until.append(expires_at)
         if wait_for_followup:
             self.waiting_for_followup.append(text)
 
@@ -7796,11 +7801,14 @@ def test_run_watches_for_rain_at_the_briefing_s_city_while_she_listens_and_pushe
     assert watcher.read_forecast().place == "Bandung, Jawa Barat"  # the briefing's place
     [query] = open_meteo.queries(FORECAST_HOST)
     assert query["hourly"] == ["weather_code,precipitation_probability,precipitation"]
-    watcher.announce(RAIN_TEXT, "neutral")
+    rain_starts = datetime(2026, 10, 17, 15, 0)
+    watcher.announce(RAIN_TEXT, "neutral", expires_at=rain_starts)
     assistant = RecordingAssistant.instances[0]
     assert assistant.announced == [(RAIN_TEXT, "neutral")]
-    # Never inside a conversation: she says it once the follow-up window has closed.
+    # Never inside a conversation: she says it once the follow-up window has closed, and
+    # never once the rain has started.
     assert assistant.waiting_for_followup == [RAIN_TEXT]
+    assert assistant.announced_until == [rain_starts]
 
 
 def test_run_s_rain_watcher_reads_from_a_client_that_leaves_logging_failures_to_it(

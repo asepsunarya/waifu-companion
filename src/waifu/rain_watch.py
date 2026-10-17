@@ -4,7 +4,8 @@ Every `POLL_S`, timed from the start of the previous poll and first right after 
 reads the forecast for the briefing's place, but only between `active_from` and `active_until`
 on the PC's clock: at night it asks nothing and stays quiet. A rain starting within
 `lead_minutes` of the forecast's own time is said between utterances, once the follow-up window
-has closed, and pushed to the phone when notifications are on. A failed read is never said: the
+has closed, but only until its rain starts (held longer, by a focus block or a game, it is
+dropped), and pushed to the phone when notifications are on. A failed read is never said: the
 first of a run of failures is logged at WARNING and the next poll tries again. What was told
 lives only in this process, so a restart may tell a rain once more. Nothing is raised.
 
@@ -34,6 +35,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from typing import Protocol
 
 from waifu.avatar.emotion import NEUTRAL
 from waifu.config import RainAlertConfig, at_sentence_start
@@ -67,6 +69,12 @@ _NUMBERS = (
 
 # Waits up to the given seconds for the event; True when it was set.
 Wait = Callable[[threading.Event, float], bool]
+
+
+class Announce(Protocol):
+    def __call__(self, text: str, emotion: str, *, expires_at: datetime | None) -> None:
+        """Queue `text` to be said, dropped when still unsaid at `expires_at`."""
+        ...
 
 
 @dataclass(frozen=True)
@@ -174,7 +182,7 @@ class RainWatcher:
         read_forecast: Callable[[], Forecast],
         config: RainAlertConfig,
         *,
-        announce: Callable[[str, str], None] | None,
+        announce: Announce | None,
         notifier: Notifier | None,
         owner_call: str,
         place: str | None,
@@ -238,7 +246,7 @@ class RainWatcher:
             f"{self._owner}, sekitar {spoken_hour(state.tell.start.hour)} kemungkinan "
             f"hujan{where}, angkat jemuran ya."
         )
-        self._deliver(text)
+        self._deliver(text, state.tell.start)
         return [text]
 
     def start(self) -> None:
@@ -281,11 +289,12 @@ class RainWatcher:
             exc_info=traceback,
         )
 
-    def _deliver(self, text: str) -> None:
-        """Say the alert and push it; a failure of either is logged, never raised."""
+    def _deliver(self, text: str, rain_starts: datetime) -> None:
+        """Say the alert, at the latest when its rain starts, and push it; a failure of either
+        is logged, never raised."""
         if self._announce is not None:
             try:
-                self._announce(text, NOTICE_EMOTION)
+                self._announce(text, NOTICE_EMOTION, expires_at=rain_starts)
             except Exception:
                 logger.exception("Could not say a rain alert")
         if self._notifier is not None:

@@ -3420,7 +3420,8 @@ def _rain_watcher(
     """Her warnings shortly before rain at the briefing's place while the block runs, also pushed
     to the phone when `rain_alert.push` and notifications are on; none with the alerts off or
     without a place. She says one once the follow-up window has closed, so a conversation is
-    never interrupted, and names the city as written (none with coordinates only). Its client
+    never interrupted, but never once its rain has started, and names the city as written (none
+    with coordinates only). Its client
     logs failures at DEBUG: the watcher logs a run of them once itself."""
     rain = config.rain_alert
     weather = (
@@ -3432,7 +3433,9 @@ def _rain_watcher(
     watcher = RainWatcher(
         weather.forecast,
         rain,
-        announce=lambda text, emotion: assistant.announce(text, emotion, wait_for_followup=True),
+        announce=lambda text, emotion, *, expires_at: assistant.announce(
+            text, emotion, wait_for_followup=True, expires_at=expires_at
+        ),
         notifier=notifier if rain.push else None,
         owner_call=config.assistant.owner_call,
         place=config.briefing.city,

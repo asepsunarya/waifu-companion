@@ -366,15 +366,20 @@ class Rig:
         self.now = AFTERNOON
         self.notifier = FakeNotifier()
         self.announced: list[tuple[str, str]] = []
+        self.expiries: list[datetime | None] = []  # until when each alert may still be said
         self.watcher = RainWatcher(
             self.read,
             RainAlertConfig(**config),
-            announce=lambda text, emotion: self.announced.append((text, emotion)),
+            announce=self.announce,
             notifier=self.notifier,
             owner_call=owner_call,
             place=place,
             now=lambda: self.now,
         )
+
+    def announce(self, text: str, emotion: str, *, expires_at: datetime | None) -> None:
+        self.announced.append((text, emotion))
+        self.expiries.append(expires_at)
 
     def poll(self, reply: Forecast | Exception | None = None) -> list[str]:
         """One poll, reading `reply` when given (else the last one)."""
@@ -392,6 +397,15 @@ def test_a_rain_within_the_hour_is_said_calmly_and_pushed_with_an_umbrella():
     assert notices == [THREE_PM]
     assert rig.announced == [(THREE_PM, "neutral")]
     assert rig.notifier.sent == [("Cyrene", THREE_PM, ("umbrella",))]
+
+
+def test_the_alert_may_be_said_only_until_its_rain_starts():
+    # Held through a focus block or a game, a warning of rain already falling is no warning.
+    rig = Rig(forecast(14.0, rain=[16, 17]))
+
+    rig.poll()
+
+    assert rig.expiries == [at(15)]
 
 
 def test_she_says_it_as_the_owner_asked_calling_them_at_sentence_start():
@@ -590,7 +604,7 @@ def test_an_unexpected_failure_is_logged_with_its_traceback_and_never_said(caplo
 def test_a_voice_that_fails_never_stops_the_push(caplog):
     rig = Rig(forecast(14.0, rain=[16]))
 
-    def broken(text: str, emotion: str) -> None:
+    def broken(text: str, emotion: str, *, expires_at: datetime | None) -> None:
         raise RuntimeError("the avatar is gone")
 
     rig.watcher._announce = broken
