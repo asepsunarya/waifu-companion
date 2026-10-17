@@ -4,6 +4,19 @@ Ringkasan per versi, yang terbaru di atas. Rinciannya ada di README (bagian yang
 setiap versi) dan di SPEC.md. Setelah memperbarui, **mulai ulang `waifu run`** supaya semuanya
 aktif, lalu jalankan `waifu check`.
 
+## v1.31.1: pertanyaan yang tertahan
+
+- Pertanyaan malam jurnal yang tertahan sampai tengah malam (blok fokus, obrolan lewat HP, atau
+  obrolan dengannya) dilewati malam itu, jadi dia tidak lagi bertanya tentang "hari ini" di
+  tanggal yang baru.
+- Begitu juga sapaan pagi yang tertahan sampai `briefing.until` dan laporan game mingguan yang
+  tertahan sampai tengah malam: dilewati hari itu, tidak diucapkan terlambat atau dikirim ke HP.
+  Log `waifu run` mencatatnya dengan `Not saying a request held past`.
+- Jawaban pertanyaan malam yang diucapkan tepat sesudah tengah malam dicatat di tanggal dia
+  bertanya, bukan tanggal yang baru, asal dijawab dalam sekitar 10 menit sejak pertanyaannya.
+- Tidak ada pengaturan baru. README: "Sapaan pagi dan ringkasan harian", "Laporan game
+  mingguan", dan "Jurnal harian".
+
 ## v1.31: jurnal harian
 
 - Cyrene bisa menyimpan jurnal harian Master: "catat di jurnal: hari ini laporannya selesai"

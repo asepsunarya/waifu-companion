@@ -1474,9 +1474,9 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 152a · **Files:** `src/waifu/brain/journal_tools.py`, `tests/test_journal_tools.py`, `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** S
 
-## Task 155: Docs
+## Task 155: Docs ✅
 
 **Acceptance criteria:**
-- [ ] README "Sapaan pagi dan ringkasan harian", "Laporan game mingguan", and "Jurnal harian" say what happens to a held request; CHANGELOG v1.31.1; full suite and ruff clean
+- [x] README "Sapaan pagi dan ringkasan harian", "Laporan game mingguan", and "Jurnal harian" say what happens to a held request; CHANGELOG v1.31.1; full suite and ruff clean
 
 **Dependencies:** 153, 154 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S

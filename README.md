@@ -2042,6 +2042,9 @@ Kapan dia melapor:
 - **Tidak pernah memotong**, sama seperti sapaan pagi: diucapkan di sela kalimat Master,
   sesudah jendela lanjutan tertutup. Sesudahnya jendela lanjutan terbuka, jadi Master bisa
   langsung membalas.
+- **Tidak lewat tengah malam.** Kalau laporannya masih tertahan sampai tengah malam (blok fokus,
+  obrolan lewat HP, atau Master masih mengobrol dengannya), laporan minggu itu dilewati, tidak
+  diucapkan hari Senin. Log `waifu run` mencatatnya.
 - **Di sesi obrolan baru**, dan tool keuangan menolak di giliran itu, jadi tidak ada angka
   uang yang terucap atau terkirim ke HP.
 - **Riwayatnya diperbarui dulu**, seperti saat Master bertanya pity, tapi hanya untuk game yang
@@ -3073,6 +3076,9 @@ Master : "Cyrene, ringkasan hari ini dong."
   untuk mematikan PC), dan tidak saat Master baru saja memotongnya dengan klik dua kali
   (sapaannya menunggu sampai Master bicara atau jendela lanjutan lewat). Pengingat yang antre
   bersamaan diucapkan dulu, baru sapaannya sesudah jeda singkat.
+- **Tidak terlambat.** Sapaan yang masih tertahan sampai `briefing.until` (blok fokus, obrolan
+  lewat HP, atau obrolan panjang dengannya) dilewati hari itu, tidak diucapkan siang-siang dan
+  tidak dikirim ke HP. Log mencatatnya dengan `Not saying a request held past`.
 - **Kalimatnya dari otaknya sendiri** (Claude atau Ollama), jadi berbeda setiap hari dan
   butuh beberapa detik untuk dipikirkan. Sesudahnya jendela lanjutan terbuka: Master bisa
   langsung membalas tanpa memanggil namanya.
@@ -4123,6 +4129,13 @@ Cyrene : "Sudah kucatat. Istirahat yang cukup ya."
 - Pertanyaannya tidak dikirim ke HP. Selama [blok fokus](#teman-fokus), pertanyaannya menunggu
   sampai istirahat. Kalau PC baru menyala setelah jam itu, dia bertanya saat itu, asal belum
   tengah malam. `waifu chat` tidak pernah bertanya.
+- Pertanyaan yang masih tertahan sampai tengah malam (blok fokus, obrolan lewat HP, atau Master
+  masih mengobrol dengannya) dilewati malam itu, supaya dia tidak bertanya tentang "hari ini"
+  di tanggal yang baru. Log mencatatnya dengan `Not saying a request held past`.
+- Kalau dia bertanya tepat sebelum tengah malam dan Master menjawab sesudahnya, jawabannya tetap
+  dicatat di tanggal dia bertanya, asal dijawab dalam sekitar 10 menit sejak pertanyaannya
+  (`assistant.session_idle_minutes`). Catatan sesudah itu masuk ke tanggal hari ini seperti
+  biasa.
 
 ### Menghapus catatan
 
