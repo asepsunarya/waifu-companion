@@ -2527,7 +2527,7 @@ waifu schedule clear                # hanya menghitung yang akan dihapus
 waifu schedule clear --yes          # hapus semua jadwal
 waifu routine list                  # setiap rutinitas dan langkahnya
 waifu routine run tidur --dry-run   # coba di perangkat simulasi
-waifu routine run tidur             # jalankan sekarang di perangkat asli
+waifu routine run tidur             # jalankan sekarang di perangkat asli; langkah yang ditunda masuk jadwal
 ```
 
 `waifu schedule list` menampilkan jam berikutnya setiap jadwal:
@@ -2539,10 +2539,10 @@ j3  Selasa 13-10-2026 23:00  tiap hari         rutinitas tidur
 j2  Rabu 14-10-2026 02:00    sekali            perangkat ac off
 ```
 
-Jadwal baru dibuat lewat suara atau `waifu chat` (tanpa `--dry-run`). Perintah
-`waifu schedule` tetap jalan walau `schedule.enabled: false`, dan Cyrene yang sedang
-berjalan melihat perubahannya dalam 15 detik. `waifu check` menampilkan
-`✓ Jadwal: <n> entri (data\schedule.json)`.
+Jadwal baru dibuat lewat suara, `waifu chat` (tanpa `--dry-run`), atau `waifu routine run`
+untuk langkah yang ditunda (lihat [Mode tidur](#mode-tidur)). Perintah `waifu schedule` tetap
+jalan walau `schedule.enabled: false`, dan Cyrene yang sedang berjalan melihat perubahannya
+dalam 15 detik. `waifu check` menampilkan `✓ Jadwal: <n> entri (data\schedule.json)`.
 
 ### File data\schedule.json
 
