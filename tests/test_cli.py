@@ -20,7 +20,7 @@ import urllib.parse
 import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import UTC, date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, time, timedelta, timezone
 from importlib.machinery import ModuleSpec
 from pathlib import Path, PureWindowsPath
 
@@ -52,6 +52,7 @@ from waifu.brain.music_tools import MusicTools
 from waifu.brain.offers_tools import OffersTools
 from waifu.brain.pc_tools import PcTools
 from waifu.brain.persona import WEEKDAYS_ID
+from waifu.brain.play_time_tools import PlayTimeTools
 from waifu.brain.schedule_tools import ScheduleTools
 from waifu.brain.screen_tools import ScreenTools
 from waifu.brain.todo_tools import TodoTools
@@ -62,6 +63,7 @@ from waifu.config import (
     FreeOffersConfig,
     MusicConfig,
     PcHealthConfig,
+    PlayTimeConfig,
     RainAlertConfig,
     RedeemCodesConfig,
     RvcConfig,
@@ -137,6 +139,8 @@ from waifu.offers.values import AiOffer, GameGiveaway
 from waifu.pc_health import Drive, GpuStatus, PcSnapshot
 from waifu.phone.auth import CODE_LIFETIME, PhoneAuth, Refusal
 from waifu.phone.server import PhoneError, PhoneReply
+from waifu.play_time import PlayTimeStore, Session
+from waifu.processes import running_executables
 from waifu.schedule import DeviceAction, Reminder, RoutineAction, ScheduleStore
 from waifu.scheduler import MONTHS_ID, Scheduler
 from waifu.screen import ScreenImage
@@ -507,6 +511,51 @@ def rain_watchers(events, monkeypatch) -> list[FakeRainWatcher]:
 
     monkeypatch.setattr(cli, "RainWatcher", build)
     return built
+
+
+class FakePlayTimeWatcher:
+    """Stands in for PlayTimeWatcher without a thread, remembering what it was given, whether
+    `waifu run` listened when it started and stopped, and the test's `events` up to then."""
+
+    def __init__(
+        self, list_processes, store, config, *, announce, owner_call, events: list[str]
+    ) -> None:
+        self.list_processes, self.store, self.config = list_processes, store, config
+        self.announce, self.owner_call = announce, owner_call
+        self._events = events
+        self.listening: list[bool] = []
+        self.events_when_started: list[str] | None = None
+        self.events_when_stopped: list[str] | None = None
+
+    def start(self) -> None:
+        self.listening.append(listening())
+        self.events_when_started = list(self._events)
+
+    def stop(self) -> None:
+        self.listening.append(listening())
+        self.events_when_stopped = list(self._events)
+
+
+@pytest.fixture(autouse=True)
+def play_time_watchers(events, monkeypatch) -> list[FakePlayTimeWatcher]:
+    """The real watcher would list the PC's processes in a thread through every `run` (play time
+    is on by default), so every test gets the fake."""
+    built: list[FakePlayTimeWatcher] = []
+
+    def build(list_processes, store, config, **arguments) -> FakePlayTimeWatcher:
+        built.append(FakePlayTimeWatcher(list_processes, store, config, **arguments, events=events))
+        return built[-1]
+
+    monkeypatch.setattr(cli, "PlayTimeWatcher", build)
+    return built
+
+
+@pytest.fixture(autouse=True)
+def no_real_play_time(tmp_path, monkeypatch):
+    """Every play time store a command builds lives under tmp_path: a test that leaves the
+    working directory at the repository fails instead of reading the owner's sessions in
+    data/playtime.json (building a store touches no file, so the refusal comes first)."""
+    monkeypatch.setattr(cli, "PlayTimeStore", only_under(tmp_path, cli.PlayTimeStore))
 
 
 V124 = Release("v1.24", "keuangan dari tepira")
@@ -4809,6 +4858,7 @@ def test_run_with_the_games_on_gives_the_brain_the_game_tools_and_watches_while_
         todo,
         briefing,
         pc,
+        play_time,
         offers,
         music,
     ] = brains[0].providers
@@ -4819,6 +4869,7 @@ def test_run_with_the_games_on_gives_the_brain_the_game_tools_and_watches_while_
         type(todo),
         type(briefing),
         type(pc),
+        type(play_time),
         type(offers),
         type(music),
     ) == (
@@ -4828,6 +4879,7 @@ def test_run_with_the_games_on_gives_the_brain_the_game_tools_and_watches_while_
         TodoTools,
         BriefingTools,
         PcTools,
+        PlayTimeTools,
         OffersTools,
         MusicTools,
     )
@@ -4885,6 +4937,7 @@ def test_run_without_a_cookie_has_the_game_tools_but_no_watcher(
         TodoTools,
         BriefingTools,
         PcTools,
+        PlayTimeTools,
         OffersTools,
         MusicTools,
     ]
@@ -4901,6 +4954,7 @@ def test_run_with_the_games_off_builds_none_of_it(home, run_fakes, brains, games
         TodoTools,
         BriefingTools,
         PcTools,
+        PlayTimeTools,
         OffersTools,
         MusicTools,
     ]
@@ -4922,6 +4976,7 @@ def test_chat_with_the_games_on_gives_the_brain_the_game_tools(home, brains, gam
         TodoTools,
         BriefingTools,
         PcTools,
+        PlayTimeTools,
         OffersTools,
         MusicTools,
     ]
@@ -5853,8 +5908,8 @@ def test_run_gives_the_brain_her_memory_tools_and_the_notes_at_each_session_star
     assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
 
     brain = brains[0]
-    # Then the schedule, to-do, briefing, PC, offers, and music.
-    [tools, _, _, _, _, _, _] = brain.providers
+    # Then the schedule, to-do, briefing, PC, play time, offers, and music.
+    [tools, _, _, _, _, _, _, _] = brain.providers
     assert isinstance(tools, MemoryTools)
     assert brain.memory_section() == memory_prompt_section([])
     assert tools.run("remember", {"text": "Master alergi udang."})[1] is False
@@ -5877,6 +5932,7 @@ def test_chat_gives_the_brain_the_notes_saved_in_data_memory_json(home, brains, 
         TodoTools,
         BriefingTools,
         PcTools,
+        PlayTimeTools,
         OffersTools,
         MusicTools,
     ]
@@ -5897,6 +5953,7 @@ def test_with_the_memory_off_the_brain_gets_neither_the_tools_nor_the_notes(
         TodoTools,
         BriefingTools,
         PcTools,
+        PlayTimeTools,
         OffersTools,
         MusicTools,
     ]
@@ -6212,6 +6269,7 @@ def test_run_gives_the_brain_the_schedule_tools_and_fires_her_schedule_while_she
         TodoTools,
         BriefingTools,
         PcTools,
+        PlayTimeTools,
         OffersTools,
         MusicTools,
     ]
@@ -6369,6 +6427,7 @@ def test_with_the_schedule_off_she_gets_neither_the_tools_nor_a_scheduler(
         TodoTools,
         BriefingTools,
         PcTools,
+        PlayTimeTools,
         OffersTools,
         MusicTools,
     ]
@@ -6842,6 +6901,7 @@ def test_with_claude_she_may_look_at_the_screen_at_the_configured_size(
         TodoTools,
         BriefingTools,
         PcTools,
+        PlayTimeTools,
         OffersTools,
         MusicTools,
         ScreenTools,
@@ -6992,6 +7052,7 @@ def test_without_claude_or_with_vision_off_the_brain_gets_no_screen_tool(
         TodoTools,
         BriefingTools,
         PcTools,
+        PlayTimeTools,
         OffersTools,
         MusicTools,
         *([UsageTools] if claude else []),  # what her requests cost, with Claude only
@@ -7150,9 +7211,10 @@ def test_run_greets_once_a_day_while_she_listens_and_pushes_the_greeting_to_the_
 
     assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
 
-    assert [type(tools) for tools in brains[0].providers][-4:] == [
+    assert [type(tools) for tools in brains[0].providers][-5:] == [
         BriefingTools,
         PcTools,
+        PlayTimeTools,
         OffersTools,
         MusicTools,
     ]
@@ -7216,9 +7278,10 @@ def test_chat_gives_the_brain_the_briefing_tool_but_never_greets_by_herself(
 
     assert cli.main(["chat", "--dry-run"]) == 0
 
-    assert [type(tools) for tools in brains[0].providers][-4:] == [
+    assert [type(tools) for tools in brains[0].providers][-5:] == [
         BriefingTools,
         PcTools,
+        PlayTimeTools,
         OffersTools,
         MusicTools,
     ]
@@ -7239,6 +7302,7 @@ def test_with_the_briefing_off_she_gets_neither_the_tool_nor_the_greeting(
         ScheduleTools,
         TodoTools,
         PcTools,
+        PlayTimeTools,
         OffersTools,
         MusicTools,
     ]
@@ -9579,6 +9643,355 @@ def test_check_reports_whether_she_reads_the_pc_and_which_gpu(
     assert pc_readings.gpu_reads == (1 if enabled else 0)  # nvidia-smi only while it is on
 
 
+# --- play time ---------------------------------------------------------------------------------
+
+LATE = "Master, sudah lewat jam setengah dua belas, jangan terlalu malam ya."
+# Saturday 17 October 2026, 22:00 WIB: `waifu playtime` and the tool read the file at this time.
+PLAY_NOW = datetime(2026, 10, 17, 22, 0, tzinfo=timezone(timedelta(hours=7)))
+
+
+def play_at(hour: float) -> datetime:
+    """`hour` hours after Saturday 00:00 WIB."""
+    return PLAY_NOW.replace(hour=0) + timedelta(seconds=round(hour * 3600))
+
+
+def play_time_tools(brain: HouseBrain) -> PlayTimeTools:
+    [tools] = [provider for provider in brain.providers if isinstance(provider, PlayTimeTools)]
+    return tools
+
+
+@pytest.fixture
+def played(home, monkeypatch) -> PlayTimeStore:
+    """The clock at PLAY_NOW and a Saturday in the example config's play time file: HSR 08:00
+    until 09:00 and 20:00 until 21:30, ZZZ 21:00 until 21:45, Genshin from Friday 22:00 until
+    00:30, and HSR open again since 21:50, last seen at 21:59."""
+    monkeypatch.setattr(cli, "wib_now", lambda: PLAY_NOW)
+    store = PlayTimeStore(
+        home / "data" / "playtime.json",
+        games=["hsr", "genshin", "zzz"],
+        keep_days=90,
+        now=lambda: PLAY_NOW,
+    )
+    store.save(
+        [Session("hsr", play_at(21) + timedelta(minutes=50), play_at(21) + timedelta(minutes=59))],
+        [
+            Session("genshin", play_at(-2), play_at(0.5)),
+            Session("hsr", play_at(8), play_at(9)),
+            Session("hsr", play_at(20), play_at(21.5)),
+            Session("zzz", play_at(21), play_at(21.75)),
+        ],
+    )
+    return store
+
+
+def test_run_counts_play_time_while_she_listens_and_nudges_only_between_conversations(
+    home, run_fakes, brains, play_time_watchers
+):
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    [watcher] = play_time_watchers
+    assert watcher.config == PlayTimeConfig()  # the example config's settings
+    assert watcher.list_processes is running_executables  # names only, never a game's handle
+    assert watcher.store.path == Path("data") / "playtime.json"
+    assert watcher.store.games == ("hsr", "genshin", "zzz")
+    assert watcher.owner_call == "Master"
+    assert watcher.listening == [False, True]
+    assert "mic opened" in watcher.events_when_started  # once she is ready to listen
+    assert "mic closed" not in watcher.events_when_stopped
+    watcher.announce(LATE, "neutral")
+    assistant = RecordingAssistant.instances[0]
+    assert assistant.announced == [(LATE, "neutral")]
+    # Never inside a conversation: she says it once the follow-up window has closed.
+    assert assistant.waiting_for_followup == [LATE]
+
+
+def test_run_counts_the_configured_games_with_the_bedtime_for_an_owner_she_calls_sayang(
+    home, run_fakes, brains, play_time_watchers
+):
+    call_the_owner(home, "Sayang")
+    append_config(
+        home,
+        "play_time:\n  poll_seconds: 120\n  games:\n    zzz: [ZenlessZoneZero.exe]\n"
+        "  bedtime: 23:30\n  keep_days: 30\n  path: data/main.json\n",
+    )
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    [watcher] = play_time_watchers
+    assert watcher.config == PlayTimeConfig(
+        poll_seconds=120,
+        games={"zzz": ["ZenlessZoneZero.exe"]},
+        bedtime=time(23, 30),
+        keep_days=30,
+        path=Path("data/main.json"),
+    )
+    assert (watcher.store.path, watcher.store.games, watcher.store.keep_days) == (
+        Path("data/main.json"),
+        ("zzz",),
+        30,
+    )
+    assert watcher.owner_call == "Sayang"
+
+
+@pytest.mark.parametrize(
+    ("failure", "exit_code"),
+    [(SttError("Whisper berhenti."), 1), (KeyboardInterrupt(), 130)],
+    ids=["whisper-fails", "ctrl-c"],
+)
+def test_run_stops_counting_play_time_however_listening_ends(
+    failure, exit_code, home, run_fakes, brains, play_time_watchers, monkeypatch
+):
+    def listen_until_it_fails(self, mic, segmenter) -> None:
+        self.ran_with = (mic, segmenter)
+        raise failure
+
+    monkeypatch.setattr(RecordingAssistant, "run", listen_until_it_fails)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == exit_code
+
+    [watcher] = play_time_watchers
+    assert watcher.listening == [False, True]
+
+
+@pytest.mark.parametrize("argv", [["run", "--no-speaker-check"], ["chat"]])
+def test_run_and_chat_give_the_brain_the_play_time_tool_and_only_run_counts(
+    argv, home, run_fakes, brains, play_time_watchers, monkeypatch
+):
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main([*argv, "--dry-run"]) == 0
+
+    assert play_time_tools(brains[0]).specs()[0].name == "play_time"
+    assert len(play_time_watchers) == (1 if argv[0] == "run" else 0)
+
+
+@pytest.mark.parametrize("argv", [["run", "--no-speaker-check"], ["chat"]])
+def test_with_play_time_off_there_is_neither_the_tool_nor_the_watcher(
+    argv, home, run_fakes, brains, play_time_watchers, monkeypatch
+):
+    append_config(home, "play_time:\n  enabled: false\n")
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main([*argv, "--dry-run"]) == 0
+
+    assert not any(isinstance(tools, PlayTimeTools) for tools in brains[0].providers)
+    assert play_time_watchers == []
+
+
+def test_the_play_time_tool_reads_the_file_run_keeps(home, brains, played, monkeypatch):
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+    assert cli.main(["chat", "--dry-run"]) == 0
+
+    result, is_error = play_time_tools(brains[0]).run("play_time", {"game": "hsr"})
+
+    assert is_error is False
+    data = json.loads(result)
+    assert (data["from"], data["to"]) == ("2026-10-17 00:00", "2026-10-17 22:00")
+    assert data["games"] == [
+        {
+            "game": "hsr",
+            "name": "Honkai: Star Rail",
+            "hours": 2,
+            "minutes": 39,
+            "sessions": 3,
+            "playing_now": True,
+        }
+    ]
+
+
+def test_the_weekly_report_holds_the_play_time_with_play_time_on(
+    home, brains, game_data, games, monkeypatch
+):
+    enable_gacha(home)
+    play_only(home, "[hsr]")
+    save_hsr_week(home)
+    hsr_week_on_hoyolab(game_data)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+    assert cli.main(["chat", "--dry-run"]) == 0
+
+    result, _ = weekly_report_tools(brains[0]).run("weekly_report", {})
+
+    [hsr] = json.loads(result)["games"]
+    assert hsr["play_time"] == {"hours": 0, "minutes": 0, "sessions": 0}
+    assert hsr["play_time_problem"] is None
+    assert "the time each game was open" in weekly_report_tools(brains[0]).specs()[0].description
+
+
+def test_the_weekly_report_leaves_the_play_time_out_with_play_time_off(
+    home, brains, game_data, games, monkeypatch
+):
+    enable_gacha(home)
+    play_only(home, "[hsr]")
+    save_hsr_week(home)
+    hsr_week_on_hoyolab(game_data)
+    append_config(home, "play_time:\n  enabled: false\n")
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+    assert cli.main(["chat", "--dry-run"]) == 0
+
+    result, _ = weekly_report_tools(brains[0]).run("weekly_report", {})
+
+    [hsr] = json.loads(result)["games"]
+    assert "play_time" not in hsr
+
+
+def test_playtime_prints_today_s_time_per_game_and_the_total_from_her_own_count(
+    home, played, capsys
+):
+    assert cli.main(["playtime"]) == 0
+
+    assert capsys.readouterr().out.splitlines() == [
+        "Jam main hari ini, Sabtu 17-10-2026, dari catatan Cyrene:",
+        "GAME               WAKTU           SESI",
+        "Honkai: Star Rail  2 jam 39 menit  3     sedang main",
+        "Genshin Impact     30 menit        1",
+        "Zenless Zone Zero  45 menit        1",
+        "Total              3 jam 24 menit  5",
+        "Dihitung hanya selama 'waifu run' menyala, sejak Jumat 16-10-2026 22:00; game yang "
+        "terbuka tapi tidak dimainkan ikut terhitung.",
+    ]
+
+
+def test_playtime_prints_yesterday_with_a_dash_for_a_game_not_played_and_nothing_open(
+    home, played, capsys
+):
+    assert cli.main(["playtime", "yesterday"]) == 0
+
+    assert capsys.readouterr().out.splitlines()[:6] == [
+        "Jam main kemarin, Jumat 16-10-2026, dari catatan Cyrene:",
+        "GAME               WAKTU  SESI",
+        "Honkai: Star Rail  -      0",  # open now, but yesterday is over
+        "Genshin Impact     2 jam  1",
+        "Zenless Zone Zero  -      0",
+        "Total              2 jam  1",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("period", "heading"),
+    [
+        ("week", "Jam main minggu ini, sejak Senin 12-10-2026, dari catatan Cyrene:"),
+        ("month", "Jam main bulan ini, Oktober 2026, dari catatan Cyrene:"),
+    ],
+)
+def test_playtime_prints_the_week_or_the_month_when_asked(home, played, capsys, period, heading):
+    assert cli.main(["playtime", period]) == 0
+
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0] == heading
+    assert lines[2:6] == [
+        "Honkai: Star Rail  2 jam 39 menit  3     sedang main",
+        "Genshin Impact     2 jam 30 menit  1",  # from Friday 22:00
+        "Zenless Zone Zero  45 menit        1",
+        "Total              5 jam 24 menit  5",
+    ]
+
+
+def test_playtime_says_when_nothing_is_recorded_and_makes_no_file(home, capsys):
+    assert cli.main(["playtime"]) == 0
+
+    assert capsys.readouterr().out.splitlines() == ["Belum ada catatan jam main."]
+    assert not (home / "data" / "playtime.json").exists()
+
+
+def test_playtime_reads_the_file_with_play_time_off_and_says_so(home, played, capsys):
+    append_config(home, "play_time:\n  enabled: false\n")
+
+    assert cli.main(["playtime"]) == 0
+
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0] == (
+        "! Jam main mati (play_time.enabled: false): tidak ada yang dihitung; ini catatan lama."
+    )
+    assert lines[1] == "Jam main hari ini, Sabtu 17-10-2026, dari catatan Cyrene:"
+
+
+def test_playtime_exits_1_when_the_file_cannot_be_read(home, played, monkeypatch, capsys):
+    def unreadable(self):
+        raise PermissionError("access denied")
+
+    monkeypatch.setattr(PlayTimeStore, "record", unreadable)
+
+    assert cli.main(["playtime"]) == 1
+
+    assert capsys.readouterr().out.splitlines() == [
+        f"✗ File jam main {Path('data') / 'playtime.json'} tidak bisa dibaca: access denied"
+    ]
+
+
+def test_gacha_report_tells_the_week_s_play_time(home, game_data, games, capsys):
+    play_only(home, "[hsr]")
+    save_hsr_week(home)
+    hsr_week_on_hoyolab(game_data)
+    now = datetime.now(timezone(timedelta(hours=7))).replace(microsecond=0)
+    PlayTimeStore(home / "data" / "playtime.json", games=["hsr"], keep_days=90).save(
+        [], [Session("hsr", now - timedelta(hours=3), now - timedelta(hours=1))]
+    )
+
+    assert cli.main(["gacha", "report"]) == 0
+
+    assert "  Jam main minggu ini: 2 jam dalam 1 sesi" in capsys.readouterr().out.splitlines()
+
+
+def play_time_line(out: str) -> str:
+    [line] = [line for line in out.splitlines() if "jam main" in line.lower()]
+    return line
+
+
+@pytest.mark.parametrize(
+    ("settings", "expected"),
+    [
+        (None, "✓ Jam main: aktif (HSR, Genshin, ZZZ)"),
+        (
+            "play_time:\n  games:\n    zzz: [ZenlessZoneZero.exe]\n  bedtime: 23:30\n",
+            "✓ Jam main: aktif (ZZZ), pengingat tidur 23:30",
+        ),
+        ("play_time:\n  enabled: false\n", "! Jam main mati"),
+    ],
+    ids=["default", "bedtime", "off"],
+)
+def test_check_says_which_games_she_counts_without_listing_any_process(
+    settings, expected, home, nothing_installed, capsys
+):
+    if settings is not None:
+        append_config(home, settings)
+
+    cli.main(["check"])
+
+    assert play_time_line(capsys.readouterr().out) == expected
+    assert not (home / "data" / "playtime.json").exists()
+
+
+def test_check_moves_a_broken_play_time_file_aside_and_points_at_it(
+    home, nothing_installed, capsys
+):
+    (home / "data").mkdir(exist_ok=True)
+    (home / "data" / "playtime.json").write_text("broken", encoding="utf-8")
+
+    cli.main(["check"])
+
+    line = play_time_line(capsys.readouterr().out)
+    [moved] = (home / "data").glob("playtime.json.corrupt-*")
+    assert line == (
+        f"! Jam main: aktif (HSR, Genshin, ZZZ); file jam main yang rusak dipindah ke "
+        f"{Path('data') / moved.name} (lihat README, bagian Jam main)"
+    )
+
+
+def test_check_fails_when_the_play_time_file_cannot_be_read(
+    home, nothing_installed, monkeypatch, capsys
+):
+    def unreadable(self):
+        raise PermissionError("access denied")
+
+    monkeypatch.setattr(PlayTimeStore, "record", unreadable)
+
+    assert cli.main(["check"]) == 1
+
+    assert play_time_line(capsys.readouterr().out) == (
+        f"✗ File jam main {Path('data') / 'playtime.json'} tidak bisa dibaca: access denied"
+    )
+
+
 # --- web search and free offers ----------------------------------------------------------------
 
 
@@ -9773,7 +10186,12 @@ def test_run_gives_the_brain_the_offers_tools_and_watches_for_offers_while_she_l
 
     assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
 
-    assert [type(tools) for tools in brains[0].providers][-3:] == [PcTools, OffersTools, MusicTools]
+    assert [type(tools) for tools in brains[0].providers][-4:] == [
+        PcTools,
+        PlayTimeTools,
+        OffersTools,
+        MusicTools,
+    ]
     [watcher] = offers_watchers
     assert watcher.config == FreeOffersConfig()  # the example config's settings
     assert (watcher.owner_call, watcher.title, watcher.notifier) == ("Master", "Cyrene", notifier)
@@ -11214,6 +11632,7 @@ def test_gacha_report_prints_the_week_of_each_game_without_the_brain_also_with_t
         # With the games off no watcher keeps the codes fresh, so the stored list says so.
         "  Kode belum ditukarkan (daftar tersimpan, perbarui dengan 'waifu gacha codes'): "
         "tidak ada",
+        "  Jam main minggu ini: belum main",
         "Catatan: HoYoverse mencatat pull sekitar satu jam setelahnya, jadi pull barusan "
         "mungkin belum ada.",
     ]
@@ -11463,6 +11882,7 @@ def test_run_gives_the_brain_her_to_do_tools_and_the_tasks_due_today_in_the_brie
         TodoTools,
         BriefingTools,
         PcTools,
+        PlayTimeTools,
         OffersTools,
         MusicTools,
     ]
@@ -11497,6 +11917,7 @@ def test_chat_gives_the_brain_the_tasks_saved_in_data_todo_json_with_either_back
         TodoTools,
         BriefingTools,
         PcTools,
+        PlayTimeTools,
         OffersTools,
         MusicTools,
         *([ScreenTools, UsageTools] if claude else []),
@@ -11524,6 +11945,7 @@ def test_with_the_todo_list_off_the_brain_gets_neither_the_tools_nor_the_tasks(
         ScheduleTools,
         BriefingTools,
         PcTools,
+        PlayTimeTools,
         OffersTools,
         MusicTools,
     ]
@@ -11820,6 +12242,7 @@ def test_the_claude_request_with_every_tool_on_stays_within_the_strict_tool_limi
         "play_youtube",
         "look_at_screen",
         "api_usage",
+        "play_time",
         *FINANCE_TOOLS,
     } <= names
     strict = [tool for tool in request["tools"] if tool.get("strict")]
@@ -11909,6 +12332,7 @@ def test_run_and_chat_give_the_brain_the_music_tool_with_either_backend(
         TodoTools,
         BriefingTools,
         PcTools,
+        PlayTimeTools,
         OffersTools,
         MusicTools,
         *([ScreenTools, UsageTools] if claude else []),
@@ -12003,6 +12427,7 @@ def test_with_music_off_the_brain_gets_no_music_tool(
         TodoTools,
         BriefingTools,
         PcTools,
+        PlayTimeTools,
         OffersTools,
     ]
     assert opener.links == []
@@ -12355,8 +12780,9 @@ def test_run_with_tepira_on_reads_master_s_money_after_the_free_offers(
 
     assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
 
-    assert [type(tools) for tools in brains[0].providers][-4:] == [
+    assert [type(tools) for tools in brains[0].providers][-5:] == [
         PcTools,
+        PlayTimeTools,
         OffersTools,
         FinanceTools,
         MusicTools,

@@ -63,6 +63,7 @@ from waifu.brain.music_tools import MusicTools
 from waifu.brain.offers_tools import OffersTools
 from waifu.brain.pc_tools import PcTools
 from waifu.brain.persona import WEEKDAYS_ID
+from waifu.brain.play_time_tools import PlayTimeTools
 from waifu.brain.schedule_tools import ScheduleTools
 from waifu.brain.screen_tools import ScreenTools
 from waifu.brain.todo_tools import TodoTools
@@ -169,6 +170,20 @@ from waifu.pc_health import CpuLoad, Drive, GpuStatus, PcSnapshot, gpu_status, r
 from waifu.pc_watch import PcWatcher
 from waifu.phone.auth import CODE_LIFETIME, MAX_TRIES, PhoneAuth
 from waifu.phone.server import LOOPBACK, PhoneError, PhoneServer
+from waifu.play_time import (
+    PERIODS,
+    PlayRecord,
+    PlayTimeStore,
+    PlayTotal,
+    period_window,
+    play_totals,
+    played_seconds,
+    playing_now,
+    whole_minutes,
+    wib_now,
+)
+from waifu.play_watch import PlayTimeWatcher
+from waifu.processes import running_executables
 from waifu.rain_watch import RainWatcher, RainWindow, rain_window, raining_now, spoken_hour
 from waifu.routines import describe_routine, routine_problems, run_routine
 from waifu.schedule import (
@@ -615,6 +630,20 @@ def build_parser() -> argparse.ArgumentParser:
         "pc",
         _pc,
         "Tampilkan kondisi PC: beban CPU, RAM, sisa disk, GPU NVIDIA, dan waktu sejak restart.",
+    )
+    playtime = command(
+        "playtime",
+        _playtime,
+        "Tampilkan berapa lama tiap game dibuka (HSR, Genshin, ZZZ), dari catatan Cyrene "
+        "selama 'waifu run' menyala.",
+    )
+    playtime.add_argument(
+        "period",
+        nargs="?",
+        choices=PERIODS,
+        default="today",
+        help="today (hari ini, bawaan), yesterday (kemarin), week (minggu ini, sejak Senin), "
+        "atau month (bulan ini)",
     )
     youtube = commands.add_parser(
         "youtube",
@@ -1173,6 +1202,7 @@ def _listen(args: argparse.Namespace) -> int:
                         _gacha_watcher(config, gacha, assistant),
                         _code_watcher(config, gacha, assistant, notifier),
                         _pc_watcher(config, pc, assistant, notifier),
+                        _play_time_watcher(config, assistant),
                         _rain_watcher(config, assistant, notifier),
                         _version_watcher(config, running, assistant, notifier),
                         _offers_watcher(config, assistant, notifier, usage),
@@ -1281,10 +1311,10 @@ def _companion_brain(
 ) -> Brain:
     """The brain with the game tools when they are on, her long-term memory when it is on,
     then her schedule when it is on, Master's to-do list when it is on, the day's briefing when
-    it is on, with `pc` how the PC is doing, the free offers when they are on (their links
-    pushed through `notifier`), Master's money from tepira when it is on, songs on YouTube
-    when they are on, with Claude her eyes on the screen when vision is on, and with `usage`
-    what her requests cost.
+    it is on, with `pc` how the PC is doing, how long Master's games were open when play time
+    is on, the free offers when they are on (their links pushed through `notifier`), Master's
+    money from tepira when it is on, songs on YouTube when they are on, with Claude her eyes on
+    the screen when vision is on, and with `usage` what her requests cost.
 
     With memory, every new session lists the notes as they are in the file at that moment.
     The to-do list is the real one also in a dry run (it moves no device), and the briefing
@@ -1315,6 +1345,8 @@ def _companion_brain(
         providers.append(_briefing_tools(config.briefing, schedule, todo=todo))
     if pc is not None:
         providers.append(PcTools(pc, owner_call=owner_call))
+    if config.play_time.enabled:
+        providers.append(PlayTimeTools(_play_time_store(config), config.play_time, now=wib_now))
     if config.free_offers.enabled:
         providers.append(_offers_tools(config, notifier))
     if config.tepira.enabled:
@@ -1951,8 +1983,9 @@ def _game_tools(config: AppConfig, gacha: GachaParts | None) -> list[ToolProvide
 
 def _weekly_report_tools(config: AppConfig, gacha: GachaParts) -> WeeklyReportTools:
     """The week in the configured games from the pull history in `gacha.data_dir`, HoYoLAB,
-    and with the redeem codes on, the codes `waifu run` keeps; the week starts from the
-    report's slot even when the report is off, so `waifu gacha report` shows her week."""
+    with the redeem codes on, the codes `waifu run` keeps, and with play time on, how long each
+    game was open; the week starts from the report's slot even when the report is off, so
+    `waifu gacha report` shows her week."""
     return WeeklyReportTools(
         config.gacha.games,
         history=gacha.history,
@@ -1963,6 +1996,7 @@ def _weekly_report_tools(config: AppConfig, gacha: GachaParts) -> WeeklyReportTo
         report_time=config.weekly_report.time,
         server_utc_offset=config.gacha.server_utc_offset,
         extra_standard=config.gacha.off_banner,
+        play_time=_play_time_store(config) if config.play_time.enabled else None,
     )
 
 
@@ -2433,8 +2467,8 @@ def _gacha_report(args: argparse.Namespace) -> int:
 
 
 def _game_week_lines(week: GameWeek, now: datetime, codes_label: str) -> list[str]:
-    """One game's week: its pulls and pity, its endgame, what ends within 7 days, and its
-    codes after `codes_label`, each problem marked where its part would be."""
+    """One game's week: its pulls and pity, its endgame, what ends within 7 days, its codes
+    after `codes_label`, and its play time, each problem marked where its part would be."""
     lines = []
     if week.pulls_problem is not None:
         # With a pity the stored history still answered; without one nothing did.
@@ -2456,7 +2490,18 @@ def _game_week_lines(week: GameWeek, now: datetime, codes_label: str) -> list[st
         lines.append(f"{FAIL} {week.codes_problem}")
     elif week.codes is not None:
         lines.append(f"{codes_label}: {', '.join(week.codes) or 'tidak ada'}")
+    if week.play_problem is not None:
+        lines.append(f"{FAIL} {week.play_problem}")
+    elif week.play is not None:
+        lines.append(f"Jam main minggu ini: {_week_play_text(week.play)}")
     return lines
+
+
+def _week_play_text(play: PlayTotal) -> str:
+    """`5 jam 20 menit dalam 6 sesi`, or `belum main`."""
+    if not play.sessions:
+        return "belum main"
+    return f"{_play_duration(play.seconds)} dalam {play.sessions} sesi"
 
 
 def _week_pulls_lines(week: GameWeek) -> list[str]:
@@ -3921,6 +3966,116 @@ def _decimal_comma(value: float) -> str:
     return f"{value:.1f}".replace(".", ",")
 
 
+# --- play time -------------------------------------------------------------------------------
+
+PERIOD_NAMES = {"today": "hari ini", "yesterday": "kemarin", "week": "minggu ini"}
+PLAY_TIME_NOTE = (
+    "Dihitung hanya selama 'waifu run' menyala, sejak {since}; game yang terbuka tapi tidak "
+    "dimainkan ikut terhitung."
+)
+
+
+def _play_time_store(config: AppConfig) -> PlayTimeStore:
+    """The sessions of the tracked games, in the file `play_time.path` names (`run` writes it;
+    the tool, `waifu playtime`, `waifu gacha report`, and `check` read it)."""
+    play = config.play_time
+    return PlayTimeStore(play.path, games=list(play.games), keep_days=play.keep_days, now=wib_now)
+
+
+@contextmanager
+def _play_time_watcher(config: AppConfig, assistant: Assistant) -> Iterator[None]:
+    """Counting how long Master's games are open while the block runs, from the process list's
+    names only, and with `play_time.bedtime` the once-a-night nudge, said once the follow-up
+    window has closed, so a conversation is never interrupted; nothing with play time off.
+    Stopping ends the open sessions at their last poll."""
+    if not config.play_time.enabled:
+        yield
+        return
+    watcher = PlayTimeWatcher(
+        running_executables,
+        _play_time_store(config),
+        config.play_time,
+        announce=lambda text, emotion: assistant.announce(text, emotion, wait_for_followup=True),
+        owner_call=config.assistant.owner_call,
+    )
+    watcher.start()
+    try:
+        yield
+    finally:
+        watcher.stop()
+
+
+def _playtime(args: argparse.Namespace) -> int:
+    """Print how long each tracked game was open in a WIB period, from the play time file alone:
+    it works with play time off too. Exit 1 when the file cannot be read."""
+    config = load_config(args.config)
+    store = _play_time_store(config)
+    try:
+        record = store.record()
+    except OSError as exc:
+        print(f"{FAIL} File jam main {store.path} tidak bisa dibaca: {exc}")
+        return 1
+    if not config.play_time.enabled:
+        print(
+            f"{WARN} Jam main mati (play_time.enabled: false): tidak ada yang dihitung; ini "
+            "catatan lama."
+        )
+    tracked = [s for s in (*record.sessions, *record.open) if s.game in store.games]
+    if not tracked:
+        print("Belum ada catatan jam main.")
+        return 0
+    now = wib_now()
+    since, until = period_window(args.period, now)
+    print(f"Jam main {_period_text(args.period, since)}, dari catatan {config.assistant.name}:")
+    rows = _play_rows(config, record, since, until, now)
+    print(_format_table(("GAME", "WAKTU", "SESI", ""), rows))
+    first = min(session.start for session in tracked).astimezone(WIB)
+    print(PLAY_TIME_NOTE.format(since=_schedule_time(first)))
+    return 0
+
+
+def _period_text(period: str, since: datetime) -> str:
+    """`hari ini, Sabtu 17-10-2026`: the period and the days it covers."""
+    if period == "month":
+        return f"bulan ini, {MONTHS_ID[since.month - 1]} {since.year}"
+    day = f"{WEEKDAYS_ID[since.weekday()]} {since:%d-%m-%Y}"
+    return f"{PERIOD_NAMES[period]}, {'sejak ' if period == 'week' else ''}{day}"
+
+
+def _play_rows(
+    config: AppConfig, record: PlayRecord, since: datetime, until: datetime, now: datetime
+) -> list[tuple[str, ...]]:
+    """A row per tracked game, its time and sessions in the period (and whether it is open now,
+    when the period reaches now), then the total, in which time two games were open together
+    counts once."""
+    games = list(config.play_time.games)
+    open_now = (
+        playing_now(record, now, poll=timedelta(seconds=config.play_time.poll_seconds))
+        if until >= now
+        else frozenset()
+    )
+    totals = play_totals(record, games, since, until)
+    rows = [
+        (
+            GAMES[game].name,
+            _play_duration(total.seconds) if total.sessions else "-",
+            str(total.sessions),
+            "sedang main" if game in open_now else "",
+        )
+        for game, total in totals.items()
+    ]
+    sessions = [s for s in (*record.sessions, *record.open) if s.game in games]
+    total_seconds = played_seconds(sessions, since, until)
+    count = sum(total.sessions for total in totals.values())
+    rows.append(("Total", _play_duration(total_seconds) if count else "-", str(count), ""))
+    return rows
+
+
+def _play_duration(seconds: int) -> str:
+    """`2 jam 39 menit`, rounded to the minute."""
+    return duration_text(whole_minutes(seconds))
+
+
 # --- free offers -----------------------------------------------------------------------------
 
 
@@ -4478,6 +4633,7 @@ def _checks(config_path: Path) -> Iterator[Check]:
     yield _rain_alert_check(config)
     yield _usage_check(config)
     yield _pc_health_check(config)
+    yield _play_time_check(config)
     yield _free_offers_check(config)
     yield from _voice_package_checks(config)
     yield _microphone_check(config)
@@ -4792,6 +4948,28 @@ def _pc_health_check(config: AppConfig) -> Check:
     return OK, f"Kesehatan PC: aktif, GPU {gpu.name}"
 
 
+def _play_time_check(config: AppConfig) -> Check:
+    """Which games she counts and the bedtime nudge, and where a broken play time file was moved,
+    if one was; no process is listed."""
+    play = config.play_time
+    if not play.enabled:
+        return WARN, "Jam main mati"
+    try:
+        _play_time_store(config).record()  # moves a broken file aside, as `run` would
+    except OSError as exc:
+        return FAIL, f"File jam main {play.path} tidak bisa dibaca: {exc}"
+    status = f"Jam main: aktif ({', '.join(GAMES[game].short for game in play.games)})"
+    if play.bedtime is not None:
+        status += f", pengingat tidur {play.bedtime:%H:%M}"
+    moved = _set_aside_files(play.path)
+    if moved:
+        return WARN, (
+            f"{status}; file jam main yang rusak dipindah ke {', '.join(map(str, moved))} "
+            "(lihat README, bagian Jam main)"
+        )
+    return OK, status
+
+
 def _free_offers_check(config: AppConfig) -> Check:
     """Which stores she reads the free games of, when the AI offers were last searched for,
     and where a broken offers file was moved, if one was; nothing is asked of the internet."""
@@ -4829,8 +5007,8 @@ def _free_offers_check(config: AppConfig) -> Check:
 
 
 def _set_aside_files(path: Path) -> list[Path]:
-    """The copies a broken memory, schedule, to-do, usage, or offers file was renamed to
-    (`<name>.corrupt-<time>`), oldest first.
+    """The copies a broken memory, schedule, to-do, usage, offers, or play time file was
+    renamed to (`<name>.corrupt-<time>`), oldest first.
 
     They stay until the owner repairs or deletes them, so `check` points at them every time.
     """

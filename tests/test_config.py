@@ -8,6 +8,7 @@ from waifu.config import (
     AppConfig,
     ConfigError,
     FallbackTtsConfig,
+    PlayTimeConfig,
     RainAlertConfig,
     TepiraConfig,
     VersionNoticeConfig,
@@ -886,6 +887,14 @@ GAMES_LINE = "play_time.games"
 def test_bad_play_time_settings_are_refused_naming_the_setting(tmp_path, lines, named):
     with pytest.raises(ConfigError, match=re.escape(named)):
         load_config(write_yaml(tmp_path, "play_time:\n" + lines))
+
+
+def test_the_example_play_time_block_written_out_holds_the_defaults(tmp_path):
+    example = (ROOT / "config.example.yaml").read_text(encoding="utf-8")
+    commented = example[example.index("\n# play_time:\n") + 1 :].split("\n\n", 1)[0]
+    written_out = "\n".join(line.removeprefix("# ") for line in commented.splitlines())
+
+    assert load_config(write_yaml(tmp_path, written_out)).play_time == PlayTimeConfig()
 
 
 def test_an_executable_name_of_64_characters_with_spaces_is_accepted(tmp_path):

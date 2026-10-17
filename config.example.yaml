@@ -418,6 +418,25 @@ schedule:
 #   gpu_warn_c: 85         # GPU di N °C atau lebih (60-100) ...
 #   gpu_warn_minutes: 3    # ... selama N menit berturut-turut: diberi tahu paling sering sekali per jam (1-60)
 
+# Jam main (README, bagian "Jam main"): selama `waifu run` dia mencatat berapa lama HSR, Genshin,
+# dan ZZZ terbuka, dari nama program di daftar proses Windows saja (tidak pernah membuka atau
+# menyentuh proses game, yang memakai anti-cheat). "Hari ini aku main berapa lama?" atau
+# "minggu ini Genshin berapa jam?" dijawab dari catatannya; laporan game mingguan ikut
+# menyebutnya. Yang dihitung adalah waktu game terbuka (diminimalkan atau ditinggal pun ikut),
+# dan hanya selama `waifu run` menyala. Lihat angkanya dengan `waifu playtime`.
+# Hanya nama tiga game dan jamnya, disimpan di komputer ini (path), tidak dikirim ke mana pun.
+# Sudah menyala tanpa ditulis; untuk mengubahnya, tulis bagian ini tanpa tanda # di depannya.
+# play_time:
+#   enabled: true          # false: tidak mencatat dan tanpa tool (`waifu playtime` tetap membaca catatan lama)
+#   poll_seconds: 60       # lihat daftar proses tiap N detik selama `waifu run` (15-600)
+#   games:                 # nama program tiap game, seperti di Task Manager > Details; hanya yang ditulis yang dihitung
+#     hsr: [StarRail.exe]
+#     genshin: [GenshinImpact.exe, YuanShen.exe]
+#     zzz: [ZenlessZoneZero.exe]
+#   bedtime:               # misalnya 23:30: lewat jam itu, kalau game masih terbuka, dia mengingatkan sekali semalam (18:00-05:59; kosong = mati)
+#   keep_days: 90          # catatan lebih lama dari N hari dihapus (1-366)
+#   path: data/playtime.json
+
 # Promo gratis (README, bagian "Pencarian web dan promo gratis"): "Ada game gratis apa sekarang?"
 # membuatnya membaca game yang gratis untuk disimpan di Epic Games Store (dari Epic sendiri) dan
 # di Steam, GOG, dan lainnya (dari GamerPower.com). "Ada promo AI gratis nggak?" membacakan promo
