@@ -10,8 +10,9 @@ deletion cannot be undone, so `waifu jurnal forget` does it. The specs are stati
 once, so they stay byte-identical for the brain's lifetime and keep the prompt cache warm. In the
 turns she starts herself (the morning greeting and the weekly game report) both tools refuse:
 the journal is told only when Master asks. Her nightly question (`JOURNAL_PROMPT`) may read
-today's notes but never writes: only Master's answer, in the next turn, is written. `run` never
-raises.
+today's notes but never writes: only Master's answer, in the next turn, is written, and an
+answer without a date that comes within `answer_window` of the question goes on the day she
+asked about, so one given just after midnight is not put on the new date. `run` never raises.
 """
 
 from __future__ import annotations
@@ -77,13 +78,14 @@ _WRITE_DESCRIPTION = (
     "your nightly journal question, " + _WHEN + "Write `text` in Indonesian in Master's own "
     "words, as Master would write it in a diary (first person, tidied, shortened only when "
     "long): only what Master said for the journal, never your own words or other talk. Leave "
-    "`date` out for today. Every user turn starts with [weekday, DD-MM-YYYY HH:MM]: when Master "
-    "talks after midnight about the day that just ended, or names another past day, give that "
-    "day as `date`, YYYY-MM-DD; never a day after today. A day keeps several notes in the order "
-    "written, and the same note twice is kept once (`already_there` true). Secrets (passwords, "
-    "PINs, OTPs, tokens, card numbers) are refused. Confirm in one short sentence without "
-    "reading the note back. Notes cannot be deleted or changed by voice: when Master asks, say "
-    "it is done in the terminal with waifu jurnal forget and the date." + _RULES
+    "`date` out for today, and for Master's answer to your nightly journal question, which goes "
+    "on the day you asked about. Every user turn starts with [weekday, DD-MM-YYYY HH:MM]: when "
+    "Master talks after midnight about the day that just ended, or names another past day, give "
+    "that day as `date`, YYYY-MM-DD; never a day after today. A day keeps several notes in the "
+    "order written, and the same note twice is kept once (`already_there` true). Secrets "
+    "(passwords, PINs, OTPs, tokens, card numbers) are refused. Confirm in one short sentence "
+    "without reading the note back. Notes cannot be deleted or changed by voice: when Master "
+    "asks, say it is done in the terminal with waifu jurnal forget and the date." + _RULES
 )
 _READ_DESCRIPTION = (
     "Read Master's daily journal: the notes of one day (`date`, YYYY-MM-DD) or of a period in "
@@ -116,12 +118,23 @@ class JournalSource(Protocol):
 class JournalTools:
     """A `ToolProvider` for the brain: Master's daily journal."""
 
-    def __init__(self, store: JournalSource, *, now: Callable[[], datetime] = wib_now) -> None:
-        """`now` is aware; its WIB date is today."""
+    def __init__(
+        self,
+        store: JournalSource,
+        *,
+        now: Callable[[], datetime] = wib_now,
+        answer_window: timedelta = timedelta(minutes=10),
+    ) -> None:
+        """`now` is aware; its WIB date is today. A turn that begins within `answer_window` of
+        her nightly question may be Master's answer to it (the CLI passes
+        `session_idle_minutes`, as long as the question's session lasts)."""
         self._store = store
         self._now = now
+        self._answer_window = answer_window
         self._specs = _specs()
         self._refusals: dict[str, str] = {}
+        # When her nightly question was last asked, while a turn may still answer it.
+        self._question_at: datetime | None = None
 
     def specs(self) -> list[ToolSpec]:
         return list(self._specs)
@@ -129,8 +142,14 @@ class JournalTools:
     def begin_turn(self, user_text: str) -> None:
         """Start a turn with its words as heard: a turn she starts herself, the morning
         greeting or the weekly game report, gets no journal, and her nightly question writes
-        nothing."""
+        nothing. Her question is remembered for the turns that begin within `answer_window`
+        of it."""
         self._refusals = _OWN_TURN_REFUSALS.get(user_text, {})
+        now = self._now()
+        if user_text == JOURNAL_PROMPT:
+            self._question_at = now
+        elif self._question_at is not None and now - self._question_at > self._answer_window:
+            self._question_at = None
 
     def run(self, name: str, arguments: object) -> tuple[str, bool]:
         if name not in JOURNAL_TOOLS:
@@ -153,7 +172,10 @@ class JournalTools:
     def _write(self, arguments: Mapping[str, Any]) -> dict[str, object]:
         text = _text(arguments)
         given = arguments.get("date")  # null counts as left out, as local models send it
-        saved = self._store.add(text, None if given is None else _date(given))
+        day = self._question_day() if given is None else _date(given)
+        saved = self._store.add(text, day)
+        if given is None and day is not None and day != self._now().astimezone(WIB).date():
+            logger.info("An undated journal note went on %s, the day of her nightly question", day)
         notes = self._store.notes(saved.day, saved.day).get(saved.day, ())
         return {
             "saved": True,
@@ -161,6 +183,16 @@ class JournalTools:
             "already_there": not saved.added,
             "notes_that_day": len(notes),
         }
+
+    def _question_day(self) -> date | None:
+        """The WIB day of the nightly question this turn may answer; None (today) without one.
+
+        Not today when Master answers just after midnight: the answer is about the day she
+        asked about, not the new one.
+        """
+        if self._question_at is None:
+            return None
+        return self._question_at.astimezone(WIB).date()
 
     def _read(self, arguments: Mapping[str, Any]) -> dict[str, object]:
         given = arguments.get("date")

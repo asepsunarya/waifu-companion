@@ -129,6 +129,8 @@ def test_writing_says_whose_words_which_day_and_what_it_cannot_do(rig):
         "in Master's own words",
         "only what Master said for the journal",
         "Leave `date` out for today",
+        "and for Master's answer to your nightly journal question, which goes on the day you "
+        "asked about",
         "[weekday, DD-MM-YYYY HH:MM]",
         "after midnight about the day that just ended",
         "never a day after today",
@@ -461,6 +463,116 @@ def test_master_s_answer_to_the_nightly_question_is_written(rig):
 
     assert rig.write(text="capek, tapi laporannya akhirnya selesai")["saved"] is True
     assert rig.texts() == ["capek, tapi laporannya akhirnya selesai"]
+
+
+# --- an answer just after midnight goes on the day she asked about -------------------------------
+
+JUST_BEFORE_MIDNIGHT = datetime(2026, 10, 17, 23, 59, 50, tzinfo=WIB)
+JUST_AFTER_MIDNIGHT = datetime(2026, 10, 18, 0, 0, 20, tzinfo=WIB)
+SUNDAY = date(2026, 10, 18)
+ANSWER = "capek, tapi laporannya akhirnya selesai"
+
+
+def ask_the_nightly_question(tools: JournalTools, clock: Clock, at: datetime) -> None:
+    clock.now = at
+    tools.begin_turn(JOURNAL_PROMPT)
+
+
+def begin_master_s_turn(tools: JournalTools, clock: Clock, at: datetime, words=ANSWER) -> None:
+    clock.now = at
+    tools.begin_turn(words)
+
+
+@pytest.mark.parametrize("arguments", [{}, {"date": None}], ids=["left_out", "null"])
+def test_an_undated_answer_just_after_midnight_goes_on_the_day_she_asked_about(
+    rig, arguments, caplog
+):
+    # Asked at 23:59:50 on Saturday, answered at 00:00:20: the note is about Saturday.
+    ask_the_nightly_question(rig.tools, rig.clock, JUST_BEFORE_MIDNIGHT)
+    begin_master_s_turn(rig.tools, rig.clock, JUST_AFTER_MIDNIGHT)
+
+    with caplog.at_level(logging.INFO, logger="waifu.brain.journal_tools"):
+        result = rig.write(text=ANSWER, **arguments)
+
+    assert (result["date"], result["weekday"]) == ("2026-10-17", "Sabtu")
+    assert rig.texts(TODAY) == [ANSWER]
+    assert rig.texts(SUNDAY) == []
+    assert (
+        "An undated journal note went on 2026-10-17, the day of her nightly question" in caplog.text
+    )
+    assert ANSWER not in caplog.text
+
+
+def test_a_date_she_gives_herself_after_her_question_is_kept(rig):
+    ask_the_nightly_question(rig.tools, rig.clock, JUST_BEFORE_MIDNIGHT)
+    begin_master_s_turn(rig.tools, rig.clock, JUST_AFTER_MIDNIGHT)
+
+    assert rig.write(text=ANSWER, date="2026-10-18")["date"] == "2026-10-18"
+    assert rig.texts(SUNDAY) == [ANSWER]
+
+
+def test_an_answer_repeated_after_a_turn_that_failed_still_goes_on_that_day(rig):
+    # An API error rolls the turn back; Master says it again two minutes later.
+    ask_the_nightly_question(rig.tools, rig.clock, JUST_BEFORE_MIDNIGHT)
+    begin_master_s_turn(rig.tools, rig.clock, JUST_AFTER_MIDNIGHT)
+    begin_master_s_turn(rig.tools, rig.clock, JUST_AFTER_MIDNIGHT + timedelta(minutes=2))
+
+    assert rig.write(text=ANSWER)["date"] == "2026-10-17"
+
+
+@pytest.mark.parametrize(
+    ("after", "day"),
+    [(timedelta(minutes=10), "2026-10-17"), (timedelta(minutes=10, seconds=1), "2026-10-18")],
+    ids=["within_the_window", "after_it"],
+)
+def test_the_answer_window_lasts_ten_minutes_from_her_question(rig, after, day):
+    ask_the_nightly_question(rig.tools, rig.clock, JUST_BEFORE_MIDNIGHT)
+    begin_master_s_turn(rig.tools, rig.clock, JUST_BEFORE_MIDNIGHT + after)
+
+    assert rig.write(text=ANSWER)["date"] == day
+
+
+def test_a_note_told_the_next_morning_goes_on_today(rig):
+    ask_the_nightly_question(rig.tools, rig.clock, JUST_BEFORE_MIDNIGHT)
+    begin_master_s_turn(rig.tools, rig.clock, JUST_AFTER_MIDNIGHT)
+    begin_master_s_turn(
+        rig.tools, rig.clock, datetime(2026, 10, 18, 8, 0, tzinfo=WIB), "catat: pagi ini lari"
+    )
+
+    assert rig.write(text="pagi ini lari")["date"] == "2026-10-18"
+
+
+def test_the_answer_window_comes_from_the_constructor(rig):
+    # The CLI passes session_idle_minutes: the answer comes in her question's session.
+    tools = JournalTools(rig.store, now=rig.clock, answer_window=timedelta(minutes=30))
+    ask_the_nightly_question(tools, rig.clock, JUST_BEFORE_MIDNIGHT)
+    begin_master_s_turn(tools, rig.clock, JUST_BEFORE_MIDNIGHT + timedelta(minutes=25))
+
+    result, is_error = tools.run(JOURNAL_WRITE, {"text": ANSWER})
+
+    assert (is_error, json.loads(result)["date"]) == (False, "2026-10-17")
+
+
+def test_a_later_question_replaces_the_day_an_answer_goes_on(rig):
+    tools = JournalTools(rig.store, now=rig.clock, answer_window=timedelta(days=1))
+    ask_the_nightly_question(tools, rig.clock, datetime(2026, 10, 16, 23, 59, tzinfo=WIB))
+    ask_the_nightly_question(tools, rig.clock, NOW)
+    begin_master_s_turn(tools, rig.clock, JUST_AFTER_MIDNIGHT)
+
+    result, _ = tools.run(JOURNAL_WRITE, {"text": ANSWER})
+
+    assert json.loads(result)["date"] == "2026-10-17"
+
+
+def test_an_answer_before_midnight_goes_on_today_as_before(rig, caplog):
+    ask_the_nightly_question(rig.tools, rig.clock, NOW)
+    begin_master_s_turn(rig.tools, rig.clock, NOW + timedelta(seconds=5))
+
+    with caplog.at_level(logging.INFO, logger="waifu.brain.journal_tools"):
+        result = rig.write(text=ANSWER)
+
+    assert result["date"] == "2026-10-17"
+    assert "An undated journal note" not in caplog.text
 
 
 # --- the log ------------------------------------------------------------------------------------

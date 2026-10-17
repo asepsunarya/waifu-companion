@@ -1416,7 +1416,9 @@ def _companion_brain(
     if todo is not None:
         providers.append(TodoTools(todo))
     if journal is not None:
-        providers.append(JournalTools(journal, now=wib_now))
+        # Master's answer to her nightly question comes in the question's session.
+        answer_window = timedelta(minutes=config.assistant.session_idle_minutes)
+        providers.append(JournalTools(journal, now=wib_now, answer_window=answer_window))
     if focus is not None:
         providers.append(FocusTools(focus, now=wib_now))
     if config.briefing.enabled:

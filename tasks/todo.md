@@ -1466,11 +1466,11 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 152 · **Files:** `src/waifu/prompt_timer.py`, `src/waifu/briefing.py`, `src/waifu/gacha/weekly.py`, `src/waifu/journal.py`, `src/waifu/cli.py`, `tests/test_briefing.py`, `tests/test_gacha_weekly.py`, `tests/test_journal.py`, `tests/test_cli.py` · **Scope:** M
 
-## Task 154: A late answer goes on the question's day
+## Task 154: A late answer goes on the question's day ✅
 
 **Acceptance criteria:**
-- [ ] After her question at 23:59:50 WIB on the 17th, an undated answer at 00:00:20 is written on the 17th (logged without the note); an explicit date of the 18th stays the 18th; an answer after the window goes on today; a second question replaces the day; an answer before midnight is as before
-- [ ] `run` and `chat` pass `session_idle_minutes` as the answer window; the strict-tool budget unchanged
+- [x] After her question at 23:59:50 WIB on the 17th, an undated answer at 00:00:20 is written on the 17th (logged without the note); an explicit date of the 18th stays the 18th; an answer after the window goes on today; a second question replaces the day; an answer before midnight is as before
+- [x] `run` and `chat` pass `session_idle_minutes` as the answer window; the strict-tool budget unchanged
 
 **Dependencies:** 152a · **Files:** `src/waifu/brain/journal_tools.py`, `tests/test_journal_tools.py`, `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** S
 

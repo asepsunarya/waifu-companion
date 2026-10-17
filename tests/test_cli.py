@@ -12683,6 +12683,27 @@ def test_run_gives_the_brain_her_journal_tools_right_after_the_to_do_tools(
     assert journal_timers == []  # no nightly question without journal.ask_at
 
 
+@pytest.mark.parametrize(
+    "argv", [["run", "--dry-run", "--no-speaker-check"], ["chat", "--dry-run"]]
+)
+def test_an_answer_within_her_question_s_session_goes_on_the_day_she_asked_about(
+    argv, home, run_fakes, brains, journal_clock, journal_timers, monkeypatch
+):
+    # Asked just before midnight, answered 25 minutes later in the same 30-minute session.
+    write_config(home, "assistant:\n  session_idle_minutes: 30\n")
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main(argv) == 0
+
+    tools = journal_tools(brains[0])
+    journal_clock.now = datetime(2026, 10, 17, 23, 59, tzinfo=WIB)
+    tools.begin_turn(JOURNAL_PROMPT)
+    journal_clock.now = datetime(2026, 10, 18, 0, 24, tzinfo=WIB)
+    tools.begin_turn("capek, tapi laporannya selesai")
+    result, is_error = tools.run("journal_write", {"text": "capek, tapi laporannya selesai"})
+    assert (is_error, json.loads(result)["date"]) == (False, "2026-10-17")
+
+
 @pytest.mark.parametrize("claude", [False, True], ids=["ollama", "claude"])
 def test_chat_reads_the_journal_saved_in_data_journal_json_with_either_backend(
     claude, home, brains, journal_clock, journal_timers, monkeypatch

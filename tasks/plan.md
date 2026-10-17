@@ -594,7 +594,7 @@ or dependency.
 - [x] Task 152a: contract: SPEC, tasks
 - [x] Task 152: requests that expire (`app.ask_aloud(expires_at=...)`)
 - [x] Task 153: each timer's expiry (`PromptTimer(expires=...)`, the three timers, `run` wiring)
-- [ ] Task 154: a late answer goes on the question's day (`JournalTools(answer_window=...)`)
+- [x] Task 154: a late answer goes on the question's day (`JournalTools(answer_window=...)`)
 - [ ] Task 155: README, CHANGELOG
 
 ### Checkpoint: pertanyaan yang tertahan
