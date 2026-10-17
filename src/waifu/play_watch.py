@@ -17,6 +17,11 @@ opened after that is an early morning, such as the dailies after the 03:00 reset
 night. The night is written to the file before she says it, so a restart never repeats it; a
 write that fails says nothing, and the next poll tries again.
 
+After each poll that worked it tells game mode (`on_poll`) whether a tracked game is running,
+one missed at a single poll still counting (the two-poll rule: alt-tab or a launcher restart
+changes nothing), and whether the run's first poll went on with a session from before a restart
+of `waifu run`. Never for a failed poll, and never from `stop()`.
+
 A failed listing, read, or write is never said: the first of a run of failures is logged at
 WARNING and the next poll tries again. What she sees is Master's own: sessions are logged only
 at DEBUG. Nothing is raised.
@@ -91,6 +96,13 @@ def _opened_late_before(now: datetime, bedtime: ClockTime) -> datetime:
     return datetime.combine(night_of(now) + timedelta(days=1), clock, tzinfo=now.tzinfo)
 
 
+def _running(tracking: Tracking, *, first: bool) -> tuple[bool, bool]:
+    """Whether a tracked game has an open session after a poll, and, at the run's first poll,
+    whether one went on with a session from before the restart (its start is earlier)."""
+    resumed = first and any(t.session.start < tracking.last_poll for t in tracking.open)
+    return bool(tracking.open), resumed
+
+
 class PlayTimeWatcher:
     def __init__(
         self,
@@ -103,9 +115,11 @@ class PlayTimeWatcher:
         now: Callable[[], datetime] = wib_now,
         clock: Callable[[], float] = time.monotonic,
         wait: Wait = threading.Event.wait,
+        on_poll: Callable[[bool, bool], None] | None = None,
     ) -> None:
         """`now` is aware WIB time, for the sessions and the night; `clock` monotonic seconds,
-        only for the polls."""
+        only for the polls. `on_poll(playing, resumed)` hears after each poll that worked
+        whether a tracked game is running and whether the run's first poll resumed one."""
         self._list_processes = list_processes
         self._store = store
         self._config = config
@@ -114,6 +128,7 @@ class PlayTimeWatcher:
         self._now = now
         self._clock = clock
         self._wait = wait
+        self._on_poll = on_poll
         self._poll = timedelta(seconds=config.poll_seconds)
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -136,14 +151,18 @@ class PlayTimeWatcher:
                     return []
                 now = self._now()
                 seen = games_running(names, self._config.games)
-                playing = self._follow(seen, now)
+                first = self._tracking is None
+                tracking = self._follow(seen, now)
+                playing = [session for session in tracking.sessions if session.game in seen]
                 said = self._bedtime(playing, now)
+                running = _running(tracking, first=first)
         except Exception as exc:
             self._log_failure(exc)
             return []
         if self._failing:
             self._failing = False
             logger.info("Play time can be followed again")
+        self._tell(*running)
         return said
 
     def start(self) -> None:
@@ -182,9 +201,19 @@ class PlayTimeWatcher:
             self.poll_once()
             self._wait(self._stop, max(0.0, started + self._config.poll_seconds - self._clock()))
 
-    def _follow(self, seen: Collection[GameId], now: datetime) -> list[Session]:
+    def _tell(self, playing: bool, resumed: bool) -> None:
+        """Tell game mode, outside the lock (its routine may take a few seconds), unless the
+        watcher is stopping; a failure is logged, never raised."""
+        if self._on_poll is None or self._stop.is_set():
+            return
+        try:
+            self._on_poll(playing, resumed)
+        except Exception:
+            logger.exception("Could not tell game mode whether a game is running")
+
+    def _follow(self, seen: Collection[GameId], now: datetime) -> Tracking:
         """Follow the games into sessions and write what changed; returns the open sessions
-        of the games `seen`."""
+        after the poll."""
         if self._tracking is None:
             record = self._store.record()
             self._written = record.open
@@ -198,7 +227,7 @@ class PlayTimeWatcher:
         if tracking.sessions != self._written or self._unwritten:
             self._store.save(tracking.sessions, self._unwritten)
             self._written, self._unwritten = tracking.sessions, []
-        return [session for session in tracking.sessions if session.game in seen]
+        return tracking
 
     def _bedtime(self, playing: Collection[Session], now: datetime) -> list[str]:
         """The nudge, once a night, while a game opened before dawn is open past bedtime."""

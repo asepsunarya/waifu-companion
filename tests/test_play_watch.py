@@ -126,6 +126,7 @@ class Rig:
         self.store = RecordingStore(self.path, self.clock)
         self.config = PlayTimeConfig(**config)
         self.said: list[tuple[str, str]] = []
+        self.polled: list[tuple[bool, bool]] = []  # each (playing, resumed) told to game mode
         self.owner_call = owner_call
         self.watcher = self.new_watcher()
 
@@ -138,6 +139,7 @@ class Rig:
             announce=lambda text, emotion: self.said.append((text, emotion)),
             owner_call=self.owner_call,
             now=self.clock,
+            on_poll=lambda playing, resumed: self.polled.append((playing, resumed)),
         )
 
     def poll(self, names: Iterable[str] | Exception, when: datetime | None = None) -> list[str]:
@@ -341,6 +343,126 @@ def test_a_first_poll_that_cannot_read_the_file_is_tried_again(tmp_path):
     rig.poll(HSR, at(20) + 5 * MINUTE)
 
     assert rig.record().open == (Session("hsr", at(20), at(20) + 5 * MINUTE),)
+
+
+# --- whether a game is running, for game mode ----------------------------------------------------
+
+GENSHIN = HSR | {"GenshinImpact.exe"}
+
+
+def test_each_poll_tells_whether_a_tracked_game_is_running(tmp_path):
+    rig = Rig(tmp_path)
+
+    rig.poll(IDLE, at(20))  # the launcher alone is no game
+    rig.polls(HSR, at(20) + MINUTE, 2)
+
+    assert rig.polled == [(False, False), (True, False), (True, False)]
+
+
+def test_a_game_missed_at_one_poll_is_still_running_until_the_second(tmp_path):
+    # Alt-tab leaves the process list as it is; a launcher or game restart may miss one poll.
+    rig = Rig(tmp_path)
+    rig.polls(HSR, at(20), 2)
+
+    rig.poll(IDLE, at(20) + 2 * MINUTE)
+    rig.poll(HSR, at(20) + 3 * MINUTE)
+    rig.polls(IDLE, at(20) + 4 * MINUTE, 2)
+
+    assert [playing for playing, _ in rig.polled] == [True, True, True, True, True, False]
+
+
+def test_a_sleep_with_a_game_open_keeps_it_running(tmp_path):
+    rig = Rig(tmp_path)
+    rig.polls(HSR, at(20), 3)
+
+    rig.poll(HSR, at(23))  # the PC slept with the game open: a fresh session
+
+    assert rig.polled[-1] == (True, False)
+
+
+def test_the_first_poll_after_a_restart_mid_game_tells_it_resumed(tmp_path):
+    rig = Rig(tmp_path)
+    rig.polls(HSR, at(20), 11)
+    rig.watcher.stop()
+
+    rig.watcher = rig.new_watcher()  # loading the models took two minutes
+    rig.polled.clear()
+    rig.polls(HSR, at(20) + 12 * MINUTE, 2)
+
+    assert rig.polled == [(True, True), (True, False)]
+
+
+def test_a_game_opened_during_a_restart_beside_a_resumed_one_still_counts_as_resumed(tmp_path):
+    rig = Rig(tmp_path)
+    rig.polls(HSR, at(20), 11)
+    rig.watcher.stop()
+
+    rig.watcher = rig.new_watcher()
+    rig.polled.clear()
+    rig.poll(GENSHIN, at(20) + 12 * MINUTE)
+
+    assert rig.polled == [(True, True)]
+
+
+@pytest.mark.parametrize(
+    "names_before", [IDLE, HSR], ids=["no-game-before", "game-closed-long-before"]
+)
+def test_a_first_poll_that_finds_a_game_without_its_session_from_before_is_no_resume(
+    tmp_path, names_before
+):
+    rig = Rig(tmp_path)
+    rig.polls(names_before, at(20), 3)
+    rig.watcher.stop()
+
+    rig.watcher = rig.new_watcher()
+    rig.polled.clear()
+    rig.poll(HSR, at(21))  # an hour later: a session last seen more than 5 minutes ago
+
+    assert rig.polled == [(True, False)]
+
+
+def test_a_failed_poll_tells_nothing(tmp_path):
+    rig = Rig(tmp_path)
+    rig.poll(HSR, at(20))
+
+    rig.poll(OSError("CreateToolhelp32Snapshot failed (Windows error 8)"), at(20) + MINUTE)
+    rig.store.failing_saves = 1
+    rig.poll(HSR, at(20) + 2 * MINUTE)
+
+    assert rig.polled == [(True, False)]
+
+
+def test_stopping_tells_nothing_and_a_poll_after_it_neither(tmp_path):
+    rig = Rig(tmp_path)
+    rig.polls(HSR, at(20), 2)
+
+    rig.watcher.stop()
+    rig.poll(IDLE, at(20) + 5 * MINUTE)
+
+    assert rig.polled == [(True, False), (True, False)]
+
+
+def test_a_failing_game_mode_is_logged_and_the_play_time_goes_on(tmp_path, caplog):
+    rig = Rig(tmp_path)
+
+    def broken(playing: bool, resumed: bool) -> None:
+        raise RuntimeError("the lamp is gone")
+
+    rig.watcher = PlayTimeWatcher(
+        rig.listing,
+        rig.store,
+        rig.config,
+        announce=None,
+        owner_call="Master",
+        now=rig.clock,
+        on_poll=broken,
+    )
+    with caplog.at_level(logging.ERROR, logger="waifu.play_watch"):
+        rig.polls(HSR, at(20), 2)
+
+    assert rig.record().open == (Session("hsr", at(20), at(20) + MINUTE),)
+    assert [record.exc_info is not None for record in caplog.records] == [True, True]
+    assert "Could not tell game mode whether a game is running" in caplog.text
 
 
 # --- the bedtime nudge ---------------------------------------------------------------------------
