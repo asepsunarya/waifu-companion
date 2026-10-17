@@ -1077,9 +1077,9 @@ bisa dipakai sampai suaranya ditambahkan:
 5. Mulai ulang `waifu run` supaya dia memakai suara yang baru.
 
 Windows 11 Home Single Language mungkin tidak menawarkan bahasa lain di daftar itu. Kalau
-begitu, biarkan `tts.fallback.voices` kosong (bagian itu tetap diam saat edge-tts gagal,
-seperti dulu), atau isi sementara dengan suara Inggris, misalnya `id: Microsoft Zira`:
-dia tetap bicara, tapi dengan logat Inggris.
+begitu, biarkan `id` dan `ja` di `tts.fallback.voices` kosong (`""`, bawaannya; bagian itu
+tetap diam saat edge-tts gagal, seperti dulu), atau isi sementara dengan suara Inggris,
+misalnya `id: Microsoft Zira`: dia tetap bicara, tapi dengan logat Inggris.
 
 ### 2. Dengarkan
 

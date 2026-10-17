@@ -173,6 +173,12 @@ def test_a_fallback_voice_left_blank_means_the_installed_voice_of_its_language(t
     assert load_config(write_yaml(tmp_path, text)).tts.fallback.voices == {"id": "", "ja": ""}
 
 
+def test_fallback_voices_left_empty_mean_the_installed_voices_of_both_languages(tmp_path):
+    # YAML null: what an owner writes after reading "biarkan tts.fallback.voices kosong".
+    text = "tts:\n  fallback:\n    voices:\n"
+    assert load_config(write_yaml(tmp_path, text)).tts.fallback.voices == {"id": "", "ja": ""}
+
+
 @pytest.mark.parametrize("gender", ["female", "male"])
 def test_the_fallback_rvc_pitch_is_bounded(tmp_path, gender):
     text = f"tts:\n  fallback:\n    rvc_pitch:\n      {gender}: 25\n"

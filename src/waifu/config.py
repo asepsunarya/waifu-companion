@@ -246,19 +246,26 @@ class FallbackPitchConfig(_Strict):
     male: int = Field(default=18, ge=-24, le=24)
 
 
+def _default_fallback_voices() -> dict[str, str]:
+    return {"id": "", "ja": ""}
+
+
 class FallbackTtsConfig(_Strict):
     """Speech voices installed in Windows, speaking offline when the primary voice fails."""
 
     enabled: bool = True
     # A language -> a Windows voice name; empty takes that language's installed voice.
-    voices: dict[str, str] = Field(default_factory=lambda: {"id": "", "ja": ""})
+    voices: dict[str, str] = Field(default_factory=_default_fallback_voices)
     retry_s: float = Field(default=600.0, gt=0)
     rvc_pitch: FallbackPitchConfig = Field(default_factory=FallbackPitchConfig)
 
     @field_validator("voices", mode="before")
     @classmethod
     def _blank_names_are_empty(cls, value: object) -> object:
-        """`id:` with nothing after it is YAML null, which means the same as an empty name."""
+        """`id:` with nothing after it is YAML null, which means the same as an empty name;
+        `voices:` with nothing under it means the same as both names left empty."""
+        if value is None:
+            return _default_fallback_voices()
         if isinstance(value, dict):
             return {language: "" if name is None else name for language, name in value.items()}
         return value
