@@ -601,6 +601,29 @@ or dependency.
 - [x] Python suite and ruff clean; no test asked a real brain, spoke, or pushed; the strict-tool budget unchanged (2026-10-17: 8207 pytest after the fix pass; 18 of 20 strict tools, 17 of 24 optional parameters, no schema changed)
 - [ ] On the owner's PC: with `ask_at` a few minutes before midnight and a focus block running past it, the question is not asked and the log says why; asked a minute before midnight, an answer just after it shows under that day in `waifu jurnal show`
 
+### Phase 36: Mode tidur (v1.32, see SPEC → mode tidur)
+Decision: a routine step may wait, with `after_minutes` (1-1440, a whole number like every
+duration in the config). Running the routine puts a delayed step into the existing schedule as a
+one-shot device entry tagged with the routine's name, at the routine's start plus the delay, so it
+survives a restart, shows in `waifu schedule list` and `list_schedules`, and is cancelled by
+`cancel_schedule`; it fires silently like any timed device command. The tag lets a new run cancel
+the routine's own pending delayed steps first (the latest run wins) without touching what Master
+scheduled himself, and is written to the file only when set, so `FILE_VERSION` stays 1. The PC
+and `powers_pc` plugs are refused as before; the config also refuses a delayed step with the
+schedule off, and a delayed media toggle. No new tool, tool parameter, or dependency: her spoken
+confirmation comes from the step's result (`scheduled: {id, at}`) and the tool description.
+- [x] Task 156a: contract: SPEC, tasks
+- [ ] Task 156: the step delay in the config (`RoutineStep.after_minutes`, validation)
+- [ ] Task 157: the routine's tag on a scheduled device action (`DeviceAction.routine`)
+- [ ] Task 158: a routine schedules its delayed steps (`run_routine(name, schedule, now)`, `describe_step`)
+- [ ] Task 159: the tool and the scheduler run delayed steps; her result names them
+- [ ] Task 160: `waifu routine`, `waifu schedule list`, check, example config
+- [ ] Task 161: README "Mode tidur", CHANGELOG
+
+### Checkpoint: Mode tidur
+- [ ] Python suite and ruff clean; no test touched `data/schedule.json`, ran a real device, or slept; the strict-tool budget unchanged
+- [ ] On the owner's PC: "mode tidur" turns the lamp off and the AC to 26 and she names the time the AC goes off; `waifu schedule list` shows it; "batalkan AC mati nanti" cancels it; run again with a delay of a few minutes, the AC goes off then without a word
+
 ## Risks and Mitigations
 
 | Risk | Impact | Mitigation |
