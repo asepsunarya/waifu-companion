@@ -1234,7 +1234,7 @@ How Windows speaks: `src/waifu/voice/windows_voices.ps1` (ASCII, shipped as pack
 
 Pitch: the anime model wants ~351 Hz (`tts.rvc.pitch` +4 lifts edge-tts's ~275 Hz there). Measured median F0 of the voices on the owner's PC: Zira ~188 Hz (+11 semitones to 351 Hz), Mark ~150-168 Hz (+13 to +15), David ~95 Hz (+22). One number cannot fit both genders, and WinRT and SAPI report each voice's gender, so the fallback pitch is per gender: `female` 11, `male` 18 (between Mark and David; Andika's F0 is unknown until the owner installs him, so the README says to tune it with `waifu say --fallback`).
 
-Config `tts.fallback`: `enabled` (true), `voices` (`{id: "", ja: ""}`: a language → a Windows voice name, empty = `choose_voice`'s pick for that language), `retry_s` (600, > 0), `rvc_pitch` (`female` 11, `male` 18, each -24..24).
+Config `tts.fallback`: `enabled` (true), `voices` (`{id: "", ja: ""}`: a language → a Windows voice name, empty = `choose_voice`'s pick for that language; YAML null, `voices:` with nothing under it, means this default), `retry_s` (600, > 0), `rvc_pitch` (`female` 11, `male` 18, each -24..24).
 
 CLI:
 - `waifu say --fallback <text>`: speaks through the fallback voices only (`fallback_only`), through RVC with each voice's pitch unless `--raw` too. With `tts.fallback.enabled: false` it prints `! Suara cadangan mati (tts.fallback.enabled: false).` and exits 1.
