@@ -9,6 +9,7 @@ from waifu.config import (
     ConfigError,
     FallbackTtsConfig,
     FocusConfig,
+    GameModeConfig,
     JournalConfig,
     PlayTimeConfig,
     RainAlertConfig,
@@ -1048,6 +1049,82 @@ def test_the_example_focus_block_written_out_holds_the_defaults(tmp_path):
     written_out = "\n".join(line.removeprefix("# ") for line in commented.splitlines())
 
     assert load_config(write_yaml(tmp_path, written_out)).focus == FocusConfig()
+
+
+GAME_ROUTINES = ROUTINE_DEVICES + (
+    "routines:\n"
+    "  redup:\n    steps: [{device: lampu_kamar, command: off}]\n"
+    "  terang:\n    steps: [{device: lampu_kamar, command: on}]\n"
+)
+
+
+def test_game_mode_keeps_today_s_announcements_without_routines_by_default():
+    game = AppConfig().game_mode
+    assert (game.announcements, game.on_start, game.on_stop) == ("normal", None, None)
+
+
+@pytest.mark.parametrize("announcements", ["normal", "hold", "phone"])
+def test_game_mode_settings_load_from_yaml(tmp_path, announcements):
+    text = GAME_ROUTINES + (
+        f"game_mode:\n  announcements: {announcements}\n  on_start: redup\n  on_stop: terang\n"
+    )
+
+    game = load_config(write_yaml(tmp_path, text)).game_mode
+
+    assert (game.announcements, game.on_start, game.on_stop) == (announcements, "redup", "terang")
+
+
+@pytest.mark.parametrize(
+    ("lines", "named"),
+    [
+        ("  announcements: mute\n", "game_mode.announcements"),
+        ("  announcements: true\n", "game_mode.announcements"),
+        ("  on_start: 3\n", "game_mode.on_start"),
+        ("  games: [hsr]\n", "game_mode.games"),  # the games are play_time's
+    ],
+)
+def test_bad_game_mode_settings_are_refused_naming_the_setting(tmp_path, lines, named):
+    with pytest.raises(ConfigError, match=re.escape(named)):
+        load_config(write_yaml(tmp_path, GAME_ROUTINES + "game_mode:\n" + lines))
+
+
+@pytest.mark.parametrize("key", ["on_start", "on_stop"])
+def test_a_game_mode_routine_must_be_one_master_wrote(tmp_path, key):
+    text = GAME_ROUTINES + f"game_mode:\n  {key}: gelap\n"
+
+    with pytest.raises(ConfigError) as refused:
+        load_config(write_yaml(tmp_path, text))
+
+    assert f"game_mode.{key} names the routine 'gelap', which is not in routines" in str(
+        refused.value
+    )
+
+
+@pytest.mark.parametrize(
+    "lines",
+    [
+        "  announcements: hold\n",
+        "  announcements: phone\n",
+        "  on_start: redup\n",
+        "  on_stop: terang\n",
+    ],
+)
+def test_game_mode_needs_the_play_time_watcher(tmp_path, lines):
+    text = GAME_ROUTINES + "play_time:\n  enabled: false\ngame_mode:\n" + lines
+
+    with pytest.raises(ConfigError) as refused:
+        load_config(write_yaml(tmp_path, text))
+
+    assert (
+        "game_mode needs play_time.enabled: true: it knows a game is running from the play "
+        "time watcher"
+    ) in str(refused.value)
+
+
+def test_the_default_game_mode_loads_with_play_time_off(tmp_path):
+    text = "play_time:\n  enabled: false\ngame_mode:\n  announcements: normal\n"
+
+    assert load_config(write_yaml(tmp_path, text)).game_mode == GameModeConfig()
 
 
 def test_the_journal_is_on_without_the_nightly_question_by_default():

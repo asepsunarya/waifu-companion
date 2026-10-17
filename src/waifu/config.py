@@ -53,6 +53,9 @@ IANA_TIMEZONE_PATTERN = re.compile(
     r"(/[A-Za-z0-9_+-]+){1,2})$"
 )
 GamePlatform = Literal["epic", "steam", "gog", "itchio", "pc"]
+# While a tracked game runs, her own announcements are said as always (normal), wait until the
+# last game has closed (hold), or, when they also went to the phone, are not said at all (phone).
+GameAnnouncements = Literal["normal", "hold", "phone"]
 # A program's file name as the process list shows it: no folder, drive, or wildcard.
 EXECUTABLE_NAME_PATTERN = re.compile(r'[^\\/:*?"<>|]+\.exe', re.IGNORECASE)
 MAX_EXECUTABLE_CHARS = 64
@@ -866,6 +869,17 @@ class FocusConfig(_Strict):
     path: Path = Path("data/focus.json")
 
 
+class GameModeConfig(_Strict):
+    """What she does while one of Master's tracked games runs, as the play time watcher sees it:
+    whether her own announcements wait, and the routines run when he starts and stops playing."""
+
+    announcements: GameAnnouncements = "normal"
+    # A routine in `routines`, run once when the first game opens; None: no routine.
+    on_start: str | None = None
+    # A routine in `routines`, run once when the last game has closed; None: no routine.
+    on_stop: str | None = None
+
+
 class JournalConfig(_Strict):
     """Master's daily journal, and her optional question about the day once a night."""
 
@@ -1078,6 +1092,7 @@ class AppConfig(_Strict):
     pc_health: PcHealthConfig = Field(default_factory=PcHealthConfig)
     play_time: PlayTimeConfig = Field(default_factory=PlayTimeConfig)
     focus: FocusConfig = Field(default_factory=FocusConfig)
+    game_mode: GameModeConfig = Field(default_factory=GameModeConfig)
     journal: JournalConfig = Field(default_factory=JournalConfig)
     web_search: WebSearchConfig = Field(default_factory=WebSearchConfig)
     free_offers: FreeOffersConfig = Field(default_factory=FreeOffersConfig)
@@ -1142,6 +1157,21 @@ class AppConfig(_Strict):
                         "so at night it could start the music or unmute the PC; delay stop or "
                         "volume instead"
                     )
+        return self
+
+    @model_validator(mode="after")
+    def _game_mode_runs_known_routines_from_the_play_time_watcher(self) -> AppConfig:
+        game = self.game_mode
+        for key, routine in (("on_start", game.on_start), ("on_stop", game.on_stop)):
+            if routine is not None and routine not in self.routines:
+                raise ValueError(
+                    f"game_mode.{key} names the routine '{routine}', which is not in routines"
+                )
+        if game != GameModeConfig() and not self.play_time.enabled:
+            raise ValueError(
+                "game_mode needs play_time.enabled: true: it knows a game is running from the "
+                "play time watcher"
+            )
         return self
 
 
