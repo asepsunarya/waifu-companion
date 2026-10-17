@@ -12420,12 +12420,12 @@ def test_gacha_income_prints_this_month_of_each_game_without_the_brain_also_with
         income_header(this_month, so_far=True),
         "HSR (Honkai: Star Rail)",
         "  Stellar Jade: 4.800 (30 pull), hari ini 60, kemarin 120",
-        "  Bulan sebelumnya: 10.000 (-52%)",
+        "  Bulan sebelumnya: 10.000; bulan ini -52% dibanding itu",
         "  Sumber: Daily Activity 1.800 (38%), Events 1.200 (25%)",
         "  Lainnya: Star Rail Pass 5",
         "Genshin (Genshin Impact)",
         "  Primogem: 5.400 (33 pull), hari ini 0",
-        "  Bulan sebelumnya: 9.000 (+12%)",
+        "  Bulan sebelumnya: 9.000; bulan ini +12% dibanding itu",
         "  Sumber: Events 1.600 (30%)",
         "  Lainnya: Mora 1.234.567",
         "ZZZ (Zenless Zone Zero)",
@@ -12444,10 +12444,12 @@ def test_gacha_income_of_one_game_in_an_earlier_month_has_no_day_figures(home, g
 
     assert game_data.income_asked == [(["hsr"], last_month, False)]
     lines = capsys.readouterr().out.splitlines()
-    assert lines[:3] == [
+    assert lines[:4] == [
         income_header(last_month, so_far=False),
         "HSR (Honkai: Star Rail)",
         "  Stellar Jade: 4.800 (30 pull)",
+        # HoYoLAB's change is the month shown against the one before, named so.
+        f"  Bulan sebelumnya: 10.000; {MONTHS_ID[last_month.month - 1]} -52% dibanding itu",
     ]
     assert not any("Genshin" in line or "ZZZ" in line for line in lines)
 

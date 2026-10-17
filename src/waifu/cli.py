@@ -2579,6 +2579,7 @@ def _gacha_income(args: argparse.Namespace) -> int:
     results = build_gacha(config).hoyolab.income(games, month, this_month=this_month)
     so_far = ", sampai sekarang" if this_month else ""
     print(f"Pendapatan gacha {MONTHS_ID[month.month - 1]} {month.year}{so_far}:")
+    shown = "bulan ini" if this_month else MONTHS_ID[month.month - 1]
     failed = False
     for game_id, result in results.items():
         game = GAMES[game_id]
@@ -2587,15 +2588,16 @@ def _gacha_income(args: argparse.Namespace) -> int:
             print(f"  {FAIL} {result.message}")
             failed = True
             continue
-        for line in _income_lines(game, result):
+        for line in _income_lines(game, result, shown):
             print(f"  {line}")
     print(INCOME_NOTE)
     return 1 if failed else 0
 
 
-def _income_lines(game: Game, income: GameIncome) -> list[str]:
+def _income_lines(game: Game, income: GameIncome, shown: str) -> list[str]:
     """The premium currency with its pulls and day figures, then the month before, the sources,
-    and the other currencies, each when the diary gives it."""
+    and the other currencies, each when the diary gives it. HoYoLAB's change is the month
+    shown against the one before, so it names the month `shown` (bulan ini, or its name)."""
     days = [f"hari ini {_thousands(income.today)}"] if income.today is not None else []
     if income.yesterday is not None:
         days.append(f"kemarin {_thousands(income.yesterday)}")
@@ -2603,7 +2605,8 @@ def _income_lines(game: Game, income: GameIncome) -> list[str]:
     lines = [", ".join([f"{game.currency}: {earned}", *days])]
     if income.last_month is not None:
         change = income.change_percent
-        compared = "" if change is None else f" ({change:+d}%)" if change else " (0%)"
+        percent = "" if change is None else f"{change:+d}%" if change else "0%"
+        compared = f"; {shown} {percent} dibanding itu" if percent else ""
         lines.append(f"Bulan sebelumnya: {_thousands(income.last_month)}{compared}")
     if income.sources:
         sources = (

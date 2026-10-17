@@ -2188,12 +2188,12 @@ waifu gacha income zzz --month 2026-09  # satu game, salah satu dari dua bulan s
 Pendapatan gacha Oktober 2026, sampai sekarang:
 HSR (Honkai: Star Rail)
   Stellar Jade: 4.800 (30 pull), hari ini 60, kemarin 120
-  Bulan sebelumnya: 10.000 (-52%)
+  Bulan sebelumnya: 10.000; bulan ini -52% dibanding itu
   Sumber: Daily Activity 1.800 (38%), Events 1.200 (25%), Memory of Chaos 1.000 (21%), Mail 800 (16%)
   Lainnya: Star Rail Pass 5
 Genshin (Genshin Impact)
   Primogem: 5.400 (33 pull), hari ini 120
-  Bulan sebelumnya: 9.000 (-40%)
+  Bulan sebelumnya: 9.000; bulan ini -40% dibanding itu
   Sumber: Daily Activity 1.800 (33%), Events 1.600 (30%), Spiral Abyss 1.200 (22%), Mail 800 (15%)
   Lainnya: Mora 1.234.567
 ZZZ (Zenless Zone Zero)
