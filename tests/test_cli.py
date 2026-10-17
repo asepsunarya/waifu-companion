@@ -12698,6 +12698,7 @@ def test_an_answer_within_her_question_s_session_goes_on_the_day_she_asked_about
     tools = journal_tools(brains[0])
     journal_clock.now = datetime(2026, 10, 17, 23, 59, tzinfo=WIB)
     tools.begin_turn(JOURNAL_PROMPT)
+    assert tools.run("journal_read", {})[1] is False  # her question is said once it has read
     journal_clock.now = datetime(2026, 10, 18, 0, 24, tzinfo=WIB)
     tools.begin_turn("capek, tapi laporannya selesai")
     result, is_error = tools.run("journal_write", {"text": "capek, tapi laporannya selesai"})

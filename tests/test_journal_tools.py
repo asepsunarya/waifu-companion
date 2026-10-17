@@ -482,8 +482,10 @@ ANSWER = "capek, tapi laporannya akhirnya selesai"
 
 
 def ask_the_nightly_question(tools: JournalTools, clock: Clock, at: datetime) -> None:
+    # Her question is said only when its turn read today's notes (required_tool).
     clock.now = at
     tools.begin_turn(JOURNAL_PROMPT)
+    assert tools.run(JOURNAL_READ, {})[1] is False
 
 
 def begin_master_s_turn(tools: JournalTools, clock: Clock, at: datetime, words=ANSWER) -> None:
@@ -570,6 +572,27 @@ def test_a_later_question_replaces_the_day_an_answer_goes_on(rig):
     result, _ = tools.run(JOURNAL_WRITE, {"text": ANSWER})
 
     assert json.loads(result)["date"] == "2026-10-17"
+
+
+@pytest.mark.parametrize(
+    "read_arguments", [None, {"period": "tahun"}], ids=["never_read", "read_failed"]
+)
+def test_a_question_whose_turn_never_read_the_journal_is_not_remembered(
+    rig, read_arguments, caplog
+):
+    # Without a successful journal_read the app says nothing: no question was asked, so a note
+    # dictated just after midnight is about the new day.
+    rig.clock.now = JUST_BEFORE_MIDNIGHT
+    rig.tools.begin_turn(JOURNAL_PROMPT)
+    if read_arguments is not None:
+        rig.failed(JOURNAL_READ, read_arguments)
+    begin_master_s_turn(rig.tools, rig.clock, JUST_AFTER_MIDNIGHT, "catat: hari ini mulai puasa")
+
+    with caplog.at_level(logging.INFO, logger="waifu.brain.journal_tools"):
+        result = rig.write(text="hari ini mulai puasa")
+
+    assert result["date"] == "2026-10-18"
+    assert "the day of her nightly question" not in caplog.text
 
 
 def test_an_answer_before_midnight_goes_on_today_as_before(rig, caplog):

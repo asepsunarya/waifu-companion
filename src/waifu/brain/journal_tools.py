@@ -11,8 +11,9 @@ once, so they stay byte-identical for the brain's lifetime and keep the prompt c
 turns she starts herself (the morning greeting and the weekly game report) both tools refuse:
 the journal is told only when Master asks. Her nightly question (`JOURNAL_PROMPT`) may read
 today's notes but never writes: only Master's answer, in the next turn, is written, and an
-answer without a date that comes within `answer_window` of the question goes on the day she
-asked about, so one given just after midnight is not put on the new date. `run` never raises.
+answer without a date that comes within `answer_window` of the question (one whose turn read
+the journal, as only that one is said) goes on the day she asked about, so one given just after
+midnight is not put on the new date. `run` never raises.
 """
 
 from __future__ import annotations
@@ -133,6 +134,9 @@ class JournalTools:
         self._answer_window = answer_window
         self._specs = _specs()
         self._refusals: dict[str, str] = {}
+        # When this turn began, if it is her nightly question: it counts as asked only once the
+        # turn has read the journal, as the app says it only then.
+        self._asking_at: datetime | None = None
         # When her nightly question was last asked, while a turn may still answer it.
         self._question_at: datetime | None = None
 
@@ -142,13 +146,12 @@ class JournalTools:
     def begin_turn(self, user_text: str) -> None:
         """Start a turn with its words as heard: a turn she starts herself, the morning
         greeting or the weekly game report, gets no journal, and her nightly question writes
-        nothing. Her question is remembered for the turns that begin within `answer_window`
-        of it."""
+        nothing. Her question, once its turn has read the journal, is remembered for the turns
+        that begin within `answer_window` of it."""
         self._refusals = _OWN_TURN_REFUSALS.get(user_text, {})
         now = self._now()
-        if user_text == JOURNAL_PROMPT:
-            self._question_at = now
-        elif self._question_at is not None and now - self._question_at > self._answer_window:
+        self._asking_at = now if user_text == JOURNAL_PROMPT else None
+        if self._question_at is not None and now - self._question_at > self._answer_window:
             self._question_at = None
 
     def run(self, name: str, arguments: object) -> tuple[str, bool]:
@@ -208,6 +211,8 @@ class JournalTools:
                 raise JournalError(_NOT_YET)
         days = self._store.notes(first, last)
         shown, truncated = _newest(days)
+        if self._asking_at is not None:
+            self._question_at = self._asking_at
         return {
             "from": first.isoformat(),
             "to": last.isoformat(),
