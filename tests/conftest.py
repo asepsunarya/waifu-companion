@@ -10,7 +10,8 @@ owner's music and volume), open real programs and URLs, or capture the owner's r
 Nor may a test run git: the version reader finds the repository from its own file, so a
 forgotten fake would ask the real repository, which the builder commits to. Nor PowerShell:
 the offline fallback voice speaks through it, so a forgotten fake would use the owner's
-Windows voices.
+Windows voices. Nor the real process list: the play time watcher reads it, so a forgotten fake
+would make a test pass or fail by whether the owner is playing.
 """
 
 import ctypes
@@ -46,6 +47,8 @@ _REFUSED_FUNCTIONS = {
         "printwindow": "capture the real screen",
     },
     "gdi32": {"bitblt": "capture the real screen", "stretchblt": "capture the real screen"},
+    # Only the process snapshot: pc_health and process_alive need the rest of kernel32.
+    "kernel32": {"createtoolhelp32snapshot": "list the real processes"},
 }
 _REG_WRITE_VERBS = {"add", "delete", "import", "restore", "copy", "load", "unload"}
 _REGISTRY_WRITERS = (
@@ -128,9 +131,9 @@ class _GuardedPopen(_REAL_POPEN):  # type: ignore[misc, valid-type]
         super().__init__(args, *pargs, **kwargs)
 
 
-# Refused key presses, screen captures, startfile calls, and PowerShell runs of the running test:
-# code under test may catch the refusal (a device or tool turns errors into results), so the
-# fixture below fails the test afterwards too.
+# Refused key presses, screen captures, process listings, startfile calls, and PowerShell runs of
+# the running test: code under test may catch the refusal (a device or tool turns errors into
+# results, a watcher logs them), so the fixture below fails the test afterwards too.
 _refused_system_calls: list[str] = []
 
 
@@ -240,8 +243,8 @@ def _refuse_real_power_actions(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def refused_system_calls():
-    """Fails the test afterwards if it reached a refused key press, screen capture, startfile, or
-    PowerShell run, even when the code under test caught the refusal."""
+    """Fails the test afterwards if it reached a refused key press, screen capture, process
+    listing, startfile, or PowerShell run, even when the code under test caught the refusal."""
     _refused_system_calls.clear()
     yield _refused_system_calls
     assert not _refused_system_calls, (

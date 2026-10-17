@@ -17,6 +17,7 @@ import pytest
 
 from waifu.gacha.games import GAMES
 from waifu.gacha.history import find_cached_gacha_url
+from waifu.version import process_alive
 from waifu.voice.windows_voices import list_windows_voices
 
 
@@ -257,3 +258,26 @@ def test_other_user32_functions_still_work():
     sm_cxscreen = 0
     assert ctypes.WinDLL("user32").GetSystemMetrics(sm_cxscreen) > 0
     assert ctypes.windll.user32.GetSystemMetrics(sm_cxscreen) > 0
+
+
+def test_listing_the_real_processes_through_kernel32_is_refused(refused_system_calls):
+    if not hasattr(ctypes, "WinDLL"):
+        pytest.skip("kernel32 only exists on Windows")
+    # Refused as soon as the function is looked up, so no process is ever listed: the play
+    # time tests would otherwise pass or fail by whether the owner is playing.
+    with pytest.raises(AssertionError, match="CreateToolhelp32Snapshot"):
+        _ = ctypes.WinDLL("kernel32", use_last_error=True).CreateToolhelp32Snapshot
+    with pytest.raises(AssertionError, match="CreateToolhelp32Snapshot"):
+        _ = ctypes.windll.kernel32.CreateToolhelp32Snapshot
+    assert refused_system_calls == ["kernel32.CreateToolhelp32Snapshot"] * 2
+    refused_system_calls.clear()  # these were on purpose
+
+
+def test_other_kernel32_functions_still_work():
+    if not hasattr(ctypes, "WinDLL"):
+        pytest.skip("kernel32 only exists on Windows")
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.GetTickCount64.restype = ctypes.c_ulonglong
+    assert kernel32.GetTickCount64() > 0
+    assert ctypes.windll.kernel32.GetCurrentProcessId() == os.getpid()
+    assert process_alive(os.getpid())  # OpenProcess on this process, as `waifu check` does
