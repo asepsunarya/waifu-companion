@@ -551,17 +551,20 @@ def test_router_joins_runs_with_120_ms_of_silence():
     assert np.all(audio[:100] == 1)
 
 
-def test_router_resamples_every_run_to_the_first_runs_rate():
+def test_router_joins_runs_at_their_highest_rate_so_no_run_is_downsampled():
+    # A 16 kHz Windows voice may open a reply whose next run is 24 kHz edge-tts again; plain
+    # interpolation down to 16 kHz would alias that run.
     indonesian = FakeEngine(samples=1000, sample_rate=1000)
     japanese = FakeEngine(samples=2000, sample_rate=2000)
     router = SpeechRouter({"id": indonesian, "ja": japanese}, default_language="id")
 
     audio, sample_rate = router.synthesize("Halo はい")
 
-    assert sample_rate == 1000
+    assert sample_rate == 2000
     assert audio.dtype == np.float32
-    assert len(audio) == 1000 + 120 + 1000
-    assert np.allclose(audio[1120:], 1.0)
+    assert len(audio) == 2000 + 240 + 2000
+    assert np.all(audio[2000:2240] == 0)
+    assert np.all(audio[2240:] == 1.0)  # the 2 kHz run as it came
 
 
 def test_router_cleans_text_before_speaking():

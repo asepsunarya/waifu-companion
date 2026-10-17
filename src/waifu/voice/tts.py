@@ -537,7 +537,9 @@ def _join_pieces(pieces: Iterable[_Piece]) -> tuple[np.ndarray, int]:
 
 
 def _join(pieces: list[tuple[np.ndarray, int]]) -> tuple[np.ndarray, int]:
-    sample_rate = pieces[0][1]
+    """The pieces with a gap between them, at their highest rate: `_resample` has no
+    anti-alias filter, so it only ever upsamples here."""
+    sample_rate = max(rate for _, rate in pieces)
     gap = np.zeros(round(sample_rate * RUN_GAP_S), dtype=np.float32)
     clips = [_resample(audio, rate, sample_rate) for audio, rate in pieces]
     parts = [part for clip in clips for part in (gap, clip)][1:]
