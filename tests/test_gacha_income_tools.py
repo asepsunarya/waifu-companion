@@ -251,6 +251,25 @@ def test_this_month_named_by_its_year_and_month_is_this_month():
     assert data["this_month"] is True
 
 
+@pytest.mark.parametrize(
+    ("arguments", "games", "month"),
+    [
+        ({"game": None, "month": None}, EVERY_GAME, OCTOBER),
+        ({"game": "genshin", "month": None}, ["genshin"], OCTOBER),
+        ({"game": None, "month": "2026-09"}, EVERY_GAME, SEPTEMBER),
+    ],
+    ids=["both null", "a null month", "a null game"],
+)
+def test_a_null_argument_counts_as_left_out_as_local_models_send_it(arguments, games, month):
+    source = FakeIncome()
+
+    data, is_error = run(make_tools(source), arguments)
+
+    assert is_error is False
+    assert source.calls == [(games, month, month == OCTOBER)]
+    assert [game["game"] for game in data["games"]] == games
+
+
 def test_the_month_turns_at_midnight_server_time():
     # 23:30 WIB on 31 October is already 1 November on the Asia server.
     source = FakeIncome()
@@ -321,7 +340,6 @@ def test_every_game_failing_is_an_error_result_with_each_message_once():
         ),
         ({"month": 202610}, "'month' harus YYYY-MM, salah satu dari: 2026-10, 2026-09, 2026-08."),
         ({"game": "honkai"}, "'game' harus salah satu dari: hsr, genshin, zzz."),
-        ({"game": None}, "'game' harus salah satu dari: hsr, genshin, zzz."),
         ({"currency": "Primogem"}, "argumen tidak dikenal: currency."),
         (["genshin"], "argumen harus berupa objek JSON."),
     ],
@@ -331,7 +349,6 @@ def test_every_game_failing_is_an_error_result_with_each_message_once():
         "a month by its name",
         "a month as a number",
         "a game not configured",
-        "a null game",
         "an unknown key",
         "not an object",
     ],

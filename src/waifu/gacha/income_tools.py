@@ -127,10 +127,11 @@ class IncomeTools:
         return _to_json(data), False
 
     def _games_asked(self, given: Mapping[str, object]) -> list[str]:
-        """The game given, else every configured game."""
-        if "game" not in given:
+        """The game given, else every configured game (null counts as left out, as local
+        models send it)."""
+        game = given.get("game")
+        if game is None:
             return list(self._games)
-        game = given["game"]
         if not isinstance(game, str) or game not in self._games:
             raise _InvalidArguments(f"'game' harus salah satu dari: {', '.join(self._games)}.")
         return [game]
@@ -217,12 +218,13 @@ def _listing(items: list[str], conjunction: str) -> str:
 
 
 def _month(given: Mapping[str, object], months: tuple[date, ...]) -> date:
-    """The month given as YYYY-MM, one HoYoLAB keeps; else this month."""
-    if "month" not in given:
+    """The month given as YYYY-MM, one HoYoLAB keeps; else this month (null counts as left
+    out, as local models send it)."""
+    text = given.get("month")
+    if text is None:
         return months[0]
     kept = ", ".join(month_text(each) for each in months)
     invalid = _InvalidArguments(f"'month' harus YYYY-MM, salah satu dari: {kept}.")
-    text = given["month"]
     if not isinstance(text, str):
         raise invalid
     try:
