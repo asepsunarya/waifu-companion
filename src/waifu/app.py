@@ -14,8 +14,10 @@ Other threads make her speak up by herself, queued and handled by `run` between 
 utterances: `announce` says a fixed text (a game notice), `ask_aloud` has the brain answer a
 prompt (the morning greeting) and says the reply, and `remind` says what Master asked for
 himself (a reminder he set, the focus timer's lines). While `quiet` holds (a focus block is
-under way, or in game mode a game runs) only what `remind` queued is said; the rest waits. An
-announcement or request still waiting at its expiry is dropped (a rain alert after its rain began).
+under way, or in game mode a game runs) only what `remind` queued is said; the rest waits, and
+what a game held comes out after a short lead-in once it has closed. An announcement or request
+still waiting at its expiry is dropped (a rain alert after its rain began), and a text queued
+more than once is said once.
 
 The owner's paired phone (`waifu.phone`) talks to her from the phone server's threads:
 `reply_for_phone` and `transcribe_for_phone`, handed to the server as `PhoneAnswers`. Brain
@@ -73,6 +75,8 @@ PHONE_SAMPLE_RATE = 24000
 # What the phone page's camera sends: one JPEG per message.
 PHOTO_MEDIA_TYPE = "image/jpeg"
 PCM16_SCALE = 32767  # full scale of a 16-bit sample, symmetric so +1 and -1 both fit
+# Said before the announcements a game held (game mode), once the game has closed.
+GAME_HELD = "Tadi selama main ada kabar."
 
 
 def split_reply(reply: BrainReply, *, owner_call: str = "Master") -> tuple[str, BrainReply]:
@@ -234,10 +238,12 @@ class Assistant:
         turn_images: TurnImages | None = None,
         camera_turn: CameraTurn | None = None,
         quiet: Callable[[], bool] | None = None,
+        game_holding: Callable[[], bool] | None = None,
     ) -> None:
         """`quiet` (the focus timer's `in_block`, in game mode also whether a game holds her
         announcements) says when what she would say by herself must wait: only `remind` is
-        said then."""
+        said then. `game_holding` (game mode's `holding`, part of `quiet`) tells the waits a
+        game made: the announcements it held come out after GAME_HELD."""
         self._name = config.assistant.name
         self._owner_call = config.assistant.owner_call
         self._followup_s = config.assistant.followup_seconds
@@ -256,6 +262,7 @@ class Assistant:
         # Shared with the screen tool while the phone camera is offered; None otherwise.
         self._camera_turn = camera_turn
         self._quiet = quiet
+        self._game_holding = game_holding
         self._mic: Microphone | None = None
         self._segmenter: Segmenter | None = None
         self._speaker_error_logged = False
@@ -266,6 +273,8 @@ class Assistant:
         # What Master asked for himself (`remind`): also said while `quiet` holds.
         self._reminders: queue.SimpleQueue[_Announcement] = queue.SimpleQueue()
         self._requests: queue.SimpleQueue[_Request] = queue.SimpleQueue()
+        # A game held announcements that are still queued: GAME_HELD goes before them.
+        self._held_by_game = False
         # After a cut, on `clock`: announcements and requests wait until then
         # (see `_hold_announcements`).
         self._announcements_held_until: float | None = None
@@ -589,20 +598,38 @@ class Assistant:
     def _say_announcements(self, followup_open: bool, quiet: bool) -> bool:
         """Say every queued reminder and announcement in one go, reminders first, with the
         first one's emotion, except the announcements while `quiet`, those that wait while
-        the follow-up window is open, and those that have expired (dropped); True when there
-        was any to say."""
-        queued = _take_all(self._reminders)
-        if not quiet:
-            queued += _take_all(self._announcements)
+        the follow-up window is open, and those that have expired (dropped). A text queued
+        more than once is said once, and the announcements a game held come after GAME_HELD.
+        True when there was any to say."""
+        reminders = _take_all(self._reminders)
+        announcements: list[_Announcement] = []
+        if quiet:
+            self._note_game_hold()
+        else:
+            announcements = _take_all(self._announcements)
         if not (quiet or followup_open):
-            queued += _take_all(self._patient_announcements)
-        due = [announcement for announcement in queued if self._in_date(announcement)]
+            announcements += _take_all(self._patient_announcements)
+        news = [announcement for announcement in announcements if self._in_date(announcement)]
+        lead_in: list[str] = []
+        if announcements and self._held_by_game:
+            self._held_by_game = False
+            lead_in = [GAME_HELD] if news else []
+        due = reminders + news
         if not due:
             return False
-        text = " ".join(announcement.text for announcement in due)
+        texts = [reminder.text for reminder in reminders] + lead_in + [item.text for item in news]
+        text = " ".join(dict.fromkeys(texts))
         logger.info("Announcing: %s", text)
         self.speak(text, due[0].emotion, followup=False)
         return True
+
+    def _note_game_hold(self) -> None:
+        """Remember that a game holds queued announcements, for GAME_HELD once it has closed."""
+        if self._game_holding is None or self._held_by_game:
+            return
+        waiting = not (self._announcements.empty() and self._patient_announcements.empty())
+        if waiting and self._game_holding():
+            self._held_by_game = True
 
     def _in_date(self, announcement: _Announcement) -> bool:
         """Whether `announcement` has not expired; an expired one is logged, not its text."""

@@ -10645,6 +10645,7 @@ def test_run_without_a_game_mode_tells_game_mode_nothing_and_keeps_the_focus_qui
     assert watcher.on_poll is None
     assistant = RecordingAssistant.instances[0]
     assert assistant.collaborators["quiet"] == focus_timers[0].in_block
+    assert assistant.collaborators["game_holding"] is None
 
 
 @pytest.mark.parametrize("announcements", ["hold", "phone"])
@@ -10663,19 +10664,29 @@ def test_run_in_game_mode_holds_her_own_speech_while_a_game_runs_and_during_a_fo
 
     def play(assistant: RecordingAssistant) -> None:
         quiet, tell = assistant.collaborators["quiet"], play_time_watchers[0].on_poll
+        game_holding = assistant.collaborators["game_holding"]
         seen["before"] = quiet()
         tell(True, False)
         seen["playing"] = quiet()
+        seen["held_by_the_game"] = game_holding()
         tell(False, False)
         seen["closed"] = quiet()
         start_focus(brains[0])
         seen["focusing"] = quiet()
+        seen["focus_held_by_the_game"] = game_holding()
 
     while_listening(monkeypatch, play)
 
     assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
 
-    assert seen == {"before": False, "playing": True, "closed": False, "focusing": True}
+    assert seen == {
+        "before": False,
+        "playing": True,
+        "held_by_the_game": True,
+        "closed": False,
+        "focusing": True,
+        "focus_held_by_the_game": False,
+    }
 
 
 def test_run_in_normal_game_mode_never_holds_her_speech(

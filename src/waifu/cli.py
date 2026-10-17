@@ -1274,6 +1274,7 @@ def _listen(args: argparse.Namespace) -> int:
                 turn_images=turn_images,
                 camera_turn=camera_turn,
                 quiet=quiet,
+                game_holding=None if game_mode is None else game_mode.holding,
             )
             reactions = InteractionHandler(
                 config.avatar.interactions,

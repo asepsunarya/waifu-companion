@@ -14,7 +14,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from waifu.app import Assistant, PhoneAnswers
+from waifu.app import GAME_HELD, Assistant, PhoneAnswers
 from waifu.avatar.lipsync import viseme_track
 from waifu.brain.attachments import CameraTurn, TurnImages
 from waifu.brain.base import Brain, BrainReply, ToolCallRecord, ToolImage
@@ -223,6 +223,7 @@ class Rig:
         turn_images: TurnImages | None = None,
         camera_turn: CameraTurn | None = None,
         quiet: Callable[[], bool] | None = None,
+        game_holding: Callable[[], bool] | None = None,
     ) -> None:
         config = config or AppConfig()
         self.events: list[str] = []
@@ -252,6 +253,7 @@ class Rig:
             turn_images=turn_images,
             camera_turn=camera_turn,
             quiet=quiet,
+            game_holding=game_holding,
         )
 
     def utterance(self) -> Utterance:
@@ -2717,6 +2719,81 @@ def test_an_announcement_whose_expiry_has_not_passed_is_said_after_the_hold():
     listen_once(rig)
 
     assert rig.speech.texts == [RAIN_ALERT]
+
+
+# Announcements a game held (game mode): said once it has closed, briefly and framed
+
+GPU_HOT = "Master, GPU-nya sudah 86°C beberapa menit. Istirahat sebentar atau cek pendinginnya, ya."
+
+
+def test_a_notice_queued_twice_while_held_is_said_once():
+    quiet = Quiet()
+    rig = Rig(quiet=quiet)
+    rig.assistant.announce(GPU_HOT, "sad")
+    rig.assistant.announce(ANNOUNCEMENT)
+    rig.assistant.announce(GPU_HOT, "sad")
+    listen_once(rig)
+
+    quiet.on = False
+    listen_once(rig)
+
+    assert rig.speech.texts == [f"{GPU_HOT} {ANNOUNCEMENT}"]
+
+
+def test_announcements_a_game_held_come_out_after_a_short_lead_in_and_the_reminders():
+    game = Quiet()
+    rig = Rig(quiet=game, game_holding=game, with_avatar=True)
+    rig.assistant.announce(ANNOUNCEMENT, "happy")
+    rig.assistant.announce(BUDGET_NOTICE, "surprised", wait_for_followup=True)
+    listen_once(rig)
+
+    rig.assistant.remind(MEDICINE, "neutral")  # due as the game closes
+    game.on = False
+    listen_once(rig)
+
+    assert rig.speech.texts == [f"{MEDICINE} {GAME_HELD} {ANNOUNCEMENT} {BUDGET_NOTICE}"]
+    assert "avatar.speak neutral" in rig.events
+
+
+def test_announcements_a_focus_block_held_come_out_without_the_game_s_lead_in():
+    focus = Quiet()
+    rig = Rig(quiet=focus, game_holding=Quiet(on=False))
+    rig.assistant.announce(ANNOUNCEMENT)
+    listen_once(rig)
+
+    focus.on = False
+    listen_once(rig)
+
+    assert rig.speech.texts == [ANNOUNCEMENT]
+
+
+def test_the_lead_in_comes_once_and_news_after_the_game_has_none():
+    game = Quiet()
+    rig = Rig(quiet=game, game_holding=game)
+    rig.assistant.announce(ANNOUNCEMENT)
+    listen_once(rig)
+    game.on = False
+    listen_once(rig)
+
+    rig.assistant.announce(GPU_HOT, "sad")
+    listen_once(rig)
+
+    assert rig.speech.texts == [f"{GAME_HELD} {ANNOUNCEMENT}", GPU_HOT]
+
+
+def test_when_everything_a_game_held_has_expired_she_says_nothing_and_later_news_has_no_lead_in():
+    game = Quiet()
+    rig = Rig(quiet=game, game_holding=game)
+    rig.assistant.announce(RAIN_ALERT, expires_at=EXPIRY)
+    listen_once(rig)
+    rig.now = EXPIRY
+    game.on = False
+    listen_once(rig)
+
+    rig.assistant.announce(ANNOUNCEMENT)
+    listen_once(rig)
+
+    assert rig.speech.texts == [ANNOUNCEMENT]
 
 
 def test_an_announcement_without_an_expiry_is_said_however_long_it_waited():
