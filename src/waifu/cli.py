@@ -2917,7 +2917,7 @@ def _routine_run(args: argparse.Namespace) -> int:
         return 1
     mode = " (perangkat simulasi)" if args.dry_run else ""
     print(f"Menjalankan rutinitas {name}{mode}...", flush=True)
-    results = run_routine(build_registry(config, dry_run=args.dry_run), routine)
+    results = run_routine(build_registry(config, dry_run=args.dry_run), routine, name=name)
     for number, (step, result) in enumerate(zip(routine.steps, results, strict=True), start=1):
         mark = OK if result.ok else FAIL
         step_text = _command_text(step.device, step.command, step.value)

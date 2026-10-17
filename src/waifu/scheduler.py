@@ -239,7 +239,7 @@ class Scheduler:
         routine = self._routines.get(name)
         if routine is None:
             return f"Rutinitas '{name}' tidak ada di config.yaml."
-        results = run_routine(self._registry, routine)
+        results = run_routine(self._registry, routine, name=name)
         failed = [
             f"Langkah {number} ({_command_words(step.device, step.command, step.value)}): "
             f"{result.message}"

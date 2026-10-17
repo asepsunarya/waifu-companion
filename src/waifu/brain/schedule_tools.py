@@ -267,7 +267,7 @@ class ScheduleTools:
         mapping = _arguments_mapping(arguments, allowed=_RUN_ROUTINE_KEYS)
         name = self._routine_name(_text(mapping, "name"))
         routine = self._routines[name]
-        results = run_routine(self._registry, routine)
+        results = run_routine(self._registry, routine, name=name)
         steps = [
             _step_json(step, result) for step, result in zip(routine.steps, results, strict=True)
         ]
