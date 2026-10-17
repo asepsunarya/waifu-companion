@@ -572,7 +572,7 @@ cannot be undone. The nightly question is off by default: `journal.ask_at` (12:0
 `PromptTimer` ask once a day, in a new session, without a push; the follow-up window after her
 question lets Master answer without her name, and that answer is written. No new dependency.
 - [x] Task 146a: contract: SPEC, tasks
-- [ ] Task 146: the journal store (`journal.py`)
+- [x] Task 146: the journal store (`journal.py`)
 - [ ] Task 147: the journal tools and the refusal in her own turns
 - [ ] Task 148: the nightly question (`JournalConfig`, `JOURNAL_PROMPT`, `JournalTimer`)
 - [ ] Task 149: the persona line

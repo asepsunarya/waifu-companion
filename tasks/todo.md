@@ -1395,11 +1395,11 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** none · **Files:** `SPEC.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
 
-## Task 146: The journal store
+## Task 146: The journal store ✅
 
 **Acceptance criteria:**
-- [ ] `JournalStore.add`: today (WIB) by default or a past day, several notes a day in order, stamped to the second; empty, too long, and secret texts refused without repeating them; a day after today refused; the same note that day kept once and not written again; a full day refused
-- [ ] `notes(since, until)` and `forget(day)`; a missing file reads empty and stays missing, every call re-reads, a byte order mark is read, a broken file moved aside and never overwritten, a naive clock refused, two stores in one process lose nothing
+- [x] `JournalStore.add`: today (WIB) by default or a past day, several notes a day in order, stamped to the second; empty, too long, and secret texts refused without repeating them; a day after today refused; the same note that day kept once and not written again; a full day refused
+- [x] `notes(since, until)` and `forget(day)`; a missing file reads empty and stays missing, every call re-reads, a byte order mark is read, a broken file moved aside and never overwritten, a naive clock refused, two stores in one process lose nothing
 
 **Dependencies:** 146a · **Files:** `src/waifu/journal.py`, `tests/test_journal.py` · **Scope:** M
 
