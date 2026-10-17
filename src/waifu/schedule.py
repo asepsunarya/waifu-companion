@@ -52,10 +52,15 @@ _ONE_MINUTE = timedelta(minutes=1)
 _ENTRY_ID = re.compile(r"j[1-9][0-9]*")
 _FILE_KEYS = {"version", "next_id", "entries"}
 _ENTRY_KEYS = {"id", "at", "repeat", "action", "created"}
+# The key sets each kind of action may have. A routine's delayed step also names its routine;
+# that key is written only then, so a file without delayed steps reads as it always did.
 _ACTION_KEYS = {
-    "reminder": {"type", "text"},
-    "device": {"type", "device", "command", "value"},
-    "routine": {"type", "name"},
+    "reminder": ({"type", "text"},),
+    "device": (
+        {"type", "device", "command", "value"},
+        {"type", "device", "command", "value", "routine"},
+    ),
+    "routine": ({"type", "name"},),
 }
 
 # One lock for every store: two stores on the same file in this process must not lose
@@ -73,6 +78,9 @@ class DeviceAction:
     device: str
     command: str
     value: int | None = None
+    # The routine whose delayed step this is ("mode tidur": the AC off later); None when Master
+    # scheduled the command himself. A new run of that routine replaces its pending ones.
+    routine: str | None = None
 
 
 @dataclass(frozen=True)
@@ -322,6 +330,8 @@ def _checked_action(action: object) -> Action:
         # True is an int to Python, but no temperature or brightness.
         if action.value is not None and type(action.value) is not int:
             raise ScheduleError("Nilai perintahnya harus bilangan bulat.")
+        if action.routine is not None and not _filled(action.routine):
+            raise ScheduleError("Langkah rutinitas yang ditunda butuh nama rutinitasnya.")
         return action
     if isinstance(action, RoutineAction):
         if not _filled(action.name):
@@ -370,12 +380,15 @@ def _dump_action(action: Action) -> dict[str, object]:
     if isinstance(action, Reminder):
         return {"type": "reminder", "text": action.text}
     if isinstance(action, DeviceAction):
-        return {
+        data: dict[str, object] = {
             "type": "device",
             "device": action.device,
             "command": action.command,
             "value": action.value,
         }
+        if action.routine is not None:
+            data["routine"] = action.routine
+        return data
     return {"type": "routine", "name": action.name}
 
 
@@ -423,7 +436,7 @@ def _parse_action(raw: object, where: str) -> Action:
     if (
         not isinstance(raw, dict)
         or not isinstance(kind, str)
-        or raw.keys() != _ACTION_KEYS.get(kind)
+        or raw.keys() not in _ACTION_KEYS.get(kind, ())
     ):
         raise ValueError(
             f"{where} must be a reminder, device, or routine action with exactly its keys"
@@ -434,10 +447,12 @@ def _parse_action(raw: object, where: str) -> Action:
         value = raw["value"]
         if value is not None and type(value) is not int:
             raise ValueError(f"{where}.value must be an integer or null")
+        routine = _parse_text(raw["routine"], f"{where}.routine") if "routine" in raw else None
         return DeviceAction(
             _parse_text(raw["device"], f"{where}.device"),
             _parse_text(raw["command"], f"{where}.command"),
             value,
+            routine,
         )
     return RoutineAction(_parse_text(raw["name"], f"{where}.name"))
 

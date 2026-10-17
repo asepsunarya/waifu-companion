@@ -81,6 +81,11 @@ def test_a_device_action_without_a_value_has_none():
     assert DeviceAction("lampu_kamar", "off") == DeviceAction("lampu_kamar", "off", None)
 
 
+def test_a_device_action_comes_from_no_routine_unless_it_says_so():
+    assert DeviceAction("ac", "off").routine is None
+    assert DeviceAction("ac", "off", routine="tidur") != DeviceAction("ac", "off")
+
+
 def test_schedule_error_is_an_exception_of_its_own():
     assert issubclass(ScheduleError, Exception)
 
@@ -583,9 +588,42 @@ def test_a_device_action_takes_no_value_or_an_integer(tmp_path, value):
     assert read_json(store.path)["entries"][0]["action"]["value"] == value
 
 
+def test_a_routine_step_is_saved_with_its_routine_and_read_back(tmp_path):
+    store = make_store(tmp_path)
+    delayed = DeviceAction("ac", "off", routine="tidur")
+
+    added = store.add(TODAY_15, "none", delayed)
+
+    assert read_json(store.path)["entries"][0]["action"] == {
+        "type": "device",
+        "device": "ac",
+        "command": "off",
+        "value": None,
+        "routine": "tidur",
+    }
+    assert make_store(tmp_path).entries() == [added]
+    assert added.action == delayed
+
+
+def test_a_device_action_of_no_routine_is_saved_without_the_routine_key(tmp_path):
+    store = make_store(tmp_path)
+
+    store.add(TODAY_15, "none", DeviceAction("ac", "temp", 26))
+
+    assert read_json(store.path)["entries"][0]["action"] == {
+        "type": "device",
+        "device": "ac",
+        "command": "temp",
+        "value": 26,
+    }
+
+
 @pytest.mark.parametrize(
     ("action", "match"),
     [
+        (DeviceAction("ac", "off", routine=""), "nama rutinitas"),
+        (DeviceAction("ac", "off", routine="  "), "nama rutinitas"),
+        (DeviceAction("ac", "off", routine=7), "nama rutinitas"),
         (DeviceAction("", "off"), "perangkat dan perintah"),
         (DeviceAction("   ", "off"), "perangkat dan perintah"),
         (DeviceAction("ac", ""), "perangkat dan perintah"),
@@ -1048,6 +1086,34 @@ CORRUPT_CONTENTS = {
     ),
     "device command null": corrupt_file(
         [VALID | {"action": {"type": "device", "device": "ac", "command": None, "value": None}}]
+    ),
+    "device routine a number": corrupt_file(
+        [
+            VALID
+            | {
+                "action": {
+                    "type": "device",
+                    "device": "ac",
+                    "command": "off",
+                    "value": None,
+                    "routine": 1,
+                }
+            }
+        ]
+    ),
+    "device routine null": corrupt_file(
+        [
+            VALID
+            | {
+                "action": {
+                    "type": "device",
+                    "device": "ac",
+                    "command": "off",
+                    "value": None,
+                    "routine": None,
+                }
+            }
+        ]
     ),
     "routine name a number": corrupt_file([VALID | {"action": {"type": "routine", "name": 1}}]),
     "duplicate ids": corrupt_file([VALID, VALID | {"at": "2026-10-13T16:00"}], next_id=3),
