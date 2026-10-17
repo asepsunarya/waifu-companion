@@ -3938,7 +3938,9 @@ mengulangnya, jadi bisa jauh lebih lama dari sejak PC dinyalakan pagi ini.
 - **GPU terus panas.** GPU di `gpu_warn_c` (bawaan 85°C) atau lebih di setiap pembacaan selama
   paling sedikit `gpu_warn_minutes` (bawaan 3 menit): "Master, GPU-nya sudah 88°C beberapa menit.
   Istirahat sebentar atau cek pendinginnya, ya." Paling sering sekali per jam. Satu pembacaan di
-  bawah batas, atau tanpa angka suhu, membuat hitungannya mulai dari awal.
+  bawah batas, atau tanpa angka suhu, membuat hitungannya mulai dari awal. Kalau kalimatnya
+  tertahan (blok fokus atau [Mode game](#mode-game)) sampai sejam, kalimat itu dilewati, jadi
+  tidak menumpuk selama main lama; notifikasi HP-nya, kalau menyala, sudah terkirim.
 - PC dibaca setiap `poll_seconds` (bawaan 60 detik), mulai begitu dia siap mendengarkan.
 - Seperti pengingat, kalimatnya diucapkan di sela obrolan, tidak pernah memotong Master atau
   jawabannya, dengan wajah sedih, dan dikirim juga ke HP kalau notifikasi menyala (lihat
@@ -4300,8 +4302,10 @@ Jalankan ulang `waifu run` setelah mengubahnya. `waifu chat` tidak punya mode ga
 - Sapaan pagi yang tertahan sampai `briefing.until`, dan laporan mingguan atau pertanyaan jurnal
   yang tertahan sampai tengah malam, dilewati hari itu, seperti saat tertahan blok fokus.
 - Pemberitahuan lain tetap disimpan sampai game ditutup, berapa lama pun: game yang dibiarkan
-  terbuka semalaman (diminimalkan pun) menahannya semalaman. Pemberitahuan GPU panas yang muncul
-  saat main baru diucapkan sesudah game ditutup.
+  terbuka semalaman (diminimalkan pun) menahannya semalaman.
+- Pemberitahuan GPU panas yang tertahan sampai sejam dilewati: dari main lama yang membuat GPU
+  terus panas, paling banyak satu (yang terakhir, kalau belum sejam) diucapkan sesudah game
+  ditutup.
 - Dengan `phone`, kalau notifikasi HP gagal terkirim (misalnya internet putus), pemberitahuan
   itu juga tidak diucapkan.
 

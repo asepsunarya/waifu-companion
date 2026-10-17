@@ -4,9 +4,11 @@ Every `poll_seconds` it reads the PC. A fixed drive with less than `disk_warn_gb
 told once per drive per local date; a GPU at or above `gpu_warn_c` in every poll for at
 least `gpu_warn_minutes` (timed on the monotonic clock; a poll below the line or without a
 reading starts the streak over) is told at most once per hour. Each notice is said between
-utterances and pushed to the phone when notifications are on. What was told lives only in
-this process, so a restart may repeat a notice once. It runs in a daemon thread; a failing
-read, announcement, or push is logged and the next poll comes as usual.
+utterances and pushed to the phone when notifications are on. A hot-GPU notice still unsaid an
+hour later (held through a focus block or a game) is dropped: by then the next one could be
+told, so a long hot game never piles them up. What was told lives only in this process, so a
+restart may repeat a notice once. It runs in a daemon thread; a failing read, announcement, or
+push is logged and the next poll comes as usual.
 """
 
 from __future__ import annotations
@@ -16,11 +18,12 @@ import math
 import threading
 import time
 from collections.abc import Callable
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from waifu.config import PcHealthConfig, at_sentence_start
 from waifu.notify import Notifier
 from waifu.pc_health import GpuStatus, PcSnapshot
+from waifu.rain_watch import Announce
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +41,7 @@ class PcWatcher:
         read: Callable[[], PcSnapshot],
         config: PcHealthConfig,
         *,
-        announce: Callable[[str, str], None] | None,
+        announce: Announce | None,
         notifier: Notifier | None,
         owner_call: str,
         title: str = "Cyrene",
@@ -68,10 +71,12 @@ class PcWatcher:
             logger.exception("Could not read the PC; trying again at the next poll")
             self._hot_since = None  # a poll without a reading starts the streak over
             return []
-        notices = [*self._disk_notices(snapshot), *self._gpu_notices(snapshot.gpu)]
-        for text in notices:
-            self._deliver(text)
-        return notices
+        disk, gpu = self._disk_notices(snapshot), self._gpu_notices(snapshot.gpu)
+        for text in disk:
+            self._deliver(text, None)
+        for text in gpu:
+            self._deliver(text, self._now() + timedelta(seconds=GPU_NOTICE_GAP_S))
+        return [*disk, *gpu]
 
     def start(self) -> None:
         if self._thread is not None:
@@ -136,11 +141,12 @@ class PcWatcher:
             "Istirahat sebentar atau cek pendinginnya, ya."
         ]
 
-    def _deliver(self, text: str) -> None:
-        """Say the notice and push it; a failure of either is logged, never raised."""
+    def _deliver(self, text: str, expires_at: datetime | None) -> None:
+        """Say the notice, unless still unsaid at `expires_at`, and push it; a failure of
+        either is logged, never raised."""
         if self._announce is not None:
             try:
-                self._announce(text, NOTICE_EMOTION)
+                self._announce(text, NOTICE_EMOTION, expires_at=expires_at)
             except Exception:
                 logger.exception("Could not say a PC notice")
         if self._notifier is not None:
