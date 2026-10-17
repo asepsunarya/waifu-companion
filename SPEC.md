@@ -1242,7 +1242,7 @@ CLI:
 - `check`, right before the anime voice lines, with one `-List` call: `✓ Suara cadangan bahasa Indonesia: Microsoft Andika (id-ID, laki-laki)` per configured language; `! Suara cadangan bahasa Jepang: belum ada suara Windows bahasa Jepang; tambahkan gratis di …`; `! Suara cadangan bahasa Indonesia: 'X' (tts.fallback.voices.id) tidak terpasang; lihat 'waifu voices'`; `! Suara Windows tidak terbaca (…); suara cadangan offline tidak bisa dipakai`; `! Suara cadangan offline mati (tts.fallback.enabled: false); kalau edge-tts gagal, Cyrene diam`. All WARN: the fallback is a bonus.
 - Docs: README (Indonesian) section "Suara cadangan offline" after "Suara anime" (adding the Indonesian and Japanese voices in Settings, what the fallback sounds like, tuning its pitch), the command and check rows, a troubleshooting note; `config.example.yaml` documents `tts.fallback`; CHANGELOG v1.28.
 
-Safety: tests never start PowerShell (`tests/conftest.py` refuses `powershell` and `pwsh`; tests inject a fake `run`; `test_cli.py` gets an autouse fake `list_windows_voices`), never install voices or change settings, and never play audio. The real path is checked by hand: one synthesis to a scratch WAV, read back with soundfile.
+Safety: tests never start PowerShell (`tests/conftest.py` refuses `powershell` and `pwsh`, and records the refusal so a test fails even when the code under test catches it, as `waifu` commands, `Assistant.speak` and the phone's reply do; tests inject a fake `run`; `test_cli.py` gets an autouse fake `list_windows_voices`), never install voices or change settings, and never play audio. The real path is checked by hand: one synthesis to a scratch WAV, read back with soundfile.
 
 ## Code Style
 

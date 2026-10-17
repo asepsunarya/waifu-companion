@@ -97,12 +97,17 @@ def _is_system_change_command(args: object) -> bool:
         return True
     if programs and programs[0] in {"electron", "msedge"}:  # would open a real window
         return True
-    if programs and programs[0] in {"powershell", "pwsh"}:  # would speak with Windows' voices
+    if _is_powershell_command(args):  # would speak with Windows' voices
         return True
     if "reg" in programs:
         verb_index = programs.index("reg") + 1
         return verb_index < len(words) and words[verb_index].lower() in _REG_WRITE_VERBS
     return False
+
+
+def _is_powershell_command(args: object) -> bool:
+    words = _words(args)
+    return bool(words) and _program(words[0]) in {"powershell", "pwsh"}
 
 
 def _is_git_command(args: object) -> bool:
@@ -117,13 +122,15 @@ class _GuardedPopen(_REAL_POPEN):  # type: ignore[misc, valid-type]
         if _is_git_command(args):
             raise AssertionError(f"a test tried to run git: {args!r}")
         if _is_system_change_command(args):
+            if _is_powershell_command(args):  # the fallback voice's callers catch everything
+                _refused_system_calls.append("powershell")
             raise AssertionError(f"a test tried to run a real system-change command: {args!r}")
         super().__init__(args, *pargs, **kwargs)
 
 
-# Refused key presses, screen captures, and startfile calls of the running test: code under
-# test may catch the refusal (a device or tool turns errors into results), so the fixture below
-# fails the test afterwards too.
+# Refused key presses, screen captures, startfile calls, and PowerShell runs of the running test:
+# code under test may catch the refusal (a device or tool turns errors into results), so the
+# fixture below fails the test afterwards too.
 _refused_system_calls: list[str] = []
 
 
@@ -233,8 +240,8 @@ def _refuse_real_power_actions(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def refused_system_calls():
-    """Fails the test afterwards if it reached a refused key press, screen capture, or startfile,
-    even when the code under test caught the refusal."""
+    """Fails the test afterwards if it reached a refused key press, screen capture, startfile, or
+    PowerShell run, even when the code under test caught the refusal."""
     _refused_system_calls.clear()
     yield _refused_system_calls
     assert not _refused_system_calls, (

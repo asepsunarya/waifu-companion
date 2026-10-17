@@ -17,6 +17,7 @@ import pytest
 
 from waifu.gacha.games import GAMES
 from waifu.gacha.history import find_cached_gacha_url
+from waifu.voice.windows_voices import list_windows_voices
 
 
 def test_power_lock_env_is_set_for_the_whole_suite():
@@ -109,11 +110,24 @@ def test_opening_a_real_avatar_window_is_refused(program):
     "program",
     [r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe", "powershell", "pwsh.exe"],
 )
-def test_running_powershell_is_refused(program):
+def test_running_powershell_is_refused(program, refused_system_calls):
     with pytest.raises(AssertionError, match="system-change command"):
         subprocess.run(
             [program, "-NoProfile", "-Command", "exit 0"], capture_output=True, check=False
         )
+    assert refused_system_calls == ["powershell"]  # also failed at teardown
+    refused_system_calls.clear()  # this one was on purpose
+
+
+def test_a_powershell_refusal_the_fallback_voice_s_callers_swallow_is_still_recorded(
+    refused_system_calls,
+):
+    # waifu commands, Assistant.speak and the phone's reply catch every exception, and a
+    # forgotten fake reaches PowerShell through the real listing ("-List" only reads).
+    with contextlib.suppress(Exception):
+        list_windows_voices()
+    assert refused_system_calls == ["powershell"]  # so teardown fails the test
+    refused_system_calls.clear()  # this one was on purpose
 
 
 # A push to the owner's phone or a HoYoLAB check-in must never come from a test.
