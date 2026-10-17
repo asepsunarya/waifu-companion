@@ -21,7 +21,7 @@ from collections.abc import Mapping
 
 from waifu.avatar.emotion import split_emotion
 from waifu.brain.base import ToolSpec
-from waifu.config import RoutineConfig, RoutineStep, at_sentence_start
+from waifu.config import MEDIA_TOGGLES, RoutineConfig, RoutineStep, at_sentence_start
 from waifu.devices.base import Device, DeviceResult
 from waifu.devices.ir_device import resolve_command
 from waifu.devices.registry import DeviceRegistry, value_problem
@@ -58,7 +58,6 @@ _ACTION_KINDS = {
     "routine": "routine",
 }
 _NO_ACTION = "isi tepat satu aksi: reminder; atau device dan command (value boleh); atau routine."
-_MEDIA_TOGGLES = frozenset({"play_pause", "mute"})
 _FAILED = "Jadwal atau rutinitas tidak bisa diproses saat ini."
 
 
@@ -236,7 +235,7 @@ class ScheduleTools:
                 f"{device.name} tidak punya perintah '{command}'{with_value}. "
                 f"Perintah yang tersedia: {_join_or_none(available)}."
             )
-        if device.kind == "media" and resolved in _MEDIA_TOGGLES:
+        if device.kind == "media" and resolved in MEDIA_TOGGLES:
             raise ScheduleError(
                 f"{resolved} pada {device.name} tidak bisa dijadwalkan: tombolnya bolak-balik, "
                 "jadi bisa malah memutar musik atau menyalakan suara saat "

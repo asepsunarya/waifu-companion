@@ -497,6 +497,111 @@ def test_the_example_config_marks_its_pc_plug():
     assert next(device for device in devices if device.id == "colokan_pc").powers_pc is True
 
 
+def tidur_with(step: str, devices: str = ROUTINE_DEVICES) -> str:
+    """The devices and a routine `tidur` whose third step is `step` (a YAML flow mapping)."""
+    return devices + (
+        "routines:\n"
+        "  tidur:\n"
+        "    steps:\n"
+        "      - {device: lampu_kamar, command: off}\n"
+        "      - {device: ac, command: temp, value: 26}\n"
+        f"      - {step}\n"
+    )
+
+
+def test_a_routine_step_may_wait_whole_minutes_after_the_routine_starts(tmp_path):
+    text = tidur_with("{device: ac, command: off, after_minutes: 180}")
+
+    steps = load_config(write_yaml(tmp_path, text)).routines["tidur"].steps
+
+    assert [step.after_minutes for step in steps] == [None, None, 180]
+
+
+@pytest.mark.parametrize("delay", ["1", "1440"])
+def test_a_step_delay_may_be_one_minute_to_a_day(tmp_path, delay):
+    text = tidur_with(f"{{device: ac, command: off, after_minutes: {delay}}}")
+
+    [*_, last] = load_config(write_yaml(tmp_path, text)).routines["tidur"].steps
+
+    assert last.after_minutes == int(delay)
+
+
+@pytest.mark.parametrize("delay", ["0", "-5", "1441", "true", "3h", "'180'", "1.5", "180.0"])
+def test_a_step_delay_must_be_whole_minutes_from_1_to_1440(tmp_path, delay):
+    text = tidur_with(f"{{device: ac, command: off, after_minutes: {delay}}}")
+
+    with pytest.raises(ConfigError) as caught:
+        load_config(write_yaml(tmp_path, text))
+
+    message = str(caught.value)
+    assert "after_minutes must be a whole number of minutes from 1 to 1440" in message
+    assert "like 180 for 3 hours" in message
+
+
+@pytest.mark.parametrize(
+    ("step", "devices", "match"),
+    [
+        ("{device: komputer, command: sleep, after_minutes: 60}", ROUTINE_DEVICES, "komputer"),
+        (
+            "{device: colokan_pc, command: off, after_minutes: 60}",
+            ROUTINE_DEVICES + PC_PLUG,
+            "colokan_pc",
+        ),
+    ],
+    ids=["the PC", "the plug that powers the PC"],
+)
+def test_a_delayed_step_never_powers_the_pc(tmp_path, step, devices, match):
+    with pytest.raises(ConfigError, match=match):
+        load_config(write_yaml(tmp_path, tidur_with(step, devices)))
+
+
+def test_a_delayed_step_needs_the_schedule_on(tmp_path):
+    text = tidur_with("{device: ac, command: off, after_minutes: 180}")
+
+    with pytest.raises(ConfigError) as caught:
+        load_config(write_yaml(tmp_path, text + "schedule:\n  enabled: false\n"))
+
+    assert (
+        "routine 'tidur' step 3 has after_minutes, but delayed steps run from the schedule: "
+        "set schedule.enabled: true or remove after_minutes"
+    ) in str(caught.value)
+
+
+def test_a_routine_without_delays_runs_with_the_schedule_off(tmp_path):
+    text = tidur_with("{device: ac, command: off}") + "schedule:\n  enabled: false\n"
+
+    assert list(load_config(write_yaml(tmp_path, text)).routines) == ["tidur"]
+
+
+MEDIA_DEVICE = "  - id: musik\n    name: Musik PC\n    type: media\n"
+
+
+@pytest.mark.parametrize("command", ["play_pause", "mute"])
+def test_a_media_key_that_toggles_is_never_delayed(tmp_path, command):
+    step = f"{{device: musik, command: {command}, after_minutes: 30}}"
+
+    with pytest.raises(ConfigError) as caught:
+        load_config(write_yaml(tmp_path, tidur_with(step, ROUTINE_DEVICES + MEDIA_DEVICE)))
+
+    message = str(caught.value)
+    assert f"routine 'tidur' step 3 may not delay '{command}' on 'musik'" in message
+    assert "delay stop or volume instead" in message
+
+
+@pytest.mark.parametrize(
+    "step",
+    [
+        "{device: musik, command: play_pause}",
+        "{device: musik, command: stop, after_minutes: 30}",
+        "{device: musik, command: volume, value: 10, after_minutes: 30}",
+    ],
+)
+def test_a_media_toggle_now_or_a_delayed_stop_is_fine(tmp_path, step):
+    config = load_config(write_yaml(tmp_path, tidur_with(step, ROUTINE_DEVICES + MEDIA_DEVICE)))
+
+    assert len(config.routines["tidur"].steps) == 3
+
+
 def apps_device(apps: str) -> str:
     return f"devices:\n  - id: aplikasi\n    name: Aplikasi PC\n    type: apps\n    apps:\n{apps}"
 

@@ -61,6 +61,11 @@ NIGHT_EARLIEST = time(18, 0)
 NIGHT_ENDS = time(6, 0)
 # Her question about Master's day: asked from noon on, never after midnight, when the day is over.
 JOURNAL_QUESTION_EARLIEST = time(12, 0)
+# A routine step may wait up to a day after the routine starts ("mode tidur": the AC off later).
+MAX_STEP_DELAY_MINUTES = 24 * 60
+# The media keys that toggle: run later without a word, they could start the music Master
+# paused, or unmute the PC, while he sleeps. Never scheduled and never a delayed routine step.
+MEDIA_TOGGLES = frozenset({"play_pause", "mute"})
 
 
 def cookie_names(cookie: str) -> set[str]:
@@ -929,12 +934,26 @@ class RoutineStep(_Strict):
     device: str
     command: str
     value: int | None = None
+    # None: the step runs at once. Otherwise it is scheduled this many minutes after the
+    # routine starts ("mode tidur": the AC off three hours later).
+    after_minutes: int | None = None
 
     @field_validator("command", mode="before")
     @classmethod
     def _yaml_boolean_is_on_off(cls, value: object) -> object:
         # YAML 1.1 parses a bare on/off as a boolean; as a command it always means the word.
         return ("on" if value else "off") if isinstance(value, bool) else value
+
+    @field_validator("after_minutes", mode="before")
+    @classmethod
+    def _after_whole_minutes(cls, value: object) -> object:
+        # Checked before pydantic's lax int, which reads YAML true as 1 and "90" or 90.0 as 90.
+        if value is None or (type(value) is int and 1 <= value <= MAX_STEP_DELAY_MINUTES):
+            return value
+        raise ValueError(
+            f"after_minutes must be a whole number of minutes from 1 to {MAX_STEP_DELAY_MINUTES} "
+            "(24 hours), like 180 for 3 hours"
+        )
 
 
 class RoutineConfig(_Strict):
@@ -1101,6 +1120,28 @@ class AppConfig(_Strict):
                     # The PC is turned off, restarted, or put to sleep only by voice, with a
                     # confirmation: never as one step of a routine.
                     raise ValueError(f"routine '{name}' may not use the PC '{step.device}'")
+        return self
+
+    @model_validator(mode="after")
+    def _delayed_routine_steps_can_wait_in_the_schedule(self) -> AppConfig:
+        devices = {device.id: device for device in self.devices}
+        for name, routine in self.routines.items():
+            for number, step in enumerate(routine.steps, start=1):
+                if step.after_minutes is None:
+                    continue
+                where = f"routine '{name}' step {number}"
+                if not self.schedule.enabled:
+                    raise ValueError(
+                        f"{where} has after_minutes, but delayed steps run from the schedule: "
+                        "set schedule.enabled: true or remove after_minutes"
+                    )
+                device = devices.get(step.device)
+                if device is not None and device.type == "media" and step.command in MEDIA_TOGGLES:
+                    raise ValueError(
+                        f"{where} may not delay '{step.command}' on '{step.device}': it toggles, "
+                        "so at night it could start the music or unmute the PC; delay stop or "
+                        "volume instead"
+                    )
         return self
 
 
