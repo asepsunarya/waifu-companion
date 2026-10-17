@@ -1471,6 +1471,7 @@ named `tests/test_<package>_<module>.py`.
 **Acceptance criteria:**
 - [x] After her question at 23:59:50 WIB on the 17th, an undated answer at 00:00:20 is written on the 17th (logged without the note); an explicit date of the 18th stays the 18th; an answer after the window goes on today; a second question replaces the day; an answer before midnight is as before
 - [x] `run` and `chat` pass `session_idle_minutes` as the answer window; the strict-tool budget unchanged
+- [x] Fix pass: `journal_write`'s description asks her to date an answer after midnight herself (the window is only the safety net); her question counts as asked only once its turn read the journal
 
 **Dependencies:** 152a · **Files:** `src/waifu/brain/journal_tools.py`, `tests/test_journal_tools.py`, `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** S
 

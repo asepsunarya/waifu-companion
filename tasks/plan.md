@@ -598,7 +598,7 @@ or dependency.
 - [x] Task 155: README, CHANGELOG
 
 ### Checkpoint: pertanyaan yang tertahan
-- [x] Python suite and ruff clean; no test asked a real brain, spoke, or pushed; the strict-tool budget unchanged (2026-10-17: 8204 pytest; 18 of 20 strict tools, 17 of 24 optional parameters, no schema changed)
+- [x] Python suite and ruff clean; no test asked a real brain, spoke, or pushed; the strict-tool budget unchanged (2026-10-17: 8207 pytest after the fix pass; 18 of 20 strict tools, 17 of 24 optional parameters, no schema changed)
 - [ ] On the owner's PC: with `ask_at` a few minutes before midnight and a focus block running past it, the question is not asked and the log says why; asked a minute before midnight, an answer just after it shows under that day in `waifu jurnal show`
 
 ## Risks and Mitigations
