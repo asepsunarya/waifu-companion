@@ -1427,13 +1427,13 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 147 · **Files:** `config/persona.md`, `config/persona_hsr.md`, `tests/test_brain_persona.py` · **Scope:** S
 
-## Task 150: Wiring, `waifu jurnal`, check
+## Task 150: Wiring, `waifu jurnal`, check ✅
 
 **Acceptance criteria:**
-- [ ] `run` and `chat` get `JournalTools` after the to-do tools when the journal is on; `run` with `ask_at` asks through `ask_aloud` with `journal_read` required, in a new session, without a push; `chat` never asks; the strict-tool budget keeps 2 slots free
-- [ ] `waifu jurnal [list|show|add|forget --yes]` and the check line per SPEC; `config.example.yaml` block, valid when written out; every store under tmp_path in `test_cli.py`
+- [x] `run` and `chat` get `JournalTools` after the to-do tools when the journal is on; `run` with `ask_at` asks through `ask_aloud` with `journal_read` required, in a new session, without a push; `chat` never asks; the strict-tool budget keeps 2 slots free
+- [x] `waifu jurnal [list|show|add|forget --yes]` and the check line per SPEC; `config.example.yaml` block, valid when written out; every store under tmp_path in `test_cli.py`
 
-**Dependencies:** 148, 149 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py`, `config.example.yaml` · **Scope:** M
+**Dependencies:** 148, 149 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py`, `config.example.yaml`, `tests/test_config.py` · **Scope:** M
 
 ## Task 151: Docs
 

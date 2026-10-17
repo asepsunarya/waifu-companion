@@ -576,7 +576,7 @@ question lets Master answer without her name, and that answer is written. No new
 - [x] Task 147: the journal tools and the refusal in her own turns
 - [x] Task 148: the nightly question (`JournalConfig`, `JOURNAL_PROMPT`, `JournalTimer`)
 - [x] Task 149: the persona line
-- [ ] Task 150: wiring in `run`/`chat`, `waifu jurnal`, check line, example config
+- [x] Task 150: wiring in `run`/`chat`, `waifu jurnal`, check line, example config
 - [ ] Task 151: README, CHANGELOG
 
 ### Checkpoint: Jurnal harian

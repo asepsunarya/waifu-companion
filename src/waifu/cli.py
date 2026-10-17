@@ -59,6 +59,7 @@ from waifu.brain.confirm import ConfirmationGate
 from waifu.brain.factory import build_brain, confirmation_gate
 from waifu.brain.finance_tools import FinanceTools
 from waifu.brain.focus_tools import FocusTools
+from waifu.brain.journal_tools import JournalTools
 from waifu.brain.memory_tools import MemoryTools
 from waifu.brain.music_tools import MusicTools
 from waifu.brain.offers_tools import OffersTools
@@ -160,6 +161,7 @@ from waifu.gacha.weekly import (
 )
 from waifu.gacha.zenless import EVENT_REWARD, ZzzAgent
 from waifu.gate import WakeGate
+from waifu.journal import JOURNAL_READ, JournalError, JournalStore, JournalTimer
 from waifu.memory import MemoryStore, memory_prompt_section
 from waifu.music import MusicService, open_in_browser, open_link, search_link, youtube_link
 from waifu.notify import Notifier, build_notifier
@@ -398,6 +400,13 @@ TODO_DESCRIPTION = (
     "tugas yang belum selesai. Perintah ini jalan walau todo.enabled: false; Cyrene yang sedang "
     "berjalan langsung melihat perubahannya."
 )
+JOURNAL_DESCRIPTION = (
+    "Jurnal harian Master: catatan singkat per tanggal, dengan kata-kata Master sendiri. Tanpa "
+    "aksi, 'waifu jurnal' menampilkan hari yang ada catatannya. Perintah ini jalan walau "
+    "journal.enabled: false; Cyrene yang sedang berjalan langsung melihat perubahannya. "
+    "Menghapus catatan hanya bisa di sini, tidak lewat suara."
+)
+JOURNAL_PREVIEW_CHARS = 50
 TEPIRA_DESCRIPTION = (
     "Keuangan Master dari tepira (aplikasi keuangan Master) lewat API khusus Cyrene: ringkasan "
     "bulan ini, saldo dompet, tujuan tabungan, dan transaksi terbaru. Tanpa aksi, 'waifu tepira' "
@@ -866,6 +875,41 @@ def build_parser() -> argparse.ArgumentParser:
     todo_done.add_argument("task_id", metavar="id", help="id dari 'waifu todo', misalnya t3")
     todo_remove = command("remove", _todo_remove, "Hapus satu tugas.", todo_actions)
     todo_remove.add_argument("task_id", metavar="id", help="id dari 'waifu todo', misalnya t3")
+    journal_command = commands.add_parser(
+        "jurnal",
+        parents=[shared],
+        help="Jurnal harian Master: lihat, tambah, dan hapus catatan per tanggal.",
+        description=JOURNAL_DESCRIPTION,
+    )
+    journal_command.set_defaults(handler=_journal_list)
+    journal_actions = journal_command.add_subparsers(dest="action", metavar="<aksi>")
+    command(
+        "list",
+        _journal_list,
+        "Tampilkan hari yang ada catatannya, yang paling lama dulu.",
+        journal_actions,
+    )
+    journal_show = command("show", _journal_show, "Tampilkan catatan satu hari.", journal_actions)
+    journal_show.add_argument(
+        "day", type=_due_date, metavar="YYYY-MM-DD", help="tanggalnya, misalnya 2026-10-17"
+    )
+    journal_add = command("add", _journal_add, "Tambah satu catatan.", journal_actions)
+    journal_add.add_argument("text", nargs="+")
+    journal_add.add_argument(
+        "--date",
+        type=_due_date,
+        metavar="YYYY-MM-DD",
+        help="tanggal catatannya kalau bukan hari ini, misalnya 2026-10-16",
+    )
+    journal_forget = command(
+        "forget", _journal_forget, "Hapus semua catatan satu hari.", journal_actions
+    )
+    journal_forget.add_argument(
+        "day", type=_due_date, metavar="YYYY-MM-DD", help="tanggalnya, misalnya 2026-10-17"
+    )
+    journal_forget.add_argument(
+        "--yes", action="store_true", help="benar-benar hapus (tanpa ini hanya dihitung)"
+    )
     tepira_command = commands.add_parser(
         "tepira",
         parents=[shared],
@@ -1240,6 +1284,7 @@ def _listen(args: argparse.Namespace) -> int:
                         ),
                         _briefing_timer(config, assistant, notifier),
                         _weekly_report_timer(config, gacha, assistant, notifier),
+                        _journal_timer(config, assistant),
                         _budget_told(usage, _budget_teller(config, assistant, notifier)),
                         _phone_server(config, assistant, camera=camera_offered),
                     ):
@@ -1337,12 +1382,12 @@ def _companion_brain(
     focus: FocusTimer | None = None,
 ) -> Brain:
     """The brain with the game tools when they are on, her long-term memory when it is on,
-    then her schedule when it is on, Master's to-do list when it is on, with `focus` (only
-    `run` has one) Master's focus timer, the day's briefing when it is on, with `pc` how the PC
-    is doing, how long Master's games were open when play time is on, the free offers when
-    they are on (their links pushed through `notifier`), Master's money from tepira when it is
-    on, songs on YouTube when they are on, with Claude her eyes on the screen when vision is
-    on, and with `usage` what her requests cost.
+    then her schedule when it is on, Master's to-do list when it is on, Master's journal when it
+    is on, with `focus` (only `run` has one) Master's focus timer, the day's briefing when it is
+    on, with `pc` how the PC is doing, how long Master's games were open when play time is on,
+    the free offers when they are on (their links pushed through `notifier`), Master's money
+    from tepira when it is on, songs on YouTube when they are on, with Claude her eyes on the
+    screen when vision is on, and with `usage` what her requests cost.
 
     With memory, every new session lists the notes as they are in the file at that moment.
     The to-do list is the real one also in a dry run (it moves no device), and the briefing
@@ -1358,6 +1403,7 @@ def _companion_brain(
     confirmations = confirmation_gate(config)
     notes = _memory_store(config) if config.memory.enabled else None
     todo = _todo_store(config) if config.todo.enabled else None
+    journal = _journal_store(config) if config.journal.enabled else None
     providers = _game_tools(config, gacha)
     if notes is not None:
         providers.append(MemoryTools(notes, owner_call=owner_call))
@@ -1369,6 +1415,8 @@ def _companion_brain(
         )
     if todo is not None:
         providers.append(TodoTools(todo))
+    if journal is not None:
+        providers.append(JournalTools(journal, now=wib_now))
     if focus is not None:
         providers.append(FocusTools(focus, now=wib_now))
     if config.briefing.enabled:
@@ -2970,6 +3018,119 @@ def _due_text(due: date | None, today: date) -> str:
     if due == today:
         return f"{_day_text(due)} (hari ini)"
     return _day_text(due)
+
+
+# --- the journal -----------------------------------------------------------------------------
+
+
+def _journal_store(config: AppConfig) -> JournalStore:
+    """Master's journal, in the file `journal.path` names, whether the journal is on or not."""
+    settings = config.journal
+    return JournalStore(
+        settings.path,
+        max_chars=settings.max_chars,
+        max_notes_per_day=settings.max_notes_per_day,
+        now=wib_now,
+    )
+
+
+def _journal_timer(config: AppConfig, assistant: Assistant) -> AbstractContextManager[object]:
+    """Her question about Master's day, asked of her once a night while the block runs; none
+    with the journal off or without `journal.ask_at`. A question whose turn never read the
+    journal (`journal_read`) is the brain's apology for a failure, so it is not said. It starts
+    a new session, so no earlier answer's figure reaches it, and it is never pushed: the
+    journal stays between Master and her."""
+    journal = config.journal
+    if not journal.enabled or journal.ask_at is None:
+        return nullcontext()
+    return JournalTimer(
+        journal,
+        request=lambda prompt: assistant.ask_aloud(
+            prompt, required_tool=JOURNAL_READ, new_session=True
+        ),
+    )
+
+
+def _journal_list(args: argparse.Namespace) -> int:
+    """The days with notes, oldest first, each with how many and the first note cut short."""
+    store = _journal_store(load_config(args.config))
+    try:
+        days = store.notes()
+    except OSError as exc:
+        return _journal_failed(store, exc)
+    if not days:
+        print("Jurnal masih kosong.")
+        return 0
+    rows = [
+        (_day_text(day), str(len(notes)), _preview(notes[0].text)) for day, notes in days.items()
+    ]
+    print(_format_table(("TANGGAL", "CATATAN", "ISI"), rows))
+    return 0
+
+
+def _journal_show(args: argparse.Namespace) -> int:
+    """One day's notes, each with the time it was written."""
+    store = _journal_store(load_config(args.config))
+    try:
+        notes = store.notes(args.day, args.day).get(args.day, ())
+    except OSError as exc:
+        return _journal_failed(store, exc)
+    if not notes:
+        print(f"Tidak ada catatan jurnal untuk {_day_text(args.day)}.")
+        return 0
+    print(f"Jurnal {_day_text(args.day)}:")
+    for note in notes:
+        print(f"{note.at.astimezone(WIB):%H:%M}  {note.text}")
+    return 0
+
+
+def _journal_add(args: argparse.Namespace) -> int:
+    store = _journal_store(load_config(args.config))
+    try:
+        saved = store.add(" ".join(args.text), args.date)
+    except JournalError as exc:
+        print(f"{FAIL} {exc}")
+        return 1
+    except OSError as exc:
+        return _journal_failed(store, exc)
+    done = "Dicatat di" if saved.added else "Sudah ada di"
+    print(f"{OK} {done} jurnal {_day_text(saved.day)}: {saved.note.text}")
+    return 0
+
+
+def _journal_forget(args: argparse.Namespace) -> int:
+    """Delete a day's notes with --yes; without it, only say how many would go."""
+    store = _journal_store(load_config(args.config))
+    day = _day_text(args.day)
+    try:
+        if args.yes:
+            count = store.forget(args.day)
+        else:
+            count = len(store.notes(args.day, args.day).get(args.day, ()))
+    except OSError as exc:
+        return _journal_failed(store, exc)
+    if count == 0:
+        print(f"Tidak ada catatan jurnal untuk {day}.")
+    elif args.yes:
+        print(f"{OK} {count} catatan jurnal {day} dihapus.")
+    else:
+        print(
+            f"Akan menghapus {count} catatan jurnal {day}. Jalankan lagi dengan --yes untuk "
+            "menghapusnya."
+        )
+    return 0
+
+
+def _journal_failed(store: JournalStore, exc: OSError) -> int:
+    print(f"{FAIL} File jurnal {store.path} tidak bisa dibuka: {exc}")
+    return 1
+
+
+def _preview(text: str) -> str:
+    """`text` cut to `JOURNAL_PREVIEW_CHARS` characters, an ellipsis marking a cut."""
+    if len(text) <= JOURNAL_PREVIEW_CHARS:
+        return text
+    return text[: JOURNAL_PREVIEW_CHARS - 1] + "…"
 
 
 # --- morning briefing ------------------------------------------------------------------------
@@ -4746,6 +4907,7 @@ def _checks(config_path: Path) -> Iterator[Check]:
     yield _memory_check(config)
     yield _schedule_check(config)
     yield _todo_check(config)
+    yield _journal_check(config)
     yield _music_check(config)
     yield _briefing_check(config.briefing)
     yield _rain_alert_check(config)
@@ -4987,6 +5149,31 @@ def _todo_check(config: AppConfig) -> Check:
     return OK, status
 
 
+def _journal_check(config: AppConfig) -> Check:
+    """How many days the journal holds, when she asks about Master's day, and where a broken
+    journal was moved, if one was."""
+    journal = config.journal
+    if not journal.enabled:
+        return WARN, "Jurnal mati"
+    try:
+        days = len(_journal_store(config).notes())  # moves a broken file aside, as `run` would
+    except OSError as exc:
+        return FAIL, f"File jurnal {journal.path} tidak bisa dibaca: {exc}"
+    question = (
+        "pertanyaan malam mati"
+        if journal.ask_at is None
+        else f"pertanyaan malam jam {journal.ask_at:%H:%M}"
+    )
+    status = f"Jurnal: {days} hari tercatat, {question}"
+    moved = _set_aside_files(journal.path)
+    if moved:
+        return WARN, (
+            f"{status}; file jurnal yang rusak dipindah ke {', '.join(map(str, moved))} "
+            "(lihat README, bagian Jurnal harian)"
+        )
+    return OK, status
+
+
 def _music_check(config: AppConfig) -> Check:
     """Whether she opens songs on YouTube when asked, and on which service; nothing is opened."""
     if not config.music.enabled:
@@ -5148,8 +5335,8 @@ def _free_offers_check(config: AppConfig) -> Check:
 
 
 def _set_aside_files(path: Path) -> list[Path]:
-    """The copies a broken memory, schedule, to-do, usage, offers, play time, or focus file was
-    renamed to (`<name>.corrupt-<time>`), oldest first.
+    """The copies a broken memory, schedule, to-do, journal, usage, offers, play time, or focus
+    file was renamed to (`<name>.corrupt-<time>`), oldest first.
 
     They stay until the owner repairs or deletes them, so `check` points at them every time.
     """

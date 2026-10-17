@@ -48,6 +48,7 @@ from waifu.brain.attachments import CameraTurn, TurnImages
 from waifu.brain.base import Brain, BrainReply, ToolCallRecord
 from waifu.brain.finance_tools import FinanceTools
 from waifu.brain.focus_tools import FocusTools
+from waifu.brain.journal_tools import JournalTools
 from waifu.brain.memory_tools import MemoryTools
 from waifu.brain.music_tools import MusicTools
 from waifu.brain.offers_tools import OffersTools
@@ -63,6 +64,7 @@ from waifu.briefing import BRIEFING_PROMPT, DAILY_BRIEFING, BriefingTimer, Brief
 from waifu.config import (
     AvatarConfig,
     FreeOffersConfig,
+    JournalConfig,
     MusicConfig,
     PcHealthConfig,
     PlayTimeConfig,
@@ -136,6 +138,7 @@ from waifu.gacha.starrail import (
 from waifu.gacha.tools import GachaTools
 from waifu.gacha.weekly import WEEKLY_REPORT_PROMPT, WeeklyReportTimer, WeeklyReportTools
 from waifu.gacha.zenless import ZzzAgent
+from waifu.journal import JOURNAL_PROMPT, JournalStore, JournalTimer
 from waifu.memory import MemoryStore, memory_prompt_section
 from waifu.offers.errors import OffersError
 from waifu.offers.store import OffersStore
@@ -227,6 +230,14 @@ def no_real_todo_list(tmp_path, monkeypatch):
     directory at the repository fails instead of reading or writing the owner's tasks in
     data/todo.json (building a store touches no file, so the refusal comes first)."""
     monkeypatch.setattr(cli, "TodoStore", only_under(tmp_path, cli.TodoStore))
+
+
+@pytest.fixture(autouse=True)
+def no_real_journal(tmp_path, monkeypatch):
+    """Every journal store a command builds lives under tmp_path: a test that leaves the working
+    directory at the repository fails instead of reading or writing the owner's journal in
+    data/journal.json (building a store touches no file, so the refusal comes first)."""
+    monkeypatch.setattr(cli, "JournalStore", only_under(tmp_path, cli.JournalStore))
 
 
 @pytest.fixture(autouse=True)
@@ -360,6 +371,41 @@ def weekly_report_timers(monkeypatch) -> list[FakeWeeklyReportTimer]:
         return built[-1]
 
     monkeypatch.setattr(cli, "WeeklyReportTimer", build)
+    return built
+
+
+class FakeJournalTimer:
+    """Stands in for JournalTimer without a thread, remembering whether `waifu run` listened
+    when it started and stopped. `tick_at(moment)` runs one check of a real JournalTimer built
+    with the same arguments, to see what it would ask for at that moment."""
+
+    def __init__(self, config, *, request) -> None:
+        self.config = config
+        self.request = request
+        self.listening: list[bool] = []
+
+    def __enter__(self) -> "FakeJournalTimer":
+        self.listening.append(listening())
+        return self
+
+    def __exit__(self, *exc_info) -> None:
+        self.listening.append(listening())
+
+    def tick_at(self, moment: datetime) -> None:
+        JournalTimer(self.config, request=self.request, now=lambda: moment).tick_once()
+
+
+@pytest.fixture(autouse=True)
+def journal_timers(monkeypatch) -> list[FakeJournalTimer]:
+    """The real timer asks by the wall clock: with `journal.ask_at` set it would ask about
+    Master's day in every `run` test at night, so every test gets the fake."""
+    built: list[FakeJournalTimer] = []
+
+    def build(config, *, request) -> FakeJournalTimer:
+        built.append(FakeJournalTimer(config, request=request))
+        return built[-1]
+
+    monkeypatch.setattr(cli, "JournalTimer", build)
     return built
 
 
@@ -4891,6 +4937,7 @@ def test_run_with_the_games_on_gives_the_brain_the_game_tools_and_watches_while_
         memory_tools,
         schedule,
         todo,
+        journal,
         focus,
         briefing,
         pc,
@@ -4903,6 +4950,7 @@ def test_run_with_the_games_on_gives_the_brain_the_game_tools_and_watches_while_
         type(memory_tools),
         type(schedule),
         type(todo),
+        type(journal),
         type(focus),
         type(briefing),
         type(pc),
@@ -4914,6 +4962,7 @@ def test_run_with_the_games_on_gives_the_brain_the_game_tools_and_watches_while_
         MemoryTools,
         ScheduleTools,
         TodoTools,
+        JournalTools,
         FocusTools,
         BriefingTools,
         PcTools,
@@ -4973,6 +5022,7 @@ def test_run_without_a_cookie_has_the_game_tools_but_no_watcher(
         MemoryTools,
         ScheduleTools,
         TodoTools,
+        JournalTools,
         FocusTools,
         BriefingTools,
         PcTools,
@@ -4991,6 +5041,7 @@ def test_run_with_the_games_off_builds_none_of_it(home, run_fakes, brains, games
         MemoryTools,
         ScheduleTools,
         TodoTools,
+        JournalTools,
         FocusTools,
         BriefingTools,
         PcTools,
@@ -5014,6 +5065,7 @@ def test_chat_with_the_games_on_gives_the_brain_the_game_tools(home, brains, gam
         MemoryTools,
         ScheduleTools,
         TodoTools,
+        JournalTools,
         BriefingTools,
         PcTools,
         PlayTimeTools,
@@ -5948,8 +6000,8 @@ def test_run_gives_the_brain_her_memory_tools_and_the_notes_at_each_session_star
     assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
 
     brain = brains[0]
-    # Then the schedule, to-do, focus, briefing, PC, play time, offers, and music.
-    [tools, _, _, _, _, _, _, _, _] = brain.providers
+    # Then the schedule, to-do, journal, focus, briefing, PC, play time, offers, and music.
+    [tools, _, _, _, _, _, _, _, _, _] = brain.providers
     assert isinstance(tools, MemoryTools)
     assert brain.memory_section() == memory_prompt_section([])
     assert tools.run("remember", {"text": "Master alergi udang."})[1] is False
@@ -5970,6 +6022,7 @@ def test_chat_gives_the_brain_the_notes_saved_in_data_memory_json(home, brains, 
         MemoryTools,
         ScheduleTools,
         TodoTools,
+        JournalTools,
         BriefingTools,
         PcTools,
         PlayTimeTools,
@@ -5991,6 +6044,7 @@ def test_with_the_memory_off_the_brain_gets_neither_the_tools_nor_the_notes(
     assert [type(tools) for tools in brains[0].providers] == [
         ScheduleTools,
         TodoTools,
+        JournalTools,
         *([FocusTools] if argv[0] == "run" else []),
         BriefingTools,
         PcTools,
@@ -6308,6 +6362,7 @@ def test_run_gives_the_brain_the_schedule_tools_and_fires_her_schedule_while_she
         MemoryTools,
         ScheduleTools,
         TodoTools,
+        JournalTools,
         FocusTools,
         BriefingTools,
         PcTools,
@@ -6469,6 +6524,7 @@ def test_with_the_schedule_off_she_gets_neither_the_tools_nor_a_scheduler(
     assert [type(tools) for tools in brains[0].providers] == [
         MemoryTools,
         TodoTools,
+        JournalTools,
         *([FocusTools] if argv[0] == "run" else []),
         BriefingTools,
         PcTools,
@@ -6944,6 +7000,7 @@ def test_with_claude_she_may_look_at_the_screen_at_the_configured_size(
         MemoryTools,
         ScheduleTools,
         TodoTools,
+        JournalTools,
         *([FocusTools] if argv[0] == "run" else []),
         BriefingTools,
         PcTools,
@@ -7096,6 +7153,7 @@ def test_without_claude_or_with_vision_off_the_brain_gets_no_screen_tool(
         MemoryTools,
         ScheduleTools,
         TodoTools,
+        JournalTools,
         BriefingTools,
         PcTools,
         PlayTimeTools,
@@ -7347,6 +7405,7 @@ def test_with_the_briefing_off_she_gets_neither_the_tool_nor_the_greeting(
         MemoryTools,
         ScheduleTools,
         TodoTools,
+        JournalTools,
         *([FocusTools] if argv[0] == "run" else []),
         PcTools,
         PlayTimeTools,
@@ -12250,6 +12309,7 @@ def test_run_gives_the_brain_her_to_do_tools_and_the_tasks_due_today_in_the_brie
         MemoryTools,
         ScheduleTools,
         TodoTools,
+        JournalTools,
         FocusTools,
         BriefingTools,
         PcTools,
@@ -12286,6 +12346,7 @@ def test_chat_gives_the_brain_the_tasks_saved_in_data_todo_json_with_either_back
         MemoryTools,
         ScheduleTools,
         TodoTools,
+        JournalTools,
         BriefingTools,
         PcTools,
         PlayTimeTools,
@@ -12314,6 +12375,7 @@ def test_with_the_todo_list_off_the_brain_gets_neither_the_tools_nor_the_tasks(
     assert [type(tools) for tools in brains[0].providers] == [
         MemoryTools,
         ScheduleTools,
+        JournalTools,
         *([FocusTools] if argv[0] == "run" else []),
         BriefingTools,
         PcTools,
@@ -12548,6 +12610,367 @@ def test_the_example_todo_block_is_valid_once_written_out(home):
     assert cli.load_config(home / "config.yaml").todo == TodoConfig()
 
 
+# --- the journal -------------------------------------------------------------------------------
+
+JOURNAL_NOW = datetime(2026, 10, 17, 21, 30, tzinfo=WIB)  # Saturday night
+
+
+@pytest.fixture
+def journal_clock(monkeypatch) -> FocusClock:
+    """The WIB clock of the journal tools and of `waifu jurnal`, at JOURNAL_NOW."""
+    clock = FocusClock(JOURNAL_NOW)
+    monkeypatch.setattr(cli, "wib_now", clock)
+    return clock
+
+
+def journal_file(home: Path) -> Path:
+    """Where the example config keeps the journal, inside the test's working directory."""
+    return home / "data" / "journal.json"
+
+
+def journal_store(path: Path, clock: FocusClock) -> JournalStore:
+    return JournalStore(path, max_chars=500, max_notes_per_day=20, now=clock)
+
+
+def journal_tools(brain: HouseBrain) -> JournalTools:
+    [tools] = [provider for provider in brain.providers if isinstance(provider, JournalTools)]
+    return tools
+
+
+def journal_texts(path: Path, clock: FocusClock, day: date) -> list[str]:
+    return [note.text for note in journal_store(path, clock).notes(day, day).get(day, ())]
+
+
+def test_a_journal_outside_tmp_path_is_refused_so_no_test_touches_the_owner_s_journal():
+    with pytest.raises(AssertionError, match="JournalStore outside tmp_path"):
+        cli.JournalStore(ROOT / "data" / "journal.json", max_chars=500, max_notes_per_day=20)
+
+
+def test_run_gives_the_brain_her_journal_tools_right_after_the_to_do_tools(
+    home, run_fakes, brains, journal_clock, journal_timers
+):
+    write_config(home, "journal:\n  path: catatan/harian.json\n  max_chars: 20\n")
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    assert [type(tools) for tools in brains[0].providers] == [
+        MemoryTools,
+        ScheduleTools,
+        TodoTools,
+        JournalTools,
+        FocusTools,
+        BriefingTools,
+        PcTools,
+        PlayTimeTools,
+        OffersTools,
+        MusicTools,
+    ]
+    tools = journal_tools(brains[0])
+    result, is_error = tools.run("journal_write", {"text": "Laporannya selesai"})
+    assert (is_error, json.loads(result)["date"]) == (False, "2026-10-17")
+    path = home / "catatan" / "harian.json"  # a dry run keeps the real journal
+    assert journal_texts(path, journal_clock, JOURNAL_NOW.date()) == ["Laporannya selesai"]
+    result, is_error = tools.run("journal_write", {"text": "Hari ini panjang sekali ceritanya"})
+    assert is_error and "20 karakter" in result
+    assert journal_timers == []  # no nightly question without journal.ask_at
+
+
+@pytest.mark.parametrize("claude", [False, True], ids=["ollama", "claude"])
+def test_chat_reads_the_journal_saved_in_data_journal_json_with_either_backend(
+    claude, home, brains, journal_clock, journal_timers, monkeypatch
+):
+    if claude:
+        use_claude(home)
+    journal_store(journal_file(home), journal_clock).add("ketemu Rina di kampus")
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main(["chat", "--dry-run"]) == 0
+
+    assert [type(tools) for tools in brains[0].providers][:4] == [
+        MemoryTools,
+        ScheduleTools,
+        TodoTools,
+        JournalTools,
+    ]
+    result, is_error = journal_tools(brains[0]).run("journal_read", {})
+    assert is_error is False
+    assert json.loads(result)["days"][0]["notes"] == ["ketemu Rina di kampus"]
+    assert journal_timers == []
+
+
+@pytest.mark.parametrize("argv", [["run", "--no-speaker-check"], ["chat"]])
+def test_with_the_journal_off_she_gets_neither_the_tools_nor_the_question(
+    argv, home, run_fakes, brains, journal_timers, monkeypatch
+):
+    append_config(home, "journal:\n  enabled: false\n  ask_at: '21:00'\n")
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main([*argv, "--dry-run"]) == 0
+
+    assert not any(isinstance(tools, JournalTools) for tools in brains[0].providers)
+    assert journal_timers == []
+    assert not journal_file(home).exists()
+
+
+def test_run_asks_about_master_s_day_once_a_night_in_a_new_session_without_a_push(
+    home, run_fakes, journal_timers, monkeypatch
+):
+    enable_notify(home)
+    notifier = FakeNotifier()
+    use_notifier(monkeypatch, notifier)
+    append_config(home, "journal:\n  ask_at: '21:00'\n  state_path: tanya/terakhir.json\n")
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    [timer] = journal_timers
+    assert timer.listening == [False, True]
+    timer.tick_at(datetime(2026, 10, 17, 20, 59, tzinfo=WIB))  # not yet
+    timer.tick_at(datetime(2026, 10, 17, 21, 0, tzinfo=WIB))
+    timer.tick_at(datetime(2026, 10, 17, 23, 0, tzinfo=WIB))  # she asked tonight already
+    assistant = RecordingAssistant.instances[0]
+    # Nothing is pushed, and a turn that never read the journal (an apology) is never said.
+    assert assistant.asked == [(JOURNAL_PROMPT, None, "journal_read")]
+    # A new session: the question never repeats an earlier answer's figures.
+    assert assistant.new_sessions == [True]
+    saved = json.loads((home / "tanya" / "terakhir.json").read_text(encoding="utf-8"))
+    assert saved["last_date"] == "2026-10-17"
+    assert notifier.sent == []
+
+
+def test_chat_never_asks_about_master_s_day(home, brains, journal_timers, monkeypatch):
+    append_config(home, "journal:\n  ask_at: '21:00'\n")
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main(["chat", "--dry-run"]) == 0
+
+    assert journal_timers == []
+
+
+@pytest.mark.parametrize("argv", [["jurnal"], ["jurnal", "list"]])
+def test_jurnal_with_an_empty_journal_says_so_and_creates_no_file(argv, home, capsys):
+    assert cli.main(argv) == 0
+
+    assert capsys.readouterr().out == "Jurnal masih kosong.\n"
+    assert not journal_file(home).exists()
+
+
+def test_jurnal_lists_each_day_oldest_first_with_its_count_and_first_note(
+    home, journal_clock, capsys
+):
+    store = journal_store(journal_file(home), journal_clock)
+    store.add("pagi ke kampus naik motor, terus hujan deras sampai siang")
+    store.add("malam main HSR sama Rina")
+    store.add("kemarin capek", date(2026, 10, 16))
+
+    assert cli.main(["jurnal"]) == 0
+
+    assert capsys.readouterr().out.splitlines() == [
+        "TANGGAL           CATATAN  ISI",
+        "Jumat 16-10-2026  1        kemarin capek",
+        "Sabtu 17-10-2026  2        pagi ke kampus naik motor, terus hujan deras samp…",
+    ]
+
+
+def test_jurnal_shows_one_day_s_notes_with_their_times(home, journal_clock, capsys):
+    store = journal_store(journal_file(home), journal_clock)
+    store.add("pagi ke kampus")
+    journal_clock.now += timedelta(minutes=45)
+    store.add("malam main HSR sama Rina")
+
+    assert cli.main(["jurnal", "show", "2026-10-17"]) == 0
+
+    assert capsys.readouterr().out.splitlines() == [
+        "Jurnal Sabtu 17-10-2026:",
+        "21:30  pagi ke kampus",
+        "22:15  malam main HSR sama Rina",
+    ]
+
+
+def test_jurnal_show_of_a_day_without_notes_says_so(home, journal_clock, capsys):
+    assert cli.main(["jurnal", "show", "2026-10-12"]) == 0
+
+    assert capsys.readouterr().out == "Tidak ada catatan jurnal untuk Senin 12-10-2026.\n"
+
+
+def test_jurnal_show_refuses_a_date_not_written_yyyy_mm_dd(home, capsys):
+    with pytest.raises(SystemExit) as exit_info:
+        cli.build_parser().parse_args(["jurnal", "show", "17-10-2026"])
+
+    assert exit_info.value.code == 2
+    assert "tulis tanggalnya YYYY-MM-DD" in capsys.readouterr().err
+
+
+def test_jurnal_add_writes_a_note_today_or_on_a_past_date(home, journal_clock, capsys):
+    assert cli.main(["jurnal", "add", "ketemu", "Rina", "di", "kampus"]) == 0
+    assert cli.main(["jurnal", "add", "kemarin capek", "--date", "2026-10-16"]) == 0
+
+    assert capsys.readouterr().out.splitlines() == [
+        "✓ Dicatat di jurnal Sabtu 17-10-2026: ketemu Rina di kampus",
+        "✓ Dicatat di jurnal Jumat 16-10-2026: kemarin capek",
+    ]
+    path = journal_file(home)
+    assert journal_texts(path, journal_clock, date(2026, 10, 17)) == ["ketemu Rina di kampus"]
+    assert journal_texts(path, journal_clock, date(2026, 10, 16)) == ["kemarin capek"]
+
+
+def test_jurnal_add_of_the_same_note_says_it_is_there_already(home, journal_clock, capsys):
+    cli.main(["jurnal", "add", "ketemu Rina"])
+
+    assert cli.main(["jurnal", "add", "Ketemu Rina"]) == 0
+
+    assert capsys.readouterr().out.splitlines()[-1] == (
+        "✓ Sudah ada di jurnal Sabtu 17-10-2026: ketemu Rina"
+    )
+
+
+@pytest.mark.parametrize(
+    ("argv", "message"),
+    [
+        (["password wifi: kucing123"], "rahasia"),
+        (["besok ujian", "--date", "2026-10-18"], "hari ini atau hari yang sudah lewat"),
+    ],
+    ids=["secret", "future"],
+)
+def test_jurnal_add_refuses_with_exit_1_and_writes_nothing(
+    argv, message, home, journal_clock, capsys
+):
+    assert cli.main(["jurnal", "add", *argv]) == 1
+
+    out = capsys.readouterr().out
+    assert out.startswith("✗ ") and message in out
+    assert "kucing123" not in out
+    assert not journal_file(home).exists()
+
+
+def test_jurnal_works_with_the_journal_off(home, journal_clock, capsys):
+    append_config(home, "journal:\n  enabled: false\n")
+
+    assert cli.main(["jurnal", "add", "tetap dicatat"]) == 0
+
+    assert journal_texts(journal_file(home), journal_clock, JOURNAL_NOW.date()) == ["tetap dicatat"]
+
+
+def test_jurnal_forget_without_yes_only_counts(home, journal_clock, capsys):
+    store = journal_store(journal_file(home), journal_clock)
+    store.add("satu")
+    store.add("dua")
+
+    assert cli.main(["jurnal", "forget", "2026-10-17"]) == 0
+
+    assert capsys.readouterr().out == (
+        "Akan menghapus 2 catatan jurnal Sabtu 17-10-2026. Jalankan lagi dengan --yes untuk "
+        "menghapusnya.\n"
+    )
+    assert journal_texts(journal_file(home), journal_clock, JOURNAL_NOW.date()) == ["satu", "dua"]
+
+
+def test_jurnal_forget_with_yes_deletes_the_day(home, journal_clock, capsys):
+    store = journal_store(journal_file(home), journal_clock)
+    store.add("satu")
+    store.add("kemarin", date(2026, 10, 16))
+
+    assert cli.main(["jurnal", "forget", "2026-10-17", "--yes"]) == 0
+
+    assert capsys.readouterr().out == "✓ 1 catatan jurnal Sabtu 17-10-2026 dihapus.\n"
+    assert list(store.notes()) == [date(2026, 10, 16)]
+
+
+@pytest.mark.parametrize("yes", [[], ["--yes"]], ids=["count", "yes"])
+def test_jurnal_forget_of_a_day_without_notes_says_so(yes, home, journal_clock, capsys):
+    assert cli.main(["jurnal", "forget", "2026-10-12", *yes]) == 0
+
+    assert capsys.readouterr().out == "Tidak ada catatan jurnal untuk Senin 12-10-2026.\n"
+    assert not journal_file(home).exists()
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["jurnal"],
+        ["jurnal", "show", "2026-10-17"],
+        ["jurnal", "add", "satu"],
+        ["jurnal", "forget", "2026-10-17"],
+    ],
+    ids=["list", "show", "add", "forget"],
+)
+def test_jurnal_exits_1_when_the_journal_cannot_be_opened(argv, home, journal_clock, capsys):
+    journal_file(home).mkdir(parents=True)  # a folder where the file should be
+
+    assert cli.main(argv) == 1
+
+    [line] = capsys.readouterr().out.splitlines()
+    assert line.startswith(f"✗ File jurnal {Path('data') / 'journal.json'} tidak bisa dibuka: ")
+
+
+def journal_line(out: str) -> str:
+    [line] = [line for line in out.splitlines() if "jurnal" in line.lower()]
+    return line
+
+
+@pytest.mark.parametrize(
+    ("settings", "expected"),
+    [
+        (None, "✓ Jurnal: 0 hari tercatat, pertanyaan malam mati"),
+        ("journal:\n  ask_at: '21:30'\n", "✓ Jurnal: 0 hari tercatat, pertanyaan malam jam 21:30"),
+        ("journal:\n  enabled: false\n", "! Jurnal mati"),
+    ],
+    ids=["default", "ask_at", "off"],
+)
+def test_check_says_whether_the_journal_and_the_nightly_question_are_on(
+    settings, expected, home, nothing_installed, capsys
+):
+    if settings is not None:
+        append_config(home, settings)
+
+    cli.main(["check"])
+
+    assert journal_line(capsys.readouterr().out) == expected
+    assert not journal_file(home).exists()
+
+
+def test_check_counts_the_days_with_notes(home, nothing_installed, journal_clock, capsys):
+    store = journal_store(journal_file(home), journal_clock)
+    store.add("satu")
+    store.add("dua")
+    store.add("kemarin", date(2026, 10, 16))
+
+    cli.main(["check"])
+
+    assert journal_line(capsys.readouterr().out) == (
+        "✓ Jurnal: 2 hari tercatat, pertanyaan malam mati"
+    )
+
+
+def test_check_moves_a_broken_journal_aside_and_points_at_it(home, nothing_installed, capsys):
+    journal_file(home).parent.mkdir(exist_ok=True)
+    journal_file(home).write_text("broken", encoding="utf-8")
+
+    cli.main(["check"])
+
+    line = journal_line(capsys.readouterr().out)
+    [moved] = (home / "data").glob("journal.json.corrupt-*")
+    assert line == (
+        "! Jurnal: 0 hari tercatat, pertanyaan malam mati; file jurnal yang rusak dipindah ke "
+        f"{Path('data') / moved.name} (lihat README, bagian Jurnal harian)"
+    )
+
+
+def test_check_fails_when_the_journal_cannot_be_read(home, nothing_installed, capsys):
+    journal_file(home).mkdir(parents=True)  # a folder where the file should be
+
+    assert cli.main(["check"]) == 1
+
+    assert journal_line(capsys.readouterr().out).startswith(
+        f"✗ File jurnal {Path('data') / 'journal.json'} tidak bisa dibaca: "
+    )
+
+
+def test_the_example_journal_block_is_valid_once_written_out(home):
+    write_out_example_block(home, "journal")
+
+    assert cli.load_config(home / "config.yaml").journal == JournalConfig()
+
+
 def strict_parameters(schema: dict) -> list[dict]:
     """The parameter schemas of every object in a strict input schema, nested ones too."""
     found: list[dict] = []
@@ -12615,6 +13038,7 @@ def test_the_claude_request_with_every_tool_on_stays_within_the_strict_tool_limi
         "look_at_screen",
         "api_usage",
         "play_time",
+        "journal_read",
         *FINANCE_TOOLS,
     } <= names
     strict = [tool for tool in request["tools"] if tool.get("strict")]
@@ -12641,6 +13065,7 @@ def test_the_claude_request_with_every_tool_on_stays_within_the_strict_tool_limi
         "send_offer_link",
         "play_youtube",
         "record_expense",
+        "journal_write",
     } <= {tool["name"] for tool in strict}
 
 
@@ -12702,6 +13127,7 @@ def test_run_and_chat_give_the_brain_the_music_tool_with_either_backend(
         MemoryTools,
         ScheduleTools,
         TodoTools,
+        JournalTools,
         *([FocusTools] if argv[0] == "run" else []),
         BriefingTools,
         PcTools,
@@ -12798,6 +13224,7 @@ def test_with_music_off_the_brain_gets_no_music_tool(
         MemoryTools,
         ScheduleTools,
         TodoTools,
+        JournalTools,
         *([FocusTools] if argv[0] == "run" else []),
         BriefingTools,
         PcTools,

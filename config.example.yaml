@@ -454,6 +454,24 @@ schedule:
 #   keep_days: 90          # catatan lebih lama dari N hari dihapus (1-366)
 #   path: data/focus.json
 
+# Jurnal harian (README, bagian "Jurnal harian"): "Cyrene, catat di jurnal: hari ini laporannya
+# selesai" menyimpan catatan hari itu dengan kata-kata Master sendiri, dan "kemarin aku nulis apa
+# di jurnal?" dia rangkum singkat. Hanya kalau Master minta: tidak pernah di sapaan pagi, laporan
+# mingguan, atau ke HP. Dengan ask_at, sekali sehari mulai jam itu sampai tengah malam dia bertanya
+# bagaimana hari Master, dan jawaban Master (langsung sesudah pertanyaannya, tanpa memanggil
+# namanya) dicatat. Menghapus hanya lewat `waifu jurnal forget <tanggal> --yes`, tidak lewat
+# suara. Catatannya disimpan di PC ini (path) sampai dihapus; rahasia (kata sandi, PIN, OTP,
+# token, nomor kartu) selalu ditolak. Dengan Claude, catatan yang ditulis atau dibaca ikut ke API
+# Anthropic. Lihat dan ubah dengan `waifu jurnal [list|show|add|forget]`.
+# Sudah menyala tanpa ditulis; untuk mengubahnya, tulis bagian ini tanpa tanda # di depannya.
+# journal:
+#   enabled: true          # false: tanpa tool dan tanpa pertanyaan malam (`waifu jurnal` tetap jalan)
+#   path: data/journal.json  # hanya di PC ini, tidak di-commit; boleh diedit saat Cyrene mati
+#   max_chars: 500         # panjang satu catatan paling banyak, dalam karakter (20-2000)
+#   max_notes_per_day: 20  # catatan sehari paling banyak (1-100)
+#   ask_at:                # misalnya 21:30: sekali sehari mulai jam itu dia bertanya bagaimana hari Master (12:00-23:59; kosong = mati)
+#   state_path: data/journal_question.json  # hari terakhir dia bertanya
+
 # Promo gratis (README, bagian "Pencarian web dan promo gratis"): "Ada game gratis apa sekarang?"
 # membuatnya membaca game yang gratis untuk disimpan di Epic Games Store (dari Epic sendiri) dan
 # di Steam, GOG, dan lainnya (dari GamerPower.com). "Ada promo AI gratis nggak?" membacakan promo
