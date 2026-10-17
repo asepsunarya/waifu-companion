@@ -3942,9 +3942,14 @@ tidak ada driver.
 Dari daftar proses hanya nama tiga game yang dipakai; nama program lain tidak disimpan, tidak
 ditulis ke log, dan tidak dikirim. `data\playtime.json` hanya berisi game mana yang terbuka dari
 jam berapa sampai jam berapa (`keep_days`, bawaan 90 hari) dan malam terakhir pengingat tidur
-diucapkan, hanya di PC ini. Tidak ada yang dikirim ke HP. Dengan Claude, totalnya ikut ke API
-Anthropic sebagai hasil tool saat Master bertanya dan di laporan game mingguan (dengan Ollama,
-semuanya lokal). Log biasa tidak mencatat sesinya.
+diucapkan, hanya di PC ini. Jam main tidak punya pemberitahuan HP sendiri, dan pengingat tidur
+tidak dikirim ke HP. Tapi kalimat [laporan game mingguan](#laporan-game-mingguan), yang bisa
+menyebut jam main minggu itu, dikirim ke `ntfy.sh` kalau notifikasi HP dan `weekly_report.push`
+menyala (siapa pun yang tahu nama topiknya bisa membacanya); `weekly_report.push: false` membuat
+laporannya tetap di PC. Jawaban atas pertanyaan lewat [Cyrene di HP](#cyrene-di-hp) sampai ke HP
+itu lewat Tailscale. Dengan Claude, totalnya ikut ke API Anthropic sebagai hasil tool saat Master
+bertanya dan di laporan game mingguan (dengan Ollama, semuanya lokal). Log biasa tidak mencatat
+sesinya.
 
 Untuk berhenti mencatat, tulis `enabled: false` di bagian `play_time`; catatan lama hilang kalau
 `data\playtime.json` dihapus.
@@ -4966,8 +4971,10 @@ di sampingnya)
   [Privasi kesehatan PC](#privasi-kesehatan-pc).
 - **Jam main:** dari daftar proses Windows hanya nama tiga game yang dipakai; game mana yang
   terbuka dari jam berapa sampai jam berapa ada di `data\playtime.json`, hanya di PC ini (90
-  hari). Tidak dikirim ke HP; dengan Claude, totalnya ke API Anthropic saat Master bertanya dan
-  di laporan game mingguan. Lihat [Privasi jam main](#privasi-jam-main).
+  hari). Tanpa pemberitahuan HP sendiri, tapi kalimat laporan game mingguan yang menyebut jam
+  main ke `ntfy.sh` kalau notifikasi HP dan `weekly_report.push` menyala; dengan Claude, totalnya
+  ke API Anthropic saat Master bertanya dan di laporan game mingguan. Lihat
+  [Privasi jam main](#privasi-jam-main).
 - **Pencarian web dan promo gratis:** dengan Claude, kata kunci pencarian (ditambah negara,
   zona waktu, dan kota) ke pencarian Anthropic; permintaan daftar game ke Epic dan
   GamerPower.com tanpa data tentang Master; pencarian promo AI mingguan ke API Anthropic

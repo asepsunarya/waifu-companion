@@ -24,6 +24,9 @@ aktif, lalu jalankan `waifu check`.
 - Nama program Genshin (`GenshinImpact.exe`) dan ZZZ (`ZenlessZoneZero.exe`) belum pernah
   terlihat langsung di PC ini (HSR sudah): kalau keduanya tidak tercatat, lihat Task Manager →
   Details dan tulis namanya di `play_time.games`.
+- Privasi: jam main tidak punya pemberitahuan HP sendiri, tapi kalimat laporan game mingguan
+  yang menyebutnya ikut ke `ntfy.sh` kalau notifikasi HP dan `weekly_report.push` menyala;
+  `weekly_report.push: false` membuat laporannya tetap di PC.
 - README: "Jam main".
 
 ## v1.28: suara cadangan offline
