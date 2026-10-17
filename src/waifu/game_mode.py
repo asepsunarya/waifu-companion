@@ -10,8 +10,9 @@ nothing, and stopping `waifu run` tells nothing, so it never runs `on_stop`.
 The voice loop asks `holding()` at every frame: with `announcements` set to `hold` or `phone`,
 her own announcements wait while a game runs (the v1.30 quiet), and with `phone` a notice that
 also went to the phone is not said at all (`diverting()`). A game counts as running only while
-the last poll that saw it is at most three polls old, so a process listing that keeps failing
-never holds her announcements forever.
+the last poll that saw it is at most three polls old, counted from the end of the routine that
+poll ran, so a process listing that keeps failing never holds her announcements forever and a
+slow routine never ends the hold early.
 
 Routines run on the watcher's thread without a word; a failed step is logged at WARNING. When
 Master plays is his own: starts and stops are logged only at DEBUG.
@@ -35,10 +36,12 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class _Seen:
-    """What the last poll told, and when."""
+    """What the last poll told, and when the watcher was done with it: None while its routine
+    still runs, which never counts as stale (lamps out of reach can make a routine outlast
+    three polls, and a slow routine is no failing listing)."""
 
     playing: bool
-    at: datetime
+    at: datetime | None
 
 
 class GameMode:
@@ -68,19 +71,25 @@ class GameMode:
         last one has closed, each once. Before the run's first poll no game ran, unless that
         poll `resumed` one from before the restart (only a running game is resumed)."""
         before = self._seen
-        self._seen = _Seen(playing, self._now())
+        self._seen = _Seen(playing, None)
         was_playing = before.playing if before is not None else resumed
-        if playing and not was_playing:
-            logger.debug("A game is running")
-            self._run("start", self._config.on_start)
-        elif was_playing and not playing:
-            logger.debug("No game is running any more")
-            self._run("stop", self._config.on_stop)
+        try:
+            if playing and not was_playing:
+                logger.debug("A game is running")
+                self._run("start", self._config.on_start)
+            elif was_playing and not playing:
+                logger.debug("No game is running any more")
+                self._run("stop", self._config.on_stop)
+        finally:
+            self._seen = _Seen(playing, self._now())
 
     def playing(self) -> bool:
-        """Whether the last poll saw a game and is recent enough to believe."""
+        """Whether the last poll saw a game and is recent enough to believe: at most three
+        polls old, counted from the end of the routine it ran."""
         seen = self._seen
-        return seen is not None and seen.playing and self._now() - seen.at <= self._stale_after
+        if seen is None or not seen.playing:
+            return False
+        return seen.at is None or self._now() - seen.at <= self._stale_after
 
     def holding(self) -> bool:
         """Whether her own announcements wait now: a game runs, and the mode holds them."""

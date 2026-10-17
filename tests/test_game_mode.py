@@ -195,6 +195,44 @@ def test_a_game_counts_as_running_until_three_polls_after_the_last_poll_that_saw
     assert (within, rig.mode.playing()) == (True, False)
 
 
+def test_a_slow_start_routine_keeps_her_announcements_held_while_it_runs_and_after():
+    # Lamps out of reach can make a routine on the watcher's thread outlast three polls.
+    clock = Clock(EVENING)
+    held: list[bool] = []
+
+    class SlowLamp(MockDevice):
+        def execute(self, command, value=None):
+            clock.now += 2 * POLL
+            held.append(mode.holding())
+            return super().execute(command, value)
+
+    lamp = SlowLamp("lampu_kamar", "Lampu kamar", kind="light")
+    slow = steps(("lampu_kamar", "off"), ("lampu_kamar", "on"), ("lampu_kamar", "off"))
+    mode = GameMode(
+        GameModeConfig(announcements="hold", on_start="redup"),
+        registry=DeviceRegistry([lamp]),
+        routines={"redup": slow},
+        poll=POLL,
+        now=clock,
+    )
+
+    mode.observe(True, False)
+    clock.now += 3 * POLL  # the next polls are late by the routine's time
+    held.append(mode.holding())
+
+    assert held == [True, True, True, True]
+
+
+def test_a_start_routine_that_raises_still_lets_a_failing_listing_end_the_hold(tmp_path):
+    rig = Rig(tmp_path, routines={}, announcements="hold")  # raises here: no such routine
+
+    with pytest.raises(KeyError):  # the watcher logs it
+        rig.mode.observe(True, False)
+    rig.clock.now += 3 * POLL + timedelta(seconds=1)
+
+    assert rig.mode.holding() is False
+
+
 def test_no_game_runs_before_the_first_poll_or_after_one_without_a_game(tmp_path):
     rig = Rig(tmp_path)
     before = rig.mode.playing()
