@@ -573,13 +573,22 @@ def rain_watchers(events, monkeypatch) -> list[FakeRainWatcher]:
 
 class FakePlayTimeWatcher:
     """Stands in for PlayTimeWatcher without a thread, remembering what it was given, whether
-    `waifu run` listened when it started and stopped, and the test's `events` up to then."""
+    `waifu run` listened when it started and stopped, and the test's `events` up to then. A test
+    plays a poll's word to game mode through `on_poll(playing, resumed)`."""
 
     def __init__(
-        self, list_processes, store, config, *, announce, owner_call, events: list[str]
+        self,
+        list_processes,
+        store,
+        config,
+        *,
+        announce,
+        owner_call,
+        on_poll=None,
+        events: list[str],
     ) -> None:
         self.list_processes, self.store, self.config = list_processes, store, config
-        self.announce, self.owner_call = announce, owner_call
+        self.announce, self.owner_call, self.on_poll = announce, owner_call, on_poll
         self._events = events
         self.listening: list[bool] = []
         self.events_when_started: list[str] | None = None
@@ -10596,6 +10605,252 @@ def test_check_fails_when_the_focus_log_cannot_be_read(
     assert focus_line(capsys.readouterr().out) == (
         f"✗ File fokus {Path('data') / 'focus.json'} tidak bisa dibaca: access denied"
     )
+
+
+# --- game mode ---------------------------------------------------------------------------------
+
+GAME_ROUTINES = (
+    "routines:\n"
+    "  redup:\n    steps: [{device: lampu_kamar, command: off}]\n"
+    "  terang:\n    steps: [{device: lampu_kamar, command: on}]\n"
+)
+DISK_NOTICE = "Master, disk C: tinggal 8,4 GB."
+NEW_VERSION = "Master, ada versi baru."
+
+
+def use_game_mode(home: Path, announcements: str = "hold", **routines: str) -> None:
+    """Writes `game_mode` into config.yaml, with the routines redup and terang (on the example
+    config's lamp) when it names one."""
+    lines = "".join(f"  {key}: {name}\n" for key, name in routines.items())
+    written = f"game_mode:\n  announcements: {announcements}\n{lines}"
+    append_config(home, GAME_ROUTINES + written if routines else written)
+
+
+def while_listening(monkeypatch, play: Callable[[RecordingAssistant], None]) -> None:
+    """Has `waifu run` call `play` with her Assistant while she listens."""
+
+    def run(self: RecordingAssistant, mic, segmenter) -> None:
+        self.ran_with = (mic, segmenter)
+        play(self)
+
+    monkeypatch.setattr(RecordingAssistant, "run", run)
+
+
+def test_run_without_a_game_mode_tells_game_mode_nothing_and_keeps_the_focus_quiet(
+    home, run_fakes, brains, play_time_watchers, focus_timers
+):
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    [watcher] = play_time_watchers
+    assert watcher.on_poll is None
+    assistant = RecordingAssistant.instances[0]
+    assert assistant.collaborators["quiet"] == focus_timers[0].in_block
+
+
+@pytest.mark.parametrize("announcements", ["hold", "phone"])
+def test_run_in_game_mode_holds_her_own_speech_while_a_game_runs_and_during_a_focus_block(
+    announcements,
+    home,
+    run_fakes,
+    brains,
+    play_time_watchers,
+    focus_timers,
+    focus_clock,
+    monkeypatch,
+):
+    use_game_mode(home, announcements)
+    seen: dict[str, bool] = {}
+
+    def play(assistant: RecordingAssistant) -> None:
+        quiet, tell = assistant.collaborators["quiet"], play_time_watchers[0].on_poll
+        seen["before"] = quiet()
+        tell(True, False)
+        seen["playing"] = quiet()
+        tell(False, False)
+        seen["closed"] = quiet()
+        start_focus(brains[0])
+        seen["focusing"] = quiet()
+
+    while_listening(monkeypatch, play)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    assert seen == {"before": False, "playing": True, "closed": False, "focusing": True}
+
+
+def test_run_in_normal_game_mode_never_holds_her_speech(
+    home, run_fakes, brains, play_time_watchers, focus_timers, monkeypatch
+):
+    use_game_mode(home, "normal", on_start="redup")
+    seen: list[bool] = []
+
+    def play(assistant: RecordingAssistant) -> None:
+        play_time_watchers[0].on_poll(True, False)
+        seen.append(assistant.collaborators["quiet"]())
+
+    while_listening(monkeypatch, play)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    assert seen == [False]
+    assert RecordingAssistant.instances[0].collaborators["quiet"] == focus_timers[0].in_block
+
+
+def test_run_skips_her_welcome_back_while_a_game_holds_her_speech_but_answers_a_pat(
+    home, run_fakes, avatar, brains, play_time_watchers, monkeypatch
+):
+    enable_avatar(home, extra=TOUCH_LINES)
+    use_game_mode(home)
+
+    def play(assistant: RecordingAssistant) -> None:
+        play_time_watchers[0].on_poll(True, False)
+        touch(avatar, "welcome_back", "head_pat")  # Master comes back to the PC mid-game
+        assistant.await_reactions(1)
+        play_time_watchers[0].on_poll(False, False)
+        touch(avatar, "welcome_back")
+        assistant.await_reactions(1)
+
+    while_listening(monkeypatch, play)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    assert RecordingAssistant.instances[0].reactions == [
+        ("speak", "Elusannya enak", "happy"),
+        ("speak", "Selamat datang", "happy"),
+    ]
+
+
+def test_run_in_game_mode_runs_the_start_and_stop_routines_on_her_devices_without_a_word(
+    home, run_fakes, brains, play_time_watchers, monkeypatch
+):
+    use_game_mode(home, "normal", on_start="redup", on_stop="terang")
+
+    def play(assistant: RecordingAssistant) -> None:
+        tell = play_time_watchers[0].on_poll
+        tell(True, True)  # a restart mid-game: the lamp was dimmed before it
+        tell(True, False)
+        tell(False, False)  # the game closed
+        tell(True, False)  # and another opened
+
+    while_listening(monkeypatch, play)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    assert brains[0].registry.get("lampu_kamar").calls == [("on", None), ("off", None)]
+    assistant = RecordingAssistant.instances[0]
+    assert (assistant.announced, assistant.reminded) == ([], [])
+
+
+def test_run_in_phone_mode_leaves_her_pushed_notices_unsaid_while_a_game_runs(
+    home,
+    run_fakes,
+    brains,
+    play_time_watchers,
+    games,
+    watchers,
+    code_watchers,
+    pc_readings,
+    pc_watchers,
+    offers_watchers,
+    version_watchers,
+    code_on_disk,
+    rain_watchers,
+    open_meteo,
+    monkeypatch,
+):
+    enable_gacha(home)
+    enable_notify(home)
+    use_claude(home)
+    write_out_example_briefing(home)
+    append_config(home, "usage:\n  monthly_budget_usd: 1\n")
+    use_game_mode(home, "phone")
+    notifier = FakeNotifier()
+    use_notifier(monkeypatch, notifier)
+
+    def play(assistant: RecordingAssistant) -> None:
+        play_time_watchers[0].on_poll(True, False)
+        watchers[0].announce("Master, resin penuh.", "surprised")
+        code_watchers[0].announce("Master, ada 1 kode HSR baru.", "happy")
+        offers_watchers[0].announce("Master, ada game gratis baru: Portal di Steam.", "happy")
+        version_watchers[0].announce(NEW_VERSION, "neutral")
+        rain_watchers[0].announce(RAIN_TEXT, "neutral", expires_at=None)
+        brains[0].on_usage(OPUS, TokenUsage(output=40_000))  # past 80 % of the budget
+        pc_watchers[0].announce(DISK_NOTICE, "sad")
+        play_time_watchers[0].on_poll(False, False)
+        pc_watchers[0].announce(DISK_NOTICE, "sad")
+
+    while_listening(monkeypatch, play)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    await_budget_pushes()
+    assert RecordingAssistant.instances[0].announced == [(DISK_NOTICE, "sad")]
+    # The watchers (faked here) push their own; run pushes the budget notice, as always.
+    assert notifier.sent == [
+        ("Cyrene", EIGHTY_PERCENT.format(owner="Master"), ("money_with_wings",))
+    ]
+
+
+@pytest.mark.parametrize(
+    "setting",
+    ["rain_alert:\n  push: false\n", "version_notice:\n  push: false\n", None],
+    ids=["rain-without-push", "version-without-push", "notify-off"],
+)
+def test_run_in_phone_mode_holds_a_notice_that_never_went_to_the_phone(
+    setting,
+    home,
+    run_fakes,
+    brains,
+    play_time_watchers,
+    pc_readings,
+    pc_watchers,
+    version_watchers,
+    code_on_disk,
+    rain_watchers,
+    open_meteo,
+    monkeypatch,
+):
+    write_out_example_briefing(home)
+    if setting is not None:
+        enable_notify(home)
+        append_config(home, setting)
+    use_game_mode(home, "phone")
+    use_notifier(monkeypatch, FakeNotifier())
+
+    def play(assistant: RecordingAssistant) -> None:
+        play_time_watchers[0].on_poll(True, False)
+        if setting is None:
+            pc_watchers[0].announce(DISK_NOTICE, "sad")
+        elif setting.startswith("rain"):
+            rain_watchers[0].announce(RAIN_TEXT, "neutral", expires_at=None)
+        else:
+            version_watchers[0].announce(NEW_VERSION, "neutral")
+
+    while_listening(monkeypatch, play)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    # Queued all the same: her quiet holds it until the game has closed.
+    assert len(RecordingAssistant.instances[0].announced) == 1
+
+
+@pytest.mark.parametrize(
+    ("announcements", "reminded"), [("hold", True), ("phone", True), ("normal", False)]
+)
+def test_run_in_game_mode_says_the_bedtime_nudge_while_the_game_runs(
+    announcements, reminded, home, run_fakes, brains, play_time_watchers
+):
+    # It is due only while a game is open: held until the game closes, it would be pointless.
+    use_game_mode(home, announcements, on_start="redup")
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    play_time_watchers[0].announce(LATE, "neutral")
+    assistant = RecordingAssistant.instances[0]
+    if reminded:
+        assert (assistant.reminded, assistant.announced) == ([(LATE, "neutral")], [])
+    else:
+        assert (assistant.reminded, assistant.waiting_for_followup) == ([], [LATE])
 
 
 # --- web search and free offers ----------------------------------------------------------------

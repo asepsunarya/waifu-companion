@@ -81,6 +81,7 @@ from waifu.config import (
     ConfigError,
     FallbackTtsConfig,
     GameId,
+    GameModeConfig,
     OllamaConfig,
     PhoneConfig,
     RoutineStep,
@@ -163,6 +164,7 @@ from waifu.gacha.weekly import (
     WeeklyReportTools,
 )
 from waifu.gacha.zenless import EVENT_REWARD, ZzzAgent
+from waifu.game_mode import GameMode
 from waifu.gate import WakeGate
 from waifu.journal import JOURNAL_READ, JournalError, JournalStore, JournalTimer
 from waifu.memory import MemoryStore, memory_prompt_section
@@ -1222,6 +1224,10 @@ def _listen(args: argparse.Namespace) -> int:
     # the Assistant says only what Master asked for himself.
     focus = _focus_timer(config)
     with _session_schedule(config, dry_run=args.dry_run) as schedule:
+        # While a game runs (the play time watcher tells it), game mode may hold what she says
+        # by herself, and it runs Master's start and stop routines on this run's devices.
+        game_mode = _game_mode(config, registry, schedule)
+        quiet = _quiet(config, focus, game_mode)
         brain = _companion_brain(
             config,
             registry,
@@ -1267,7 +1273,7 @@ def _listen(args: argparse.Namespace) -> int:
                 avatar=avatar,
                 turn_images=turn_images,
                 camera_turn=camera_turn,
-                quiet=None if focus is None else focus.in_block,
+                quiet=quiet,
             )
             reactions = InteractionHandler(
                 config.avatar.interactions,
@@ -1275,7 +1281,7 @@ def _listen(args: argparse.Namespace) -> int:
                 listen=assistant.listen_now,
                 is_busy=lambda: assistant.busy,
                 interrupt=assistant.interrupt,
-                quiet=None if focus is None else focus.in_block,
+                quiet=quiet,
                 owner_call=config.assistant.owner_call,
             )
             with _open_mic(config) as mic, touches.answered_by(reactions):
@@ -1299,15 +1305,15 @@ def _listen(args: argparse.Namespace) -> int:
                     assistant.speak(f"{name} siap, {config.assistant.owner_call}.", followup=False)
                 try:
                     with (
-                        _gacha_watcher(config, gacha, assistant),
-                        _code_watcher(config, gacha, assistant, notifier),
-                        _pc_watcher(config, pc, assistant, notifier),
-                        _play_time_watcher(config, assistant),
+                        _gacha_watcher(config, gacha, assistant, game_mode),
+                        _code_watcher(config, gacha, assistant, notifier, game_mode),
+                        _pc_watcher(config, pc, assistant, notifier, game_mode),
+                        _play_time_watcher(config, assistant, game_mode),
                         _focus_session(config, focus, assistant, notifier),
-                        _rain_watcher(config, assistant, notifier),
-                        _version_watcher(config, running, assistant, notifier),
-                        _offers_watcher(config, assistant, notifier, usage),
-                        # Master set the reminders himself: they speak during a focus block too.
+                        _rain_watcher(config, assistant, notifier, game_mode),
+                        _version_watcher(config, running, assistant, notifier, game_mode),
+                        _offers_watcher(config, assistant, notifier, usage, game_mode),
+                        # Master set the reminders: they speak in a focus block or a game too.
                         _scheduler(
                             config,
                             schedule,
@@ -1318,7 +1324,7 @@ def _listen(args: argparse.Namespace) -> int:
                         _briefing_timer(config, assistant, notifier),
                         _weekly_report_timer(config, gacha, assistant, notifier),
                         _journal_timer(config, assistant),
-                        _budget_told(usage, _budget_teller(config, assistant, notifier)),
+                        _budget_told(usage, _budget_teller(config, assistant, notifier, game_mode)),
                         _phone_server(config, assistant, camera=camera_offered),
                     ):
                         assistant.run(mic, segmenter)
@@ -1327,6 +1333,58 @@ def _listen(args: argparse.Namespace) -> int:
                     print(f"{FAIL} {exc}")
                     return 1
     return 0
+
+
+def _game_mode(
+    config: AppConfig, registry: DeviceRegistry, schedule: ScheduleStore | None
+) -> GameMode | None:
+    """The game mode of one `run`, or None while it changes nothing (the default, or play time
+    off): its routines run on the run's devices, their delayed steps in the run's schedule."""
+    if not config.play_time.enabled or config.game_mode == GameModeConfig():
+        return None
+    return GameMode(
+        config.game_mode,
+        registry=registry,
+        routines=config.routines,
+        schedule=schedule,
+        poll=timedelta(seconds=config.play_time.poll_seconds),
+    )
+
+
+def _quiet(
+    config: AppConfig, focus: FocusTimer | None, game_mode: GameMode | None
+) -> Callable[[], bool] | None:
+    """When what she would say by herself waits: during a focus block, and while game mode
+    holds her announcements; None when nothing ever holds them. Without a game mode that holds
+    them, exactly the focus timer's `in_block`, as before game mode."""
+    if game_mode is None or config.game_mode.announcements == "normal":
+        return None if focus is None else focus.in_block
+    holding = game_mode.holding
+    if focus is None:
+        return holding
+    in_block = focus.in_block
+    return lambda: in_block() or holding()
+
+
+def _announcer(
+    assistant: Assistant,
+    game_mode: GameMode | None,
+    *,
+    patient: bool = False,
+    pushed: bool = False,
+) -> Callable[..., None]:
+    """How an automatic notice is queued, `patient` ones also waiting while the follow-up window
+    is open: with game mode on `phone`, a notice that also went to the phone (`pushed`) is
+    left unsaid while a game runs. Any other notice is queued, and her quiet holds it while a
+    game holds her announcements."""
+
+    def announce(text: str, emotion: str = NEUTRAL, *, expires_at: datetime | None = None) -> None:
+        if pushed and game_mode is not None and game_mode.diverting():
+            logger.info("Not saying a notice while a game runs: it went to the phone")
+            return
+        assistant.announce(text, emotion, wait_for_followup=patient, expires_at=expires_at)
+
+    return announce
 
 
 def _chat(args: argparse.Namespace) -> int:
@@ -2120,16 +2178,18 @@ def _weekly_report_tools(config: AppConfig, gacha: GachaParts) -> WeeklyReportTo
 
 
 def _gacha_watcher(
-    config: AppConfig, gacha: GachaParts | None, assistant: Assistant
+    config: AppConfig, gacha: GachaParts | None, assistant: Assistant, game_mode: GameMode | None
 ) -> AbstractContextManager[object]:
-    """The reminders and check-in while she listens; nothing to watch without the cookie."""
+    """The reminders and check-in while she listens, also pushed to the phone when
+    notifications are on; nothing to watch without the cookie."""
     if gacha is None or config.gacha.cookie is None:
         return nullcontext()
+    notifier = build_notifier(config.notify)
     return GachaWatcher(
         gacha.hoyolab,
         config.gacha,
-        notifier=build_notifier(config.notify),
-        announce=assistant.announce,
+        notifier=notifier,
+        announce=_announcer(assistant, game_mode, pushed=notifier is not None),
         title=config.assistant.name,
         owner_call=config.assistant.owner_call,
     )
@@ -2158,6 +2218,7 @@ def _code_watcher(
     gacha: GachaParts | None,
     assistant: Assistant,
     notifier: Notifier | None,
+    game_mode: GameMode | None,
 ) -> Iterator[None]:
     """Her notices about new redeem codes while the block runs (redeemed first with
     `auto_redeem`), also pushed to the phone when notifications are on; with their notices off
@@ -2173,7 +2234,7 @@ def _code_watcher(
         gacha.hoyolab,
         codes,
         config.gacha.games,
-        announce=assistant.announce,
+        announce=_announcer(assistant, game_mode, pushed=notifier is not None),
         notifier=notifier,
         owner_call=config.assistant.owner_call,
         title=config.assistant.name,
@@ -3415,7 +3476,7 @@ RAIN_LOOKAHEAD_HOURS = 24  # how far `waifu rain` looks; the forecast covers tod
 
 @contextmanager
 def _rain_watcher(
-    config: AppConfig, assistant: Assistant, notifier: Notifier | None
+    config: AppConfig, assistant: Assistant, notifier: Notifier | None, game_mode: GameMode | None
 ) -> Iterator[None]:
     """Her warnings shortly before rain at the briefing's place while the block runs, also pushed
     to the phone when `rain_alert.push` and notifications are on; none with the alerts off or
@@ -3430,13 +3491,12 @@ def _rain_watcher(
     if weather is None:
         yield
         return
+    push = notifier if rain.push else None
     watcher = RainWatcher(
         weather.forecast,
         rain,
-        announce=lambda text, emotion, *, expires_at: assistant.announce(
-            text, emotion, wait_for_followup=True, expires_at=expires_at
-        ),
-        notifier=notifier if rain.push else None,
+        announce=_announcer(assistant, game_mode, patient=True, pushed=push is not None),
+        notifier=push,
         owner_call=config.assistant.owner_call,
         place=config.briefing.city,
         title=config.assistant.name,
@@ -3520,7 +3580,11 @@ def _logged_code(code: CodeVersion) -> str:
 
 @contextmanager
 def _version_watcher(
-    config: AppConfig, running: CodeVersion, assistant: Assistant, notifier: Notifier | None
+    config: AppConfig,
+    running: CodeVersion,
+    assistant: Assistant,
+    notifier: Notifier | None,
+    game_mode: GameMode | None,
 ) -> Iterator[None]:
     """Her notice that newer code is on disk than `running`, the code this run started with,
     while the block runs, also pushed to the phone when `version_notice.push` and notifications
@@ -3530,12 +3594,13 @@ def _version_watcher(
     if not notice.enabled:
         yield
         return
+    push = notifier if notice.push else None
     watcher = VersionWatcher(
         lambda: read_code_version(run=None),
         running,
         notice,
-        announce=lambda text, emotion: assistant.announce(text, emotion, wait_for_followup=True),
-        notifier=notifier if notice.push else None,
+        announce=_announcer(assistant, game_mode, patient=True, pushed=push is not None),
+        notifier=push,
         owner_call=config.assistant.owner_call,
         name=config.assistant.name,
     )
@@ -3731,7 +3796,7 @@ def _budget_told(
 
 
 def _budget_teller(
-    config: AppConfig, assistant: Assistant, notifier: Notifier | None
+    config: AppConfig, assistant: Assistant, notifier: Notifier | None, game_mode: GameMode | None
 ) -> Callable[[str], None]:
     """Has her say a budget notice by herself and push it to the phone when notifications are
     on (the notifier logs a failed push).
@@ -3740,8 +3805,10 @@ def _budget_teller(
     Master has had the chance to answer that reply (the follow-up window has closed).
     """
 
+    announce = _announcer(assistant, game_mode, patient=True, pushed=notifier is not None)
+
     def tell(notice: str) -> None:
-        assistant.announce(notice, "surprised", wait_for_followup=True)
+        announce(notice, "surprised")
         if notifier is not None:
             # She is in the middle of a reply, which a push taking its whole timeout would hold up.
             threading.Thread(
@@ -4213,6 +4280,7 @@ def _pc_watcher(
     pc: Callable[[], PcSnapshot] | None,
     assistant: Assistant,
     notifier: Notifier | None,
+    game_mode: GameMode | None,
 ) -> Iterator[None]:
     """Her notices about a nearly full drive or a GPU that stays hot while the block runs, also
     pushed to the phone when notifications are on; none with the PC health or its notices
@@ -4223,7 +4291,7 @@ def _pc_watcher(
     watcher = PcWatcher(
         pc,
         config.pc_health,
-        announce=assistant.announce,
+        announce=_announcer(assistant, game_mode, pushed=notifier is not None),
         notifier=notifier,
         owner_call=config.assistant.owner_call,
         title=config.assistant.name,
@@ -4326,20 +4394,27 @@ def _play_time_store(config: AppConfig) -> PlayTimeStore:
 
 
 @contextmanager
-def _play_time_watcher(config: AppConfig, assistant: Assistant) -> Iterator[None]:
+def _play_time_watcher(
+    config: AppConfig, assistant: Assistant, game_mode: GameMode | None
+) -> Iterator[None]:
     """Counting how long Master's games are open while the block runs, from the process list's
-    names only, and with `play_time.bedtime` the once-a-night nudge, said once the follow-up
-    window has closed, so a conversation is never interrupted; nothing with play time off.
-    Stopping ends the open sessions at their last poll."""
+    names only, telling game mode after each poll whether a game runs, and with
+    `play_time.bedtime` the once-a-night nudge, said once the follow-up window has closed, so a
+    conversation is never interrupted; nothing with play time off. Stopping ends the open
+    sessions at their last poll. While game mode holds her announcements, the nudge is said
+    like Master's reminders: it is due only while a game is open, so held until the game has
+    closed it would come too late."""
     if not config.play_time.enabled:
         yield
         return
+    holds = config.game_mode.announcements != "normal"
     watcher = PlayTimeWatcher(
         running_executables,
         _play_time_store(config),
         config.play_time,
-        announce=lambda text, emotion: assistant.announce(text, emotion, wait_for_followup=True),
+        announce=assistant.remind if holds else _announcer(assistant, None, patient=True),
         owner_call=config.assistant.owner_call,
+        on_poll=None if game_mode is None else game_mode.observe,
     )
     watcher.start()
     try:
@@ -4602,6 +4677,7 @@ def _offers_watcher(
     assistant: Assistant,
     notifier: Notifier | None,
     usage: _UsageRecorder | None,
+    game_mode: GameMode | None,
 ) -> Iterator[None]:
     """Her notices about new free games and new AI offers while the block runs, also pushed to
     the phone when notifications are on; none with the offers or their notices off. The scan's
@@ -4615,7 +4691,7 @@ def _offers_watcher(
         _games_reader(config),
         _ai_scan(config, usage.record if usage is not None else _not_recorded),
         offers,
-        announce=assistant.announce,
+        announce=_announcer(assistant, game_mode, pushed=notifier is not None),
         notifier=notifier,
         owner_call=config.assistant.owner_call,
         title=config.assistant.name,
