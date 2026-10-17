@@ -8,7 +8,10 @@ aktif, lalu jalankan `waifu check`.
 
 - Mode game baru, mati dari awal: selama HSR, Genshin, atau ZZZ terbuka (dia tahu dari jam
   main), Cyrene bisa menahan pemberitahuannya sendiri sampai game terakhir ditutup
-  (`game_mode.announcements: hold`), lalu mengucapkannya sekaligus. Dengan `phone`, pemberitahuan
+  (`game_mode.announcements: hold`), lalu mengucapkannya sekaligus sesudah "Tadi selama main
+  ada kabar.". Pengingat resin, daily, mingguan, atau ekspedisi yang tertahan lewat satu
+  pengecekan HoYoLAB, dan pemberitahuan GPU panas yang tertahan lewat sejam, dilewati karena
+  sudah basi; yang sama persis hanya diucapkan sekali. Dengan `phone`, pemberitahuan
   yang memang dikirim ke HP tidak diucapkan selama main, dan sisanya ditahan. Sapaan pagi,
   laporan game mingguan, dan pertanyaan malam jurnal ikut menunggu dan tetap dilewati kalau
   sudah lewat waktunya. Pengingat dan jadwal yang Master pasang, juga pengingat tidur jam main,

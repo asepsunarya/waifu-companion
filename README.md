@@ -4314,8 +4314,11 @@ Jalankan ulang `waifu run` setelah mengubahnya. `waifu chat` tidak punya mode ga
   dimainkan mungkin sudah mengubahnya. Tanpa notifikasi HP, pengingat untuk game yang tidak
   dimainkan juga ikut terlewat, dan tidak diulang. Masalah HoYoLAB (misalnya cookie) dan
   check-in tetap diucapkan.
-- Pemberitahuan lain tetap disimpan sampai game ditutup, berapa lama pun: game yang dibiarkan
-  terbuka semalaman (diminimalkan pun) menahannya semalaman.
+- Pemberitahuan lain tetap disimpan sampai game ditutup, berapa lama pun, selama `waifu run`
+  tetap berjalan: game yang dibiarkan terbuka semalaman (diminimalkan pun) menahannya semalaman.
+- Pemberitahuan yang masih tertahan saat `waifu run` dihentikan, termasuk kalau PC dimatikan
+  dalam 1-2 menit sesudah game ditutup (sebelum tahanannya lepas), tidak diucapkan dan tidak
+  diulang nanti. Kalau notifikasi HP menyala, yang dikirim ke HP tetap ada di HP.
 - Pemberitahuan GPU panas yang tertahan sampai sejam dilewati: dari main lama yang membuat GPU
   terus panas, paling banyak satu (yang terakhir, kalau belum sejam) diucapkan sesudah game
   ditutup.
@@ -4342,6 +4345,9 @@ routines:
 - `on_start` jalan sekali saat game pertama dibuka (sebelumnya tidak ada game yang terbuka), dan
   `on_stop` sekali saat game terakhir ditutup. Pindah dari HSR ke Genshin tanpa jeda tidak
   menjalankan apa-apa.
+- Keadaan ruangan sebelum main tidak disimpan: `on_stop` menjalankan rutinitasnya apa adanya.
+  `brightness` juga menyalakan lampu, jadi `terang` di contoh ini menyalakan lampu yang tadinya
+  mati sebelum main, dengan terang penuh.
 - Diam-diam: dia tidak bicara. Langkah yang gagal hanya dicatat di log (`The game start routine
   'redup' failed at step 1 ...`).
 - Nama yang tidak ada di `routines` membuat `config.yaml` ditolak saat start, begitu juga mode
@@ -4360,7 +4366,7 @@ routines:
   `waifu run` tidak menjalankan `on_stop`. Kalau game ditutup selagi `waifu run` mati, `on_stop`
   tidak jalan: lampunya tetap redup sampai Master mengubahnya.
 - Game yang crash tepat saat dibuka (terlihat sekali saja) menjalankan `on_start` lalu `on_stop`,
-  jadi ruangannya kembali seperti semula.
+  jadi ruangannya diatur oleh `on_stop`, bukan dikembalikan ke keadaan sebelum main.
 - Kalau daftar proses tidak bisa dibaca lebih dari tiga pengecekan, pengumuman tidak ditahan lagi
   sampai bisa dibaca kembali. Sesudah PC bangun dari sleep dengan game terbuka, pengumuman yang
   tertunda bisa keluar sebelum pengecekan pertama sesudah bangun.
