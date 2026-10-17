@@ -662,16 +662,16 @@ a game runs and the rest is held. The bedtime nudge goes through `remind` in gam
 only while a game is open). Announcements gain `expires_at`, set only by the rain alert (its
 rain's start), which also ends the v1.30 known limit. No new tool, tool parameter, or dependency.
 - [x] Task 168a: contract: SPEC, tasks
-- [ ] Task 168: `GameModeConfig` and its validation
-- [ ] Task 169: the play time watcher's `on_poll` (playing, resumed)
-- [ ] Task 170: `GameMode` (transitions, routines once, staleness, holding/diverting)
-- [ ] Task 171: announcements that expire; the rain alert expires at its rain's start
-- [ ] Task 172: wiring in `run` (game mode, combined quiet, phone announcer, bedtime nudge)
-- [ ] Task 173: `waifu check` line, `config.example.yaml`
-- [ ] Task 174: README "Mode game", CHANGELOG
+- [x] Task 168: `GameModeConfig` and its validation
+- [x] Task 169: the play time watcher's `on_poll` (playing, resumed)
+- [x] Task 170: `GameMode` (transitions, routines once, staleness, holding/diverting)
+- [x] Task 171: announcements that expire; the rain alert expires at its rain's start
+- [x] Task 172: wiring in `run` (game mode, combined quiet, phone announcer, bedtime nudge)
+- [x] Task 173: `waifu check` line, `config.example.yaml`
+- [x] Task 174: README "Mode game", CHANGELOG
 
 ### Checkpoint: Mode game
-- [ ] Python suite and ruff clean; no test listed the real processes, ran a real device, slept, or pushed; the strict-tool budget unchanged
+- [x] Python suite and ruff clean; no test listed the real processes, ran a real device, slept, or pushed; the strict-tool budget unchanged (2026-10-18: 8449 pytest; 18 of 20 strict tools, 17 of 24 optional parameters, no tool or schema changed)
 - [ ] On the owner's PC: with `hold`, a notice queued while HSR runs is said once it has been closed for two polls; a reminder still speaks during the game; with `on_start`/`on_stop` routines the lamp dims at launch and comes back after closing, and alt-tab or restarting `waifu run` mid-game changes nothing
 
 ## Risks and Mitigations

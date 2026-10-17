@@ -4,6 +4,27 @@ Ringkasan per versi, yang terbaru di atas. Rinciannya ada di README (bagian yang
 setiap versi) dan di SPEC.md. Setelah memperbarui, **mulai ulang `waifu run`** supaya semuanya
 aktif, lalu jalankan `waifu check`.
 
+## v1.34: mode game
+
+- Mode game baru, mati dari awal: selama HSR, Genshin, atau ZZZ terbuka (dia tahu dari jam
+  main), Cyrene bisa menahan pemberitahuannya sendiri sampai game terakhir ditutup
+  (`game_mode.announcements: hold`), lalu mengucapkannya sekaligus. Dengan `phone`, pemberitahuan
+  yang memang dikirim ke HP tidak diucapkan selama main, dan sisanya ditahan. Sapaan pagi,
+  laporan game mingguan, dan pertanyaan malam jurnal ikut menunggu dan tetap dilewati kalau
+  sudah lewat waktunya. Pengingat dan jadwal yang Master pasang, juga pengingat tidur jam main,
+  tetap berbunyi selama main.
+- `game_mode.on_start` dan `on_stop` menjalankan rutinitas yang Master tulis, tanpa bicara,
+  sekali saat game pertama dibuka dan sekali saat game terakhir ditutup (misalnya lampu redup,
+  lalu terang lagi). Alt-tab, game yang diminimalkan, dan restart `waifu run` di tengah main
+  tidak menjalankannya lagi.
+- Peringatan hujan yang tertahan sampai hujannya mulai (blok fokus, obrolan, atau game) sekarang
+  dilewati, tidak lagi diucapkan terlambat.
+- `waifu check` menampilkan baris `Mode game`. Butuh `play_time.enabled: true` (bawaannya):
+  `config.yaml` ditolak kalau mode game dinyalakan dengan jam main mati, atau kalau
+  `on_start`/`on_stop` menyebut rutinitas yang tidak ada.
+- Tanpa bagian `game_mode` tidak ada yang berubah; contohnya ada di `config.example.yaml`.
+  README: "Mode game".
+
 ## v1.33: pendapatan gacha
 
 - Cyrene bisa menjawab "bulan ini aku dapat berapa Primogem?" atau "Stellar Jade bulan lalu

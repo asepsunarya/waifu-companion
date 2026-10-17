@@ -50,6 +50,7 @@ Cyrene : "Komputer mau kumatikan sekarang, Master? Jawab iya kalau jadi." (minta
 - [Kesehatan PC](#kesehatan-pc)
 - [Jam main](#jam-main)
 - [Teman fokus](#teman-fokus)
+- [Mode game](#mode-game)
 - [Jurnal harian](#jurnal-harian)
 - [Pencarian web dan promo gratis](#pencarian-web-dan-promo-gratis)
 - [Keuangan dari tepira](#keuangan-dari-tepira)
@@ -662,7 +663,7 @@ waifu speaker-test    # skor kecocokan langsung, Ctrl+C untuk berhenti
 | `waifu youtube <link atau judul lagu>` | Buka video atau playlist YouTube itu, atau halaman pencarian YouTube untuk judulnya, di browser default (lihat [Lagu di YouTube](#lagu-di-youtube)) |
 | `waifu offers` / `offers games` / `offers ai` | Game gratis dan promo AI yang tersimpan, dengan linknya; `waifu offers ai --scan` mencari promo AI sekarang dengan Claude (berbayar) (lihat [Pencarian web dan promo gratis](#pencarian-web-dan-promo-gratis)) |
 | `waifu tepira` / `tepira dompet` / `tujuan [nama]` / `transaksi [-n N]` / `token` | Keuangan dari tepira: ringkasan bulan ini, saldo dompet, tujuan tabungan, dan transaksi terbaru; `token` membuat token API Cyrene baru tanpa internet (lihat [Keuangan dari tepira](#keuangan-dari-tepira)) |
-| `waifu check` | Periksa config, versi `waifu run` yang berjalan, kabar versi baru, kode IR, aplikasi PC, rutinitas, voiceprint, otak, ingatan, jadwal, daftar tugas, jurnal, lagu YouTube, sapaan pagi, peringatan hujan, biaya API, kesehatan PC, jam main, teman fokus, pencarian web, promo gratis, paket suara, CUDA, mic, suara cadangan offline, suara anime, avatar, keuangan tepira, dan Cyrene di HP |
+| `waifu check` | Periksa config, versi `waifu run` yang berjalan, kabar versi baru, kode IR, aplikasi PC, rutinitas, voiceprint, otak, ingatan, jadwal, daftar tugas, jurnal, lagu YouTube, sapaan pagi, peringatan hujan, biaya API, kesehatan PC, jam main, teman fokus, mode game, pencarian web, promo gratis, paket suara, CUDA, mic, suara cadangan offline, suara anime, avatar, keuangan tepira, dan Cyrene di HP |
 
 Opsi untuk semua perintah: `--config <file>` (default `config.yaml`), `--dry-run`
 (perangkat simulasi), `-v` (log lebih rinci), `--log-file <file>` (log juga ditulis
@@ -4065,7 +4066,8 @@ Cyrene : "Sayang, sudah lewat jam setengah dua belas, jangan terlalu malam ya."
   di-restart: malam yang sudah diingatkan ditulis ke `data\playtime.json` sebelum dia bicara.
 - **Tidak pernah memotong**: diucapkan di sela kalimat Master, setelah jendela lanjutan
   tertutup. Karena itu, kalau dia sedang menunggu, kalimatnya bisa terucap sesudah game baru
-  saja ditutup. Tidak dikirim ke HP.
+  saja ditutup. Tidak dikirim ke HP. Dengan [Mode game](#mode-game) `hold` atau `phone`,
+  pengingat ini diucapkan seperti pengingat yang Master pasang: tidak menunggu game ditutup.
 - Jamnya dari 18:00 sampai 05:59; jam lewat tengah malam (misalnya `01:00`) dihitung untuk
   malam sebelumnya.
 - **Bukan untuk bangun pagi**: game yang baru dibuka mulai jam 04.00 (misalnya untuk daily
@@ -4179,8 +4181,8 @@ memulai atau menghentikan sesi kalau Master minta.
 - **Master tetap bisa bicara dengannya** seperti biasa: panggil namanya, klik dua kali avatarnya,
   atau lewat [Cyrene di HP](#cyrene-di-hp).
 - Notifikasi HP dari fitur lain (misalnya game atau kesehatan PC) tetap terkirim seperti biasa;
-  hanya suaranya di PC yang menunggu. Karena itu, peringatan hujan yang tertunda bisa terucap
-  sesudah hujannya mulai.
+  hanya suaranya di PC yang menunggu. Peringatan hujan yang tertunda sampai hujannya mulai tidak
+  diucapkan lagi.
 
 ### Kalimatnya
 
@@ -4248,6 +4250,124 @@ panjang sesinya, dan kalimat Master yang terdengar, seperti biasa.
 
 Untuk mematikannya, tulis `enabled: false` di bagian `focus`; catatan lama hilang kalau
 `data\focus.json` dihapus.
+
+## Mode game
+
+Selama HSR, Genshin, atau ZZZ terbuka, Cyrene bisa diam supaya tidak memotong game atau obrolan
+voice chat Master, dan bisa menjalankan rutinitas (misalnya meredupkan lampu) saat Master mulai
+dan selesai main. Dia tahu ada game yang terbuka dari [Jam main](#jam-main), jadi
+`play_time.enabled` harus menyala (bawaannya menyala) dan hanya game di `play_time.games` yang
+dihitung. Mati dari awal; untuk menyalakannya, tulis bagian `game_mode` di `config.yaml`:
+
+```yaml
+game_mode:
+  announcements: hold    # normal (bawaan), hold, atau phone
+  on_start: redup        # rutinitas saat game pertama dibuka (boleh tidak ditulis)
+  on_stop: terang        # rutinitas saat game terakhir ditutup (boleh tidak ditulis)
+```
+
+Jalankan ulang `waifu run` setelah mengubahnya. `waifu chat` tidak punya mode game.
+
+### Tiga pilihan pengumuman
+
+- **`normal`** (bawaan): seperti sebelumnya, pemberitahuannya tetap diucapkan saat main.
+- **`hold`**: selama ada game yang terbuka, yang biasanya dia ucapkan sendiri menunggu:
+  peringatan hujan, kabar versi baru, pemberitahuan game, kode redeem, kesehatan PC, promo
+  gratis, dan anggaran biaya API, juga sapaan pagi, laporan game mingguan, dan pertanyaan malam
+  jurnal. Setelah game terakhir ditutup, pemberitahuan yang tertunda diucapkan sekaligus; sapaan
+  pagi, laporan mingguan, atau pertanyaan jurnal menyusul satu per satu.
+- **`phone`**: pemberitahuan yang memang dikirim ke HP (notifikasi HP menyala; untuk peringatan
+  hujan dan kabar versi baru juga `push`-nya) tidak diucapkan sama sekali selama main, karena
+  sudah ada di HP. Yang tidak dikirim ke HP ditahan seperti `hold`, begitu juga sapaan pagi,
+  laporan mingguan, dan pertanyaan jurnal: tidak ada yang dikirim ke HP sebagai gantinya. Tanpa
+  notifikasi HP, `phone` sama dengan `hold`, dan `waifu check` memperingatkannya.
+
+### Yang tetap berbunyi
+
+- **Pengingat dan jadwal yang Master pasang sendiri**, tepat waktu, juga kalimat
+  [Teman fokus](#teman-fokus).
+- **Pengingat tidur jam main** (`play_time.bedtime`): hanya muncul selagi game terbuka, jadi
+  dengan `hold` atau `phone` dia mengucapkannya seperti pengingat Master, tanpa menunggu game
+  ditutup (juga selagi jendela lanjutan terbuka atau di tengah blok fokus).
+- **Master tetap bisa bicara dengannya** seperti biasa: panggil namanya, klik dua kali avatarnya,
+  atau lewat [Cyrene di HP](#cyrene-di-hp). Elusan dan colekan di avatar tetap dijawab; hanya
+  sapaan "sudah kembali" yang dilewati selama game menahan pengumumannya.
+
+### Yang dilewati
+
+- Peringatan hujan yang tertahan sampai hujannya mulai tidak diucapkan lagi (notifikasi HP-nya,
+  kalau menyala, sudah terkirim saat itu).
+- Sapaan pagi yang tertahan sampai `briefing.until`, dan laporan mingguan atau pertanyaan jurnal
+  yang tertahan sampai tengah malam, dilewati hari itu, seperti saat tertahan blok fokus.
+- Pemberitahuan lain tetap disimpan sampai game ditutup, berapa lama pun: game yang dibiarkan
+  terbuka semalaman (diminimalkan pun) menahannya semalaman. Pemberitahuan GPU panas yang muncul
+  saat main baru diucapkan sesudah game ditutup.
+- Dengan `phone`, kalau notifikasi HP gagal terkirim (misalnya internet putus), pemberitahuan
+  itu juga tidak diucapkan.
+
+### Rutinitas saat mulai dan selesai main
+
+`on_start` dan `on_stop` adalah nama rutinitas yang Master tulis di bagian `routines` (lihat
+[Menulis rutinitas di config.yaml](#menulis-rutinitas-di-configyaml)), misalnya:
+
+```yaml
+routines:
+  redup:
+    description: Lampu redup untuk main
+    steps:
+      - {device: lampu_kamar, command: brightness, value: 20}
+  terang:
+    description: Lampu terang lagi
+    steps:
+      - {device: lampu_kamar, command: brightness, value: 100}
+```
+
+- `on_start` jalan sekali saat game pertama dibuka (sebelumnya tidak ada game yang terbuka), dan
+  `on_stop` sekali saat game terakhir ditutup. Pindah dari HSR ke Genshin tanpa jeda tidak
+  menjalankan apa-apa.
+- Diam-diam: dia tidak bicara. Langkah yang gagal hanya dicatat di log (`The game start routine
+  'redup' failed at step 1 ...`).
+- Nama yang tidak ada di `routines` membuat `config.yaml` ditolak saat start, begitu juga mode
+  game dengan `play_time.enabled: false`. Rutinitas dengan PC atau colokan PC memang sudah
+  ditolak; langkah dengan `after_minutes` masuk jadwal seperti biasa.
+
+### Kapan dihitung mulai dan selesai
+
+- **Mulai** pada pengecekan daftar proses pertama yang melihat game: paling lama
+  `play_time.poll_seconds` (60 detik) sesudah game dibuka.
+- **Selesai** setelah dua pengecekan berturut-turut tidak melihatnya: sekitar 1-2 menit sesudah
+  game ditutup. Alt-tab, game yang diminimalkan, atau game dan launcher yang di-restart dalam
+  semenit tidak dihitung selesai. Game yang terbuka tapi diminimalkan atau ditinggal tetap
+  dihitung main.
+- Restart `waifu run` di tengah main tidak menjalankan `on_start` lagi, dan menghentikan
+  `waifu run` tidak menjalankan `on_stop`. Kalau game ditutup selagi `waifu run` mati, `on_stop`
+  tidak jalan: lampunya tetap redup sampai Master mengubahnya.
+- Game yang crash tepat saat dibuka (terlihat sekali saja) menjalankan `on_start` lalu `on_stop`,
+  jadi ruangannya kembali seperti semula.
+- Kalau daftar proses tidak bisa dibaca lebih dari tiga pengecekan, pengumuman tidak ditahan lagi
+  sampai bisa dibaca kembali. Sesudah PC bangun dari sleep dengan game terbuka, pengumuman yang
+  tertunda bisa keluar sebelum pengecekan pertama sesudah bangun.
+
+`waifu check` menampilkan salah satu baris ini (rutinitasnya hanya kalau ditulis):
+
+```text
+✓ Mode game: pengumuman ditahan selama main; rutinitas redup saat game dibuka, terang saat game ditutup
+✓ Mode game: pengumuman ke HP selama main
+✓ Mode game: pengumuman tetap diucapkan saat main; rutinitas redup saat game dibuka
+! Mode game: ke HP, tapi notify mati: pengumuman ditahan sampai game ditutup
+! Mode game mati
+```
+
+### Privasi mode game
+
+Tidak ada yang baru disimpan atau dikirim: apakah game sedang terbuka hanya diingat selama
+`waifu run` berjalan, dan kapan mulai dan selesai main hanya dicatat di log DEBUG. Rutinitasnya
+berjalan di perangkat Master sendiri seperti rutinitas lain (langkah yang gagal dicatat di log
+dengan langkahnya). Dengan `phone`, tidak ada notifikasi HP tambahan: yang sampai ke HP hanya
+yang memang sudah dikirim fitur lain.
+
+Untuk mematikannya, hapus bagian `game_mode` atau tulis `announcements: normal` tanpa
+`on_start` dan `on_stop`.
 
 ## Jurnal harian
 
@@ -5327,6 +5447,22 @@ halaman tim di game atau sebuah error)
       tengah blok lalu jalankan lagi: dia tidak melanjutkan sesinya, dan `waifu focus` mencatat
       bagian blok yang sudah berjalan.
 
+**Mode game** (lihat [Mode game](#mode-game))
+
+- [ ] Tulis `game_mode` dengan `announcements: hold`, `on_start: redup`, dan `on_stop: terang`
+      (dua rutinitas lampu seperti di bagian Mode game), lalu jalankan ulang `waifu run`:
+      `waifu check` menampilkan `✓ Mode game: pengumuman ditahan selama main` dengan kedua
+      rutinitasnya.
+- [ ] Buka HSR: dalam semenit lampu meredup tanpa kata. Alt-tab ke aplikasi lain dan
+      minimalkan game beberapa menit: lampunya tetap.
+- [ ] Selama main, pasang pengingat untuk dua menit lagi: tetap berbunyi tepat waktu.
+      Pemberitahuan lain yang datang selama main (misalnya resin penuh atau kode redeem baru)
+      belum diucapkan.
+- [ ] Tutup game: sekitar 1-2 menit kemudian lampu terang lagi, dan pemberitahuan yang tertunda
+      diucapkan sekaligus.
+- [ ] Buka game lagi, restart `waifu run` selagi main: lampu tidak diubah lagi. Tutup game:
+      lampu terang.
+
 **Jurnal harian** (lihat [Jurnal harian](#jurnal-harian))
 
 - [ ] `waifu check` menampilkan `✓ Jurnal: 0 hari tercatat, pertanyaan malam mati`.
@@ -5459,6 +5595,9 @@ di sampingnya)
   di PC ini (90 hari). Dengan Claude, waktunya ke API Anthropic saat Master bertanya; kalimatnya
   ke `ntfy.sh` hanya dengan `focus.push` dan notifikasi HP menyala. Lihat
   [Privasi teman fokus](#privasi-teman-fokus).
+- **Mode game:** tidak menyimpan atau mengirim apa pun yang baru; apakah game sedang terbuka
+  hanya diingat selama `waifu run` berjalan, dan dengan `phone` tidak ada notifikasi HP
+  tambahan. Lihat [Privasi mode game](#privasi-mode-game).
 - **Jurnal harian:** `data\journal.json` hanya di PC ini, disimpan sampai Master menghapus
   harinya; rahasia seperti kata sandi atau nomor kartu tidak pernah disimpan. Dengan Claude,
   catatan yang ditulis atau dibaca ikut ke API Anthropic; tidak pernah ke `ntfy.sh`, sapaan pagi,
