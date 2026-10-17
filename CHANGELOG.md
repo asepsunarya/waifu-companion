@@ -4,6 +4,28 @@ Ringkasan per versi, yang terbaru di atas. Rinciannya ada di README (bagian yang
 setiap versi) dan di SPEC.md. Setelah memperbarui, **mulai ulang `waifu run`** supaya semuanya
 aktif, lalu jalankan `waifu check`.
 
+## v1.28: suara cadangan offline
+
+- Kalau edge-tts gagal (tanpa internet, atau ditolak Microsoft seperti 403 pada 16 Oktober),
+  Cyrene tidak diam lagi: bagian itu diucapkan suara bawaan Windows yang jalan offline, lewat
+  suara anime kalau menyala. Tidak ada paket baru: Windows PowerShell bawaan dan speech API
+  Windows yang bekerja, sekitar 0,4 detik per bagian.
+- Bagian Indonesia memakai suara Indonesia Windows (Microsoft Andika), bagian Jepang suara
+  Jepang (perempuan lebih dulu). **Tambahkan suaranya dulu, gratis:** Settings → Time &
+  language → Speech → Add voices, pilih Indonesian dan Japanese, lalu mulai ulang `waifu run`.
+  Tanpa suara itu, bahasa itu tetap diam saat edge-tts gagal, seperti dulu (teksnya tampil).
+- Setelah edge-tts gagal, bahasa itu memakai suara Windows selama 10 menit tanpa menunggu
+  edge-tts gagal lagi di setiap jawaban, lalu edge-tts dicoba lagi; log mencatatnya sekali
+  per gangguan dan sekali saat edge-tts pulih.
+- Dengan suara anime, suara Windows dinaikkan dengan nadanya sendiri per jenis suara
+  (`tts.fallback.rvc_pitch`: perempuan +11, laki-laki +18), karena suara Windows jauh lebih
+  rendah dari edge-tts.
+- `waifu say --fallback "Halo Master"` memperdengarkan suara cadangan (dengan `--raw` tanpa
+  suara anime), `waifu voices` menampilkan suara Windows per bahasa, dan `waifu check`
+  menyebut suara cadangan tiap bahasa atau tempat menambahkannya. Bagian baru `tts.fallback`
+  di `config.yaml` opsional: tanpa itu semuanya sudah menyala.
+- README: "Suara cadangan offline".
+
 ## v1.27.1: jam HSR
 
 - Jam warp, event, dan jendela endgame HSR kini sama dengan timer di game: warp yang berakhir

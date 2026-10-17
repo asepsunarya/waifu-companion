@@ -33,6 +33,7 @@ Cyrene : "Komputer mau kumatikan sekarang, Master? Jawab iya kalau jadi." (minta
 - [Jalan otomatis saat login](#jalan-otomatis-saat-login)
 - [Versi baru](#versi-baru)
 - [Suara anime (つくよみちゃん)](#suara-anime-つくよみちゃん)
+- [Suara cadangan offline](#suara-cadangan-offline)
 - [Avatar 3D (つくよみちゃん)](#avatar-3d-つくよみちゃん)
 - [Avatar Live2D & interaksi](#avatar-live2d--interaksi)
 - [Teman main gacha (HoYoverse)](#teman-main-gacha-hoyoverse)
@@ -62,7 +63,8 @@ Cyrene : "Komputer mau kumatikan sekarang, Master? Jawab iya kalau jadi." (minta
 - **Python 3.14** (3.11 ke atas juga didukung) dengan launcher `py` dari python.org.
 - Driver NVIDIA terbaru. Seri RTX 50 butuh torch build CUDA 12.8 ke atas (index
   `cu128` di bagian instalasi).
-- Internet untuk instalasi, unduhan model pertama kali, dan suara edge-tts.
+- Internet untuk instalasi, unduhan model pertama kali, dan suara edge-tts (tanpa internet
+  dia bicara dengan [suara cadangan Windows](#suara-cadangan-offline)).
 - Wi-Fi 2.4 GHz untuk perangkat Tuya dan Broadlink; PC dan semua perangkat ada di
   jaringan lokal yang sama.
 
@@ -114,6 +116,7 @@ barang yang lebih murah kalau ingin tetap di bawah Rp1 juta.
    ▼
  SpeechRouter: bagian Indonesia dan Jepang dipisah, masing-masing
    │           pakai suaranya sendiri (edge-tts / GPT-SoVITS)
+   │           (gagal → suara cadangan bawaan Windows, offline)
    ▼
  RVC (opsional): seluruh klip diubah ke suara つくよみちゃん oleh server Applio lokal
    │             (gagal → klip edge-tts aslinya yang diputar)
@@ -226,7 +229,7 @@ waifu check
 | `speaker` | verifikasi suara: `enabled`, `voiceprint_path`, `threshold`, `device` |
 | `stt` | model Whisper, `device`, `compute_type`, `languages` |
 | `brain` | `backend` (`ollama` atau `claude`), `max_tool_rounds`, lalu blok `ollama` dan `claude` |
-| `tts` | suara per bahasa (`id`, `ja`): edge-tts atau GPT-SoVITS; `rvc` untuk [suara anime](#suara-anime-つくよみちゃん) |
+| `tts` | suara per bahasa (`id`, `ja`): edge-tts atau GPT-SoVITS; `rvc` untuk [suara anime](#suara-anime-つくよみちゃん); `fallback` untuk [suara cadangan offline](#suara-cadangan-offline) |
 | `ir_codes_path` | file kode IR hasil belajar (default `data/ir_codes.json`) |
 | `devices` | daftar perangkat (lihat [Menyambungkan perangkat](#menyambungkan-perangkat)) |
 
@@ -633,11 +636,13 @@ waifu speaker-test    # skor kecocokan langsung, Ctrl+C untuk berhenti
 | `waifu chat --speak` | Ngobrol lewat teks, jawabannya juga diucapkan |
 | `waifu say "Halo Master, おかえりなさい!"` | Uji suara: bagian Indonesia lalu Jepang |
 | `waifu say --raw "Halo Master"` | Sama, tapi tanpa suara anime (RVC), untuk membandingkan |
+| `waifu say --fallback "Halo Master"` | Sama, tapi dengan suara cadangan offline (suara Windows) yang dipakai kalau edge-tts gagal (lihat [Suara cadangan offline](#suara-cadangan-offline)) |
 | `waifu devices` | Daftar perangkat dan perintah yang tersedia |
 | `waifu device <id> <perintah> [angka]` | Jalankan satu perintah, misalnya `waifu device ac temp 24` |
 | `waifu learn-ir <id> <perintah>` / `waifu learn-ir <id> --missing` | Pelajari tombol remote IR |
 | `waifu enroll` / `waifu speaker-test` | Daftarkan suara / cek skor kecocokan |
 | `waifu mics` | Daftar perangkat audio dan nomornya |
+| `waifu voices` | Daftar suara Windows per bahasa, dan suara cadangan offline yang dipakai tiap bahasa |
 | `waifu avatar` / `waifu avatar --demo` | Tampilkan avatar saja, tanpa mendengarkan; `--demo` mengganti ekspresi setiap 3 detik, dan reaksi elusan atau colekan dicetak di terminal (lihat [Avatar 3D](#avatar-3d-つくよみちゃん) dan [Avatar Live2D & interaksi](#avatar-live2d--interaksi)) |
 | `waifu memory list` / `add` / `forget` / `clear` | Lihat, tambah, dan hapus catatan ingatannya (lihat [Ingatan Cyrene](#ingatan-cyrene)) |
 | `waifu schedule list` / `cancel <id>` / `clear` | Lihat dan batalkan pengingat dan perintah terjadwal (lihat [Jadwal, pengingat, dan rutinitas](#jadwal-pengingat-dan-rutinitas)) |
@@ -651,7 +656,7 @@ waifu speaker-test    # skor kecocokan langsung, Ctrl+C untuk berhenti
 | `waifu youtube <link atau judul lagu>` | Buka video atau playlist YouTube itu, atau halaman pencarian YouTube untuk judulnya, di browser default (lihat [Lagu di YouTube](#lagu-di-youtube)) |
 | `waifu offers` / `offers games` / `offers ai` | Game gratis dan promo AI yang tersimpan, dengan linknya; `waifu offers ai --scan` mencari promo AI sekarang dengan Claude (berbayar) (lihat [Pencarian web dan promo gratis](#pencarian-web-dan-promo-gratis)) |
 | `waifu tepira` / `tepira dompet` / `tujuan [nama]` / `transaksi [-n N]` / `token` | Keuangan dari tepira: ringkasan bulan ini, saldo dompet, tujuan tabungan, dan transaksi terbaru; `token` membuat token API Cyrene baru tanpa internet (lihat [Keuangan dari tepira](#keuangan-dari-tepira)) |
-| `waifu check` | Periksa config, versi `waifu run` yang berjalan, kabar versi baru, kode IR, aplikasi PC, rutinitas, voiceprint, otak, ingatan, jadwal, daftar tugas, lagu YouTube, sapaan pagi, peringatan hujan, biaya API, kesehatan PC, pencarian web, promo gratis, paket suara, CUDA, mic, suara anime, avatar, keuangan tepira, dan Cyrene di HP |
+| `waifu check` | Periksa config, versi `waifu run` yang berjalan, kabar versi baru, kode IR, aplikasi PC, rutinitas, voiceprint, otak, ingatan, jadwal, daftar tugas, lagu YouTube, sapaan pagi, peringatan hujan, biaya API, kesehatan PC, pencarian web, promo gratis, paket suara, CUDA, mic, suara cadangan offline, suara anime, avatar, keuangan tepira, dan Cyrene di HP |
 
 Opsi untuk semua perintah: `--config <file>` (default `config.yaml`), `--dry-run`
 (perangkat simulasi), `-v` (log lebih rinci), `--log-file <file>` (log juga ditulis
@@ -1034,6 +1039,94 @@ Menyetel suara:
   setiap jawaban sekitar 2 detik lebih lambat. Nilai lain ditolak dengan pesan.
 - **Mematikan suara anime:** `tts.rvc.enabled: false`. Cyrene kembali ke suara
   edge-tts; Applio dan model tidak perlu dihapus.
+
+## Suara cadangan offline
+
+Kalau edge-tts gagal (tanpa internet, atau ditolak Microsoft seperti 403 pada 16 Oktober
+2026), Cyrene tidak diam lagi: bagian jawaban itu diucapkan oleh suara bawaan Windows, yang
+jalan offline di PC ini, lalu diubah ke suara つくよみちゃん kalau suara anime menyala. Teks
+jawabannya tetap tampil seperti biasa.
+
+- Suaranya dari fitur suara Windows sendiri (speech API Windows lewat Windows PowerShell
+  bawaan), jadi tidak ada program atau paket Python baru. Setiap bagian butuh sekitar
+  0,4 detik.
+- Bagian Indonesia memakai suara Indonesia Windows ("Microsoft Andika", laki-laki), bagian
+  Jepang suara Jepang (suara perempuan lebih dulu, misalnya Haruka). Bahasa yang belum punya
+  suara Windows tidak punya cadangan: bagian itu dilewati seperti dulu. Suara bahasa lain
+  tidak pernah dipilih sendiri, karena suara Inggris merusak ucapan Indonesia dan Jepang.
+- Setelah edge-tts gagal, bahasa itu memakai suara Windows selama 10 menit
+  (`tts.fallback.retry_s`) tanpa menunggu edge-tts gagal lagi di setiap jawaban (tiap
+  percobaan bisa makan sampai 10 detik), lalu edge-tts dicoba lagi. Log mencatat peringatannya
+  sekali per gangguan, dan sekali lagi saat edge-tts pulih.
+- **Seperti apa suaranya:** suara pembaca Windows, jelas tapi datar dan lebih kaku dari
+  edge-tts, dan Andika suara laki-laki. Dengan suara anime menyala, RVC mengubahnya ke suara
+  つくよみちゃん dengan nadanya sendiri (lihat Pengaturan), jadi tetap terdengar seperti
+  Cyrene, hanya kurang ekspresif. Tanpa suara anime, yang terdengar suara Windows-nya.
+
+### 1. Tambahkan suara Indonesia dan Jepang (sekali, gratis)
+
+Windows di PC ini baru punya suara Inggris (David, Zira, Mark), jadi suara cadangan belum
+bisa dipakai sampai suaranya ditambahkan:
+
+1. Buka **Settings → Time & language → Speech**.
+2. Di bagian **Manage voices**, klik **Add voices**.
+3. Centang **Indonesian (Indonesia)** dan **Japanese (Japan)**, lalu **Add**. Windows
+   mengunduhnya sendiri.
+4. Jalankan `waifu voices`: suara barunya muncul, misalnya
+   `id-ID: Microsoft Andika (laki-laki)`.
+5. Mulai ulang `waifu run` supaya dia memakai suara yang baru.
+
+Windows 11 Home Single Language mungkin tidak menawarkan bahasa lain di daftar itu. Kalau
+begitu, biarkan `tts.fallback.voices` kosong (bagian itu tetap diam saat edge-tts gagal,
+seperti dulu), atau isi sementara dengan suara Inggris, misalnya `id: Microsoft Zira`:
+dia tetap bicara, tapi dengan logat Inggris.
+
+### 2. Dengarkan
+
+```bat
+waifu voices
+waifu say --fallback "Halo Master, おかえりなさい! Lampu kamar sudah menyala."
+waifu say --fallback --raw "Halo Master"
+```
+
+`--fallback` hanya memakai suara cadangan, lewat suara anime kalau menyala; dengan `--raw`
+tanpa suara anime. `waifu check` menampilkan
+`✓ Suara cadangan bahasa Indonesia: Microsoft Andika (id-ID, laki-laki)` untuk setiap bahasa
+yang punya suara, atau `!` dengan bahasa yang belum punya suara dan tempat menambahkannya.
+
+### Pengaturan suara cadangan
+
+```yaml
+tts:
+  fallback:
+    enabled: true
+    voices:
+      id: ""         # kosong = suara Indonesia yang terpasang; atau nama dari 'waifu voices'
+      ja: ""         # kosong = suara Jepang yang terpasang, perempuan lebih dulu
+    retry_s: 600     # detik memakai suara Windows sebelum edge-tts dicoba lagi
+    rvc_pitch:
+      female: 11     # semitone untuk suara anime, per jenis suara Windows
+      male: 18
+```
+
+- `rvc_pitch`: berapa semitone RVC menaikkan suara Windows; edge-tts tetap memakai
+  `tts.rvc.pitch`. Korpus つくよみちゃん sekitar 351 Hz; suara perempuan Windows yang diukur
+  sekitar 188 Hz (+11), suara laki-laki 95–165 Hz (+13 sampai +22). Nada Andika belum
+  diukur: kalau `waifu say --fallback` terdengar terlalu berat, naikkan `male`; terlalu
+  cempreng, turunkan, 1–2 sekaligus.
+- `enabled: false` mematikan suara cadangan: kalau edge-tts gagal, dia diam lagi seperti
+  dulu (teksnya tetap tampil).
+
+### Pemecahan masalah suara cadangan
+
+- **`! Suara cadangan bahasa ...: belum ada suara Windows ...`.** Tambahkan suaranya
+  (langkah 1), lalu mulai ulang `waifu run`.
+- **`! Suara cadangan bahasa ...: '...' (tts.fallback.voices...) tidak terpasang`.** Nama di
+  `tts.fallback.voices` tidak ada di `waifu voices`; salin namanya dari sana, atau kosongkan.
+- **`! Suara Windows tidak terbaca (...)`.** PowerShell tidak bisa membaca daftar suara;
+  alasannya ada di dalam kurung. Kebijakan Windows yang mengunci PowerShell (biasanya hanya di
+  PC kantor) bisa menyebabkannya.
+- Suara "natural" Narrator tidak bisa dipakai: Windows tidak membukanya untuk aplikasi lain.
 
 ## Avatar 3D (つくよみちゃん)
 
@@ -3592,8 +3685,8 @@ Kalau foto sering terlalu besar, kecilkan `vision.max_side`.
 
 **Jawaban hanya teks, tanpa suara.** Ketuk layar sekali setelah halaman dibuka (aturan
 autoplay Chrome), dan pastikan volume media HP tidak 0. Kalau suaranya gagal dibuat di PC
-(misalnya edge-tts tanpa internet), jawaban tetap tampil sebagai teks dan log PC menyebut
-`Could not synthesise the phone reply`.
+(misalnya edge-tts tanpa internet dan belum ada [suara cadangan](#suara-cadangan-offline)),
+jawaban tetap tampil sebagai teks dan log PC menyebut `Could not synthesise the phone reply`.
 
 **`tailscale serve` gagal atau ditolak.** Pastikan HTTPS Certificates sudah dinyalakan di
 admin console (langkah 1). Kalau ditolak karena hak akses, jalankan Command Prompt sebagai
@@ -4170,15 +4263,18 @@ tersambung Wi-Fi, atau IP-nya berubah.
 `learn-ir`, pastikan Broadlink tidak terkunci, dan pastikan blaster menghadap
 perangkatnya. Uji satu kode dengan `waifu device ac on`.
 
-**Tidak ada suara.** edge-tts butuh internet. Uji dengan
-`waifu say "Halo Master"`; pilih speaker lewat `audio.output_device`. Cek juga volume Windows
+**Tidak ada suara.** edge-tts butuh internet; tanpa internet dia bicara dengan
+[suara cadangan Windows](#suara-cadangan-offline) kalau suara bahasanya sudah ditambahkan
+(`waifu check` menyebutnya). Uji dengan `waifu say "Halo Master"` dan
+`waifu say --fallback "Halo Master"`; pilih speaker lewat `audio.output_device`. Cek juga volume Windows
 tidak 0 atau dibisukan, misalnya oleh rutinitas dengan `volume 0` atau `mute` (lihat
 [Musik, volume, dan aplikasi PC](#musik-volume-dan-aplikasi-pc)). Kalau log `waifu run`
 menulis "Microsoft menolak suara ... (403)", biasanya Microsoft mengganti kunci layanan
 suaranya dan edge-tts di PC ini sudah usang: jalankan
 `.venv\Scripts\python -m pip install -U edge-tts`, lalu mulai ulang `waifu run`. Kalau pip
 bilang edge-tts sudah yang terbaru dan suaranya masih ditolak, tunggu rilis edge-tts
-berikutnya (biasanya beberapa hari) lalu ulangi; selama itu jawaban tetap tampil sebagai teks.
+berikutnya (biasanya beberapa hari) lalu ulangi; selama itu dia bicara dengan suara cadangan
+Windows, atau jawabannya hanya tampil sebagai teks kalau suara itu belum ditambahkan.
 
 ## Checklist uji perangkat keras
 
@@ -4260,6 +4356,19 @@ mendengarkan"; jawaban pertama bisa lebih lama karena model Ollama baru dimuat)
       bicara dengan suara biasa dan menampilkan "Suara anime tidak tersedia".
 - [ ] Setelah `waifu run` bilang siap, menutup jendelanya juga mematikan server RVC:
       `netstat -ano | findstr :9881` tidak menampilkan apa-apa lagi.
+
+**Opsional: suara cadangan offline**
+
+- [ ] Setelah suara Indonesia (dan Jepang) ditambahkan di Settings, `waifu voices`
+      menampilkannya dan `waifu check` menampilkan
+      `✓ Suara cadangan bahasa Indonesia: Microsoft Andika (id-ID, laki-laki)`.
+- [ ] `waifu say --fallback "Halo Master, おかえりなさい!"` terdengar dengan suara Windows
+      (lewat suara anime kalau menyala) dan nadanya pas; kalau tidak, atur
+      `tts.fallback.rvc_pitch` lalu ulangi.
+- [ ] Cabut kabel jaringan (atau matikan Wi-Fi) saat `waifu run` berjalan: dia tetap menjawab
+      dengan suara, dan log mencatat sekali `The id voice failed; trying its offline
+      fallback ...`. Sambungkan lagi: paling lama 10 menit kemudian dia kembali ke edge-tts
+      dan log mencatat `The id voice works again`.
 
 **Opsional: avatar 3D**
 
@@ -4647,8 +4756,8 @@ di sampingnya)
     pesan dari HP selama jendela kamera terbuka (tidak pernah disimpan ke disk; lihat
     [Kamera HP](#kamera-hp)). Dengan Ollama, semuanya lokal;
   - dengan engine `edge` di `tts`, teks jawaban Cyrene dikirim ke layanan edge-tts
-    Microsoft untuk dijadikan suara. GPT-SoVITS, suara anime (RVC), dan avatar (VRM
-    atau Live2D, termasuk elusan dan colekannya) berjalan lokal (halaman avatar hanya
+    Microsoft untuk dijadikan suara. GPT-SoVITS, suara cadangan Windows, suara anime (RVC),
+    dan avatar (VRM atau Live2D, termasuk elusan dan colekannya) berjalan lokal (halaman avatar hanya
     bisa dibuka dari PC ini);
   - dengan teman main gacha, permintaan data game ke HoYoLAB dan ke server riwayat
     HoYoverse (dengan cookie dan authkey milikmu), hasilnya ke API Anthropic kalau otaknya

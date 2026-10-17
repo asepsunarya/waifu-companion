@@ -506,14 +506,14 @@ her words are never on a command line. After a failure that language uses the Wi
 for 10 minutes before edge-tts is tried again, like the RVC pause. The fallback still goes
 through RVC, with its own pitch per voice gender (a male Andika and a female Japanese voice
 need different shifts), so the RVC client takes a pitch per request.
-- [ ] Task 130a: contract: SPEC, tasks, `tts.fallback` config
-- [ ] Task 130: the PowerShell boundary (`windows_voices.py` + `.ps1`) and `WindowsTts`
-- [ ] Task 131: the router's fallback with its pause and logging; RVC pitch per piece
-- [ ] Task 132: wiring, `waifu say --fallback`, `waifu voices`, check line, example config
-- [ ] Task 133: README, CHANGELOG
+- [x] Task 130a: contract: SPEC, tasks, `tts.fallback` config
+- [x] Task 130: the PowerShell boundary (`windows_voices.py` + `.ps1`) and `WindowsTts`
+- [x] Task 131: the router's fallback with its pause and logging; RVC pitch per piece
+- [x] Task 132: wiring, `waifu say --fallback`, `waifu voices`, check line, example config
+- [x] Task 133: README, CHANGELOG
 
 ### Checkpoint: Suara cadangan offline
-- [ ] Python suite and ruff clean; no test started PowerShell or played audio; one real synthesis with an installed voice to a scratch WAV by hand
+- [x] Python suite and ruff clean; no test started PowerShell or played audio; one real synthesis with an installed voice to a scratch WAV by hand (2026-10-17: 7614 pytest)
 - [ ] On the owner's PC: after adding the Indonesian (and Japanese) voice in Settings, `waifu check` names them; with the network cable out she still answers aloud through the anime voice, and `waifu say --fallback` sounds right (tune `tts.fallback.rvc_pitch`)
 
 ## Risks and Mitigations
