@@ -412,7 +412,12 @@ def test_a_push_that_fails_is_logged_and_the_line_still_said(caplog):
 def test_without_a_voice_or_a_notifier_it_still_keeps_count():
     rig = Rig()
     rig.watcher = BreakWatcher(
-        rig.read, BreaksConfig(enabled=True), announce=None, notifier=None, owner_call="sayang"
+        rig.read,
+        BreaksConfig(enabled=True),
+        announce=None,
+        notifier=None,
+        owner_call="sayang",
+        now=rig.now,
     )
 
     assert rig.at_the_keyboard(0, 60) == [ONE_HOUR]
