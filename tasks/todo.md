@@ -1967,11 +1967,11 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 206a · **Files:** `src/waifu/japanese.py`, `src/waifu/japanese_words.json`, `pyproject.toml`, `tests/test_japanese.py` · **Scope:** M
 
-## Task 207: The word of the day and the Leitner rules
+## Task 207: The word of the day and the Leitner rules ✅
 
 **Acceptance criteria:**
-- [ ] `word_of_the_day` is the same all day, differs the next day, and goes through every word before one repeats
-- [ ] `review` moves a right answer up a box (5 stays 5) and a wrong one to box 1, due after 1, 2, 4, 8, or 16 days; `next_quiz` picks the due word with the lowest box, then the earliest due
+- [x] `word_of_the_day` is the same all day, differs the next day, and goes through every word before one repeats
+- [x] `review` moves a right answer up a box (5 stays 5) and a wrong one to box 1, due after 1, 2, 4, 8, or 16 days; `next_quiz` picks the due word with the lowest box, then the earliest due
 
 **Dependencies:** 206 · **Files:** `src/waifu/japanese.py`, `tests/test_japanese.py` · **Scope:** S
 

@@ -816,7 +816,7 @@ existing test stay as they are; no new dependency; 18 of 20 strict tools and 17 
 parameters stay.
 - [x] Task 206a: contract: SPEC, tasks
 - [x] Task 206: the word list and `load_words`, validated
-- [ ] Task 207: `word_of_the_day`, `review`, `next_quiz`
+- [x] Task 207: `word_of_the_day`, `review`, `next_quiz`
 - [ ] Task 208: `JapaneseStore`
 - [ ] Task 209: `JapaneseTools` (`japanese_lesson`) and the persona section
 - [ ] Task 210: the briefing's `word_of_the_day` and `BRIEFING_PROMPT`

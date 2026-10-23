@@ -1,4 +1,4 @@
-"""Belajar bahasa Jepang: the built-in word list.
+"""Belajar bahasa Jepang: the built-in word list, the word of the day, and the Leitner rules.
 
 The words ship in the package (`japanese_words.json`, next to this module, not under a folder
 named `data`, which `.gitignore` ignores anywhere): 300 common words and phrases at JLPT N5
@@ -6,12 +6,20 @@ level, each with its reading in kana, its usual written form with kanji when it 
 Indonesian meaning, and one short example sentence with its meaning. There is no romaji: her
 voice reads Japanese from kana and kanji, and a test checks that every Japanese field reaches
 the Japanese voice whole.
+
+The word of the day keeps no state: the words in a fixed shuffle (the SHA-256 of their ids),
+one per day from `EPOCH`, so every word comes once before any comes again. Master's words move
+through Leitner boxes 1 to `MASTERED_BOX`: a right answer moves a word up a box and waits twice
+as long before asking it again, a wrong one sends it back to box 1 for tomorrow.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from datetime import date, timedelta
 from pathlib import Path
 
 WORDS_FILE = Path(__file__).with_name("japanese_words.json")
@@ -19,6 +27,9 @@ WORDS_VERSION = 1
 _LIST_KEYS = {"version", "words"}
 _WORD_KEYS = {"id", "kana", "kanji", "meaning", "example", "example_meaning"}
 _TEXT_KEYS = ("id", "kana", "meaning", "example", "example_meaning")
+# The first day of the word-of-the-day walk; any fixed day would do.
+EPOCH = date(2026, 1, 1)
+MASTERED_BOX = 5
 
 
 @dataclass(frozen=True)
@@ -29,6 +40,16 @@ class Word:
     meaning: str  # Indonesian
     example: str  # one short sentence in kana and kanji
     example_meaning: str  # Indonesian
+
+
+@dataclass(frozen=True)
+class WordProgress:
+    """Where one of Master's words stands: its Leitner box, the day it is asked again from, and
+    the day she introduced it."""
+
+    box: int  # 1 to MASTERED_BOX
+    due: date
+    learned: date
 
 
 def load_words(path: Path = WORDS_FILE) -> tuple[Word, ...]:
@@ -71,3 +92,23 @@ def _parse(raw: object) -> tuple[Word, ...]:
             )
         )
     return tuple(words)
+
+
+def word_of_the_day(words: Sequence[Word], day: date) -> Word:
+    """The word for `day`: the same all day, and none again before every word has come."""
+    shuffled = sorted(words, key=lambda word: hashlib.sha256(word.id.encode("utf-8")).hexdigest())
+    return shuffled[(day - EPOCH).days % len(shuffled)]
+
+
+def review(progress: WordProgress, correct: bool, today: date) -> WordProgress:
+    """`progress` after Master answered on `today`: right moves it up a box (the last box
+    stays), wrong back to box 1; it is due again after 1, 2, 4, 8, or 16 days by its box."""
+    box = min(progress.box + 1, MASTERED_BOX) if correct else 1
+    return WordProgress(box, today + timedelta(days=2 ** (box - 1)), progress.learned)
+
+
+def next_quiz(progress: Mapping[str, WordProgress], today: date) -> str | None:
+    """The id of the word to ask on `today`: of the due ones, the lowest box, then the one due
+    longest, then the id; None when none is due."""
+    due = [(word.box, word.due, word_id) for word_id, word in progress.items() if word.due <= today]
+    return min(due)[2] if due else None
