@@ -382,6 +382,66 @@ def test_without_a_todo_list_the_briefing_has_no_tasks(tmp_path):
     }
 
 
+class GuestSwitch:
+    """Stands in for guest mode's `is_on`, switched by the test."""
+
+    def __init__(self, on: bool) -> None:
+        self.on = on
+
+    def __call__(self) -> bool:
+        return self.on
+
+
+def test_in_guest_mode_the_briefing_leaves_out_the_tasks_and_the_reminder_texts(tmp_path):
+    store = make_store(tmp_path)
+    store.add(datetime(2026, 10, 13, 15, 0), "none", MEDICINE)
+    store.add(datetime(2026, 10, 13, 22, 0), "none", DeviceAction("ac", "temp", 26))
+    store.add(datetime(2026, 10, 13, 23, 0), "none", RoutineAction("tidur"))
+    todo = FakeTodo([LAPORAN, SUSU])
+    tools = BriefingTools(
+        weather=FakeWeather(),
+        schedule=store,
+        todo=todo,
+        now=Clock(),
+        guest_mode=GuestSwitch(on=True),
+    )
+
+    briefing, is_error = brief(tools)
+
+    assert briefing == {
+        "date": "Selasa, 13-10-2026",
+        "weather": BANDUNG_JSON,
+        "weather_problem": None,
+        "schedule_today": [
+            {"time": "22:00", "what": "ac temp 26"},
+            {"time": "23:00", "what": "rutinitas tidur"},
+        ],
+        "schedule_problem": None,
+    }
+    assert is_error is False
+    assert todo.days_asked == []  # the list is not even read
+
+
+def test_once_guest_mode_is_off_the_briefing_is_whole_again(tmp_path):
+    store = make_store(tmp_path)
+    store.add(datetime(2026, 10, 13, 15, 0), "none", MEDICINE)
+    guest = GuestSwitch(on=True)
+    tools = BriefingTools(
+        weather=FakeWeather(),
+        schedule=store,
+        todo=FakeTodo([SUSU]),
+        now=Clock(),
+        guest_mode=guest,
+    )
+    brief(tools)
+
+    guest.on = False
+    briefing, _ = brief(tools)
+
+    assert briefing["schedule_today"] == [{"time": "15:00", "what": MEDICINE.text}]
+    assert briefing["tasks"]["due_today"] == [{"id": "t2", "text": "beli susu"}]
+
+
 def test_a_todo_list_that_cannot_be_read_is_told_as_the_tasks_problem(tmp_path, caplog):
     store = make_store(tmp_path)
     store.add(datetime(2026, 10, 13, 15, 0), "none", MEDICINE)

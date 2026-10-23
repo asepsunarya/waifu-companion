@@ -1811,10 +1811,10 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 187 · **Files:** `src/waifu/brain/guest_tools.py`, `tests/test_guest_tools.py` · **Scope:** S
 
-## Task 191: The briefing in guest mode
+## Task 191: The briefing in guest mode ✅
 
 **Acceptance criteria:**
-- [ ] While guest mode is on `daily_briefing` has no tasks and no reminder entries, and keeps the weather and the device and routine entries; off, as before
+- [x] While guest mode is on `daily_briefing` has no tasks and no reminder entries, and keeps the weather and the device and routine entries; off, as before
 
 **Dependencies:** 187 · **Files:** `src/waifu/briefing.py`, `tests/test_briefing.py` · **Scope:** S
 

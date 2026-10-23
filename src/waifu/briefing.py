@@ -5,7 +5,8 @@ schedule entries, and, when the to-do list is on, the tasks due today and overdu
 ("cuaca hari ini gimana?", "hari ini ada jadwal apa?"). A weather, schedule, or to-do failure
 fills its problem field instead of failing the tool, so she can still tell the rest. The spec
 carries no data, so it stays byte-identical for the brain's lifetime and keeps the prompt
-cache warm.
+cache warm. In guest mode it leaves out the tasks and the reminder entries (their text is
+Master's), keeping the weather and the device and routine entries.
 
 `BriefingTimer` asks for her greeting once a day, the first time `waifu run` is on between
 `briefing.time` and `briefing.until`: a `PromptTimer` that hands `BRIEFING_PROMPT` to
@@ -66,12 +67,16 @@ class BriefingTools:
         schedule: ScheduleStore | None,
         todo: TodoStore | None = None,
         now: Callable[[], datetime] = datetime.now,
+        guest_mode: Callable[[], bool] | None = None,
     ) -> None:
-        """Without `todo` (the to-do list is off) the result has no `tasks` field."""
+        """Without `todo` (the to-do list is off) the result has no `tasks` field, nor while
+        `guest_mode` (guest mode's `is_on`) says guests are around, when the reminders are
+        left out of the schedule too."""
         self._weather = weather
         self._schedule = schedule
         self._todo = todo
         self._now = now
+        self._guest_mode = guest_mode
 
     def specs(self) -> list[ToolSpec]:
         return [
@@ -109,8 +114,9 @@ class BriefingTools:
         if not isinstance(arguments, Mapping) or arguments:
             raise _InvalidArguments("tool ini tidak menerima argumen; kirim objek kosong {}.")
         now = self._now()
+        guests = self._guest_mode is not None and self._guest_mode()
         weather, weather_problem = self._weather_today()
-        schedule_today, schedule_problem = self._schedule_today(now.date())
+        schedule_today, schedule_problem = self._schedule_today(now.date(), reminders=not guests)
         briefing = {
             "date": f"{WEEKDAYS_ID[now.weekday()]}, {now:%d-%m-%Y}",
             "weather": weather,
@@ -118,7 +124,7 @@ class BriefingTools:
             "schedule_today": schedule_today,
             "schedule_problem": schedule_problem,
         }
-        if self._todo is not None:
+        if self._todo is not None and not guests:
             briefing["tasks"], briefing["tasks_problem"] = _tasks_today(self._todo, now.date())
         return _to_json(briefing), False
 
@@ -135,8 +141,11 @@ class BriefingTools:
             logger.exception("The weather for the briefing failed")
             return None, _WEATHER_FAILED
 
-    def _schedule_today(self, today: date) -> tuple[list[dict[str, str]], str | None]:
-        """(today's entries, soonest first, None), or ([], why they could not be read)."""
+    def _schedule_today(
+        self, today: date, *, reminders: bool
+    ) -> tuple[list[dict[str, str]], str | None]:
+        """(today's entries, soonest first, None), or ([], why they could not be read); the
+        reminders only with `reminders`."""
         if self._schedule is None:
             return [], None
         try:
@@ -144,7 +153,11 @@ class BriefingTools:
         except Exception:
             logger.exception("Could not read the schedule for the briefing")
             return [], _SCHEDULE_FAILED
-        return [_entry_json(entry) for entry in entries if entry.at.date() == today], None
+        return [
+            _entry_json(entry)
+            for entry in entries
+            if entry.at.date() == today and (reminders or not isinstance(entry.action, Reminder))
+        ], None
 
 
 class BriefingTimer(PromptTimer):
