@@ -9672,7 +9672,16 @@ class FakePhoneServer:
     started and stopped serving."""
 
     def __init__(
-        self, config, avatar, auth, backend, *, owner_call, assistant_name, camera_max_side=None
+        self,
+        config,
+        avatar,
+        auth,
+        backend,
+        *,
+        owner_call,
+        assistant_name,
+        camera_max_side=None,
+        actions=None,
     ) -> None:
         self.config = config
         self.avatar = avatar
@@ -9681,6 +9690,7 @@ class FakePhoneServer:
         self.owner_call = owner_call
         self.assistant_name = assistant_name
         self.camera_max_side = camera_max_side
+        self.actions = actions
         self.url = f"http://127.0.0.1:{config.port}/"
         self.listening: list[bool] = []
 
@@ -9732,6 +9742,42 @@ def test_run_hands_the_phone_s_messages_and_recordings_to_her(home, run_fakes, p
     assert assistant.phone_recordings == [b"RIFF....WAVE"]
     assert assistant.phone_messages == ["nyalakan lampu kamar"]
     assert reply.text == REPLY
+
+
+ROUTINE_TIDUR = (
+    "routines:\n  tidur:\n    description: Mode tidur\n"
+    "    steps: [{device: lampu_kamar, command: off}]\n"
+)
+
+
+def quick_buttons(server: FakePhoneServer) -> dict[str, list[str]]:
+    return {
+        group.name: [action.id for action in group.actions] for group in server.actions.groups()
+    }
+
+
+def test_run_gives_the_phone_quick_buttons_on_the_run_s_own_devices(home, run_fakes, phone_servers):
+    append_config(home, PHONE_ON + ROUTINE_TIDUR)
+    assert cli.main(["run", "--no-speaker-check", "--dry-run"]) == 0
+    [server] = phone_servers
+
+    buttons = quick_buttons(server)
+    result = server.actions.run(server.actions.find("dev.lampu_kamar.on"))
+
+    assert list(buttons) == ["Lampu kamar", "AC Samsung", "Proyektor Wanbo Dali", "Rutinitas"]
+    assert "dev.ac.temp_24" in buttons["AC Samsung"]
+    assert buttons["Rutinitas"] == ["rt.tidur"]
+    assert result.message == "Lampu kamar: perintah 'on' berhasil (simulasi)."
+
+
+def test_run_shows_the_quick_buttons_phone_quick_actions_picks(home, run_fakes, phone_servers):
+    picked = "  quick_actions:\n    devices: [ac]\n    routines: []\n"
+    append_config(home, PHONE_ON + picked + ROUTINE_TIDUR)
+
+    assert cli.main(["run", "--no-speaker-check", "--dry-run"]) == 0
+
+    [server] = phone_servers
+    assert list(quick_buttons(server)) == ["AC Samsung"]
 
 
 def test_run_says_the_phone_cannot_reach_her_until_phone_host_is_set(

@@ -178,6 +178,7 @@ from waifu.offers.values import AiOffer, GameGiveaway
 from waifu.offers.watcher import OffersWatcher, ReadGames, ScanAiOffers
 from waifu.pc_health import CpuLoad, Drive, GpuStatus, PcSnapshot, gpu_status, read_snapshot
 from waifu.pc_watch import PcWatcher
+from waifu.phone.actions import QuickActions
 from waifu.phone.auth import CODE_LIFETIME, MAX_TRIES, PhoneAuth
 from waifu.phone.server import LOOPBACK, PhoneError, PhoneServer
 from waifu.play_time import (
@@ -1364,7 +1365,17 @@ def _listen(args: argparse.Namespace) -> int:
                         _weekly_report_timer(config, gacha, assistant, notifier),
                         _journal_timer(config, assistant),
                         _budget_told(usage, _budget_teller(config, assistant, notifier, game_mode)),
-                        _phone_server(config, assistant, camera=camera_offered),
+                        _phone_server(
+                            config,
+                            assistant,
+                            camera=camera_offered,
+                            actions=QuickActions(
+                                registry,
+                                config.routines,
+                                schedule=schedule,
+                                chosen=config.phone.quick_actions,
+                            ),
+                        ),
                     ):
                         assistant.run(mic, segmenter)
                 except SttError as exc:
@@ -4045,13 +4056,15 @@ def _camera_offered(config: AppConfig) -> bool:
 
 
 @contextmanager
-def _phone_server(config: AppConfig, assistant: Assistant, *, camera: bool) -> Iterator[None]:
+def _phone_server(
+    config: AppConfig, assistant: Assistant, *, camera: bool, actions: QuickActions
+) -> Iterator[None]:
     """Serve her to the paired phone for the block, when `phone.enabled`.
 
     The server listens on 127.0.0.1 only; `tailscale serve` shares it with the owner's tailnet.
     With `camera`, a message may carry a photo whose longer side is at most `vision.max_side`;
-    otherwise the server refuses photos. One that cannot start (its port is taken) only costs
-    the phone, never her voice.
+    otherwise the server refuses photos. `actions` are the page's quick buttons, on the run's
+    own devices. One that cannot start (its port is taken) only costs the phone, never her voice.
     """
     phone = config.phone
     if not phone.enabled:
@@ -4067,6 +4080,7 @@ def _phone_server(config: AppConfig, assistant: Assistant, *, camera: bool) -> I
             owner_call=config.assistant.owner_call,
             assistant_name=name,
             camera_max_side=config.vision.max_side if camera else None,
+            actions=actions,
         )
     except PhoneError as exc:
         logger.warning("Phone server unavailable, going on without it: %s", exc)

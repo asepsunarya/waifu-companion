@@ -1731,10 +1731,10 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 180 · **Files:** `src/waifu/phone/server.py`, `src/waifu/avatar/server.py`, `tests/test_phone_server.py` · **Scope:** M
 
-## Task 182: Wiring in `run`
+## Task 182: Wiring in `run` ✅
 
 **Acceptance criteria:**
-- [ ] `run` with the phone on hands the phone server `QuickActions` over the run's registry (the dry run's mocks), routines, schedule, and `phone.quick_actions`
+- [x] `run` with the phone on hands the phone server `QuickActions` over the run's registry (the dry run's mocks), routines, schedule, and `phone.quick_actions`
 
 **Dependencies:** 181 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** S
 
