@@ -155,6 +155,11 @@ def test_committed_personas_quiz_japanese_one_word_at_a_time_only_when_asked(per
     assert "dengan kana" in lesson
     assert "tunggu jawaban Master" in lesson
     assert "action grade" in lesson
+    # Master hears only the kana: はな is also 鼻, so "hidung" may be right too.
+    assert (
+        "kalau kata itu punya homofon yang umum dan jawaban Master cocok dengan homofon itu, "
+        "anggap benar atau beri petunjuk lalu tanya lagi"
+    ) in lesson
     assert "puji dengan hangat" in lesson
     assert "sebutkan artinya dengan lembut" in lesson
     assert "action progress" in lesson

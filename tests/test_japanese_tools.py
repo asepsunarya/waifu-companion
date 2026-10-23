@@ -98,6 +98,9 @@ def test_the_description_says_how_to_teach_and_how_to_say_it(rig):
         "`next_due_in_days`",
         "which you judge yourself from Master's answer against the meaning",
         "a synonym or a close meaning counts as right",
+        # Master hears only the kana: はな is also 鼻, so "hidung" may be right too.
+        "the meaning of a common word that sounds the same",
+        "count it as right or give a hint and ask again",
         "`mastered`",
         "one word at a time",
         "say the word in kana and ask what it means",
