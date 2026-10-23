@@ -1866,10 +1866,10 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 196a · **Files:** `src/waifu/voice/volume.py`, `tests/test_voice_volume.py` · **Scope:** S
 
-## Task 197: The `voice` config
+## Task 197: The `voice` config ✅
 
 **Acceptance criteria:**
-- [ ] `voice.state_path` and `voice.night` (`from` 22:00, `until` 06:00, `level` 50, 10-100), bare YAML times read; a time zone, `from` equal to `until`, `from_`, and unknown keys refused naming the setting; `config.example.yaml` documents it and its block is valid once written out
+- [x] `voice.state_path` and `voice.night` (`from` 22:00, `until` 06:00, `level` 50, 10-100), bare YAML times read; a time zone, `from` equal to `until`, `from_`, and unknown keys refused naming the setting; `config.example.yaml` documents it and its block is valid once written out
 
 **Dependencies:** 196a · **Files:** `src/waifu/config.py`, `config.example.yaml`, `tests/test_config.py` · **Scope:** S
 

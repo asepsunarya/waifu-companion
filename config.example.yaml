@@ -485,6 +485,21 @@ schedule:
 # guest_mode:
 #   max_hours: 6           # mode tamu berakhir sendiri setelah N jam (1-24), paling lambat jam 05:00
 
+# Volume suaraku (README, bagian "Volume suaraku"): "Cyrene, kecilkan suaramu", "keraskan
+# suaramu", atau "suaramu 60 persen" mengubah volume suaranya sendiri di PC (10-150 persen) tanpa
+# mengubah volume Windows, musik, atau game; "kecilkan volume" tetap tombol volume Windows lewat
+# perangkat media. "Nyalakan mode bisik" membuat suaranya paling keras night.level persen setiap
+# malam dari night.from sampai night.until, sampai "matikan mode bisik". Volume dan mode bisik
+# disimpan di PC ini (state_path), jadi tetap sesudah restart. Balasan di HP tidak terpengaruh.
+# Selalu tersedia; untuk mengubah jam atau volume mode bisik, tulis bagian ini tanpa tanda # di
+# depannya.
+# voice:
+#   state_path: data/voice.json  # volume dan mode bisik terakhir, hanya di PC ini
+#   night:
+#     from: "22:00"        # mode bisik mulai jam ini setiap malam
+#     until: "06:00"       # sampai jam ini (boleh melewati tengah malam)
+#     level: 50            # selama mode bisik suaranya paling keras N persen (10-100)
+
 # Jurnal harian (README, bagian "Jurnal harian"): "Cyrene, catat di jurnal: hari ini laporannya
 # selesai" menyimpan catatan hari itu dengan kata-kata Master sendiri, dan "kemarin aku nulis apa
 # di jurnal?" dia rangkum singkat. Hanya kalau Master minta: tidak pernah di sapaan pagi, laporan

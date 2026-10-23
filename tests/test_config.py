@@ -16,6 +16,7 @@ from waifu.config import (
     RainAlertConfig,
     TepiraConfig,
     VersionNoticeConfig,
+    VoiceVolumeConfig,
     WeeklyReportConfig,
     load_config,
 )
@@ -1215,6 +1216,66 @@ def test_the_example_guest_mode_block_written_out_holds_the_defaults(tmp_path):
     written_out = "\n".join(line.removeprefix("# ") for line in commented.splitlines())
 
     assert load_config(write_yaml(tmp_path, written_out)).guest_mode == GuestModeConfig()
+
+
+def test_her_voice_whispers_from_ten_at_night_until_six_at_fifty_percent_by_default():
+    voice = AppConfig().voice
+    assert voice.state_path == Path("data/voice.json")
+    assert (voice.night.from_, voice.night.until, voice.night.level) == (time(22), time(6), 50)
+
+
+def test_voice_settings_load_from_yaml_including_bare_yaml_times(tmp_path):
+    text = (
+        "voice:\n  state_path: data/suara.json\n  night:\n    from: 21:30\n"
+        "    until: '05:00'\n    level: 30\n"
+    )
+
+    voice = load_config(write_yaml(tmp_path, text)).voice
+
+    assert voice.state_path == Path("data/suara.json")
+    assert (voice.night.from_, voice.night.until, voice.night.level) == (
+        time(21, 30),
+        time(5, 0),
+        30,
+    )
+
+
+def test_the_whisper_window_may_lie_within_one_day(tmp_path):
+    text = "voice:\n  night:\n    from: '13:00'\n    until: '15:00'\n"
+
+    night = load_config(write_yaml(tmp_path, text)).voice.night
+
+    assert (night.from_, night.until) == (time(13), time(15))
+
+
+WINDOW_EMPTY = "voice.night.from must differ from voice.night.until"
+
+
+@pytest.mark.parametrize(
+    ("lines", "named"),
+    [
+        ("  night:\n    level: 9\n", "voice.night.level"),
+        ("  night:\n    level: 101\n", "voice.night.level"),  # whisper mode only softens
+        ("  night:\n    from: '06:00'\n", WINDOW_EMPTY),  # the default until
+        ("  night:\n    from: '23:00'\n    until: '23:00'\n", WINDOW_EMPTY),
+        ("  night:\n    from: 24:00\n", "voice.night.from"),  # 1440: read as UTC seconds
+        ("  night:\n    until: 2330\n", "voice.night.until"),
+        ("  night:\n    from_: '21:00'\n", "voice.night.from_"),  # only the key from
+        ("  night:\n    enabled: true\n", "voice.night.enabled"),  # switched by voice
+        ("  level: 80\n", "voice.level"),  # the level is the state file's
+    ],
+)
+def test_bad_voice_settings_are_refused_naming_the_setting(tmp_path, lines, named):
+    with pytest.raises(ConfigError, match=re.escape(named)):
+        load_config(write_yaml(tmp_path, "voice:\n" + lines))
+
+
+def test_the_example_voice_block_written_out_holds_the_defaults(tmp_path):
+    example = (ROOT / "config.example.yaml").read_text(encoding="utf-8")
+    commented = example[example.index("\n# voice:\n") + 1 :].split("\n\n", 1)[0]
+    written_out = "\n".join(line.removeprefix("# ") for line in commented.splitlines())
+
+    assert load_config(write_yaml(tmp_path, written_out)).voice == VoiceVolumeConfig()
 
 
 def test_the_journal_is_on_without_the_nightly_question_by_default():

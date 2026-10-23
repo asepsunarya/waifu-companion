@@ -899,6 +899,44 @@ class GuestModeConfig(_Strict):
     max_hours: int = Field(default=6, ge=1, le=24)
 
 
+class VoiceNightConfig(_Strict):
+    """Whisper mode's window and level: while Master has it on, her voice is at most `level`
+    percent every night from `from` until `until` (across midnight when `until` comes first)."""
+
+    # `from` is a Python keyword: the file's key is the alias, the only name it accepts.
+    from_: _Clock = Field(default=_Clock(22, 0), alias="from")
+    until: _Clock = _Clock(6, 0)
+    level: int = Field(default=50, ge=10, le=100)
+
+    @field_validator("from_", "until", mode="before")
+    @classmethod
+    def _yaml_sexagesimal_is_hh_mm(cls, value: object) -> object:
+        return _clock_from_yaml(value)
+
+    @field_validator("from_", "until")
+    @classmethod
+    def _a_clock_time(cls, value: _Clock) -> _Clock:
+        # Pydantic reads 1440 or more (24:00, 2330) as seconds in UTC, an aware time.
+        if value.tzinfo is not None:
+            raise ValueError("must be a clock time HH:MM without a time zone")
+        return value
+
+    @model_validator(mode="after")
+    def _a_window_that_is_not_empty(self) -> VoiceNightConfig:
+        if self.from_ == self.until:
+            raise ValueError("voice.night.from must differ from voice.night.until")
+        return self
+
+
+class VoiceVolumeConfig(_Strict):
+    """Her own voice volume on the PC. The level and whether whisper mode is on are set by
+    voice and kept in `state_path`; the config holds whisper mode's window. (`VoiceConfig` is
+    a TTS voice.)"""
+
+    state_path: Path = Path("data/voice.json")
+    night: VoiceNightConfig = Field(default_factory=VoiceNightConfig)
+
+
 class JournalConfig(_Strict):
     """Master's daily journal, and her optional question about the day once a night."""
 
@@ -1113,6 +1151,7 @@ class AppConfig(_Strict):
     focus: FocusConfig = Field(default_factory=FocusConfig)
     game_mode: GameModeConfig = Field(default_factory=GameModeConfig)
     guest_mode: GuestModeConfig = Field(default_factory=GuestModeConfig)
+    voice: VoiceVolumeConfig = Field(default_factory=VoiceVolumeConfig)
     journal: JournalConfig = Field(default_factory=JournalConfig)
     web_search: WebSearchConfig = Field(default_factory=WebSearchConfig)
     free_offers: FreeOffersConfig = Field(default_factory=FreeOffersConfig)
