@@ -21,9 +21,11 @@ from waifu.finance.values import WIB
 from waifu.japanese import (
     WORDS_FILE,
     JapaneseStore,
+    LessonCounts,
     Word,
     WordProgress,
     learn_word_of_the_day,
+    lesson_counts,
     load_words,
     next_quiz,
     review,
@@ -251,6 +253,19 @@ def test_due_words_alike_in_box_and_day_go_by_their_id():
 def test_there_is_no_quiz_when_no_word_is_due():
     assert next_quiz({"w001": WordProgress(1, DAY + timedelta(days=1), LEARNED)}, DAY) is None
     assert next_quiz({}, DAY) is None
+
+
+def test_the_counts_tell_the_learned_the_mastered_and_the_due_words_of_the_list():
+    progress = {
+        WORDS[0].id: WordProgress(5, DAY - timedelta(days=1), LEARNED),
+        WORDS[1].id: WordProgress(2, DAY + timedelta(days=1), LEARNED),
+        WORDS[2].id: WordProgress(1, DAY, LEARNED),
+        "w999": WordProgress(1, DAY, LEARNED),  # a word of another list is left out
+    }
+
+    assert lesson_counts(WORDS, progress, DAY) == LessonCounts(
+        learned=3, mastered=1, due=2, total=len(WORDS)
+    )
 
 
 # --- the store --------------------------------------------------------------------------------

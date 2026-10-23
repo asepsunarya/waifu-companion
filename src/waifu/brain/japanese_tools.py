@@ -27,6 +27,7 @@ from waifu.japanese import (
     Word,
     WordProgress,
     learn_word_of_the_day,
+    lesson_counts,
     next_quiz,
 )
 from waifu.journal import JOURNAL_PROMPT
@@ -166,12 +167,12 @@ class JapaneseTools:
         }
 
     def _progress(self, today: date) -> dict[str, object]:
-        progress = self._learned()
+        counts = lesson_counts(self._words, self._store.progress(), today)
         return {
-            "learned": len(progress),
-            "mastered": sum(word.box == MASTERED_BOX for word in progress.values()),
-            "due_today": _due_count(progress, today),
-            "total": len(self._words),
+            "learned": counts.learned,
+            "mastered": counts.mastered,
+            "due_today": counts.due,
+            "total": counts.total,
         }
 
     def _learned(self) -> dict[str, WordProgress]:

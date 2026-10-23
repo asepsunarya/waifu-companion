@@ -134,6 +134,29 @@ def next_quiz(progress: Mapping[str, WordProgress], today: date) -> str | None:
     return min(due)[2] if due else None
 
 
+@dataclass(frozen=True)
+class LessonCounts:
+    learned: int
+    mastered: int  # in the last box
+    due: int  # due on the day counted
+    total: int  # the words of the list
+
+
+def lesson_counts(
+    words: Sequence[Word], progress: Mapping[str, WordProgress], today: date
+) -> LessonCounts:
+    """How many words of `words` Master learned, mastered, and has due on `today`; words that
+    are not in the list (a later list may drop some) are left out."""
+    listed = {word.id for word in words}
+    known = [word for word_id, word in progress.items() if word_id in listed]
+    return LessonCounts(
+        learned=len(known),
+        mastered=sum(word.box == MASTERED_BOX for word in known),
+        due=sum(word.due <= today for word in known),
+        total=len(words),
+    )
+
+
 class JapaneseStore:
     """Master's words: which ones she introduced, and where each stands in the Leitner boxes."""
 
