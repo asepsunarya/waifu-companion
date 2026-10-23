@@ -1804,12 +1804,12 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 188 · **Files:** `src/waifu/brain/factory.py`, `tests/test_brain_factory.py` · **Scope:** S
 
-## Task 190: `GuestTools`
+## Task 190: `GuestTools` ✅
 
 **Acceptance criteria:**
-- [ ] `guest_mode {on?}` is non-strict with a static description; on, off, and status answer `{on, until, message}` in Indonesian; bad arguments are an error
+- [x] `guest_mode {on?}` is non-strict with a static description; on, off, and status answer `{on, until, message}` in Indonesian; bad arguments are an error
 
-**Dependencies:** 187 · **Files:** `src/waifu/brain/guest_tools.py`, `tests/test_brain_guest_tools.py` · **Scope:** S
+**Dependencies:** 187 · **Files:** `src/waifu/brain/guest_tools.py`, `tests/test_guest_tools.py` · **Scope:** S
 
 ## Task 191: The briefing in guest mode
 
