@@ -1916,11 +1916,11 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** none · **Files:** `SPEC.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
 
-## Task 202: `is_repeat_request`
+## Task 202: `is_repeat_request` ✅
 
 **Acceptance criteria:**
-- [ ] Every phrase of `REPEAT_PHRASES` counts, with or without "maaf" before it, a question mark, her names, wake words, owner call, "master", and the softeners; "maaf, apa?" too
-- [ ] Anything with another word ("ulangi lagunya", "putar sekali lagi", "apa tadi lampunya sudah mati?", "tadi aku bilang apa?", "apa kabar"), a doubled word, a bare "apa?", or nothing left is not a repeat request
+- [x] Every phrase of `REPEAT_PHRASES` counts, with or without "maaf" before it, a question mark, her names, wake words, owner call, "master", and the softeners; "maaf, apa?" too
+- [x] Anything with another word ("ulangi lagunya", "putar sekali lagi", "apa tadi lampunya sudah mati?", "tadi aku bilang apa?", "apa kabar"), a doubled word, a bare "apa?", or nothing left is not a repeat request
 
 **Dependencies:** 202a · **Files:** `src/waifu/repeat.py`, `tests/test_repeat.py` · **Scope:** S
 

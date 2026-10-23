@@ -1766,7 +1766,7 @@ Non-goals (v1.38): repeating on the phone (decision below); a replay button on t
 
 `repeat.py` — `is_repeat_request(text, names=()) -> bool`, pure:
 - The words as `is_yes` splits them (NFKC, lowercase, runs of letters and digits), leaving out "master", the words of `names` (her name, wake words such as "hai cyrene", and what she calls the owner), and the softeners `dong`, `deh`, `ya`, `coba`, `tolong`. A question mark is allowed ("hah?").
-- What is left must be exactly one of `REPEAT_PHRASES`: `ulangi`, `ulangi lagi`, `ulang lagi`, `bisa diulang`, `bisa diulangi`, `tadi bilang apa`, `tadi kamu bilang apa`, `kamu tadi bilang apa`, `kamu bilang apa tadi`, `bilang apa tadi`, `apa tadi`, `sekali lagi`, `hah`; each of them after `maaf`; and `maaf apa`. Nothing else: no other word, no repeat of a word ("ulangi ulangi"), not empty, and not a bare "apa?".
+- What is left must be exactly one of `REPEAT_PHRASES`: `ulangi`, `ulangi lagi`, `ulang lagi`, `diulang`, `diulangi`, `bisa diulang`, `bisa diulangi`, `tadi bilang apa`, `tadi kamu bilang apa`, `kamu tadi bilang apa`, `kamu bilang apa tadi`, `bilang apa tadi`, `apa tadi`, `sekali lagi`, `hah`; each of them after `maaf`; and `maaf apa`. Nothing else: no other word, no repeat of a word ("ulangi ulangi"), not empty, and not a bare "apa?".
 
 What she remembers: `Assistant._last_said`, a frozen `_Said(text, emotion, marker)` in memory only, written only on `run`'s thread (so no lock), right before the words are spoken (`_say_remembered`), so a reply that was cut off (v1.11) or could not be voiced can still be asked for again, whole:
 - Her reply to Master's voice turn (`handle_utterance`), the text as spoken (without its tag) and its emotion.

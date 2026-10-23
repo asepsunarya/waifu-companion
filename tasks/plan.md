@@ -790,7 +790,7 @@ answers it. Guest mode's generation, passed as `guest_marker`, is stored with th
 has moved, nothing is repeated. The phone is not intercepted (its page shows her words) and its
 replies are never remembered. No tool, config, dependency, or persona change.
 - [x] Task 202a: contract: SPEC, tasks
-- [ ] Task 202: `is_repeat_request` (the strict phrase set)
+- [x] Task 202: `is_repeat_request` (the strict phrase set)
 - [ ] Task 203: the Assistant remembers her last words on the PC and repeats them without the brain
 - [ ] Task 204: guest mode clears them (`guest_marker`, wiring in `run`)
 - [ ] Task 205: README "Ulangi", CHANGELOG
