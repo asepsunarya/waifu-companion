@@ -1924,13 +1924,13 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 202a · **Files:** `src/waifu/repeat.py`, `tests/test_repeat.py` · **Scope:** S
 
-## Task 203: Her last words, repeated without the brain
+## Task 203: Her last words, repeated without the brain ✅
 
 **Acceptance criteria:**
-- [ ] A repeat request in the follow-up window or with the wake word says her last reply, announcements, or request answer again word for word with its emotion, opens the follow-up window, and asks the brain nothing; a lookalike goes to the brain
-- [ ] Nothing said yet: "Belum ada yang bisa kuulangi, Master."; the acknowledgement, reactions, the startup line, and a request answer that was not said are never repeated; a reply cut off is repeated whole
-- [ ] A question waiting for Master's yes stays waiting through a repeat, and "iya" after it confirms; quiet answers a repeat and keeps its held announcements; a phone reply is never repeated, and a phone "ulangi" is a brain turn
-- [ ] INFO "Repeating what she said last" without the text
+- [x] A repeat request in the follow-up window or with the wake word says her last reply, announcements, or request answer again word for word with its emotion, opens the follow-up window, and asks the brain nothing; a lookalike goes to the brain
+- [x] Nothing said yet: "Belum ada yang bisa kuulangi, Master."; the acknowledgement, reactions, the startup line, and a request answer that was not said are never repeated; a reply cut off is repeated whole
+- [x] A question waiting for Master's yes stays waiting through a repeat, and "iya" after it confirms; quiet answers a repeat and keeps its held announcements; a phone reply is never repeated, and a phone "ulangi" is a brain turn
+- [x] INFO "Repeating what she said last" without the text
 
 **Dependencies:** 202 · **Files:** `src/waifu/app.py`, `tests/test_app.py` · **Scope:** M
 

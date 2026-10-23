@@ -19,6 +19,7 @@ from waifu.avatar.lipsync import viseme_track
 from waifu.brain.attachments import CameraTurn, TurnImages
 from waifu.brain.base import Brain, BrainReply, ToolCallRecord, ToolImage
 from waifu.brain.claude import ClaudeBrain
+from waifu.brain.confirm import ConfirmationGate
 from waifu.brain.screen_tools import ScreenTools
 from waifu.config import (
     AppConfig,
@@ -3108,3 +3109,256 @@ def test_a_game_drops_the_hot_gpu_notice_it_held_for_an_hour():
     listen_once(rig)
 
     assert rig.speech.texts == []
+
+
+# Ulangi (v1.38): her last words on the PC, said again without the brain
+
+LAMP_ON = "[senang] Lampu kamar sudah menyala, Master."
+NOTHING_TO_REPEAT = "Belum ada yang bisa kuulangi, Master."
+
+
+def test_ulangi_says_her_last_reply_again_word_for_word_with_its_emotion_without_the_brain(
+    caplog,
+):
+    rig = Rig("Cyrene, nyalakan lampu kamar", "ulangi", reply=LAMP_ON, with_avatar=True)
+    rig.assistant.handle_utterance(rig.utterance())
+    rig.clock.now += 2  # inside the follow-up window
+
+    with caplog.at_level(logging.INFO, logger="waifu.app"):
+        repeated = rig.assistant.handle_utterance(rig.utterance())
+
+    assert repeated == "Lampu kamar sudah menyala, Master."
+    assert asked(rig) == ["nyalakan lampu kamar"]
+    assert rig.speech.texts == [repeated, repeated]
+    assert rig.events.count("avatar.speak happy") == 2
+    assert "Repeating what she said last" in caplog.text
+    assert repeated not in caplog.text  # reply text stays out of the INFO log
+
+
+ADDRESSED = pytest.mark.parametrize(
+    ("addressed", "wait_s"),
+    [("{}", 2), ("Cyrene, {}", 2), ("Cyrene, {}", 30)],
+    ids=["follow_up_window", "named_in_the_follow_up_window", "wake_word"],
+)
+
+
+@ADDRESSED
+@pytest.mark.parametrize(
+    "phrase",
+    [
+        "ulangi",
+        "Ulang lagi.",
+        "Bisa diulang?",
+        "Tadi bilang apa?",
+        "Apa tadi?",
+        "Sekali lagi.",
+        "Maaf, apa?",
+        "Hah?",
+    ],
+)
+def test_each_repeat_phrase_is_answered_without_the_brain(phrase, addressed, wait_s):
+    rig = Rig("Cyrene, nyalakan lampu kamar", addressed.format(phrase))
+    rig.assistant.handle_utterance(rig.utterance())
+    rig.clock.now += wait_s
+
+    assert rig.assistant.handle_utterance(rig.utterance()) == REPLY
+    assert asked(rig) == ["nyalakan lampu kamar"]
+
+
+@pytest.mark.parametrize(
+    "lookalike",
+    [
+        "ulangi lagunya",
+        "putar sekali lagi",
+        "apa tadi lampunya sudah mati?",
+        "tadi aku bilang apa?",
+    ],
+)
+def test_a_command_that_only_looks_like_a_repeat_request_goes_to_the_brain(lookalike):
+    rig = Rig(f"Cyrene, {lookalike}", "ulangi", reply="Baik, Master.")
+    first = rig.assistant.handle_utterance(rig.utterance())
+    rig.clock.now += 2
+    repeated = rig.assistant.handle_utterance(rig.utterance())
+
+    assert asked(rig) == [lookalike]
+    assert first == repeated == "Baik, Master."
+
+
+def test_with_nothing_said_yet_she_says_so_and_listens_for_master(caplog):
+    rig = Rig("Cyrene, ulangi", "nyalakan lampu kamar", with_avatar=True)
+
+    with caplog.at_level(logging.INFO, logger="waifu.app"):
+        said = rig.assistant.handle_utterance(rig.utterance())
+    rig.clock.now += 2
+    rig.assistant.handle_utterance(rig.utterance())
+
+    assert said == NOTHING_TO_REPEAT
+    assert rig.speech.texts == [NOTHING_TO_REPEAT, REPLY]
+    assert rig.events[:3] == ["synthesize", "avatar.state speaking", "avatar.speak neutral"]
+    assert "Nothing to repeat" in caplog.text
+    assert asked(rig) == ["nyalakan lampu kamar"]  # her line opened the follow-up window
+
+
+def test_nothing_to_repeat_calls_the_owner_what_she_calls_him():
+    rig = Rig("Cyrene, ulangi", "Sayang, ulangi", config=CALLED_SAYANG)
+
+    said = rig.assistant.handle_utterance(rig.utterance())
+    rig.clock.now += 2
+    again = rig.assistant.handle_utterance(rig.utterance())
+
+    assert said == again == "Belum ada yang bisa kuulangi, Sayang."
+    assert rig.brain.turns == []
+
+
+def test_the_acknowledgement_her_reactions_and_the_startup_line_are_never_repeated():
+    rig = Rig("Cyrene, nyalakan lampu kamar", "Cyrene?", "ulangi")
+    rig.assistant.handle_utterance(rig.utterance())
+    rig.clock.now += 30
+    rig.assistant.speak("Cyrene siap, Master.", followup=False)  # `waifu run --announce`
+    rig.assistant.handle_utterance(rig.utterance())  # the acknowledgement
+    rig.assistant.listen_now()
+    rig.assistant.speak_reaction(PAT_LINE, "happy")
+    rig.clock.now += 2
+
+    assert rig.assistant.handle_utterance(rig.utterance()) == REPLY
+    assert asked(rig) == ["nyalakan lampu kamar"]
+
+
+def cut_off(rig: Rig) -> None:
+    cut_the_first_clip(rig)
+
+
+def not_voiced(rig: Rig) -> None:
+    rig.speech.error = TtsError("edge-tts is unreachable")
+
+
+@pytest.mark.parametrize("trouble", [cut_off, not_voiced], ids=["cut_off", "not_voiced"])
+def test_a_reply_cut_off_or_not_voiced_is_repeated_whole(trouble):
+    rig = Rig("Cyrene, nyalakan lampu kamar", "Cyrene, ulangi")
+    trouble(rig)
+    rig.assistant.handle_utterance(rig.utterance())
+
+    repeated = rig.assistant.handle_utterance(rig.utterance())
+
+    assert repeated == REPLY
+    assert rig.speech.texts == [REPLY, REPLY]
+    assert asked(rig) == ["nyalakan lampu kamar"]
+
+
+def test_announcements_said_in_one_go_are_repeated_as_said_with_the_first_emotion():
+    rig = Rig("Cyrene, ulangi", with_avatar=True)
+    rig.assistant.remind(MEDICINE, "happy")
+    rig.assistant.announce(ANNOUNCEMENT, "sad")
+    listen_once(rig)
+
+    repeated = rig.assistant.handle_utterance(rig.utterance())
+
+    assert repeated == f"{MEDICINE} {ANNOUNCEMENT}"
+    assert rig.speech.texts == [repeated, repeated]
+    assert rig.events.count("avatar.speak happy") == 2
+    assert rig.brain.turns == []
+
+
+def test_her_spoken_answer_to_a_request_is_repeated_with_its_emotion():
+    rig = Rig("ulangi", reply="[senang] Selamat pagi, Master! Hari ini cerah.", with_avatar=True)
+    rig.assistant.ask_aloud(GREETING_PROMPT)
+    listen_once(rig)
+    rig.clock.now += 2  # inside the window her answer opened
+
+    repeated = rig.assistant.handle_utterance(rig.utterance())
+
+    assert repeated == "Selamat pagi, Master! Hari ini cerah."
+    assert rig.speech.texts == [repeated, repeated]
+    assert rig.events.count("avatar.speak happy") == 2
+    assert asked(rig) == [GREETING_PROMPT]
+
+
+def test_an_answer_to_a_request_that_was_not_said_is_never_repeated():
+    rig = Rig("Cyrene, nyalakan lampu kamar", "Cyrene, ulangi")
+    rig.assistant.handle_utterance(rig.utterance())
+    rig.clock.now += 30
+    rig.brain.reply = "Maaf Master, ringkasannya belum bisa kuambil."
+    rig.assistant.ask_aloud(GREETING_PROMPT, required_tool="daily_briefing")
+    listen_once(rig)  # its turn has no daily_briefing call: logged, not said
+
+    assert rig.assistant.handle_utterance(rig.utterance()) == REPLY
+    assert asked(rig) == ["nyalakan lampu kamar", GREETING_PROMPT]
+
+
+def test_a_phone_reply_is_never_repeated_on_the_pc_and_a_phone_ulangi_goes_to_the_brain():
+    rig = Rig("Cyrene, nyalakan lampu kamar", "Cyrene, ulangi")
+    rig.assistant.handle_utterance(rig.utterance())
+    rig.brain.reply = "Yang tadi: lampu kamar sudah menyala, Master."
+
+    on_phone = rig.assistant.reply_for_phone("ulangi")
+    repeated = rig.assistant.handle_utterance(rig.utterance())
+
+    assert on_phone.text == "Yang tadi: lampu kamar sudah menyala, Master."
+    assert repeated == REPLY
+    assert asked(rig) == ["nyalakan lampu kamar", "ulangi"]
+
+
+SHUTDOWN_QUESTION = "PC mau kumatikan sekarang, Master? Jawab iya kalau jadi."
+
+
+class AskingBrain(FakeBrain):
+    """Turns the PC off when Master asks for it or says yes, held by a real ConfirmationGate
+    until his yes in the next turn, like the model calling the gated tool; `ran` counts the
+    shutdowns that ran."""
+
+    def __init__(self, reply: str = REPLY) -> None:
+        super().__init__(reply)
+        self.gate = ConfirmationGate(clock=FakeClock(), names=["Cyrene"])
+        self.ran = 0
+
+    def respond(self, user_text: str, *, now: datetime | None = None) -> BrainReply:
+        self.turns.append((user_text, now))
+        self.gate.begin_turn(user_text)
+        words = user_text.lower()
+        if "matikan" not in words and not words.startswith("iya"):
+            return BrainReply("Hmm?", [])
+        if self.gate.check_action("pc_off", label="Mematikan PC", question=SHUTDOWN_QUESTION):
+            return BrainReply(self.gate.with_question("Baik."), [])
+        self.ran += 1
+        return BrainReply("Sudah kumatikan, Master.", [])
+
+
+def test_a_repeat_says_her_question_again_and_leaves_it_waiting_for_master_s_yes():
+    rig = Rig("Cyrene, matikan PC", "ulangi", "iya", brain=AskingBrain)
+    question = rig.assistant.handle_utterance(rig.utterance())
+    rig.clock.now += 2
+    repeated = rig.assistant.handle_utterance(rig.utterance())
+    ran_after_the_repeat = rig.brain.ran
+    rig.clock.now += 2  # inside the window the repeat opened
+    rig.assistant.handle_utterance(rig.utterance())
+
+    assert question == repeated == f"Baik. {SHUTDOWN_QUESTION}"
+    assert ran_after_the_repeat == 0  # the repeat is never a yes
+    assert asked(rig) == ["matikan PC", "iya"]
+    assert rig.brain.ran == 1
+
+
+def test_while_quiet_a_repeat_is_answered_and_her_held_announcements_still_wait():
+    quiet = Quiet()
+    rig = Rig("Cyrene, nyalakan lampu kamar", "Cyrene, ulangi", quiet=quiet)
+    rig.assistant.announce(ANNOUNCEMENT)
+
+    listen_once(rig, rig.utterance(), None, rig.utterance(), None)
+    during = list(rig.speech.texts)
+    quiet.on = False
+    listen_once(rig)
+
+    assert during == [REPLY, REPLY]
+    assert asked(rig) == ["nyalakan lampu kamar"]
+    assert rig.speech.texts == [REPLY, REPLY, ANNOUNCEMENT]
+
+
+def test_a_repeat_opens_the_follow_up_window_like_a_reply():
+    rig = Rig("Cyrene, nyalakan lampu kamar", "ulangi", "matikan TV")
+    rig.assistant.handle_utterance(rig.utterance())
+    rig.clock.now += 6
+    rig.assistant.handle_utterance(rig.utterance())
+    rig.clock.now += 6  # past the reply's window, inside the repeat's
+
+    assert rig.assistant.handle_utterance(rig.utterance()) == REPLY
+    assert asked(rig) == ["nyalakan lampu kamar", "matikan TV"]

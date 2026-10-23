@@ -22,6 +22,11 @@ date), which a focus block alone keeps however long it lasts. A text queued more
 said once. A private request (her nightly journal question, the weekly game report) that comes
 to be answered while guest mode is on is dropped too.
 
+When Master's whole utterance asks her to repeat ("ulangi", "tadi bilang apa?": `waifu.repeat`),
+she says her last words on the PC again (her reply, the announcements said together, or her
+answer to a request) without the brain: no turn, so a question waiting for Master's yes still
+waits for his next words.
+
 The owner's paired phone (`waifu.phone`) talks to her from the phone server's threads:
 `reply_for_phone` and `transcribe_for_phone`, handed to the server as `PhoneAnswers`. Brain
 turns, the voice loop's and the phone's, are taken one at a time (the history is
@@ -57,6 +62,7 @@ from waifu.brain.tools import logged_arguments
 from waifu.config import AppConfig
 from waifu.gate import WakeGate
 from waifu.phone.server import PhoneReply
+from waifu.repeat import is_repeat_request
 from waifu.voice.audio import resample
 from waifu.voice.base import SpeechToText, Utterance
 from waifu.voice.speaker import SpeakerError
@@ -80,6 +86,8 @@ PHOTO_MEDIA_TYPE = "image/jpeg"
 PCM16_SCALE = 32767  # full scale of a 16-bit sample, symmetric so +1 and -1 both fit
 # Said before the announcements a game held (game mode), once the game has closed.
 GAME_HELD = "Tadi selama main ada kabar."
+# Her answer to "ulangi" when she has said nothing she remembers (`Assistant._repeat`).
+NOTHING_TO_REPEAT = "Belum ada yang bisa kuulangi, {owner}."
 
 
 def split_reply(reply: BrainReply, *, owner_call: str = "Master") -> tuple[str, BrainReply]:
@@ -219,6 +227,14 @@ class _Announcement:
 
 
 @dataclasses.dataclass(frozen=True)
+class _Said:
+    """What she last said on the PC by `_say_remembered`, for Master's "ulangi"."""
+
+    text: str
+    emotion: str
+
+
+@dataclasses.dataclass(frozen=True)
 class _Request:
     """A prompt queued by `ask_aloud`."""
 
@@ -258,6 +274,8 @@ class Assistant:
         mode's `is_on`) says when her private requests are dropped."""
         self._name = config.assistant.name
         self._owner_call = config.assistant.owner_call
+        # Left out of Master's words when they ask her to repeat (`is_repeat_request`).
+        self._names = (self._name, *config.assistant.wake_words, self._owner_call)
         self._followup_s = config.assistant.followup_seconds
         self._session_idle_s = config.assistant.session_idle_minutes * 60
         self._brain = brain
@@ -305,6 +323,8 @@ class Assistant:
         self._engaged_lock = threading.Lock()
         self._engaged_count = 0
         self._speaking = False
+        # Her last words on the PC, for "ulangi"; only `run`'s thread uses it (`_say_remembered`).
+        self._last_said: _Said | None = None
 
     @property
     def busy(self) -> bool:
@@ -354,15 +374,17 @@ class Assistant:
                 logger.info("Not addressed to %s (%s); ignoring", self._name, result.reason)
                 return None
             self._announcements_held_until = None  # Master has been heard after a cut
-            if result.command:
+            if not result.command:
+                # A bare wake word ("Cyrene?") gets a quick answer without a round trip to the LLM.
+                reply_text = ACKNOWLEDGEMENT.format(owner=self._owner_call)
+                self.speak(reply_text, ACKNOWLEDGEMENT_EMOTION)
+            elif is_repeat_request(result.command, self._names):
+                reply_text = self._repeat()
+            else:
                 self._show(lambda avatar: avatar.state("thinking"))
                 emotion, reply = self._think(result.command)
                 reply_text = reply.text
-            else:
-                # A bare wake word ("Cyrene?") gets a quick answer without a round trip to the LLM.
-                emotion = ACKNOWLEDGEMENT_EMOTION
-                reply_text = ACKNOWLEDGEMENT.format(owner=self._owner_call)
-            self.speak(reply_text, emotion)
+                self._say_remembered(reply_text, emotion)
             return reply_text
 
     def handle_text(self, text: str) -> BrainReply:
@@ -646,7 +668,7 @@ class Assistant:
         texts = [reminder.text for reminder in reminders] + lead_in + [item.text for item in news]
         text = " ".join(dict.fromkeys(texts))
         logger.info("Announcing: %s", text)
-        self.speak(text, due[0].emotion, followup=False)
+        self._say_remembered(text, due[0].emotion, followup=False)
         return True
 
     def _note_game_hold(self) -> None:
@@ -700,7 +722,7 @@ class Assistant:
                     )
                     self._show(lambda avatar: avatar.state("idle"))
                     return
-                self.speak(reply.text, emotion)
+                self._say_remembered(reply.text, emotion)
         except Exception:
             logger.exception("Failed to answer a request aloud; still listening")
             return
@@ -729,6 +751,34 @@ class Assistant:
                 logger.info("Not saying a private request while guest mode is on")
             else:
                 return request
+
+    def _say_remembered(self, text: str, emotion: str, *, followup: bool = True) -> None:
+        """Say `text` like `speak`, remembered first as her last words for "ulangi" (`_repeat`),
+        so a reply that was cut off or could not be voiced can still be asked for again.
+
+        Only `run`'s thread calls it, for what she says as her own: a reply to Master's
+        words, the announcements said together, or her answer to a request. Never for a
+        reaction, the acknowledgement, the startup line, or the phone.
+        """
+        self._last_said = _Said(text, emotion)
+        self.speak(text, emotion, followup=followup)
+
+    def _repeat(self) -> str:
+        """Say her last words again like a reply, without the brain; returns what she said.
+
+        No turn is taken, so the brain, its history, and its gates (a question waiting for
+        Master's yes) never see it. With nothing to repeat she says NOTHING_TO_REPEAT. The
+        text never reaches the INFO log, like a reply's.
+        """
+        said = self._last_said
+        if said is None:
+            logger.info("Nothing to repeat")
+            text = NOTHING_TO_REPEAT.format(owner=self._owner_call)
+            self.speak(text)
+            return text
+        logger.info("Repeating what she said last")
+        self.speak(said.text, said.emotion)
+        return said.text
 
     def _think(
         self,
