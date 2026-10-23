@@ -1991,11 +1991,11 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 208 · **Files:** `src/waifu/brain/japanese_tools.py`, `tests/test_japanese_tools.py`, `config/persona.md`, `config/persona_hsr.md`, `tests/test_brain_persona.py` · **Scope:** M
 
-## Task 210: The briefing's word
+## Task 210: The briefing's word ✅
 
 **Acceptance criteria:**
-- [ ] With `japanese`, `daily_briefing` holds `word_of_the_day` (learned once), in guest mode too, null after a failure; without it no such field; the spec is the same either way
-- [ ] `BRIEFING_PROMPT` names the word of the day and still reads as no yes, look word, or play verb
+- [x] With `japanese`, `daily_briefing` holds `word_of_the_day` (learned once), in guest mode too, null after a failure; without it no such field; the spec is the same either way
+- [x] `BRIEFING_PROMPT` names the word of the day and still reads as no yes, look word, or play verb
 
 **Dependencies:** 208 · **Files:** `src/waifu/briefing.py`, `tests/test_briefing.py` · **Scope:** S
 

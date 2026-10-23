@@ -22,6 +22,7 @@ from waifu.brain.screen_tools import ScreenTools
 from waifu.brain.tools import to_anthropic, to_ollama
 from waifu.briefing import BRIEFING_PROMPT, BriefingTimer, BriefingTools
 from waifu.config import AssistantConfig, BriefingConfig
+from waifu.japanese import Word
 from waifu.schedule import DeviceAction, Reminder, RoutineAction, ScheduleStore
 from waifu.screen import ScreenImage
 from waifu.todo import Task
@@ -116,13 +117,33 @@ def make_store(tmp_path) -> ScheduleStore:
     return ScheduleStore(tmp_path / "schedule.json", now=Clock())
 
 
-def make_tools(tmp_path, *, weather=None, schedule=None, todo=None, now=NOW) -> BriefingTools:
+def make_tools(
+    tmp_path, *, weather=None, schedule=None, todo=None, japanese=None, now=NOW
+) -> BriefingTools:
     return BriefingTools(
         weather=weather if weather is not None else FakeWeather(),
         schedule=schedule if schedule is not None else make_store(tmp_path),
         todo=todo,
+        japanese=japanese,
         now=Clock(now),
     )
+
+
+TABERU = Word("w001", "たべる", "食べる", "makan", "ごはんを食べる。", "Makan nasi.")
+
+
+class WordOfTheDay:
+    """Stands in for today's Japanese word learned once: records the days asked about."""
+
+    def __init__(self, outcome: Word | Exception = TABERU) -> None:
+        self.outcome = outcome
+        self.days_asked: list[date] = []
+
+    def __call__(self, day: date) -> Word:
+        self.days_asked.append(day)
+        if isinstance(self.outcome, Exception):
+            raise self.outcome
+        return self.outcome
 
 
 def brief(tools: BriefingTools) -> tuple[dict, bool]:
@@ -183,6 +204,24 @@ def test_the_spec_is_the_same_with_or_without_a_todo_list_for_prompt_caching(tmp
     with_tasks = make_tools(tmp_path, todo=FakeTodo([LAPORAN, SUSU])).specs()
 
     assert with_tasks == make_tools(tmp_path).specs()
+
+
+def test_the_spec_is_the_same_with_or_without_japanese_lessons_for_prompt_caching(tmp_path):
+    with_word = make_tools(tmp_path, japanese=WordOfTheDay()).specs()
+
+    assert with_word == make_tools(tmp_path).specs()
+
+
+def test_the_description_says_how_to_end_with_the_word_of_the_day(tmp_path):
+    [spec] = make_tools(tmp_path).specs()
+
+    for guidance in [
+        "When word_of_the_day is set",
+        "end with it in one short sentence",
+        "the word in kana, then its Indonesian meaning",
+        "without romaji or parentheses",
+    ]:
+        assert guidance in spec.description
 
 
 # --- the briefing --------------------------------------------------------------------------------
@@ -457,6 +496,48 @@ def test_a_todo_list_that_cannot_be_read_is_told_as_the_tasks_problem(tmp_path, 
     assert "the to-do file is locked" in caplog.text
 
 
+def test_with_japanese_lessons_the_briefing_holds_the_word_of_its_day(tmp_path):
+    word = WordOfTheDay()
+
+    briefing, is_error = brief(make_tools(tmp_path, japanese=word))
+
+    assert briefing["word_of_the_day"] == {"kana": "たべる", "kanji": "食べる", "meaning": "makan"}
+    assert word.days_asked == [date(2026, 10, 13)]
+    assert is_error is False
+
+
+def test_without_japanese_lessons_the_briefing_has_no_word(tmp_path):
+    briefing, _ = brief(make_tools(tmp_path))
+
+    assert "word_of_the_day" not in briefing
+
+
+def test_guest_mode_keeps_the_word_of_the_day(tmp_path):
+    tools = BriefingTools(
+        weather=FakeWeather(),
+        schedule=make_store(tmp_path),
+        japanese=WordOfTheDay(),
+        now=Clock(),
+        guest_mode=GuestSwitch(on=True),
+    )
+
+    briefing, _ = brief(tools)
+
+    assert briefing["word_of_the_day"]["kana"] == "たべる"
+
+
+def test_a_word_of_the_day_that_fails_is_left_out_and_logged(tmp_path, caplog):
+    word = WordOfTheDay(OSError("the Japanese file is locked"))
+
+    with caplog.at_level(logging.ERROR, logger="waifu.briefing"):
+        briefing, is_error = brief(make_tools(tmp_path, japanese=word))
+
+    assert briefing["word_of_the_day"] is None
+    assert briefing["weather"] == BANDUNG_JSON
+    assert is_error is False
+    assert "the Japanese file is locked" in caplog.text
+
+
 @pytest.mark.parametrize("arguments", [None, [], "hari ini", {"day": "besok"}])
 def test_arguments_are_an_error_result(tmp_path, arguments):
     result, is_error = make_tools(tmp_path).run("daily_briefing", arguments)
@@ -506,6 +587,10 @@ def test_the_prompt_says_it_is_her_own_greeting_and_names_the_tools():
 
 def test_the_prompt_sums_up_the_tasks_due_today_and_overdue():
     assert "tugas yang tenggatnya hari ini atau sudah terlewat" in BRIEFING_PROMPT
+
+
+def test_the_prompt_ends_with_the_japanese_word_of_the_day_when_there_is_one():
+    assert "kata Jepang hari ini kalau ada" in BRIEFING_PROMPT
 
 
 def test_the_prompt_never_counts_as_master_saying_yes():
