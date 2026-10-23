@@ -714,7 +714,7 @@ page shows only its own texts for an error status. No brain tool, tool parameter
 - [x] Task 180: `QuickActions` (the buttons, `find`, `run`)
 - [x] Task 181: `GET /actions` and `POST /action` (`RollingLimit` made public)
 - [x] Task 182: wiring in `run`
-- [ ] Task 183: the page's pure helpers (`actions.js`, the problem kinds)
+- [x] Task 183: the page's pure helpers (`actions.js`, the problem kinds)
 - [ ] Task 184: the panel (HTML, CSS, `phone.js`, the service worker)
 - [ ] Task 185: README, CHANGELOG, `config.example.yaml`
 

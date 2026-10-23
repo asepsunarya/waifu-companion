@@ -1738,11 +1738,11 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 181 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** S
 
-## Task 183: The page's pure helpers
+## Task 183: The page's pure helpers ✅
 
 **Acceptance criteria:**
-- [ ] `actions.js`: `parseActionGroups` keeps well-formed groups and actions (null without a list), `actionRequest(id)` is the JSON body, `actionOutcome` reads `{ok, message}` (null otherwise)
-- [ ] `problemForStatus("/action", 404)` is `action_unknown`, 429 `action_limit`; both have Indonesian texts
+- [x] `actions.js`: `parseActionGroups` keeps well-formed groups and actions (null without a list), `actionRequest(id)` is the JSON body, `actionOutcome` reads `{ok, message}` (null otherwise)
+- [x] `problemForStatus("/action", 404)` is `action_unknown`, 429 `action_limit`; both have Indonesian texts
 
 **Dependencies:** 179a · **Files:** `src/waifu/avatar/web/phone/actions.js`, `src/waifu/avatar/web/phone/audio.js`, `tests/js/phone_actions.test.mjs`, `tests/js/phone_audio.test.mjs` · **Scope:** S
 

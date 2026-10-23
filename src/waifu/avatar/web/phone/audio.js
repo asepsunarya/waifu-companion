@@ -1,6 +1,6 @@
 // Pure helpers of Cyrene's phone page: the owner's voice as the 16 kHz mono 16-bit WAV that POST /talk takes, her
-// reply's base64 WAV back to bytes, and the server's answers (/config.json, /chat, /talk, /pair) read into what the
-// page shows. No DOM or Web Audio here, so `node --test` covers them; `fetch` is passed in.
+// reply's base64 WAV back to bytes, and the server's answers (/config.json, /chat, /talk, /pair, /action) read into
+// what the page shows. No DOM or Web Audio here, so `node --test` covers them; `fetch` is passed in.
 
 export const TALK_RATE = 16000;
 // The server's limits (SPEC, Cyrene on the phone): 2000 characters of text, 60 s of audio. At 16 kHz mono 16-bit,
@@ -54,6 +54,8 @@ const PROBLEM_TEXTS = {
   pair_wrong:
     "Kodenya salah atau sudah kedaluwarsa. Cek lagi kode di PC, atau buat kode baru dengan waifu phone pair.",
   pair_locked: "Terlalu banyak percobaan. Buat kode baru di PC dengan waifu phone pair.",
+  action_unknown: "Tombol itu sudah tidak ada di PC. Muat ulang halaman ini.",
+  action_limit: "Tombolnya terlalu sering ditekan. Tunggu sebentar, lalu coba lagi.",
 };
 
 export const PROBLEM_KINDS = Object.freeze(Object.keys(PROBLEM_TEXTS));
@@ -240,10 +242,13 @@ export function parsePhoneConfig(data) {
 
 /**
  * The problem an error `status` of `route` means for the owner (a kind of PROBLEM_KINDS). A gateway error comes from
- * tailscale serve in front of the PC, which answers 502 while Cyrene is not running.
+ * tailscale serve in front of the PC, which answers 502 while Cyrene is not running. A quick button (/action) the PC
+ * no longer has is a 404, and one pressed too often a 429.
  */
 export function problemForStatus(route, status) {
   const pairing = route === "/pair";
+  if (route === "/action" && status === 404) return "action_unknown";
+  if (route === "/action" && status === 429) return "action_limit";
   switch (status) {
     case 502:
     case 503:

@@ -359,6 +359,14 @@ describe("problemForStatus", () => {
     assert.equal(problemForStatus("/chat", 403), "forbidden");
   });
 
+  it("reads a quick button the PC no longer has, and one pressed too often", () => {
+    assert.equal(problemForStatus("/action", 404), "action_unknown");
+    assert.equal(problemForStatus("/action", 429), "action_limit");
+    assert.equal(problemForStatus("/action", 401), "unpaired");
+    assert.equal(problemForStatus("/action", 403), "forbidden");
+    assert.equal(problemForStatus("/action", 500), "server");
+  });
+
   it("reads a gateway error as a PC that cannot be reached", () => {
     // tailscale serve answers 502 for the PC while Cyrene (waifu run) is not running.
     for (const route of ["/config.json", "/chat", "/talk", "/pair"]) {
