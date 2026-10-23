@@ -723,6 +723,35 @@ page shows only its own texts for an error status. No brain tool, tool parameter
 - [x] By hand: a phone server on a free port (never 9883) with a mock registry answers `/actions` and `/action` with curl, and refuses a foreign Origin, a missing cookie, an unknown id, and the eleventh action in a minute (2026-10-23, port 9893: the lamp, AC 24, the projector's power, and "Mode tidur" with its delayed step ran; the PC's shutdown and wake and the PC plug's off were 404; an injected id 400; the eleventh 429 with `Retry-After: 60`; the token never in the log. The page paired in a browser at 360 and 412 px: three buttons a row, the panel scrolls, toasts show, Escape closes it and focuses the toggle). Again after the fix pass (2026-10-24, port 9895, mock devices, every request taken as paired by the scratch script): at 360 px the panel's top stayed at 397.6 px while a toast showed and after it hid, and the spot of Mati was still Mati; at 412 px a two-line "Mode tidur" toast left it at 474.4 px; opening focuses Nyala, Tab goes to Mati, Escape on the toggle closes it; the text box was 168 px while typing, 116 px otherwise; a second press while the first ran was a 409 without `Retry-After`, toasted "Perintah tadi masih jalan. Tunggu sebentar."
 - [ ] On the owner's PC: the lamp button turns the lamp on and off from the phone with a toast; an AC preset sends its code; "Mode tidur" runs and names its scheduled step; there is no button for the PC or its plug; the panel fits at 360 px
 
+### Phase 40: Mode tamu (v1.36, see SPEC → mode tamu)
+Decision: one `GuestMode` per process (memory only) shared like `TurnImages`: the shared
+dispatcher `run_tool` refuses the private tools (a fixed list in `guest.py`, checked against
+each module's constant and against every tool of a full request) before any provider or the
+confirmation gate runs, and the brains end their session at the next turn whenever guest
+mode's generation moved (on, off, or the lazy automatic end at `max_hours` or 05:00), a
+waiting yes-question forgotten. While it is on, a new session's prompt carries a static guest
+section instead of the remembered facts, the briefing drops tasks and reminder texts, and the
+journal question and weekly report (private requests) are dropped before their turn. The
+voice, chat, and phone chat switch it with one non-strict tool, `guest_mode {on?}`; no CLI
+command, since the CLI cannot reach the running process. The self-started prompts, the fixed
+announcements, the quick buttons, and the terminal commands are unchanged. No new dependency;
+18 of 20 strict tools and 17 of 24 optional parameters stay.
+- [x] Task 186a: contract: SPEC, tasks
+- [ ] Task 186: `guest_mode.max_hours`, `config.example.yaml`
+- [ ] Task 187: `GuestMode` (on, off, renewal, automatic end, generation, the private tools)
+- [ ] Task 188: `run_tool`'s refusal; the brains' `tool_refusal` and `session_marker`
+- [ ] Task 189: `build_brain(guest_mode=...)`: the guest section instead of the memory
+- [ ] Task 190: `GuestTools` (`guest_mode`)
+- [ ] Task 191: the briefing without tasks and reminder texts in guest mode
+- [ ] Task 192: the Assistant drops private requests in guest mode
+- [ ] Task 193: wiring in `run` and `chat`, the check line, the strict budget and tool sorting tests
+- [ ] Task 194: the persona section in both personas
+- [ ] Task 195: README "Mode tamu" and Privasi, CHANGELOG
+
+### Checkpoint: Mode tamu
+- [ ] Python suite and ruff clean; no test ran a real device, slept, spoke, or pushed; the strict-tool budget unchanged (18 of 20 strict tools, 17 of 24 optional parameters)
+- [ ] On the owner's PC: "Cyrene, mode tamu" turns it on; "pengeluaranku bulan ini berapa?" is refused briefly; the lamp still answers; "mode tamu selesai" turns it off and the next answer knows her memory again; `waifu check` shows the guest mode line
+
 ## Risks and Mitigations
 
 | Risk | Impact | Mitigation |
@@ -737,10 +766,11 @@ page shows only its own texts for an error status. No brain tool, tool parameter
 | Cookie or authkey leaks into logs | Account takeover / history exposure | `SecretStr`, never logged; URL queries never logged; tests use made-up secrets and assert they never show up |
 | Wrong 50/50 call (HSR Celestial Invitation pick) | Misleading reaction | `gacha.off_banner`; the tool description says it is judged from a list |
 | Whisper mishears an amount ("18 ribu" as "80 ribu") | A wrong expense and wallet balance in tepira | The code asks first, naming the amount, what for, and the wallet, and only Master's next plain yes records it; at most 5 juta; tepira deduplicates repeats for 2 minutes; `undo_expense` within 15 minutes |
-| Finance figures spoken or pushed when nobody asked | Money said in front of guests or sent to ntfy | Tools only when asked (descriptions, persona); the briefing turn gets an error from every finance tool in code; no finance in any notice; `tepira.enabled: false` with guests |
+| Finance figures spoken or pushed when nobody asked | Money said in front of guests or sent to ntfy | Tools only when asked (descriptions, persona); the briefing turn gets an error from every finance tool in code; no finance in any notice; `tepira.enabled: false` with guests, or guest mode (v1.36) |
 | The weekly report's HoYoLAB and history reads hang | Her turn, and so the microphone, waits too long | One 30 s budget for every read: a late section says its time ran out and the rest is told; the history is refreshed only for games with a stored history, never imported for the first time |
 | Play time tracking touches a game's anti-cheat (mhyprot, HoYoKProtect) | An account flag or a game that refuses to start | Only the process snapshot, which names processes without opening them; never `OpenProcess`, a module or thread snapshot, or WMI on a game; written in SPEC and in `processes.py` |
 | Journal entries spoken, pushed, or remembered when nobody asked | Private notes said in front of guests or sent away | Tools only when asked (descriptions, persona); the greeting and weekly report turns get an error from both tools in code; the nightly question has no push and cannot write; never in the system prompt or memory unless Master asks |
+| Guest mode leaves something private reachable | Master's money, journal, tasks, or memory said in front of guests | One shared refusal in `run_tool` for a fixed list, a test that sorts every tool of a full request, a new session without the remembered facts at the next turn, the briefing reduced and the private self-started turns dropped; the switching turn and the fixed announcements are documented limits |
 
 ## Open Questions
 

@@ -1765,3 +1765,85 @@ named `tests/test_<package>_<module>.py`.
 - [x] README "Tombol cepat di HP" in "Cyrene di HP" (the PC is never a button), checklist items; `config.example.yaml` documents `quick_actions`; CHANGELOG v1.35; full suite, JS tests, and ruff clean
 
 **Dependencies:** 182, 184 · **Files:** `README.md`, `CHANGELOG.md`, `config.example.yaml`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
+
+## Task 186a: Mode tamu contract ✅
+
+**Acceptance criteria:**
+- [x] SPEC "mode tamu (v1.36)" (stories, non-goals with the CLI decision, the private tools and the allowed ones, `GuestMode`, the refusal, the new session, the guest section, `guest_mode`, the self-started turns, the phone, the CLI, known limits, privacy); tasks 186a-195 in the plan and here
+
+**Dependencies:** none · **Files:** `SPEC.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
+
+## Task 186: `guest_mode.max_hours`
+
+**Acceptance criteria:**
+- [ ] `guest_mode.max_hours` (6, 1-24), unknown keys refused; `config.example.yaml` documents it and its block is valid once written out
+
+**Dependencies:** 186a · **Files:** `src/waifu/config.py`, `config.example.yaml`, `tests/test_config.py`, `tests/test_cli.py` · **Scope:** S
+
+## Task 187: `GuestMode`
+
+**Acceptance criteria:**
+- [ ] `turn_on` sets `until` to the earlier of `max_hours` from now and the next 05:00 strictly after now; again while on renews it; `turn_off` ends it; both say whether anything changed
+- [ ] `is_on` ends it at `until` (logged); `generation` moves on every on, off, and automatic end, never on a renewal; `status` reports on and until
+- [ ] `refusal(name)` refuses exactly the private tools while on; `PRIVATE_TOOLS` matches each module's constant
+
+**Dependencies:** 186 · **Files:** `src/waifu/guest.py`, `tests/test_guest.py` · **Scope:** S
+
+## Task 188: The refusal and the new session
+
+**Acceptance criteria:**
+- [ ] `run_tool(..., refusal=)` answers a refused call with an error and runs nothing, before the confirmation gate
+- [ ] Both brains pass `tool_refusal` to every call; with `session_marker`, a turn after the marker changed starts a new session, also while a question awaits Master's yes (which is forgotten); an unchanged marker keeps the session
+
+**Dependencies:** 187 · **Files:** `src/waifu/brain/tools.py`, `src/waifu/brain/claude.py`, `src/waifu/brain/ollama_brain.py`, `tests/test_brain_tools.py`, `tests/test_brain_claude.py`, `tests/test_brain_ollama.py` · **Scope:** M
+
+## Task 189: The guest section
+
+**Acceptance criteria:**
+- [ ] `build_brain(guest_mode=)` hands the brain guest mode's refusal and generation; while guest mode is on a session's prompt ends with the guest section instead of the memory section (the facts unread), with or without memory; off, as before
+
+**Dependencies:** 188 · **Files:** `src/waifu/brain/factory.py`, `tests/test_brain_factory.py` · **Scope:** S
+
+## Task 190: `GuestTools`
+
+**Acceptance criteria:**
+- [ ] `guest_mode {on?}` is non-strict with a static description; on, off, and status answer `{on, until, message}` in Indonesian; bad arguments are an error
+
+**Dependencies:** 187 · **Files:** `src/waifu/brain/guest_tools.py`, `tests/test_brain_guest_tools.py` · **Scope:** S
+
+## Task 191: The briefing in guest mode
+
+**Acceptance criteria:**
+- [ ] While guest mode is on `daily_briefing` has no tasks and no reminder entries, and keeps the weather and the device and routine entries; off, as before
+
+**Dependencies:** 187 · **Files:** `src/waifu/briefing.py`, `tests/test_briefing.py` · **Scope:** S
+
+## Task 192: Private requests
+
+**Acceptance criteria:**
+- [ ] `ask_aloud(..., private=True)` is dropped before its turn while guest mode is on (no reset, nothing said or passed on, logged without the prompt), and answered as before when it is off; a request that is not private is answered in guest mode
+
+**Dependencies:** 186a · **Files:** `src/waifu/app.py`, `tests/test_app.py` · **Scope:** S
+
+## Task 193: Wiring and the check line
+
+**Acceptance criteria:**
+- [ ] `run` and `chat` give the brain `GuestTools` first and `build_brain(guest_mode=)`; `run` hands the same guest mode to the briefing tool and the Assistant, and marks the journal and weekly report requests private
+- [ ] `waifu check` says how guest mode is switched and when it ends, with a warning when speaker verification is off
+- [ ] The strict budget test names `guest_mode` as non-strict; every tool of a full request is either private or allowed in guest mode
+
+**Dependencies:** 189, 190, 191, 192 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** M
+
+## Task 194: The persona section
+
+**Acceptance criteria:**
+- [ ] Both personas have the same "Mode tamu:" section before "Keuangan Master:", naming `guest_mode` with on true, on false, and without on, and never bringing up Master's private things while it is on
+
+**Dependencies:** 190 · **Files:** `config/persona.md`, `config/persona_hsr.md`, `tests/test_brain_persona.py` · **Scope:** S
+
+## Task 195: Docs
+
+**Acceptance criteria:**
+- [ ] README "Mode tamu" with a contents entry, checklist items, and a Privasi bullet; the tepira guest advice points to it; CHANGELOG v1.36; full suite and ruff clean
+
+**Dependencies:** 193, 194 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
