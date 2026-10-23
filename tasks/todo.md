@@ -2124,12 +2124,12 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 220, 221, 222 · **Files:** `src/waifu/brain/prayer_tools.py`, `tests/test_prayer_tools.py` · **Scope:** M
 
-## Task 224: `PrayerWatcher`
+## Task 224: `PrayerWatcher` ✅
 
 **Acceptance criteria:**
-- [ ] A prayer in `remind` is said once from `minutes_before` before its time until 30 minutes after it ("sudah masuk waktu", or the minutes left), through `remind` with `neutral`, and pushed with the mosque tag when it has a notifier; either may fail without stopping the other
-- [ ] The told prayers are written to the state file before she says them, so a restart within the window says nothing; another day's file counts as nothing told; a broken file is moved aside; a file that cannot be read or written is logged and she still says it once
-- [ ] A place that cannot be found is never said, logged once at WARNING, retried after 15 minutes; a daemon thread "prayer-watcher" polls at once and every 30 s, stops at once, and starts only once
+- [x] A prayer in `remind` is said once from `minutes_before` before its time until 30 minutes after it ("sudah masuk waktu", or the minutes left), through `remind` with `neutral`, and pushed with the mosque tag when it has a notifier; either may fail without stopping the other
+- [x] The told prayers are written to the state file before she says them, so a restart within the window says nothing; another day's file counts as nothing told; a broken file is moved aside; a file that cannot be read or written is logged and she still says it once
+- [x] A place that cannot be found is never said, logged once at WARNING, retried after 15 minutes; a daemon thread "prayer-watcher" polls at once and every 30 s, stops at once, and starts only once
 
 **Dependencies:** 220, 221, 222 · **Files:** `src/waifu/prayer_watch.py`, `tests/test_prayer_watch.py` · **Scope:** M
 
