@@ -1786,6 +1786,7 @@ named `tests/test_<package>_<module>.py`.
 - [x] `turn_on` sets `until` to the earlier of `max_hours` from now and the next 05:00 strictly after now; again while on renews it; `turn_off` ends it; both say whether anything changed
 - [x] `is_on` ends it at `until` (logged); `generation` moves on every on, off, and automatic end, never on a renewal; `status` reports on and until
 - [x] `refusal(name)` refuses exactly the private tools while on; `PRIVATE_TOOLS` matches each module's constant
+- [x] Fix pass: `game_events` is private (it carries Master's event progress, Polychrome earned, and endgame stars, not just a calendar); `focus_timer` is not (a block started before the guests came must still stop), with a test that stops one through the dispatcher in guest mode
 
 **Dependencies:** 186 · **Files:** `src/waifu/guest.py`, `tests/test_guest.py` · **Scope:** S
 
@@ -1831,6 +1832,7 @@ named `tests/test_<package>_<module>.py`.
 - [x] `run` and `chat` give the brain `GuestTools` first and `build_brain(guest_mode=)`; `run` hands the same guest mode to the briefing tool and the Assistant, and marks the journal and weekly report requests private
 - [x] `waifu check` says how guest mode is switched and when it ends, with a warning when speaker verification is off
 - [x] The strict budget test names `guest_mode` as non-strict; every tool of a full request is either private or allowed in guest mode
+- [x] Fix pass: the open list drops `game_events` and adds `focus_timer`; a full chat request carries every private tool
 
 **Dependencies:** 189, 190, 191, 192 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** M
 
@@ -1845,5 +1847,6 @@ named `tests/test_<package>_<module>.py`.
 
 **Acceptance criteria:**
 - [x] README "Mode tamu" with a contents entry, checklist items, and a Privasi bullet; the tepira guest advice points to it; CHANGELOG v1.36; full suite and ruff clean
+- [x] Fix pass: SPEC, README, CHANGELOG, `config.example.yaml`, the guest section, and the `guest_mode` description sort `game_events` as closed and the focus timer as open; README says `waifu check` warns only for `speaker.enabled: false`, since it cannot see `waifu run --no-speaker-check`
 
 **Dependencies:** 193, 194 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
