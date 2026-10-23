@@ -260,6 +260,19 @@ def test_other_user32_functions_still_work():
     assert ctypes.windll.user32.GetSystemMetrics(sm_cxscreen) > 0
 
 
+def test_reading_the_owner_s_real_input_through_user32_is_refused(refused_system_calls):
+    if not hasattr(ctypes, "WinDLL"):
+        pytest.skip("user32 only exists on Windows")
+    # Refused as soon as the function is looked up: the break reminder tests would otherwise
+    # pass or fail by whether the owner is at the keyboard.
+    with pytest.raises(AssertionError, match="GetLastInputInfo"):
+        _ = ctypes.WinDLL("user32", use_last_error=True).GetLastInputInfo
+    with pytest.raises(AssertionError, match="GetLastInputInfo"):
+        _ = ctypes.windll.user32.GetLastInputInfo
+    assert refused_system_calls == ["user32.GetLastInputInfo"] * 2
+    refused_system_calls.clear()  # these were on purpose
+
+
 def test_listing_the_real_processes_through_kernel32_is_refused(refused_system_calls):
     if not hasattr(ctypes, "WinDLL"):
         pytest.skip("kernel32 only exists on Windows")
