@@ -5025,7 +5025,8 @@ bilang singkat bahwa itu ditutup dulu selama ada tamu:
   catatan Master tidak bisa dihapus;
 - daftar tugas (semuanya);
 - jam main dan teman fokus;
-- akun game: status, riwayat pull, pendapatan, karakter, endgame, laporan mingguan, dan kode
+- akun game: status, riwayat pull, pendapatan, karakter, endgame, jadwal banner dan event
+  (jawabannya memuat progres event dan bintang endgame Master), laporan mingguan, dan kode
   redeem;
 - daftar jadwal dan membatalkan jadwal (isinya teks pengingat Master);
 - biaya API Claude;
@@ -5035,8 +5036,7 @@ bilang singkat bahwa itu ditutup dulu selama ada tamu:
 
 - Perangkat rumah (mematikan PC tetap dengan konfirmasi), rutinitas, menambah jadwal atau
   pengingat, lagu di YouTube, kesehatan PC, cuaca dan ringkasan hari (tanpa tugas dan teks
-  pengingat), promo gratis, jadwal banner dan event game (kalender umum), pencarian web, dan
-  obrolan biasa.
+  pengingat), promo gratis, pencarian web, dan obrolan biasa.
 - [Tombol cepat di HP](#tombol-cepat-di-hp): tombolnya mengendalikan perangkat tanpa otak
   Cyrene.
 - Perintah terminal (`waifu todo`, `waifu jurnal`, `waifu tepira`, dan lainnya): terminal milik

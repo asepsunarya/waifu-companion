@@ -14278,7 +14278,7 @@ def optional_parameters(schema: dict) -> int:
 
 
 # The tools guest mode leaves open: the house, the day, songs, the PC's health, the free
-# offers, the public game calendar, web search, and guest mode itself.
+# offers, web search, and guest mode itself.
 OPEN_TO_GUESTS = frozenset(
     {
         "control_device",
@@ -14290,7 +14290,6 @@ OPEN_TO_GUESTS = frozenset(
         "pc_health",
         "free_offers",
         "send_offer_link",
-        "game_events",
         "web_search",
         "guest_mode",
     }

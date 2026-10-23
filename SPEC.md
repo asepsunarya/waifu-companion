@@ -1653,12 +1653,12 @@ The private tools (refused while guest mode is on): a tool that reads or writes 
 - Memory: `remember`, `forget` (a guest's fact must not be saved as Master's, `forget` would delete Master's notes, and its result repeats the note; the notes reach the model only through the prompt, see below).
 - To-do list: `add_task`, `list_tasks`, `complete_task`, `reopen_task`, `remove_task`, `edit_task`.
 - Play and focus time: `play_time`, `focus_timer`.
-- Game accounts: `game_status`, `gacha_history`, `gacha_income`, `game_characters`, `game_endgame`, `weekly_report`, `redeem_codes`, `redeem_codes_list` (the list holds the outcomes on Master's account).
+- Game accounts: `game_status`, `gacha_history`, `gacha_income`, `game_characters`, `game_endgame`, `game_events` (not a public calendar: it is read from Master's HoYoLAB account and carries his progress in each running event, the Polychrome he earned from it, and his stars in each endgame window), `weekly_report`, `redeem_codes`, `redeem_codes_list` (the list holds the outcomes on Master's account).
 - Schedule list: `list_schedules` (its reminder texts), `cancel_schedule` (would cancel Master's entries).
 - API cost: `api_usage`.
 - Screen: `look_at_screen` (the PC screen may show private things).
 
-Still allowed: `control_device` (the PC's power still with Master's yes, v1.9) and `list_devices`, `run_routine`, `schedule` (adding an entry), `play_youtube`, `pc_health` (CPU, GPU, disk), `free_offers`, `send_offer_link`, `game_events` (the public calendar), Claude's `web_search`, `guest_mode`, `daily_briefing` (reduced, below), and plain chat. A test lists every tool of a request with every feature on and fails for a tool on neither list, so a new tool must be sorted.
+Still allowed: `control_device` (the PC's power still with Master's yes, v1.9) and `list_devices`, `run_routine`, `schedule` (adding an entry), `play_youtube`, `pc_health` (CPU, GPU, disk), `free_offers`, `send_offer_link`, Claude's `web_search`, `guest_mode`, `daily_briefing` (reduced, below), and plain chat. A test lists every tool of a request with every feature on and fails for a tool on neither list, so a new tool must be sorted.
 
 Config `guest_mode`: `max_hours` (6, 1-24). Nothing else: guest mode is always available.
 

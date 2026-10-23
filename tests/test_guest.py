@@ -181,13 +181,22 @@ def test_every_private_tool_is_refused_while_it_is_on(tool):
 
 
 @pytest.mark.parametrize(
-    "tool", [CONTROL_DEVICE, LIST_DEVICES, RUN_ROUTINE, SCHEDULE, DAILY_BRIEFING, GAME_EVENTS]
+    "tool", [CONTROL_DEVICE, LIST_DEVICES, RUN_ROUTINE, SCHEDULE, DAILY_BRIEFING]
 )
-def test_the_house_the_day_and_the_public_calendar_are_never_refused(tool):
+def test_the_house_and_the_day_are_never_refused(tool):
     guest = guest_mode(Clock(at(24, 20)))
     guest.turn_on()
 
     assert guest.refusal(tool) is None
+
+
+def test_the_game_calendar_is_refused_since_it_carries_master_s_own_progress():
+    # game_events answers with Master's event progress, Polychrome earned, and endgame stars,
+    # the same kind of data game_endgame and gacha_income are closed for.
+    guest = guest_mode(Clock(at(24, 20)))
+    guest.turn_on()
+
+    assert guest.refusal(GAME_EVENTS) == GUEST_REFUSAL
 
 
 def test_the_refusal_ends_with_guest_mode():
@@ -218,6 +227,7 @@ def test_the_private_tools_are_master_s_own_records_and_accounts():
         GACHA_INCOME,
         GAME_CHARACTERS,
         GAME_ENDGAME,
+        GAME_EVENTS,
         WEEKLY_REPORT,
         REDEEM_CODES,
         REDEEM_CODES_LIST,

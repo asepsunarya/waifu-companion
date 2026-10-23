@@ -58,6 +58,7 @@ PRIVATE_TOOLS = frozenset(
         "gacha_income",
         "game_characters",
         "game_endgame",
+        "game_events",  # Master's event progress and endgame stars, not just the calendar
         "weekly_report",
         "redeem_codes",
         "redeem_codes_list",
