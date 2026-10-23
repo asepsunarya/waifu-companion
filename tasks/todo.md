@@ -2034,11 +2034,11 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** none · **Files:** `SPEC.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
 
-## Task 214: The activity reader and its guard
+## Task 214: The activity reader and its guard ✅
 
 **Acceptance criteria:**
-- [ ] `tests/conftest.py` refuses `user32.GetLastInputInfo` (through `WinDLL` and `windll`) and records it; `GetTickCount64` and the other user32 functions still work
-- [ ] `read_input_idle` reads the last input, then the tick count, and gives the milliseconds since the last input, across the 49.7-day wrap of `dwTime`, 0 for input between the two calls, and an `OSError` when Windows refuses; it loads user32 and kernel32 with their documented signatures at every call, and the real reader hits the suite's refusal
+- [x] `tests/conftest.py` refuses `user32.GetLastInputInfo` (through `WinDLL` and `windll`) and records it; `GetTickCount64` and the other user32 functions still work
+- [x] `read_input_idle` reads the last input, then the tick count, and gives the milliseconds since the last input, across the 49.7-day wrap of `dwTime`, 0 for input between the two calls, and an `OSError` when Windows refuses; it loads user32 and kernel32 with their documented signatures at every call, and the real reader hits the suite's refusal
 
 **Dependencies:** 214a · **Files:** `tests/conftest.py`, `tests/test_safety_guard.py`, `src/waifu/input_idle.py`, `tests/test_input_idle.py` · **Scope:** S
 
