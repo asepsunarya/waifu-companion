@@ -2097,6 +2097,7 @@ named `tests/test_<package>_<module>.py`.
 - [x] `solar_noon` and `sun_at_altitude` agree with NOAA's independent fractional-year formulas within a minute for every day of a year in Jakarta and Bandung
 - [x] `prayer_times` gives Kemenag's schedule for Jakarta within 2 minutes on 3+ dates, Dzuhur about 11:39 in early November and 12:09 in mid-February; the ihtiyath is added and rounded up, terbit has it subtracted and rounded down, imsak is Subuh minus 10 minutes
 - [x] Far north: no Subuh, Isya, or imsak at 60°N at the June solstice (Dzuhur and Maghrib sane), no terbit, Ashar, or Maghrib in a polar night
+- [x] Fix pass: the SPEC says Subuh goes from about 46.6°N and Isya from about 48.6°N at the June solstice (it said both from 48.6°), and a test pins the three bands at 46.4°, 47.5°, and 48.7°N
 
 **Dependencies:** 220a · **Files:** `src/waifu/prayer_times.py`, `tests/test_prayer_times.py` · **Scope:** M
 
@@ -2121,6 +2122,7 @@ named `tests/test_<package>_<module>.py`.
 **Acceptance criteria:**
 - [x] Today's or a given day's times for the place as "HH:MM" (null where none), with the place, weekday, method, and ihtiyath; a date not YYYY-MM-DD, unknown keys, or a day more than 366 days away refused; a place that cannot be found is an error with its message; never raises
 - [x] Refused in the morning greeting, the weekly report, and the journal question; the spec is static and non-strict
+- [x] Fix pass: a place known only by its coordinates (`PrayerPlace(named=False)`) gets a null `place`, which the description says not to name, so the coordinates never reach the model; for the schedule the description asks for the five prayers, imsak or terbit only when Master asks for them
 
 **Dependencies:** 220, 221, 222 · **Files:** `src/waifu/brain/prayer_tools.py`, `tests/test_prayer_tools.py` · **Scope:** M
 
@@ -2140,6 +2142,7 @@ named `tests/test_<package>_<module>.py`.
 - [x] `prayer_times` is sorted as open to guests and non-strict in the every-tool test
 - [x] `waifu sholat [YYYY-MM-DD]` prints the times, warns while off, and exits 1 without a place or when the lookup fails
 - [x] `waifu check` shows the prayer line right after the break reminder line, and a moved state file
+- [x] Fix pass: `prayer` coordinates are named by `briefing.city` as the weather names them (`waifu sholat` prints `Waktu sholat di Bandung, ...`), any place without a city is not `named`, and the check line writes `untuk Bandung (-6.9175, 107.6191)` with both
 
 **Dependencies:** 223, 224 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** M
 
