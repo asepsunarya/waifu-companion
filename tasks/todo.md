@@ -1942,9 +1942,9 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 203 · **Files:** `src/waifu/app.py`, `tests/test_app.py`, `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** S
 
-## Task 205: Docs
+## Task 205: Docs ✅
 
 **Acceptance criteria:**
-- [ ] README "Ulangi" with a contents entry, an example in "Pemakaian sehari-hari", and checklist items; CHANGELOG v1.38; full suite and ruff clean
+- [x] README "Ulangi" with a contents entry, an example in "Pemakaian sehari-hari", and checklist items; CHANGELOG v1.38; full suite and ruff clean
 
 **Dependencies:** 204 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S

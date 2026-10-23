@@ -4,6 +4,21 @@ Ringkasan per versi, yang terbaru di atas. Rinciannya ada di README (bagian yang
 setiap versi) dan di SPEC.md. Setelah memperbarui, **mulai ulang `waifu run`** supaya semuanya
 aktif, lalu jalankan `waifu check`.
 
+## v1.38: ulangi
+
+- "Cyrene, ulangi" (atau "tadi bilang apa?", "apa tadi?", "sekali lagi", "maaf, apa?", "hah?")
+  membuatnya mengucapkan kalimat terakhirnya di PC lagi, kata per kata dan dengan ekspresi yang
+  sama, seketika dan tanpa bertanya ke otaknya (tanpa token). Dalam 8 detik sesudah dia bicara
+  tidak perlu memanggil namanya.
+- Yang diulang: jawabannya, pengingat dan pengumuman yang dia ucapkan sendiri, dan sapaan pagi.
+  Ucapan dengan kata lain ("ulangi lagunya", "putar sekali lagi") tetap dijawab otaknya seperti
+  biasa, dan "sekali lagi" hanya mengulang kata-katanya, tidak menjalankan perintahnya lagi.
+- Pertanyaan konfirmasi (mematikan PC, mencatat pengeluaran) bisa diulang tanpa terjawab: "iya"
+  sesudahnya tetap menjalankannya.
+- Begitu mode tamu menyala, mati, atau berakhir sendiri, kalimat sebelumnya dilupakan. Di HP
+  kalimatnya sudah tertulis, jadi "ulangi" di HP dijawab otaknya seperti pesan lain. README:
+  "Ulangi".
+
 ## v1.37: volume suaraku
 
 - Suara Cyrene di PC punya volume sendiri: "Cyrene, kecilkan suaramu" / "keraskan suaramu"

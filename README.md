@@ -56,6 +56,7 @@ Cyrene : "Komputer mau kumatikan sekarang, Master? Jawab iya kalau jadi." (minta
 - [Pencarian web dan promo gratis](#pencarian-web-dan-promo-gratis)
 - [Keuangan dari tepira](#keuangan-dari-tepira)
 - [Mode tamu](#mode-tamu)
+- [Ulangi](#ulangi)
 - [Pemecahan masalah](#pemecahan-masalah)
 - [Checklist uji perangkat keras](#checklist-uji-perangkat-keras)
 - [Privasi](#privasi)
@@ -519,7 +520,8 @@ yang akan dijalankan oleh "iya"-mu.
 2. Jawab di ucapanmu berikutnya, paling lambat sekitar 40 detik setelah dia selesai
    bertanya: batasnya satu menit sejak perintahnya ditahan, dan waktu dia menyusun lalu
    mengucapkan pertanyaannya ikut terhitung. Dalam 8 detik pertama setelah dia selesai
-   bicara, "iya" saja sudah cukup; setelah itu "Cyrene, iya".
+   bicara, "iya" saja sudah cukup; setelah itu "Cyrene, iya". Kalau pertanyaannya kurang
+   jelas, "ulangi" mengulangnya tanpa dihitung sebagai jawaban (lihat [Ulangi](#ulangi)).
 3. Jawaban dihitung **ya** hanya kalau berupa "iya" yang polos: diawali kata seperti
    *iya*, *ya*, *boleh*, *oke*, *lanjut*, *betul*, *silakan*, *gas*, *yakin*, *siap*,
    *yaudah*, atau はい, lalu paling banyak diikuti kata yang mengulang perintahnya
@@ -689,6 +691,8 @@ Contoh kalimat saat `waifu run`:
 - "Cyrene?" saja: dia menjawab "はい、Master?" dan menunggu perintah berikutnya.
 - Setelah dia menjawab, selama 8 detik (`assistant.followup_seconds`) kamu bisa
   lanjut tanpa memanggil namanya: "terus nyalakan TV juga".
+- "Ulangi" atau "tadi bilang apa?" dalam 8 detik itu: dia mengucapkan kalimatnya lagi,
+  seketika (lihat [Ulangi](#ulangi)).
 
 Obrolan dilupakan setelah 10 menit tanpa percakapan atau 40 giliran
 (`assistant.session_idle_minutes`, `assistant.max_session_turns`). Hal penting tentang
@@ -5217,6 +5221,82 @@ tidak melihat `--no-speaker-check`, dan barisnya tetap ✓.
 - Yang tidak ditutup mode tamu: pengingat dan pemberitahuan di atas, notifikasi HP yang memang
   dikirim fitur lain, perintah terminal, dan log (`Heard ...` tetap mencatat kalimat Master).
 
+## Ulangi
+
+Kalau Master tidak menangkap yang Cyrene ucapkan (AC berisik, sedang tidak memperhatikan),
+"Cyrene, ulangi" membuatnya mengucapkan kalimat terakhirnya lagi, kata per kata, seketika, tanpa
+bertanya ke otaknya (tanpa token dan tanpa menunggu). Selalu tersedia, dengan otak Ollama maupun
+Claude, tanpa pengaturan atau paket tambahan.
+
+```text
+Cyrene : "Besok hujan mulai jam tiga sore, Master. Jangan lupa payung."
+Master : "Hah?"
+Cyrene : "Besok hujan mulai jam tiga sore, Master. Jangan lupa payung."
+```
+
+### Kalimat yang dikenali
+
+Seluruh ucapan Master harus hanya permintaan mengulang. Namanya, "Master", dan kata seperti
+"dong", "deh", "ya", "coba", dan "tolong" boleh ikut ("tolong diulangi ya", "ulangi dong,
+Cyrene").
+
+- "ulangi", "ulangi lagi", "ulang lagi", "diulang", "diulangi", "bisa diulang?", "bisa
+  diulangi?"
+- "tadi bilang apa?", "tadi kamu bilang apa?", "kamu tadi bilang apa?", "kamu bilang apa
+  tadi?", "bilang apa tadi?", "apa tadi?"
+- "sekali lagi", "hah?", "maaf, apa?", dan semuanya dengan "maaf" di depan ("maaf, tadi bilang
+  apa?")
+
+Dalam 8 detik sesudah dia bicara (`assistant.followup_seconds`), "ulangi" saja cukup, tanpa
+namanya. Ucapan yang memuat kata lain tetap dijawab otaknya seperti biasa: "ulangi lagunya",
+"putar sekali lagi", "apa tadi lampunya sudah mati?", "tadi aku bilang apa?", dan juga "apa?"
+saja.
+
+### Yang diulang
+
+- Jawaban terakhirnya untuk Master di PC, dengan ekspresi avatar yang sama.
+- Yang dia ucapkan sendiri sekaligus: pengingat, kabar game, peringatan hujan, dan pemberitahuan
+  lain, juga jawabannya untuk sapaan pagi atau pertanyaan malam jurnal.
+- Jawaban yang dipotong (double-click pada avatar) atau gagal diucapkan diulang utuh.
+- Volumenya volume suaranya saat ini, termasuk mode bisik (lihat
+  [Volume suaraku](#volume-suaraku)).
+
+Yang tidak diulang: "はい、Master?" saat hanya dipanggil namanya, reaksi avatar saat dielus atau
+di-double-click, kalimat "Cyrene siap, Master." saat mulai, dan balasan di HP. Kalau belum ada
+yang bisa diulang, dia bilang "Belum ada yang bisa kuulangi, Master."
+
+"Sekali lagi" sesudah "Sudah, Master." hanya mengulang kata-katanya, tidak menjalankan
+perintahnya lagi. Untuk itu bilang "nyalakan lagi" atau "putar lagi lagunya". Otaknya juga tidak
+tahu Master minta diulang: obrolannya tetap seperti sebelum "ulangi".
+
+### Pertanyaan konfirmasi
+
+Saat dia bertanya "Komputer mau kumatikan sekarang, Master? Jawab iya kalau jadi." (lihat
+[Menyalakan dan mematikan PC](#menyalakan-dan-mematikan-pc)), "ulangi" mengulang pertanyaannya
+tanpa menjawabnya, dan "iya" sesudahnya tetap menjalankannya (dalam 8 detik sesudah pengulangan,
+tanpa nama). Begitu juga pertanyaan mencatat pengeluaran di [tepira](#keuangan-dari-tepira).
+Batas satu menit untuk menjawab tetap dihitung sejak perintahnya pertama kali ditahan.
+
+### Saat fokus, main game, dan mode tamu
+
+- Selama [teman fokus](#teman-fokus) atau [mode game](#mode-game) menahan pengumuman, "ulangi"
+  tetap dijawab. Pengumuman yang tertahan belum pernah diucapkan, jadi tidak ikut diulang, dan
+  tetap menunggu sampai fokus atau gamenya selesai.
+- Begitu [mode tamu](#mode-tamu) menyala, mati, atau berakhir sendiri (juga dari HP), yang dia
+  ucapkan sebelumnya dilupakan, dan "ulangi" dijawab "Belum ada yang bisa kuulangi": tamu tidak
+  bisa memintanya mengulang hal pribadi yang Master dengar sebelum mereka datang. Jawaban yang
+  menyalakan mode tamu itu sendiri bisa diulang. Dengan verifikasi suara mati, tamu bisa meminta
+  pengulangan apa yang dia ucapkan sejak mode tamu menyala.
+
+### Di HP
+
+Di [HP](#cyrene-di-hp) kalimatnya sudah tertulis di layar, jadi "ulangi" yang diketik atau
+diucapkan di HP dikirim ke otaknya seperti pesan lain (memakai satu giliran). Balasan di HP tidak
+pernah diulang di PC.
+
+Tidak ada yang disimpan atau dikirim: kalimat terakhirnya hanya diingat di memori selama
+`waifu run` berjalan, dan log hanya mencatat `Repeating what she said last`, tanpa isinya.
+
 ## Pemecahan masalah
 
 Log `waifu run` tampil di terminal dalam bahasa Inggris. Baris seperti
@@ -5905,6 +5985,18 @@ di sampingnya)
 - [ ] `logs\waifu.log` memuat `Guest mode on until ...`, `Refused tool 'finance_summary' before
       running it`, dan `Guest mode off`, tanpa isi jawaban keuangan.
 
+**Ulangi** (lihat [Ulangi](#ulangi))
+
+- [ ] "Cyrene, nyalakan lampu kamar", lalu "ulangi" dalam 8 detik: jawabannya diucapkan lagi
+      seketika, dan `logs\waifu.log` memuat `Repeating what she said last` tanpa baris `Tool`
+      baru.
+- [ ] Sesudah pengingat atau sapaan pagi, "Cyrene, tadi bilang apa?": pengumumannya diulang.
+- [ ] "Cyrene, ulangi lagunya": dia menjawab lewat otaknya seperti biasa.
+- [ ] "Cyrene, matikan komputer", lalu "ulangi": pertanyaannya diulang dan PC tetap menyala.
+      "Iya" sesudahnya memulai shutdown; batalkan dengan "Cyrene, batalkan".
+- [ ] "Cyrene, mode tamu", lalu "mode tamu selesai" dari chat HP, lalu di PC "Cyrene, ulangi":
+      dia bilang "Belum ada yang bisa kuulangi, Master."
+
 ## Privasi
 
 - **Suara tidak pernah keluar dari PC.** Rekaman mic, verifikasi suara, dan
@@ -6005,6 +6097,8 @@ di sampingnya)
 - **Mode tamu:** tidak menyimpan atau mengirim apa pun yang baru; hanya diingat selama
   `waifu run` berjalan. Pengingat yang Master pasang dan pemberitahuan lain tetap diucapkan
   selama mode tamu. Lihat [Privasi mode tamu](#privasi-mode-tamu).
+- **Ulangi:** kalimat terakhirnya hanya diingat di memori selama `waifu run` berjalan, dilupakan
+  begitu mode tamu menyala atau mati, dan tidak pernah dicatat di log. Lihat [Ulangi](#ulangi).
 - **Voiceprint adalah data biometrik.** `data/voiceprint.npy` (dan seluruh `data/`)
   ada di `.gitignore` dan tidak boleh di-commit atau dibagikan. Begitu juga
   `config.yaml` (local key Tuya) dan `models/`.

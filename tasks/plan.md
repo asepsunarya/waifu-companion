@@ -793,11 +793,11 @@ replies are never remembered. No tool, config, dependency, or persona change.
 - [x] Task 202: `is_repeat_request` (the strict phrase set)
 - [x] Task 203: the Assistant remembers her last words on the PC and repeats them without the brain
 - [x] Task 204: guest mode clears them (`guest_marker`, wiring in `run`)
-- [ ] Task 205: README "Ulangi", CHANGELOG
+- [x] Task 205: README "Ulangi", CHANGELOG
 
 ### Checkpoint: Ulangi
-- [ ] Python suite and ruff clean; no test played audio, spoke, or pushed; the strict-tool budget unchanged
-- [ ] By hand: a scratch Assistant with fakes repeats a reply, an announcement, and a confirmation question without a brain turn, and "iya" after the repeat confirms
+- [x] Python suite and ruff clean; no test played audio, spoke, or pushed; the strict-tool budget unchanged (2026-10-24: 9025 pytest; no tool, schema, or config changed, so 18 of 20 strict tools and 17 of 24 optional parameters stay)
+- [x] By hand (2026-10-24, a scratch script, nothing played): a real Assistant, WakeGate, and GuestMode with a real ClaudeBrain and ConfirmationGate over a scripted SDK-shaped client and mock devices; "Cyrene, ulangi" first said "Belum ada yang bisa kuulangi, Master."; "Cyrene, matikan komputer" asked its question (2 model requests), "hah?" said it again with no new request and no PC call, "iya" then ran the mock shutdown; a reminder said by `run` was repeated on "Cyrene, tadi bilang apa?"; after `turn_on()` of guest mode "Cyrene, ulangi" had nothing to repeat; 4 model requests in all, and the log showed "Repeating what she said last" and "Nothing to repeat" without the text
 - [ ] On the owner's PC: "Cyrene, ulangi" right after a reply says it again at once; "tadi bilang apa?" in the follow-up window too; "ulangi lagunya" still goes to the brain; after "mode tamu", "Cyrene, ulangi" says there is nothing to repeat
 
 ## Risks and Mitigations
