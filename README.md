@@ -5176,7 +5176,7 @@ bilang singkat bahwa itu ditutup dulu selama ada tamu:
   pemula dan berapa kata yang Master hafal bukan hal pribadi.
 - [Pengingat istirahat](#pengingat-istirahat): kalimatnya tidak menyebut hal pribadi.
 - [Waktu sholat](#waktu-sholat): jadwalnya dan pengingatnya. Waktu sholat untuk kota yang sudah
-  disebut cuaca bukan hal pribadi.
+  disebut cuaca bukan hal pribadi, dan koordinat rumah tidak pernah dia sebut.
 - [Tombol cepat di HP](#tombol-cepat-di-hp): tombolnya mengendalikan perangkat tanpa otak
   Cyrene.
 - Perintah terminal (`waifu todo`, `waifu jurnal`, `waifu tepira`, dan lainnya): terminal milik
@@ -5558,6 +5558,11 @@ Hanya `enabled: true` yang perlu ditulis; tanpa yang lain berlaku nilai di atas.
 - Kota dicari sekali lewat Open-Meteo, seperti untuk cuaca, saat pertama dibutuhkan (bukan saat
   `waifu run` mulai), lalu diingat sampai `waifu run` berhenti. Kota yang dicari adalah pusat
   kotanya, jadi waktunya bisa beda semenit dengan rumah di pinggir kota.
+- Nama tempat yang dia sebut adalah `briefing.city`, seperti untuk cuaca: dengan koordinat di
+  `prayer` dan `city: Bandung` dia bilang "di Bandung" (jadi pastikan keduanya menunjuk tempat
+  yang sama). Tanpa `city` dia tidak menyebut tempat: koordinatnya tidak pernah ada di jawaban
+  tool-nya, jadi tidak diucapkan dan tidak ikut ke API Anthropic. `waifu sholat` dan
+  `waifu check` tetap menampilkannya di terminal.
 - Tanpa satu pun, dia bilang lokasinya belum diatur.
 
 ### Bertanya
@@ -5588,11 +5593,13 @@ dan pertanyaan jurnal dia tidak membahasnya. `waifu chat` juga bisa ditanya.
 
 ### Melihat di terminal
 
-`waifu sholat` menampilkan waktu hari ini, `waifu sholat 2026-11-01` tanggal lain:
+`waifu sholat` menampilkan waktu hari ini, `waifu sholat 2026-11-01` tanggal lain (di sini
+dengan koordinat di `prayer` dan `briefing.city: Bandung`; tanpa `city`, baris pertamanya
+menyebut koordinatnya):
 
 ```text
 > waifu sholat
-Waktu sholat di -6.9175, 107.6191, Sabtu 24-10-2026 (WIB):
+Waktu sholat di Bandung, Sabtu 24-10-2026 (WIB):
   Imsak    03:58
   Subuh    04:08
   Terbit   05:22
@@ -5609,7 +5616,7 @@ dengan kode 1 kalau lokasinya belum diatur atau kotanya tidak bisa dicari.
 `waifu check` menampilkan salah satu baris ini (tanpa mencari kota):
 
 ```text
-✓ Waktu sholat: untuk Bandung, ihtiyath 2 menit, pengingat subuh, dzuhur, ashar, maghrib, isya
+✓ Waktu sholat: untuk Bandung (-6.9175, 107.6191), ihtiyath 2 menit, pengingat subuh, dzuhur, ashar, maghrib, isya
 ✓ Waktu sholat: untuk -6.9175, 107.6191, ihtiyath 2 menit, pengingat subuh, maghrib 10 menit sebelumnya, juga ke HP
 ✓ Waktu sholat: untuk Bandung, ihtiyath 2 menit, tanpa pengingat
 ! Waktu sholat: lokasi belum diatur (isi briefing.city, atau prayer.latitude dan prayer.longitude)
@@ -5639,14 +5646,16 @@ lagi); `waifu check` menunjuk file itu sampai dihapus.
 ### Mode tamu
 
 Mode tamu tidak mengubah apa pun: jadwalnya tetap bisa ditanya (waktu sholat untuk kota yang
-sudah disebut cuaca bukan hal pribadi), dan pengingatnya tetap diucapkan.
+sudah disebut cuaca bukan hal pribadi, dan koordinat rumah tidak pernah dia sebut), dan
+pengingatnya tetap diucapkan.
 
 ### Privasi waktu sholat
 
 Waktunya dihitung di PC ini; yang dikirim ke Open-Meteo hanya nama kota, seperti untuk cuaca
 (tidak ada sama sekali dengan koordinat). `data\prayer.json` hanya berisi tanggal dan pengingat
 mana yang sudah diucapkan hari itu, bukan apakah Master sholat. Dengan Claude, hasil tool-nya
-(nama tempat dan waktunya) ikut ke API Anthropic seperti obrolan biasa. Log INFO mencatat
+(nama kotanya, kalau ada, dan waktunya; tidak pernah koordinatnya) ikut ke API Anthropic seperti
+obrolan biasa. Log INFO mencatat
 kalimatnya (`Announcing: ...`) saat diucapkan, seperti pengingat lain. Kalimatnya ke `ntfy.sh`
 hanya dengan `prayer.push` dan notifikasi HP menyala.
 

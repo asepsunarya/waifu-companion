@@ -567,7 +567,7 @@ schedule:
 # prayer:
 #   enabled: false         # true: jadwal sholat saat ditanya dan pengingat waktu sholat
 #   latitude:              # misalnya -6.9175 (kosong = tempat di bagian briefing)
-#   longitude:             # misalnya 107.6191 (diisi bersama latitude)
+#   longitude:             # misalnya 107.6191 (diisi bersama latitude; namanya briefing.city)
 #   ihtiyath_minutes: 2    # menit pengaman yang ditambahkan ke tiap waktu sholat (0-5)
 #   remind: [subuh, dzuhur, ashar, maghrib, isya]  # sholat yang diingatkan ([] = tanpa pengingat)
 #   minutes_before: 0      # N menit sebelum waktunya (0 = tepat saat masuk waktu, paling lama 30)

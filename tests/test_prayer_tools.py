@@ -77,6 +77,7 @@ def test_the_description_says_where_the_times_come_from_and_how_to_speak_of_them
         "Kemenag RI method",
         "in WIB",
         "Without `date` it gives today's",
+        "`place` (null when the place has no name: then name no place)",
         "for example tomorrow's from the date in Master's message",
         "a null time means the sun does not reach that angle there on that day",
         "never times from memory",
@@ -128,6 +129,20 @@ def test_the_ihtiyath_set_by_master_is_used_and_told():
 
     assert answer["ihtiyath_minutes"] == 0
     assert {name: answer[name] for name in NAMES} == clocks(TODAY, BANDUNG, ihtiyath=0)
+
+
+def test_a_place_known_only_by_its_coordinates_is_never_named():
+    home = Location("-6.9175, 107.6191", -6.9175, 107.6191)
+    provider = PrayerTools(
+        PrayerPlace(lambda: home, named=False), ihtiyath_minutes=2, now=lambda: NOW
+    )
+
+    result, is_error = provider.run("prayer_times", {})
+
+    assert is_error is False
+    assert json.loads(result)["place"] is None
+    assert json.loads(result)["dzuhur"] == clocks(TODAY, home)["dzuhur"]
+    assert "6.9175" not in result and "107.6191" not in result
 
 
 def test_a_time_the_sun_never_reaches_is_null():

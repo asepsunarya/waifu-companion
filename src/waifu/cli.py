@@ -5068,16 +5068,19 @@ PRAYER_METHOD = "Metode Kemenag RI: Subuh -20°, Isya -18°, Ashar bayangan 1x, 
 def _prayer_place(config: AppConfig) -> PrayerPlace:
     """Where the prayer times are for: `prayer`'s coordinates, else the briefing's place (its
     coordinates, else its city, geocoded at the first use and kept); none without either.
-    Nothing is looked up here. The weather client logs its failures at DEBUG: the tool, the
-    watcher, and `waifu sholat` tell them themselves."""
+    Named by `briefing.city` as the weather names it; without a city the name is the
+    coordinates, so the place is not `named` and her tool never tells them. Nothing is looked
+    up here. The weather client logs its failures at DEBUG: the tool, the watcher, and
+    `waifu sholat` tell them themselves."""
     prayer = config.prayer
+    city = config.briefing.city
     if prayer.latitude is not None and prayer.longitude is not None:
         place = Location(
-            f"{prayer.latitude}, {prayer.longitude}", prayer.latitude, prayer.longitude
+            city or f"{prayer.latitude}, {prayer.longitude}", prayer.latitude, prayer.longitude
         )
-        return PrayerPlace(lambda: place)
+        return PrayerPlace(lambda: place, named=city is not None)
     weather = _weather_client(config.briefing, failure_level=logging.DEBUG)
-    return PrayerPlace(None if weather is None else weather.location)
+    return PrayerPlace(None if weather is None else weather.location, named=city is not None)
 
 
 @contextmanager
@@ -6208,6 +6211,8 @@ def _prayer_check(config: AppConfig) -> Check:
         return WARN, "Waktu sholat mati"
     if prayer.latitude is not None:
         place: str | None = f"{prayer.latitude}, {prayer.longitude}"
+        if config.briefing.city is not None:
+            place = f"{config.briefing.city} ({place})"
     else:
         place = _weather_place(config.briefing)
     if place is None:

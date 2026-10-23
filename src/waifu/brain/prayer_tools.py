@@ -8,7 +8,8 @@ spec is static English built once, so it stays byte-identical for the brain's li
 the prompt cache warm. It exists only while `prayer.enabled` is on, and it refuses in the turns
 she starts herself (the morning greeting, the weekly game report, and the nightly journal
 question), so she speaks of prayer only when Master asks. Guest mode leaves it open: the times
-and the city hold nothing private. `run` never raises.
+and the city hold nothing private, and a place known only by its coordinates is never named.
+`run` never raises.
 """
 
 from __future__ import annotations
@@ -104,7 +105,8 @@ class PrayerTools:
         times = prayer_times(day, place.latitude, place.longitude, ihtiyath_minutes=self._ihtiyath)
         clocks = {name: getattr(times, name) for name in _TIMES}
         return {
-            "place": place.place,
+            # A place known only by its coordinates goes unnamed: they may be Master's home.
+            "place": place.place if self._place.named else None,
             "date": day.isoformat(),
             "day": WEEKDAYS_ID[day.weekday()],
             "timezone": "WIB",
@@ -123,7 +125,8 @@ def _spec() -> ToolSpec:
             "by the Kemenag RI method (Subuh at -20°, Isya at -18°, Ashar with a shadow factor "
             "of 1) with Master's ihtiyath added, in WIB. Without `date` it gives today's; give "
             "`date` as YYYY-MM-DD for another day, for example tomorrow's from the date in "
-            "Master's message. It returns `place`, `date`, `day`, and `imsak`, `subuh`, `terbit` "
+            "Master's message. It returns `place` (null when the place has no name: then name "
+            "no place), `date`, `day`, and `imsak`, `subuh`, `terbit` "
             "(sunrise, the end of Subuh's time), `dzuhur`, `ashar`, `maghrib`, and `isya` as "
             "HH:MM; a null time means the sun does not reach that angle there on that day. Use "
             "only these times, never times from memory, and say only the ones Master asked "

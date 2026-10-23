@@ -12153,7 +12153,8 @@ def test_run_gives_the_brain_the_prayer_tool_right_after_the_briefing(
         MusicTools,
     ]
     answer = ask_prayer_times(brains[0])
-    assert (answer["place"], answer["date"]) == ("-6.9175, 107.6191", "2026-10-24")
+    # Without briefing.city the place has no name, and its coordinates are never told.
+    assert (answer["place"], answer["date"]) == (None, "2026-10-24")
     assert answer["dzuhur"] == f"{prayer_times(PRAYER_NOW.date(), -6.9175, 107.6191).dzuhur:%H:%M}"
 
 
@@ -12189,6 +12190,37 @@ def test_run_s_tool_and_reminders_look_the_city_up_once_and_not_at_startup(
     assert watcher.place.locate().place == "Bandung, Jawa Barat"
     assert len(open_meteo.queries(GEOCODING_HOST)) == 1
     assert open_meteo.queries(FORECAST_HOST) == []
+
+
+def test_the_prayer_tool_names_the_prayer_coordinates_by_the_briefing_city(
+    home, run_fakes, brains, prayer_clock, open_meteo
+):
+    write_out_example_briefing(home)
+    enable_prayer(home, AT_BANDUNG)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    answer = ask_prayer_times(brains[0])
+    assert answer["place"] == "Bandung"
+    assert answer["dzuhur"] == f"{prayer_times(PRAYER_NOW.date(), -6.9175, 107.6191).dzuhur:%H:%M}"
+    assert open_meteo.urls == []
+
+
+def test_the_prayer_tool_names_no_place_at_briefing_coordinates_without_a_city(
+    home, run_fakes, brains, prayer_clock, open_meteo
+):
+    append_config(home, "briefing:\n  enabled: false\n  latitude: -6.82\n  longitude: 107.14\n")
+    enable_prayer(home)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    result, is_error = prayer_tools(brains[0]).run("prayer_times", {})
+    assert is_error is False
+    answer = json.loads(result)
+    assert answer["place"] is None
+    assert answer["dzuhur"] == f"{prayer_times(PRAYER_NOW.date(), -6.82, 107.14).dzuhur:%H:%M}"
+    assert "-6.82" not in result and "107.14" not in result
+    assert open_meteo.urls == []
 
 
 def test_run_with_no_prayer_to_remind_offers_the_times_only(
@@ -12230,7 +12262,7 @@ def test_chat_offers_the_prayer_tool_and_never_reminds(
 
     assert cli.main(["chat", "--dry-run"]) == 0
 
-    assert ask_prayer_times(brains[0])["place"] == "-6.9175, 107.6191"
+    assert ask_prayer_times(brains[0])["place"] is None
     assert prayer_watchers == []
 
 
@@ -12279,7 +12311,7 @@ def test_sholat_finds_the_briefing_city(home, prayer_clock, open_meteo, capsys):
     assert len(open_meteo.queries(GEOCODING_HOST)) == 1
 
 
-def test_sholat_prefers_the_prayer_coordinates_to_the_briefing_city(
+def test_sholat_takes_the_prayer_coordinates_named_by_the_briefing_city(
     home, prayer_clock, open_meteo, capsys
 ):
     write_out_example_briefing(home)
@@ -12287,7 +12319,9 @@ def test_sholat_prefers_the_prayer_coordinates_to_the_briefing_city(
 
     assert cli.main(["sholat"]) == 0
 
-    assert capsys.readouterr().out.startswith("Waktu sholat di -6.9175, 107.6191, ")
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0] == "Waktu sholat di Bandung, Sabtu 24-10-2026 (WIB):"
+    assert lines[1:8] == expected_rows(date(2026, 10, 24), -6.9175, 107.6191)
     assert open_meteo.urls == []
 
 
@@ -12364,6 +12398,13 @@ def prayer_line(out: str) -> str:
             "ashar, maghrib, isya",
         ),
         (
+            AT_BANDUNG,
+            True,
+            False,
+            "✓ Waktu sholat: untuk Bandung (-6.9175, 107.6191), ihtiyath 2 menit, pengingat "
+            "subuh, dzuhur, ashar, maghrib, isya",
+        ),
+        (
             "  ihtiyath_minutes: 3\n  remind: [maghrib, subuh]\n  minutes_before: 10\n"
             "  push: true\n",
             True,
@@ -12385,7 +12426,15 @@ def prayer_line(out: str) -> str:
             "maghrib, isya",
         ),
     ],
-    ids=["off", "no-place", "coordinates", "everything", "no-reminders", "push-without-notify"],
+    ids=[
+        "off",
+        "no-place",
+        "coordinates",
+        "coordinates-and-city",
+        "everything",
+        "no-reminders",
+        "push-without-notify",
+    ],
 )
 def test_check_says_how_the_prayer_times_are_set_without_looking_the_place_up(
     settings, briefing, notify, expected, home, nothing_installed, capsys

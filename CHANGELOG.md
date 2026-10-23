@@ -12,7 +12,8 @@ aktif, lalu jalankan `waifu check`.
   PC ini tanpa internet dengan metode Kemenag RI (Subuh -20°, Isya -18°, Ashar Syafi'i,
   ihtiyath 2 menit yang bisa diatur), dalam WIB. Dia hanya menyebut waktunya, tanpa menasihati.
 - Tempatnya `prayer.latitude`/`longitude`, atau koordinat atau kota di bagian `briefing` (kota
-  dicari sekali lewat Open-Meteo, seperti untuk cuaca).
+  dicari sekali lewat Open-Meteo, seperti untuk cuaca). Nama tempat yang dia sebut adalah
+  `briefing.city`; koordinatnya tidak pernah dia sebut.
 - Selama `waifu run` dia bilang sekali saat masuk waktu tiap sholat di `remind` (bawaan kelimanya):
   "Sayang, sudah masuk waktu Dzuhur.", atau `minutes_before` menit sebelumnya. Seperti pengingat
   yang Master pasang sendiri, juga di tengah blok fokus atau saat main game. Tidak diulang hari itu,
