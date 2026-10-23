@@ -13,11 +13,12 @@ Every `POLL_S`, timed from the start of the previous poll and first right after 
 reads the activity, but never during a focus block (the focus timer has its own breaks) and never
 outside the active hours: then it reads nothing, and the stretch starts again afterwards. A line
 is said between utterances, once the follow-up window has closed, until `idle_reset_minutes`
-after it fell due (held longer, by a long talk, a game, or a focus block, it is dropped), and
-pushed to the phone when the watcher has a notifier. A failed read is never said and starts the
-stretch again: the first of a run of failures is logged at WARNING, and the next poll tries
-again. When Master is at the PC is his own: the stretch and the line are logged at DEBUG only.
-The stretch lives only in this process, so a restart counts from zero. Nothing is raised.
+after the poll that gives it (held longer, by a long talk, a game, or a focus block, it is
+dropped), and pushed to the phone when the watcher has a notifier. A failed read is never said
+and starts the stretch again: the first of a run of failures is logged at WARNING, and the next
+poll tries again. When Master is at the PC is his own: the stretch and the line are logged at
+DEBUG only. The stretch lives only in this process, so a restart counts from zero. Nothing is
+raised.
 """
 
 from __future__ import annotations

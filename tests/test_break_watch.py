@@ -255,6 +255,19 @@ def test_the_line_is_out_of_date_once_a_break_s_length_has_passed_unsaid():
     assert (expires_at, game_expires_at) == (wall(63), None)
 
 
+def test_a_line_given_after_its_time_is_out_of_date_a_break_s_length_after_it_is_given():
+    # A pause from minute 56 until 60:55 spans the line's time; the poll at 61 gives it.
+    rig = Rig()
+    rig.at_the_keyboard(0, 56)
+    for minute in (56.5, 57, 57.5, 58, 58.5, 59, 59.5, 60, 60.5):
+        assert rig.poll(minute, (minute - 56) * 60) == []
+
+    assert rig.poll(61, 5) == [ONE_HOUR]
+
+    [(_, _, expires_at, _)] = rig.announced
+    assert expires_at == wall(61) + RESET
+
+
 def test_still_at_the_keyboard_an_hour_later_she_tells_two_hours():
     rig = Rig()
 
