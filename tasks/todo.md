@@ -1858,11 +1858,11 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** none · **Files:** `SPEC.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
 
-## Task 196: The gain and `VolumePlayer`
+## Task 196: The gain and `VolumePlayer` ✅
 
 **Acceptance criteria:**
-- [ ] `apply_volume` returns the clip itself at 100, scales it below, and above 100 scales it and soft-limits every sample (linear below the knee, below 0.98 always, monotonic), float32 kept, silence silent
-- [ ] `VolumePlayer` plays the gained clip through the player it wraps, reading the level at every clip, and passes `stop` and both answers through
+- [x] `apply_volume` returns the clip itself at 100, scales it below, and above 100 scales it and soft-limits every sample (linear below the knee, below 0.98 always, monotonic), float32 kept, silence silent
+- [x] `VolumePlayer` plays the gained clip through the player it wraps, reading the level at every clip, and passes `stop` and both answers through
 
 **Dependencies:** 196a · **Files:** `src/waifu/voice/volume.py`, `tests/test_voice_volume.py` · **Scope:** S
 

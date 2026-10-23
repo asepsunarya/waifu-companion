@@ -766,7 +766,7 @@ her. Whisper mode is switched by voice; the config holds only its window (`from`
 night?}`, open in guest mode; the media device's line points "suaramu" to it. No persona line, no
 new dependency; 18 of 20 strict tools and 17 of 24 optional parameters stay.
 - [x] Task 196a: contract: SPEC, tasks
-- [ ] Task 196: `apply_volume` (the gain and the soft limiter) and `VolumePlayer`
+- [x] Task 196: `apply_volume` (the gain and the soft limiter) and `VolumePlayer`
 - [ ] Task 197: the `voice` config (the whisper window), `config.example.yaml`
 - [ ] Task 198: `VoiceLevel` (the state file, the steps, the whisper window, `level_now`)
 - [ ] Task 199: `VoiceVolumeTools` (`voice_volume`) and the media device's line
