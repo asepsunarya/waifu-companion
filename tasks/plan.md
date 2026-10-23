@@ -712,7 +712,7 @@ page shows only its own texts for an error status. No brain tool, tool parameter
 - [x] Task 179a: contract: SPEC, tasks
 - [x] Task 179: `phone.quick_actions` and its validation
 - [x] Task 180: `QuickActions` (the buttons, `find`, `run`)
-- [ ] Task 181: `GET /actions` and `POST /action` (`RollingLimit` made public)
+- [x] Task 181: `GET /actions` and `POST /action` (`RollingLimit` made public)
 - [ ] Task 182: wiring in `run`
 - [ ] Task 183: the page's pure helpers (`actions.js`, the problem kinds)
 - [ ] Task 184: the panel (HTML, CSS, `phone.js`, the service worker)

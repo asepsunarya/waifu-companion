@@ -31,8 +31,12 @@ from urllib.parse import urlsplit
 import numpy as np
 import pytest
 
-from waifu.config import AvatarConfig, PhoneConfig
+from waifu.config import AvatarConfig, PhoneConfig, RoutineConfig, RoutineStep
+from waifu.devices.base import DeviceError, DeviceResult
+from waifu.devices.mock import MockDevice
+from waifu.devices.registry import DeviceRegistry
 from waifu.phone import server as phone_server
+from waifu.phone.actions import QuickActions
 from waifu.phone.auth import CODE_LIFETIME, PhoneAuth
 from waifu.phone.server import PhoneBackend, PhoneError, PhoneReply, PhoneServer
 
@@ -227,6 +231,7 @@ def serve(web_root: Path, live2d_config: AvatarConfig, auth: PhoneAuth) -> Itera
         name: str = "Cyrene",
         clock: Callable[[], float] = time.monotonic,
         camera_max_side: int | None = None,
+        actions: QuickActions | None = None,
     ) -> PhoneServer:
         server = PhoneServer(
             config or make_phone_config(),
@@ -238,6 +243,7 @@ def serve(web_root: Path, live2d_config: AvatarConfig, auth: PhoneAuth) -> Itera
             web_root=web_root,
             clock=clock,
             camera_max_side=camera_max_side,
+            actions=actions,
         )
         started.append(server)
         server.start()
@@ -927,6 +933,7 @@ def test_a_unc_path_is_refused_before_it_is_ever_resolved(
 
 PROTECTED_PATHS = [
     "/config.json",
+    "/actions",
     "/live2d.js",
     "/avatar.js",
     "/logic.js",
@@ -2472,11 +2479,449 @@ def test_a_failed_answer_frees_the_device(serve: Serve, auth: PhoneAuth) -> None
     assert chat(server, token)[0] == 200
 
 
+# --- quick buttons ---------------------------------------------------------------------------
+
+
+AC_COMMANDS = ["on", "off", *(f"temp_{degrees}" for degrees in range(16, 31))]
+LAMP_BUTTONS = [
+    {"id": "dev.lampu_kamar.on", "label": "Nyala"},
+    {"id": "dev.lampu_kamar.off", "label": "Mati"},
+    {"id": "dev.lampu_kamar.toggle", "label": "Nyala/mati"},
+    {"id": "dev.lampu_kamar.brightness.10", "label": "10%"},
+    {"id": "dev.lampu_kamar.brightness.30", "label": "30%"},
+    {"id": "dev.lampu_kamar.brightness.60", "label": "60%"},
+    {"id": "dev.lampu_kamar.brightness.100", "label": "100%"},
+]
+TIDUR = RoutineConfig(
+    description="Mode tidur",
+    steps=[
+        RoutineStep(device="lampu_kamar", command="off"),
+        RoutineStep(device="ac", command="temp", value=26),
+    ],
+)
+
+
+class SlowDevice(MockDevice):
+    """A MockDevice whose commands wait for `release`; `entered` tells one has begun."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.entered = threading.Event()
+        self.release = threading.Event()
+
+    def execute(self, command: str, value: int | None = None) -> DeviceResult:
+        self.entered.set()
+        assert self.release.wait(CLIENT_TIMEOUT_S)
+        return super().execute(command, value)
+
+
+class UnreachableDevice(MockDevice):
+    def execute(self, command: str, value: int | None = None) -> DeviceResult:
+        raise DeviceError("Kipas tidak menjawab.")
+
+
+class BrokenSchedule:
+    """A schedule whose every new entry fails with an error nobody expects."""
+
+    def entries(self) -> list[Any]:
+        return []
+
+    def add(self, *args: Any) -> Any:
+        raise RuntimeError("the schedule broke")
+
+
+def quick_house(
+    routines: Mapping[str, RoutineConfig] | None = None, schedule: Any = None, **extra: MockDevice
+) -> tuple[dict[str, MockDevice], QuickActions]:
+    """The owner's house as mocks (a lamp, the AC, the PC and its plug, and `extra`), with the
+    quick buttons of its devices and of `routines` (by default the routine `tidur`)."""
+    devices: dict[str, MockDevice] = {
+        "lampu_kamar": MockDevice(
+            "lampu_kamar",
+            "Lampu kamar",
+            commands=["on", "off", "toggle", "brightness"],
+            kind="light",
+        ),
+        "ac": MockDevice("ac", "AC Samsung", commands=AC_COMMANDS, kind="ir"),
+        "komputer": MockDevice(
+            "komputer", "Komputer", commands=["wake", "shutdown", "restart", "sleep"], kind="pc"
+        ),
+        "colokan_pc": MockDevice(
+            "colokan_pc", "Colokan PC", commands=["on", "off", "toggle"], kind="plug"
+        ),
+        **extra,
+    }
+    registry = DeviceRegistry(list(devices.values()), pc_power_ids=["colokan_pc"])
+    routines = {"tidur": TIDUR} if routines is None else routines
+    return devices, QuickActions(registry, routines, schedule=schedule)
+
+
+def press(
+    server: PhoneServer, token: str | None, action_id: Any = "dev.lampu_kamar.on", **kwargs: Any
+) -> tuple[int, http.client.HTTPMessage, bytes]:
+    return post(server, "/action", {"id": action_id}, token=token, **kwargs)
+
+
+def all_calls(devices: Mapping[str, MockDevice]) -> list[tuple[Any, ...]]:
+    """Every command the house's devices were told, device by device."""
+    return [(name, *call) for name, device in devices.items() for call in device.calls]
+
+
+def test_a_paired_phone_gets_the_quick_buttons_never_cached(serve: Serve, auth: PhoneAuth) -> None:
+    _, actions = quick_house()
+    server = serve(actions=actions)
+
+    status, headers, body = request(server, "/actions", token=pair_device(auth))
+
+    assert status == 200
+    assert headers.get_content_type() == "application/json"
+    assert headers["Cache-Control"] == "no-store"
+    groups = json.loads(body)["groups"]
+    assert [group["name"] for group in groups] == ["Lampu kamar", "AC Samsung", "Rutinitas"]
+    assert groups[0]["actions"] == LAMP_BUTTONS
+    assert groups[2]["actions"] == [{"id": "rt.tidur", "label": "Mode tidur"}]
+    assert b"komputer" not in body and b"colokan_pc" not in body
+
+
+def test_without_quick_actions_there_are_no_buttons_to_press(serve: Serve, auth: PhoneAuth) -> None:
+    server = serve()
+    token = pair_device(auth)
+
+    assert json.loads(request(server, "/actions", token=token)[2]) == {"groups": []}
+    assert press(server, token)[0] == 404
+
+
+def test_a_quick_button_runs_its_device_and_answers_its_message(
+    serve: Serve, auth: PhoneAuth
+) -> None:
+    devices, actions = quick_house()
+    server = serve(actions=actions)
+
+    status, headers, body = press(server, pair_device(auth), "dev.lampu_kamar.brightness.30")
+
+    assert status == 200
+    assert headers["Cache-Control"] == "no-store"
+    assert json.loads(body) == {
+        "ok": True,
+        "message": "Lampu kamar: perintah 'brightness' berhasil (simulasi).",
+    }
+    assert all_calls(devices) == [("lampu_kamar", "brightness", 30)]
+
+
+def test_a_device_that_fails_is_told_in_a_200_so_the_page_shows_why(
+    serve: Serve, auth: PhoneAuth
+) -> None:
+    _, actions = quick_house(kipas=UnreachableDevice("kipas", "Kipas", kind="plug"))
+    server = serve(actions=actions)
+
+    status, _, body = press(server, pair_device(auth), "dev.kipas.on")
+
+    assert status == 200
+    assert json.loads(body) == {"ok": False, "message": "Kipas tidak menjawab."}
+
+
+def test_a_routine_button_runs_the_routine(serve: Serve, auth: PhoneAuth) -> None:
+    devices, actions = quick_house()
+    server = serve(actions=actions)
+
+    status, _, body = press(server, pair_device(auth), "rt.tidur")
+
+    assert status == 200
+    assert json.loads(body) == {"ok": True, "message": "Mode tidur: 2 dari 2 langkah berhasil."}
+    assert all_calls(devices) == [("lampu_kamar", "off", None), ("ac", "temp_26", 26)]
+
+
+def test_a_quick_button_needs_the_device_cookie(serve: Serve, auth: PhoneAuth) -> None:
+    devices, actions = quick_house()
+    server = serve(actions=actions)
+    pair_device(auth)
+
+    status, _, body = press(server, None)
+
+    assert status == 401
+    assert "waifu phone pair" in error_of(body)
+    assert all_calls(devices) == []
+
+
+@pytest.mark.parametrize(
+    "origin",
+    [None, "null", "http://evil.example", f"http://{TAILNET}", "https://127.0.0.1:{port}"],
+)
+def test_a_quick_button_from_any_other_origin_is_forbidden_and_runs_nothing(
+    serve: Serve, auth: PhoneAuth, origin: str | None
+) -> None:
+    devices, actions = quick_house()
+    server = serve(actions=actions)
+    sent = None if origin is None else origin.format(port=address(server)[1])
+
+    status, _, body = press(server, pair_device(auth), headers={"Origin": sent})
+
+    assert status == 403
+    assert error_of(body)
+    assert all_calls(devices) == []
+
+
+def test_a_quick_button_from_the_tailnet_page_runs(serve: Serve, auth: PhoneAuth) -> None:
+    devices, actions = quick_house()
+    server = serve(actions=actions)
+
+    status, _, _ = press(
+        server, pair_device(auth), host=TAILNET, headers={"Origin": f"https://{TAILNET}"}
+    )
+
+    assert status == 200
+    assert all_calls(devices) == [("lampu_kamar", "on", None)]
+
+
+@pytest.mark.parametrize(
+    "action_id",
+    [
+        "dev.komputer.shutdown",
+        "dev.komputer.restart",
+        "dev.komputer.sleep",
+        "dev.komputer.wake",
+        "dev.colokan_pc.off",
+        "dev.colokan_pc.toggle",
+        "dev.colokan_pc.on",
+    ],
+)
+def test_the_pc_and_its_plug_are_never_quick_buttons(
+    serve: Serve, auth: PhoneAuth, action_id: str
+) -> None:
+    devices, actions = quick_house()
+    server = serve(actions=actions)
+
+    status, _, body = press(server, pair_device(auth), action_id)
+
+    assert status == 404
+    assert error_of(body) == "Tombol itu sudah tidak ada. Muat ulang halaman."
+    assert all_calls(devices) == []
+
+
+@pytest.mark.parametrize(
+    "action_id", ["dev.kulkas.on", "dev.lampu_kamar.brightness.55", "dev.ac.temp_17", "rt.siang"]
+)
+def test_an_unknown_quick_button_is_404_in_indonesian(
+    serve: Serve, auth: PhoneAuth, action_id: str
+) -> None:
+    devices, actions = quick_house()
+    server = serve(actions=actions)
+
+    status, _, body = press(server, pair_device(auth), action_id)
+
+    assert status == 404
+    assert "Muat ulang" in error_of(body)
+    assert all_calls(devices) == []
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        b"{}",
+        b"[]",
+        b"not json",
+        b'{"id": 1}',
+        b'{"id": null}',
+        b'{"id": "dev.lampu_kamar.on", "value": 5}',
+        b'{"id": "DEV.lampu_kamar.on"}',
+        b'{"id": "dev.lampu_kamar.on; shutdown"}',
+        b'{"id": "dev.lampu_kamar.brightness.1000"}',
+        b'{"id": "dev.lampu_kamar.on\\n"}',
+        b'{"id": "\\ud800"}',
+    ],
+)
+def test_a_malformed_quick_action_is_400_and_runs_nothing(
+    serve: Serve, auth: PhoneAuth, body: bytes
+) -> None:
+    devices, actions = quick_house()
+    server = serve(actions=actions)
+
+    status, _, reply = post(server, "/action", body, token=pair_device(auth))
+
+    assert status == 400
+    assert error_of(reply)
+    assert all_calls(devices) == []
+
+
+def test_a_quick_action_that_is_not_json_is_415(serve: Serve, auth: PhoneAuth) -> None:
+    devices, actions = quick_house()
+    server = serve(actions=actions)
+
+    status, _, _ = press(server, pair_device(auth), headers={"Content-Type": "text/plain"})
+
+    assert status == 415
+    assert all_calls(devices) == []
+
+
+def test_a_quick_action_over_a_kilobyte_is_413(serve: Serve, auth: PhoneAuth) -> None:
+    devices, actions = quick_house()
+    server = serve(actions=actions)
+    body = json.dumps({"id": "dev.lampu_kamar.on", "pad": "x" * 1024}).encode()
+
+    status, _, _ = post(server, "/action", body, token=pair_device(auth))
+
+    assert status == 413
+    assert all_calls(devices) == []
+
+
+def test_a_quick_action_without_a_content_length_is_411(serve: Serve, auth: PhoneAuth) -> None:
+    _, actions = quick_house()
+    server = serve(actions=actions)
+
+    reply = raw_request(server, post_head(server, "/action", pair_device(auth), b""))
+
+    assert reply.startswith(b"HTTP/1.0 411 ")
+
+
+def test_a_phone_gets_ten_quick_actions_a_minute(serve: Serve, auth: PhoneAuth) -> None:
+    devices, actions = quick_house()
+    clock = FakeClock()
+    server = serve(actions=actions, clock=clock)
+    token, other = pair_device(auth), pair_device(auth, "Tablet")
+
+    statuses = [press(server, token)[0] for _ in range(10)]
+    clock.now += 59.0
+    status, headers, body = press(server, token)
+
+    assert statuses == [200] * 10
+    assert status == 429
+    assert headers["Retry-After"] == "60"
+    assert "Tunggu sebentar" in error_of(body)
+    assert len(devices["lampu_kamar"].calls) == 10
+    assert press(server, other)[0] == 200  # another phone has ten of its own
+    clock.now += 1.0
+    assert press(server, token)[0] == 200  # the first of the ten is a minute old
+
+
+def test_a_refused_quick_action_counts_toward_the_ten(serve: Serve, auth: PhoneAuth) -> None:
+    _, actions = quick_house()
+    server = serve(actions=actions, clock=FakeClock())
+    token = pair_device(auth)
+
+    statuses = [press(server, token, "dev.kulkas.on")[0] for _ in range(10)]
+
+    assert statuses == [404] * 10
+    assert press(server, token)[0] == 429
+
+
+def start_press(
+    server: PhoneServer, token: str, action_id: str
+) -> tuple[threading.Thread, list[int]]:
+    statuses: list[int] = []
+    thread = threading.Thread(target=lambda: statuses.append(press(server, token, action_id)[0]))
+    thread.start()
+    return thread, statuses
+
+
+def test_a_phone_s_second_quick_action_while_its_first_runs_is_429(
+    serve: Serve, auth: PhoneAuth
+) -> None:
+    slow = SlowDevice("kipas", "Kipas", kind="plug")
+    devices, actions = quick_house(kipas=slow)
+    server = serve(actions=actions)
+    token = pair_device(auth)
+    thread, statuses = start_press(server, token, "dev.kipas.on")
+    assert slow.entered.wait(CLIENT_TIMEOUT_S)
+
+    status, _, body = press(server, token)
+    slow.release.set()
+    thread.join(CLIENT_TIMEOUT_S)
+
+    assert status == 429
+    assert "masih jalan" in error_of(body)
+    assert statuses == [200]
+    assert all_calls(devices) == [("kipas", "on", None)]
+    assert press(server, token)[0] == 200  # free again once it ran
+
+
+def test_another_phone_s_quick_action_waits_for_the_one_running(
+    serve: Serve, auth: PhoneAuth
+) -> None:
+    slow = SlowDevice("kipas", "Kipas", kind="plug")
+    devices, actions = quick_house(kipas=slow)
+    server = serve(actions=actions)
+    first, second = pair_device(auth), pair_device(auth, "Tablet")
+    thread, statuses = start_press(server, first, "dev.kipas.on")
+    assert slow.entered.wait(CLIENT_TIMEOUT_S)
+
+    other, other_statuses = start_press(server, second, "dev.lampu_kamar.on")
+    other.join(0.2)
+    ran_meanwhile = all_calls(devices)
+    slow.release.set()
+    thread.join(CLIENT_TIMEOUT_S)
+    other.join(CLIENT_TIMEOUT_S)
+
+    assert ran_meanwhile == []  # the lamp waits for the plug: one action at a time
+    assert (statuses, other_statuses) == ([200], [200])
+    assert all_calls(devices) == [("lampu_kamar", "on", None), ("kipas", "on", None)]
+
+
+def test_a_quick_button_works_while_she_answers_a_chat(serve: Serve, auth: PhoneAuth) -> None:
+    backend = FakeBackend()
+    backend.release.clear()
+    devices, actions = quick_house()
+    server = serve(backend=backend, actions=actions)
+    token = pair_device(auth)
+    thread, statuses = start_chat(server, token)
+    assert backend.entered.wait(CLIENT_TIMEOUT_S)
+
+    status, _, _ = press(server, token)
+    backend.release.set()
+    thread.join(CLIENT_TIMEOUT_S)
+
+    assert status == 200
+    assert statuses == [200]
+    assert all_calls(devices) == [("lampu_kamar", "on", None)]
+
+
+def test_a_quick_action_that_raises_is_a_500_in_indonesian_and_frees_the_phone(
+    serve: Serve, auth: PhoneAuth, caplog: pytest.LogCaptureFixture
+) -> None:
+    later = RoutineConfig(steps=[RoutineStep(device="ac", command="off", after_minutes=60)])
+    _, actions = quick_house({"nanti": later}, schedule=BrokenSchedule())
+    server = serve(actions=actions)
+    token = pair_device(auth)
+
+    with caplog.at_level(logging.ERROR, logger="waifu.phone.server"):
+        status, _, body = press(server, token, "rt.nanti")
+
+    assert status == 500
+    assert error_of(body) == "Maaf, Master, ada masalah di PC. Coba lagi nanti ya."
+    assert any(record.exc_info for record in caplog.records)
+    assert press(server, token)[0] == 200
+
+
+def test_quick_actions_are_logged_by_phone_and_button_never_by_token(
+    serve: Serve,
+    auth: PhoneAuth,
+    capsys: pytest.CaptureFixture[str],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    _, actions = quick_house(kipas=UnreachableDevice("kipas", "Kipas", kind="plug"))
+    server = serve(actions=actions)
+    token = pair_device(auth)
+
+    with caplog.at_level(logging.DEBUG, logger="waifu"):
+        press(server, token)
+        press(server, token, "dev.kipas.on")
+        press(server, token, "dev.komputer.shutdown")
+        request(server, "/actions", token=token)
+
+    infos = [record.getMessage() for record in caplog.records if record.levelno == logging.INFO]
+    assert "Phone device d1 ran quick action dev.lampu_kamar.on: ok" in infos
+    assert "Phone device d1 ran quick action dev.kipas.on: failed" in infos
+    assert any("dev.komputer.shutdown" in line and "d1" in line for line in infos)
+    logged = "\n".join(record.getMessage() for record in caplog.records) + caplog.text
+    assert token not in logged
+    assert token not in capsys.readouterr().err
+
+
 # --- methods, headers, and logs ----------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
-    ("path", "allowed"), [("/chat", "POST"), ("/pair", "POST"), ("/talk", "POST")]
+    ("path", "allowed"),
+    [("/chat", "POST"), ("/pair", "POST"), ("/talk", "POST"), ("/action", "POST")],
 )
 def test_the_post_routes_take_only_post(serve: Serve, path: str, allowed: str) -> None:
     status, headers, _ = request(serve(), path)
@@ -2485,7 +2930,7 @@ def test_the_post_routes_take_only_post(serve: Serve, path: str, allowed: str) -
     assert headers["Allow"] == allowed
 
 
-@pytest.mark.parametrize("path", ["/", "/config.json", "/live2d.js", "/missing"])
+@pytest.mark.parametrize("path", ["/", "/config.json", "/actions", "/live2d.js", "/missing"])
 def test_a_post_elsewhere_is_405(serve: Serve, auth: PhoneAuth, path: str) -> None:
     status, headers, _ = post(serve(), path, {"text": HEARD}, token=pair_device(auth))
 

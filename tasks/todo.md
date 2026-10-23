@@ -1722,12 +1722,12 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 179 · **Files:** `src/waifu/phone/actions.py`, `tests/test_phone_actions.py` · **Scope:** M
 
-## Task 181: `GET /actions` and `POST /action`
+## Task 181: `GET /actions` and `POST /action` ✅
 
 **Acceptance criteria:**
-- [ ] `GET /actions` needs the device cookie and lists the groups (empty without actions); `POST /action {"id"}` needs the page's Origin and the cookie, runs the action, and answers `{"ok", "message"}`, a device failure as `ok: false`
-- [ ] 10 actions per device a minute (429 with `Retry-After`; another device is not limited; the window passes on the server's clock); one at a time per device (429), apart from the chat's; a malformed or oversized body is 400/413/415/411; an unknown id, the PC, and the PC's plug are 404 and run nothing; anything raised is a 500 in Indonesian
-- [ ] INFO logs name the device and the action, never the token; `RollingLimit` is public
+- [x] `GET /actions` needs the device cookie and lists the groups (empty without actions); `POST /action {"id"}` needs the page's Origin and the cookie, runs the action, and answers `{"ok", "message"}`, a device failure as `ok: false`
+- [x] 10 actions per device a minute (429 with `Retry-After`; another device is not limited; the window passes on the server's clock); one at a time per device (429), apart from the chat's; a malformed or oversized body is 400/413/415/411; an unknown id, the PC, and the PC's plug are 404 and run nothing; anything raised is a 500 in Indonesian
+- [x] INFO logs name the device and the action, never the token; `RollingLimit` is public
 
 **Dependencies:** 180 · **Files:** `src/waifu/phone/server.py`, `src/waifu/avatar/server.py`, `tests/test_phone_server.py` · **Scope:** M
 

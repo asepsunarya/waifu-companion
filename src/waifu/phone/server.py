@@ -24,6 +24,11 @@ was sent, in base64, unless the page could not take one. The photo reaches the b
 untouched once it is a JPEG of a size the page makes (see `jpeg.py`); photos are private, so
 only a photo's byte size and dimensions are ever logged. While the camera is off, anything
 sent through it is refused.
+
+The quick buttons (`actions`, see `actions.py`) run the owner's devices and routines without the
+brain: GET /actions lists them, and POST /action runs the one whose id it names, looked up in
+the buttons of that moment, so the phone never names a device or a command. A device runs at
+most ACTION_RATE_LIMIT of them in any ACTION_RATE_WINDOW_S, one at a time (apart from its chat).
 """
 
 from __future__ import annotations
@@ -61,11 +66,13 @@ from waifu.avatar.server import (
     PROTECTING_HEADERS,
     WEB_ROOT,
     AvatarFiles,
+    RollingLimit,
     ServedFile,
     send_file,
     web_file,
 )
 from waifu.config import AvatarConfig, PhoneConfig
+from waifu.phone.actions import ACTION_ID, QuickActions, QuickGroup
 from waifu.phone.auth import CODE_LIFETIME, Device, PhoneAuth, Refusal
 from waifu.phone.jpeg import jpeg_size
 from waifu.screen import encode_png
@@ -74,10 +81,12 @@ logger = logging.getLogger(__name__)
 
 LOOPBACK = "127.0.0.1"
 CONFIG_URL = "/config.json"
+ACTIONS_URL = "/actions"
 PAIR_URL = "/pair"
 CHAT_URL = "/chat"
 TALK_URL = "/talk"
-POST_ROUTES = (PAIR_URL, CHAT_URL, TALK_URL)
+ACTION_URL = "/action"
+POST_ROUTES = (PAIR_URL, CHAT_URL, TALK_URL, ACTION_URL)
 
 # The page shell, served without a cookie: these URLs, and /phone/<file>, name files of the
 # page's own folder under the web root.
@@ -104,6 +113,11 @@ MAX_CHAT_CHARS = 2000
 # JSON may escape every character of a 2000-character text, as \uXXXX or a surrogate pair.
 CHAT_MAX_BYTES = 32 * 1024
 PAIR_MAX_BYTES = 1024
+ACTION_MAX_BYTES = 1024
+# Quick actions per device in any window: counted from 127.0.0.1 as everything is (tailscale
+# serve), so by the paired device.
+ACTION_RATE_LIMIT = 10
+ACTION_RATE_WINDOW_S = 60
 TALK_MAX_BYTES = 2 * 1024 * 1024
 TALK_RATE = 16000
 TALK_SAMPLE_BYTES = 2
@@ -156,6 +170,9 @@ BAD_PHOTO_TEXT = "Foto tidak valid."
 # Said in her voice: `{owner}` is assistant.owner_call, used as written mid-sentence.
 BUSY_TEXT = "Sebentar ya, {owner}, aku masih menjawab yang tadi."
 FAILED_TEXT = "Maaf, {owner}, ada masalah di PC. Coba lagi nanti ya."
+ACTION_UNKNOWN_TEXT = "Tombol itu sudah tidak ada. Muat ulang halaman."
+ACTION_LIMIT_TEXT = "Tombolnya terlalu sering ditekan. Tunggu sebentar, lalu coba lagi."
+ACTION_BUSY_TEXT = "Perintah tadi masih jalan. Tunggu sebentar."
 
 # The icon: her initial in white on a pink disc, on the page's background colour.
 ICON_BACKGROUND = np.array((0xE9, 0xE4, 0xF7), dtype=float)
@@ -270,8 +287,9 @@ class PhoneServer(ThreadingHTTPServer):
     """Serves the phone page on `host:config.port`; a port in use raises PhoneError.
 
     `host` must be an IPv4 loopback address: Tailscale, not this server, faces the network.
-    `clock` times how long a burned pairing code is remembered. `camera_max_side` turns the
-    phone camera on: the longest side, in pixels, of the photos the page sends (None: off).
+    `clock` times how long a burned pairing code is remembered, and the quick actions' rate
+    limit. `camera_max_side` turns the phone camera on: the longest side, in pixels, of the
+    photos the page sends (None: off). `actions` are the quick buttons (None: none).
     """
 
     daemon_threads = True
@@ -294,12 +312,14 @@ class PhoneServer(ThreadingHTTPServer):
         host: str = LOOPBACK,
         clock: Callable[[], float] = time.monotonic,
         camera_max_side: int | None = None,
+        actions: QuickActions | None = None,
     ) -> None:
         if not _is_ipv4_loopback(host):
             raise ValueError(f"The phone server listens only on IPv4 loopback, not {host!r}")
         self.auth = auth
         self.backend = backend
         self.camera_max_side = camera_max_side
+        self.actions = actions
         self.files = AvatarFiles(avatar, web_root)
         self.page_root = (self.files.web_root / PAGE_FOLDER).resolve()
         settings = viewer_settings(avatar, assistant_name)
@@ -317,8 +337,12 @@ class PhoneServer(ThreadingHTTPServer):
         self.busy_text = BUSY_TEXT.replace("{owner}", owner_call)
         self.failed_text = FAILED_TEXT.replace("{owner}", owner_call)
         self.burned_code = _BurnedCode(clock)
+        self._clock = clock
         self._answering: set[str] = set()
         self._answering_lock = threading.Lock()
+        self._acting: set[str] = set()
+        self._action_limits: dict[str, RollingLimit] = {}
+        self._acting_lock = threading.Lock()
         self._thread: threading.Thread | None = None
         try:
             super().__init__((host, config.port), _PhoneRequestHandler)
@@ -352,6 +376,30 @@ class PhoneServer(ThreadingHTTPServer):
     def release(self, device_id: str) -> None:
         with self._answering_lock:
             self._answering.discard(device_id)
+
+    def admit_action(self, device_id: str) -> bool:
+        """Counts a quick action of `device_id`; False past ACTION_RATE_LIMIT in the window."""
+        with self._acting_lock:
+            limit = self._action_limits.get(device_id)
+            if limit is None:
+                limit = RollingLimit(ACTION_RATE_LIMIT, ACTION_RATE_WINDOW_S, self._clock)
+                self._action_limits[device_id] = limit
+        return limit.admit()
+
+    def claim_action(self, device_id: str) -> bool:
+        """Marks `device_id` as running a quick action; False while one of it still runs.
+
+        Apart from `claim`, so a button works while she answers the device's chat.
+        """
+        with self._acting_lock:
+            if device_id in self._acting:
+                return False
+            self._acting.add(device_id)
+            return True
+
+    def release_action(self, device_id: str) -> None:
+        with self._acting_lock:
+            self._acting.discard(device_id)
 
     def start(self) -> None:
         """Serves in a daemon thread."""
@@ -468,6 +516,10 @@ class _PhoneRequestHandler(BaseHTTPRequestHandler):
             self._send_error(HTTPStatus.UNAUTHORIZED, UNPAIRED_TEXT)
         elif path == CONFIG_URL:
             self._send_json(HTTPStatus.OK, self.server.page_config)
+        elif path == ACTIONS_URL:
+            actions = self.server.actions
+            groups = [] if actions is None else actions.groups()
+            self._send_json(HTTPStatus.OK, {"groups": [_group_json(group) for group in groups]})
         else:
             self._send_found(self.server.files.find(path))
 
@@ -491,6 +543,8 @@ class _PhoneRequestHandler(BaseHTTPRequestHandler):
             self._send_error(HTTPStatus.UNAUTHORIZED, UNPAIRED_TEXT)
         elif path == CHAT_URL:
             self._chat(device)
+        elif path == ACTION_URL:
+            self._action(device)
         else:
             self._talk(device)
 
@@ -700,6 +754,67 @@ class _PhoneRequestHandler(BaseHTTPRequestHandler):
             self.server.release(device.id)
         logger.debug("Answered the phone %s of device %s", route, device.id)
         self._send_body(HTTPStatus.OK, body)
+
+    # --- quick buttons ------------------------------------------------------------------------
+
+    def _action(self, device: Device) -> None:
+        """`{"id"}` of a button GET /actions lists: runs it and answers `{"ok", "message"}`.
+
+        The rate limit counts before the body is read, so a flood of anything costs the same.
+        A device's failure is an answer too (`ok: false`): the page shows its message.
+        """
+        if not self.server.admit_action(device.id):
+            logger.info(
+                "Refused a quick action of phone device %s: more than %d in %d s",
+                device.id,
+                ACTION_RATE_LIMIT,
+                ACTION_RATE_WINDOW_S,
+            )
+            self._send_error(
+                HTTPStatus.TOO_MANY_REQUESTS,
+                ACTION_LIMIT_TEXT,
+                headers={"Retry-After": str(ACTION_RATE_WINDOW_S)},
+            )
+            return
+        body = self._read_body(ACTION_MAX_BYTES)
+        if body is None:
+            return
+        fields = self._json_fields(body, "id")
+        if fields is None:
+            return
+        action_id = fields["id"]
+        if not ACTION_ID.fullmatch(action_id):
+            logger.info("Refused a quick action of phone device %s: not a button id", device.id)
+            self._send_error(HTTPStatus.BAD_REQUEST, BAD_REQUEST_TEXT)
+            return
+        actions = self.server.actions
+        action = None if actions is None else actions.find(action_id)
+        if actions is None or action is None:
+            logger.info(
+                "Refused quick action %s of phone device %s: no such button", action_id, device.id
+            )
+            self._send_error(HTTPStatus.NOT_FOUND, ACTION_UNKNOWN_TEXT)
+            return
+        if not self.server.claim_action(device.id):
+            logger.info(
+                "Refused quick action %s of phone device %s: its last one still runs",
+                action_id,
+                device.id,
+            )
+            self._send_error(HTTPStatus.TOO_MANY_REQUESTS, ACTION_BUSY_TEXT)
+            return
+        try:
+            result = actions.run(action)
+        except Exception:
+            logger.exception("Quick action %s of phone device %s failed", action_id, device.id)
+            self._send_error(HTTPStatus.INTERNAL_SERVER_ERROR, self.server.failed_text)
+            return
+        finally:
+            self.server.release_action(device.id)
+        outcome = "ok" if result.ok else "failed"
+        logger.info("Phone device %s ran quick action %s: %s", device.id, action_id, outcome)
+        logger.debug("Quick action %s: %s", action_id, result.message)
+        self._send_json(HTTPStatus.OK, {"ok": result.ok, "message": result.message})
 
     # --- request bodies -----------------------------------------------------------------------
 
@@ -984,6 +1099,14 @@ def _reply_fields(reply: PhoneReply) -> dict[str, Any]:
         "fps": reply.fps,
         "visemes": [[round(float(weight), 2) for weight in frame] for frame in reply.visemes],
         "duration": round(float(reply.duration), 3),
+    }
+
+
+def _group_json(group: QuickGroup) -> dict[str, Any]:
+    """A group of quick buttons for GET /actions: its name, and each button's id and label."""
+    return {
+        "name": group.name,
+        "actions": [{"id": action.id, "label": action.label} for action in group.actions],
     }
 
 
