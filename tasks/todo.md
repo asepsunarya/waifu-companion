@@ -1873,12 +1873,12 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 196a · **Files:** `src/waifu/config.py`, `config.example.yaml`, `tests/test_config.py` · **Scope:** S
 
-## Task 198: `VoiceLevel`
+## Task 198: `VoiceLevel` ✅
 
 **Acceptance criteria:**
-- [ ] A missing file is level 100 with whisper mode off and stays missing; `set_level`, `change`, and `set_night` write the file atomically and only on a change, steps of 20 held in 10-150
-- [ ] A broken file is moved aside (a counter for a second one) and read as missing; a failed move raises
-- [ ] `whispering` holds inside the window, `from` counted and `until` not, also across midnight; `level_now` is the lower of the level and the night level while whispering, the normal level at `until`, and never raises (the last state read, or 100, with one warning)
+- [x] A missing file is level 100 with whisper mode off and stays missing; `set_level`, `change`, and `set_night` write the file atomically and only on a change, steps of 20 held in 10-150
+- [x] A broken file is moved aside (a counter for a second one) and read as missing; a failed move raises
+- [x] `whispering` holds inside the window, `from` counted and `until` not, also across midnight; `level_now` is the lower of the level and the night level while whispering, the normal level at `until`, and never raises (the last state read, or 100, with one warning)
 
 **Dependencies:** 197 · **Files:** `src/waifu/voice_level.py`, `tests/test_voice_level.py` · **Scope:** M
 

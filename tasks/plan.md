@@ -768,7 +768,7 @@ new dependency; 18 of 20 strict tools and 17 of 24 optional parameters stay.
 - [x] Task 196a: contract: SPEC, tasks
 - [x] Task 196: `apply_volume` (the gain and the soft limiter) and `VolumePlayer`
 - [x] Task 197: the `voice` config (the whisper window), `config.example.yaml`
-- [ ] Task 198: `VoiceLevel` (the state file, the steps, the whisper window, `level_now`)
+- [x] Task 198: `VoiceLevel` (the state file, the steps, the whisper window, `level_now`)
 - [ ] Task 199: `VoiceVolumeTools` (`voice_volume`) and the media device's line
 - [ ] Task 200: wiring in `run`, `chat`, and `say --volume`, the check line, the strict budget and tool sorting tests
 - [ ] Task 201: README "Volume suaraku", CHANGELOG
