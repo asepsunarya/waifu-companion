@@ -254,6 +254,21 @@ def test_at_60_degrees_north_at_the_june_solstice_there_is_no_subuh_or_isya():
     assert times.ashar is not None and times.maghrib is not None and times.maghrib.hour == 21
 
 
+@pytest.mark.parametrize(
+    ("latitude", "has_subuh", "has_isya"),
+    [(46.4, True, True), (47.5, False, True), (48.7, False, False)],
+)
+def test_at_the_june_solstice_subuh_goes_from_about_46_6_degrees_north_and_isya_from_48_6(
+    latitude, has_subuh, has_isya
+):
+    # The sun sinks only to latitude + 23.44 - 90 degrees at midnight: past -20° (Subuh) up to
+    # 46.56°N, past -18° (Isya) up to 48.56°N.
+    times = prayer_times(date(2026, 6, 21), latitude, 10.0)
+
+    assert (times.subuh is not None, times.imsak is not None) == (has_subuh, has_subuh)
+    assert (times.isya is not None) == has_isya
+
+
 def test_under_the_midnight_sun_there_is_no_terbit_or_maghrib():
     times = prayer_times(date(2026, 6, 21), 70.0, 105.0)
 
