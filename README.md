@@ -3024,7 +3024,7 @@ volumenya sendiri tanpa diminta.
 
 | Kalimat | Yang berubah |
 |---|---|
-| "kecilkan suaramu", "suara kamu", "mode bisik" | Volume suara Cyrene saja |
+| "kecilkan suaramu", "suara kamu", "kecilkan volume suaramu", "mode bisik" | Volume suara Cyrene saja: kata "suaramu" yang menentukan, walau ada kata "volume" |
 | "kecilkan volume", "volume 30", "kecilkan musiknya", "volume PC" | Volume Windows lewat perangkat `musik` (lihat [Musik, volume, dan aplikasi PC](#musik-volume-dan-aplikasi-pc)): semua suara PC, termasuk suara Cyrene |
 
 Kalau dia salah tangkap, sebut lebih jelas: "suaramu sendiri" untuk suaranya, "volume PC" untuk

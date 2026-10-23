@@ -83,7 +83,10 @@ def test_the_description_keeps_her_voice_apart_from_the_windows_volume(rig):
         "suaramu",
         "suara kamu",
         "mode bisik",
-        '"Volume", "musik", "PC", or the Windows volume are not yours',
+        # The possessive decides, so "volume suaramu", the feature's own name, is hers.
+        '"kecilkan volume suaramu"',
+        '"suaramu", "suara kamu", or "volume suaramu" are your voice even with the word volume',
+        '"volume" alone, "musik", "PC", or the Windows volume are not yours',
         "control_device on the media device",
         "everything the PC plays, your voice included",
         "10 to 150 percent",
