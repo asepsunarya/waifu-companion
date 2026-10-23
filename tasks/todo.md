@@ -2083,3 +2083,69 @@ named `tests/test_<package>_<module>.py`.
 - [x] README "Pengingat istirahat" with a contents entry, mentions in "Teman fokus", "Mode game", and "Mode tamu", checklist items, and a Privasi bullet; CHANGELOG v1.40; full suite and ruff clean
 
 **Dependencies:** 218 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
+
+## Task 220a: Waktu sholat contract ✅
+
+**Acceptance criteria:**
+- [x] SPEC "waktu sholat (v1.41)" (stories, non-goals, the math, the place, the tool, the reminders and their state file, the config, the CLI, decisions, known limits, privacy, safety); tasks 220a-226 in the plan and here
+
+**Dependencies:** none · **Files:** `SPEC.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
+
+## Task 220: The prayer time math
+
+**Acceptance criteria:**
+- [ ] `solar_noon` and `sun_at_altitude` agree with NOAA's independent fractional-year formulas within a minute for every day of a year in Jakarta and Bandung
+- [ ] `prayer_times` gives Kemenag's schedule for Jakarta within 2 minutes on 3+ dates, Dzuhur about 11:39 in early November and 12:09 in mid-February; the ihtiyath is added and rounded up, terbit has it subtracted and rounded down, imsak is Subuh minus 10 minutes
+- [ ] Far north: no Subuh, Isya, or imsak at 60°N at the June solstice (Dzuhur and Maghrib sane), no terbit, Ashar, or Maghrib in a polar night
+
+**Dependencies:** 220a · **Files:** `src/waifu/prayer_times.py`, `tests/test_prayer_times.py` · **Scope:** M
+
+## Task 221: The `prayer` config
+
+**Acceptance criteria:**
+- [ ] `prayer.enabled` (false), `latitude`/`longitude` (both or neither, in range), `ihtiyath_minutes` (2, 0-5), `remind` (all five, each once, `[]` allowed), `minutes_before` (0, 0-30), `push` (false), `state_path`; bad values refused naming the setting
+- [ ] `config.example.yaml` documents it and its block written out holds the defaults
+
+**Dependencies:** 220a · **Files:** `src/waifu/config.py`, `config.example.yaml`, `tests/test_config.py` · **Scope:** S
+
+## Task 222: The place
+
+**Acceptance criteria:**
+- [ ] `WeatherClient.location()` gives coordinates without a request, geocodes a city once for the client's life, and raises `WeatherError` when it fails
+- [ ] `PrayerPlace.locate()` gives the place, says "lokasi belum diatur" without one, and turns a `WeatherError` into a `PrayerError` with its message
+
+**Dependencies:** 220a · **Files:** `src/waifu/weather.py`, `tests/test_weather.py`, `src/waifu/prayer.py`, `tests/test_prayer.py` · **Scope:** S
+
+## Task 223: `prayer_times`
+
+**Acceptance criteria:**
+- [ ] Today's or a given day's times for the place as "HH:MM" (null where none), with the place, weekday, method, and ihtiyath; a date not YYYY-MM-DD, unknown keys, or a day more than 366 days away refused; a place that cannot be found is an error with its message; never raises
+- [ ] Refused in the morning greeting, the weekly report, and the journal question; the spec is static and non-strict
+
+**Dependencies:** 220, 221, 222 · **Files:** `src/waifu/brain/prayer_tools.py`, `tests/test_brain_prayer_tools.py` · **Scope:** M
+
+## Task 224: `PrayerWatcher`
+
+**Acceptance criteria:**
+- [ ] A prayer in `remind` is said once from `minutes_before` before its time until 30 minutes after it ("sudah masuk waktu", or the minutes left), through `remind` with `neutral`, and pushed with the mosque tag when it has a notifier; either may fail without stopping the other
+- [ ] The told prayers are written to the state file before she says them, so a restart within the window says nothing; another day's file counts as nothing told; a broken file is moved aside; a file that cannot be read or written is logged and she still says it once
+- [ ] A place that cannot be found is never said, logged once at WARNING, retried after 15 minutes; a daemon thread "prayer-watcher" polls at once and every 30 s, stops at once, and starts only once
+
+**Dependencies:** 220, 221, 222 · **Files:** `src/waifu/prayer_watch.py`, `tests/test_prayer_watch.py` · **Scope:** M
+
+## Task 225: Wiring, guest mode, `waifu sholat`, and the check line
+
+**Acceptance criteria:**
+- [ ] With `prayer.enabled`, `run` and `chat` give the brain `PrayerTools`; `run` starts the watcher with one shared place, `assistant.remind`, and the notifier only with `prayer.push` and notifications on; off, or with an empty `remind`, no watcher; `chat` never
+- [ ] `prayer_times` is sorted as open to guests and non-strict in the every-tool test
+- [ ] `waifu sholat [YYYY-MM-DD]` prints the times, warns while off, and exits 1 without a place or when the lookup fails
+- [ ] `waifu check` shows the prayer line right after the break reminder line, and a moved state file
+
+**Dependencies:** 223, 224 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** M
+
+## Task 226: Docs
+
+**Acceptance criteria:**
+- [ ] README "Waktu sholat" with a contents entry, mentions in "Teman fokus", "Mode game", and "Mode tamu", checklist items, and a Privasi bullet; CHANGELOG v1.41; full suite and ruff clean
+
+**Dependencies:** 225 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S

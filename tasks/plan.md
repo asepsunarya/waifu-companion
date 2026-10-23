@@ -856,6 +856,33 @@ stay.
 - [x] Fix pass (2026-10-24): the module docstring and the SPEC Decisions line now say a line expires `idle_reset_minutes` after the poll that gives it, as the code and the SPEC BreakWatcher bullet did (a pause from 56:00 to 60:55 gives the line at 61:00, out of date at 66:00), pinned by a new test; the voiceless watcher test gets the rig's fake clock; 9262 pytest and ruff clean, no behaviour, tool, schema, or config changed (18 of 20 strict tools and 17 of 24 optional parameters stay)
 - [ ] On the owner's PC: after an hour at the keyboard she says the line once, a five-minute pause starts the count again, and nothing is said in a focus block
 
+### Phase 45: Waktu sholat (v1.41, see SPEC → waktu sholat)
+Decision: the five prayer times are computed offline in a pure module (`prayer_times.py`) with
+the USNO low-precision sun and the Kemenag RI angles (Subuh -20°, Isya -18°, Ashar shadow 1,
+Maghrib at sunset), the ihtiyath added and rounded up, terbit minus it rounded down; tests hold
+it to Kemenag schedules for Jakarta within 2 minutes and to NOAA's independent noon and sunset
+within a minute. The place is `prayer` coordinates, else the briefing's, else its city geocoded
+once per run through the one `WeatherClient` a `PrayerPlace` wraps (a new public
+`WeatherClient.location()`). One non-strict tool, `prayer_times {date?}`, refused in her own
+turns and open to guests. A `PrayerWatcher` says each prayer once through `Assistant.remind`
+(Master opted in, so focus blocks and games never hold it), at most 30 minutes late, with the
+told prayers in a small state file under the rules of `prompt_timer.py`, so a restart never says
+one twice. Off by default; no persona line or dependency, so 18 of 20 strict tools and 17 of 24
+optional parameters stay.
+- [x] Task 220a: contract: SPEC, tasks
+- [ ] Task 220: `prayer_times.py` (the sun, noon, the altitude times, the Kemenag times)
+- [ ] Task 221: the `prayer` config, `config.example.yaml`
+- [ ] Task 222: `WeatherClient.location()` and `PrayerPlace`
+- [ ] Task 223: `PrayerTools` (`prayer_times`)
+- [ ] Task 224: `PrayerWatcher` (the window, the lines, the state file, delivery, the thread)
+- [ ] Task 225: wiring in `run` and `chat`, guest sorting, `waifu sholat`, the check line
+- [ ] Task 226: README "Waktu sholat", CHANGELOG
+
+### Checkpoint: Waktu sholat
+- [ ] Python suite and ruff clean; no test spoke, pushed, or reached Open-Meteo; the strict-tool budget unchanged
+- [ ] By hand: `waifu sholat` with scratch coordinates prints the day's times; a real `PrayerWatcher` on fake clocks says each prayer once, and a restart within the window says nothing again
+- [ ] On the owner's PC: with `prayer.enabled` and his city, `waifu sholat` matches the Kemenag schedule within a minute or two, "jadwal sholat besok" reads tomorrow's times, and Dzuhur is said once at its time
+
 ## Risks and Mitigations
 
 | Risk | Impact | Mitigation |
