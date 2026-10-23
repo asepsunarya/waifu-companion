@@ -3568,8 +3568,9 @@ bisa dilihat dengan `waifu usage`.
 
 Selama `waifu run` berjalan di PC, Cyrene juga bisa dibuka dari HP Android Master, di rumah
 atau di luar: avatarnya (model yang sama dengan maskot, dibingkai setengah badan), chat teks,
-tombol mikrofon yang ditahan selama bicara, dan dengan otak Claude, kamera HP untuk
-menunjukkan sesuatu padanya (lihat [Kamera HP](#kamera-hp)). Dia menjawab dengan teks dan
+tombol mikrofon yang ditahan selama bicara, tombol cepat untuk lampu, AC, colokan, dan
+rutinitas (lihat [Tombol cepat di HP](#tombol-cepat-di-hp)), dan dengan otak Claude, kamera HP
+untuk menunjukkan sesuatu padanya (lihat [Kamera HP](#kamera-hp)). Dia menjawab dengan teks dan
 dengan suara animenya dari speaker HP; mulut avatar ikut bergerak dan wajahnya menunjukkan
 emosi jawaban. Ini Cyrene yang sama: ingatan, perangkat rumah, jadwal, game, sapaan pagi, dan
 aturan konfirmasinya sama, jadi "matikan lampu kamar" dari HP benar-benar mematikan lampu, dan
@@ -3803,6 +3804,65 @@ phone:
   camera: false
 ```
 
+### Tombol cepat di HP
+
+Untuk hal sekali ketuk tidak perlu mengetik ke Cyrene: tombol **lampu** di kiri kotak pesan
+membuka panel **Tombol cepat** di tempat jendela kamera (ketuk lagi untuk menutupnya; membuka
+kamera juga menutupnya). Tombolnya
+dijalankan langsung di PC lewat daftar perangkat, seperti `waifu device` dan
+`waifu routine run`, tanpa otak Cyrene: lebih cepat, tanpa biaya API, dan dia tidak berbicara.
+Hasilnya muncul 6 detik di atas kotak pesan, misalnya "Lampu kamar dinyalakan." atau "Mode
+tidur: 3 dari 3 langkah berhasil. Dijadwalkan jam 01.00 dini hari nanti."; kalau perangkatnya
+gagal, alasannya yang muncul ("Lampu kamar tidak bisa dihubungi ...").
+
+```text
+Lampu kamar     [Nyala] [Mati] [Nyala/mati] [10%] [30%] [60%] [100%]
+AC Samsung      [Nyala] [Mati] [18°C] [20°C] [22°C] [24°C] [26°C] [28°C]
+Proyektor       [Tombol power]
+Rutinitas       [Mode tidur]
+```
+
+- **Yang muncul:** setiap lampu, colokan, dan perangkat IR, dengan tombol yang memang ada
+  padanya: nyala, mati, nyala/mati, dan tombol power remote; untuk lampu juga kecerahan 10, 30,
+  60, dan 100%; untuk perangkat IR (AC) suhu 18, 20, 22, 24, 26, dan 28 °C yang sudah dipelajari
+  dengan `waifu learn-ir` (kode yang baru dipelajari muncul setelah halaman dimuat ulang).
+  Lalu semua rutinitas di grup **Rutinitas**, dengan `description`-nya atau namanya. Tidak ada
+  tombol suhu +/-: Cyrene tidak tahu suhu yang diubah lewat remote, jadi tombolnya menyebut suhu
+  yang pasti. Dengan `waifu run --dry-run` tombolnya menjalankan perangkat simulasi.
+- **PC tidak pernah jadi tombol.** Tidak ada tombol untuk mematikan, me-restart, menidurkan,
+  atau menyalakan PC, dan sama sekali tidak ada tombol untuk colokan yang mengalirkan listrik ke
+  PC (`powers_pc: true`), juga bukan "nyala". Itu tetap lewat suara atau chat, dengan pertanyaan
+  konfirmasi dulu. Server HP juga menolaknya kalau diminta langsung, dan `config.yaml` ditolak
+  kalau `quick_actions` menyebutnya.
+- Musik dan volume PC (type `media`) dan aplikasi (type `apps`) juga tidak jadi tombol: itu
+  bukan sakelar nyala/mati, dan membuka aplikasi mengambil fokus dari game.
+- **Satu per satu:** selagi satu tombol berjalan (lampu Tuya bisa perlu beberapa detik saat
+  pertama kali dihubungi), tombol itu tampil sibuk dan tombol lain menunggu; chat dan tombol
+  mikrofon tetap bisa dipakai. Paling banyak 10 tombol per menit per HP; lebih dari itu muncul
+  "Tombolnya terlalu sering ditekan."
+- **Cyrene tidak tahu tombol yang ditekan.** Kalau tadi dia bilang lampu menyala lalu Master
+  mematikannya lewat tombol, tanya lagi ("lampu kamar nyala nggak?") supaya dia membaca
+  keadaannya sekarang.
+- Log `waifu run` mencatat HP dan tombolnya
+  (`Phone device d1 ran quick action dev.lampu_kamar.on: ok`), tidak pernah token HP.
+
+**Memilih dan mengurutkan tombol.** Tanpa pengaturan, semua perangkat dan rutinitas di atas
+muncul dengan urutan di `config.yaml`. Untuk menampilkan sebagian saja, dengan urutanmu sendiri:
+
+```yaml
+phone:
+  enabled: true
+  host: pc-lynx.tail1234.ts.net
+  quick_actions:
+    devices: [lampu_kamar, ac]   # hanya ini, dengan urutan ini; [] = tanpa perangkat
+    routines: [tidur]            # tidak ditulis = semua rutinitas; [] = tanpa rutinitas
+```
+
+`config.yaml` ditolak dengan pesan yang jelas kalau sebuah nama tidak ada, disebut dua kali,
+atau menyebut PC, colokan PC, musik, atau aplikasi. Jalankan ulang `waifu run`, lalu muat ulang
+halaman di HP. Tanpa tombol sama sekali (misalnya `devices: []` dan `routines: []`), tombol
+lampu di HP tidak muncul.
+
 ### Mengatur HP yang dipasangkan
 
 ```powershell
@@ -3835,6 +3895,8 @@ mengubah daftar itu, jadi HP yang dilupakan tidak pernah kembali.
 - Foto dari kamera HP hanya diambil selama jendela kamera terbuka, dikirim ke API Anthropic
   bersama pesannya, dan tidak pernah disimpan atau ditulis ke log; lihat
   [Kamera HP](#kamera-hp).
+- [Tombol cepat](#tombol-cepat-di-hp) dijalankan di PC tanpa otak Cyrene: tidak ada yang
+  dikirim ke API Anthropic, dan log hanya mencatat HP, tombol, dan berhasil atau gagal.
 - Tailscale melihat bahwa HP dan PC tersambung, tapi isi sambungannya terenkripsi ujung ke
   ujung. Nama PC dan nama tailnet tercatat di log Certificate Transparency publik (syarat
   sertifikat HTTPS).
@@ -5454,6 +5516,13 @@ halaman tim di game atau sebuah error)
 - [ ] `camera: false` di bagian `phone`, jalankan ulang `waifu run`, muat ulang halaman HP:
       tombol kamera hilang, dan `waifu check` menampilkan
       `! Kamera HP mati (phone.camera: false)`.
+- [ ] Di HP ketuk tombol lampu di kiri kotak pesan: panel Tombol cepat terbuka dengan lampu,
+      AC, dan rutinitas, tanpa PC dan colokan PC, tiga tombol sebaris, dan bisa digulir.
+- [ ] Ketuk **Nyala** di Lampu kamar: lampu menyala dan "Lampu kamar dinyalakan." muncul
+      sebentar; ketuk **24°C** di AC: AC berbunyi dan berganti ke 24.
+- [ ] Ketuk **Mode tidur**: semua langkahnya jalan, pesannya menyebut jam langkah yang ditunda,
+      dan `waifu schedule list` menampilkannya.
+- [ ] Log `waifu run` mencatat `Phone device d1 ran quick action ...: ok`, tanpa token HP.
 
 **Kesehatan PC** (lihat [Kesehatan PC](#kesehatan-pc))
 

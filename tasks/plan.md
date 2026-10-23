@@ -716,11 +716,11 @@ page shows only its own texts for an error status. No brain tool, tool parameter
 - [x] Task 182: wiring in `run`
 - [x] Task 183: the page's pure helpers (`actions.js`, the problem kinds)
 - [x] Task 184: the panel (HTML, CSS, `phone.js`, the service worker)
-- [ ] Task 185: README, CHANGELOG, `config.example.yaml`
+- [x] Task 185: README, CHANGELOG, `config.example.yaml`
 
 ### Checkpoint: Tombol cepat di HP
-- [ ] Python suite, JS tests, and ruff clean; no test ran a real device or sent a PC power command; the strict-tool budget unchanged (18 of 20 strict tools, 17 of 24 optional parameters, no tool or schema changed)
-- [ ] By hand: a phone server on a free port (never 9883) with a mock registry answers `/actions` and `/action` with curl, and refuses a foreign Origin, a missing cookie, an unknown id, and the eleventh action in a minute
+- [x] Python suite, JS tests, and ruff clean; no test ran a real device or sent a PC power command; the strict-tool budget unchanged (2026-10-23: 8612 pytest, 481 JS; 18 of 20 strict tools, 17 of 24 optional parameters, no tool or schema changed)
+- [x] By hand: a phone server on a free port (never 9883) with a mock registry answers `/actions` and `/action` with curl, and refuses a foreign Origin, a missing cookie, an unknown id, and the eleventh action in a minute (2026-10-23, port 9893: the lamp, AC 24, the projector's power, and "Mode tidur" with its delayed step ran; the PC's shutdown and wake and the PC plug's off were 404; an injected id 400; the eleventh 429 with `Retry-After: 60`; the token never in the log. The page paired in a browser at 360 and 412 px: three buttons a row, the panel scrolls, toasts show, Escape closes it and focuses the toggle)
 - [ ] On the owner's PC: the lamp button turns the lamp on and off from the phone with a toast; an AC preset sends its code; "Mode tidur" runs and names its scheduled step; there is no button for the PC or its plug; the panel fits at 360 px
 
 ## Risks and Mitigations

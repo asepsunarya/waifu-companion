@@ -1755,9 +1755,9 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 183 · **Files:** `src/waifu/avatar/web/phone/index.html`, `phone.js`, `phone.css`, `sw.js`, `tests/js/phone_ui.test.mjs`, `tests/js/phone_page.test.mjs`, `tests/js/phone_sw.test.mjs` · **Scope:** M
 
-## Task 185: Docs
+## Task 185: Docs ✅
 
 **Acceptance criteria:**
-- [ ] README "Tombol cepat di HP" in "Cyrene di HP" (the PC is never a button), checklist items; `config.example.yaml` documents `quick_actions`; CHANGELOG v1.35; full suite, JS tests, and ruff clean
+- [x] README "Tombol cepat di HP" in "Cyrene di HP" (the PC is never a button), checklist items; `config.example.yaml` documents `quick_actions`; CHANGELOG v1.35; full suite, JS tests, and ruff clean
 
 **Dependencies:** 182, 184 · **Files:** `README.md`, `CHANGELOG.md`, `config.example.yaml`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S

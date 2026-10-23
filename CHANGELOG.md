@@ -4,6 +4,23 @@ Ringkasan per versi, yang terbaru di atas. Rinciannya ada di README (bagian yang
 setiap versi) dan di SPEC.md. Setelah memperbarui, **mulai ulang `waifu run`** supaya semuanya
 aktif, lalu jalankan `waifu check`.
 
+## v1.35: tombol cepat di HP
+
+- Halaman Cyrene di HP punya panel **Tombol cepat**: ketuk tombol lampu di kiri kotak pesan,
+  lalu satu ketukan menyalakan, mematikan, atau membalik lampu, colokan, dan perangkat IR,
+  mengatur kecerahan lampu (10, 30, 60, 100%), mengatur AC ke suhu yang sudah dipelajari (18
+  sampai 28 °C, genap), atau menjalankan rutinitas ("Mode tidur"). Tombolnya dijalankan langsung
+  di PC tanpa otak Cyrene (tanpa biaya API, dia tidak berbicara), dan hasilnya muncul sebentar di
+  HP, juga alasannya kalau perangkatnya gagal.
+- PC tidak pernah jadi tombol: tidak ada tombol mati, restart, tidur, atau nyala untuk PC, dan
+  tidak ada tombol sama sekali untuk colokan PC (`powers_pc`). Itu tetap lewat suara atau chat
+  dengan konfirmasi. Musik, volume, dan aplikasi juga tidak jadi tombol.
+- Satu tombol berjalan sekaligus, paling banyak 10 per menit per HP; chat tetap bisa dipakai
+  selagi tombol berjalan. Hanya HP yang sudah dipasangkan yang bisa menekannya.
+- `phone.quick_actions` (tidak wajib) memilih dan mengurutkan perangkat dan rutinitas yang
+  muncul; tanpa itu semuanya muncul. Contohnya ada di `config.example.yaml`. README: "Tombol
+  cepat di HP".
+
 ## v1.34.1: perbaikan fokus dan waifu mic
 
 - Blok fokus kembali seperti v1.30: pengingat resin, daily, mingguan, atau ekspedisi dan

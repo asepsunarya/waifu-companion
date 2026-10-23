@@ -531,13 +531,20 @@ schedule:
 # avatar.enabled: false. Kamera HP (README, bagian "Kamera HP"): selama jendela kamera di
 # halaman terbuka, setiap pesan membawa satu foto saat itu, yang ikut dikirim ke API Anthropic
 # dan tidak pernah disimpan atau ditulis ke log. Hanya dengan otak Claude dan vision menyala;
-# sisi terpanjang fotonya vision.max_side. Cek dengan `waifu check`.
+# sisi terpanjang fotonya vision.max_side. Cek dengan `waifu check`. Tombol cepat (README, bagian
+# "Tombol cepat di HP"): lampu, colokan, perangkat IR, dan rutinitas sekali ketuk dari halaman HP,
+# dijalankan di PC tanpa otak Cyrene. PC dan colokan PC (powers_pc) tidak pernah jadi tombol.
+# Tanpa quick_actions semua perangkat dan rutinitas itu muncul.
 # phone:
 #   enabled: true
 #   host: nama-pc.tailnet-kamu.ts.net   # nama PC ini di Tailscale, dari `waifu phone setup`
 #   port: 9883                          # server HP di 127.0.0.1; sama dengan port di perintah `tailscale serve`
 #   state_path: data/phone.json         # HP yang dipasangkan (token tersimpan sebagai hash), hanya di PC ini
 #   camera: true                        # tombol kamera di halaman HP; false menyembunyikannya dan server menolak foto
+#   # Untuk memilih dan mengurutkan tombol cepat sendiri:
+#   # quick_actions:
+#   #   devices: [lampu_kamar, ac]      # hanya ini, dengan urutan ini; [] = tanpa perangkat
+#   #   routines: [tidur]               # tidak ditulis = semua rutinitas; [] = tanpa rutinitas
 
 ir_codes_path: data/ir_codes.json
 
