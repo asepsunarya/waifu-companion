@@ -737,7 +737,7 @@ command, since the CLI cannot reach the running process. The self-started prompt
 announcements, the quick buttons, and the terminal commands are unchanged. No new dependency;
 18 of 20 strict tools and 17 of 24 optional parameters stay.
 - [x] Task 186a: contract: SPEC, tasks
-- [ ] Task 186: `guest_mode.max_hours`, `config.example.yaml`
+- [x] Task 186: `guest_mode.max_hours`, `config.example.yaml`
 - [ ] Task 187: `GuestMode` (on, off, renewal, automatic end, generation, the private tools)
 - [ ] Task 188: `run_tool`'s refusal; the brains' `tool_refusal` and `session_marker`
 - [ ] Task 189: `build_brain(guest_mode=...)`: the guest section instead of the memory

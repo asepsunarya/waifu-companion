@@ -892,6 +892,13 @@ class GameModeConfig(_Strict):
     on_stop: str | None = None
 
 
+class GuestModeConfig(_Strict):
+    """Guest mode, turned on and off by voice, chat, or the phone: how long it lasts at most
+    (it also ends at 05:00, whichever comes first)."""
+
+    max_hours: int = Field(default=6, ge=1, le=24)
+
+
 class JournalConfig(_Strict):
     """Master's daily journal, and her optional question about the day once a night."""
 
@@ -1105,6 +1112,7 @@ class AppConfig(_Strict):
     play_time: PlayTimeConfig = Field(default_factory=PlayTimeConfig)
     focus: FocusConfig = Field(default_factory=FocusConfig)
     game_mode: GameModeConfig = Field(default_factory=GameModeConfig)
+    guest_mode: GuestModeConfig = Field(default_factory=GuestModeConfig)
     journal: JournalConfig = Field(default_factory=JournalConfig)
     web_search: WebSearchConfig = Field(default_factory=WebSearchConfig)
     free_offers: FreeOffersConfig = Field(default_factory=FreeOffersConfig)

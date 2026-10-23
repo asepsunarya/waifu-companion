@@ -1773,10 +1773,10 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** none · **Files:** `SPEC.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
 
-## Task 186: `guest_mode.max_hours`
+## Task 186: `guest_mode.max_hours` ✅
 
 **Acceptance criteria:**
-- [ ] `guest_mode.max_hours` (6, 1-24), unknown keys refused; `config.example.yaml` documents it and its block is valid once written out
+- [x] `guest_mode.max_hours` (6, 1-24), unknown keys refused; `config.example.yaml` documents it and its block is valid once written out
 
 **Dependencies:** 186a · **Files:** `src/waifu/config.py`, `config.example.yaml`, `tests/test_config.py`, `tests/test_cli.py` · **Scope:** S
 

@@ -10,6 +10,7 @@ from waifu.config import (
     FallbackTtsConfig,
     FocusConfig,
     GameModeConfig,
+    GuestModeConfig,
     JournalConfig,
     PlayTimeConfig,
     RainAlertConfig,
@@ -1183,6 +1184,37 @@ def test_the_example_game_mode_block_written_out_holds_the_defaults(tmp_path):
     written_out = "\n".join(line.removeprefix("# ") for line in commented.splitlines())
 
     assert load_config(write_yaml(tmp_path, written_out)).game_mode == GameModeConfig()
+
+
+def test_guest_mode_ends_by_itself_after_six_hours_by_default():
+    assert AppConfig().guest_mode.max_hours == 6
+
+
+def test_guest_mode_settings_load_from_yaml(tmp_path):
+    text = "guest_mode:\n  max_hours: 3\n"
+
+    assert load_config(write_yaml(tmp_path, text)).guest_mode.max_hours == 3
+
+
+@pytest.mark.parametrize(
+    ("lines", "named"),
+    [
+        ("  max_hours: 0\n", "guest_mode.max_hours"),
+        ("  max_hours: 25\n", "guest_mode.max_hours"),
+        ("  enabled: false\n", "guest_mode.enabled"),  # it is always there, by voice
+    ],
+)
+def test_bad_guest_mode_settings_are_refused_naming_the_setting(tmp_path, lines, named):
+    with pytest.raises(ConfigError, match=re.escape(named)):
+        load_config(write_yaml(tmp_path, "guest_mode:\n" + lines))
+
+
+def test_the_example_guest_mode_block_written_out_holds_the_defaults(tmp_path):
+    example = (ROOT / "config.example.yaml").read_text(encoding="utf-8")
+    commented = example[example.index("\n# guest_mode:\n") + 1 :].split("\n\n", 1)[0]
+    written_out = "\n".join(line.removeprefix("# ") for line in commented.splitlines())
+
+    assert load_config(write_yaml(tmp_path, written_out)).guest_mode == GuestModeConfig()
 
 
 def test_the_journal_is_on_without_the_nightly_question_by_default():

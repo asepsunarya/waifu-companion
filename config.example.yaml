@@ -475,6 +475,16 @@ schedule:
 #   on_start:              # nama rutinitas saat game pertama dibuka, misalnya redup (kosong = tidak ada)
 #   on_stop:               # nama rutinitas saat game terakhir ditutup, misalnya terang (kosong = tidak ada)
 
+# Mode tamu (README, bagian "Mode tamu"): "Cyrene, mode tamu" (lewat suara, chat, atau HP)
+# menutup data pribadi Master selama ada tamu: keuangan, jurnal, ingatan, daftar tugas, jam main
+# dan fokus, akun game, daftar jadwal, biaya API, dan layar PC ditolak, dan obrolan berikutnya
+# dimulai baru tanpa ingatannya tentang Master. Perangkat, rutinitas, musik, cuaca, dan obrolan
+# biasa tetap jalan. "Mode tamu selesai" mengakhirinya; kalau lupa, berakhir sendiri setelah
+# max_hours atau jam 05:00, mana yang lebih dulu. Hanya diingat selama `waifu run` berjalan.
+# Selalu tersedia; untuk mengubah lamanya, tulis bagian ini tanpa tanda # di depannya.
+# guest_mode:
+#   max_hours: 6           # mode tamu berakhir sendiri setelah N jam (1-24), paling lambat jam 05:00
+
 # Jurnal harian (README, bagian "Jurnal harian"): "Cyrene, catat di jurnal: hari ini laporannya
 # selesai" menyimpan catatan hari itu dengan kata-kata Master sendiri, dan "kemarin aku nulis apa
 # di jurnal?" dia rangkum singkat. Hanya kalau Master minta: tidak pernah di sapaan pagi, laporan
