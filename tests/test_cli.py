@@ -66,6 +66,7 @@ from waifu.brain.voice_volume_tools import VoiceVolumeTools
 from waifu.briefing import BRIEFING_PROMPT, DAILY_BRIEFING, BriefingTimer, BriefingTools
 from waifu.config import (
     AvatarConfig,
+    BreaksConfig,
     FreeOffersConfig,
     JapaneseConfig,
     JournalConfig,
@@ -151,6 +152,7 @@ from waifu.gacha.tools import GachaTools
 from waifu.gacha.weekly import WEEKLY_REPORT_PROMPT, WeeklyReportTimer, WeeklyReportTools
 from waifu.gacha.zenless import ZzzAgent
 from waifu.guest import PRIVATE_TOOLS, GuestMode
+from waifu.input_idle import read_input_idle
 from waifu.japanese import JapaneseStore, WordProgress, load_words, word_of_the_day
 from waifu.journal import JOURNAL_PROMPT, JournalStore, JournalTimer
 from waifu.memory import MemoryStore, memory_prompt_section
@@ -631,6 +633,53 @@ def play_time_watchers(events, monkeypatch) -> list[FakePlayTimeWatcher]:
         return built[-1]
 
     monkeypatch.setattr(cli, "PlayTimeWatcher", build)
+    return built
+
+
+class FakeBreakWatcher:
+    """Stands in for BreakWatcher without a thread, remembering what it was given, whether
+    `waifu run` listened when it started and stopped, and the test's `events` up to then."""
+
+    def __init__(
+        self,
+        read_activity,
+        config,
+        *,
+        announce,
+        notifier,
+        owner_call,
+        title,
+        in_focus_block,
+        events: list[str],
+    ) -> None:
+        self.read_activity, self.config, self.announce = read_activity, config, announce
+        self.notifier, self.owner_call, self.title = notifier, owner_call, title
+        self.in_focus_block = in_focus_block
+        self._events = events
+        self.listening: list[bool] = []
+        self.events_when_started: list[str] | None = None
+        self.events_when_stopped: list[str] | None = None
+
+    def start(self) -> None:
+        self.listening.append(listening())
+        self.events_when_started = list(self._events)
+
+    def stop(self) -> None:
+        self.listening.append(listening())
+        self.events_when_stopped = list(self._events)
+
+
+@pytest.fixture(autouse=True)
+def break_watchers(events, monkeypatch) -> list[FakeBreakWatcher]:
+    """The real watcher would read the owner's keyboard and mouse activity in a thread through
+    every `run` with the break reminder on, so every test gets the fake."""
+    built: list[FakeBreakWatcher] = []
+
+    def build(read_activity, config, **arguments) -> FakeBreakWatcher:
+        built.append(FakeBreakWatcher(read_activity, config, **arguments, events=events))
+        return built[-1]
+
+    monkeypatch.setattr(cli, "BreakWatcher", build)
     return built
 
 
@@ -11777,6 +11826,219 @@ def test_check_says_her_voice_volume_right_after_guest_mode(home, nothing_instal
     lines = capsys.readouterr().out.splitlines()
     guest = lines.index(guest_mode_line("\n".join(lines)))
     assert lines[guest + 1] == voice_volume_line("\n".join(lines))
+
+
+# --- break reminders ---------------------------------------------------------------------------
+
+BREAK_TEXT = (
+    "Master, sudah satu jam di depan layar. Istirahatkan matamu sebentar dan minum air, ya."
+)
+BREAK_STALE = datetime(2026, 10, 24, 21, 5)  # when a line due at 21:00 is out of date
+
+
+def enable_breaks(home: Path, extra: str = "") -> None:
+    append_config(home, "breaks:\n  enabled: true\n" + extra)
+
+
+def test_run_suggests_no_break_by_default(home, run_fakes, brains, break_watchers):
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    assert break_watchers == []
+
+
+def test_run_suggests_breaks_while_she_listens_from_the_real_input_outside_focus_blocks(
+    home, run_fakes, brains, break_watchers, focus_timers
+):
+    enable_breaks(home)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    [watcher] = break_watchers
+    assert watcher.config == BreaksConfig(enabled=True)
+    assert watcher.read_activity is read_input_idle  # the time since the last input, no more
+    assert watcher.in_focus_block == focus_timers[0].in_block
+    assert (watcher.owner_call, watcher.title, watcher.notifier) == ("Master", "Cyrene", None)
+    assert watcher.listening == [False, True]
+    assert "mic opened" in watcher.events_when_started  # once she is ready to listen
+    watcher.announce(BREAK_TEXT, "relaxed", expires_at=BREAK_STALE)
+    assistant = RecordingAssistant.instances[0]
+    assert assistant.announced == [(BREAK_TEXT, "relaxed")]
+    # Never inside a conversation, and never once it is out of date.
+    assert assistant.waiting_for_followup == [BREAK_TEXT]
+    assert assistant.announced_until == [BREAK_STALE]
+    assert assistant.reminded == []
+
+
+def test_run_suggests_breaks_without_the_focus_companion(home, run_fakes, brains, break_watchers):
+    enable_breaks(home)
+    append_config(home, "focus:\n  enabled: false\n")
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    [watcher] = break_watchers
+    assert watcher.in_focus_block is None
+
+
+@pytest.mark.parametrize(
+    ("push", "notify", "pushed"),
+    [(True, True, True), (True, False, False), (False, True, False)],
+    ids=["push", "notify_off", "push_off"],
+)
+def test_run_pushes_the_break_reminder_only_with_push_and_notifications_on(
+    push, notify, pushed, home, run_fakes, brains, break_watchers, monkeypatch
+):
+    if notify:
+        enable_notify(home)
+    enable_breaks(home, f"  push: {str(push).lower()}\n")
+    notifier = FakeNotifier()
+    use_notifier(monkeypatch, notifier)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    [watcher] = break_watchers
+    assert watcher.notifier is (notifier if pushed else None)
+
+
+def test_run_holds_the_break_reminder_while_a_game_holds_her_announcements(
+    home, run_fakes, brains, break_watchers, play_time_watchers, monkeypatch
+):
+    enable_breaks(home)
+    use_game_mode(home, "hold")
+    held: list[bool] = []
+
+    def play(assistant: RecordingAssistant) -> None:
+        play_time_watchers[0].on_poll(True, False)
+        break_watchers[0].announce(BREAK_TEXT, "relaxed", expires_at=BREAK_STALE)
+        held.append(assistant.collaborators["quiet"]())
+
+    while_listening(monkeypatch, play)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    assistant = RecordingAssistant.instances[0]
+    assert held == [True]
+    assert (assistant.announced, assistant.reminded) == ([(BREAK_TEXT, "relaxed")], [])
+    assert assistant.announced_until == [BREAK_STALE]
+
+
+def test_run_in_phone_mode_leaves_a_pushed_break_reminder_unsaid_while_a_game_runs(
+    home, run_fakes, brains, break_watchers, play_time_watchers, monkeypatch
+):
+    enable_notify(home)
+    enable_breaks(home, "  push: true\n")
+    use_game_mode(home, "phone")
+    use_notifier(monkeypatch, FakeNotifier())
+
+    def play(assistant: RecordingAssistant) -> None:
+        play_time_watchers[0].on_poll(True, False)
+        break_watchers[0].announce(BREAK_TEXT, "relaxed", expires_at=BREAK_STALE)
+
+    while_listening(monkeypatch, play)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    assistant = RecordingAssistant.instances[0]
+    assert (assistant.announced, assistant.reminded) == ([], [])
+
+
+@pytest.mark.parametrize("announcements", ["hold", "phone"])
+def test_run_with_during_games_says_the_break_reminder_while_a_game_runs(
+    announcements, home, run_fakes, brains, break_watchers, play_time_watchers, monkeypatch
+):
+    enable_notify(home)
+    enable_breaks(home, "  during_games: true\n  push: true\n")
+    use_game_mode(home, announcements)
+    use_notifier(monkeypatch, FakeNotifier())
+
+    def play(assistant: RecordingAssistant) -> None:
+        tell, announce = play_time_watchers[0].on_poll, break_watchers[0].announce
+        tell(True, False)
+        announce(BREAK_TEXT, "relaxed", expires_at=BREAK_STALE)  # like Master's reminders
+        tell(False, False)
+        announce(BREAK_TEXT, "relaxed", expires_at=BREAK_STALE)  # the game closed: a notice
+
+    while_listening(monkeypatch, play)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    assistant = RecordingAssistant.instances[0]
+    assert assistant.reminded == [(BREAK_TEXT, "relaxed")]
+    assert assistant.announced == [(BREAK_TEXT, "relaxed")]
+    assert assistant.waiting_for_followup == [BREAK_TEXT]
+
+
+def test_run_with_during_games_but_no_game_mode_says_it_as_a_notice(
+    home, run_fakes, brains, break_watchers
+):
+    enable_breaks(home, "  during_games: true\n")
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    break_watchers[0].announce(BREAK_TEXT, "relaxed", expires_at=BREAK_STALE)
+    assistant = RecordingAssistant.instances[0]
+    assert (assistant.announced, assistant.reminded) == ([(BREAK_TEXT, "relaxed")], [])
+
+
+def test_chat_never_suggests_breaks(home, brains, break_watchers, monkeypatch):
+    enable_breaks(home)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main(["chat", "--dry-run"]) == 0
+
+    assert break_watchers == []
+
+
+def breaks_line(out: str) -> str:
+    [line] = [line for line in out.splitlines() if "Pengingat istirahat" in line]
+    return line
+
+
+@pytest.mark.parametrize(
+    ("settings", "notify", "expected"),
+    [
+        (None, False, "! Pengingat istirahat mati"),
+        (
+            "",
+            False,
+            "✓ Pengingat istirahat: tiap 60 menit di depan layar, jeda 5 menit dihitung istirahat",
+        ),
+        (
+            "  every_minutes: 45\n  idle_reset_minutes: 3\n  active_from: '08:00'\n"
+            "  active_until: '02:00'\n  during_games: true\n  push: true\n",
+            True,
+            "✓ Pengingat istirahat: tiap 45 menit di depan layar, jeda 3 menit dihitung "
+            "istirahat, jam 08:00-02:00, juga saat main, juga ke HP",
+        ),
+        (
+            "  push: true\n",
+            False,
+            "✓ Pengingat istirahat: tiap 60 menit di depan layar, jeda 5 menit dihitung istirahat",
+        ),
+    ],
+    ids=["off", "on", "everything", "push-without-notify"],
+)
+def test_check_says_how_she_suggests_breaks_without_reading_the_input(
+    settings, notify, expected, home, nothing_installed, capsys
+):
+    # Reading the real input here would trip the suite's refusal of GetLastInputInfo.
+    if notify:
+        enable_notify(home)
+    if settings is not None:
+        enable_breaks(home, settings)
+
+    cli.main(["check"])
+
+    assert breaks_line(capsys.readouterr().out) == expected
+
+
+def test_check_says_the_break_reminder_right_after_her_voice_volume(
+    home, nothing_installed, capsys
+):
+    cli.main(["check"])
+
+    lines = capsys.readouterr().out.splitlines()
+    voice = lines.index(voice_volume_line("\n".join(lines)))
+    assert lines[voice + 1] == "! Pengingat istirahat mati"
 
 
 # --- web search and free offers ----------------------------------------------------------------

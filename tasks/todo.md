@@ -2067,12 +2067,12 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 215, 216 · **Files:** `src/waifu/break_watch.py`, `tests/test_break_watch.py` · **Scope:** M
 
-## Task 218: Wiring and the check line
+## Task 218: Wiring and the check line ✅
 
 **Acceptance criteria:**
-- [ ] With `breaks.enabled`, `run` starts the watcher while she listens with the real reader, the focus timer's `in_block`, and the notifier only with `breaks.push` and notifications on; off, none; `chat` never
-- [ ] The line is a patient announcement held by game mode (unsaid while a game runs in `phone` mode when pushed), and with `during_games` a reminder while game mode holds
-- [ ] `waifu check` shows the break reminder line right after the voice volume line
+- [x] With `breaks.enabled`, `run` starts the watcher while she listens with the real reader, the focus timer's `in_block`, and the notifier only with `breaks.push` and notifications on; off, none; `chat` never
+- [x] The line is a patient announcement held by game mode (unsaid while a game runs in `phone` mode when pushed), and with `during_games` a reminder while game mode holds
+- [x] `waifu check` shows the break reminder line right after the voice volume line
 
 **Dependencies:** 217 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** M
 

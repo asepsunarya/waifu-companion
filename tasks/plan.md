@@ -847,7 +847,7 @@ stay.
 - [x] Task 215: the `breaks` config, `config.example.yaml`
 - [x] Task 216: `follow_activity` (continuous activity, breaks, sleeps, the grid)
 - [x] Task 217: `BreakWatcher` (focus, active hours, failures, delivery, the thread)
-- [ ] Task 218: wiring in `run` (game mode, `during_games`, push), the check line
+- [x] Task 218: wiring in `run` (game mode, `during_games`, push), the check line
 - [ ] Task 219: README "Pengingat istirahat", CHANGELOG
 
 ### Checkpoint: Pengingat istirahat

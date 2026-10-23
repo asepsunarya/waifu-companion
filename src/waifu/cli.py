@@ -74,6 +74,7 @@ from waifu.brain.todo_tools import TodoTools
 from waifu.brain.tools import ToolProvider
 from waifu.brain.usage_tools import UsageTools
 from waifu.brain.voice_volume_tools import VoiceVolumeTools
+from waifu.break_watch import BreakWatcher
 from waifu.briefing import DAILY_BRIEFING, BriefingTimer, BriefingTools
 from waifu.config import (
     APP_URL_SCHEMES,
@@ -170,6 +171,7 @@ from waifu.gacha.zenless import EVENT_REWARD, ZzzAgent
 from waifu.game_mode import GameMode
 from waifu.gate import WakeGate
 from waifu.guest import GuestMode
+from waifu.input_idle import read_input_idle
 from waifu.japanese import (
     JapaneseStore,
     Word,
@@ -1408,6 +1410,7 @@ def _listen(args: argparse.Namespace) -> int:
                         _pc_watcher(config, pc, assistant, notifier, game_mode),
                         _play_time_watcher(config, assistant, game_mode),
                         _focus_session(config, focus, assistant, notifier),
+                        _break_watcher(config, focus, assistant, notifier, game_mode),
                         _rain_watcher(config, assistant, notifier, game_mode),
                         _version_watcher(config, running, assistant, notifier, game_mode),
                         _offers_watcher(config, assistant, notifier, usage, game_mode),
@@ -4938,6 +4941,71 @@ def _focus(args: argparse.Namespace) -> int:
     return 0
 
 
+# --- break reminders -------------------------------------------------------------------------
+
+
+@contextmanager
+def _break_watcher(
+    config: AppConfig,
+    focus: FocusTimer | None,
+    assistant: Assistant,
+    notifier: Notifier | None,
+    game_mode: GameMode | None,
+) -> Iterator[None]:
+    """Her gentle reminder to rest after every `breaks.every_minutes` of keyboard and mouse
+    activity while the block runs, never during a focus block (the watcher asks the focus
+    timer), also pushed to the phone when `breaks.push` and notifications are on; none with the
+    reminder off. She says it once the follow-up window has closed, so a conversation is never
+    interrupted."""
+    breaks = config.breaks
+    if not breaks.enabled:
+        yield
+        return
+    push = notifier if breaks.push else None
+    watcher = BreakWatcher(
+        read_input_idle,
+        breaks,
+        announce=_break_teller(config, assistant, game_mode, pushed=push is not None),
+        notifier=push,
+        owner_call=config.assistant.owner_call,
+        title=config.assistant.name,
+        in_focus_block=None if focus is None else focus.in_block,
+    )
+    watcher.start()
+    try:
+        yield
+    finally:
+        watcher.stop()
+
+
+def _break_teller(
+    config: AppConfig, assistant: Assistant, game_mode: GameMode | None, *, pushed: bool
+) -> Callable[..., None]:
+    """How a break reminder is queued: like the rain alert (held while game mode holds her
+    announcements, left unsaid in `phone` mode when it was pushed), but with
+    `breaks.during_games`, while a game holds them, like Master's reminders, so it is said while
+    he plays. The watcher never gives one during a focus block, which `remind` would not wait
+    for."""
+    announce = _announcer(assistant, game_mode, patient=True, pushed=pushed)
+    if not config.breaks.during_games or game_mode is None:
+        return announce
+    holding = game_mode.holding
+
+    def tell(
+        text: str,
+        emotion: str = NEUTRAL,
+        *,
+        expires_at: datetime | None = None,
+        game_expires_at: datetime | None = None,
+    ) -> None:
+        if holding():
+            assistant.remind(text, emotion)
+            return
+        announce(text, emotion, expires_at=expires_at, game_expires_at=game_expires_at)
+
+    return tell
+
+
 # --- free offers -----------------------------------------------------------------------------
 
 
@@ -5503,6 +5571,7 @@ def _checks(config_path: Path) -> Iterator[Check]:
     yield _game_mode_check(config)
     yield _guest_mode_check(config)
     yield _voice_volume_check(config)
+    yield _breaks_check(config)
     yield _free_offers_check(config)
     yield from _voice_package_checks(config)
     yield _microphone_check(config)
@@ -5973,6 +6042,26 @@ def _voice_volume_check(config: AppConfig) -> Check:
             f"{status}; file volume yang rusak dipindah ke {', '.join(map(str, moved))} "
             "(lihat README, bagian Volume suaraku)"
         )
+    return OK, status
+
+
+def _breaks_check(config: AppConfig) -> Check:
+    """How often she suggests a break, which pause counts as one, her hours, whether she says it
+    while a game holds her announcements, and whether it goes to the phone too; from the config
+    alone, never reading the keyboard or mouse."""
+    breaks = config.breaks
+    if not breaks.enabled:
+        return WARN, "Pengingat istirahat mati"
+    status = (
+        f"Pengingat istirahat: tiap {breaks.every_minutes} menit di depan layar, jeda "
+        f"{breaks.idle_reset_minutes} menit dihitung istirahat"
+    )
+    if breaks.active_from is not None and breaks.active_until is not None:
+        status += f", jam {breaks.active_from:%H:%M}-{breaks.active_until:%H:%M}"
+    if breaks.during_games:
+        status += ", juga saat main"
+    if breaks.push and config.notify.enabled:
+        status += ", juga ke HP"
     return OK, status
 
 
