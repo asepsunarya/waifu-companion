@@ -2026,3 +2026,59 @@ named `tests/test_<package>_<module>.py`.
 - [x] Fix pass: the README checklist answers the one word wrong on the first day and right the next (a fresh install has no next word); README, SPEC, and CHANGELOG say the word is the greeting's only, that a common homophone's meaning counts, and that an answer is not graded twice
 
 **Dependencies:** 212 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
+
+## Task 214a: Pengingat istirahat contract ✅
+
+**Acceptance criteria:**
+- [x] SPEC "pengingat istirahat (v1.40)" (stories, non-goals, the input reader and its guard, the continuous-activity rule, the watcher, the config, the CLI, decisions, known limits); tasks 214a-219 in the plan and here
+
+**Dependencies:** none · **Files:** `SPEC.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
+
+## Task 214: The activity reader and its guard
+
+**Acceptance criteria:**
+- [ ] `tests/conftest.py` refuses `user32.GetLastInputInfo` (through `WinDLL` and `windll`) and records it; `GetTickCount64` and the other user32 functions still work
+- [ ] `read_input_idle` reads the last input, then the tick count, and gives the milliseconds since the last input, across the 49.7-day wrap of `dwTime`, 0 for input between the two calls, and an `OSError` when Windows refuses; it loads user32 and kernel32 with their documented signatures at every call, and the real reader hits the suite's refusal
+
+**Dependencies:** 214a · **Files:** `tests/conftest.py`, `tests/test_safety_guard.py`, `src/waifu/input_idle.py`, `tests/test_input_idle.py` · **Scope:** S
+
+## Task 215: The `breaks` config
+
+**Acceptance criteria:**
+- [ ] `breaks.enabled` (false), `every_minutes` (60, 20-180), `idle_reset_minutes` (5, 2-15), `during_games` (false), `push` (false), `active_from`/`active_until` (both or neither, not equal, no time zone, across midnight allowed, bare YAML times read as clock times); bad values refused naming the setting
+- [ ] `config.example.yaml` documents it and its block written out holds the defaults
+
+**Dependencies:** 214a · **Files:** `src/waifu/config.py`, `config.example.yaml`, `tests/test_config.py` · **Scope:** S
+
+## Task 216: The continuous-activity rule
+
+**Acceptance criteria:**
+- [ ] `follow_activity` starts counting at a poll with recent input, gives the line once the last input reaches `every_minutes` and then every `every_minutes` on the same grid, and never while the input is older than the due point
+- [ ] An idle gap of `idle_reset_minutes`, or a poll gap of that long by the tick count or the wall clock, starts the count again
+
+**Dependencies:** 214 · **Files:** `src/waifu/break_watch.py`, `tests/test_break_watch.py` · **Scope:** S
+
+## Task 217: `BreakWatcher`
+
+**Acceptance criteria:**
+- [ ] A due line is announced (relaxed, expiring after `idle_reset_minutes`) and pushed with the coffee tag when it has a notifier; either may fail without stopping the other or the watcher
+- [ ] A focus block and the time outside the active hours read nothing and reset the count; a failed read resets it, logged once at WARNING and its recovery at INFO
+- [ ] A daemon thread "break-watcher" polls at once and every 30 s from the start of the last poll, stops at once, and starts only once
+
+**Dependencies:** 215, 216 · **Files:** `src/waifu/break_watch.py`, `tests/test_break_watch.py` · **Scope:** M
+
+## Task 218: Wiring and the check line
+
+**Acceptance criteria:**
+- [ ] With `breaks.enabled`, `run` starts the watcher while she listens with the real reader, the focus timer's `in_block`, and the notifier only with `breaks.push` and notifications on; off, none; `chat` never
+- [ ] The line is a patient announcement held by game mode (unsaid while a game runs in `phone` mode when pushed), and with `during_games` a reminder while game mode holds
+- [ ] `waifu check` shows the break reminder line right after the voice volume line
+
+**Dependencies:** 217 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** M
+
+## Task 219: Docs
+
+**Acceptance criteria:**
+- [ ] README "Pengingat istirahat" with a contents entry, mentions in "Teman fokus" and "Mode game", checklist items, and a Privasi bullet; CHANGELOG v1.40; full suite and ruff clean
+
+**Dependencies:** 218 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S

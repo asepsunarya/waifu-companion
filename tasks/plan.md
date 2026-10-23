@@ -830,6 +830,31 @@ parameters stay.
 - [x] Fix pass (2026-10-24): `grade` refuses a word not due yet, so a turn retried after an API error never moves a word up twice; only her morning greeting's turn gets `word_of_the_day` (a weather question at 15:00 neither hears nor learns it); the description and both personas count a common homophone's meaning as right or give a hint; w088's example writes じゅっぷん; the README checklist fits a first day; 9186 pytest and ruff clean, no strict tool, schema, or config changed (18 of 20 strict tools and 17 of 24 optional parameters stay). By hand, a scratch script through a real ClaudeBrain over a scripted SDK-shaped client and a temp store: the greeting's `daily_briefing` held `ちいさい`/`kecil`, "cuaca hari ini gimana?" got no word, the quiz asked `w214`, the grade moved it to box 2, and the repeated grade was refused with the file still `{"w214":{"box":2,"due":"2026-10-26",...}}`
 - [ ] On the owner's PC: the morning greeting ends with the word of the day in kana and its meaning, spoken by the Japanese voice; "kuis bahasa Jepang dong" asks one word and waits; `waifu jepang progres` counts it
 
+### Phase 44: Pengingat istirahat (v1.40, see SPEC → pengingat istirahat)
+Decision: activity is the time since the last keyboard or mouse input (`GetLastInputInfo`, read
+with `GetTickCount64` through ctypes, loaded at every call, injected, and refused in the suite by
+`tests/conftest.py`), never the screen or the process list. A pure rule (`follow_activity`) counts
+continuous activity on Windows' tick count: an idle gap of `idle_reset_minutes`, or a poll that
+comes that long after the last one (a sleep), starts it again, and a line is due once the last
+input reaches the next point of a fixed grid, so she never speaks to an empty chair. A thin
+`BreakWatcher` (the rain watcher's pattern) resets the count in a focus block and outside the
+active hours, and queues the line through the rain alert's announcer, or through `remind` with
+`during_games` while a game holds. The line expires after `idle_reset_minutes`. Off by default; no
+tool, persona line, or dependency, so 18 of 20 strict tools and 17 of 24 optional parameters
+stay.
+- [x] Task 214a: contract: SPEC, tasks
+- [ ] Task 214: `read_input_idle` and the conftest refusal of `GetLastInputInfo`
+- [ ] Task 215: the `breaks` config, `config.example.yaml`
+- [ ] Task 216: `follow_activity` (continuous activity, breaks, sleeps, the grid)
+- [ ] Task 217: `BreakWatcher` (focus, active hours, failures, delivery, the thread)
+- [ ] Task 218: wiring in `run` (game mode, `during_games`, push), the check line
+- [ ] Task 219: README "Pengingat istirahat", CHANGELOG
+
+### Checkpoint: Pengingat istirahat
+- [ ] Python suite and ruff clean; no test read the real input, slept, spoke, or pushed; the strict-tool budget unchanged
+- [ ] By hand (a scratch folder with the example config and `breaks.enabled: true`): the check line, and a scratch script driving a real `BreakWatcher` with a fake reader and clocks through an hour of activity, a break, a focus block, and a sleep
+- [ ] On the owner's PC: after an hour at the keyboard she says the line once, a five-minute pause starts the count again, and nothing is said in a focus block
+
 ## Risks and Mitigations
 
 | Risk | Impact | Mitigation |
@@ -850,6 +875,7 @@ parameters stay.
 | Journal entries spoken, pushed, or remembered when nobody asked | Private notes said in front of guests or sent away | Tools only when asked (descriptions, persona); the greeting and weekly report turns get an error from both tools in code; the nightly question has no push and cannot write; never in the system prompt or memory unless Master asks |
 | Guest mode leaves something private reachable | Master's money, journal, tasks, or memory said in front of guests | One shared refusal in `run_tool` for a fixed list, a test that sorts every tool of a full request, a new session without the remembered facts at the next turn, the briefing reduced and the private self-started turns dropped; the switching turn and the fixed announcements are documented limits |
 | A repeat request answers a confirmation question or repeats private words to guests | The PC turned off on "ulangi", or what Master heard before guests came said in front of them | The repeat never reaches the brain, so the gate never sees it and a pending question waits for Master's next real turn; only whole repeat phrases count; the remembered words carry guest mode's generation and are forgotten once it has moved |
+| The break watcher misreads activity (a tick wrap after 49.7 days, a sleep, controller play) | A nudge to an empty chair, a nudge right after waking the PC, or none while playing | The idle time is the masked 32-bit difference, read input first; a poll gap longer than a break by the tick count or the wall clock starts the count again; a line needs input at its due point and expires after a break's length; gamepad input is a documented limit |
 
 ## Open Questions
 

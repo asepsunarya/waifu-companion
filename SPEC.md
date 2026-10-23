@@ -1847,6 +1847,53 @@ Privacy: the file holds word ids, boxes, and dates only, on this PC; with the Cl
 
 Safety: tests use tmp files and fake clocks; the word list is read from the package; nothing is spoken or pushed.
 
+### pengingat istirahat (v1.40)
+
+Master sits at this PC for hours (work, study, and games late into the night) and asked her to remind him to rest his eyes: after every hour of continuous activity at the PC she says one short, gentle line, then waits another hour, and a real break starts the count again. Off by default.
+
+User stories:
+
+1. With `breaks.enabled: true`, after `every_minutes` (60) of continuous keyboard or mouse activity at the PC she says once, like her other notices (between utterances, once the follow-up window has closed): "Sayang, sudah satu jam di depan layar. Istirahatkan matamu sebentar dan minum air, ya." Still active another `every_minutes` later: "Sayang, sudah dua jam di depan layar. ...", and so on.
+2. A pause without keyboard or mouse input of at least `idle_reset_minutes` (5) is a break: the count starts again at his next input. A sleep of the PC is a break too.
+3. Never during a focus block (v1.30): the focus timer has its own breaks, so a block resets the count, which starts afresh after it.
+4. While game mode (v1.34) holds her announcements, the line waits like her other notices (and is dropped when still held after `idle_reset_minutes`); with `breaks.during_games: true` it is said while he plays, like his own reminders.
+5. Optional active hours (`active_from`, `active_until`, across midnight allowed): outside them nothing is counted or said.
+6. No push unless `breaks.push` and notifications are on. `waifu check` says whether it is on and how it is set.
+
+Non-goals (v1.40): looking at the screen, the webcam, or which window is in front; counting gamepad (XInput) input, a running game, or a playing video as activity (see known limits); a break timer, or checking that he took the break; telling how long he has been at the PC when asked (no tool); a count that survives a restart of `waifu run`; the line in `chat`; a stronger second line; a CLI command; a new tool, tool parameter, persona line, or dependency (18 of 20 strict tools and 17 of 24 optional parameters stay).
+
+Reading the activity (`input_idle.py`):
+- `InputIdle(tick_ms, idle_ms)` (frozen): Windows' tick count (`GetTickCount64`, milliseconds since Windows started, counting through sleep) and the milliseconds since the last keyboard or mouse input of the session (`GetLastInputInfo`, user32).
+- `read_input_idle(*, last_input=<GetLastInputInfo>, tick_count=<GetTickCount64>) -> InputIdle`: reads the last input first, then the tick count; `idle_ms = (tick - dwTime) mod 2**32` (`dwTime` is the 32-bit tick count, which wraps every 49.7 days of uptime), and a difference of `2**31` or more (input between the two calls) is 0. A failed `GetLastInputInfo` (0) is an `OSError` with Windows' last error. user32 and kernel32 come through ctypes with Microsoft's documented signatures (`LASTINPUTINFO {cbSize: UINT, dwTime: DWORD}`, `cbSize` filled in), loaded at every call, never at import. Read-only: nothing is hooked, injected, or sent, and which key or where the mouse is never reaches it.
+- `tests/conftest.py` refuses `user32.GetLastInputInfo` like the process snapshot, recording it so that a test whose code caught the refusal still fails; `GetTickCount64` stays allowed (`pc_health` needs it).
+
+The rule (`break_watch.py`, pure):
+- `Activity(since, due, last_tick, last_wall)` (frozen; ticks in ms; `last_wall` the poll's local time). `follow_activity(activity, reading, now, *, every, reset) -> tuple[Activity | None, int | None]`, the activity after a poll (None: not counting) and the minutes to tell when a line is due:
+  - `idle_ms >= reset`: a break, None.
+  - Counting, and this poll comes more than `reset` after the last one by the tick count or by the wall clock (the PC slept, or the watcher could not look): the count starts afresh at this poll.
+  - Not counting: it starts at this poll (`since` its tick, `due` = `since + every`).
+  - The last input (`tick_ms - idle_ms`) at or after `due`: the line is due with `minutes = (due - since) / 60000` (a multiple of `every_minutes`), and the next is due `every` later, on the same grid, so the second says "dua jam", never "dua jam satu menit". The last input, not the poll, decides: a line due while he is away waits for his next input, and a break of `reset` resets it instead, so she never speaks to an empty chair.
+- A break is always seen when it lasts at least `idle_reset_minutes` plus one poll (30 s); a shorter one only when a poll falls in it after `idle_reset_minutes`. Each poll is at most `reset` after the last (else the count starts afresh), and `reset` is shorter than `every`, so one poll gives at most one line.
+
+`BreakWatcher(read_activity, config, *, announce, notifier, owner_call, title="Cyrene", in_focus_block=None, now=datetime.now, clock=time.monotonic, wait=threading.Event.wait)`:
+- `poll_once() -> list[str]` (what she said): during a focus block (`in_focus_block()`) or outside the active hours (`now`, the PC's local time, `voice_level.in_window`), nothing is read and the count resets; else it reads the activity and follows it. A failed read resets the count too: the first of a run is logged at WARNING (with its traceback unless it is an `OSError`), the rest at DEBUG, the recovery at INFO. A due line, `"{owner}, sudah {spoken_duration(minutes)} di depan layar. Istirahatkan matamu sebentar dan minum air, ya."` (the owner word at sentence start; `focus_timer.spoken_duration`: "satu jam", "satu jam tiga puluh menit"), is announced with emotion `relaxed` and `expires_at` = `now` + `idle_reset_minutes` (one still unsaid then is out of date: held by a long talk, a game, or a block that began after it), then pushed with the `coffee` tag when the watcher has a notifier; a failure of either is logged, never raised. The count and the line are logged at DEBUG only: when he is at the PC is his own (`run` logs `Announcing: ...` as it says the line).
+- `start()`: a daemon thread "break-watcher" polling at once, then every `POLL_S` (30 s) from the start of the previous poll; a second `start()` is a no-op. `stop()` wakes and joins it (5 s). The count lives in memory only: a restart starts from zero, and activity before the first poll is unknown.
+
+Config `breaks`: `enabled` (false), `every_minutes` (60, 20–180), `idle_reset_minutes` (5, 2–15, so always shorter than `every_minutes`), `during_games` (false), `push` (false), `active_from` and `active_until` (none: all day; both or neither, not equal, clock times without a time zone, across midnight when `active_until` comes first, as `08:00`–`02:00`).
+
+CLI:
+- `run` with `breaks.enabled` starts the watcher inside the watchers' block, right after the focus session, with `read_input_idle`, the focus timer's `in_block` (none without the focus companion), and the notifier only with `breaks.push` and notifications on; stopped on exit. Its announce is the rain alert's (`_announcer(..., patient=True, pushed=...)`: held while game mode holds, left unsaid while a game runs in `phone` mode when it was pushed), but with `breaks.during_games`, while game mode holds her announcements, the line goes to `assistant.remind` (said while he plays, also in an open follow-up window). The watcher's own focus check keeps `remind` out of focus blocks. `chat` never starts it. Guest mode changes nothing: the line holds nothing private.
+- `check`, right after the voice volume line: `! Pengingat istirahat mati`, or `✓ Pengingat istirahat: tiap 60 menit di depan layar, jeda 5 menit dihitung istirahat`, with `, jam 08:00-02:00` for the active hours, `, juga saat main` with `during_games`, and `, juga ke HP` with `push` and notifications on. From the config only: nothing is read.
+- Docs: README (Indonesian) section "Pengingat istirahat" after "Belajar bahasa Jepang" (turning it on, the line, what counts as activity and as a break, focus blocks, game mode, the active hours, the check row, known limits, privacy) with a contents entry, mentions in "Teman fokus" and "Mode game", checklist items, and a Privasi bullet; `config.example.yaml` documents `breaks`; CHANGELOG v1.40.
+
+Decisions: a focus block resets the count (focus has its own breaks, and a count carried through a session would nag right after it); outside the active hours the count resets, so it starts at `active_from`; a line expires `idle_reset_minutes` after it was due; `during_games` uses `remind` only while game mode holds (with `normal`, or no game mode, nothing holds the plain announcement).
+
+Known limits: gamepad (XInput) input never reaches `GetLastInputInfo`, so playing with a controller, like watching a video without touching anything, looks idle and resets the count; any input counts, also Cyrene's own media keys (`SendInput`), a mouse jiggler, remote play (Parsec, Steam Remote Play), or a bumped mouse; she counts from `waifu run`'s first poll; a break barely longer than `idle_reset_minutes` can fall between two polls; a line held longer than `idle_reset_minutes` (a long talk, a game holding it) is dropped, and the next comes `every_minutes` later.
+
+Privacy: nothing is stored: the count lives in memory, only the time since the last input is read, and the count and the line are logged at DEBUG; with `breaks.push` and notifications on, the line goes to ntfy.sh.
+
+Safety: tests never read the real input (refused in `tests/conftest.py`), sleep, speak, or push; every clock and reader is a fake; `test_cli.py` keeps a fake `BreakWatcher`.
+
 ## Code Style
 
 See `CLAUDE.md` → Code Conventions and Patterns. Dataclasses for value
