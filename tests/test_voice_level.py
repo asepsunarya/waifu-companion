@@ -350,7 +350,7 @@ def test_the_warning_comes_again_after_the_file_read_once_more(tmp_path, caplog)
     assert len(caplog.records) == 2
 
 
-def test_a_broken_file_that_cannot_be_moved_aside_never_silences_her(tmp_path, monkeypatch):
+def test_a_broken_file_that_cannot_be_moved_aside_never_silences_her(tmp_path, monkeypatch, caplog):
     path = tmp_path / "voice.json"
     path.write_text("broken", encoding="utf-8")
 
@@ -358,5 +358,37 @@ def test_a_broken_file_that_cannot_be_moved_aside_never_silences_her(tmp_path, m
         raise PermissionError("file in use")
 
     monkeypatch.setattr(os, "rename", failing_rename)
+    level = make_level(path)
 
-    assert make_level(path).level_now() == 100
+    with caplog.at_level(logging.WARNING, logger="waifu.voice_level"):
+        assert [level.level_now() for _ in range(3)] == [100, 100, 100]
+
+    # Read at every clip: logged once until the file reads again, not once per clip.
+    assert [record.levelname for record in caplog.records] == ["ERROR", "WARNING"]
+    assert "could not be moved aside" in caplog.records[0].getMessage()
+
+
+def test_a_broken_file_that_cannot_be_moved_aside_is_logged_again_after_a_good_read(
+    tmp_path, monkeypatch, caplog
+):
+    path = tmp_path / "voice.json"
+    path.write_text("broken", encoding="utf-8")
+
+    def failing_rename(src, dst):
+        raise PermissionError("file in use")
+
+    monkeypatch.setattr(os, "rename", failing_rename)
+    level = make_level(path)
+    with caplog.at_level(logging.WARNING, logger="waifu.voice_level"):
+        level.level_now()
+        write_state(path, level=60)
+        assert level.level_now() == 60
+        path.write_text("broken again", encoding="utf-8")
+        assert level.level_now() == 60
+
+    assert [record.levelname for record in caplog.records] == [
+        "ERROR",
+        "WARNING",
+        "ERROR",
+        "WARNING",
+    ]

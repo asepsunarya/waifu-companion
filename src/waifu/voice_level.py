@@ -164,12 +164,13 @@ class VoiceLevel:
         try:
             os.rename(self.path, target)
         except OSError as exc:
-            logger.error(
-                "The voice state %s is not one (%s) and could not be moved aside: %s",
-                self.path,
-                problem,
-                exc,
-            )
+            if not self._unreadable:  # `level_now` tries at every clip: once until a good read
+                logger.error(
+                    "The voice state %s is not one (%s) and could not be moved aside: %s",
+                    self.path,
+                    problem,
+                    exc,
+                )
             raise
         logger.error(
             "The voice state %s is not one (%s); moved it to %s and started anew",
