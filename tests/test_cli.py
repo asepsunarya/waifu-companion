@@ -152,11 +152,12 @@ from waifu.offers.errors import OffersError
 from waifu.offers.store import OffersStore
 from waifu.offers.values import AiOffer, GameGiveaway
 from waifu.pc_health import Drive, GpuStatus, PcSnapshot
+from waifu.phone.actions import QuickResult
 from waifu.phone.auth import CODE_LIFETIME, PhoneAuth, Refusal
 from waifu.phone.server import PhoneError, PhoneReply
 from waifu.play_time import PlayTimeStore, Session
 from waifu.processes import running_executables
-from waifu.schedule import DeviceAction, Reminder, RoutineAction, ScheduleStore
+from waifu.schedule import DeviceAction, Entry, Reminder, RoutineAction, ScheduleStore
 from waifu.scheduler import MONTHS_ID, Scheduler
 from waifu.screen import ScreenImage
 from waifu.single_instance import InstanceLock
@@ -9768,6 +9769,35 @@ def test_run_gives_the_phone_quick_buttons_on_the_run_s_own_devices(home, run_fa
     assert "dev.ac.temp_24" in buttons["AC Samsung"]
     assert buttons["Rutinitas"] == ["rt.tidur"]
     assert result.message == "Lampu kamar: perintah 'on' berhasil (simulasi)."
+
+
+def test_run_s_quick_routine_schedules_its_delayed_step_in_the_run_s_schedule(
+    home, run_fakes, schedulers, monkeypatch
+):
+    delayed = (
+        "routines:\n  tidur:\n    description: Mode tidur\n    steps:\n"
+        "      - {device: lampu_kamar, command: off}\n"
+        "      - {device: ac, command: off, after_minutes: 180}\n"
+    )
+    append_config(home, PHONE_ON + delayed)
+    pressed: list[tuple[QuickResult, list[Entry]]] = []
+
+    class PressingPhoneServer(FakePhoneServer):
+        """Presses "Mode tidur" while the run still serves: a dry run's schedule is a
+        temporary folder, gone once `cli.main` returns."""
+
+        def __exit__(self, *exc_info) -> None:
+            result = self.actions.run(self.actions.find("rt.tidur"))
+            pressed.append((result, schedulers[0].store.entries()))
+
+    monkeypatch.setattr(cli, "PhoneServer", PressingPhoneServer)
+
+    assert cli.main(["run", "--no-speaker-check", "--dry-run"]) == 0
+
+    [(result, entries)] = pressed
+    assert result.ok, result.message
+    [entry] = entries
+    assert entry.action == DeviceAction("ac", "off", routine="tidur")
 
 
 def test_run_shows_the_quick_buttons_phone_quick_actions_picks(home, run_fakes, phone_servers):
