@@ -142,6 +142,31 @@ def test_committed_personas_switch_guest_mode_and_keep_master_s_things_quiet_mea
 
 
 @pytest.mark.parametrize("persona_file", ["persona.md", "persona_hsr.md"])
+def test_committed_personas_quiz_japanese_one_word_at_a_time_only_when_asked(persona_file):
+    persona = load_persona(ROOT / "config" / persona_file)
+
+    lesson = persona.split("Belajar bahasa Jepang:", 1)[1].split("\n\n", 1)[0]
+
+    assert "japanese_lesson" in lesson
+    assert "action today" in lesson
+    assert "action quiz" in lesson
+    assert "hanya kalau Master minta" in lesson
+    assert "satu kata saja" in lesson
+    assert "dengan kana" in lesson
+    assert "tunggu jawaban Master" in lesson
+    assert "action grade" in lesson
+    assert "puji dengan hangat" in lesson
+    assert "sebutkan artinya dengan lembut" in lesson
+    assert "action progress" in lesson
+    assert "jangan pernah memanggil grade tanpa jawaban Master" in lesson
+    assert "jangan menulis romaji atau tanda kurung" in lesson
+    assert "tanpa ceramah" in lesson
+    # Between the journal and guest mode, so the money stays the last section.
+    assert persona.index("Jurnal harian:") < persona.index("Belajar bahasa Jepang:")
+    assert persona.index("Belajar bahasa Jepang:") < persona.index("Mode tamu:")
+
+
+@pytest.mark.parametrize("persona_file", ["persona.md", "persona_hsr.md"])
 def test_committed_personas_name_none_of_the_v1_16_hsr_tools(persona_file):
     # The model calls a tool by the name the persona gives it, and the v1.16 names are gone:
     # each one costs a wasted "tidak dikenal" round.

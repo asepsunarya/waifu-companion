@@ -818,7 +818,7 @@ parameters stay.
 - [x] Task 206: the word list and `load_words`, validated
 - [x] Task 207: `word_of_the_day`, `review`, `next_quiz`
 - [x] Task 208: `JapaneseStore`
-- [ ] Task 209: `JapaneseTools` (`japanese_lesson`) and the persona section
+- [x] Task 209: `JapaneseTools` (`japanese_lesson`) and the persona section
 - [ ] Task 210: the briefing's `word_of_the_day` and `BRIEFING_PROMPT`
 - [ ] Task 211: the `japanese` config, `config.example.yaml`
 - [ ] Task 212: wiring in `run` and `chat`, guest mode sorting, `waifu jepang`, the check line

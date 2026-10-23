@@ -1983,11 +1983,11 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 207 · **Files:** `src/waifu/japanese.py`, `tests/test_japanese.py` · **Scope:** M
 
-## Task 209: `japanese_lesson` and the persona
+## Task 209: `japanese_lesson` and the persona ✅
 
 **Acceptance criteria:**
-- [ ] `japanese_lesson {action?, word_id?, correct?}` is non-strict with a static description; today, quiz, grade, and progress answer as the SPEC says; bad arguments, an unknown or unlearned word, and a file error are error results; her own turns get no quiz or grade
-- [ ] Both personas hold one identical "Belajar bahasa Jepang:" section before "Mode tamu:"
+- [x] `japanese_lesson {action?, word_id?, correct?}` is non-strict with a static description; today, quiz, grade, and progress answer as the SPEC says; bad arguments, an unknown or unlearned word, and a file error are error results; her own turns get no quiz or grade
+- [x] Both personas hold one identical "Belajar bahasa Jepang:" section before "Mode tamu:"
 
 **Dependencies:** 208 · **Files:** `src/waifu/brain/japanese_tools.py`, `tests/test_japanese_tools.py`, `config/persona.md`, `config/persona_hsr.md`, `tests/test_brain_persona.py` · **Scope:** M
 
