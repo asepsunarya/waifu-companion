@@ -798,8 +798,10 @@ async function cameraTurnedOff() {
 
 // --- The quick buttons ------------------------------------------------------------------------------
 
-/** Reads the PC's quick buttons and shows their toggle when there are any; without them, or on a problem, the page
- * stays as it was, without a word. */
+/**
+ * Reads the PC's quick buttons and shows their toggle when there are any; without them, or on a problem, the page
+ * stays as it was, without a word.
+ */
 async function loadQuick() {
   const result = await requestCyrene(fetch, ACTIONS_URL);
   const groups = result.problem ? null : parseActionGroups(result.data);
