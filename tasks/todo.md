@@ -1964,6 +1964,7 @@ named `tests/test_<package>_<module>.py`.
 **Acceptance criteria:**
 - [x] `src/waifu/japanese_words.json` ships as package data with at least 300 N5 words and phrases; `load_words` reads it into `Word`s and refuses a file that is not such a list
 - [x] A test validates it: exact keys, unique ids, words, and examples, no empty field, the reading kana only, the kanji form and the example one Japanese run, the Indonesian fields Indonesian only and untouched by `clean_for_speech`
+- [x] Fix pass: w088's example writes ten minutes in kana (じゅっぷん), since a lone 十分 reads じゅうぶん ("enough") to a speech engine; a test refuses a lone 十分 in any example (三十分 keeps its one reading)
 
 **Dependencies:** 206a · **Files:** `src/waifu/japanese.py`, `src/waifu/japanese_words.json`, `pyproject.toml`, `tests/test_japanese.py` · **Scope:** M
 
@@ -1988,6 +1989,7 @@ named `tests/test_<package>_<module>.py`.
 **Acceptance criteria:**
 - [x] `japanese_lesson {action?, word_id?, correct?}` is non-strict with a static description; today, quiz, grade, and progress answer as the SPEC says; bad arguments, an unknown or unlearned word, and a file error are error results; her own turns get no quiz or grade
 - [x] Both personas hold one identical "Belajar bahasa Jepang:" section before "Mode tamu:"
+- [x] Fix pass: `grade` refuses a word not due yet ("Kata itu belum waktunya diulang, jadi tidak dinilai lagi."), writing nothing, so a turn retried after an API error never moves a word up twice; the description and both personas count the meaning of a common homophone (はな heard as 鼻) as right, or have her give a hint and ask again
 
 **Dependencies:** 208 · **Files:** `src/waifu/brain/japanese_tools.py`, `tests/test_japanese_tools.py`, `config/persona.md`, `config/persona_hsr.md`, `tests/test_brain_persona.py` · **Scope:** M
 
@@ -1996,6 +1998,7 @@ named `tests/test_<package>_<module>.py`.
 **Acceptance criteria:**
 - [x] With `japanese`, `daily_briefing` holds `word_of_the_day` (learned once), in guest mode too, null after a failure; without it no such field; the spec is the same either way
 - [x] `BRIEFING_PROMPT` names the word of the day and still reads as no yes, look word, or play verb
+- [x] Fix pass: only her morning greeting's turn (`begin_turn` hears `BRIEFING_PROMPT`) gets `word_of_the_day` and learns it; a weather or schedule question at any hour gets neither, and the spec stays the same
 
 **Dependencies:** 208 · **Files:** `src/waifu/briefing.py`, `tests/test_briefing.py` · **Scope:** S
 
@@ -2020,5 +2023,6 @@ named `tests/test_<package>_<module>.py`.
 
 **Acceptance criteria:**
 - [x] README "Belajar bahasa Jepang" with a contents entry, mentions in the briefing section and "Mode tamu", checklist items, and a Privasi bullet; CHANGELOG v1.39; full suite and ruff clean
+- [x] Fix pass: the README checklist answers the one word wrong on the first day and right the next (a fresh install has no next word); README, SPEC, and CHANGELOG say the word is the greeting's only, that a common homophone's meaning counts, and that an answer is not graded twice
 
 **Dependencies:** 212 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S

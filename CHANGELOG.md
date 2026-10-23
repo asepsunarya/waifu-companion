@@ -8,12 +8,15 @@ aktif, lalu jalankan `waifu check`.
 
 - Mati sampai dinyalakan (`japanese.enabled: true`): Cyrene mengajari satu kata Jepang tingkat
   pemula (JLPT N5) setiap hari dari daftar bawaan 300 kata dan ungkapan, tanpa internet. Kata hari
-  ini dia sebut di akhir sapaan pagi (kana lalu artinya), dan "kata Jepang hari ini apa?" bisa
-  kapan saja, dengan contoh kalimatnya. Semua kata keluar dulu sebelum ada yang berulang.
+  ini dia sebut di akhir sapaan pagi (kana lalu artinya), hanya di sapaan itu (pertanyaan cuaca
+  atau jadwal di jam lain tidak ikut menyebutnya), dan "kata Jepang hari ini apa?" bisa kapan
+  saja, dengan contoh kalimatnya. Semua kata keluar dulu sebelum ada yang berulang.
 - "Kuis bahasa Jepang dong": dia menanyakan arti satu kata yang sudah dipelajari, menunggu jawaban
-  Master, lalu memuji atau menyebut artinya dengan lembut. Kata yang sering benar makin jarang
-  ditanya (sistem Leitner), yang salah ditanya lagi besok. Kuis hanya kalau Master minta, tidak
-  pernah di sapaan pagi. "Aku sudah belajar berapa kata?" menjawab kemajuannya.
+  Master, lalu memuji atau menyebut artinya dengan lembut. Arti kata lain yang bunyinya sama
+  (はな: bunga atau hidung) juga dihitung benar, dan jawaban untuk kata yang sama tidak dinilai
+  dua kali sebelum waktunya diulang. Kata yang sering benar makin jarang ditanya (sistem
+  Leitner), yang salah ditanya lagi besok. Kuis hanya kalau Master minta, tidak pernah di sapaan
+  pagi. "Aku sudah belajar berapa kata?" menjawab kemajuannya.
 - Bahasa Jepangnya selalu kana atau kanji, jadi diucapkan dengan suara Jepang; tanpa romaji.
 - Tetap jalan di mode tamu. Kemajuan disimpan di `data\japanese.json` (hanya kode kata, kotak,
   dan tanggal). `waifu jepang` menampilkan kata hari ini dan `waifu jepang progres` kemajuannya,
