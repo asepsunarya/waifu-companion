@@ -229,7 +229,7 @@ waifu check
 | Bagian | Isi |
 |---|---|
 | `assistant` | nama, `owner_call` (panggilannya untukmu), `wake_words`, `followup_seconds`, `persona_file`, kapan obrolan direset |
-| `audio` | `input_device`/`output_device` (nomor atau nama dari `waifu mics`), `vad` (kepekaan deteksi bicara) |
+| `audio` | `input_device`/`output_device` (nama dari `waifu mic`, atau nomor atau nama dari `waifu mics`), `vad` (kepekaan deteksi bicara) |
 | `speaker` | verifikasi suara: `enabled`, `voiceprint_path`, `threshold`, `device` |
 | `stt` | model Whisper, `device`, `compute_type`, `languages` |
 | `brain` | `backend` (`ollama` atau `claude`), `max_tool_rounds`, lalu blok `ollama` dan `claude` |
@@ -606,7 +606,7 @@ Cyrene hanya menanggapi suara yang cocok dengan voiceprint Master. Daftarkan di
 ruangan dan dengan mic yang sama seperti pemakaian sehari-hari.
 
 ```powershell
-waifu mics            # pilih mic, isi audio.input_device kalau bukan mic default
+waifu mic             # mic mana yang mendengar suaramu, dan baris audio.input_device-nya
 waifu enroll          # 6 rekaman x 4 detik; bacakan kalimat yang muncul
 waifu speaker-test    # skor kecocokan langsung, Ctrl+C untuk berhenti
 ```
@@ -646,6 +646,7 @@ waifu speaker-test    # skor kecocokan langsung, Ctrl+C untuk berhenti
 | `waifu learn-ir <id> <perintah>` / `waifu learn-ir <id> --missing` | Pelajari tombol remote IR |
 | `waifu enroll` / `waifu speaker-test` | Daftarkan suara / cek skor kecocokan |
 | `waifu mics` | Daftar perangkat audio dan nomornya |
+| `waifu mic` / `waifu mic --seconds 5` | Cari mic yang mendengar suaramu: tiap mic didengarkan sebentar sambil kamu menyebut "halo Cyrene", lalu baris `audio.input_device` untuk mic terbaik (lihat [Pemecahan masalah](#pemecahan-masalah)) |
 | `waifu voices` | Daftar suara Windows per bahasa, dan suara cadangan offline yang dipakai tiap bahasa |
 | `waifu avatar` / `waifu avatar --demo` | Tampilkan avatar saja, tanpa mendengarkan; `--demo` mengganti ekspresi setiap 3 detik, dan reaksi elusan atau colekan dicetak di terminal (lihat [Avatar 3D](#avatar-3d-つくよみちゃん) dan [Avatar Live2D & interaksi](#avatar-live2d--interaksi)) |
 | `waifu memory list` / `add` / `forget` / `clear` | Lihat, tambah, dan hapus catatan ingatannya (lihat [Ingatan Cyrene](#ingatan-cyrene)) |
@@ -4950,7 +4951,30 @@ dari torch dan paket `nvidia-*` di venv.
 
 **Mic tidak terdeteksi atau tidak mau dibuka.**
 
-- `waifu mics` menampilkan semua perangkat (tanda `>` = mic default). Isi
+- Jalankan `waifu mic`, lalu sebut "halo Cyrene" beberapa kali dengan suara biasa. Dia
+  menampilkan tiap mic sekali, menandai mic yang dipakai Cyrene dan default Windows,
+  mendengarkan tiap mic 3 detik (`waifu mic --seconds 5` untuk lebih lama), lalu menulis
+  puncak dan RMS suaranya dengan bar `#`, apakah suaramu terdengar sekeras yang dibutuhkan
+  Cyrene, dan baris `input_device: "..."` untuk mic yang paling jelas mendengarmu. Pakai baris
+  itu untuk mengganti baris `input_device` di bagian `audio:` di `config.yaml`, jalankan ulang
+  `waifu run`, lalu daftarkan ulang suaramu dengan `waifu enroll` lewat mic itu. Rekamannya tidak disimpan, dan `waifu mic` boleh
+  dijalankan selagi `waifu run` jalan.
+- Kalau `audio.input_device` kosong, Cyrene memakai mic default Windows yang ada saat
+  `waifu run` dimulai; default yang berubah sesudahnya (misalnya headset Bluetooth baru
+  tersambung) baru dipakai setelah `waifu run` dijalankan ulang. Colokan mic di PC (misalnya
+  "Microphone (High Definition Audio Device)") yang tidak tersambung ke mic sungguhan hanya
+  mendengar bising, sekitar -50 dB, padahal suara baru dianggap bicara di atas -45 dB
+  (`audio.vad.threshold_db`). Baris `Mikrofon` di `waifu check` menyebut mic yang dipakai dan
+  apakah itu default Windows.
+- Headset Bluetooth: selama mic-nya terbuka, Windows memindahkan headset ke mode hands-free
+  yang kualitasnya lebih rendah, jadi musik dan suara Cyrene di headset itu terdengar seperti
+  telepon (sebentar saja saat `waifu mic` mendengarkannya). Pindahnya butuh satu-dua detik:
+  untuk headset Bluetooth pakai `waifu mic --seconds 5` dan terus bicara selama gilirannya
+  ("hampir tanpa suara" berarti mic-nya di-mute, diblokir Windows, atau headsetnya belum siap).
+  Kalau headset itu dipakai sebagai mic Cyrene, mic-nya terbuka selama `waifu run` jalan, jadi
+  headsetnya terus di mode itu; pakai speaker lain untuk suaranya (`audio.output_device`), atau
+  mic terpisah.
+- `waifu mics` menampilkan semua perangkat apa adanya (tanda `>` = mic default). Isi
   `audio.input_device` dengan nomor atau namanya.
 - Mic dibuka di sample rate bawaannya lalu di-resample ke 16 kHz, jadi
   `audio.sample_rate` tetap `16000`. Kalau satu entri mic (misalnya versi WASAPI
@@ -5019,6 +5043,9 @@ menguji nomor 5.
 - [ ] Setiap perangkat bereaksi lewat CLI: `waifu device lampu_kamar on`,
       `waifu device ac temp 24`, `waifu device proyektor power`,
       `waifu device tv power`.
+- [ ] `waifu mic`: sambil kamu menyebut "halo Cyrene", mic yang dipakai Cyrene menunjukkan
+      `✓ suara terdengar` (atau isi `audio.input_device` dengan baris yang dia sarankan), dan
+      baris `Mikrofon` di `waifu check` menyebut mic itu.
 - [ ] `waifu speaker-test`: suaramu `✓`, suara orang lain `✗`.
 
 **User story** (jalankan `waifu run` dan tunggu sampai muncul "Cyrene siap

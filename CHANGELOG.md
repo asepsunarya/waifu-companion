@@ -4,6 +4,22 @@ Ringkasan per versi, yang terbaru di atas. Rinciannya ada di README (bagian yang
 setiap versi) dan di SPEC.md. Setelah memperbarui, **mulai ulang `waifu run`** supaya semuanya
 aktif, lalu jalankan `waifu check`.
 
+## v1.34.1: perbaikan fokus dan waifu mic
+
+- Blok fokus kembali seperti v1.30: pengingat resin, daily, mingguan, atau ekspedisi dan
+  pemberitahuan GPU panas yang tertahan selama blok diucapkan saat istirahat, berapa lama pun
+  bloknya. Di v1.34 pengingat itu ikut dilewati sesudah blok 30 menit, padahal tidak ada game
+  yang dimainkan. Yang dilewati karena basi hanya yang ditahan game (mode game), juga kalau game
+  dibuka di tengah blok.
+- `waifu mic` baru: menampilkan tiap mic sekali (tanda mic yang dipakai Cyrene dan default
+  Windows), mendengarkan tiap mic beberapa detik sambil Master menyebut "halo Cyrene"
+  (`--seconds`, bawaan 3), lalu menulis puncak dan RMS suaranya, apakah suaranya terdengar
+  sekeras yang dibutuhkan Cyrene, dan baris `audio.input_device` untuk mic terbaik. Rekamannya
+  tidak disimpan, dan boleh dijalankan selagi `waifu run` jalan.
+- Baris `Mikrofon` di `waifu check` menyebut mic yang dipakai dan apakah itu default Windows.
+- Tidak ada pengaturan baru. README: "Pemecahan masalah" (Mic tidak terdeteksi, juga catatan
+  headset Bluetooth), "Teman fokus", dan "Mode game".
+
 ## v1.34: mode game
 
 - Mode game baru, mati dari awal: selama HSR, Genshin, atau ZZZ terbuka (dia tahu dari jam

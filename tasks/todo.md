@@ -1664,3 +1664,36 @@ named `tests/test_<package>_<module>.py`.
 - [x] Fix pass: a crash at launch leaves the room as `on_stop` sets it (not restored; `brightness` lights a lamp that was off); held notices are lost when `waifu run` stops, also in the 1-2 polls after the game closes (known limits, "Yang dilewati"); the checklist and `config.example.yaml` describe the lead-in and what is dropped as stale
 
 **Dependencies:** 173 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
+
+## Task 175: A focus block keeps the game reminders ✅
+
+**Acceptance criteria:**
+- [x] Proven first: a real `GachaWatcher` and a real `Assistant` with a 30-minute focus block (no game mode, or no game running) said nothing at the break; now the stamina and daily reminders are said then, and a hot-GPU notice after a two-hour block
+- [x] A game still drops them (past the next poll, or an hour), also one opened during the block; one a game held under a poll comes after `GAME_HELD`; the rain alert keeps its expiry for every hold
+- [x] CHANGELOG v1.34 says what changes without `game_mode`; SPEC and README describe the game-only expiry
+
+**Dependencies:** none · **Files:** `src/waifu/app.py`, `src/waifu/rain_watch.py`, `src/waifu/gacha/watcher.py`, `src/waifu/pc_watch.py`, `src/waifu/cli.py`, `tests/test_app.py`, `tests/test_gacha_watcher.py`, `tests/test_pc_watch.py`, `tests/test_cli.py`, docs · **Scope:** S
+
+## Task 176: The microphones and their levels ✅
+
+**Acceptance criteria:**
+- [x] Each input once, from the default input's host API first; never the default's aliases, outputs, or WDM-KS; MME's 31-character cut counts as the same name
+- [x] A measurement reads one shared mono stream at the device's rate and closes it; speech above the VAD's bar is heard, the noise floor alone or a steady fan is not, digital silence is silent
+- [x] The config value is `"name, host API"`, which sounddevice's own matcher resolves to that entry where the bare name is refused
+
+**Dependencies:** none · **Files:** `src/waifu/voice/mic_check.py`, `tests/test_voice_mic_check.py` · **Scope:** S
+
+## Task 177: `waifu mic` and the check's mic line ✅
+
+**Acceptance criteria:**
+- [x] Lists the inputs marked "dipakai Cyrene" and "default Windows", prompts "Sebut 'halo Cyrene' ...", prints each one's peak, RMS, bar, and verdict, and the `input_device` line for the best mic (or says the one in use is best); `--seconds` (> 0); a mic that cannot be opened is reported and skipped; no input, no default, or a configured name that opens nothing each say why; always exit 0; nothing saved
+- [x] `waifu check` says the mic, and whether it is the Windows default, without listening
+
+**Dependencies:** 176 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** M
+
+## Task 178: Docs ✅
+
+**Acceptance criteria:**
+- [x] README "Mic tidak terdeteksi atau tidak mau dibuka." leads with `waifu mic` and has the Bluetooth hands-free note; the commands table, enrolment, config table, and checklist name it; CHANGELOG v1.34.1; SPEC "perbaikan fokus dan waifu mic (v1.34.1)"; full suite and ruff clean
+
+**Dependencies:** 175, 177 · **Files:** `README.md`, `CHANGELOG.md`, `SPEC.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
