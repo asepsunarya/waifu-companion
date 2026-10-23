@@ -2064,6 +2064,7 @@ named `tests/test_<package>_<module>.py`.
 - [x] A due line is announced (relaxed, expiring after `idle_reset_minutes`) and pushed with the coffee tag when it has a notifier; either may fail without stopping the other or the watcher
 - [x] A focus block and the time outside the active hours read nothing and reset the count; a failed read resets it, logged once at WARNING and its recovery at INFO
 - [x] A daemon thread "break-watcher" polls at once and every 30 s from the start of the last poll, stops at once, and starts only once
+- [x] Fix pass: the module docstring and the SPEC Decisions line say a line expires `idle_reset_minutes` after the poll that gives it, as the code and the SPEC BreakWatcher bullet already did, and a test pins it with a line given after its time; the voiceless watcher test gets the rig's fake clock like every other watcher
 
 **Dependencies:** 215, 216 · **Files:** `src/waifu/break_watch.py`, `tests/test_break_watch.py` · **Scope:** M
 
