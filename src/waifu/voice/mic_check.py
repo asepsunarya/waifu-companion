@@ -7,22 +7,28 @@ the Windows default input (MME on Windows) when it has one. Never listed: the en
 only the Windows default under another name, and WDM-KS, which opens a device exclusively (it
 would take the mic from a running Cyrene) and lists paired headsets that are not connected.
 
-A measurement opens a shared input stream, keeps its samples in memory only for their levels,
-and never saves them. sounddevice is passed in (the real module in the CLI, a fake in tests),
-so no test opens a real stream.
+A measurement listens as Cyrene does, through `MicStream` (a shared input stream, its audio
+resampled to the VAD's rate, an error once it stops delivering), keeps its samples in memory
+only for their levels, and never saves them. Speech counts as heard by the VAD's own rules.
+sounddevice is passed in (the real module in the CLI, a fake in tests), so no test opens a
+real stream.
 """
 
 from __future__ import annotations
 
+import itertools
 import json
 import math
+import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
 
-from waifu.config import VadConfig
-from waifu.voice.segmenter import frame_db
+from waifu.config import AudioConfig, VadConfig
+from waifu.voice.audio import MicStream
+from waifu.voice.segmenter import ONSET_MS, frame_db
 
 # What PortAudio calls the Windows default input itself, besides its real entry.
 DEFAULT_ALIASES = frozenset({"Microsoft Sound Mapper - Input", "Primary Sound Capture Driver"})
@@ -65,12 +71,11 @@ class Levels:
 
     peak_db: float  # the loudest sample
     rms_db: float  # the whole measurement
-    loudest_frame_db: float  # the loudest VAD frame: what the VAD compares
+    # The loudest level held through the VAD's onset (ONSET_MS of frames in a row), what must
+    # reach the bar to start an utterance: a click does not raise it.
+    speech_db: float
     speech_bar_db: float  # what a frame must reach to count as speech
-
-    @property
-    def heard_speech(self) -> bool:
-        return self.loudest_frame_db >= self.speech_bar_db
+    heard_speech: bool  # the VAD would have kept an utterance of it
 
     @property
     def silent(self) -> bool:
@@ -119,14 +124,21 @@ def windows_default_input(sd: Any) -> str | None:
     return None if index < 0 else sd.query_devices(index)["name"]
 
 
-def measure(sd: Any, device: InputDevice, seconds: float, vad: VadConfig) -> Levels:
-    """Listen to `device` for `seconds` in a shared stream at its own rate: its levels."""
-    sample_rate = round(device.sample_rate)
-    with sd.InputStream(
-        samplerate=sample_rate, device=device.index, channels=1, dtype="float32"
-    ) as stream:
-        audio, _overflowed = stream.read(max(1, round(sample_rate * seconds)))
-    return levels(np.asarray(audio, dtype=np.float32)[:, 0], sample_rate, vad)
+def measure(
+    sd: Any,
+    device: InputDevice,
+    seconds: float,
+    audio: AudioConfig,
+    *,
+    clock: Callable[[], float] = time.monotonic,
+) -> Levels:
+    """Listen to `device` for `seconds` (whole VAD frames) as Cyrene does: its levels. Raises
+    `MicrophoneError` when the device stops delivering audio (`clock` times the stall)."""
+    vad = audio.vad
+    count = max(1, int(seconds * 1000 // vad.frame_ms))
+    with MicStream(audio.sample_rate, vad.frame_ms, device.index, sd_module=sd, clock=clock) as mic:
+        frames = list(itertools.islice(mic.frames(), count))
+    return levels(np.concatenate(frames), audio.sample_rate, vad)
 
 
 def levels(audio: np.ndarray, sample_rate: int, vad: VadConfig) -> Levels:
@@ -136,22 +148,54 @@ def levels(audio: np.ndarray, sample_rate: int, vad: VadConfig) -> Levels:
     count = max(1, len(audio) // frame_len)
     frame_dbs = [frame_db(audio[i * frame_len : (i + 1) * frame_len]) for i in range(count)]
     noise_db = float(np.percentile(frame_dbs, QUIET_PERCENTILE))
+    speech_bar_db = max(vad.threshold_db, noise_db + vad.margin_db)
+    onset = _onset_frames(vad)
     peak = float(np.max(np.abs(audio))) if len(audio) else 0.0
     return Levels(
         peak_db=20 * math.log10(peak + 1e-10),
         rms_db=frame_db(audio),
-        loudest_frame_db=max(frame_dbs),
-        speech_bar_db=max(vad.threshold_db, noise_db + vad.margin_db),
+        speech_db=max(min(frame_dbs[i : i + onset]) for i in range(max(1, count - onset + 1))),
+        speech_bar_db=speech_bar_db,
+        heard_speech=_keeps_an_utterance([db >= speech_bar_db for db in frame_dbs], vad),
     )
 
 
+def _onset_frames(vad: VadConfig) -> int:
+    """How many speech frames in a row start an utterance, as `EnergySegmenter` counts them."""
+    return max(1, math.ceil(ONSET_MS / vad.frame_ms))
+
+
+def _keeps_an_utterance(is_speech: list[bool], vad: VadConfig) -> bool:
+    """Whether `EnergySegmenter` would keep an utterance of these frames: one starts with
+    ONSET_MS of speech in a row, ends after `silence_ms` without, and is kept once it has
+    `min_speech_ms` of speech in it (one still going at the end counts)."""
+    onset = _onset_frames(vad)
+    end = math.ceil(vad.silence_ms / vad.frame_ms)
+    needed = math.ceil(vad.min_speech_ms / vad.frame_ms)
+    run = voiced = silent = 0
+    in_utterance = False
+    for speech in is_speech:
+        if not in_utterance:
+            run = run + 1 if speech else 0
+            in_utterance, voiced, silent = run >= onset, run, 0
+        elif speech:
+            voiced, silent = voiced + 1, 0
+        else:
+            silent += 1
+            if silent >= end:
+                in_utterance, run = False, 0
+        if in_utterance and voiced >= needed:
+            return True
+    return False
+
+
 def level_bar(found: Levels) -> str:
-    """The loudest frame as a bar from BAR_FLOOR_DB to 0 dB, `|` where speech starts."""
+    """The speech level as a bar from BAR_FLOOR_DB to 0 dB, `|` where speech starts."""
 
     def position(db: float) -> int:
         share = (db - BAR_FLOOR_DB) / -BAR_FLOOR_DB
         return min(BAR_WIDTH, max(0, round(share * BAR_WIDTH)))
 
-    cells = ["#" if i < position(found.loudest_frame_db) else "." for i in range(BAR_WIDTH)]
+    cells = ["#" if i < position(found.speech_db) else "." for i in range(BAR_WIDTH)]
     cells.insert(position(found.speech_bar_db), "|")
     return f"[{''.join(cells)}]"

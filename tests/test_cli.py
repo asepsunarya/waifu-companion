@@ -1,6 +1,5 @@
 import asyncio
 import base64
-import contextlib
 import hashlib
 import inspect
 import io
@@ -4050,23 +4049,67 @@ def master_speaking() -> np.ndarray:
 
 
 def noise_floor() -> np.ndarray:
-    """Only the room at about -51 dB RMS: the onboard jack while Master spoke."""
+    """Only the room at about -51 dB RMS: the onboard jack while Master spoke. White noise, so
+    the VAD hears about -53 dB of it once resampled to 16 kHz (a real room's hum loses less)."""
     return np.random.default_rng(5).normal(0.0, 10 ** (-51 / 20), MIC_RATE)
+
+
+def master_speaking_softly_by_a_click() -> np.ndarray:
+    """Half a second of "halo Cyrene" at -35 dB RMS, and 2 ms of a click near full scale."""
+    room = np.random.default_rng(4).normal(0.0, 10 ** (-60 / 20), MIC_RATE)
+    t = np.arange(MIC_RATE // 2) / MIC_RATE
+    room[MIC_RATE // 4 : MIC_RATE // 4 + len(t)] += 0.025 * np.sin(2 * np.pi * 220 * t)
+    room[int(0.85 * MIC_RATE) : int(0.852 * MIC_RATE)] += 0.9
+    return room
+
+
+class FakeInputStream:
+    """A callback stream that, once started, calls back with `heard` repeated for 4 s (under
+    MicStream's 5 s queue) in blocks of `blocksize`; one that `stalls` stops at once instead."""
+
+    def __init__(self, heard, samplerate, blocksize, callback, *, stalls: bool) -> None:
+        self._audio = np.resize(heard, 4 * samplerate).astype(np.float32)
+        self._blocksize = blocksize
+        self._callback = callback
+        self._stalls = stalls
+        self.active = False
+
+    def start(self) -> None:
+        self.active = not self._stalls
+        if self._stalls:
+            return
+        for start in range(0, len(self._audio), self._blocksize):
+            block = self._audio[start : start + self._blocksize].reshape(-1, 1)
+            self._callback(block, len(block), None, 0)
+
+    def stop(self) -> None:
+        self.active = False
+
+    def close(self) -> None:
+        pass
 
 
 class FakeSoundDevice:
     """sounddevice for `waifu mic` and `waifu check`: `devices`, the Windows default input at
-    `default_input`, and input streams that hand out `heard[index]` (silence otherwise) or
-    raise `broken[index]`, never recording; `reads` holds (device, rate, frames) per read."""
+    `default_input`, and input streams that hand out `heard[index]` (silence otherwise), raise
+    `broken[index]`, or stop delivering at once for an index in `stalled`, never recording;
+    `opened` holds (device, rate) per stream opened."""
 
     def __init__(
-        self, devices=OWNER_AUDIO_DEVICES, *, default_input=ONBOARD_MIC, heard=None, broken=None
+        self,
+        devices=OWNER_AUDIO_DEVICES,
+        *,
+        default_input=ONBOARD_MIC,
+        heard=None,
+        broken=None,
+        stalled=(),
     ) -> None:
         self.devices = devices
         self.default = types.SimpleNamespace(device=(default_input, 3))
         self.heard = heard or {}
         self.broken = broken or {}
-        self.reads: list[tuple[int, int, int]] = []
+        self.stalled = stalled
+        self.opened: list[tuple[int, int]] = []
 
     def module(self) -> types.ModuleType:
         return fake_module(
@@ -4095,18 +4138,15 @@ class FakeSoundDevice:
             return matches[0]
         return self.devices[device]
 
-    @contextlib.contextmanager
-    def input_stream(self, *, samplerate, device, channels, dtype):
+    def input_stream(self, *, samplerate, blocksize, device, channels, dtype, callback):
         assert (channels, dtype) == (1, "float32")
         if device in self.broken:
             raise self.broken[device]
+        self.opened.append((device, samplerate))
         heard = self.heard.get(device, np.zeros(1))
-
-        def read(frames: int) -> tuple[np.ndarray, bool]:
-            self.reads.append((device, samplerate, frames))
-            return np.resize(heard, frames).astype(np.float32).reshape(-1, 1), False
-
-        yield types.SimpleNamespace(read=read)
+        return FakeInputStream(
+            heard, samplerate, blocksize, callback, stalls=device in self.stalled
+        )
 
 
 def use_sounddevice(monkeypatch, sd: FakeSoundDevice) -> FakeSoundDevice:
@@ -4152,12 +4192,12 @@ def test_mic_lists_each_input_once_measures_each_and_gives_the_config_line_of_th
     assert out[6] == "[1/2] Headset (Polaris-BT), MME: mendengarkan..."
     assert out[7].startswith("  puncak -20 dB, RMS ") and out[7].endswith("✓ suara terdengar")
     assert out[8] == "[2/2] Microphone (High Definition Aud, MME: mendengarkan..."
-    assert out[9].startswith("  puncak ") and "RMS -51 dB" in out[9]
-    assert out[9].endswith("✗ suara tidak terdengar (butuh -39 dB)")
+    assert out[9].startswith("  puncak ") and "RMS -53 dB" in out[9]
+    assert out[9].endswith("✗ suara tidak terdengar (butuh -41 dB)")
     assert out[11].startswith("✓ Suaramu paling jelas di Headset (Polaris-BT).")
     assert out[12] == '    input_device: "Headset (Polaris-BT), MME"'
     assert "waifu enroll" in out[13]
-    assert sd.reads == [(HEADSET_MIC, MIC_RATE, MIC_RATE), (ONBOARD_MIC, MIC_RATE, MIC_RATE)]
+    assert sd.opened == [(HEADSET_MIC, MIC_RATE), (ONBOARD_MIC, MIC_RATE)]
     assert files_in(home) == before  # nothing heard is saved
 
 
@@ -4209,7 +4249,7 @@ def test_mic_with_a_configured_name_that_opens_nothing_says_why_and_still_measur
     assert "✗ audio.input_device 'Mic lama' tidak bisa dipakai: No input device matching" in out
     assert "dipakai Cyrene" not in out
     assert '    input_device: "Microphone (High Definition Aud, MME"' in out
-    assert len(sd.reads) == 2
+    assert len(sd.opened) == 2
 
 
 def test_mic_goes_on_past_a_mic_that_cannot_be_opened(home, monkeypatch, capsys):
@@ -4225,8 +4265,40 @@ def test_mic_goes_on_past_a_mic_that_cannot_be_opened(home, monkeypatch, capsys)
 
     out = capsys.readouterr().out
     assert "  ✗ Tidak bisa dibuka: Unanticipated host error" in out
-    assert sd.reads == [(ONBOARD_MIC, MIC_RATE, MIC_RATE)]
+    assert sd.opened == [(ONBOARD_MIC, MIC_RATE)]
     assert "✓ Suaramu paling jelas di mic yang dipakai Cyrene" in out
+
+
+def test_mic_goes_on_past_a_mic_that_stops_delivering_audio(home, monkeypatch, capsys):
+    # A Bluetooth headset that dropped its hands-free link: never a wait without end.
+    use_sounddevice(
+        monkeypatch,
+        FakeSoundDevice(heard={ONBOARD_MIC: master_speaking()}, stalled={HEADSET_MIC}),
+    )
+
+    assert cli.main(["mic", "--seconds", "1"]) == 0
+
+    out = capsys.readouterr().out
+    assert "  ✗ Mikrofon terputus atau berhenti mengirim suara." in out
+    assert "✓ Suaramu paling jelas di mic yang dipakai Cyrene" in out
+
+
+def test_mic_suggests_the_mic_that_holds_speech_best_not_one_that_heard_a_click(
+    home, monkeypatch, capsys
+):
+    use_sounddevice(
+        monkeypatch,
+        FakeSoundDevice(
+            heard={HEADSET_MIC: master_speaking(), ONBOARD_MIC: master_speaking_softly_by_a_click()}
+        ),
+    )
+
+    assert cli.main(["mic", "--seconds", "1"]) == 0
+
+    out = capsys.readouterr().out
+    assert out.count("✓ suara terdengar") == 2
+    assert "✓ Suaramu paling jelas di Headset (Polaris-BT)." in out
+    assert '    input_device: "Headset (Polaris-BT), MME"' in out
 
 
 def test_mic_that_heard_no_speech_anywhere_says_how_to_make_it_hear(home, monkeypatch, capsys):
@@ -4248,7 +4320,7 @@ def test_mic_without_any_input_device_points_at_the_connection_and_privacy(
     assert cli.main(["mic"]) == 0
 
     assert capsys.readouterr().out.strip() == f"✗ {cli.NO_MIC_FOUND}"
-    assert sd.reads == []
+    assert sd.opened == []
 
 
 def test_mic_without_a_windows_default_says_cyrene_has_none_to_open(home, monkeypatch, capsys):
@@ -4298,7 +4370,7 @@ def test_check_names_the_configured_mic_and_whether_it_is_the_windows_default(
     cli.main(["check"])
 
     assert line in capsys.readouterr().out.splitlines()
-    assert sd.reads == []  # the check never listens
+    assert sd.opened == []  # the check never listens
 
 
 def test_check_names_the_windows_default_mic_cyrene_uses_without_input_device(

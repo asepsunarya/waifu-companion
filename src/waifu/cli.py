@@ -223,7 +223,7 @@ from waifu.version import (
     write_running,
 )
 from waifu.version_watch import VersionWatcher
-from waifu.voice.audio import MicStream, Player, list_devices
+from waifu.voice.audio import MicrophoneError, MicStream, Player, list_devices
 from waifu.voice.mic_check import (
     InputDevice,
     Levels,
@@ -2050,7 +2050,10 @@ def _mic(args: argparse.Namespace) -> int:
     for number, device in enumerate(devices, start=1):
         print(f"[{number}/{len(devices)}] {device.config_value}: mendengarkan...", flush=True)
         try:
-            found = measure(sounddevice, device, args.seconds, config.audio.vad)
+            found = measure(sounddevice, device, args.seconds, config.audio)
+        except MicrophoneError as exc:  # it opened, then stopped delivering audio
+            print(f"  {FAIL} {exc}")
+            continue
         except Exception as exc:  # unplugged, a headset that went to sleep, a driver error
             print(f"  {FAIL} Tidak bisa dibuka: {exc}")
             continue
@@ -2083,7 +2086,7 @@ def _mic_in_use(sd: Any, input_device: int | str | None, default: str | None) ->
 
 
 def _mic_levels(found: Levels) -> str:
-    """One measurement: its levels, its bar, and whether the VAD would take it for speech."""
+    """One measurement: its levels, its bar, and whether the VAD would have heard speech."""
     if found.silent:
         return (
             f"{level_bar(found)} {FAIL} hampir tanpa suara: mic di-mute atau diblokir "
@@ -2099,7 +2102,7 @@ def _mic_levels(found: Levels) -> str:
 
 
 def _suggest_mic(heard: list[tuple[InputDevice, Levels]], used: str | None) -> None:
-    """Which mic to use: the one that heard speech furthest above the VAD's bar."""
+    """Which mic to use: the one whose speech level stood furthest above the VAD's bar."""
     if not heard:
         print(
             f"{FAIL} Tidak ada mic yang mendengar suara sekeras yang dibutuhkan Cyrene. Dekatkan "
@@ -2107,7 +2110,7 @@ def _suggest_mic(heard: list[tuple[InputDevice, Levels]], used: str | None) -> N
             "jalankan 'waifu mic' lagi."
         )
         return
-    best, _ = max(heard, key=lambda pair: pair[1].loudest_frame_db - pair[1].speech_bar_db)
+    best, _ = max(heard, key=lambda pair: pair[1].speech_db - pair[1].speech_bar_db)
     if used is not None and same_device_name(best.name, used):
         print(f"{OK} Suaramu paling jelas di mic yang dipakai Cyrene: {best.name}.")
         return

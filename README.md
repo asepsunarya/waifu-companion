@@ -4955,8 +4955,9 @@ dari torch dan paket `nvidia-*` di venv.
 - Jalankan `waifu mic`, lalu sebut "halo Cyrene" beberapa kali dengan suara biasa. Dia
   menampilkan tiap mic sekali, menandai mic yang dipakai Cyrene dan default Windows,
   mendengarkan tiap mic 3 detik (`waifu mic --seconds 5` untuk lebih lama), lalu menulis
-  puncak dan RMS suaranya dengan bar `#`, apakah suaramu terdengar sekeras yang dibutuhkan
-  Cyrene, dan baris `input_device: "..."` untuk mic yang paling jelas mendengarmu. Pakai baris
+  puncak dan RMS suaranya dengan bar `#`, apakah suaramu terdengar sekeras dan selama yang
+  dibutuhkan Cyrene (bunyi klik atau batuk sekali tidak dihitung), dan baris
+  `input_device: "..."` untuk mic yang paling jelas mendengarmu. Pakai baris
   itu untuk mengganti baris `input_device` di bagian `audio:` di `config.yaml`, jalankan ulang
   `waifu run`, lalu daftarkan ulang suaramu dengan `waifu enroll` lewat mic itu. Rekamannya tidak disimpan, dan `waifu mic` boleh
   dijalankan selagi `waifu run` jalan.

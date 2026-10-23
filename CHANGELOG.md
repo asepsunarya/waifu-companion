@@ -15,7 +15,9 @@ aktif, lalu jalankan `waifu check`.
 - `waifu mic` baru: menampilkan tiap mic sekali (tanda mic yang dipakai Cyrene dan default
   Windows), mendengarkan tiap mic beberapa detik sambil Master menyebut "halo Cyrene"
   (`--seconds`, bawaan 3), lalu menulis puncak dan RMS suaranya, apakah suaranya terdengar
-  sekeras yang dibutuhkan Cyrene, dan baris `audio.input_device` untuk mic terbaik. Rekamannya
+  sekeras dan selama yang dibutuhkan Cyrene (bunyi klik atau batuk sekali tidak dihitung), dan
+  baris `audio.input_device` untuk mic terbaik. Mic yang berhenti mengirim suara di tengah
+  jalan dilewati, tidak ditunggu terus. Rekamannya
   tidak disimpan, dan boleh dijalankan selagi `waifu run` jalan.
 - Baris `Mikrofon` di `waifu check` menyebut mic yang dipakai dan apakah itu default Windows.
 - Tidak ada pengaturan baru. README: "Pemecahan masalah" (Mic tidak terdeteksi, juga catatan
