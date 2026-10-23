@@ -5086,9 +5086,10 @@ guest_mode:
 ### Verifikasi suara
 
 Dengan verifikasi suara menyala (bawaan), suara tamu memang tidak dilayani, jadi mode tamu menjaga
-apa yang dia ucapkan di depan tamu. Dengan `waifu run --no-speaker-check` atau
-`speaker.enabled: false`, siapa pun bisa bilang "mode tamu selesai", dan `waifu check`
-memperingatkannya:
+apa yang dia ucapkan di depan tamu. Dengan `speaker.enabled: false` atau
+`waifu run --no-speaker-check`, siapa pun bisa bilang "mode tamu selesai". `waifu check` hanya
+memperingatkan yang pertama (baris `!` di bawah): ia berjalan terpisah dari `waifu run`, jadi
+tidak melihat `--no-speaker-check`, dan barisnya tetap ✓.
 
 ```text
 ✓ Mode tamu: "mode tamu" dan "mode tamu selesai" lewat suara, chat, atau HP; berakhir sendiri setelah 6 jam atau jam 05:00
