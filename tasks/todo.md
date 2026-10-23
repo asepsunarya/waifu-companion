@@ -2016,9 +2016,9 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 209, 210, 211 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py`, `tests/test_guest.py` · **Scope:** M
 
-## Task 213: Docs
+## Task 213: Docs ✅
 
 **Acceptance criteria:**
-- [ ] README "Belajar bahasa Jepang" with a contents entry, mentions in the briefing section and "Mode tamu", checklist items, and a Privasi bullet; CHANGELOG v1.39; full suite and ruff clean
+- [x] README "Belajar bahasa Jepang" with a contents entry, mentions in the briefing section and "Mode tamu", checklist items, and a Privasi bullet; CHANGELOG v1.39; full suite and ruff clean
 
 **Dependencies:** 212 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S

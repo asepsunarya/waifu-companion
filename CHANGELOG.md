@@ -4,6 +4,22 @@ Ringkasan per versi, yang terbaru di atas. Rinciannya ada di README (bagian yang
 setiap versi) dan di SPEC.md. Setelah memperbarui, **mulai ulang `waifu run`** supaya semuanya
 aktif, lalu jalankan `waifu check`.
 
+## v1.39: belajar bahasa jepang
+
+- Mati sampai dinyalakan (`japanese.enabled: true`): Cyrene mengajari satu kata Jepang tingkat
+  pemula (JLPT N5) setiap hari dari daftar bawaan 300 kata dan ungkapan, tanpa internet. Kata hari
+  ini dia sebut di akhir sapaan pagi (kana lalu artinya), dan "kata Jepang hari ini apa?" bisa
+  kapan saja, dengan contoh kalimatnya. Semua kata keluar dulu sebelum ada yang berulang.
+- "Kuis bahasa Jepang dong": dia menanyakan arti satu kata yang sudah dipelajari, menunggu jawaban
+  Master, lalu memuji atau menyebut artinya dengan lembut. Kata yang sering benar makin jarang
+  ditanya (sistem Leitner), yang salah ditanya lagi besok. Kuis hanya kalau Master minta, tidak
+  pernah di sapaan pagi. "Aku sudah belajar berapa kata?" menjawab kemajuannya.
+- Bahasa Jepangnya selalu kana atau kanji, jadi diucapkan dengan suara Jepang; tanpa romaji.
+- Tetap jalan di mode tamu. Kemajuan disimpan di `data\japanese.json` (hanya kode kata, kotak,
+  dan tanggal). `waifu jepang` menampilkan kata hari ini dan `waifu jepang progres` kemajuannya,
+  tanpa mencatat apa pun; `waifu check` punya baris `Belajar bahasa Jepang`. README: "Belajar
+  bahasa Jepang".
+
 ## v1.38: ulangi
 
 - "Cyrene, ulangi" (atau "tadi bilang apa?", "apa tadi?", "sekali lagi", "maaf, apa?", "hah?")

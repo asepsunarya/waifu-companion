@@ -822,11 +822,11 @@ parameters stay.
 - [x] Task 210: the briefing's `word_of_the_day` and `BRIEFING_PROMPT`
 - [x] Task 211: the `japanese` config, `config.example.yaml`
 - [x] Task 212: wiring in `run` and `chat`, guest mode sorting, `waifu jepang`, the check line
-- [ ] Task 213: README "Belajar bahasa Jepang", CHANGELOG
+- [x] Task 213: README "Belajar bahasa Jepang", CHANGELOG
 
 ### Checkpoint: Belajar bahasa Jepang
-- [ ] Python suite and ruff clean; no test spoke or pushed; the strict-tool budget unchanged
-- [ ] By hand: with the feature on in a scratch folder, `waifu jepang` and `waifu jepang progres` read without creating the file; the tool learns today's word, quizzes it, and grades it; the check line counts it
+- [x] Python suite and ruff clean; no test spoke or pushed; the strict-tool budget unchanged (2026-10-24: 9178 pytest; with `japanese.enabled` in the every-tool request, 18 of 20 strict tools and 17 of 24 optional parameters, `japanese_lesson` non-strict among the 42 client tools)
+- [x] By hand (2026-10-24, a scratch folder with the example config and `japanese.enabled: true`, no network): `waifu jepang` printed `Kata hari ini, Sabtu 24-10-2026: ちいさい (小さい), artinya kecil` with its example and created no file, `waifu jepang progres` said `Belum ada kata yang dipelajari (0 dari 300).`; a scratch script over the same store had the briefing give `ちいさい`/`kecil` (learned), the quiz refused in `BRIEFING_PROMPT`'s turn and then ask `w214` in Master's turn, grade it right (box 2, due in 2 days), find nothing more due, and count `learned 1`; `_japanese_check` read `✓ Belajar bahasa Jepang: 1 dari 300 kata dipelajari, 0 dikuasai`, and the file held `{"version":1,"words":{"w214":{"box":2,"due":"2026-10-26","learned":"2026-10-24"}}}`; `split_by_language` sent `ちいさい` of the greeting line to the Japanese voice and the rest to the Indonesian one
 - [ ] On the owner's PC: the morning greeting ends with the word of the day in kana and its meaning, spoken by the Japanese voice; "kuis bahasa Jepang dong" asks one word and waits; `waifu jepang progres` counts it
 
 ## Risks and Mitigations

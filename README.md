@@ -57,6 +57,7 @@ Cyrene : "Komputer mau kumatikan sekarang, Master? Jawab iya kalau jadi." (minta
 - [Keuangan dari tepira](#keuangan-dari-tepira)
 - [Mode tamu](#mode-tamu)
 - [Ulangi](#ulangi)
+- [Belajar bahasa Jepang](#belajar-bahasa-jepang)
 - [Pemecahan masalah](#pemecahan-masalah)
 - [Checklist uji perangkat keras](#checklist-uji-perangkat-keras)
 - [Privasi](#privasi)
@@ -666,10 +667,11 @@ waifu speaker-test    # skor kecocokan langsung, Ctrl+C untuk berhenti
 | `waifu playtime` / `playtime yesterday` / `week` / `month` | Berapa lama HSR, Genshin, dan ZZZ terbuka hari ini, kemarin, minggu ini, atau bulan ini, dari catatan Cyrene selama `waifu run` menyala (lihat [Jam main](#jam-main)) |
 | `waifu focus` | Waktu fokus hari ini dan minggu ini dari catatan teman fokus (pomodoro) Cyrene selama `waifu run` menyala (lihat [Teman fokus](#teman-fokus)) |
 | `waifu jurnal` / `jurnal show <tanggal>` / `add <teks> [--date YYYY-MM-DD]` / `forget <tanggal> [--yes]` | Lihat hari yang ada catatannya, catatan satu hari, tambah catatan, dan hapus catatan satu hari di jurnal harian (lihat [Jurnal harian](#jurnal-harian)) |
+| `waifu jepang` / `jepang progres` | Kata Jepang hari ini dengan contoh kalimatnya, atau berapa kata yang sudah dipelajari, dikuasai, dan perlu diulang hari ini, tanpa mencatat apa pun (lihat [Belajar bahasa Jepang](#belajar-bahasa-jepang)) |
 | `waifu youtube <link atau judul lagu>` | Buka video atau playlist YouTube itu, atau halaman pencarian YouTube untuk judulnya, di browser default (lihat [Lagu di YouTube](#lagu-di-youtube)) |
 | `waifu offers` / `offers games` / `offers ai` | Game gratis dan promo AI yang tersimpan, dengan linknya; `waifu offers ai --scan` mencari promo AI sekarang dengan Claude (berbayar) (lihat [Pencarian web dan promo gratis](#pencarian-web-dan-promo-gratis)) |
 | `waifu tepira` / `tepira dompet` / `tujuan [nama]` / `transaksi [-n N]` / `token` | Keuangan dari tepira: ringkasan bulan ini, saldo dompet, tujuan tabungan, dan transaksi terbaru; `token` membuat token API Cyrene baru tanpa internet (lihat [Keuangan dari tepira](#keuangan-dari-tepira)) |
-| `waifu check` | Periksa config, versi `waifu run` yang berjalan, kabar versi baru, kode IR, aplikasi PC, rutinitas, voiceprint, otak, ingatan, jadwal, daftar tugas, jurnal, lagu YouTube, sapaan pagi, peringatan hujan, biaya API, kesehatan PC, jam main, teman fokus, mode game, mode tamu, volume suaranya, pencarian web, promo gratis, paket suara, CUDA, mic, suara cadangan offline, suara anime, avatar, keuangan tepira, dan Cyrene di HP |
+| `waifu check` | Periksa config, versi `waifu run` yang berjalan, kabar versi baru, kode IR, aplikasi PC, rutinitas, voiceprint, otak, ingatan, jadwal, daftar tugas, jurnal, belajar bahasa Jepang, lagu YouTube, sapaan pagi, peringatan hujan, biaya API, kesehatan PC, jam main, teman fokus, mode game, mode tamu, volume suaranya, pencarian web, promo gratis, paket suara, CUDA, mic, suara cadangan offline, suara anime, avatar, keuangan tepira, dan Cyrene di HP |
 
 Opsi untuk semua perintah: `--config <file>` (default `config.yaml`), `--dry-run`
 (perangkat simulasi), `-v` (log lebih rinci), `--log-file <file>` (log juga ditulis
@@ -3338,7 +3340,8 @@ Sekali sehari, saat `waifu run` menyala pertama kali di antara jam 07.00 dan 12.
 menyapa Master sendiri dan merangkum harinya dalam 2-4 kalimat pendek: cuaca, jadwal dan
 pengingat hari ini, [tugas](#daftar-tugas) yang tenggatnya hari ini atau sudah lewat, game
 kalau [teman main gacha](#teman-main-gacha-hoyoverse) menyala, dan hal dari
-[ingatannya](#ingatan-cyrene) yang penting hari ini (ulang tahun, ujian). Data yang
+[ingatannya](#ingatan-cyrene) yang penting hari ini (ulang tahun, ujian), lalu di akhir
+[kata Jepang hari ini](#belajar-bahasa-jepang) kalau belajar bahasa Jepang menyala. Data yang
 sama juga dipakai kapan saja kalau Master bertanya. Fitur ini sudah menyala dari awal
 (`briefing.enabled: true`), tapi cuacanya baru ada setelah kotanya diisi (lihat
 [Mengatur kota](#mengatur-kota)).
@@ -5156,6 +5159,8 @@ bilang singkat bahwa itu ditutup dulu selama ada tamu:
 - [Teman fokus](#teman-fokus): memulai, menghentikan, dan menanyakan sisa waktunya, jadi sesi
   yang jalan sebelum tamu datang tetap bisa dihentikan. Jawabannya bisa menyebut berapa lama
   Master fokus hari itu dan minggu itu.
+- [Belajar bahasa Jepang](#belajar-bahasa-jepang): kata hari ini, kuis, dan kemajuannya. Kata
+  pemula dan berapa kata yang Master hafal bukan hal pribadi.
 - [Tombol cepat di HP](#tombol-cepat-di-hp): tombolnya mengendalikan perangkat tanpa otak
   Cyrene.
 - Perintah terminal (`waifu todo`, `waifu jurnal`, `waifu tepira`, dan lainnya): terminal milik
@@ -5301,6 +5306,107 @@ Tidak ada yang disimpan atau dikirim: kalimat terakhirnya hanya diingat di memor
 `waifu run` berjalan, dan pengulangannya hanya mencatat `Repeating what she said last` di log,
 tanpa isinya (pengingat dan pengumuman sudah tercatat sebagai `Announcing: ...` saat pertama
 diucapkan).
+
+## Belajar bahasa Jepang
+
+Cyrene bisa mengajari Master satu kata Jepang setiap hari dan menguji kata yang sudah dipelajari,
+tanpa aplikasi lain dan tanpa internet: daftar 300 kata dan ungkapan tingkat pemula (JLPT N5)
+sudah ikut terpasang bersama Cyrene, masing-masing dengan cara baca kana, tulisan kanji kalau
+biasa dipakai, arti dalam bahasa Indonesia, dan satu contoh kalimat pendek. Fitur ini **mati dari
+awal**; dengan otak Ollama maupun Claude, tanpa paket tambahan.
+
+```text
+(07.05)  Cyrene : "おはよう, Master! ... Kata Jepang hari ini: ちいさい, artinya kecil."
+Master : "Cyrene, kata Jepang hari ini apa?"
+Cyrene : "ちいさい, artinya kecil. Contohnya 小さいかばんを買いました, saya membeli tas kecil."
+Master : "Cyrene, kuis bahasa Jepang dong."
+Cyrene : "Boleh! ちいさい artinya apa?"
+Master : "Kecil."                          (tanpa memanggil nama: jendela lanjutan terbuka)
+Cyrene : "Benar, hebat! Belum ada kata lain yang perlu diulang hari ini."
+Master : "Cyrene, aku sudah belajar berapa kata?"
+```
+
+### Menyalakan
+
+Tulis di `config.yaml`, lalu jalankan ulang `waifu run`:
+
+```yaml
+japanese:
+  enabled: true
+  path: data/japanese.json   # kata yang sudah dipelajari dan jadwal ulangannya, hanya di PC ini
+```
+
+### Kata hari ini
+
+- **Satu kata baru setiap hari**, sama sepanjang hari. Urutannya acak tapi tetap, dan semua 300
+  kata keluar dulu sebelum ada yang berulang (sekitar sepuluh bulan).
+- [Sapaan pagi](#sapaan-pagi-dan-ringkasan-harian) menyebutnya di akhir: katanya dengan kana, lalu
+  artinya. "Kata Jepang hari ini apa?" bisa kapan saja, dengan contoh kalimat dan artinya.
+- Kata itu dihitung sudah dipelajari begitu dia menyebutnya (di sapaan pagi atau saat ditanya).
+  Hari tanpa sapaan dan tanpa ditanya, kata hari itu terlewat sampai putaran berikutnya.
+- Bahasa Jepangnya ditulis dengan kana atau kanji, jadi diucapkan dengan suara Jepang, dan artinya
+  dengan suara Indonesia. Tidak ada romaji.
+
+### Kuis
+
+- **Hanya kalau Master minta** ("kuis bahasa Jepang dong", "tes kosakata Jepang"). Dia menanyakan
+  satu kata saja: katanya dengan kana, lalu artinya apa, dan menunggu jawaban Master.
+- Jawab dengan artinya dalam bahasa Indonesia. Dia sendiri yang menilai jawabannya: sinonim atau
+  arti yang dekat dihitung benar. Kalau benar dia memuji, kalau salah dia menyebut artinya dengan
+  lembut, lalu menanyakan kata berikutnya kalau Master masih mau. Tanpa ceramah tata bahasa.
+- **Jadwal ulangannya** (sistem Leitner, lima kotak): kata baru masuk kotak 1 dan sudah bisa
+  ditanya hari itu juga. Jawaban benar menaikkannya satu kotak dan menunda ulangannya 2, 4, 8,
+  lalu 16 hari; jawaban salah mengembalikannya ke kotak 1, ditanya lagi besok. Kata di kotak 5
+  dihitung dikuasai (tetap diulang setiap 16 hari). Yang ditanya dulu: kata yang sudah waktunya
+  diulang, mulai dari kotak terendah.
+- Kalau belum ada yang perlu diulang, dia bilang kapan kata berikutnya waktunya.
+- Tidak pernah di sapaan pagi, laporan game mingguan, atau pertanyaan jurnal malam: kuis dan
+  penilaian hanya di giliran Master sendiri.
+- "Aku sudah belajar berapa kata?": berapa kata yang sudah dipelajari, yang dikuasai, dan yang
+  perlu diulang hari ini.
+
+### Melihat di terminal: `waifu jepang`
+
+```powershell
+waifu jepang            # kata hari ini (sama dengan: waifu jepang hari-ini)
+waifu jepang progres    # kemajuan Master
+```
+
+```text
+Kata hari ini, Sabtu 24-10-2026: ちいさい (小さい), artinya kecil
+Contoh: 小さいかばんを買いました。
+Artinya: Saya membeli tas kecil.
+Kata hari ini dihitung sudah dipelajari saat Cyrene menyebutnya, di sapaan pagi atau saat ditanya.
+```
+
+```text
+Dipelajari: 12 dari 300 kata, 2 dikuasai
+Perlu diulang hari ini: 3 kata
+```
+
+Perintah ini hanya membaca: tidak mencatat kata hari ini, tidak membuat file, dan tidak bisa
+menguji (tanya Cyrene saja). Jalan juga saat `japanese.enabled: false` (dengan peringatan di baris
+pertama) dan selagi `waifu run` berjalan; exit code 1 kalau filenya tidak bisa dibaca. Untuk mulai
+dari awal, hapus `data\japanese.json` saat Cyrene mati.
+
+`waifu check` menampilkan `✓ Belajar bahasa Jepang: 12 dari 300 kata dipelajari, 2 dikuasai` atau
+`! Belajar bahasa Jepang mati`. File `data\japanese.json` yang rusak dipindah ke
+`japanese.json.corrupt-<waktu>` (kemajuan dimulai dari kosong), dan `check` menunjuknya sampai
+Master memperbaiki atau menghapusnya.
+
+### Mode tamu
+
+Tetap jalan di [mode tamu](#mode-tamu): kata pemula dan berapa kata yang Master hafal bukan hal
+pribadi, jadi belajar bersama teman juga boleh. Di mode tamu sapaan paginya cukup cuaca dan jadwal
+perangkat, jadi kata hari ini bisa terlewat di sapaan; tanyakan saja.
+
+### Privasi belajar bahasa Jepang
+
+`data\japanese.json` hanya berisi kode kata (misalnya `w214`), kotaknya, dan tanggalnya, hanya di
+PC ini; `waifu run` dan `waifu chat` sama-sama mencatat ke file ini. Dengan Claude, kata dan
+jawaban Master ikut ke API Anthropic seperti obrolan biasa (dengan Ollama, semuanya lokal). Tidak
+ada notifikasi HP sendiri: kalau `briefing.push` menyala, teks sapaan pagi (dengan katanya) ikut
+dikirim seperti biasa.
 
 ## Pemecahan masalah
 
@@ -6002,6 +6108,17 @@ di sampingnya)
 - [ ] "Cyrene, mode tamu", lalu "mode tamu selesai" dari chat HP, lalu di PC "Cyrene, ulangi":
       dia bilang "Belum ada yang bisa kuulangi, Master."
 
+**Belajar bahasa Jepang** (lihat [Belajar bahasa Jepang](#belajar-bahasa-jepang))
+
+- [ ] Dengan `japanese.enabled: true`, `waifu check` menampilkan `✓ Belajar bahasa Jepang: 0 dari
+      300 kata dipelajari, 0 dikuasai`, dan `waifu jepang` menampilkan kata hari ini tanpa membuat
+      `data\japanese.json`.
+- [ ] Sapaan pagi diakhiri kata hari ini: katanya terdengar dengan suara Jepang, artinya dengan
+      suara Indonesia, tanpa romaji.
+- [ ] "Cyrene, kuis bahasa Jepang dong": dia menanyakan satu kata saja lalu menunggu. Jawab
+      artinya: dia memuji. Jawab salah di kata berikutnya: dia menyebut artinya dengan lembut.
+- [ ] `waifu jepang progres` menghitung kata yang sudah dipelajari dan yang perlu diulang hari ini.
+
 ## Privasi
 
 - **Suara tidak pernah keluar dari PC.** Rekaman mic, verifikasi suara, dan
@@ -6106,6 +6223,10 @@ di sampingnya)
   dilupakan begitu mode tamu menyala atau mati. Pengulangannya tidak pernah mencatat isinya di
   log; jawabannya juga tidak, tapi pengingat dan pengumuman memang sudah tercatat sebagai
   `Announcing: ...` saat pertama diucapkan. Lihat [Ulangi](#ulangi).
+- **Belajar bahasa Jepang:** `data\japanese.json` hanya berisi kode kata, kotaknya, dan tanggal,
+  hanya di PC ini. Dengan Claude, kata dan jawaban Master ikut ke API Anthropic seperti obrolan
+  biasa; tidak ada notifikasi HP sendiri. Lihat
+  [Privasi belajar bahasa Jepang](#privasi-belajar-bahasa-jepang).
 - **Voiceprint adalah data biometrik.** `data/voiceprint.npy` (dan seluruh `data/`)
   ada di `.gitignore` dan tidak boleh di-commit atau dibagikan. Begitu juga
   `config.yaml` (local key Tuya) dan `models/`.
