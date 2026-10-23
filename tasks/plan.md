@@ -871,7 +871,7 @@ one twice. Off by default; no persona line or dependency, so 18 of 20 strict too
 optional parameters stay.
 - [x] Task 220a: contract: SPEC, tasks
 - [x] Task 220: `prayer_times.py` (the sun, noon, the altitude times, the Kemenag times)
-- [ ] Task 221: the `prayer` config, `config.example.yaml`
+- [x] Task 221: the `prayer` config, `config.example.yaml`
 - [ ] Task 222: `WeatherClient.location()` and `PrayerPlace`
 - [ ] Task 223: `PrayerTools` (`prayer_times`)
 - [ ] Task 224: `PrayerWatcher` (the window, the lines, the state file, delivery, the thread)

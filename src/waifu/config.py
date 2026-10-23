@@ -25,6 +25,8 @@ from pydantic import (
 
 DEVICE_ID_PATTERN = re.compile(r"^[a-z0-9_]+$")
 GameId = Literal["hsr", "genshin", "zzz"]
+# The five daily prayers, in the day's order.
+PrayerName = Literal["subuh", "dzuhur", "ashar", "maghrib", "isya"]
 # In `datetime.weekday()` order: Monday is 0.
 Weekday = Literal["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
 # Either pair logs in to HoYoLAB; hoyolab.com sets the v2 pair today.
@@ -1011,6 +1013,41 @@ class BreaksConfig(_Strict):
         return self
 
 
+class PrayerConfig(_Strict):
+    """Waktu sholat: the five daily prayer times, computed on this PC by the Kemenag RI method,
+    and her reminder as each one comes in. The place is these coordinates, else the briefing's,
+    else its city; `state_path` holds which reminders she said today."""
+
+    enabled: bool = False
+    # Both or neither; they win over the briefing's place.
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
+    # The safety margin added to each prayer time (and taken off terbit), as Kemenag does.
+    ihtiyath_minutes: int = Field(default=2, ge=0, le=5)
+    # The prayers she reminds Master of; empty: the times only when he asks.
+    remind: list[PrayerName] = Field(
+        default_factory=lambda: ["subuh", "dzuhur", "ashar", "maghrib", "isya"]
+    )
+    # How long before each prayer time she says it (0: at the time).
+    minutes_before: int = Field(default=0, ge=0, le=30)
+    # With notifications on, also push it to the phone.
+    push: bool = False
+    state_path: Path = Path("data/prayer.json")
+
+    @field_validator("remind")
+    @classmethod
+    def _prayers_unique(cls, value: list[PrayerName]) -> list[PrayerName]:
+        if len(set(value)) != len(value):
+            raise ValueError("each prayer may be listed once")
+        return value
+
+    @model_validator(mode="after")
+    def _whole_coordinates(self) -> PrayerConfig:
+        if (self.latitude is None) != (self.longitude is None):
+            raise ValueError("prayer.latitude and prayer.longitude go together")
+        return self
+
+
 class MusicConfig(_Strict):
     """Songs on YouTube, opened in the default browser when Master asks."""
 
@@ -1202,6 +1239,7 @@ class AppConfig(_Strict):
     journal: JournalConfig = Field(default_factory=JournalConfig)
     japanese: JapaneseConfig = Field(default_factory=JapaneseConfig)
     breaks: BreaksConfig = Field(default_factory=BreaksConfig)
+    prayer: PrayerConfig = Field(default_factory=PrayerConfig)
     web_search: WebSearchConfig = Field(default_factory=WebSearchConfig)
     free_offers: FreeOffersConfig = Field(default_factory=FreeOffersConfig)
     vision: VisionConfig = Field(default_factory=VisionConfig)

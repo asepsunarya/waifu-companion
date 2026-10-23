@@ -552,6 +552,28 @@ schedule:
 #   active_from:           # misalnya 08:00: hanya dari jam ini (kosong = sepanjang hari)
 #   active_until:          # misalnya 02:00: sampai jam ini, boleh melewati tengah malam (kosong = sepanjang hari)
 
+# Waktu sholat (README, bagian "Waktu sholat"): "jadwal sholat hari ini?", "Maghrib jam berapa?",
+# atau "jadwal sholat besok" dijawab dengan imsak, subuh, terbit, dzuhur, ashar, maghrib, dan isya
+# untuk tempat Master, dihitung di PC ini (tanpa internet) dengan metode Kemenag RI: Subuh -20°,
+# Isya -18°, Ashar bayangan 1x (Syafi'i), ditambah ihtiyath, dalam WIB. Tempatnya latitude dan
+# longitude di bawah, kalau kosong koordinat atau kota di bagian briefing (kota dicari sekali
+# lewat Open-Meteo). Selama `waifu run` dia juga bilang sekali saat masuk waktu tiap sholat di
+# remind: "Sayang, sudah masuk waktu Dzuhur.", juga di tengah blok fokus atau saat mode game
+# menahan pengumuman, karena Master sendiri yang memintanya. Tiap sholat hanya sekali sehari,
+# juga setelah `waifu run` dijalankan ulang (path state_path); yang terlewat lebih dari 30 menit
+# tidak diucapkan lagi. Lihat dengan `waifu sholat [YYYY-MM-DD]`. Mati tanpa ditulis: selama
+# mati, tidak ada yang dia ucapkan soal sholat. Tulis bagian ini tanpa tanda # di depannya, lalu
+# ganti enabled menjadi true.
+# prayer:
+#   enabled: false         # true: jadwal sholat saat ditanya dan pengingat waktu sholat
+#   latitude:              # misalnya -6.9175 (kosong = tempat di bagian briefing)
+#   longitude:             # misalnya 107.6191 (diisi bersama latitude)
+#   ihtiyath_minutes: 2    # menit pengaman yang ditambahkan ke tiap waktu sholat (0-5)
+#   remind: [subuh, dzuhur, ashar, maghrib, isya]  # sholat yang diingatkan ([] = tanpa pengingat)
+#   minutes_before: 0      # N menit sebelum waktunya (0 = tepat saat masuk waktu, paling lama 30)
+#   push: false            # true: juga dikirim ke HP (butuh notify)
+#   state_path: data/prayer.json  # pengingat yang sudah diucapkan hari ini, hanya di PC ini
+
 # Promo gratis (README, bagian "Pencarian web dan promo gratis"): "Ada game gratis apa sekarang?"
 # membuatnya membaca game yang gratis untuk disimpan di Epic Games Store (dari Epic sendiri) dan
 # di Steam, GOG, dan lainnya (dari GamerPower.com). "Ada promo AI gratis nggak?" membacakan promo

@@ -2100,11 +2100,11 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 220a · **Files:** `src/waifu/prayer_times.py`, `tests/test_prayer_times.py` · **Scope:** M
 
-## Task 221: The `prayer` config
+## Task 221: The `prayer` config ✅
 
 **Acceptance criteria:**
-- [ ] `prayer.enabled` (false), `latitude`/`longitude` (both or neither, in range), `ihtiyath_minutes` (2, 0-5), `remind` (all five, each once, `[]` allowed), `minutes_before` (0, 0-30), `push` (false), `state_path`; bad values refused naming the setting
-- [ ] `config.example.yaml` documents it and its block written out holds the defaults
+- [x] `prayer.enabled` (false), `latitude`/`longitude` (both or neither, in range), `ihtiyath_minutes` (2, 0-5), `remind` (all five, each once, `[]` allowed), `minutes_before` (0, 0-30), `push` (false), `state_path`; bad values refused naming the setting
+- [x] `config.example.yaml` documents it and its block written out holds the defaults
 
 **Dependencies:** 220a · **Files:** `src/waifu/config.py`, `config.example.yaml`, `tests/test_config.py` · **Scope:** S
 

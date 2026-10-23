@@ -15,6 +15,7 @@ from waifu.config import (
     JapaneseConfig,
     JournalConfig,
     PlayTimeConfig,
+    PrayerConfig,
     RainAlertConfig,
     TepiraConfig,
     VersionNoticeConfig,
@@ -1424,6 +1425,67 @@ def test_the_example_breaks_block_written_out_holds_the_defaults(tmp_path):
     written_out = "\n".join(line.removeprefix("# ") for line in commented.splitlines())
 
     assert load_config(write_yaml(tmp_path, written_out)).breaks == BreaksConfig()
+
+
+def test_prayer_times_are_off_by_default_with_a_two_minute_ihtiyath_and_all_five_reminders():
+    prayer = AppConfig().prayer
+    assert (prayer.enabled, prayer.latitude, prayer.longitude) == (False, None, None)
+    assert (prayer.ihtiyath_minutes, prayer.minutes_before, prayer.push) == (2, 0, False)
+    assert prayer.remind == ["subuh", "dzuhur", "ashar", "maghrib", "isya"]
+    assert prayer.state_path == Path("data/prayer.json")
+
+
+def test_prayer_settings_load_from_yaml(tmp_path):
+    text = (
+        "prayer:\n  enabled: true\n  latitude: -6.9175\n  longitude: 107.6191\n"
+        "  ihtiyath_minutes: 0\n  remind: [maghrib, subuh]\n  minutes_before: 10\n"
+        "  push: true\n  state_path: data/sholat.json\n"
+    )
+
+    prayer = load_config(write_yaml(tmp_path, text)).prayer
+
+    assert (prayer.enabled, prayer.latitude, prayer.longitude) == (True, -6.9175, 107.6191)
+    assert (prayer.ihtiyath_minutes, prayer.minutes_before, prayer.push) == (0, 10, True)
+    assert prayer.remind == ["maghrib", "subuh"]
+    assert prayer.state_path == Path("data/sholat.json")
+
+
+def test_prayer_reminders_may_be_left_empty_for_the_times_on_request_only(tmp_path):
+    prayer = load_config(write_yaml(tmp_path, "prayer:\n  enabled: true\n  remind: []\n")).prayer
+
+    assert prayer.remind == []
+
+
+PRAYER_COORDINATES_TOGETHER = "prayer.latitude and prayer.longitude go together"
+
+
+@pytest.mark.parametrize(
+    ("lines", "named"),
+    [
+        ("  latitude: -6.9\n", PRAYER_COORDINATES_TOGETHER),
+        ("  longitude: 107.6\n", PRAYER_COORDINATES_TOGETHER),
+        ("  latitude: -91\n  longitude: 107.6\n", "prayer.latitude"),
+        ("  latitude: -6.9\n  longitude: 181\n", "prayer.longitude"),
+        ("  ihtiyath_minutes: -1\n", "prayer.ihtiyath_minutes"),
+        ("  ihtiyath_minutes: 6\n", "prayer.ihtiyath_minutes"),
+        ("  minutes_before: -1\n", "prayer.minutes_before"),
+        ("  minutes_before: 31\n", "prayer.minutes_before"),
+        ("  remind: [dhuha]\n", "prayer.remind"),
+        ("  remind: [subuh, subuh]\n", "each prayer may be listed once"),
+        ("  jumat: true\n", "prayer.jumat"),
+    ],
+)
+def test_bad_prayer_settings_are_refused_naming_the_setting(tmp_path, lines, named):
+    with pytest.raises(ConfigError, match=re.escape(named)):
+        load_config(write_yaml(tmp_path, "prayer:\n" + lines))
+
+
+def test_the_example_prayer_block_written_out_holds_the_defaults(tmp_path):
+    example = (ROOT / "config.example.yaml").read_text(encoding="utf-8")
+    commented = example[example.index("\n# prayer:\n") + 1 :].split("\n\n", 1)[0]
+    written_out = "\n".join(line.removeprefix("# ") for line in commented.splitlines())
+
+    assert load_config(write_yaml(tmp_path, written_out)).prayer == PrayerConfig()
 
 
 def test_web_search_is_on_for_indonesia_by_default():
