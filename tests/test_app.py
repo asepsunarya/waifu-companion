@@ -237,6 +237,7 @@ class Rig:
         quiet: Callable[[], bool] | None = None,
         game_holding: Callable[[], bool] | None = None,
         guest_mode: Callable[[], bool] | None = None,
+        guest_marker: Callable[[], object] | None = None,
         volume: int | None = None,
     ) -> None:
         config = config or AppConfig()
@@ -269,6 +270,7 @@ class Rig:
             quiet=quiet,
             game_holding=game_holding,
             guest_mode=guest_mode,
+            guest_marker=guest_marker,
         )
 
     def utterance(self) -> Utterance:
@@ -3362,3 +3364,53 @@ def test_a_repeat_opens_the_follow_up_window_like_a_reply():
 
     assert rig.assistant.handle_utterance(rig.utterance()) == REPLY
     assert asked(rig) == ["nyalakan lampu kamar", "matikan TV"]
+
+
+class GuestMarker:
+    """Stands in for guest mode's `generation`, moved by the test or a brain."""
+
+    def __init__(self) -> None:
+        self.generation = 0
+
+    def __call__(self) -> int:
+        return self.generation
+
+
+def test_once_guest_mode_has_switched_her_earlier_words_are_not_repeated():
+    marker = GuestMarker()
+    rig = Rig("Cyrene, nyalakan lampu kamar", "Cyrene, ulangi", guest_marker=marker)
+    rig.assistant.handle_utterance(rig.utterance())
+    marker.generation += 1  # switched on the phone, or ended by itself: nothing said on the PC
+
+    assert rig.assistant.handle_utterance(rig.utterance()) == NOTHING_TO_REPEAT
+    assert asked(rig) == ["nyalakan lampu kamar"]
+
+
+class SwitchingBrain(FakeBrain):
+    """Moves guest mode's generation in each of its turns, as the guest_mode tool does."""
+
+    def __init__(self, reply: str, marker: GuestMarker) -> None:
+        super().__init__(reply)
+        self.marker = marker
+
+    def respond(self, user_text: str, *, now: datetime | None = None) -> BrainReply:
+        self.marker.generation += 1
+        return super().respond(user_text, now=now)
+
+
+def test_the_reply_that_switched_guest_mode_is_repeated():
+    marker = GuestMarker()
+    rig = Rig(
+        "Cyrene, mode tamu",
+        "ulangi",
+        reply="Mode tamu aktif sampai jam dua pagi, Master.",
+        brain=lambda reply: SwitchingBrain(reply, marker),
+        guest_marker=marker,
+    )
+    rig.assistant.handle_utterance(rig.utterance())
+    rig.clock.now += 2
+
+    repeated = rig.assistant.handle_utterance(rig.utterance())
+
+    assert repeated == "Mode tamu aktif sampai jam dua pagi, Master."
+    assert asked(rig) == ["mode tamu"]

@@ -1288,7 +1288,7 @@ def _listen(args: argparse.Namespace) -> int:
     focus = _focus_timer(config)
     # One guest mode for this run, in memory only: the brain refuses the private tools and starts
     # afresh as it switches, the briefing leaves Master's tasks out, and the Assistant skips her
-    # private turns while it is on.
+    # private turns while it is on and forgets her last words (for "ulangi") as it switches.
     guest_mode = GuestMode(max_hours=config.guest_mode.max_hours)
     # Her own voice level: her tool sets it, and the player reads it at every clip she says.
     voice_level = _voice_level(config)
@@ -1348,6 +1348,7 @@ def _listen(args: argparse.Namespace) -> int:
                 quiet=quiet,
                 game_holding=None if game_mode is None else game_mode.holding,
                 guest_mode=guest_mode.is_on,
+                guest_marker=guest_mode.generation,
             )
             reactions = InteractionHandler(
                 config.avatar.interactions,

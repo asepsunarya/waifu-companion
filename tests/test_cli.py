@@ -11556,6 +11556,21 @@ def test_run_shares_one_guest_mode_between_the_brain_its_tool_the_briefing_and_t
     assert "tasks" not in json.loads(briefing.run(DAILY_BRIEFING, {})[0])
 
 
+def test_run_hands_the_assistant_guest_mode_s_generation_to_forget_her_words_on_a_switch(
+    home, run_fakes, brains, guest_clock
+):
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    brain = brains[0]
+    marker = RecordingAssistant.instances[0].collaborators["guest_marker"]
+    before = marker()
+
+    brain.providers[0].run("guest_mode", {"on": True})
+
+    assert marker() != before
+    assert marker() == brain.guest_mode.generation()
+
+
 def test_chat_gives_the_brain_a_guest_mode_of_its_own_for_the_configured_hours(
     home, brains, guest_clock, monkeypatch
 ):

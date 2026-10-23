@@ -792,7 +792,7 @@ replies are never remembered. No tool, config, dependency, or persona change.
 - [x] Task 202a: contract: SPEC, tasks
 - [x] Task 202: `is_repeat_request` (the strict phrase set)
 - [x] Task 203: the Assistant remembers her last words on the PC and repeats them without the brain
-- [ ] Task 204: guest mode clears them (`guest_marker`, wiring in `run`)
+- [x] Task 204: guest mode clears them (`guest_marker`, wiring in `run`)
 - [ ] Task 205: README "Ulangi", CHANGELOG
 
 ### Checkpoint: Ulangi

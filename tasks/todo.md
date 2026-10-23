@@ -1934,11 +1934,11 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 202 · **Files:** `src/waifu/app.py`, `tests/test_app.py` · **Scope:** M
 
-## Task 204: Guest mode clears them
+## Task 204: Guest mode clears them ✅
 
 **Acceptance criteria:**
-- [ ] `Assistant(guest_marker=...)`: once the marker has moved since she said it, a repeat request gets the nothing-to-repeat line; words said after the switch are repeated
-- [ ] `run` passes guest mode's `generation` as `guest_marker`
+- [x] `Assistant(guest_marker=...)`: once the marker has moved since she said it, a repeat request gets the nothing-to-repeat line; words said after the switch are repeated
+- [x] `run` passes guest mode's `generation` as `guest_marker`
 
 **Dependencies:** 203 · **Files:** `src/waifu/app.py`, `tests/test_app.py`, `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** S
 

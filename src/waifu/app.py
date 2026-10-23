@@ -25,7 +25,8 @@ to be answered while guest mode is on is dropped too.
 When Master's whole utterance asks her to repeat ("ulangi", "tadi bilang apa?": `waifu.repeat`),
 she says her last words on the PC again (her reply, the announcements said together, or her
 answer to a request) without the brain: no turn, so a question waiting for Master's yes still
-waits for his next words.
+waits for his next words. Once guest mode has switched since she said them, there is nothing to
+repeat.
 
 The owner's paired phone (`waifu.phone`) talks to her from the phone server's threads:
 `reply_for_phone` and `transcribe_for_phone`, handed to the server as `PhoneAnswers`. Brain
@@ -86,7 +87,8 @@ PHOTO_MEDIA_TYPE = "image/jpeg"
 PCM16_SCALE = 32767  # full scale of a 16-bit sample, symmetric so +1 and -1 both fit
 # Said before the announcements a game held (game mode), once the game has closed.
 GAME_HELD = "Tadi selama main ada kabar."
-# Her answer to "ulangi" when she has said nothing she remembers (`Assistant._repeat`).
+# Her answer to "ulangi" when she has said nothing she remembers, or guest mode has switched
+# since (`Assistant._repeat`).
 NOTHING_TO_REPEAT = "Belum ada yang bisa kuulangi, {owner}."
 
 
@@ -232,6 +234,7 @@ class _Said:
 
     text: str
     emotion: str
+    marker: object  # `guest_marker` as she said it (None without one)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -266,12 +269,15 @@ class Assistant:
         quiet: Callable[[], bool] | None = None,
         game_holding: Callable[[], bool] | None = None,
         guest_mode: Callable[[], bool] | None = None,
+        guest_marker: Callable[[], object] | None = None,
     ) -> None:
         """`quiet` (the focus timer's `in_block`, in game mode also whether a game holds her
         announcements) says when what she would say by herself must wait: only `remind` is
         said then. `game_holding` (game mode's `holding`, part of `quiet`) tells the waits a
         game made: the announcements it held come out after GAME_HELD. `guest_mode` (guest
-        mode's `is_on`) says when her private requests are dropped."""
+        mode's `is_on`) says when her private requests are dropped. `guest_marker` (guest
+        mode's `generation`) moves whenever guest mode switches: her last words said before
+        it moved are never repeated."""
         self._name = config.assistant.name
         self._owner_call = config.assistant.owner_call
         # Left out of Master's words when they ask her to repeat (`is_repeat_request`).
@@ -294,6 +300,7 @@ class Assistant:
         self._quiet = quiet
         self._game_holding = game_holding
         self._guest_mode = guest_mode
+        self._guest_marker = guest_marker
         self._mic: Microphone | None = None
         self._segmenter: Segmenter | None = None
         self._speaker_error_logged = False
@@ -758,19 +765,23 @@ class Assistant:
 
         Only `run`'s thread calls it, for what she says as her own: a reply to Master's
         words, the announcements said together, or her answer to a request. Never for a
-        reaction, the acknowledgement, the startup line, or the phone.
+        reaction, the acknowledgement, the startup line, or the phone. The guest marker is read
+        after the turn, so the reply that switched guest mode can be repeated.
         """
-        self._last_said = _Said(text, emotion)
+        self._last_said = _Said(text, emotion, self._guest_generation())
         self.speak(text, emotion, followup=followup)
 
     def _repeat(self) -> str:
         """Say her last words again like a reply, without the brain; returns what she said.
 
         No turn is taken, so the brain, its history, and its gates (a question waiting for
-        Master's yes) never see it. With nothing to repeat she says NOTHING_TO_REPEAT. The
-        text never reaches the INFO log, like a reply's.
+        Master's yes) never see it. With nothing to repeat, also once guest mode has switched
+        since (her words are then forgotten), she says NOTHING_TO_REPEAT. The text never
+        reaches the INFO log, like a reply's.
         """
         said = self._last_said
+        if said is not None and said.marker != self._guest_generation():
+            self._last_said = said = None
         if said is None:
             logger.info("Nothing to repeat")
             text = NOTHING_TO_REPEAT.format(owner=self._owner_call)
@@ -779,6 +790,9 @@ class Assistant:
         logger.info("Repeating what she said last")
         self.speak(said.text, said.emotion)
         return said.text
+
+    def _guest_generation(self) -> object:
+        return None if self._guest_marker is None else self._guest_marker()
 
     def _think(
         self,
