@@ -4,6 +4,26 @@ Ringkasan per versi, yang terbaru di atas. Rinciannya ada di README (bagian yang
 setiap versi) dan di SPEC.md. Setelah memperbarui, **mulai ulang `waifu run`** supaya semuanya
 aktif, lalu jalankan `waifu check`.
 
+## v1.36: mode tamu
+
+- "Cyrene, mode tamu" (lewat suara, `waifu chat`, atau chat di HP) menutup hal pribadi Master
+  selama ada tamu: keuangan tepira, jurnal, ingatan, daftar tugas, jam main dan teman fokus,
+  akun game (status, pull, pendapatan, karakter, endgame, laporan mingguan, kode redeem), daftar
+  jadwal, biaya API, dan melihat layar ditolak, dan dia bilang singkat bahwa itu ditutup dulu.
+  Perangkat, rutinitas, lagu, cuaca, promo gratis, pencarian web, obrolan biasa, dan tombol
+  cepat di HP tetap jalan.
+- Mulai giliran berikutnya dia memulai obrolan baru tanpa ingatannya tentang Master; saat "mode
+  tamu selesai", obrolan baru lagi dan ingatannya kembali. Pertanyaan konfirmasi yang belum
+  dijawab ikut terlupa.
+- Sapaan pagi selama mode tamu hanya cuaca dan jadwal perangkat (tanpa tugas, teks pengingat,
+  game, atau ingatan); pertanyaan malam jurnal dan laporan game mingguan dilewati. Pengingat
+  yang Master pasang dan pemberitahuan lain tetap diucapkan.
+- Berakhir sendiri setelah `guest_mode.max_hours` (bawaan 6 jam) atau jam 05:00, mana yang lebih
+  dulu; restart `waifu run` juga mengakhirinya. Tidak ada perintah `waifu tamu`: terminal tidak
+  bisa menjangkau `waifu run` yang sedang berjalan.
+- `waifu check` punya baris `Mode tamu`, dengan peringatan kalau verifikasi suara mati. README:
+  "Mode tamu".
+
 ## v1.35: tombol cepat di HP
 
 - Halaman Cyrene di HP punya panel **Tombol cepat**: ketuk tombol lampu di kiri kotak pesan,

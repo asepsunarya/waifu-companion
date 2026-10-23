@@ -1841,9 +1841,9 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 190 · **Files:** `config/persona.md`, `config/persona_hsr.md`, `tests/test_brain_persona.py` · **Scope:** S
 
-## Task 195: Docs
+## Task 195: Docs ✅
 
 **Acceptance criteria:**
-- [ ] README "Mode tamu" with a contents entry, checklist items, and a Privasi bullet; the tepira guest advice points to it; CHANGELOG v1.36; full suite and ruff clean
+- [x] README "Mode tamu" with a contents entry, checklist items, and a Privasi bullet; the tepira guest advice points to it; CHANGELOG v1.36; full suite and ruff clean
 
 **Dependencies:** 193, 194 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S

@@ -746,10 +746,11 @@ announcements, the quick buttons, and the terminal commands are unchanged. No ne
 - [x] Task 192: the Assistant drops private requests in guest mode
 - [x] Task 193: wiring in `run` and `chat`, the check line, the strict budget and tool sorting tests
 - [x] Task 194: the persona section in both personas
-- [ ] Task 195: README "Mode tamu" and Privasi, CHANGELOG
+- [x] Task 195: README "Mode tamu" and Privasi, CHANGELOG
 
 ### Checkpoint: Mode tamu
-- [ ] Python suite and ruff clean; no test ran a real device, slept, spoke, or pushed; the strict-tool budget unchanged (18 of 20 strict tools, 17 of 24 optional parameters)
+- [x] Python suite and ruff clean; no test ran a real device, slept, spoke, or pushed; the strict-tool budget unchanged (2026-10-24: 8723 pytest, 489 JS; 18 of 20 strict tools, 17 of 24 optional parameters, 41 tools with `guest_mode` non-strict)
+- [x] By hand (2026-10-24, a scratch folder with the example config, dry-run mocks, and a scripted Ollama client): `_companion_brain` with a real `GuestMode`; "mode tamu" turned it on (until 05:00, the night's end coming first), the next turn began a new session whose prompt ended with the guest section instead of the remembered fact, `list_tasks` was refused while the lamp turned on, "mode tamu selesai" turned it off, and the turn after it began a new session with the memory section again; the log showed the switches and the refusal
 - [ ] On the owner's PC: "Cyrene, mode tamu" turns it on; "pengeluaranku bulan ini berapa?" is refused briefly; the lamp still answers; "mode tamu selesai" turns it off and the next answer knows her memory again; `waifu check` shows the guest mode line
 
 ## Risks and Mitigations

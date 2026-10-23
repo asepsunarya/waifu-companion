@@ -54,6 +54,7 @@ Cyrene : "Komputer mau kumatikan sekarang, Master? Jawab iya kalau jadi." (minta
 - [Jurnal harian](#jurnal-harian)
 - [Pencarian web dan promo gratis](#pencarian-web-dan-promo-gratis)
 - [Keuangan dari tepira](#keuangan-dari-tepira)
+- [Mode tamu](#mode-tamu)
 - [Pemecahan masalah](#pemecahan-masalah)
 - [Checklist uji perangkat keras](#checklist-uji-perangkat-keras)
 - [Privasi](#privasi)
@@ -664,7 +665,7 @@ waifu speaker-test    # skor kecocokan langsung, Ctrl+C untuk berhenti
 | `waifu youtube <link atau judul lagu>` | Buka video atau playlist YouTube itu, atau halaman pencarian YouTube untuk judulnya, di browser default (lihat [Lagu di YouTube](#lagu-di-youtube)) |
 | `waifu offers` / `offers games` / `offers ai` | Game gratis dan promo AI yang tersimpan, dengan linknya; `waifu offers ai --scan` mencari promo AI sekarang dengan Claude (berbayar) (lihat [Pencarian web dan promo gratis](#pencarian-web-dan-promo-gratis)) |
 | `waifu tepira` / `tepira dompet` / `tujuan [nama]` / `transaksi [-n N]` / `token` | Keuangan dari tepira: ringkasan bulan ini, saldo dompet, tujuan tabungan, dan transaksi terbaru; `token` membuat token API Cyrene baru tanpa internet (lihat [Keuangan dari tepira](#keuangan-dari-tepira)) |
-| `waifu check` | Periksa config, versi `waifu run` yang berjalan, kabar versi baru, kode IR, aplikasi PC, rutinitas, voiceprint, otak, ingatan, jadwal, daftar tugas, jurnal, lagu YouTube, sapaan pagi, peringatan hujan, biaya API, kesehatan PC, jam main, teman fokus, mode game, pencarian web, promo gratis, paket suara, CUDA, mic, suara cadangan offline, suara anime, avatar, keuangan tepira, dan Cyrene di HP |
+| `waifu check` | Periksa config, versi `waifu run` yang berjalan, kabar versi baru, kode IR, aplikasi PC, rutinitas, voiceprint, otak, ingatan, jadwal, daftar tugas, jurnal, lagu YouTube, sapaan pagi, peringatan hujan, biaya API, kesehatan PC, jam main, teman fokus, mode game, mode tamu, pencarian web, promo gratis, paket suara, CUDA, mic, suara cadangan offline, suara anime, avatar, keuangan tepira, dan Cyrene di HP |
 
 Opsi untuk semua perintah: `--config <file>` (default `config.yaml`), `--dry-run`
 (perangkat simulasi), `-v` (log lebih rinci), `--log-file <file>` (log juga ditulis
@@ -4938,7 +4939,8 @@ tulis tepira menyala (`TEPIRA_CYRENE_WRITES=1` di Vercel).
 7. **Mulai ulang `waifu run`** supaya tool keuangannya aktif.
 
 Yang bisa bertanya soal uang adalah siapa pun yang lolos verifikasi suara dan HP yang sudah
-dipasangkan. Kalau ada tamu, matikan dengan `tepira.enabled: false` lalu mulai ulang.
+dipasangkan. Kalau ada tamu, bilang "Cyrene, mode tamu" (lihat [Mode tamu](#mode-tamu)):
+tool keuangan ditolak sampai mode tamu selesai.
 
 ### Dari terminal: `waifu tepira`
 
@@ -4985,6 +4987,119 @@ false`, 1 kalau tepira tidak menjawab (pesannya diawali `✗`), dan 0 kalau berh
   tokennya).
 - Catatan transaksi, nama tujuan, dan nama dompet adalah teks bebas di tepira: Cyrene
   memperlakukannya sebagai data, tidak pernah sebagai perintah.
+
+## Mode tamu
+
+Kalau ada teman di ruangan, "Cyrene, mode tamu" menutup hal pribadi Master selama beberapa jam,
+tanpa mengubah `config.yaml` atau memulai ulang. Selalu tersedia, dengan otak Ollama maupun
+Claude, tanpa paket tambahan.
+
+```text
+Master : "Cyrene, mode tamu."
+Cyrene : "Mode tamu aktif sampai jam dua pagi, Master."
+Master : "Pengeluaranku bulan ini berapa?"
+Cyrene : "Yang itu kututup dulu selama ada tamu, Master."
+Master : "Nyalakan lampu kamar."
+Cyrene : "Lampu kamar sudah menyala."
+Master : "Cyrene, mode tamu selesai."
+```
+
+### Menyalakan dan mematikan
+
+- "Cyrene, mode tamu" atau "ada tamu nih": menyala. "Cyrene, mode tamu selesai": mati. "Mode
+  tamu masih aktif?": dia menjawab menyala atau tidak, dan sampai jam berapa.
+- Bisa lewat suara, `waifu chat`, atau chat [Cyrene di HP](#cyrene-di-hp). Dari HP berlaku juga
+  untuk PC, karena itu Cyrene yang sama. `waifu chat` punya mode tamu sendiri, terpisah dari
+  `waifu run`.
+- Tidak ada perintah terminal seperti `waifu tamu`: terminal tidak bisa menjangkau `waifu run`
+  yang sedang berjalan.
+
+### Yang ditutup
+
+Tool yang membaca atau mengubah catatan dan akun Master sendiri ditolak di kode, dan dia cukup
+bilang singkat bahwa itu ditutup dulu selama ada tamu:
+
+- keuangan tepira (ringkasan, saldo, tujuan, transaksi, mencatat dan membatalkan pengeluaran);
+- jurnal (menulis dan membaca);
+- ingatan: yang diucapkan selama mode tamu tidak disimpan sebagai hal tentang Master, dan
+  catatan Master tidak bisa dihapus;
+- daftar tugas (semuanya);
+- jam main dan teman fokus;
+- akun game: status, riwayat pull, pendapatan, karakter, endgame, laporan mingguan, dan kode
+  redeem;
+- daftar jadwal dan membatalkan jadwal (isinya teks pengingat Master);
+- biaya API Claude;
+- melihat layar PC.
+
+### Yang tetap jalan
+
+- Perangkat rumah (mematikan PC tetap dengan konfirmasi), rutinitas, menambah jadwal atau
+  pengingat, lagu di YouTube, kesehatan PC, cuaca dan ringkasan hari (tanpa tugas dan teks
+  pengingat), promo gratis, jadwal banner dan event game (kalender umum), pencarian web, dan
+  obrolan biasa.
+- [Tombol cepat di HP](#tombol-cepat-di-hp): tombolnya mengendalikan perangkat tanpa otak
+  Cyrene.
+- Perintah terminal (`waifu todo`, `waifu jurnal`, `waifu tepira`, dan lainnya): terminal milik
+  Master.
+
+### Obrolan baru tanpa ingatan
+
+Mulai giliran sesudah mode tamu dinyalakan, Cyrene memulai obrolan baru: obrolan sebelumnya (yang
+mungkin berisi jawaban soal uang atau jurnal) dan [ingatannya](#ingatan-cyrene) tentang Master
+tidak ikut. Begitu juga saat mode tamu selesai: obrolan baru dimulai, dan ingatannya kembali.
+Pertanyaan konfirmasi yang belum dijawab (misalnya mematikan PC) ikut terlupa, jadi "iya"
+sesudahnya tidak menjalankan apa pun. Giliran yang menyalakan mode tamu masih memakai obrolan
+lama; persona memintanya tidak menyebut hal pribadi Master di jawaban itu.
+
+### Sapaan dan pertanyaan yang dia mulai sendiri
+
+- [Sapaan pagi](#sapaan-pagi-dan-ringkasan-harian) tetap diucapkan, tapi hanya cuaca dan jadwal
+  perangkat hari ini, tanpa tugas, teks pengingat, game, atau ingatan (begitu juga notifikasi
+  HP-nya kalau `briefing.push` menyala).
+- Pertanyaan malam [jurnal](#jurnal-harian) dan [laporan game mingguan](#laporan-game-mingguan)
+  dilewati selama mode tamu, dan tidak diulang hari itu (atau minggu itu). `waifu gacha report`
+  tetap menampilkan minggunya.
+- Yang tetap diucapkan apa adanya: pengingat dan jadwal yang Master pasang sendiri, dengan
+  teksnya (Master sendiri yang memilih isinya), kalimat teman fokus, dan pemberitahuan game, kode
+  redeem, PC, hujan, versi baru, promo, biaya API (menyebut pengeluaran API), dan pengingat
+  tidur. Pengingat yang terlalu pribadi bisa dibatalkan dulu dengan
+  `waifu schedule cancel <id>`.
+
+### Kapan berakhir
+
+- Sendiri setelah `guest_mode.max_hours` (bawaan 6 jam) atau jam 05:00, mana yang lebih dulu,
+  menurut jam PC. Bilang "mode tamu" lagi selagi aktif menghitung ulang dari saat itu.
+- Berakhirnya diam-diam: dia tidak mengumumkannya, dan obrolan berikutnya mulai baru dengan
+  ingatannya.
+- Hanya diingat selama `waifu run` berjalan: restart atau crash juga mengakhirinya.
+
+Untuk mengubah lamanya, tulis di `config.yaml`, lalu jalankan ulang `waifu run`:
+
+```yaml
+guest_mode:
+  max_hours: 4    # 1-24; paling lambat tetap jam 05:00
+```
+
+### Verifikasi suara
+
+Dengan verifikasi suara menyala (bawaan), suara tamu memang tidak dilayani, jadi mode tamu menjaga
+apa yang dia ucapkan di depan tamu. Dengan `waifu run --no-speaker-check` atau
+`speaker.enabled: false`, siapa pun bisa bilang "mode tamu selesai", dan `waifu check`
+memperingatkannya:
+
+```text
+✓ Mode tamu: "mode tamu" dan "mode tamu selesai" lewat suara, chat, atau HP; berakhir sendiri setelah 6 jam atau jam 05:00
+! Mode tamu: "mode tamu" dan "mode tamu selesai" lewat suara, chat, atau HP; berakhir sendiri setelah 6 jam atau jam 05:00; verifikasi suara mati, jadi suara tamu juga bisa mengakhirinya
+```
+
+### Privasi mode tamu
+
+- Tidak ada yang baru disimpan atau dikirim: mode tamu hanya diingat di memori `waifu run` (atau
+  `waifu chat`). Dengan Claude, panggilan `guest_mode` ikut ke API Anthropic seperti tool lain.
+- Log INFO mencatat kapan mode tamu menyala, mati, atau berakhir sendiri, tool yang ditolak
+  (namanya saja), dan pertanyaan yang dilewati (tanpa isinya).
+- Yang tidak ditutup mode tamu: pengingat dan pemberitahuan di atas, notifikasi HP yang memang
+  dikirim fitur lain, perintah terminal, dan log (`Heard ...` tetap mencatat kalimat Master).
 
 ## Pemecahan masalah
 
@@ -5647,6 +5762,20 @@ di sampingnya)
 - [ ] `logs\waifu.log` setelah semua itu memuat `Tool finance_summary(…) -> ok` tanpa angka dari
       tepira dan tanpa token.
 
+**Mode tamu** (lihat [Mode tamu](#mode-tamu))
+
+- [ ] `waifu check` menampilkan `✓ Mode tamu: "mode tamu" dan "mode tamu selesai" lewat suara,
+      chat, atau HP; berakhir sendiri setelah 6 jam atau jam 05:00`.
+- [ ] "Cyrene, mode tamu": dia menjawab singkat sampai jam berapa. "Pengeluaranku bulan ini
+      berapa?" dan "tugasku apa aja?": dia bilang singkat itu ditutup dulu. "Nyalakan lampu
+      kamar": lampunya menyala.
+- [ ] "Kamu ingat aku suka apa?": dia tidak menyebut isi ingatannya. "Cyrene, mode tamu
+      selesai", lalu tanyakan lagi: dia ingat.
+- [ ] Dari chat HP, "mode tamu", lalu di PC "jurnal kemarin apa?": ditolak. Di HP "mode tamu
+      selesai": di PC jurnalnya bisa dibaca lagi.
+- [ ] `logs\waifu.log` memuat `Guest mode on until ...`, `Refused tool 'finance_summary' before
+      running it`, dan `Guest mode off`, tanpa isi jawaban keuangan.
+
 ## Privasi
 
 - **Suara tidak pernah keluar dari PC.** Rekaman mic, verifikasi suara, dan
@@ -5744,6 +5873,9 @@ di sampingnya)
   Tidak ada yang disimpan ke disk. Tokennya hanya di `config.yaml`, hanya dikirim di header ke
   tepira, dan tidak pernah ditulis ke log; log INFO menulis panggilan tool keuangan tanpa isinya,
   tapi kalimat Master yang terdengar tetap tercatat. Lihat [Privasi keuangan](#privasi-keuangan).
+- **Mode tamu:** tidak menyimpan atau mengirim apa pun yang baru; hanya diingat selama
+  `waifu run` berjalan. Pengingat yang Master pasang dan pemberitahuan lain tetap diucapkan
+  selama mode tamu. Lihat [Privasi mode tamu](#privasi-mode-tamu).
 - **Voiceprint adalah data biometrik.** `data/voiceprint.npy` (dan seluruh `data/`)
   ada di `.gitignore` dan tidak boleh di-commit atau dibagikan. Begitu juga
   `config.yaml` (local key Tuya) dan `models/`.
