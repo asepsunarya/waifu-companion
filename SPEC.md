@@ -1788,7 +1788,7 @@ CLI: `run` passes `guest_marker=guest_mode.generation` to the Assistant. Docs: R
 
 Known limits: "sekali lagi" after an action repeats her words and does not redo it ("nyalakan lagi" or "putar lagi lagunya" go to the brain); a name Whisper misspells and the config does not list, inside the follow-up window ("Sairin, ulangi"), sends the request to the brain (a turn, safe); the brain's history never learns Master asked her to repeat; with speaker verification off any voice can ask her to repeat what she said since guest mode last switched; a long reply is repeated whole.
 
-Privacy: nothing is stored or sent: the last words live in memory only, and the log never holds them.
+Privacy: nothing is stored or sent: the last words live in memory only, and the repeat never writes them to the log (it logs only "Repeating what she said last"). Her replies are not logged at INFO either, but the announcements and reminders were already logged as `Announcing: ...` when she first said them.
 
 Safety: tests use fake brains, speech, players, and clocks; nothing is played.
 

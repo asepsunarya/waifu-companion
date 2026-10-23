@@ -5298,7 +5298,9 @@ diucapkan di HP dikirim ke otaknya seperti pesan lain (memakai satu giliran). Ba
 pernah diulang di PC.
 
 Tidak ada yang disimpan atau dikirim: kalimat terakhirnya hanya diingat di memori selama
-`waifu run` berjalan, dan log hanya mencatat `Repeating what she said last`, tanpa isinya.
+`waifu run` berjalan, dan pengulangannya hanya mencatat `Repeating what she said last` di log,
+tanpa isinya (pengingat dan pengumuman sudah tercatat sebagai `Announcing: ...` saat pertama
+diucapkan).
 
 ## Pemecahan masalah
 
@@ -6100,8 +6102,10 @@ di sampingnya)
 - **Mode tamu:** tidak menyimpan atau mengirim apa pun yang baru; hanya diingat selama
   `waifu run` berjalan. Pengingat yang Master pasang dan pemberitahuan lain tetap diucapkan
   selama mode tamu. Lihat [Privasi mode tamu](#privasi-mode-tamu).
-- **Ulangi:** kalimat terakhirnya hanya diingat di memori selama `waifu run` berjalan, dilupakan
-  begitu mode tamu menyala atau mati, dan tidak pernah dicatat di log. Lihat [Ulangi](#ulangi).
+- **Ulangi:** kalimat terakhirnya hanya diingat di memori selama `waifu run` berjalan dan
+  dilupakan begitu mode tamu menyala atau mati. Pengulangannya tidak pernah mencatat isinya di
+  log; jawabannya juga tidak, tapi pengingat dan pengumuman memang sudah tercatat sebagai
+  `Announcing: ...` saat pertama diucapkan. Lihat [Ulangi](#ulangi).
 - **Voiceprint adalah data biometrik.** `data/voiceprint.npy` (dan seluruh `data/`)
   ada di `.gitignore` dan tidak boleh di-commit atau dibagikan. Begitu juga
   `config.yaml` (local key Tuya) dan `models/`.
