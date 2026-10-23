@@ -59,6 +59,7 @@ from waifu.brain.confirm import ConfirmationGate
 from waifu.brain.factory import build_brain, confirmation_gate
 from waifu.brain.finance_tools import FinanceTools
 from waifu.brain.focus_tools import FocusTools
+from waifu.brain.guest_tools import GuestTools
 from waifu.brain.journal_tools import JournalTools
 from waifu.brain.memory_tools import MemoryTools
 from waifu.brain.music_tools import MusicTools
@@ -166,6 +167,7 @@ from waifu.gacha.weekly import (
 from waifu.gacha.zenless import EVENT_REWARD, ZzzAgent
 from waifu.game_mode import GameMode
 from waifu.gate import WakeGate
+from waifu.guest import GuestMode
 from waifu.journal import JOURNAL_READ, JournalError, JournalStore, JournalTimer
 from waifu.memory import MemoryStore, memory_prompt_section
 from waifu.music import MusicService, open_in_browser, open_link, search_link, youtube_link
@@ -1262,6 +1264,10 @@ def _listen(args: argparse.Namespace) -> int:
     # One focus timer for this run: her tool starts and stops it, and while a block is under way
     # the Assistant says only what Master asked for himself.
     focus = _focus_timer(config)
+    # One guest mode for this run, in memory only: the brain refuses the private tools and starts
+    # afresh as it switches, the briefing leaves Master's tasks out, and the Assistant skips her
+    # private turns while it is on.
+    guest_mode = GuestMode(max_hours=config.guest_mode.max_hours)
     with _session_schedule(config, dry_run=args.dry_run) as schedule:
         # While a game runs (the play time watcher tells it), game mode may hold what she says
         # by herself, and it runs Master's start and stop routines on this run's devices.
@@ -1278,6 +1284,7 @@ def _listen(args: argparse.Namespace) -> int:
             turn_images,
             camera_turn,
             focus=focus,
+            guest_mode=guest_mode,
         )
         stt = WhisperStt(config.stt, name)
         gate = WakeGate(config.assistant.wake_words, config.assistant.followup_seconds)
@@ -1314,6 +1321,7 @@ def _listen(args: argparse.Namespace) -> int:
                 camera_turn=camera_turn,
                 quiet=quiet,
                 game_holding=None if game_mode is None else game_mode.holding,
+                guest_mode=guest_mode.is_on,
             )
             reactions = InteractionHandler(
                 config.avatar.interactions,
@@ -1456,7 +1464,8 @@ def _chat(args: argparse.Namespace) -> int:
     usage = _usage_recorder(config)
     name = config.assistant.name
     with _session_schedule(config, dry_run=args.dry_run) as schedule:
-        # Only the offers tool pushes from chat, when Master asks for a link.
+        # Only the offers tool pushes from chat, when Master asks for a link. Its guest mode is
+        # this process's own: a running `waifu run` keeps its own.
         brain = _companion_brain(
             config,
             registry,
@@ -1465,6 +1474,7 @@ def _chat(args: argparse.Namespace) -> int:
             usage,
             _session_pc_reader(config),
             build_notifier(config.notify),
+            guest_mode=GuestMode(max_hours=config.guest_mode.max_hours),
         )
         # One scheduler fires the real schedule, and one teller gives the budget notices: a
         # running `waifu run`, which speaks and pushes, rather than this chat, which would take
@@ -1533,14 +1543,16 @@ def _companion_brain(
     camera_turn: CameraTurn | None = None,
     *,
     focus: FocusTimer | None = None,
+    guest_mode: GuestMode,
 ) -> Brain:
-    """The brain with the game tools when they are on, her long-term memory when it is on,
-    then her schedule when it is on, Master's to-do list when it is on, Master's journal when it
-    is on, with `focus` (only `run` has one) Master's focus timer, the day's briefing when it is
-    on, with `pc` how the PC is doing, how long Master's games were open when play time is on,
-    the free offers when they are on (their links pushed through `notifier`), Master's money
-    from tepira when it is on, songs on YouTube when they are on, with Claude her eyes on the
-    screen when vision is on, and with `usage` what her requests cost.
+    """The brain with `guest_mode`'s tool first, then the game tools when they are on, her
+    long-term memory when it is on, her schedule when it is on, Master's to-do list when it is
+    on, Master's journal when it is on, with `focus` (only `run` has one) Master's focus timer,
+    the day's briefing when it is on, with `pc` how the PC is doing, how long Master's games
+    were open when play time is on, the free offers when they are on (their links pushed through
+    `notifier`), Master's money from tepira when it is on, songs on YouTube when they are on,
+    with Claude her eyes on the screen when vision is on, and with `usage` what her requests
+    cost.
 
     With memory, every new session lists the notes as they are in the file at that moment.
     The to-do list is the real one also in a dry run (it moves no device), and the briefing
@@ -1548,7 +1560,9 @@ def _companion_brain(
     With `usage`, every Claude response is recorded in its ledger. With `turn_images` (only
     while the phone camera is offered), Claude sees the photo a phone message carries, and
     with `camera_turn` the screen tool looks at the PC in a turn sent through the phone camera
-    only when Master names the screen.
+    only when Master names the screen. While `guest_mode` is on, the brain refuses the private
+    tools, a new session's prompt hides the notes, and the briefing leaves out Master's tasks and
+    reminder texts.
     """
     owner_call = config.assistant.owner_call
     # One gate for Master's yes, shared by the brain (turning the PC off) and the finance tools
@@ -1557,7 +1571,7 @@ def _companion_brain(
     notes = _memory_store(config) if config.memory.enabled else None
     todo = _todo_store(config) if config.todo.enabled else None
     journal = _journal_store(config) if config.journal.enabled else None
-    providers = _game_tools(config, gacha)
+    providers: list[ToolProvider] = [GuestTools(guest_mode), *_game_tools(config, gacha)]
     if notes is not None:
         providers.append(MemoryTools(notes, owner_call=owner_call))
     if schedule is not None:
@@ -1575,7 +1589,9 @@ def _companion_brain(
     if focus is not None:
         providers.append(FocusTools(focus, now=wib_now))
     if config.briefing.enabled:
-        providers.append(_briefing_tools(config.briefing, schedule, todo=todo))
+        providers.append(
+            _briefing_tools(config.briefing, schedule, todo=todo, guest_mode=guest_mode.is_on)
+        )
     if pc is not None:
         providers.append(PcTools(pc, owner_call=owner_call))
     if config.play_time.enabled:
@@ -1619,6 +1635,7 @@ def _companion_brain(
             on_usage=on_usage,
             turn_images=turn_images,
             confirmations=confirmations,
+            guest_mode=guest_mode,
         )
     return build_brain(
         config,
@@ -1628,6 +1645,7 @@ def _companion_brain(
         on_usage=on_usage,
         turn_images=turn_images,
         confirmations=confirmations,
+        guest_mode=guest_mode,
     )
 
 
@@ -3406,14 +3424,18 @@ def _journal_timer(config: AppConfig, assistant: Assistant) -> AbstractContextMa
     with the journal off or without `journal.ask_at`. A question whose turn never read the
     journal (`journal_read`) is the brain's apology for a failure, so it is not said. It starts
     a new session, so no earlier answer's figure reaches it, and it is never pushed: the
-    journal stays between Master and her."""
+    journal stays between Master and her. It is private: skipped while guest mode is on."""
     journal = config.journal
     if not journal.enabled or journal.ask_at is None:
         return nullcontext()
     return JournalTimer(
         journal,
         request=lambda prompt, expires_at: assistant.ask_aloud(
-            prompt, required_tool=JOURNAL_READ, new_session=True, expires_at=expires_at
+            prompt,
+            required_tool=JOURNAL_READ,
+            new_session=True,
+            expires_at=expires_at,
+            private=True,
         ),
     )
 
@@ -3520,11 +3542,18 @@ def _weather_client(
 
 
 def _briefing_tools(
-    briefing: BriefingConfig, schedule: ScheduleStore | None, *, todo: TodoStore | None = None
+    briefing: BriefingConfig,
+    schedule: ScheduleStore | None,
+    *,
+    todo: TodoStore | None = None,
+    guest_mode: Callable[[], bool] | None = None,
 ) -> BriefingTools:
     """The day's date, weather, entries of `schedule` (none without one), and with `todo` the
-    tasks due today and overdue, for the brain."""
-    return BriefingTools(weather=_weather_client(briefing), schedule=schedule, todo=todo)
+    tasks due today and overdue, for the brain; while `guest_mode` says guests are around,
+    without the tasks and the reminder texts."""
+    return BriefingTools(
+        weather=_weather_client(briefing), schedule=schedule, todo=todo, guest_mode=guest_mode
+    )
 
 
 def _briefing_timer(
@@ -3562,7 +3591,8 @@ def _weekly_report_timer(
     to the phone with the game tag when `weekly_report.push` and notifications are on; none
     with the games or the report off. As for the morning greeting, a report whose turn never
     read the week (`weekly_report`) is the brain's apology for a failure, so it is neither said
-    nor pushed, and it starts a new session, so no earlier answer's figure reaches it."""
+    nor pushed, and it starts a new session, so no earlier answer's figure reaches it. It is
+    private: skipped while guest mode is on."""
     weekly = config.weekly_report
     if gacha is None or not weekly.enabled:
         return nullcontext()
@@ -3579,6 +3609,7 @@ def _weekly_report_timer(
             required_tool=WEEKLY_REPORT,
             new_session=True,
             expires_at=expires_at,
+            private=True,
         ),
     )
 
@@ -5312,6 +5343,7 @@ def _checks(config_path: Path) -> Iterator[Check]:
     yield _play_time_check(config)
     yield _focus_check(config)
     yield _game_mode_check(config)
+    yield _guest_mode_check(config)
     yield _free_offers_check(config)
     yield from _voice_package_checks(config)
     yield _microphone_check(config)
@@ -5721,6 +5753,18 @@ def _game_mode_check(config: AppConfig) -> Check:
             + routine_text
         )
     return OK, f"Mode game: {GAME_MODE_TEXT[game.announcements]}{routine_text}"
+
+
+def _guest_mode_check(config: AppConfig) -> Check:
+    """How guest mode is switched and when it ends by itself; a warning when speaker
+    verification is off, since any voice may then end it."""
+    text = (
+        'Mode tamu: "mode tamu" dan "mode tamu selesai" lewat suara, chat, atau HP; berakhir '
+        f"sendiri setelah {config.guest_mode.max_hours} jam atau jam 05:00"
+    )
+    if not config.speaker.enabled:
+        return WARN, f"{text}; verifikasi suara mati, jadi suara tamu juga bisa mengakhirinya"
+    return OK, text
 
 
 def _free_offers_check(config: AppConfig) -> Check:

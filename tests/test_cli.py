@@ -48,6 +48,7 @@ from waifu.brain.attachments import CameraTurn, TurnImages
 from waifu.brain.base import Brain, BrainReply, ToolCallRecord
 from waifu.brain.finance_tools import FinanceTools
 from waifu.brain.focus_tools import FocusTools
+from waifu.brain.guest_tools import GuestTools
 from waifu.brain.journal_tools import JournalTools
 from waifu.brain.memory_tools import MemoryTools
 from waifu.brain.music_tools import MusicTools
@@ -146,6 +147,7 @@ from waifu.gacha.starrail import (
 from waifu.gacha.tools import GachaTools
 from waifu.gacha.weekly import WEEKLY_REPORT_PROMPT, WeeklyReportTimer, WeeklyReportTools
 from waifu.gacha.zenless import ZzzAgent
+from waifu.guest import PRIVATE_TOOLS, GuestMode
 from waifu.journal import JOURNAL_PROMPT, JournalStore, JournalTimer
 from waifu.memory import MemoryStore, memory_prompt_section
 from waifu.offers.errors import OffersError
@@ -945,6 +947,7 @@ class HouseBrain(Brain):
         on_usage=None,
         turn_images=None,
         confirmations=None,
+        guest_mode=None,
     ) -> None:
         self.registry = registry
         self.providers = list(providers)
@@ -952,6 +955,7 @@ class HouseBrain(Brain):
         self.on_usage = on_usage
         self.turn_images = turn_images
         self.confirmations = confirmations
+        self.guest_mode = guest_mode
         self.heard: list[str] = []
 
     def respond(self, user_text: str, *, now: datetime | None = None) -> BrainReply:
@@ -1723,9 +1727,18 @@ def brains(monkeypatch) -> list[HouseBrain]:
         on_usage=None,
         turn_images=None,
         confirmations=None,
+        guest_mode=None,
     ):
         built.append(
-            HouseBrain(registry, providers, memory_section, on_usage, turn_images, confirmations)
+            HouseBrain(
+                registry,
+                providers,
+                memory_section,
+                on_usage,
+                turn_images,
+                confirmations,
+                guest_mode,
+            )
         )
         return built[-1]
 
@@ -2394,8 +2407,8 @@ class RecordingAssistant:
     check (then False), and `cut_answers` what `interrupt` says, one per call (then False:
     nothing was playing); `cuts` counts those calls; `reacted` counts each reaction
     (`speak_reaction` or `listen_now`); `asked` holds each `ask_aloud` with its `on_reply` and
-    `required_tool`, `new_sessions` whether each starts a new session, and `expiries` until
-    when each may be said;
+    `required_tool`, `new_sessions` whether each starts a new session, `expiries` until
+    when each may be said, and `privates` whether each is dropped in guest mode;
     `waiting_for_followup` the texts of announcements that wait while the follow-up window is
     open, `announced_until` until when each announcement may be said, and `game_held_until`
     until when a game may hold each; `reminded` what
@@ -2416,6 +2429,7 @@ class RecordingAssistant:
         self.asked: list[tuple[str, Callable[[str], None] | None, str | None]] = []
         self.new_sessions: list[bool] = []
         self.expiries: list[datetime | None] = []
+        self.privates: list[bool] = []
         self.busy_answers: list[bool] = []
         self.cut_answers: list[bool] = []
         self.cuts = 0
@@ -2469,11 +2483,19 @@ class RecordingAssistant:
         self.reminded.append((text, emotion))
 
     def ask_aloud(
-        self, prompt: str, *, on_reply=None, required_tool=None, new_session=False, expires_at=None
+        self,
+        prompt: str,
+        *,
+        on_reply=None,
+        required_tool=None,
+        new_session=False,
+        expires_at=None,
+        private=False,
     ):
         self.asked.append((prompt, on_reply, required_tool))
         self.new_sessions.append(new_session)
         self.expiries.append(expires_at)
+        self.privates.append(private)
 
     def reply_for_phone(
         self, text: str, image: bytes | None = None, *, camera: bool = False
@@ -5350,6 +5372,7 @@ def test_run_with_the_games_on_gives_the_brain_the_game_tools_and_watches_while_
     assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
 
     [
+        guest,
         tools,
         data_tools,
         income,
@@ -5367,6 +5390,7 @@ def test_run_with_the_games_on_gives_the_brain_the_game_tools_and_watches_while_
         music,
     ] = brains[0].providers
     assert (
+        type(guest),
         type(tools),
         type(memory_tools),
         type(schedule),
@@ -5379,6 +5403,7 @@ def test_run_with_the_games_on_gives_the_brain_the_game_tools_and_watches_while_
         type(offers),
         type(music),
     ) == (
+        GuestTools,
         GachaTools,
         MemoryTools,
         ScheduleTools,
@@ -5439,6 +5464,7 @@ def test_run_without_a_cookie_has_the_game_tools_but_no_watcher(
     assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
 
     assert [type(tools) for tools in brains[0].providers] == [
+        GuestTools,
         GachaTools,
         GameDataTools,
         IncomeTools,
@@ -5463,6 +5489,7 @@ def test_run_with_the_games_off_builds_none_of_it(home, run_fakes, brains, games
 
     assert (games.built, watchers) == ([], [])
     assert [type(tools) for tools in brains[0].providers] == [
+        GuestTools,
         MemoryTools,
         ScheduleTools,
         TodoTools,
@@ -5483,6 +5510,7 @@ def test_chat_with_the_games_on_gives_the_brain_the_game_tools(home, brains, gam
     assert cli.main(["chat", "--dry-run"]) == 0
 
     assert [type(tools) for tools in brains[0].providers] == [
+        GuestTools,
         GachaTools,
         GameDataTools,
         IncomeTools,
@@ -5541,7 +5569,7 @@ def test_the_data_tools_follow_the_game_tools_and_read_hoyolab_for_the_configure
 
     assert cli.main([*argv, "--dry-run"]) == 0
 
-    [tools, data_tools, income, code_tools, *_] = brains[0].providers
+    [_, tools, data_tools, income, code_tools, *_] = brains[0].providers
     assert (type(tools), type(data_tools), type(income), type(code_tools)) == (
         GachaTools,
         GameDataTools,
@@ -6502,8 +6530,9 @@ def test_run_gives_the_brain_her_memory_tools_and_the_notes_at_each_session_star
     assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
 
     brain = brains[0]
-    # Then the schedule, to-do, journal, focus, briefing, PC, play time, offers, and music.
-    [tools, _, _, _, _, _, _, _, _, _] = brain.providers
+    # After guest mode's tool, then the schedule, to-do, journal, focus, briefing, PC, play
+    # time, offers, and music.
+    [_, tools, _, _, _, _, _, _, _, _, _] = brain.providers
     assert isinstance(tools, MemoryTools)
     assert brain.memory_section() == memory_prompt_section([])
     assert tools.run("remember", {"text": "Master alergi udang."})[1] is False
@@ -6521,6 +6550,7 @@ def test_chat_gives_the_brain_the_notes_saved_in_data_memory_json(home, brains, 
     assert cli.main(["chat", "--dry-run"]) == 0
 
     assert [type(tools) for tools in brains[0].providers] == [
+        GuestTools,
         MemoryTools,
         ScheduleTools,
         TodoTools,
@@ -6544,6 +6574,7 @@ def test_with_the_memory_off_the_brain_gets_neither_the_tools_nor_the_notes(
     assert cli.main([*argv, "--dry-run"]) == 0
 
     assert [type(tools) for tools in brains[0].providers] == [
+        GuestTools,
         ScheduleTools,
         TodoTools,
         JournalTools,
@@ -6861,6 +6892,7 @@ def test_run_gives_the_brain_the_schedule_tools_and_fires_her_schedule_while_she
 
     brain = brains[0]
     assert [type(tools) for tools in brain.providers] == [
+        GuestTools,
         MemoryTools,
         ScheduleTools,
         TodoTools,
@@ -7025,6 +7057,7 @@ def test_with_the_schedule_off_she_gets_neither_the_tools_nor_a_scheduler(
     assert cli.main([*argv, "--dry-run"]) == 0
 
     assert [type(tools) for tools in brains[0].providers] == [
+        GuestTools,
         MemoryTools,
         TodoTools,
         JournalTools,
@@ -7573,6 +7606,7 @@ def test_with_claude_she_may_look_at_the_screen_at_the_configured_size(
     assert cli.main([*argv, "--dry-run"]) == 0
 
     assert [type(tools) for tools in brains[0].providers] == [
+        GuestTools,
         MemoryTools,
         ScheduleTools,
         TodoTools,
@@ -7726,6 +7760,7 @@ def test_without_claude_or_with_vision_off_the_brain_gets_no_screen_tool(
     assert cli.main(["chat", "--dry-run"]) == 0
 
     assert [type(tools) for tools in brains[0].providers] == [
+        GuestTools,
         MemoryTools,
         ScheduleTools,
         TodoTools,
@@ -7910,6 +7945,8 @@ def test_run_greets_once_a_day_while_she_listens_and_pushes_the_greeting_to_the_
     assert RecordingAssistant.instances[0].new_sessions == [True]
     # Still waiting at the window's end, the greeting is not said.
     assert RecordingAssistant.instances[0].expiries == [datetime(2026, 10, 14, 12, 0)]
+    # Said in guest mode too, without Master's tasks and reminder texts (the briefing tool).
+    assert RecordingAssistant.instances[0].privates == [False]
     on_reply("Selamat pagi, Master! Hari ini cerah.")
     assert notifier.sent == [("Cyrene", "Selamat pagi, Master! Hari ini cerah.", ("sunrise",))]
 
@@ -7980,6 +8017,7 @@ def test_with_the_briefing_off_she_gets_neither_the_tool_nor_the_greeting(
     assert cli.main([*argv, "--dry-run"]) == 0
 
     assert [type(tools) for tools in brains[0].providers] == [
+        GuestTools,
         MemoryTools,
         ScheduleTools,
         TodoTools,
@@ -11396,6 +11434,96 @@ def test_check_says_the_game_mode_right_after_the_focus_companion(home, nothing_
     assert lines[focus + 1] == "! Mode game mati"
 
 
+# --- guest mode ----------------------------------------------------------------------------------
+
+GUESTS_ARRIVE = datetime(2026, 10, 24, 20, 0)  # Saturday 20:00, the PC's local time
+
+
+@pytest.fixture
+def guest_clock(monkeypatch) -> None:
+    """Every GuestMode a command builds reads 20:00 on its clock."""
+    monkeypatch.setattr(
+        cli,
+        "GuestMode",
+        lambda *, max_hours: GuestMode(max_hours=max_hours, now=lambda: GUESTS_ARRIVE),
+    )
+
+
+def test_run_shares_one_guest_mode_between_the_brain_its_tool_the_briefing_and_the_assistant(
+    home, run_fakes, brains, guest_clock
+):
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    brain = brains[0]
+    assistant_sees_guests = RecordingAssistant.instances[0].collaborators["guest_mode"]
+    briefing = next(tools for tools in brain.providers if isinstance(tools, BriefingTools))
+    assert not assistant_sees_guests()
+    assert "tasks" in json.loads(briefing.run(DAILY_BRIEFING, {})[0])
+
+    result, is_error = brain.providers[0].run("guest_mode", {"on": True})
+
+    assert (is_error, json.loads(result)["until"]) == (False, "02:00")
+    assert brain.guest_mode.is_on()
+    assert assistant_sees_guests()
+    assert "tasks" not in json.loads(briefing.run(DAILY_BRIEFING, {})[0])
+
+
+def test_chat_gives_the_brain_a_guest_mode_of_its_own_for_the_configured_hours(
+    home, brains, guest_clock, monkeypatch
+):
+    append_config(home, "guest_mode:\n  max_hours: 2\n")
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main(["chat", "--dry-run"]) == 0
+
+    brain = brains[0]
+    result, _ = brain.providers[0].run("guest_mode", {"on": True})
+    assert json.loads(result)["until"] == "22:00"
+    assert brain.guest_mode.is_on()
+
+
+def guest_mode_line(out: str) -> str:
+    [line] = [line for line in out.splitlines() if "Mode tamu" in line]
+    return line
+
+
+GUEST_SWITCH = '"mode tamu" dan "mode tamu selesai" lewat suara, chat, atau HP'
+
+
+@pytest.mark.parametrize(
+    ("config", "expected"),
+    [
+        ("", f"✓ Mode tamu: {GUEST_SWITCH}; berakhir sendiri setelah 6 jam atau jam 05:00"),
+        (
+            "guest_mode:\n  max_hours: 3\n",
+            f"✓ Mode tamu: {GUEST_SWITCH}; berakhir sendiri setelah 3 jam atau jam 05:00",
+        ),
+        (
+            "speaker:\n  enabled: false\n",
+            f"! Mode tamu: {GUEST_SWITCH}; berakhir sendiri setelah 6 jam atau jam 05:00; "
+            "verifikasi suara mati, jadi suara tamu juga bisa mengakhirinya",
+        ),
+    ],
+    ids=["default", "max_hours", "no_speaker_check"],
+)
+def test_check_says_how_guest_mode_is_switched_and_when_it_ends(
+    config, expected, home, nothing_installed, capsys
+):
+    append_config(home, config)
+
+    cli.main(["check"])
+
+    assert guest_mode_line(capsys.readouterr().out) == expected
+
+
+def test_check_says_guest_mode_right_after_the_game_mode(home, nothing_installed, capsys):
+    cli.main(["check"])
+
+    lines = capsys.readouterr().out.splitlines()
+    game = lines.index(game_mode_line("\n".join(lines)))
+    assert lines[game + 1] == guest_mode_line("\n".join(lines))
+
+
 # --- web search and free offers ----------------------------------------------------------------
 
 
@@ -12865,7 +12993,8 @@ def test_run_gives_the_weekly_report_once_a_week_while_she_listens_and_pushes_it
 
     assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
 
-    assert [type(tools) for tools in brains[0].providers][:5] == [
+    assert [type(tools) for tools in brains[0].providers][:6] == [
+        GuestTools,
         GachaTools,
         GameDataTools,
         IncomeTools,
@@ -12884,6 +13013,7 @@ def test_run_gives_the_weekly_report_once_a_week_while_she_listens_and_pushes_it
     # In a new session, so no figure from an earlier finance answer reaches the report.
     assert assistant.new_sessions == [True]
     assert assistant.expiries == [datetime(2026, 10, 19, 0, 0)]  # never said on Monday
+    assert assistant.privates == [True]  # skipped in guest mode: Master's pulls and income
     on_reply("Minggu ini Master dapat Castorice!")
     assert notifier.sent == [("Cyrene", "Minggu ini Master dapat Castorice!", ("video_game",))]
 
@@ -13429,6 +13559,7 @@ def test_run_gives_the_brain_her_to_do_tools_and_the_tasks_due_today_in_the_brie
 
     brain = brains[0]
     assert [type(tools) for tools in brain.providers] == [
+        GuestTools,
         MemoryTools,
         ScheduleTools,
         TodoTools,
@@ -13466,6 +13597,7 @@ def test_chat_gives_the_brain_the_tasks_saved_in_data_todo_json_with_either_back
     assert cli.main(["chat", "--dry-run"]) == 0
 
     assert [type(tools) for tools in brains[0].providers] == [
+        GuestTools,
         MemoryTools,
         ScheduleTools,
         TodoTools,
@@ -13496,6 +13628,7 @@ def test_with_the_todo_list_off_the_brain_gets_neither_the_tools_nor_the_tasks(
     assert cli.main([*argv, "--dry-run"]) == 0
 
     assert [type(tools) for tools in brains[0].providers] == [
+        GuestTools,
         MemoryTools,
         ScheduleTools,
         JournalTools,
@@ -13777,6 +13910,7 @@ def test_run_gives_the_brain_her_journal_tools_right_after_the_to_do_tools(
     assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
 
     assert [type(tools) for tools in brains[0].providers] == [
+        GuestTools,
         MemoryTools,
         ScheduleTools,
         TodoTools,
@@ -13831,7 +13965,8 @@ def test_chat_reads_the_journal_saved_in_data_journal_json_with_either_backend(
 
     assert cli.main(["chat", "--dry-run"]) == 0
 
-    assert [type(tools) for tools in brains[0].providers][:4] == [
+    assert [type(tools) for tools in brains[0].providers][:5] == [
+        GuestTools,
         MemoryTools,
         ScheduleTools,
         TodoTools,
@@ -13879,6 +14014,7 @@ def test_run_asks_about_master_s_day_once_a_night_in_a_new_session_without_a_pus
     assert assistant.new_sessions == [True]
     # Held past midnight, it would ask about "hari ini" on the new date.
     assert assistant.expiries == [datetime(2026, 10, 18, 0, 0, tzinfo=WIB)]
+    assert assistant.privates == [True]  # skipped in guest mode: it reads Master's journal
     saved = json.loads((home / "tanya" / "terakhir.json").read_text(encoding="utf-8"))
     assert saved["last_date"] == "2026-10-17"
     assert notifier.sent == []
@@ -14141,6 +14277,26 @@ def optional_parameters(schema: dict) -> int:
     return left_out + sum(optional_parameters(inner) for inner in nested)
 
 
+# The tools guest mode leaves open: the house, the day, songs, the PC's health, the free
+# offers, the public game calendar, web search, and guest mode itself.
+OPEN_TO_GUESTS = frozenset(
+    {
+        "control_device",
+        "list_devices",
+        "run_routine",
+        "schedule",
+        "daily_briefing",
+        "play_youtube",
+        "pc_health",
+        "free_offers",
+        "send_offer_link",
+        "game_events",
+        "web_search",
+        "guest_mode",
+    }
+)
+
+
 def test_the_claude_request_with_every_tool_on_stays_within_the_strict_tool_limits(
     home, games, tepira, monkeypatch
 ):
@@ -14187,8 +14343,12 @@ def test_the_claude_request_with_every_tool_on_stays_within_the_strict_tool_limi
         "play_time",
         "journal_read",
         "gacha_income",
+        "guest_mode",
         *FINANCE_TOOLS,
     } <= names
+    # Every tool is either closed in guest mode or still open: a new one must be sorted.
+    assert names <= PRIVATE_TOOLS | OPEN_TO_GUESTS
+    assert PRIVATE_TOOLS - names == {"focus_timer"}  # only `run` has a focus timer
     strict = [tool for tool in request["tools"] if tool.get("strict")]
     schemas = [tool["input_schema"] for tool in strict]
     parameters = [parameter for schema in schemas for parameter in strict_parameters(schema)]
@@ -14215,6 +14375,7 @@ def test_the_claude_request_with_every_tool_on_stays_within_the_strict_tool_limi
         "record_expense",
         "journal_write",
     } <= {tool["name"] for tool in strict}
+    assert "guest_mode" not in {tool["name"] for tool in strict}
 
 
 # --- songs on YouTube ------------------------------------------------------------------------
@@ -14272,6 +14433,7 @@ def test_run_and_chat_give_the_brain_the_music_tool_with_either_backend(
     assert cli.main([*argv, "--dry-run"]) == 0
 
     assert [type(tools) for tools in brains[0].providers] == [
+        GuestTools,
         MemoryTools,
         ScheduleTools,
         TodoTools,
@@ -14369,6 +14531,7 @@ def test_with_music_off_the_brain_gets_no_music_tool(
     assert cli.main([*argv, "--dry-run"]) == 0
 
     assert [type(tools) for tools in brains[0].providers] == [
+        GuestTools,
         MemoryTools,
         ScheduleTools,
         TodoTools,

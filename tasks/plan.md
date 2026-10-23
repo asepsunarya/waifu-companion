@@ -744,7 +744,7 @@ announcements, the quick buttons, and the terminal commands are unchanged. No ne
 - [x] Task 190: `GuestTools` (`guest_mode`)
 - [x] Task 191: the briefing without tasks and reminder texts in guest mode
 - [x] Task 192: the Assistant drops private requests in guest mode
-- [ ] Task 193: wiring in `run` and `chat`, the check line, the strict budget and tool sorting tests
+- [x] Task 193: wiring in `run` and `chat`, the check line, the strict budget and tool sorting tests
 - [ ] Task 194: the persona section in both personas
 - [ ] Task 195: README "Mode tamu" and Privasi, CHANGELOG
 

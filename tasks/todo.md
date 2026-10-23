@@ -1825,12 +1825,12 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 186a · **Files:** `src/waifu/app.py`, `tests/test_app.py` · **Scope:** S
 
-## Task 193: Wiring and the check line
+## Task 193: Wiring and the check line ✅
 
 **Acceptance criteria:**
-- [ ] `run` and `chat` give the brain `GuestTools` first and `build_brain(guest_mode=)`; `run` hands the same guest mode to the briefing tool and the Assistant, and marks the journal and weekly report requests private
-- [ ] `waifu check` says how guest mode is switched and when it ends, with a warning when speaker verification is off
-- [ ] The strict budget test names `guest_mode` as non-strict; every tool of a full request is either private or allowed in guest mode
+- [x] `run` and `chat` give the brain `GuestTools` first and `build_brain(guest_mode=)`; `run` hands the same guest mode to the briefing tool and the Assistant, and marks the journal and weekly report requests private
+- [x] `waifu check` says how guest mode is switched and when it ends, with a warning when speaker verification is off
+- [x] The strict budget test names `guest_mode` as non-strict; every tool of a full request is either private or allowed in guest mode
 
 **Dependencies:** 189, 190, 191, 192 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** M
 
