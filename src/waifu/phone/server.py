@@ -761,7 +761,9 @@ class _PhoneRequestHandler(BaseHTTPRequestHandler):
         """`{"id"}` of a button GET /actions lists: runs it and answers `{"ok", "message"}`.
 
         The rate limit counts before the body is read, so a flood of anything costs the same.
-        A device's failure is an answer too (`ok: false`): the page shows its message.
+        A press while the device's last one still runs is a 409, not the limit's 429, so the
+        page can tell the two apart. A device's failure is an answer too (`ok: false`): the
+        page shows its message.
         """
         if not self.server.admit_action(device.id):
             logger.info(
@@ -801,7 +803,7 @@ class _PhoneRequestHandler(BaseHTTPRequestHandler):
                 action_id,
                 device.id,
             )
-            self._send_error(HTTPStatus.TOO_MANY_REQUESTS, ACTION_BUSY_TEXT)
+            self._send_error(HTTPStatus.CONFLICT, ACTION_BUSY_TEXT)
             return
         try:
             result = actions.run(action)

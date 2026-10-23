@@ -3838,8 +3838,9 @@ Rutinitas       [Mode tidur]
   bukan sakelar nyala/mati, dan membuka aplikasi mengambil fokus dari game.
 - **Satu per satu:** selagi satu tombol berjalan (lampu Tuya bisa perlu beberapa detik saat
   pertama kali dihubungi), tombol itu tampil sibuk dan tombol lain menunggu; chat dan tombol
-  mikrofon tetap bisa dipakai. Paling banyak 10 tombol per menit per HP; lebih dari itu muncul
-  "Tombolnya terlalu sering ditekan."
+  mikrofon tetap bisa dipakai. Tombol yang ditekan lagi dari tab lain atau sesudah halaman
+  dimuat ulang selagi yang tadi masih berjalan menjawab "Perintah tadi masih jalan." Paling
+  banyak 10 tombol per menit per HP; lebih dari itu muncul "Tombolnya terlalu sering ditekan."
 - **Cyrene tidak tahu tombol yang ditekan.** Kalau tadi dia bilang lampu menyala lalu Master
   mematikannya lewat tombol, tanya lagi ("lampu kamar nyala nggak?") supaya dia membaca
   keadaannya sekarang.

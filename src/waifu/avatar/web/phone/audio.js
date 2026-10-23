@@ -56,6 +56,7 @@ const PROBLEM_TEXTS = {
   pair_locked: "Terlalu banyak percobaan. Buat kode baru di PC dengan waifu phone pair.",
   action_unknown: "Tombol itu sudah tidak ada di PC. Muat ulang halaman ini.",
   action_limit: "Tombolnya terlalu sering ditekan. Tunggu sebentar, lalu coba lagi.",
+  action_busy: "Perintah tadi masih jalan. Tunggu sebentar.",
 };
 
 export const PROBLEM_KINDS = Object.freeze(Object.keys(PROBLEM_TEXTS));
@@ -243,12 +244,14 @@ export function parsePhoneConfig(data) {
 /**
  * The problem an error `status` of `route` means for the owner (a kind of PROBLEM_KINDS). A gateway error comes from
  * tailscale serve in front of the PC, which answers 502 while Cyrene is not running. A quick button (/action) the PC
- * no longer has is a 404, and one pressed too often a 429.
+ * no longer has is a 404, one pressed too often a 429, and one pressed while this phone's last press still runs on the
+ * PC (from another tab, or after a reload) a 409.
  */
 export function problemForStatus(route, status) {
   const pairing = route === "/pair";
   if (route === "/action" && status === 404) return "action_unknown";
   if (route === "/action" && status === 429) return "action_limit";
+  if (route === "/action" && status === 409) return "action_busy";
   switch (status) {
     case 502:
     case 503:

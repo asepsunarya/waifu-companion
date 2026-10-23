@@ -2813,9 +2813,10 @@ def start_press(
     return thread, statuses
 
 
-def test_a_phone_s_second_quick_action_while_its_first_runs_is_429(
+def test_a_phone_s_second_quick_action_while_its_first_runs_is_409(
     serve: Serve, auth: PhoneAuth
 ) -> None:
+    """Not the rate limit's 429: the page tells the owner the last press still runs."""
     slow = SlowDevice("kipas", "Kipas", kind="plug")
     devices, actions = quick_house(kipas=slow)
     server = serve(actions=actions)
@@ -2823,12 +2824,13 @@ def test_a_phone_s_second_quick_action_while_its_first_runs_is_429(
     thread, statuses = start_press(server, token, "dev.kipas.on")
     assert slow.entered.wait(CLIENT_TIMEOUT_S)
 
-    status, _, body = press(server, token)
+    status, headers, body = press(server, token)
     slow.release.set()
     thread.join(CLIENT_TIMEOUT_S)
 
-    assert status == 429
-    assert "masih jalan" in error_of(body)
+    assert status == 409
+    assert "Retry-After" not in headers
+    assert error_of(body) == "Perintah tadi masih jalan. Tunggu sebentar."
     assert statuses == [200]
     assert all_calls(devices) == [("kipas", "on", None)]
     assert press(server, token)[0] == 200  # free again once it ran

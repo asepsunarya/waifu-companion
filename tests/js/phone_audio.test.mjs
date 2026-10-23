@@ -367,6 +367,13 @@ describe("problemForStatus", () => {
     assert.equal(problemForStatus("/action", 500), "server");
   });
 
+  it("tells a quick button whose last press still runs from one pressed too often", () => {
+    assert.equal(problemForStatus("/action", 409), "action_busy");
+    assert.equal(problemText("action_busy"), "Perintah tadi masih jalan. Tunggu sebentar.");
+    assert.notEqual(problemText("action_busy"), problemText("action_limit"));
+    assert.equal(problemForStatus("/chat", 409), "server");
+  });
+
   it("reads a gateway error as a PC that cannot be reached", () => {
     // tailscale serve answers 502 for the PC while Cyrene (waifu run) is not running.
     for (const route of ["/config.json", "/chat", "/talk", "/pair"]) {

@@ -1266,6 +1266,14 @@ describe("phone quick buttons", () => {
     assert.equal(page.element("notice").textContent, problemText("action_limit"));
   });
 
+  it("say when the button's last press still runs on the PC, not that it was pressed too often", async () => {
+    const page = await openQuick({ actionStatus: 409, actionReply: { error: "Perintah tadi masih jalan." } });
+
+    await press(page, "Nyala");
+
+    assert.equal(page.element("notice").textContent, "Perintah tadi masih jalan. Tunggu sebentar.");
+  });
+
   it("say when the PC's answer cannot be read", async () => {
     const page = await openQuick({ actionReply: { done: true } });
 
