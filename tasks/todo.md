@@ -1678,7 +1678,7 @@ named `tests/test_<package>_<module>.py`.
 
 **Acceptance criteria:**
 - [x] Each input once, from the default input's host API first; never the default's aliases, outputs, or WDM-KS; MME's 31-character cut counts as the same name
-- [x] A measurement reads one shared mono stream at the device's rate and closes it; speech above the VAD's bar is heard, the noise floor alone or a steady fan is not, digital silence is silent
+- [x] A measurement listens through `MicStream` (a shared stream at the device's rate, resampled for the VAD) and closes it; one that stops delivering raises instead of waiting; speech is heard only when the VAD would keep an utterance of it (never a click or short bursts), the noise floor alone or a steady fan is not, digital silence is silent
 - [x] The config value is `"name, host API"`, which sounddevice's own matcher resolves to that entry where the bare name is refused
 
 **Dependencies:** none · **Files:** `src/waifu/voice/mic_check.py`, `tests/test_voice_mic_check.py` · **Scope:** S

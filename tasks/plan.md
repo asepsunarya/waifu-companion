@@ -679,11 +679,13 @@ parameter, or dependency.
 
 ### Phase 38.1: perbaikan fokus dan waifu mic (v1.34.1, bug fix, see SPEC → perbaikan fokus dan waifu mic)
 Decision: the expiries of the gacha reminders about a game's state and of the hot-GPU notice
-move to `announce(..., game_expires_at=...)`, counted only for a batch a game held (the frame that
-sets `GAME_HELD`), so a focus block alone behaves as in v1.30 and game mode keeps v1.34's drop; the
-rain alert keeps `expires_at`. `waifu mic` lists each input once (from the default input's host
-API, never WDM-KS or the default's aliases), measures each in a shared stream while Master speaks
-(nothing saved, no run lock), and prints the `"name, host API"` value sounddevice resolves to
+move to `announce(..., game_expires_at=...)`, counted only for an announcement a game held (marked
+`held_by_game` one by one by the quiet frames that see a game hold it), so a focus block alone
+behaves as in v1.30 and game mode keeps v1.34's drop; the rain alert keeps `expires_at`. `waifu
+mic` lists each input once (from the default input's host API, never WDM-KS or the default's
+aliases), measures each through `MicStream` while Master speaks (shared and stall-checked,
+nothing saved, no run lock), judges speech by the VAD's own onset and minimum-speech rules, and
+prints the `"name, host API"` value sounddevice resolves to
 that entry alone; `waifu check` names the mic and whether it is the Windows default. No new
 config key, tool, tool parameter, or dependency.
 - [x] Task 175: a focus block keeps the gacha reminders and the hot-GPU notice (`game_expires_at`)
@@ -692,8 +694,8 @@ config key, tool, tool parameter, or dependency.
 - [x] Task 178: README, CHANGELOG, SPEC
 
 ### Checkpoint: perbaikan fokus dan waifu mic
-- [x] Python suite and ruff clean; no test opened an audio stream, played audio, spoke, or pushed; the strict-tool budget unchanged (2026-10-23: 8504 pytest; 18 of 20 strict tools, 17 of 24 optional parameters, no tool or schema changed)
-- [x] By hand on the owner's PC (2026-10-23, `waifu mic --seconds 2` beside the running `waifu run`): two inputs listed, the headset marked as the Windows default; ambient levels only, as nobody spoke
+- [x] Python suite and ruff clean; no test opened an audio stream, played audio, spoke, or pushed; the strict-tool budget unchanged (2026-10-23: 8504 pytest, 8514 after the fix pass; 18 of 20 strict tools, 17 of 24 optional parameters, no tool or schema changed)
+- [x] By hand on the owner's PC (2026-10-23, `waifu mic --seconds 2` beside the running `waifu run`): two inputs listed, the headset marked as the Windows default; ambient levels only, as nobody spoke. Again after the fix pass: one input listed (the headset was not connected then), the onboard jack, marked as used and the Windows default, at -52 dB RMS, "butuh -40 dB"
 - [ ] On the owner's PC: `waifu mic` while Master speaks names the mic that hears him; after setting `audio.input_device` to its line and restarting `waifu run`, `waifu check` names that mic and "Cyrene" is answered; a 30-minute focus block with a resin reminder queued says it at the break
 
 ## Risks and Mitigations
