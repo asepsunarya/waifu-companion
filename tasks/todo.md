@@ -1780,12 +1780,12 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 186a · **Files:** `src/waifu/config.py`, `config.example.yaml`, `tests/test_config.py`, `tests/test_cli.py` · **Scope:** S
 
-## Task 187: `GuestMode`
+## Task 187: `GuestMode` ✅
 
 **Acceptance criteria:**
-- [ ] `turn_on` sets `until` to the earlier of `max_hours` from now and the next 05:00 strictly after now; again while on renews it; `turn_off` ends it; both say whether anything changed
-- [ ] `is_on` ends it at `until` (logged); `generation` moves on every on, off, and automatic end, never on a renewal; `status` reports on and until
-- [ ] `refusal(name)` refuses exactly the private tools while on; `PRIVATE_TOOLS` matches each module's constant
+- [x] `turn_on` sets `until` to the earlier of `max_hours` from now and the next 05:00 strictly after now; again while on renews it; `turn_off` ends it; both say whether anything changed
+- [x] `is_on` ends it at `until` (logged); `generation` moves on every on, off, and automatic end, never on a renewal; `status` reports on and until
+- [x] `refusal(name)` refuses exactly the private tools while on; `PRIVATE_TOOLS` matches each module's constant
 
 **Dependencies:** 186 · **Files:** `src/waifu/guest.py`, `tests/test_guest.py` · **Scope:** S
 
