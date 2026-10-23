@@ -1879,6 +1879,7 @@ named `tests/test_<package>_<module>.py`.
 - [x] A missing file is level 100 with whisper mode off and stays missing; `set_level`, `change`, and `set_night` write the file atomically and only on a change, steps of 20 held in 10-150
 - [x] A broken file is moved aside (a counter for a second one) and read as missing; a failed move raises
 - [x] `whispering` holds inside the window, `from` counted and `until` not, also across midnight; `level_now` is the lower of the level and the night level while whispering, the normal level at `until`, and never raises (the last state read, or 100, with one warning)
+- [x] Fix pass: a step lands on the next multiple of 20 (75 softer is 60, 10 louder is 20), so after either end the steps reach 100 again; softer steps from the level heard now, so in whisper mode the next clip is softer at once (120 at 23:00 softer is 40); a broken file that cannot be moved aside logs its ERROR once until a good read, not at every clip
 
 **Dependencies:** 197 · **Files:** `src/waifu/voice_level.py`, `tests/test_voice_level.py` · **Scope:** M
 
@@ -1887,6 +1888,7 @@ named `tests/test_<package>_<module>.py`.
 **Acceptance criteria:**
 - [x] `voice_volume {level?, change?, night?}` is non-strict with a static description that sends "suaramu" here and "volume", "musik", and "PC" to the media device; set, step, bounds, whisper on and off, and the state answer in Indonesian with the whisper cap named; bad arguments, a file error, and her own turns are error results
 - [x] The media device's line points her own voice to `voice_volume`
+- [x] Fix pass: the description says her answer on the PC is heard at `now` (whisper mode may keep it below the level just set), lets the possessive decide ("volume suaramu" is hers, "volume" alone the media device), drops "ngomongnya pelan-pelan" (mostly slowly) for "jangan keras-keras ngomongnya", and says speaking slower or faster is not this tool
 
 **Dependencies:** 198 · **Files:** `src/waifu/brain/voice_volume_tools.py`, `tests/test_voice_volume_tools.py`, `src/waifu/brain/tools.py`, `tests/test_brain_tools.py` · **Scope:** M
 
@@ -1903,5 +1905,6 @@ named `tests/test_<package>_<module>.py`.
 
 **Acceptance criteria:**
 - [x] README "Volume suaraku" with a contents entry, a link from "Musik, volume, dan aplikasi PC", and checklist items; CHANGELOG v1.37; full suite and ruff clean
+- [x] Fix pass: README and SPEC say the grid steps, softer in whisper mode, "volume suaramu" in the table, that her answer is heard at the new level on the PC unless whisper mode holds it, and that reminders and announcements follow her level and whisper mode (with the phone notifications for one that must wake Master)
 
 **Dependencies:** 200 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S

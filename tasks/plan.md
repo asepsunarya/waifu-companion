@@ -774,7 +774,7 @@ new dependency; 18 of 20 strict tools and 17 of 24 optional parameters stay.
 - [x] Task 201: README "Volume suaraku", CHANGELOG
 
 ### Checkpoint: Volume suaraku
-- [x] Python suite and ruff clean; no test played audio, spoke, or pushed; the strict-tool budget unchanged (2026-10-24: 8870 pytest; 18 of 20 strict tools, 17 of 24 optional parameters, `voice_volume` non-strict among the 41 client tools of a full chat request)
+- [x] Python suite and ruff clean; no test played audio, spoke, or pushed; the strict-tool budget unchanged (2026-10-24: 8870 pytest; 8886 pytest after the fix pass; 18 of 20 strict tools, 17 of 24 optional parameters, `voice_volume` non-strict among the 41 client tools of a full chat request)
 - [x] By hand (2026-10-24, a scratch folder with the example config, no audio played): `apply_volume` on a full-scale sine peaked at 0.9798 at 150, 0.5 at 50, and returned the clip itself at 100; the check line read `✓ Volume suaraku: 100%, mode bisik mati (22:00-06:00 paling keras 50%)`; at 23:00 the tool went softer (80), whisper on, louder (100, "tapi mode bisik menahannya di 50 persen sampai jam 06:00"), level 30, and a `VolumePlayer` around a recorder played peaks 1.0, 0.8, 0.5, 0.5, 0.3; `_companion_brain` with a scripted Ollama client answered "kecilkan suaramu" with `voice_volume {change: softer}`, writing `{"version":1,"level":80,"night":false}`
 - [ ] On the owner's PC: "Cyrene, kecilkan suaramu" makes her softer without moving the Windows volume; "volume 30" still moves the Windows volume; `waifu say --volume 150 Halo` is loud but not crackly; "nyalakan mode bisik" whispers after 22:00 and the morning greeting is at the normal level
 
