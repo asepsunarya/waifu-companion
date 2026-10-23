@@ -848,11 +848,11 @@ stay.
 - [x] Task 216: `follow_activity` (continuous activity, breaks, sleeps, the grid)
 - [x] Task 217: `BreakWatcher` (focus, active hours, failures, delivery, the thread)
 - [x] Task 218: wiring in `run` (game mode, `during_games`, push), the check line
-- [ ] Task 219: README "Pengingat istirahat", CHANGELOG
+- [x] Task 219: README "Pengingat istirahat", CHANGELOG
 
 ### Checkpoint: Pengingat istirahat
-- [ ] Python suite and ruff clean; no test read the real input, slept, spoke, or pushed; the strict-tool budget unchanged
-- [ ] By hand (a scratch folder with the example config and `breaks.enabled: true`): the check line, and a scratch script driving a real `BreakWatcher` with a fake reader and clocks through an hour of activity, a break, a focus block, and a sleep
+- [x] Python suite and ruff clean; no test read the real input, slept, spoke, or pushed; the strict-tool budget unchanged (2026-10-24: 9261 pytest; no tool, schema, persona, or brain file changed, so 18 of 20 strict tools and 17 of 24 optional parameters stay)
+- [x] By hand (2026-10-24, a scratch folder with the example config and `breaks.enabled: true`, 08:00-02:00, `during_games`, `push`, notify off): `_breaks_check` read `✓ Pengingat istirahat: tiap 60 menit di depan layar, jeda 5 menit dihitung istirahat, jam 08:00-02:00, juga saat main` and the example config `! Pengingat istirahat mati`; one call of the real `read_input_idle` returned the tick count and an idle time without error; a real `BreakWatcher` on a fake reader and clocks said the line at 21:00 and "dua jam" at 22:00 (relaxed, expiring at :05, pushed with the coffee tag); a 5.5-minute pause at 22:05 ended the stretch, a focus block from 22:40 to 23:20 read nothing and nothing came in the 50 minutes after it, and after a sleep from 00:10 to 01:30 the next line came at 02:30, an hour after the wake
 - [ ] On the owner's PC: after an hour at the keyboard she says the line once, a five-minute pause starts the count again, and nothing is said in a focus block
 
 ## Risks and Mitigations

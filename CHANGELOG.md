@@ -4,6 +4,23 @@ Ringkasan per versi, yang terbaru di atas. Rinciannya ada di README (bagian yang
 setiap versi) dan di SPEC.md. Setelah memperbarui, **mulai ulang `waifu run`** supaya semuanya
 aktif, lalu jalankan `waifu check`.
 
+## v1.40: pengingat istirahat
+
+- Mati sampai dinyalakan (`breaks.enabled: true`): setelah satu jam terus memakai keyboard atau
+  mouse di PC, Cyrene bilang sekali dengan lembut "Sayang, sudah satu jam di depan layar.
+  Istirahatkan matamu sebentar dan minum air, ya.", lalu "sudah dua jam" sejam kemudian, dan
+  seterusnya (`every_minutes`, 20 sampai 180 menit). Dia menunggu obrolan selesai dulu, dan tidak
+  bicara ke kursi kosong kalau Master sudah berdiri.
+- Jeda tanpa keyboard dan mouse selama 5 menit (`idle_reset_minutes`), atau PC yang sleep,
+  dihitung istirahat: hitungannya mulai lagi dari nol.
+- Tidak pernah di tengah blok fokus (teman fokus punya istirahatnya sendiri). Selagi mode game
+  menahan pengumuman, kalimatnya ikut ditahan dan dilewati kalau sudah basi, kecuali
+  `during_games: true`: dia tetap mengucapkannya selagi main. Jam aktif bisa diatur
+  (`active_from`/`active_until`, boleh melewati tengah malam); ke HP hanya dengan `push: true`.
+- Tidak ada yang disimpan: yang dibaca hanya berapa lama sejak keyboard atau mouse terakhir
+  disentuh. Main dengan stik (controller) tidak terbaca sebagai aktif. `waifu check` punya baris
+  `Pengingat istirahat`. README: "Pengingat istirahat".
+
 ## v1.39: belajar bahasa jepang
 
 - Mati sampai dinyalakan (`japanese.enabled: true`): Cyrene mengajari satu kata Jepang tingkat

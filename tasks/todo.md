@@ -2038,7 +2038,7 @@ named `tests/test_<package>_<module>.py`.
 
 **Acceptance criteria:**
 - [x] `tests/conftest.py` refuses `user32.GetLastInputInfo` (through `WinDLL` and `windll`) and records it; `GetTickCount64` and the other user32 functions still work
-- [x] `read_input_idle` reads the last input, then the tick count, and gives the milliseconds since the last input, across the 49.7-day wrap of `dwTime`, 0 for input between the two calls, and an `OSError` when Windows refuses; it loads user32 and kernel32 with their documented signatures at every call, and the real reader hits the suite's refusal
+- [x] `read_input_idle` reads the last input, then the tick count, and gives the milliseconds since the last input, across the 49.7-day wrap of `dwTime`, 0 for a last input a moment newer than the tick count, and an `OSError` when Windows refuses; it loads user32 and kernel32 with their documented signatures at every call, and the real reader hits the suite's refusal
 
 **Dependencies:** 214a · **Files:** `tests/conftest.py`, `tests/test_safety_guard.py`, `src/waifu/input_idle.py`, `tests/test_input_idle.py` · **Scope:** S
 
@@ -2076,9 +2076,9 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 217 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** M
 
-## Task 219: Docs
+## Task 219: Docs ✅
 
 **Acceptance criteria:**
-- [ ] README "Pengingat istirahat" with a contents entry, mentions in "Teman fokus" and "Mode game", checklist items, and a Privasi bullet; CHANGELOG v1.40; full suite and ruff clean
+- [x] README "Pengingat istirahat" with a contents entry, mentions in "Teman fokus", "Mode game", and "Mode tamu", checklist items, and a Privasi bullet; CHANGELOG v1.40; full suite and ruff clean
 
 **Dependencies:** 218 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S

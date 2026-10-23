@@ -58,6 +58,7 @@ Cyrene : "Komputer mau kumatikan sekarang, Master? Jawab iya kalau jadi." (minta
 - [Mode tamu](#mode-tamu)
 - [Ulangi](#ulangi)
 - [Belajar bahasa Jepang](#belajar-bahasa-jepang)
+- [Pengingat istirahat](#pengingat-istirahat)
 - [Pemecahan masalah](#pemecahan-masalah)
 - [Checklist uji perangkat keras](#checklist-uji-perangkat-keras)
 - [Privasi](#privasi)
@@ -4371,6 +4372,8 @@ memulai atau menghentikan sesi kalau Master minta.
   [Jadwal, pengingat, dan rutinitas](#jadwal-pengingat-dan-rutinitas)).
 - **Master tetap bisa bicara dengannya** seperti biasa: panggil namanya, klik dua kali avatarnya,
   atau lewat [Cyrene di HP](#cyrene-di-hp).
+- [Pengingat istirahat](#pengingat-istirahat) tidak muncul selama blok fokus dan tidak menghitung
+  apa pun; sesudah blok hitungannya mulai dari nol.
 - Notifikasi HP dari fitur lain (misalnya game atau kesehatan PC) tetap terkirim seperti biasa;
   hanya suaranya di PC yang menunggu. Peringatan hujan yang tertunda sampai hujannya mulai tidak
   diucapkan lagi. Pemberitahuan lain, termasuk pengingat resin atau daily dan GPU panas, tetap
@@ -4484,6 +4487,8 @@ Jalankan ulang `waifu run` setelah mengubahnya. `waifu chat` tidak punya mode ga
 - **Pengingat tidur jam main** (`play_time.bedtime`): hanya muncul selagi game terbuka, jadi
   dengan `hold` atau `phone` dia mengucapkannya seperti pengingat Master, tanpa menunggu game
   ditutup (juga selagi jendela lanjutan terbuka atau di tengah blok fokus).
+- **[Pengingat istirahat](#pengingat-istirahat) dengan `breaks.during_games: true`**: diucapkan
+  selagi main seperti pengingat Master. Tanpa itu, kalimatnya ditahan seperti pemberitahuan lain.
 - **Master tetap bisa bicara dengannya** seperti biasa: panggil namanya, klik dua kali avatarnya,
   atau lewat [Cyrene di HP](#cyrene-di-hp). Elusan dan colekan di avatar tetap dijawab; hanya
   sapaan "sudah kembali" yang dilewati selama game menahan pengumumannya.
@@ -4507,6 +4512,9 @@ Jalankan ulang `waifu run` setelah mengubahnya. `waifu chat` tidak punya mode ga
 - Pemberitahuan GPU panas yang tertahan sampai sejam dilewati: dari main lama yang membuat GPU
   terus panas, paling banyak satu (yang terakhir, kalau belum sejam) diucapkan sesudah game
   ditutup.
+- [Pengingat istirahat](#pengingat-istirahat) yang tertahan lebih dari
+  `breaks.idle_reset_minutes` (bawaan 5 menit) dilewati; yang berikutnya datang
+  `breaks.every_minutes` (bawaan sejam) kemudian kalau Master masih di depan layar.
 - Pengingat game dan GPU panas hanya dilewati karena game: kalau game dibuka di tengah blok
   fokus, yang sudah tertahan sejak awal blok ikut dilewati, tapi yang baru masuk sesudah game
   ditutup tetap ditunggu sampai istirahat, dan blok fokus tanpa main game menahannya sampai
@@ -5161,6 +5169,7 @@ bilang singkat bahwa itu ditutup dulu selama ada tamu:
   Master fokus hari itu dan minggu itu.
 - [Belajar bahasa Jepang](#belajar-bahasa-jepang): kata hari ini, kuis, dan kemajuannya. Kata
   pemula dan berapa kata yang Master hafal bukan hal pribadi.
+- [Pengingat istirahat](#pengingat-istirahat): kalimatnya tidak menyebut hal pribadi.
 - [Tombol cepat di HP](#tombol-cepat-di-hp): tombolnya mengendalikan perangkat tanpa otak
   Cyrene.
 - Perintah terminal (`waifu todo`, `waifu jurnal`, `waifu tepira`, dan lainnya): terminal milik
@@ -5410,6 +5419,98 @@ PC ini; `waifu run` dan `waifu chat` sama-sama mencatat ke file ini. Dengan Clau
 jawaban Master ikut ke API Anthropic seperti obrolan biasa (dengan Ollama, semuanya lokal). Tidak
 ada notifikasi HP sendiri: kalau `briefing.push` menyala, teks sapaan pagi (dengan katanya) ikut
 dikirim seperti biasa.
+
+## Pengingat istirahat
+
+Selama `waifu run`, Cyrene bisa mengingatkan Master beristirahat setelah lama di depan layar:
+setelah satu jam terus memakai keyboard atau mouse, dia bilang sekali dengan lembut, lalu menunggu
+satu jam lagi. Jeda sebentar dari PC dihitung istirahat, dan hitungannya mulai lagi dari nol.
+Fitur ini **mati dari awal**; dengan otak Ollama maupun Claude, tanpa paket tambahan.
+
+```text
+(21.00)  Cyrene : "Sayang, sudah satu jam di depan layar. Istirahatkan matamu sebentar dan minum air, ya."
+(22.00)  Cyrene : "Sayang, sudah dua jam di depan layar. Istirahatkan matamu sebentar dan minum air, ya."
+```
+
+### Menyalakan
+
+Tulis di `config.yaml`, lalu jalankan ulang `waifu run`:
+
+```yaml
+breaks:
+  enabled: true
+  every_minutes: 60        # menit terus di depan layar sebelum dia mengingatkan (20-180)
+  idle_reset_minutes: 5    # jeda tanpa keyboard dan mouse selama N menit dihitung istirahat (2-15)
+  during_games: false      # true: tetap diucapkan selagi mode game menahan pengumuman
+  push: false              # true: juga dikirim ke HP (butuh notify)
+  active_from: "08:00"     # jam aktif, boleh tidak ditulis (keduanya): sepanjang hari
+  active_until: "02:00"    # boleh melewati tengah malam
+```
+
+Hanya `enabled: true` yang perlu ditulis; tanpa yang lain berlaku nilai di atas, tapi sepanjang
+hari. `waifu chat` tidak punya pengingat istirahat.
+
+### Yang dihitung
+
+- **Aktif** artinya keyboard atau mouse dipakai tanpa jeda sepanjang `idle_reset_minutes` (bawaan
+  5 menit). Membaca beberapa menit tanpa menyentuh apa pun tetap dihitung aktif selama jedanya
+  lebih pendek dari itu.
+- **Istirahat** artinya jeda tanpa keyboard dan mouse minimal `idle_reset_minutes`, atau PC yang
+  sleep. Sesudahnya hitungannya mulai lagi dari nol saat Master kembali. Dia melihat setiap 30
+  detik, jadi jeda yang hanya sedikit lebih panjang dari `idle_reset_minutes` bisa terlewat; jeda
+  yang setengah menit lebih panjang selalu terhitung.
+- **Kalimatnya tepat tiap jam** (tiap `every_minutes`) sejak hitungan dimulai: satu jam, dua jam,
+  tiga jam, masing-masing sekali.
+- **Tidak bicara ke kursi kosong:** kalau Master sudah berdiri saat waktunya tiba, kalimatnya
+  menunggu sentuhan keyboard atau mouse berikutnya; kalau Master pergi sepanjang
+  `idle_reset_minutes`, itu sudah istirahat dan kalimatnya tidak diucapkan.
+- Dihitung sejak `waifu run` mulai: restart `waifu run` mulai dari nol.
+
+### Selama fokus dan main game
+
+- **Tidak pernah di tengah blok [fokus](#teman-fokus)**: teman fokus punya istirahatnya sendiri.
+  Selama blok fokus tidak ada yang dihitung, dan sesudahnya hitungannya mulai dari nol.
+- **[Mode game](#mode-game)** dengan `hold` atau `phone`: selagi game terbuka kalimatnya ikut
+  ditahan seperti pemberitahuan lain, dan dilewati kalau belum terucap setelah
+  `idle_reset_minutes` karena sudah basi. Hitungannya tetap jalan, jadi kalimat berikutnya datang
+  `every_minutes` kemudian. Dengan `phone` dan `push: true`, yang sudah ke HP tidak diucapkan
+  selama main.
+- **`during_games: true`**: selagi mode game menahan pengumuman, dia tetap mengucapkannya seperti
+  pengingat yang Master pasang sendiri, juga di tengah obrolan.
+- Seperti pemberitahuan lain, dia menunggu jendela lanjutan tertutup, jadi obrolan tidak dipotong;
+  kalimat yang tertahan obrolan lebih lama dari `idle_reset_minutes` juga dilewati.
+
+### Jam aktif
+
+Dengan `active_from` dan `active_until`, di luar jam itu tidak ada yang dihitung atau diucapkan,
+dan hitungannya mulai dari nol saat jam aktif dimulai. Boleh melewati tengah malam (08:00 sampai
+02:00); tulis keduanya, atau tidak sama sekali untuk sepanjang hari.
+
+### Batasan
+
+- **Main dengan stik (controller) tidak terbaca sebagai aktif**: Windows tidak menghitungnya
+  sebagai sentuhan keyboard atau mouse, jadi main dengan stik, seperti menonton video tanpa
+  menyentuh apa pun, dianggap istirahat.
+- Sentuhan apa pun dihitung aktif: tombol media yang Cyrene tekan sendiri, mouse jiggler, main
+  jarak jauh (Parsec, Steam Remote Play), atau mouse yang tersenggol.
+
+`waifu check` menampilkan salah satu baris ini (jam aktif, `juga saat main`, dan `juga ke HP`
+hanya kalau diatur; `juga ke HP` butuh notifikasi HP menyala):
+
+```text
+✓ Pengingat istirahat: tiap 60 menit di depan layar, jeda 5 menit dihitung istirahat
+✓ Pengingat istirahat: tiap 60 menit di depan layar, jeda 5 menit dihitung istirahat, jam 08:00-02:00, juga saat main, juga ke HP
+! Pengingat istirahat mati
+```
+
+### Privasi pengingat istirahat
+
+Tidak ada yang disimpan: yang dibaca hanya berapa lama sejak keyboard atau mouse terakhir
+disentuh, bukan tombol yang ditekan, posisi mouse, layar, atau aplikasi yang terbuka. Hitungannya
+hanya diingat selama `waifu run` berjalan dan hanya dicatat di log DEBUG; log INFO mencatat
+kalimatnya (`Announcing: ...`) saat diucapkan, seperti pemberitahuan lain. Kalimatnya ke
+`ntfy.sh` hanya dengan `breaks.push` dan notifikasi HP menyala. Mode tamu tidak mengubah apa pun:
+kalimatnya tidak menyebut hal pribadi.
 
 ## Pemecahan masalah
 
@@ -6125,6 +6226,19 @@ di sampingnya)
 - [ ] Besoknya, kuis lagi: kata kemarin ditanya lagi. Jawab artinya dengan benar: dia memuji.
 - [ ] `waifu jepang progres` menghitung kata yang sudah dipelajari dan yang perlu diulang hari ini.
 
+**Pengingat istirahat** (lihat [Pengingat istirahat](#pengingat-istirahat))
+
+- [ ] Tulis `breaks` dengan `enabled: true` dan `every_minutes: 20`, lalu jalankan ulang
+      `waifu run`: `waifu check` menampilkan `✓ Pengingat istirahat: tiap 20 menit di depan
+      layar, jeda 5 menit dihitung istirahat`.
+- [ ] Pakai PC terus (mengetik atau menggerakkan mouse, jeda kurang dari 5 menit) selama 20
+      menit: dia bilang sekali "..., sudah dua puluh menit di depan layar. ...". 20 menit
+      kemudian: "sudah empat puluh menit".
+- [ ] Tinggalkan keyboard dan mouse 6 menit, lalu kembali: 20 menit sesudah kembali dia
+      mengingatkan lagi, tidak lebih cepat.
+- [ ] "Cyrene, temani aku fokus 25 menit": selama blok dia tidak mengingatkan istirahat.
+- [ ] Setelah selesai, kembalikan `every_minutes` ke 60 (atau hapus barisnya).
+
 ## Privasi
 
 - **Suara tidak pernah keluar dari PC.** Rekaman mic, verifikasi suara, dan
@@ -6233,6 +6347,10 @@ di sampingnya)
   hanya di PC ini. Dengan Claude, kata dan jawaban Master ikut ke API Anthropic seperti obrolan
   biasa; tidak ada notifikasi HP sendiri. Lihat
   [Privasi belajar bahasa Jepang](#privasi-belajar-bahasa-jepang).
+- **Pengingat istirahat:** tidak menyimpan apa pun; yang dibaca hanya berapa lama sejak keyboard
+  atau mouse terakhir disentuh, bukan tombolnya, layarnya, atau aplikasinya, dan hitungannya hanya
+  diingat selama `waifu run` berjalan. Kalimatnya ke `ntfy.sh` hanya dengan `breaks.push` dan
+  notifikasi HP menyala. Lihat [Privasi pengingat istirahat](#privasi-pengingat-istirahat).
 - **Voiceprint adalah data biometrik.** `data/voiceprint.npy` (dan seluruh `data/`)
   ada di `.gitignore` dan tidak boleh di-commit atau dibagikan. Begitu juga
   `config.yaml` (local key Tuya) dan `models/`.
