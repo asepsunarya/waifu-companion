@@ -4172,7 +4172,10 @@ def test_mic_says_when_the_mic_cyrene_uses_already_hears_master_best(home, monke
     )
     assert "input_device:" not in out
     assert "  1. Headset (Polaris-BT), MME\n" in out
-    assert "✗ sunyi total: mic mati, di-mute, atau diblokir Windows" in out  # the headset
+    assert (  # the headset
+        "✗ hampir tanpa suara: mic di-mute atau diblokir Windows, atau headset Bluetooth "
+        "belum siap (coba --seconds 5)" in out
+    )
 
 
 def test_mic_marks_the_configured_input_device_apart_from_the_windows_default(

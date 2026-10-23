@@ -224,11 +224,17 @@ def test_a_steady_noise_above_the_threshold_is_not_speech():
     assert found.speech_bar_db == pytest.approx(-40 + 12, abs=1.0)
 
 
-def test_digital_silence_is_not_speech():
+def test_digital_silence_is_silent_and_not_speech():
     found = levels(np.zeros(RATE, dtype=np.float32), RATE, VadConfig())
 
+    assert found.silent
     assert not found.heard_speech
-    assert found.peak_db < -150
+
+
+def test_near_silence_below_any_mic_s_own_noise_counts_as_silent():
+    # The owner's Bluetooth headset in its first two seconds: a peak of about -90 dB.
+    assert levels(noise(10 ** (-97 / 20), 2.0).astype(np.float32), RATE, VadConfig()).silent
+    assert not levels(noise(10 ** (-60 / 20), 2.0).astype(np.float32), RATE, VadConfig()).silent
 
 
 def test_the_bar_shows_the_loudest_frame_and_where_speech_starts():

@@ -32,7 +32,9 @@ MME_NAME_CHARS = 31  # MME cuts a device name to this many characters
 QUIET_PERCENTILE = 10
 BAR_WIDTH = 30
 BAR_FLOOR_DB = -80.0  # an empty bar; a full one is 0 dB (full scale)
-SILENT_DB = -120.0  # quieter than any real microphone: no sound reaches it at all
+# Below any real microphone's own noise: muted, blocked, or a Bluetooth headset still
+# switching to hands-free, which hands out near-silence for a second or two.
+SILENT_DB = -80.0
 
 
 @dataclass(frozen=True)
@@ -72,7 +74,8 @@ class Levels:
 
     @property
     def silent(self) -> bool:
-        """Nothing at all came in: a muted, disabled, or blocked microphone."""
+        """(Almost) nothing came in: a muted or blocked microphone, or a Bluetooth
+        headset not yet switched to hands-free."""
         return self.peak_db <= SILENT_DB
 
 
