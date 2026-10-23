@@ -846,7 +846,7 @@ stay.
 - [x] Task 214: `read_input_idle` and the conftest refusal of `GetLastInputInfo`
 - [x] Task 215: the `breaks` config, `config.example.yaml`
 - [x] Task 216: `follow_activity` (continuous activity, breaks, sleeps, the grid)
-- [ ] Task 217: `BreakWatcher` (focus, active hours, failures, delivery, the thread)
+- [x] Task 217: `BreakWatcher` (focus, active hours, failures, delivery, the thread)
 - [ ] Task 218: wiring in `run` (game mode, `during_games`, push), the check line
 - [ ] Task 219: README "Pengingat istirahat", CHANGELOG
 
