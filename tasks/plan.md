@@ -815,7 +815,7 @@ mode (low-stakes, like the focus totals). Off by default, so the provider order 
 existing test stay as they are; no new dependency; 18 of 20 strict tools and 17 of 24 optional
 parameters stay.
 - [x] Task 206a: contract: SPEC, tasks
-- [ ] Task 206: the word list and `load_words`, validated
+- [x] Task 206: the word list and `load_words`, validated
 - [ ] Task 207: `word_of_the_day`, `review`, `next_quiz`
 - [ ] Task 208: `JapaneseStore`
 - [ ] Task 209: `JapaneseTools` (`japanese_lesson`) and the persona section

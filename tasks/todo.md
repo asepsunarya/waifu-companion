@@ -1959,11 +1959,11 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** none · **Files:** `SPEC.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
 
-## Task 206: The word list
+## Task 206: The word list ✅
 
 **Acceptance criteria:**
-- [ ] `src/waifu/japanese_words.json` ships as package data with at least 300 N5 words and phrases; `load_words` reads it into `Word`s and refuses a file that is not such a list
-- [ ] A test validates it: exact keys, unique ids, words, and examples, no empty field, the reading kana only, the kanji form and the example one Japanese run, the Indonesian fields Indonesian only and untouched by `clean_for_speech`
+- [x] `src/waifu/japanese_words.json` ships as package data with at least 300 N5 words and phrases; `load_words` reads it into `Word`s and refuses a file that is not such a list
+- [x] A test validates it: exact keys, unique ids, words, and examples, no empty field, the reading kana only, the kanji form and the example one Japanese run, the Indonesian fields Indonesian only and untouched by `clean_for_speech`
 
 **Dependencies:** 206a · **Files:** `src/waifu/japanese.py`, `src/waifu/japanese_words.json`, `pyproject.toml`, `tests/test_japanese.py` · **Scope:** M
 
