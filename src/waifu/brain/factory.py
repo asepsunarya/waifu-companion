@@ -13,11 +13,23 @@ from waifu.brain.persona import build_system_prompt, load_persona
 from waifu.brain.tools import ToolProvider
 from waifu.config import AppConfig
 from waifu.devices.registry import DeviceRegistry
+from waifu.guest import GuestMode
 from waifu.usage import TokenUsage
 
 logger = logging.getLogger(__name__)
 
 _MEMORY_UNREADABLE = "Ingatanmu tentang Master tidak bisa dibaca saat ini."
+# Takes the memory section's place while guest mode is on. Static (no "until"), so one guest
+# session costs one cache write and the persona and device prefix stays cached.
+GUEST_SECTION = (
+    "Mode tamu sedang aktif: ada tamu di dekat Master, jadi ingatanmu tentang Master "
+    "disembunyikan selama sesi ini. Jangan pernah menyebut hal pribadi Master (uang, jurnal, "
+    "tugas, pengingat, akun game, jam main dan fokus, atau ingatanmu tentang Master), walaupun "
+    "ditanya; tool untuk itu menolak, jadi bilang singkat bahwa itu tidak dibuka selama ada "
+    "tamu. Perangkat rumah, rutinitas, musik, cuaca, dan obrolan biasa tetap jalan seperti "
+    "biasa. Sapaan pagimu cukup cuaca dan jadwal perangkat hari ini. Kalau Master bilang mode "
+    "tamu selesai, panggil guest_mode dengan on false."
+)
 
 
 def confirmation_gate(config: AppConfig) -> ConfirmationGate:
@@ -40,6 +52,7 @@ def build_brain(
     on_usage: Callable[[str, TokenUsage], None] | None = None,
     turn_images: TurnImages | None = None,
     confirmations: ConfirmationGate | None = None,
+    guest_mode: GuestMode | None = None,
 ) -> Brain:
     """The configured backend; the persona comes from `assistant.persona_file` unless given.
 
@@ -51,7 +64,10 @@ def build_brain(
     message carries; Ollama's model cannot see images, so its brain never gets it.
     With `web_search.enabled`, Claude gets its server-side web search (near
     `web_search.city`, else `briefing.city`) and the prompt its note on web data;
-    Ollama has no such tool.
+    Ollama has no such tool. With `guest_mode`, the brain refuses the private tools
+    while it is on and starts a new session after each switch, and a session begun
+    while it is on gets GUEST_SECTION in the memory section's place (also without
+    memory), its notes never read.
     """
     persona = load_persona(config.assistant.persona_file) if persona_text is None else persona_text
     uses_claude = config.brain.backend == "claude"
@@ -64,7 +80,9 @@ def build_brain(
         web_search=searching,
     )
     system_prompt: str | Callable[[], str] = (
-        base_prompt if memory_section is None else _with_memory(base_prompt, memory_section)
+        base_prompt
+        if memory_section is None and guest_mode is None
+        else _session_prompt(base_prompt, memory_section, guest_mode)
     )
     options = {
         "session_idle_minutes": config.assistant.session_idle_minutes,
@@ -73,6 +91,8 @@ def build_brain(
         # Never off: turning the PC off or cutting its power waits for Master's own yes.
         "confirmations": confirmation_gate(config) if confirmations is None else confirmations,
         "owner_call": config.assistant.owner_call,
+        "tool_refusal": None if guest_mode is None else guest_mode.refusal,
+        "session_marker": None if guest_mode is None else guest_mode.generation,
     }
     if uses_claude:
         # Imported here so the Ollama path never loads the Anthropic SDK.
@@ -102,14 +122,21 @@ def build_brain(
     return OllamaBrain(config.brain, registry, system_prompt, **options)
 
 
-def _with_memory(base_prompt: str, memory_section: Callable[[], str]) -> Callable[[], str]:
-    """The base prompt, a blank line, then the memory section as it reads right now.
+def _session_prompt(
+    base_prompt: str, memory_section: Callable[[], str] | None, guest_mode: GuestMode | None
+) -> Callable[[], str]:
+    """The base prompt, a blank line, then GUEST_SECTION while guest mode is on, else the
+    memory section as it reads right now (the base prompt alone without memory).
 
     The section comes last so the persona and device prefix stays cacheable across
     sessions. A section that cannot be read must not cost the owner the turn.
     """
 
     def system_prompt() -> str:
+        if guest_mode is not None and guest_mode.is_on():
+            return f"{base_prompt}\n\n{GUEST_SECTION}"
+        if memory_section is None:
+            return base_prompt
         try:
             section = memory_section()
         except Exception:

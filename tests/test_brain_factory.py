@@ -1,5 +1,6 @@
 import base64
 import copy
+import json
 import logging
 import time
 from collections.abc import Iterator
@@ -13,7 +14,7 @@ import pytest
 from waifu.brain.attachments import TurnImages
 from waifu.brain.base import Brain, BrainReply, ToolImage, ToolSpec
 from waifu.brain.confirm import ConfirmationGate
-from waifu.brain.factory import build_brain, confirmation_gate
+from waifu.brain.factory import GUEST_SECTION, build_brain, confirmation_gate
 from waifu.brain.ollama_brain import OllamaBrain
 from waifu.brain.persona import build_system_prompt
 from waifu.config import (
@@ -28,6 +29,7 @@ from waifu.config import (
 )
 from waifu.devices.mock import MockDevice
 from waifu.devices.registry import DeviceRegistry
+from waifu.guest import GUEST_REFUSAL, GuestMode
 from waifu.usage import TokenUsage
 
 NOW = datetime(2026, 10, 12, 7, 30)
@@ -77,6 +79,8 @@ class FakeClaudeBrain(Brain):
         on_usage=None,
         turn_images=None,
         web_search=None,
+        tool_refusal=None,
+        session_marker=None,
     ):
         self.config, self.registry, self.system_prompt = config, registry, system_prompt
         self.session_idle_minutes, self.max_session_turns = session_idle_minutes, max_session_turns
@@ -86,6 +90,8 @@ class FakeClaudeBrain(Brain):
         self.on_usage = on_usage
         self.turn_images = turn_images
         self.web_search = web_search
+        self.tool_refusal = tool_refusal
+        self.session_marker = session_marker
 
     def respond(self, user_text: str, *, now: datetime | None = None) -> BrainReply:
         return BrainReply(text="")
@@ -432,6 +438,120 @@ def test_unreadable_memory_is_logged_and_the_prompt_says_so_so_the_turn_still_wo
     assert record.levelno == logging.ERROR
     assert record.exc_info is not None
     assert isinstance(record.exc_info[1], OSError)
+
+
+# Guest mode
+
+
+def guest_mode() -> GuestMode:
+    return GuestMode(now=lambda: datetime(2026, 10, 24, 20, 0))
+
+
+def test_guest_mode_hands_the_brain_its_refusal_and_its_generation(monkeypatch):
+    monkeypatch.setattr("waifu.brain.claude.ClaudeBrain", FakeClaudeBrain)
+    guest = guest_mode()
+
+    brain = build_brain(claude_config(), house(), persona_text=PERSONA, guest_mode=guest)
+
+    assert brain.tool_refusal == guest.refusal
+    assert brain.session_marker == guest.generation
+
+
+def test_without_guest_mode_the_brain_gets_neither(monkeypatch):
+    monkeypatch.setattr("waifu.brain.claude.ClaudeBrain", FakeClaudeBrain)
+
+    brain = build_brain(claude_config(), house(), persona_text=PERSONA)
+
+    assert (brain.tool_refusal, brain.session_marker) == (None, None)
+
+
+def test_while_guest_mode_is_on_the_guest_section_takes_the_memory_s_place(monkeypatch):
+    monkeypatch.setattr("waifu.brain.claude.ClaudeBrain", FakeClaudeBrain)
+    registry = house()
+    section = MemorySection(ONE_NOTE)
+    guest = guest_mode()
+    brain = build_brain(
+        claude_config(), registry, persona_text=PERSONA, memory_section=section, guest_mode=guest
+    )
+    base = build_system_prompt(PERSONA, "Cyrene", registry, web_search=True)
+
+    assert brain.system_prompt() == f"{base}\n\n{ONE_NOTE}"
+    guest.turn_on()
+    assert brain.system_prompt() == f"{base}\n\n{GUEST_SECTION}"
+    assert section.reads == 1  # the notes are never read while guests are around
+    guest.turn_off()
+    assert brain.system_prompt() == f"{base}\n\n{ONE_NOTE}"
+
+
+def test_without_memory_the_guest_section_still_follows_the_base_prompt(monkeypatch):
+    monkeypatch.setattr("waifu.brain.claude.ClaudeBrain", FakeClaudeBrain)
+    registry = house()
+    guest = guest_mode()
+    brain = build_brain(claude_config(), registry, persona_text=PERSONA, guest_mode=guest)
+    base = build_system_prompt(PERSONA, "Cyrene", registry, web_search=True)
+
+    assert brain.system_prompt() == base
+    guest.turn_on()
+    assert brain.system_prompt() == f"{base}\n\n{GUEST_SECTION}"
+
+
+def test_the_guest_section_names_the_tool_that_ends_it_and_holds_no_live_state():
+    assert "guest_mode" in GUEST_SECTION
+    assert "on false" in GUEST_SECTION
+    assert not any(character.isdigit() for character in GUEST_SECTION)  # no "until" time
+    assert "[" not in GUEST_SECTION  # her only square brackets are emotion tags
+
+
+def test_turning_guest_mode_on_gives_the_next_turn_a_new_session_without_the_notes(
+    ollama_clients,
+):
+    registry = house()
+    guest = guest_mode()
+    brain = build_brain(
+        AppConfig(),
+        registry,
+        persona_text=PERSONA,
+        memory_section=MemorySection(ONE_NOTE),
+        guest_mode=guest,
+    )
+
+    brain.respond("halo", now=NOW)
+    guest.turn_on()
+    brain.respond("ada tamu nih", now=NOW)
+    guest.turn_off()
+    brain.respond("tamunya sudah pulang", now=NOW)
+
+    base = build_system_prompt(PERSONA, "Cyrene", registry)
+    assert [
+        [message["role"] for message in request["messages"]]
+        for request in ollama_clients[0].requests
+    ] == [["system", "user"]] * 3
+    assert [request["messages"][0]["content"] for request in ollama_clients[0].requests] == [
+        f"{base}\n\n{ONE_NOTE}",
+        f"{base}\n\n{GUEST_SECTION}",
+        f"{base}\n\n{ONE_NOTE}",
+    ]
+
+
+def test_the_ollama_brain_refuses_a_private_tool_while_guest_mode_is_on(monkeypatch):
+    status = ollama.Message.ToolCall(
+        function=ollama.Message.ToolCall.Function(name="game_status", arguments={})
+    )
+    client = ScriptedOllama(
+        ollama.Message(role="assistant", content="", tool_calls=[status]),
+        ollama.Message(role="assistant", content="Lagi ada tamu, Master."),
+    )
+    monkeypatch.setattr(ollama, "Client", lambda host, **kwargs: client)
+    guest = guest_mode()
+    guest.turn_on()
+
+    brain = build_brain(
+        AppConfig(), house(), persona_text=PERSONA, providers=[GameTools()], guest_mode=guest
+    )
+    reply = brain.respond("pity HSR-ku berapa?", now=NOW)
+
+    [refused] = reply.tool_calls
+    assert (refused.is_error, json.loads(refused.result)["message"]) == (True, GUEST_REFUSAL)
 
 
 # Master's yes before the PC turns off

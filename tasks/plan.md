@@ -740,7 +740,7 @@ announcements, the quick buttons, and the terminal commands are unchanged. No ne
 - [x] Task 186: `guest_mode.max_hours`, `config.example.yaml`
 - [x] Task 187: `GuestMode` (on, off, renewal, automatic end, generation, the private tools)
 - [x] Task 188: `run_tool`'s refusal; the brains' `tool_refusal` and `session_marker`
-- [ ] Task 189: `build_brain(guest_mode=...)`: the guest section instead of the memory
+- [x] Task 189: `build_brain(guest_mode=...)`: the guest section instead of the memory
 - [ ] Task 190: `GuestTools` (`guest_mode`)
 - [ ] Task 191: the briefing without tasks and reminder texts in guest mode
 - [ ] Task 192: the Assistant drops private requests in guest mode

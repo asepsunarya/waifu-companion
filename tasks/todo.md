@@ -1797,10 +1797,10 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 187 · **Files:** `src/waifu/brain/tools.py`, `src/waifu/brain/claude.py`, `src/waifu/brain/ollama_brain.py`, `tests/test_brain_tools.py`, `tests/test_brain_claude.py`, `tests/test_brain_ollama.py` · **Scope:** M
 
-## Task 189: The guest section
+## Task 189: The guest section ✅
 
 **Acceptance criteria:**
-- [ ] `build_brain(guest_mode=)` hands the brain guest mode's refusal and generation; while guest mode is on a session's prompt ends with the guest section instead of the memory section (the facts unread), with or without memory; off, as before
+- [x] `build_brain(guest_mode=)` hands the brain guest mode's refusal and generation; while guest mode is on a session's prompt ends with the guest section instead of the memory section (the facts unread), with or without memory; off, as before
 
 **Dependencies:** 188 · **Files:** `src/waifu/brain/factory.py`, `tests/test_brain_factory.py` · **Scope:** S
 
