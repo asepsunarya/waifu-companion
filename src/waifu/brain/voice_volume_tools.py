@@ -67,10 +67,11 @@ _DESCRIPTION = (
     "right now, and `whispering` whether whisper mode holds you back now. Replies on Master's "
     "phone are played by the phone and are not affected. Use it only when Master asks, never "
     "for a greeting, the morning briefing, the weekly report, or anything you start yourself. "
-    "Your answer is already spoken at the new level. Answer in one short sentence with the "
-    "percentage spoken naturally, such as delapan puluh persen: no lists and no parentheses, "
-    "because your voice drops whatever is in parentheses. After an error result, say its "
-    "message briefly and do not call again in this turn."
+    "When you speak on the PC, your answer is already heard at `now`, which whisper mode may "
+    "keep below the level just set. Answer in one short sentence with the percentage spoken "
+    "naturally, such as delapan puluh persen: no lists and no parentheses, because your voice "
+    "drops whatever is in parentheses. After an error result, say its message briefly and do "
+    "not call again in this turn."
 )
 
 

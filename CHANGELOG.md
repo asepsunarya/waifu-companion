@@ -9,8 +9,8 @@ aktif, lalu jalankan `waifu check`.
 - Suara Cyrene di PC punya volume sendiri: "Cyrene, kecilkan suaramu" / "keraskan suaramu"
   (20 persen sekali), "suaramu 60 persen" (10 sampai 150), atau "suaramu berapa?", lewat suara,
   `waifu chat`, atau chat di HP. Musik, game, dan volume Windows tidak ikut berubah; "kecilkan
-  volume" dan "volume 30" tetap tombol volume Windows lewat perangkat musik. Jawabannya sudah
-  diucapkan dengan volume yang baru.
+  volume" dan "volume 30" tetap tombol volume Windows lewat perangkat musik. Di PC jawabannya
+  sudah diucapkan dengan volume yang baru.
 - Di atas 100 persen suaranya diperkuat dengan pembatas lembut supaya tidak pecah. Gerak mulut
   avatar tetap sama besar.
 - Mode bisik (mati sampai dinyalakan): "nyalakan mode bisik" membuat suaranya paling keras 50

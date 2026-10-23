@@ -3016,8 +3016,9 @@ Cyrene : "Mode bisik aktif, Master: dari jam sepuluh malam sampai jam enam pagi 
 - Bisa lewat suara, `waifu chat`, atau chat [Cyrene di HP](#cyrene-di-hp); yang berubah suaranya
   di PC. [Mode tamu](#mode-tamu) tidak menutupnya.
 
-Jawabannya sudah diucapkan dengan volume yang baru, jadi bedanya langsung terdengar. Dia tidak
-mengubah volumenya sendiri tanpa diminta.
+Di PC jawabannya sudah diucapkan dengan volume yang baru, jadi bedanya langsung terdengar
+(kecuali saat [mode bisik](#mode-bisik) menahannya; dia bilang begitu). Dia tidak mengubah
+volumenya sendiri tanpa diminta.
 
 ### Beda dengan volume Windows
 

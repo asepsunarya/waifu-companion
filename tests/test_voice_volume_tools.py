@@ -98,6 +98,14 @@ def test_the_description_keeps_her_voice_apart_from_the_windows_volume(rig):
         assert guidance in spec.description
 
 
+def test_the_description_says_her_answer_is_heard_at_now_not_at_the_level_just_set(rig):
+    # Whisper mode may hold her below the level just set; she must not claim it is heard.
+    [spec] = rig.tools.specs()
+
+    assert "When you speak on the PC, your answer is already heard at `now`" in spec.description
+    assert "at the new level" not in spec.description
+
+
 def test_the_spec_is_the_same_at_every_call_for_prompt_caching(rig):
     before = rig.tools.specs()
 
