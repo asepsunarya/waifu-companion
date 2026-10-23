@@ -256,6 +256,30 @@ def test_a_word_never_learned_cannot_be_graded_and_nothing_is_written(rig):
     assert not rig.store.path.exists()
 
 
+@pytest.mark.parametrize("first_answer", [True, False])
+def test_a_word_graded_today_is_not_graded_again_and_stays_where_it_is(rig, first_answer):
+    # A turn retried after an API error grades Master's repeated answer again: it must not
+    # move the word up a second box.
+    rig.store.learn(FIRST, TODAY)
+    rig.ask({"action": "grade", "word_id": FIRST, "correct": first_answer})
+    graded = rig.store.progress()
+
+    message = rig.failed({"action": "grade", "word_id": FIRST, "correct": True})
+
+    assert message == "Kata itu belum waktunya diulang, jadi tidak dinilai lagi."
+    assert rig.store.progress() == graded
+
+
+def test_a_word_not_due_yet_is_graded_again_once_it_is_due(rig):
+    rig.store.learn(FIRST, TODAY)
+    rig.ask({"action": "grade", "word_id": FIRST, "correct": False})  # box 1, due tomorrow
+    rig.on(TODAY + days(1))
+
+    graded = rig.ask({"action": "grade", "word_id": FIRST, "correct": True})
+
+    assert (graded["box"], graded["next_due_in_days"]) == (2, 2)
+
+
 # --- progress ---------------------------------------------------------------------------------
 
 

@@ -50,6 +50,7 @@ _OWN_TURN_REFUSALS = {
 }
 _FAILED = "Catatan belajar bahasa Jepang tidak bisa dibaca atau disimpan saat ini."
 _NOT_LEARNED = "Kata itu belum dipelajari, jadi belum bisa dinilai."
+_NOT_DUE = "Kata itu belum waktunya diulang, jadi tidak dinilai lagi."
 _GRADE_NEEDS_BOTH = "'word_id' dan 'correct' wajib untuk action grade."
 _ONLY_TO_GRADE = "'word_id' dan 'correct' hanya untuk action grade."
 
@@ -154,6 +155,11 @@ class JapaneseTools:
     def _grade(self, word_id: str, correct: bool, today: date) -> dict[str, object]:
         if word_id not in self._by_id:
             raise _LessonError(f"Kata '{word_id}' tidak ada di daftar kata.")
+        known = self._store.progress().get(word_id)
+        if known is not None and known.due > today:
+            # Every grade moves `due` past today, so this refuses only a repeat (a turn retried
+            # after an API error) or a word the quiz would not offer yet.
+            raise _LessonError(_NOT_DUE)
         reviewed = self._store.grade(word_id, correct, today)
         if reviewed is None:
             raise _LessonError(_NOT_LEARNED)
