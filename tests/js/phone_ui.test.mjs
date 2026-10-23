@@ -1301,6 +1301,35 @@ describe("phone quick buttons", () => {
     assert.equal(focused, page.element("quick-toggle"));
   });
 
+  it("put the focus on the first button when the toggle opens the panel, which comes before the toggle", async () => {
+    const page = await openQuick();
+
+    assert.equal(focused, quickButton(page, "Nyala"));
+  });
+
+  it("close with Escape on the toggle too, which keeps the focus", async () => {
+    const page = await openQuick();
+    const toggle = page.element("quick-toggle");
+    toggle.focus();
+
+    toggle.dispatch("keydown", { key: "Escape" });
+
+    assert.equal(page.element("quick").hidden, true);
+    assert.equal(toggle.attributes.get("aria-expanded"), "false");
+    assert.equal(focused, toggle);
+  });
+
+  it("leave the focus on the toggle when it closes the panel", async () => {
+    const page = await openQuick();
+    const toggle = page.element("quick-toggle");
+    toggle.focus();
+
+    toggle.dispatch("click");
+
+    assert.equal(page.element("quick").hidden, true);
+    assert.equal(focused, toggle);
+  });
+
   it("ignore other keys", async () => {
     const page = await openQuick();
 

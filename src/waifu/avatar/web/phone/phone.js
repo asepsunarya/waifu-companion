@@ -845,6 +845,23 @@ function setQuickOpen(open) {
 }
 
 /**
+ * The toggle's tap: closes the panel, or opens it with the focus on its first button. The panel comes before its
+ * toggle in the page, so Tab from the toggle would skip it.
+ */
+function toggleQuick() {
+  const open = page.quick.hidden;
+  setQuickOpen(open);
+  if (open) quickButtons[0]?.focus();
+}
+
+/** Escape in the open panel, or on its toggle, closes it and leaves the focus on the toggle. */
+function closeQuickOnEscape(event) {
+  if (event.key !== "Escape" || page.quick.hidden) return;
+  setQuickOpen(false);
+  page.quickToggle.focus();
+}
+
+/**
  * While the PC runs a button: that one says it is busy and every one that it is unavailable. aria-disabled, not
  * disabled, so the focus stays on the pressed button; taps meanwhile are ignored.
  */
@@ -922,11 +939,8 @@ page.text.addEventListener("input", fitTextBox);
 page.pairForm.addEventListener("submit", pair);
 page.retry.addEventListener("click", () => location.reload());
 
-page.quickToggle.addEventListener("click", () => setQuickOpen(page.quick.hidden));
-page.quick.addEventListener("keydown", (event) => {
-  if (event.key !== "Escape") return;
-  setQuickOpen(false);
-  page.quickToggle.focus();
-});
+page.quickToggle.addEventListener("click", toggleQuick);
+page.quickToggle.addEventListener("keydown", closeQuickOnEscape);
+page.quick.addEventListener("keydown", closeQuickOnEscape);
 
 boot();
