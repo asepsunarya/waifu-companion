@@ -214,6 +214,19 @@ def test_louder_while_whispering_says_whisper_mode_still_holds_her_back(rig):
     )
 
 
+def test_softer_while_whispering_is_softer_than_what_master_hears(rig):
+    # Stepping 120 to 100 would leave her held at 50: no softer at all to Master's ears.
+    rig.level.set_level(120)
+    rig.level.set_night(True)
+    rig.clock.now = NIGHT
+
+    answer = rig.ask({"change": "softer"})
+
+    assert (answer["level"], answer["now"], answer["whispering"]) == (40, 40, True)
+    assert answer["message"] == "Suaraku sekarang 40 persen."
+    assert rig.stored() == {"version": 1, "level": 40, "night": True}
+
+
 # --- whisper mode ------------------------------------------------------------------------------
 
 

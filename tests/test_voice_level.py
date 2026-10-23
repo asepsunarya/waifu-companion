@@ -311,6 +311,32 @@ def test_the_morning_greeting_at_the_end_of_the_window_is_at_the_normal_level(tm
     assert level.level_now() == 120
 
 
+def test_softer_while_whispering_steps_from_the_level_heard(tmp_path):
+    path = tmp_path / "voice.json"
+    write_state(path, level=120, night=True)
+    level = make_level(path, Clock(NOW))
+
+    assert level.change("softer").after == VoiceState(40, True)
+    assert level.level_now() == 40
+
+
+def test_softer_with_whisper_mode_on_outside_its_window_steps_from_the_level(tmp_path):
+    path = tmp_path / "voice.json"
+    write_state(path, level=120, night=True)
+    level = make_level(path, Clock(datetime(2026, 10, 24, 20, 0)))
+
+    assert level.change("softer").after == VoiceState(100, True)
+
+
+def test_louder_while_whispering_steps_from_the_level(tmp_path):
+    path = tmp_path / "voice.json"
+    write_state(path, level=120, night=True)
+    level = make_level(path, Clock(NOW))
+
+    assert level.change("louder").after == VoiceState(140, True)
+    assert level.level_now() == 50
+
+
 def test_without_whisper_mode_the_night_is_at_the_normal_level(tmp_path):
     path = tmp_path / "voice.json"
     write_state(path, level=120, night=False)

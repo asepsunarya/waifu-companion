@@ -3044,7 +3044,9 @@ Mati sampai Master menyalakannya. Selama menyala, setiap malam dari `voice.night
 (bawaan 50) persen, menurut jam PC. Di luar jam itu volumenya kembali seperti biasa, jadi sapaan
 pagi sesudah jam 06:00 terdengar normal. Volume yang sudah lebih pelan dari 50 persen tetap
 segitu. "Keraskan suaramu" selama mode bisik menaikkan volume biasanya, dan dia bilang mode bisik
-masih menahannya sampai jam 06:00.
+masih menahannya sampai jam 06:00. "Kecilkan suaramu" selama mode bisik langsung lebih pelan dari
+yang terdengar (dari 50 ke 40 persen), dan 40 persen itu juga menjadi volume biasanya sampai
+dikeraskan lagi.
 
 Untuk mengubah jam atau volumenya, tulis di `config.yaml`, lalu jalankan ulang `waifu run`:
 

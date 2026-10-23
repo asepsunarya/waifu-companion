@@ -93,10 +93,17 @@ class VoiceLevel:
         return self._update(lambda state: replace(state, level=level))
 
     def change(self, direction: str) -> VoiceChange:
-        """One step louder or softer, to the next multiple of `STEP` held in `LEVELS`."""
+        """One step louder or softer, to the next multiple of `STEP` held in `LEVELS`. Softer
+        steps from the level heard now, so while whisper mode holds her below her level the
+        next clip is softer at once (and her level drops to it)."""
         if direction not in DIRECTIONS:
             raise ValueError(f"the direction must be one of {', '.join(DIRECTIONS)}")
-        return self._update(lambda state: replace(state, level=_step(state.level, direction)))
+
+        def stepped(state: VoiceState) -> VoiceState:
+            start = self.level_for(state) if direction == "softer" else state.level
+            return replace(state, level=_step(start, direction))
+
+        return self._update(stepped)
 
     def set_night(self, on: bool) -> VoiceChange:
         return self._update(lambda state: replace(state, night=on))
