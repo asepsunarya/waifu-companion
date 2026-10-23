@@ -119,6 +119,10 @@ def _take_all(announcements: queue.SimpleQueue[_Announcement]) -> list[_Announce
             return taken
 
 
+def _marked_held_by_game(announcements: list[_Announcement]) -> list[_Announcement]:
+    return [dataclasses.replace(item, held_by_game=True) for item in announcements]
+
+
 def _pass_on(on_reply: ReplyHandler, text: str) -> None:
     """Hand what she said by herself to `on_reply`; a failure is logged, never raised."""
     try:
@@ -210,6 +214,7 @@ class _Announcement:
     emotion: str
     expires_at: datetime | None
     game_expires_at: datetime | None  # counted only when a game held it
+    held_by_game: bool = False  # a game held it (`Assistant._note_game_hold`)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -276,8 +281,10 @@ class Assistant:
         # What Master asked for himself (`remind`): also said while `quiet` holds.
         self._reminders: queue.SimpleQueue[_Announcement] = queue.SimpleQueue()
         self._requests: queue.SimpleQueue[_Request] = queue.SimpleQueue()
-        # A game held announcements that are still queued: GAME_HELD goes before them.
-        self._held_by_game = False
+        # What a game held, out of `_announcements` and `_patient_announcements` in the order
+        # queued and marked `held_by_game` (`_note_game_hold`); only `run`'s thread uses them.
+        self._game_held: list[_Announcement] = []
+        self._patient_game_held: list[_Announcement] = []
         # After a cut, on `clock`: announcements and requests wait until then
         # (see `_hold_announcements`).
         self._announcements_held_until: float | None = None
@@ -607,21 +614,22 @@ class Assistant:
         first one's emotion, except the announcements while `quiet`, those that wait while
         the follow-up window is open, and those that have expired (dropped; by their game
         expiry too when a game held them). A text queued more than once is said once, and the
-        announcements a game held come after GAME_HELD. True when there was any to say."""
+        announcements a game held come first, after GAME_HELD. True when there was any to say."""
         reminders = _take_all(self._reminders)
         announcements: list[_Announcement] = []
         if quiet:
             self._note_game_hold()
         else:
-            announcements = _take_all(self._announcements)
+            announcements = self._game_held + _take_all(self._announcements)
+            self._game_held = []
         if not (quiet or followup_open):
-            announcements += _take_all(self._patient_announcements)
-        held_by_game = self._held_by_game
-        news = [item for item in announcements if self._in_date(item, held_by_game)]
-        lead_in: list[str] = []
-        if announcements and held_by_game:
-            self._held_by_game = False
-            lead_in = [GAME_HELD] if news else []
+            announcements += self._patient_game_held + _take_all(self._patient_announcements)
+            self._patient_game_held = []
+        news = sorted(
+            (item for item in announcements if self._in_date(item)),
+            key=lambda item: not item.held_by_game,
+        )
+        lead_in = [GAME_HELD] if news and news[0].held_by_game else []
         due = reminders + news
         if not due:
             return False
@@ -632,14 +640,15 @@ class Assistant:
         return True
 
     def _note_game_hold(self) -> None:
-        """Remember that a game holds queued announcements, for GAME_HELD once it has closed."""
-        if self._game_holding is None or self._held_by_game:
+        """While a game holds them, mark the queued announcements as held by a game (for
+        GAME_HELD and their game expiry) and keep them aside in order. One queued after the
+        game has closed stays unmarked, though a focus block may hold it on."""
+        if self._game_holding is None or not self._game_holding():
             return
-        waiting = not (self._announcements.empty() and self._patient_announcements.empty())
-        if waiting and self._game_holding():
-            self._held_by_game = True
+        self._game_held += _marked_held_by_game(_take_all(self._announcements))
+        self._patient_game_held += _marked_held_by_game(_take_all(self._patient_announcements))
 
-    def _in_date(self, announcement: _Announcement, held_by_game: bool) -> bool:
+    def _in_date(self, announcement: _Announcement) -> bool:
         """Whether `announcement` has not expired, its game expiry counted only when a game
         held it; an expired one is logged, not its text."""
         now = self._now()
@@ -649,7 +658,7 @@ class Assistant:
                 announcement.expires_at,
             )
             return False
-        if held_by_game and _expired(announcement.game_expires_at, now):
+        if announcement.held_by_game and _expired(announcement.game_expires_at, now):
             logger.info(
                 "Not saying an announcement a game held past %s: it is out of date",
                 announcement.game_expires_at,

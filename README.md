@@ -4325,8 +4325,9 @@ Jalankan ulang `waifu run` setelah mengubahnya. `waifu chat` tidak punya mode ga
   terus panas, paling banyak satu (yang terakhir, kalau belum sejam) diucapkan sesudah game
   ditutup.
 - Pengingat game dan GPU panas hanya dilewati karena game: kalau game dibuka di tengah blok
-  fokus, yang sudah tertahan sejak awal blok ikut dilewati, tapi blok fokus tanpa main game
-  menahannya sampai istirahat, seperti sebelum ada mode game.
+  fokus, yang sudah tertahan sejak awal blok ikut dilewati, tapi yang baru masuk sesudah game
+  ditutup tetap ditunggu sampai istirahat, dan blok fokus tanpa main game menahannya sampai
+  istirahat, seperti sebelum ada mode game.
 - Dengan `phone`, kalau notifikasi HP gagal terkirim (misalnya internet putus), pemberitahuan
   itu juga tidak diucapkan.
 

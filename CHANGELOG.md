@@ -10,7 +10,8 @@ aktif, lalu jalankan `waifu check`.
   pemberitahuan GPU panas yang tertahan selama blok diucapkan saat istirahat, berapa lama pun
   bloknya. Di v1.34 pengingat itu ikut dilewati sesudah blok 30 menit, padahal tidak ada game
   yang dimainkan. Yang dilewati karena basi hanya yang ditahan game (mode game), juga kalau game
-  dibuka di tengah blok.
+  dibuka di tengah blok; yang baru masuk sesudah game itu ditutup tetap ditunggu sampai
+  istirahat.
 - `waifu mic` baru: menampilkan tiap mic sekali (tanda mic yang dipakai Cyrene dan default
   Windows), mendengarkan tiap mic beberapa detik sambil Master menyebut "halo Cyrene"
   (`--seconds`, bawaan 3), lalu menulis puncak dan RMS suaranya, apakah suaranya terdengar

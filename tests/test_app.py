@@ -2960,6 +2960,25 @@ def test_a_game_started_during_a_focus_block_drops_the_reminders_it_held_past_th
     assert rig.speech.texts == []
 
 
+def test_a_game_closed_during_a_focus_block_leaves_what_came_after_it_to_the_block(tmp_path):
+    # Only the block held the reminders queued once the game had closed: kept however long it
+    # lasts, said after what the game held.
+    focus, game = Quiet(), Quiet()
+    rig = Rig(quiet=lambda: focus() or game(), game_holding=game)
+    rig.assistant.announce(ANNOUNCEMENT)
+    listen_once(rig)
+    game.on = False
+    listen_once(rig)
+    reminders = gacha_reminders(rig, tmp_path)
+    listen_once(rig)
+
+    rig.now += timedelta(minutes=30)
+    focus.on = False
+    listen_once(rig)
+
+    assert rig.speech.texts == [" ".join([GAME_HELD, ANNOUNCEMENT, *reminders])]
+
+
 @NO_GAME_HOLDS
 def test_a_focus_block_keeps_the_hot_gpu_notice_however_long_it_lasts(game_holding):
     focus = Quiet()
