@@ -31,8 +31,20 @@ const ELEMENT_IDS = [
   "camera-view",
   "camera-flip",
   "camera-close",
+  "quick",
+  "quick-toggle",
 ];
-const HIDDEN_AT_START = new Set(["retry", "pairing", "chat", "notice", "pair-notice", "camera", "viewfinder"]);
+const HIDDEN_AT_START = new Set([
+  "retry",
+  "pairing",
+  "chat",
+  "notice",
+  "pair-notice",
+  "camera",
+  "viewfinder",
+  "quick",
+  "quick-toggle",
+]);
 // phone.css: #bubbles has 16 px of top padding (its faded edge) and 6 px between bubbles.
 const LIST_PADDING_TOP = 16;
 const LIST_GAP = 6;
@@ -59,6 +71,20 @@ const CAMERA_WISHES = { facingMode: { ideal: "environment" }, width: { ideal: 19
 // What the fake cameras film: the back camera landscape, the front one portrait.
 const FILM_SIZES = { environment: [1920, 1080], user: [1080, 1920] };
 const HEARD = "ini apa";
+// The PC's quick buttons (GET /actions) and its answer to the lamp's "Nyala" (POST /action).
+const QUICK = {
+  groups: [
+    {
+      name: "Lampu kamar",
+      actions: [
+        { id: "dev.lampu_kamar.on", label: "Nyala" },
+        { id: "dev.lampu_kamar.off", label: "Mati" },
+      ],
+    },
+    { name: "Rutinitas", actions: [{ id: "rt.tidur", label: "Mode tidur" }] },
+  ],
+};
+const LAMP_ON = { ok: true, message: "Lampu kamar: perintah 'on' berhasil (simulasi)." };
 
 /** A JPEG's first bytes, telling the quality it was encoded at. */
 function smallJpeg(quality) {
@@ -67,6 +93,8 @@ function smallJpeg(quality) {
 
 // What the page did to the camera's frame ("draw") and the microphone's worklet ("stop"), in order.
 let timeline = [];
+// The element the page last gave the focus to.
+let focused = null;
 
 class FakeElement {
   constructor(tagName, id = "") {
@@ -129,7 +157,9 @@ class FakeElement {
     this.parentElement = null;
   }
 
-  focus() {}
+  focus() {
+    focused = this;
+  }
 
   setPointerCapture() {}
 
@@ -384,10 +414,19 @@ function chatAnswer(text) {
 
 /**
  * Loads phone.js afresh against a page whose /config.json is `config` (as it is at each request) and whose /chat and
- * /talk answer `replyText` (or the status `chatStatus`, `talkStatus`). Every request is recorded in `requests`
- * ({route, init}); object URLs in `objectUrls`.
+ * /talk answer `replyText` (or the status `chatStatus`, `talkStatus`). /actions answers `actions` (404 when null), and
+ * /action `actionReply` with `actionStatus`. Every request is recorded in `requests` ({route, init}); object URLs in
+ * `objectUrls`.
  */
-async function openPage({ config = LIVE2D_CONFIG, replyText = SHORT_REPLY, chatStatus = 200, talkStatus = 200 } = {}) {
+async function openPage({
+  config = LIVE2D_CONFIG,
+  replyText = SHORT_REPLY,
+  chatStatus = 200,
+  talkStatus = 200,
+  actions = null,
+  actionReply = LAMP_ON,
+  actionStatus = 200,
+} = {}) {
   const elements = new Map(
     ELEMENT_IDS.map((id) => {
       if (id === "bubbles") return [id, new FakeList(id)];
@@ -426,6 +465,8 @@ async function openPage({ config = LIVE2D_CONFIG, replyText = SHORT_REPLY, chatS
       if (route === "/config.json") return jsonResponse(config);
       if (route === "/chat") return jsonResponse(chatAnswer(replyText), chatStatus);
       if (route === "/talk") return jsonResponse({ heard: HEARD, ...chatAnswer(replyText) }, talkStatus);
+      if (route === "/actions" && actions !== null) return jsonResponse(actions);
+      if (route === "/action") return jsonResponse(actionReply, actionStatus);
       return jsonResponse({ error: "Tidak ditemukan." }, 404);
     },
   };
@@ -444,6 +485,7 @@ async function openPage({ config = LIVE2D_CONFIG, replyText = SHORT_REPLY, chatS
   FakeCanvas.encodings = [];
   FakeCanvas.held = null;
   timeline = [];
+  focused = null;
   loads += 1;
   await import(`${PHONE_JS.href}?load=${loads}`);
   await settle();
@@ -779,7 +821,7 @@ describe("phone photos", () => {
     assert.deepEqual(whileEncoding, [true, true]);
     assert.equal(microphones, 1, "no second recording starts");
     assert.deepEqual(
-      page.requests.map(({ route }) => route).filter((route) => route !== "/config.json"),
+      page.requests.filter(({ init }) => init.method === "POST").map(({ route }) => route),
       ["/talk"],
     );
     assert.equal(page.element("text").value, "halo", "the typed message waits in the text box");
@@ -1035,5 +1077,247 @@ describe("phone viewfinder", () => {
     assert.equal(page.element("notice").hidden, false);
     assert.equal(page.element("viewfinder").hidden, true);
     assert.equal(page.element("camera").attributes.get("aria-pressed"), "false");
+  });
+});
+
+/** The quick buttons' groups as the panel shows them: {heading, labels, group (its element), buttons}. */
+function quickGroups(page) {
+  return page.element("quick").children.map((group) => {
+    const [heading, list] = group.children;
+    const labels = list.children.map((button) => button.textContent);
+    return { heading: heading.textContent, labels, group, buttons: list.children };
+  });
+}
+
+function quickButton(page, label) {
+  return quickGroups(page)
+    .flatMap(({ buttons }) => buttons)
+    .find((button) => button.textContent === label);
+}
+
+/** The page with the PC's quick buttons, their panel opened. */
+async function openQuick(options = {}) {
+  const page = await openPage({ actions: QUICK, ...options });
+  page.element("quick-toggle").dispatch("click");
+  return page;
+}
+
+async function press(page, label) {
+  quickButton(page, label).dispatch("click");
+  await settle();
+}
+
+/** Holds every POST /action of the page until `answer()`; other requests go to the page's fake as before. */
+function holdActions(page) {
+  const fakeFetch = globalThis.fetch;
+  const held = { answer: null };
+  globalThis.fetch = (route, init) => {
+    if (route !== "/action") return fakeFetch(route, init);
+    page.requests.push({ route, init });
+    return new Promise((resolve) => (held.answer = () => resolve(jsonResponse(LAMP_ON))));
+  };
+  return held;
+}
+
+describe("phone quick buttons", () => {
+  it("stay hidden, without a word, when the PC has none or cannot list them", async () => {
+    for (const actions of [null, { groups: [] }, { groups: "Lampu" }]) {
+      const page = await openPage({ actions });
+
+      assert.equal(page.element("quick-toggle").hidden, true);
+      assert.equal(page.element("quick").hidden, true);
+      assert.equal(page.element("notice").hidden, true);
+      assert.equal(lastRequest(page, "/actions").init.method, "GET");
+    }
+  });
+
+  it("show their toggle when the PC has buttons, with the panel closed", async () => {
+    const page = await openPage({ actions: QUICK });
+
+    assert.equal(page.element("quick-toggle").hidden, false);
+    assert.equal(page.element("quick").hidden, true);
+  });
+
+  it("open and close with the toggle, which says whether the panel is open", async () => {
+    const page = await openQuick();
+    const toggle = page.element("quick-toggle");
+
+    assert.equal(page.element("quick").hidden, false);
+    assert.equal(toggle.attributes.get("aria-expanded"), "true");
+
+    toggle.dispatch("click");
+
+    assert.equal(page.element("quick").hidden, true);
+    assert.equal(toggle.attributes.get("aria-expanded"), "false");
+  });
+
+  it("show a group per device or the routines, each named by its heading, with its buttons", async () => {
+    const page = await openQuick();
+    const groups = quickGroups(page);
+
+    assert.deepEqual(
+      groups.map(({ heading, labels }) => ({ heading, labels })),
+      [
+        { heading: "Lampu kamar", labels: ["Nyala", "Mati"] },
+        { heading: "Rutinitas", labels: ["Mode tidur"] },
+      ],
+    );
+    for (const { group } of groups) {
+      const [heading] = group.children;
+      assert.equal(group.attributes.get("role"), "group");
+      assert.equal(heading.tagName, "H2");
+      assert.ok(heading.id);
+      assert.equal(group.attributes.get("aria-labelledby"), heading.id);
+    }
+    assert.notEqual(groups[0].group.children[0].id, groups[1].group.children[0].id);
+    for (const button of groups.flatMap(({ buttons }) => buttons)) {
+      assert.equal(button.tagName, "BUTTON");
+      assert.equal(button.type, "button");
+    }
+  });
+
+  it("send only the pressed button's id to the PC, and toast what it did", async () => {
+    const page = await openQuick();
+
+    await press(page, "Nyala");
+
+    const request = lastRequest(page, "/action");
+    assert.equal(request.init.method, "POST");
+    assert.equal(request.init.headers["Content-Type"], "application/json");
+    assert.equal(request.init.body, '{"id":"dev.lampu_kamar.on"}');
+    assert.equal(page.element("notice").hidden, false);
+    assert.equal(page.element("notice").textContent, LAMP_ON.message);
+  });
+
+  it("toast a device's failure as the PC tells it", async () => {
+    const page = await openQuick({ actionReply: { ok: false, message: "Lampu kamar tidak bisa dihubungi." } });
+
+    await press(page, "Mati");
+
+    assert.equal(page.element("notice").textContent, "Lampu kamar tidak bisa dihubungi.");
+  });
+
+  it("hide the toast after six seconds", async (t) => {
+    const page = await openQuick();
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    quickButton(page, "Nyala").dispatch("click");
+    await flush();
+
+    t.mock.timers.tick(5_999);
+    assert.equal(page.element("notice").hidden, false);
+    t.mock.timers.tick(1);
+
+    assert.equal(page.element("notice").hidden, true);
+  });
+
+  it("mark the pressed button busy and every button unavailable until the PC answers", async () => {
+    const page = await openQuick();
+    const held = holdActions(page);
+    const buttons = quickGroups(page).flatMap((group) => group.buttons);
+    const pressed = quickButton(page, "Nyala");
+
+    await press(page, "Nyala");
+    const busy = pressed.attributes.get("aria-busy");
+    const whileRunning = buttons.map((button) => button.attributes.get("aria-disabled"));
+    await press(page, "Mode tidur");
+    held.answer();
+    await settle();
+
+    assert.equal(busy, "true");
+    assert.deepEqual(whileRunning, ["true", "true", "true"]);
+    assert.equal(page.requests.filter(({ route }) => route === "/action").length, 1, "the second tap is ignored");
+    assert.equal(pressed.attributes.get("aria-busy"), "false");
+    assert.deepEqual(
+      buttons.map((button) => button.attributes.get("aria-disabled")),
+      ["false", "false", "false"],
+    );
+    await press(page, "Mode tidur");
+    held.answer();
+    await settle();
+    assert.equal(lastRequest(page, "/action").init.body, '{"id":"rt.tidur"}');
+  });
+
+  it("leave the chat usable while a button runs", async () => {
+    const page = await openQuick();
+    const held = holdActions(page);
+
+    await press(page, "Nyala");
+    await send(page, "halo");
+    held.answer();
+    await settle();
+
+    assert.equal(lastRequest(page, "/chat").init.body, '{"text":"halo"}');
+    assert.equal(page.element("notice").textContent, LAMP_ON.message);
+  });
+
+  it("say when the PC no longer has the button", async () => {
+    const page = await openQuick({ actionStatus: 404, actionReply: { error: "Tombol itu sudah tidak ada." } });
+
+    await press(page, "Nyala");
+
+    assert.equal(page.element("notice").textContent, problemText("action_unknown"));
+  });
+
+  it("say when a button was pressed too often", async () => {
+    const page = await openQuick({ actionStatus: 429, actionReply: { error: "Terlalu sering." } });
+
+    await press(page, "Nyala");
+
+    assert.equal(page.element("notice").textContent, problemText("action_limit"));
+  });
+
+  it("say when the PC's answer cannot be read", async () => {
+    const page = await openQuick({ actionReply: { done: true } });
+
+    await press(page, "Nyala");
+
+    assert.equal(page.element("notice").textContent, problemText("bad_reply"));
+  });
+
+  it("show the pairing form when the PC forgot this phone", async () => {
+    const page = await openQuick({ actionStatus: 401, actionReply: { error: "Belum dipasangkan." } });
+
+    await press(page, "Nyala");
+
+    assert.equal(page.element("pairing").hidden, false);
+    assert.equal(page.element("chat").hidden, true);
+  });
+
+  it("close with Escape and give the focus back to the toggle", async () => {
+    const page = await openQuick();
+
+    page.element("quick").dispatch("keydown", { key: "Escape" });
+
+    assert.equal(page.element("quick").hidden, true);
+    assert.equal(page.element("quick-toggle").attributes.get("aria-expanded"), "false");
+    assert.equal(focused, page.element("quick-toggle"));
+  });
+
+  it("ignore other keys", async () => {
+    const page = await openQuick();
+
+    page.element("quick").dispatch("keydown", { key: "Enter" });
+
+    assert.equal(page.element("quick").hidden, false);
+  });
+
+  it("take the viewfinder's place, and give it back", async () => {
+    const page = await openPage({ config: CAMERA_CONFIG, actions: QUICK });
+    page.element("camera").dispatch("click");
+    await settle();
+    const [back] = page.devices.cameras;
+
+    page.element("quick-toggle").dispatch("click");
+
+    assert.equal(page.element("viewfinder").hidden, true);
+    assert.equal(back.live, false, "the camera is off");
+    assert.equal(page.element("quick").hidden, false);
+
+    page.element("camera").dispatch("click");
+    await settle();
+
+    assert.equal(page.element("viewfinder").hidden, false);
+    assert.equal(page.element("quick").hidden, true);
+    assert.equal(page.element("quick-toggle").attributes.get("aria-expanded"), "false");
   });
 });

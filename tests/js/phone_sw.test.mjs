@@ -117,8 +117,10 @@ describe("phone service worker", () => {
       ["/chat", "POST"],
       ["/talk", "POST"],
       ["/pair", "POST"],
+      ["/action", "POST"],
       ["/", "POST"],
       ["/config.json", "GET"],
+      ["/actions", "GET"],
       ["/model/Cyrene.model3.json", "GET"],
       ["/model/Cyrene.moc3", "GET"],
       ["/model/Cyrene.4096/texture_00.png", "GET"],
@@ -156,7 +158,14 @@ describe("phone service worker", () => {
 
   it("opens the kept page when the PC answers with a server error", async () => {
     // tailscale serve answers 502 for the PC while Cyrene (waifu run) is not running.
-    const shell = ["/", "/phone/phone.js", "/phone/audio.js", "/phone/camera.js", "/phone/phone.css"];
+    const shell = [
+      "/",
+      "/phone/phone.js",
+      "/phone/audio.js",
+      "/phone/camera.js",
+      "/phone/actions.js",
+      "/phone/phone.css",
+    ];
     for (const path of shell) await settled(dispatchFetch(path));
 
     for (const status of [500, 502, 503, 504]) {
@@ -193,6 +202,7 @@ describe("phone service worker", () => {
       "/phone/phone.js",
       "/phone/audio.js",
       "/phone/camera.js",
+      "/phone/actions.js",
       "/phone/phone.css",
       "/manifest.webmanifest",
       "/icon-192.png",

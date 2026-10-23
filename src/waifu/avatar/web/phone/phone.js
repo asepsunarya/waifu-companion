@@ -15,6 +15,11 @@
 // thumbnail in the owner's bubble. The camera turns off when the viewfinder closes, the page is hidden or left, or two
 // minutes pass without a photo or a press of the talk button. A PC restarted with the camera off refuses what is sent
 // through it; the page then reads /config.json again and hides the camera.
+//
+// When the PC has quick buttons (SPEC, "tombol cepat di HP (v1.35)"), the lamp button left of the text box opens a
+// panel of them in the viewfinder's place: the owner's switches and routines, run on the PC without asking her. A tap
+// sends the button's id to POST /action (actions.js) and the PC's answer shows as a toast; one runs at a time.
+import { actionOutcome, actionRequest, parseActionGroups } from "./actions.js";
 import {
   DEFAULT_OWNER_CALL,
   MAX_TALK_S,
@@ -45,6 +50,8 @@ import {
 } from "./camera.js";
 
 const CONFIG_URL = "/config.json";
+const ACTIONS_URL = "/actions";
+const ACTION_URL = "/action";
 const CHAT_URL = "/chat";
 const TALK_URL = "/talk";
 const PAIR_URL = "/pair";
@@ -112,6 +119,8 @@ const page = {
   cameraView: document.getElementById("camera-view"),
   cameraFlip: document.getElementById("camera-flip"),
   cameraClose: document.getElementById("camera-close"),
+  quick: document.getElementById("quick"),
+  quickToggle: document.getElementById("quick-toggle"),
 };
 
 let ownerCall = DEFAULT_OWNER_CALL;
@@ -132,6 +141,9 @@ let talk = null;
 let cameraSettings = null;
 // The open viewfinder: {facing, stream (null while the camera opens), timer (turns it off)}, else null.
 let viewfinder = null;
+// Every quick button in the panel, and whether one of them is running on the PC.
+let quickButtons = [];
+let quickRunning = false;
 
 class CoreMissingError extends Error {}
 
@@ -219,11 +231,16 @@ function removeBubble(bubble) {
   renderBubbles();
 }
 
-function showNotice(kind) {
+/** Shows `text` in the notice strip (its role="status" reads it out) for NOTICE_MS. */
+function showToast(text) {
   clearTimeout(noticeTimer);
-  page.notice.textContent = problemText(kind, ownerCall);
+  page.notice.textContent = text;
   page.notice.hidden = false;
   noticeTimer = setTimeout(hideNotice, NOTICE_MS);
+}
+
+function showNotice(kind) {
+  showToast(problemText(kind, ownerCall));
 }
 
 function hideNotice() {
@@ -366,6 +383,7 @@ async function boot() {
     return;
   }
   showChat(config, parseCameraConfig(result.data));
+  loadQuick();
   if (config.model === null) {
     showMessage(MODEL_MISSING_TEXT);
     return;
@@ -685,6 +703,7 @@ async function startCamera(session) {
 }
 
 function openViewfinder() {
+  setQuickOpen(false);
   const session = { facing: BACK_CAMERA, stream: null, timer: 0 };
   viewfinder = session;
   page.viewfinder.hidden = false;
@@ -777,6 +796,81 @@ async function cameraTurnedOff() {
   return true;
 }
 
+// --- The quick buttons ------------------------------------------------------------------------------
+
+/** Reads the PC's quick buttons and shows their toggle when there are any; without them, or on a problem, the page
+ * stays as it was, without a word. */
+async function loadQuick() {
+  const result = await requestCyrene(fetch, ACTIONS_URL);
+  const groups = result.problem ? null : parseActionGroups(result.data);
+  if (!groups?.length) return;
+  quickButtons = [];
+  page.quick.replaceChildren(...groups.map(quickGroup));
+  page.quickToggle.hidden = false;
+}
+
+/** One group of the panel: its heading, which names the group for a screen reader, over its buttons. */
+function quickGroup({ name, actions }, index) {
+  const group = document.createElement("div");
+  group.className = "quick-group";
+  group.setAttribute("role", "group");
+  const heading = document.createElement("h2");
+  heading.id = `quick-group-${index}`;
+  heading.textContent = name;
+  group.setAttribute("aria-labelledby", heading.id);
+  const list = document.createElement("div");
+  list.className = "quick-buttons";
+  list.append(...actions.map(quickButton));
+  group.append(heading, list);
+  return group;
+}
+
+function quickButton({ id, label }) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "quick-action";
+  button.textContent = label;
+  button.addEventListener("click", () => runQuick(button, id));
+  quickButtons.push(button);
+  return button;
+}
+
+/** Shows or hides the panel; it opens in the viewfinder's place, so the camera turns off. */
+function setQuickOpen(open) {
+  if (open) closeViewfinder();
+  page.quick.hidden = !open;
+  page.quickToggle.setAttribute("aria-expanded", String(open));
+}
+
+/**
+ * While the PC runs a button: that one says it is busy and every one that it is unavailable. aria-disabled, not
+ * disabled, so the focus stays on the pressed button; taps meanwhile are ignored.
+ */
+function setQuickRunning(pressed, running) {
+  quickRunning = running;
+  pressed.setAttribute("aria-busy", String(running));
+  for (const button of quickButtons) button.setAttribute("aria-disabled", String(running));
+}
+
+/** Runs the quick button `id`, pressed as `button`, on the PC and toasts what it did or why it could not. */
+async function runQuick(button, id) {
+  if (quickRunning) return;
+  setQuickRunning(button, true);
+  const result = await requestCyrene(fetch, ACTION_URL, actionRequest(id));
+  setQuickRunning(button, false);
+  if (result.problem === "unpaired") {
+    showPairing();
+    return;
+  }
+  if (result.problem) {
+    showNotice(result.problem);
+    return;
+  }
+  const outcome = actionOutcome(result.data);
+  if (outcome === null) showNotice("bad_reply");
+  else showToast(outcome.text);
+}
+
 const isTalkKey = (event) => event.key === " " || event.key === "Enter";
 
 page.talk.addEventListener("pointerdown", (event) => {
@@ -825,5 +919,12 @@ page.text.addEventListener("keydown", (event) => {
 page.text.addEventListener("input", fitTextBox);
 page.pairForm.addEventListener("submit", pair);
 page.retry.addEventListener("click", () => location.reload());
+
+page.quickToggle.addEventListener("click", () => setQuickOpen(page.quick.hidden));
+page.quick.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape") return;
+  setQuickOpen(false);
+  page.quickToggle.focus();
+});
 
 boot();

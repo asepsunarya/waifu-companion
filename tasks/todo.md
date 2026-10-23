@@ -1746,12 +1746,12 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 179a · **Files:** `src/waifu/avatar/web/phone/actions.js`, `src/waifu/avatar/web/phone/audio.js`, `tests/js/phone_actions.test.mjs`, `tests/js/phone_audio.test.mjs` · **Scope:** S
 
-## Task 184: The panel
+## Task 184: The panel ✅
 
 **Acceptance criteria:**
-- [ ] The toggle shows only when `/actions` lists a group (a failure shows no notice); it opens and closes the panel with `aria-expanded`; Escape closes it; the panel and the viewfinder close each other
-- [ ] A tap posts the id, marks the button busy and every button disabled until the answer, ignores taps meanwhile, and toasts the message or the problem; 401 shows the pairing form
-- [ ] 44 px buttons in a grid for 360-412 px, the panel scrolls within 36dvh; the service worker keeps `/phone/actions.js` and passes `/actions` and `/action`; no inline style or script
+- [x] The toggle shows only when `/actions` lists a group (a failure shows no notice); it opens and closes the panel with `aria-expanded`; Escape closes it; the panel and the viewfinder close each other
+- [x] A tap posts the id, marks the button busy and every button disabled until the answer, ignores taps meanwhile, and toasts the message or the problem; 401 shows the pairing form
+- [x] 44 px buttons in a grid for 360-412 px, the panel scrolls within 36dvh; the service worker keeps `/phone/actions.js` and passes `/actions` and `/action`; no inline style or script
 
 **Dependencies:** 183 · **Files:** `src/waifu/avatar/web/phone/index.html`, `phone.js`, `phone.css`, `sw.js`, `tests/js/phone_ui.test.mjs`, `tests/js/phone_page.test.mjs`, `tests/js/phone_sw.test.mjs` · **Scope:** M
 

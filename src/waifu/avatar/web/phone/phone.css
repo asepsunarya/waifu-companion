@@ -465,6 +465,82 @@ body[data-state="speaking"] #status::before {
   object-fit: cover;
 }
 
+/* --- The quick buttons ---------------------------------------------------------------------------- */
+
+#quick-toggle {
+  width: 44px;
+  height: 44px;
+  background: var(--paper);
+  color: var(--accent);
+}
+
+#quick-toggle[aria-expanded="true"] {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* The panel takes the viewfinder's place between the chat list and the text box; the list gives it room. */
+#chat:has(#quick:not([hidden])) #bubbles {
+  max-height: 18vh;
+  max-height: 18dvh;
+}
+
+#quick {
+  flex: none;
+  max-height: 36vh;
+  max-height: 36dvh;
+  padding: 2px 12px 12px;
+  border-radius: 18px;
+  background: var(--paper);
+  box-shadow: var(--shadow);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  pointer-events: auto;
+}
+
+.quick-group h2 {
+  margin: 10px 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+/* Three buttons a row on a 360-412 px phone. */
+.quick-buttons {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 8px;
+}
+
+.quick-action {
+  min-height: 44px;
+  padding: 8px 10px;
+  border: 1px solid rgba(111, 91, 211, 0.3);
+  border-radius: 12px;
+  background: #fff;
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.quick-action:active {
+  background: #f1edfb;
+}
+
+.quick-action[aria-disabled="true"] {
+  cursor: default;
+  opacity: 0.45;
+}
+
+/* The one the PC is running stands out from the others, which wait. */
+.quick-action[aria-busy="true"] {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+  opacity: 1;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .typing span,
   #talk[aria-pressed="true"] {

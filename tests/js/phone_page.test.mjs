@@ -106,6 +106,7 @@ describe("phone page", () => {
     assert.deepEqual(missing, []);
     assert.ok(seen.has("/phone/audio.js"));
     assert.ok(seen.has("/phone/camera.js"));
+    assert.ok(seen.has("/phone/actions.js"), "the quick buttons");
     assert.ok(seen.has("/live2d.js"), "the Live2D renderer");
     assert.ok(seen.has("/avatar.js"), "the VRM renderer");
   });
@@ -147,6 +148,21 @@ describe("phone page", () => {
     for (const name of ["muted", "playsinline", "autoplay"]) {
       assert.match(videos[0], new RegExp(`\\s${name}(\\s|$)`), name);
     }
+  });
+
+  it("has a quick-button toggle that names, opens, and controls its panel, both hidden until filled", () => {
+    const [toggle] = page.match(/<button\s[^>]*\bid="quick-toggle"[^>]*>/) ?? [];
+    const [panel] = page.match(/<section\s[^>]*\bid="quick"[^>]*>/) ?? [];
+
+    assert.ok(toggle, "the toggle");
+    assert.match(toggle, /\stype="button"/);
+    assert.match(toggle, /\saria-controls="quick"/);
+    assert.match(toggle, /\saria-expanded="false"/);
+    assert.match(toggle, /\saria-label="Tombol cepat"/);
+    assert.match(toggle, /\shidden(\s|>)/);
+    assert.ok(panel, "the panel");
+    assert.match(panel, /\saria-label="Tombol cepat"/);
+    assert.match(panel, /\shidden(\s|>)/);
   });
 
   it("has the canvas and the message the renderers draw into", () => {
