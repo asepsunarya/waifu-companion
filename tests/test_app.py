@@ -3414,19 +3414,45 @@ class SwitchingBrain(FakeBrain):
         return super().respond(user_text, now=now)
 
 
-def test_the_reply_that_switched_guest_mode_is_repeated():
+def test_a_reply_whose_turn_switched_guest_mode_is_never_repeated():
+    # Guest mode refuses per tool call, so the balance was fetched before the switch.
     marker = GuestMarker()
     rig = Rig(
-        "Cyrene, mode tamu",
+        "Cyrene, berapa saldoku, terus nyalakan mode tamu",
         "ulangi",
-        reply="Mode tamu aktif sampai jam dua pagi, Master.",
+        reply="Saldo BCA Master 12 juta. Mode tamu aktif sampai jam dua.",
         brain=lambda reply: SwitchingBrain(reply, marker),
         guest_marker=marker,
     )
     rig.assistant.handle_utterance(rig.utterance())
     rig.clock.now += 2
 
-    repeated = rig.assistant.handle_utterance(rig.utterance())
+    assert rig.assistant.handle_utterance(rig.utterance()) == NOTHING_TO_REPEAT
+    assert asked(rig) == ["berapa saldoku, terus nyalakan mode tamu"]
 
-    assert repeated == "Mode tamu aktif sampai jam dua pagi, Master."
-    assert asked(rig) == ["mode tamu"]
+
+def test_an_answer_to_a_request_whose_turn_switched_guest_mode_is_never_repeated():
+    marker = GuestMarker()  # switched on the phone while her answer was thought up
+    rig = Rig(
+        "ulangi",
+        reply="Selamat pagi, Master! Saldo BCA 12 juta.",
+        brain=lambda reply: SwitchingBrain(reply, marker),
+        guest_marker=marker,
+    )
+    rig.assistant.ask_aloud(GREETING_PROMPT)
+    listen_once(rig)
+    rig.clock.now += 2  # inside the window her answer opened
+
+    assert rig.assistant.handle_utterance(rig.utterance()) == NOTHING_TO_REPEAT
+    assert asked(rig) == [GREETING_PROMPT]
+
+
+def test_a_reply_in_a_turn_after_guest_mode_switched_is_repeated():
+    marker = GuestMarker()
+    rig = Rig("Cyrene, nyalakan lampu kamar", "Cyrene, ulangi", guest_marker=marker)
+    marker.generation += 1  # guest mode turned on before this turn
+
+    rig.assistant.handle_utterance(rig.utterance())
+
+    assert rig.assistant.handle_utterance(rig.utterance()) == REPLY
+    assert asked(rig) == ["nyalakan lampu kamar"]

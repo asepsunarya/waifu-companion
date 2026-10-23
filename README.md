@@ -5286,8 +5286,10 @@ Batas satu menit untuk menjawab tetap dihitung sejak perintahnya pertama kali di
 - Begitu [mode tamu](#mode-tamu) menyala, mati, atau berakhir sendiri (juga dari HP), yang dia
   ucapkan sebelumnya dilupakan, dan "ulangi" dijawab "Belum ada yang bisa kuulangi": tamu tidak
   bisa memintanya mengulang hal pribadi yang Master dengar sebelum mereka datang. Jawaban yang
-  menyalakan mode tamu itu sendiri bisa diulang. Dengan verifikasi suara mati, tamu bisa meminta
-  pengulangan apa yang dia ucapkan sejak mode tamu menyala.
+  menyalakan atau mematikan mode tamu itu sendiri juga tidak diulang, karena bisa memuat hal
+  pribadi yang diambil sebelum mode tamu menyala ("berapa saldoku, terus nyalakan mode tamu").
+  Dengan verifikasi suara mati, tamu bisa meminta pengulangan apa yang dia ucapkan sejak mode
+  tamu menyala.
 
 ### Di HP
 

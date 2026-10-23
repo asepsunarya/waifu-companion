@@ -234,7 +234,7 @@ class _Said:
 
     text: str
     emotion: str
-    marker: object  # `guest_marker` as she said it (None without one)
+    marker: object  # `guest_marker` before the turn that thought it up (None without one)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -389,9 +389,10 @@ class Assistant:
                 reply_text = self._repeat()
             else:
                 self._show(lambda avatar: avatar.state("thinking"))
+                marker = self._guest_generation()
                 emotion, reply = self._think(result.command)
                 reply_text = reply.text
-                self._say_remembered(reply_text, emotion)
+                self._say_remembered(reply_text, emotion, marker)
             return reply_text
 
     def handle_text(self, text: str) -> BrainReply:
@@ -675,7 +676,7 @@ class Assistant:
         texts = [reminder.text for reminder in reminders] + lead_in + [item.text for item in news]
         text = " ".join(dict.fromkeys(texts))
         logger.info("Announcing: %s", text)
-        self._say_remembered(text, due[0].emotion, followup=False)
+        self._say_remembered(text, due[0].emotion, self._guest_generation(), followup=False)
         return True
 
     def _note_game_hold(self) -> None:
@@ -719,6 +720,7 @@ class Assistant:
         try:
             with self._engaged():
                 self._show(lambda avatar: avatar.state("thinking"))
+                marker = self._guest_generation()
                 emotion, reply = self._think(request.prompt, new_session=request.new_session)
                 tool = request.required_tool
                 if tool is not None and not _called_successfully(reply, tool):
@@ -729,7 +731,7 @@ class Assistant:
                     )
                     self._show(lambda avatar: avatar.state("idle"))
                     return
-                self._say_remembered(reply.text, emotion)
+                self._say_remembered(reply.text, emotion, marker)
         except Exception:
             logger.exception("Failed to answer a request aloud; still listening")
             return
@@ -759,16 +761,21 @@ class Assistant:
             else:
                 return request
 
-    def _say_remembered(self, text: str, emotion: str, *, followup: bool = True) -> None:
+    def _say_remembered(
+        self, text: str, emotion: str, marker: object, *, followup: bool = True
+    ) -> None:
         """Say `text` like `speak`, remembered first as her last words for "ulangi" (`_repeat`),
         so a reply that was cut off or could not be voiced can still be asked for again.
 
         Only `run`'s thread calls it, for what she says as her own: a reply to Master's
         words, the announcements said together, or her answer to a request. Never for a
-        reaction, the acknowledgement, the startup line, or the phone. The guest marker is read
-        after the turn, so the reply that switched guest mode can be repeated.
+        reaction, the acknowledgement, the startup line, or the phone. `marker` is the guest
+        marker read before the turn that thought `text` up, so a reply whose turn switched
+        guest mode is never repeated: guest mode refuses per tool call, so that turn may have
+        fetched something private before the switch, and the brains drop it with their new
+        session.
         """
-        self._last_said = _Said(text, emotion, self._guest_generation())
+        self._last_said = _Said(text, emotion, marker)
         self.speak(text, emotion, followup=followup)
 
     def _repeat(self) -> str:
