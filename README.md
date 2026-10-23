@@ -3007,7 +3007,8 @@ Cyrene : "Mode bisik aktif, Master: dari jam sepuluh malam sampai jam enam pagi 
 
 - **Lebih pelan atau lebih keras:** "Cyrene, kecilkan suaramu", "suara kamu kekerasan",
   "ngomongnya pelan-pelan aja" (turun 20 persen); "keraskan suaramu", "suara kamu kurang
-  keras" (naik 20 persen).
+  keras" (naik 20 persen). Langkahnya selalu berhenti di kelipatan 20 dengan 10 dan 150 di
+  ujungnya (dari 75 persen, "kecilkan" menjadi 60), jadi 100 persen selalu bisa dicapai lagi.
 - **Angka:** "Cyrene, suaramu 60 persen." Dari 10 sampai 150 persen; 100 persen suara biasanya.
 - **Bertanya:** "Suaramu berapa persen?", "mode bisik nyala?"
 - **Mode bisik:** "Cyrene, nyalakan mode bisik" dan "matikan mode bisik" (lihat

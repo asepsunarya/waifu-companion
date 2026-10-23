@@ -50,6 +50,14 @@ class VoiceChange:
         return self.before != self.after
 
 
+def _step(level: int, direction: str) -> int:
+    """The next multiple of `STEP` strictly above or below `level`, held in `LEVELS`: the steps
+    stay on one grid, so after either end they still reach the normal level."""
+    landed = (level // STEP + 1) * STEP if direction == "louder" else (level - 1) // STEP * STEP
+    low, high = LEVELS
+    return min(high, max(low, landed))
+
+
 def in_window(moment: time, start: time, until: time) -> bool:
     """Whether `moment` is in `[start, until)`, which wraps past midnight when `until` comes
     first."""
@@ -85,14 +93,10 @@ class VoiceLevel:
         return self._update(lambda state: replace(state, level=level))
 
     def change(self, direction: str) -> VoiceChange:
-        """One step louder or softer, held in `LEVELS`."""
+        """One step louder or softer, to the next multiple of `STEP` held in `LEVELS`."""
         if direction not in DIRECTIONS:
             raise ValueError(f"the direction must be one of {', '.join(DIRECTIONS)}")
-        step = STEP if direction == "louder" else -STEP
-        low, high = LEVELS
-        return self._update(
-            lambda state: replace(state, level=min(high, max(low, state.level + step)))
-        )
+        return self._update(lambda state: replace(state, level=_step(state.level, direction)))
 
     def set_night(self, on: bool) -> VoiceChange:
         return self._update(lambda state: replace(state, night=on))

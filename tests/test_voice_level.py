@@ -97,12 +97,37 @@ def test_softer_goes_down_twenty_at_a_time_and_stops_at_ten(tmp_path):
     assert not level.change("softer").changed
 
 
-def test_a_step_from_a_level_off_the_grid_keeps_its_offset(tmp_path):
+@pytest.mark.parametrize(
+    ("start", "direction", "landed"),
+    [
+        (75, "softer", 60),
+        (75, "louder", 80),
+        (55, "softer", 40),
+        (50, "softer", 40),
+        (30, "louder", 40),
+        (150, "softer", 140),
+        (10, "louder", 20),
+        (20, "softer", 10),
+        (145, "louder", 150),
+    ],
+)
+def test_a_step_lands_on_the_next_multiple_of_twenty(tmp_path, start, direction, landed):
     level = make_level(tmp_path / "voice.json")
-    level.set_level(75)
+    level.set_level(start)
 
-    assert level.change("softer").after.level == 55
-    assert level.change("louder").after.level == 75
+    assert level.change(direction).after.level == landed
+
+
+def test_after_either_end_the_steps_reach_the_normal_level_again(tmp_path):
+    level = make_level(tmp_path / "voice.json")
+    level.set_level(10)
+
+    up = [level.change("louder").after.level for _ in range(5)]
+    level.set_level(150)
+    down = [level.change("softer").after.level for _ in range(3)]
+
+    assert up == [20, 40, 60, 80, 100]
+    assert down == [140, 120, 100]
 
 
 def test_another_direction_is_refused(tmp_path):
