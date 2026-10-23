@@ -479,7 +479,8 @@ body[data-state="speaking"] #status::before {
   color: #fff;
 }
 
-/* The panel takes the viewfinder's place between the chat list and the text box; the list gives it room. */
+/* The panel takes the viewfinder's place between the chat list and the text box, below the notice, so a toast moves
+   only the list; the list gives it room. */
 #chat:has(#quick:not([hidden])) #bubbles {
   max-height: 18vh;
   max-height: 18dvh;

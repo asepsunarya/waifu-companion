@@ -165,6 +165,15 @@ describe("phone page", () => {
     assert.match(panel, /\shidden(\s|>)/);
   });
 
+  it("puts the notice above the quick panel, so a toast never moves the buttons under the owner's finger", () => {
+    // #chat is anchored at the bottom of the screen: what appears in it moves only what is above it.
+    const chat = page.slice(page.indexOf('<main id="chat"'), page.indexOf("</main>"));
+    const order = ["bubbles", "viewfinder", "notice", "quick", "composer"].map((id) => chat.indexOf(` id="${id}"`));
+
+    assert.ok(order.every((index) => index >= 0), "every part is in the chat");
+    assert.deepEqual(order, order.toSorted((a, b) => a - b));
+  });
+
   it("has the canvas and the message the renderers draw into", () => {
     assert.match(page, /<canvas id="stage"/);
     assert.match(page, /id="message"/);

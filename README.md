@@ -3811,7 +3811,7 @@ membuka panel **Tombol cepat** di tempat jendela kamera (ketuk lagi untuk menutu
 kamera juga menutupnya). Tombolnya
 dijalankan langsung di PC lewat daftar perangkat, seperti `waifu device` dan
 `waifu routine run`, tanpa otak Cyrene: lebih cepat, tanpa biaya API, dan dia tidak berbicara.
-Hasilnya muncul 6 detik di atas kotak pesan, misalnya "Lampu kamar dinyalakan." atau "Mode
+Hasilnya muncul 6 detik di atas panel (tombolnya tidak bergeser), misalnya "Lampu kamar dinyalakan." atau "Mode
 tidur: 3 dari 3 langkah berhasil. Dijadwalkan jam 01.00 dini hari nanti."; kalau perangkatnya
 gagal, alasannya yang muncul ("Lampu kamar tidak bisa dihubungi ...").
 
