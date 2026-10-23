@@ -1921,6 +1921,7 @@ named `tests/test_<package>_<module>.py`.
 **Acceptance criteria:**
 - [x] Every phrase of `REPEAT_PHRASES` counts, with or without "maaf" before it, a question mark, her names, wake words, owner call, "master", and the softeners; "maaf, apa?" too
 - [x] Anything with another word ("ulangi lagunya", "putar sekali lagi", "apa tadi lampunya sudah mati?", "tadi aku bilang apa?", "apa kabar"), a doubled word, a bare "apa?", or nothing left is not a repeat request
+- [x] Fix pass: "sekali lagi" with "coba" or "tolong" ("coba sekali lagi" after a failure) asks her to try again and goes to the brain; the two still soften the other phrases ("coba ulangi")
 
 **Dependencies:** 202a · **Files:** `src/waifu/repeat.py`, `tests/test_repeat.py` · **Scope:** S
 
@@ -1938,6 +1939,7 @@ named `tests/test_<package>_<module>.py`.
 
 **Acceptance criteria:**
 - [x] `Assistant(guest_marker=...)`: once the marker has moved since she said it, a repeat request gets the nothing-to-repeat line; words said after the switch are repeated
+- [x] Fix pass: the marker is read before the turn (a voice reply, a request's answer), so a reply whose turn switched guest mode ("berapa saldoku, terus nyalakan mode tamu", or a switch from the phone meanwhile) is never repeated
 - [x] `run` passes guest mode's `generation` as `guest_marker`
 
 **Dependencies:** 203 · **Files:** `src/waifu/app.py`, `tests/test_app.py`, `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** S
@@ -1946,5 +1948,6 @@ named `tests/test_<package>_<module>.py`.
 
 **Acceptance criteria:**
 - [x] README "Ulangi" with a contents entry, an example in "Pemakaian sehari-hari", and checklist items; CHANGELOG v1.38; full suite and ruff clean
+- [x] Fix pass: README, SPEC, and CHANGELOG say "coba sekali lagi" goes to the brain and the reply that switched guest mode is not repeated; the privacy lines say only the repeat keeps the text out of the log (announcements were logged as `Announcing: ...` when first said)
 
 **Dependencies:** 204 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S

@@ -12,12 +12,13 @@ aktif, lalu jalankan `waifu check`.
   tidak perlu memanggil namanya.
 - Yang diulang: jawabannya, pengingat dan pengumuman yang dia ucapkan sendiri, dan sapaan pagi.
   Ucapan dengan kata lain ("ulangi lagunya", "putar sekali lagi") tetap dijawab otaknya seperti
-  biasa, dan "sekali lagi" hanya mengulang kata-katanya, tidak menjalankan perintahnya lagi.
+  biasa, dan "sekali lagi" hanya mengulang kata-katanya, tidak menjalankan perintahnya lagi
+  ("coba sekali lagi" dan "tolong sekali lagi" dijawab otaknya, jadi perintahnya dicoba lagi).
 - Pertanyaan konfirmasi (mematikan PC, mencatat pengeluaran) bisa diulang tanpa terjawab: "iya"
   sesudahnya tetap menjalankannya.
-- Begitu mode tamu menyala, mati, atau berakhir sendiri, kalimat sebelumnya dilupakan. Di HP
-  kalimatnya sudah tertulis, jadi "ulangi" di HP dijawab otaknya seperti pesan lain. README:
-  "Ulangi".
+- Begitu mode tamu menyala, mati, atau berakhir sendiri, kalimat sebelumnya dilupakan, juga
+  jawaban yang menyalakan atau mematikannya. Di HP kalimatnya sudah tertulis, jadi "ulangi" di
+  HP dijawab otaknya seperti pesan lain. README: "Ulangi".
 
 ## v1.37: volume suaraku
 
