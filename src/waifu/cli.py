@@ -44,7 +44,7 @@ import numpy as np
 from pydantic import ValidationError
 
 from waifu import autostart, memory
-from waifu.app import Assistant, PhoneAnswers, split_reply
+from waifu.app import Assistant, AudioPlayer, PhoneAnswers, split_reply
 from waifu.autostart import RunKey, WindowsRunKey
 from waifu.avatar.bus import STATES as AVATAR_STATES
 from waifu.avatar.bus import AvatarBus
@@ -72,6 +72,7 @@ from waifu.brain.screen_tools import ScreenTools
 from waifu.brain.todo_tools import TodoTools
 from waifu.brain.tools import ToolProvider
 from waifu.brain.usage_tools import UsageTools
+from waifu.brain.voice_volume_tools import VoiceVolumeTools
 from waifu.briefing import DAILY_BRIEFING, BriefingTimer, BriefingTools
 from waifu.config import (
     APP_URL_SCHEMES,
@@ -248,6 +249,7 @@ from waifu.voice.segmenter import EnergySegmenter, frame_db
 from waifu.voice.speaker import MIN_ENROLL_SAMPLES, EcapaEmbedder, SpeakerError, SpeakerVerifier
 from waifu.voice.stt import CUDA_HINT, SttError, WhisperStt, register_cuda_dll_dirs
 from waifu.voice.tts import SpeechRouter, TtsError, build_speech_router
+from waifu.voice.volume import LEVELS, VolumePlayer
 from waifu.voice.windows_voices import (
     WindowsVoice,
     WindowsVoiceError,
@@ -256,6 +258,7 @@ from waifu.voice.windows_voices import (
     list_windows_voices,
     missing_voice_hint,
 )
+from waifu.voice_level import VoiceLevel
 from waifu.weather import WeatherClient, WeatherError
 
 if TYPE_CHECKING:
@@ -649,6 +652,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--fallback",
         action="store_true",
         help="dengan suara cadangan offline (suara Windows), yang dipakai kalau edge-tts gagal",
+    )
+    say.add_argument(
+        "--volume",
+        type=_voice_volume_percent,
+        metavar="PERSEN",
+        help=(
+            f"volume suaranya {LEVELS[0]} sampai {LEVELS[1]} persen untuk mencoba, tanpa "
+            "menyimpannya (default: volume suaranya sekarang)"
+        ),
     )
     command("mics", _mics, "Daftar perangkat audio.")
     mic = command(
@@ -1120,6 +1132,16 @@ def _transaction_count(text: str) -> int:
     return int(text)
 
 
+def _voice_volume_percent(text: str) -> int:
+    """A level of her voice to try with `say`: a whole percentage she can be played at."""
+    low, high = LEVELS
+    if not (text.isascii() and text.isdigit() and low <= int(text) <= high):
+        raise argparse.ArgumentTypeError(
+            f"harus bilangan bulat {low} sampai {high}, bukan {text!r}"
+        )
+    return int(text)
+
+
 def _config_problem(exc: ConfigError) -> str:
     """The ConfigError text without the values pydantic quotes, which can be a local_key."""
     cause = exc.__cause__
@@ -1268,6 +1290,8 @@ def _listen(args: argparse.Namespace) -> int:
     # afresh as it switches, the briefing leaves Master's tasks out, and the Assistant skips her
     # private turns while it is on.
     guest_mode = GuestMode(max_hours=config.guest_mode.max_hours)
+    # Her own voice level: her tool sets it, and the player reads it at every clip she says.
+    voice_level = _voice_level(config)
     with _session_schedule(config, dry_run=args.dry_run) as schedule:
         # While a game runs (the play time watcher tells it), game mode may hold what she says
         # by herself, and it runs Master's start and stop routines on this run's devices.
@@ -1285,6 +1309,7 @@ def _listen(args: argparse.Namespace) -> int:
             camera_turn,
             focus=focus,
             guest_mode=guest_mode,
+            voice_level=voice_level,
         )
         stt = WhisperStt(config.stt, name)
         gate = WakeGate(config.assistant.wake_words, config.assistant.followup_seconds)
@@ -1312,7 +1337,8 @@ def _listen(args: argparse.Namespace) -> int:
                 brain=brain,
                 stt=stt,
                 speech=build_speech_router(config.tts, converter=converter),
-                player=Player(config.audio.output_device),
+                # Only the PC's speaker: the phone's replies are synthesised apart.
+                player=VolumePlayer(Player(config.audio.output_device), voice_level.level_now),
                 gate=gate,
                 verifier=verifier,
                 speaker_check=speaker_check,
@@ -1463,6 +1489,9 @@ def _chat(args: argparse.Namespace) -> int:
     gacha = build_gacha(config) if config.gacha.enabled else None
     usage = _usage_recorder(config)
     name = config.assistant.name
+    # Her voice level is the file's, shared with a running `waifu run`, which hears a change
+    # made here at its next clip.
+    voice_level = _voice_level(config)
     with _session_schedule(config, dry_run=args.dry_run) as schedule:
         # Only the offers tool pushes from chat, when Master asks for a link. Its guest mode is
         # this process's own: a running `waifu run` keeps its own.
@@ -1475,6 +1504,7 @@ def _chat(args: argparse.Namespace) -> int:
             _session_pc_reader(config),
             build_notifier(config.notify),
             guest_mode=GuestMode(max_hours=config.guest_mode.max_hours),
+            voice_level=voice_level,
         )
         # One scheduler fires the real schedule, and one teller gives the budget notices: a
         # running `waifu run`, which speaks and pushes, rather than this chat, which would take
@@ -1487,7 +1517,11 @@ def _chat(args: argparse.Namespace) -> int:
             _voice_converter(config, wanted=args.speak) as converter,
         ):
             speech = build_speech_router(config.tts, converter=converter) if args.speak else None
-            player = Player(config.audio.output_device) if args.speak else None
+            player = (
+                VolumePlayer(Player(config.audio.output_device), voice_level.level_now)
+                if args.speak
+                else None
+            )
             mode = " (perangkat simulasi)" if args.dry_run else ""
             print(f"Ngobrol dengan {name}{mode}. Ketik 'keluar' untuk berhenti.")
             if left_to_run:
@@ -1544,15 +1578,16 @@ def _companion_brain(
     *,
     focus: FocusTimer | None = None,
     guest_mode: GuestMode,
+    voice_level: VoiceLevel,
 ) -> Brain:
-    """The brain with `guest_mode`'s tool first, then the game tools when they are on, her
-    long-term memory when it is on, her schedule when it is on, Master's to-do list when it is
-    on, Master's journal when it is on, with `focus` (only `run` has one) Master's focus timer,
-    the day's briefing when it is on, with `pc` how the PC is doing, how long Master's games
-    were open when play time is on, the free offers when they are on (their links pushed through
-    `notifier`), Master's money from tepira when it is on, songs on YouTube when they are on,
-    with Claude her eyes on the screen when vision is on, and with `usage` what her requests
-    cost.
+    """The brain with `guest_mode`'s tool first, her own voice volume (`voice_level`), then the
+    game tools when they are on, her long-term memory when it is on, her schedule when it is on,
+    Master's to-do list when it is on, Master's journal when it is on, with `focus` (only `run`
+    has one) Master's focus timer, the day's briefing when it is on, with `pc` how the PC is
+    doing, how long Master's games were open when play time is on, the free offers when they are
+    on (their links pushed through `notifier`), Master's money from tepira when it is on, songs
+    on YouTube when they are on, with Claude her eyes on the screen when vision is on, and with
+    `usage` what her requests cost.
 
     With memory, every new session lists the notes as they are in the file at that moment.
     The to-do list is the real one also in a dry run (it moves no device), and the briefing
@@ -1571,7 +1606,11 @@ def _companion_brain(
     notes = _memory_store(config) if config.memory.enabled else None
     todo = _todo_store(config) if config.todo.enabled else None
     journal = _journal_store(config) if config.journal.enabled else None
-    providers: list[ToolProvider] = [GuestTools(guest_mode), *_game_tools(config, gacha)]
+    providers: list[ToolProvider] = [
+        GuestTools(guest_mode),
+        VoiceVolumeTools(voice_level),
+        *_game_tools(config, gacha),
+    ]
     if notes is not None:
         providers.append(MemoryTools(notes, owner_call=owner_call))
     if schedule is not None:
@@ -1657,7 +1696,7 @@ def _describe_tool_call(call: ToolCallRecord) -> str:
 
 def _speak(
     speech: SpeechRouter,
-    player: Player,
+    player: AudioPlayer,
     text: str,
     *,
     avatar: AvatarBus | None = None,
@@ -2033,16 +2072,24 @@ def _say(args: argparse.Namespace) -> int:
             f"{WARN} Suara anime mati (tts.rvc.enabled: false), jadi tts.rvc.model tidak dipakai."
         )
     emotion, text = split_emotion(" ".join(args.text))
+    # Her voice level now (the file read, never created), or the one to try, saved nowhere.
+    volume: int | None = args.volume
+    level = _voice_level(config).level_now if volume is None else lambda: volume
     with _avatar_bus(config) as avatar, _voice_converter(config, wanted=not args.raw) as converter:
         spoken = _speak(
             build_speech_router(config.tts, converter=converter, fallback_only=args.fallback),
-            Player(config.audio.output_device),
+            VolumePlayer(Player(config.audio.output_device), level),
             text,
             avatar=avatar,
             emotion=emotion,
             viewer_wait_s=_avatar_viewer_wait_s(config),
         )
     return 0 if spoken else 1
+
+
+def _voice_level(config: AppConfig) -> VoiceLevel:
+    """Her own voice level and whisper mode, in the file `run`, `chat`, and `say` share."""
+    return VoiceLevel(config.voice.state_path, config.voice.night)
 
 
 def _mics(args: argparse.Namespace) -> int:
@@ -5344,6 +5391,7 @@ def _checks(config_path: Path) -> Iterator[Check]:
     yield _focus_check(config)
     yield _game_mode_check(config)
     yield _guest_mode_check(config)
+    yield _voice_volume_check(config)
     yield _free_offers_check(config)
     yield from _voice_package_checks(config)
     yield _microphone_check(config)
@@ -5767,6 +5815,32 @@ def _guest_mode_check(config: AppConfig) -> Check:
     return OK, text
 
 
+def _voice_volume_check(config: AppConfig) -> Check:
+    """Her own voice level, whether whisper mode is on and its window, the level she is heard
+    at now when whisper mode holds her back, and where a broken file was moved, if one was."""
+    voice_level = _voice_level(config)
+    path = config.voice.state_path
+    try:
+        state = voice_level.state()  # moves a broken file aside, as `run` would
+    except OSError as exc:
+        return FAIL, f"File volume suara {path} tidak bisa dibaca: {exc}"
+    night = config.voice.night
+    status = (
+        f"Volume suaraku: {state.level}%, mode bisik {'aktif' if state.night else 'mati'} "
+        f"({night.from_:%H:%M}-{night.until:%H:%M} paling keras {night.level}%)"
+    )
+    heard = voice_level.level_for(state)
+    if heard != state.level:
+        status += f", sekarang {heard}%"
+    moved = _set_aside_files(path)
+    if moved:
+        return WARN, (
+            f"{status}; file volume yang rusak dipindah ke {', '.join(map(str, moved))} "
+            "(lihat README, bagian Volume suaraku)"
+        )
+    return OK, status
+
+
 def _free_offers_check(config: AppConfig) -> Check:
     """Which stores she reads the free games of, when the AI offers were last searched for,
     and where a broken offers file was moved, if one was; nothing is asked of the internet."""
@@ -5804,8 +5878,8 @@ def _free_offers_check(config: AppConfig) -> Check:
 
 
 def _set_aside_files(path: Path) -> list[Path]:
-    """The copies a broken memory, schedule, to-do, journal, usage, offers, play time, or focus
-    file was renamed to (`<name>.corrupt-<time>`), oldest first.
+    """The copies a broken memory, schedule, to-do, journal, usage, offers, play time, focus, or
+    voice volume file was renamed to (`<name>.corrupt-<time>`), oldest first.
 
     They stay until the owner repairs or deletes them, so `check` points at them every time.
     """

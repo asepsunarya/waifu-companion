@@ -47,6 +47,7 @@ from waifu.voice.base import SpeechToText, Transcript, Utterance
 from waifu.voice.speaker import SpeakerError
 from waifu.voice.stt import SttError
 from waifu.voice.tts import TtsError
+from waifu.voice.volume import VolumePlayer
 
 NOW = datetime(2026, 10, 12, 19, 30)
 SAMPLE_RATE = 16000
@@ -128,6 +129,7 @@ class FakePlayer:
         self.events = events
         self.error = error
         self.played: list[int] = []
+        self.peaks: list[float] = []  # each clip's loudest sample
         self.on_play: Callable[[], None] = lambda: None  # runs while the audio "plays"
         self.playing = False
         self.cut = threading.Event()  # set by `stop()` while the audio plays
@@ -143,6 +145,7 @@ class FakePlayer:
         if self.error is not None:
             raise self.error
         self.played.append(sample_rate)
+        self.peaks.append(float(np.max(np.abs(audio))))
         return not self.cut.is_set()
 
     def stop(self) -> bool:
@@ -196,6 +199,7 @@ class FakeAvatar:
         self.events = events
         self.error = error
         self.spoken: list[tuple[int, int, str]] = []
+        self.peaks: list[float] = []  # the loudest sample of each clip it mouths
 
     def state(self, name: str, followup_s: float | None = None) -> None:
         followup = "" if followup_s is None else f" {followup_s:g}"
@@ -208,6 +212,7 @@ class FakeAvatar:
         if self.error is not None:
             raise self.error
         self.spoken.append((len(audio), sample_rate, emotion))
+        self.peaks.append(float(np.max(np.abs(audio))))
 
 
 class Rig:
@@ -231,6 +236,7 @@ class Rig:
         quiet: Callable[[], bool] | None = None,
         game_holding: Callable[[], bool] | None = None,
         guest_mode: Callable[[], bool] | None = None,
+        volume: int | None = None,
     ) -> None:
         config = config or AppConfig()
         self.events: list[str] = []
@@ -250,7 +256,7 @@ class Rig:
             brain=self.brain,
             stt=self.stt,
             speech=self.speech,
-            player=self.player,
+            player=self.player if volume is None else VolumePlayer(self.player, lambda: volume),
             gate=self.gate,
             verifier=self.verifier if with_verifier else None,
             speaker_check=speaker_check,
@@ -1896,6 +1902,20 @@ def test_her_phone_voice_is_clipped_where_it_is_too_loud_instead_of_wrapping_aro
     reply = rig.assistant.reply_for_phone(PHONE_TEXT)
 
     assert read_wav(reply.audio_wav)[1][:3].tolist() == [32767, -32767, 8192]
+
+
+def test_her_voice_volume_lowers_only_the_pc_s_speaker_not_her_mouth_or_the_phone():
+    # The gain is in the PC's player: the avatar mouths the clip as it was voiced, and the
+    # phone plays its own reply at the phone's volume.
+    rig = Rig(with_avatar=True, volume=10)
+    rig.speech.voice = (np.full(2400, 0.5, dtype=np.float32), 24000)
+
+    rig.assistant.speak(REPLY)
+    reply = rig.assistant.reply_for_phone(PHONE_TEXT)
+
+    assert rig.player.peaks == [pytest.approx(0.05)]
+    assert rig.avatar.peaks == [0.5]
+    assert np.abs(read_wav(reply.audio_wav)[1]).max() == pytest.approx(0.5 * 32767, rel=0.01)
 
 
 @pytest.mark.parametrize("error", [TtsError("Edge TTS gagal"), RuntimeError("RVC rusak")])

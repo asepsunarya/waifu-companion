@@ -1890,14 +1890,14 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 198 · **Files:** `src/waifu/brain/voice_volume_tools.py`, `tests/test_voice_volume_tools.py`, `src/waifu/brain/tools.py`, `tests/test_brain_tools.py` · **Scope:** M
 
-## Task 200: Wiring and the check line
+## Task 200: Wiring and the check line ✅
 
 **Acceptance criteria:**
-- [ ] `run` and `chat` give the brain `VoiceVolumeTools`; `run`'s Assistant, `chat --speak`, and `say` play through a `VolumePlayer` at the file's level; `say --volume N` plays at N (10-150, else an argparse error) and saves nothing
-- [ ] `waifu check` shows the level and whisper mode, and a moved or unreadable file
-- [ ] The strict budget test names `voice_volume` as non-strict and open in guest mode
+- [x] `run` and `chat` give the brain `VoiceVolumeTools`; `run`'s Assistant, `chat --speak`, and `say` play through a `VolumePlayer` at the file's level; `say --volume N` plays at N (10-150, else an argparse error) and saves nothing
+- [x] `waifu check` shows the level and whisper mode, and a moved or unreadable file
+- [x] The strict budget test names `voice_volume` as non-strict and open in guest mode
 
-**Dependencies:** 196, 198, 199 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** M
+**Dependencies:** 196, 198, 199 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py`, `tests/test_app.py` · **Scope:** M
 
 ## Task 201: Docs
 

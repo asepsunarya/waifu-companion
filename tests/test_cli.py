@@ -61,6 +61,7 @@ from waifu.brain.screen_tools import ScreenTools
 from waifu.brain.todo_tools import TodoTools
 from waifu.brain.tools import to_anthropic
 from waifu.brain.usage_tools import UsageTools
+from waifu.brain.voice_volume_tools import VoiceVolumeTools
 from waifu.briefing import BRIEFING_PROMPT, DAILY_BRIEFING, BriefingTimer, BriefingTools
 from waifu.config import (
     AvatarConfig,
@@ -171,7 +172,9 @@ from waifu.voice.rvc import RvcError
 from waifu.voice.speaker import SpeakerVerifier
 from waifu.voice.stt import SttError, WhisperStt
 from waifu.voice.tts import TtsError
+from waifu.voice.volume import VolumePlayer
 from waifu.voice.windows_voices import WindowsVoice, WindowsVoiceError
+from waifu.voice_level import VoiceLevel
 from waifu.weather import WeatherClient, WeatherError
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -980,13 +983,17 @@ class FakeRouter:
 
 
 class FakePlayer:
+    """`played` holds each clip's length and rate, `peaks` its loudest sample (her volume)."""
+
     played: list[tuple[int, int]] = []
+    peaks: list[float] = []
 
     def __init__(self, device=None) -> None:
         self.device = device
 
     def play(self, audio: np.ndarray, sample_rate: int) -> bool:
         FakePlayer.played.append((len(audio), sample_rate))
+        FakePlayer.peaks.append(float(np.max(np.abs(audio))))
         return True  # played to the end
 
     def stop(self) -> bool:
@@ -996,6 +1003,7 @@ class FakePlayer:
 @pytest.fixture
 def player(monkeypatch) -> type[FakePlayer]:
     FakePlayer.played = []
+    FakePlayer.peaks = []
     monkeypatch.setattr(cli, "Player", FakePlayer)
     return FakePlayer
 
@@ -1803,6 +1811,16 @@ def test_chat_speak_voices_each_reply(home, brains, player, monkeypatch):
     assert player.played == [(240, 24000)]
 
 
+def test_chat_speak_voices_each_reply_at_her_saved_voice_level(home, brains, player, monkeypatch):
+    save_voice(home, 60)
+    monkeypatch.setattr(cli, "build_speech_router", lambda tts, converter=None: FakeRouter())
+    monkeypatch.setattr(sys, "stdin", io.StringIO("halo\n"))
+
+    assert cli.main(["chat", "--dry-run", "--speak"]) == 0
+
+    assert player.peaks == [pytest.approx(0.6)]
+
+
 def test_chat_speak_voices_replies_with_the_anime_voice_and_stops_the_server_at_the_end(
     home, brains, player, rvc, speech, events, monkeypatch
 ):
@@ -2324,6 +2342,63 @@ def test_say_closes_the_avatar_even_when_playback_fails(home, speech, avatar, ev
     assert cli.main(["say", "Halo"]) == 1
 
     assert events[-2:] == ["avatar window closed", "avatar server stopped"]
+
+
+def voice_file(home: Path) -> Path:
+    """Where the example config keeps her voice level, inside the test's working directory."""
+    return home / "data" / "voice.json"
+
+
+def save_voice(home: Path, level: int, night: bool = False) -> None:
+    voice_file(home).parent.mkdir(exist_ok=True)
+    voice_file(home).write_text(
+        json.dumps({"version": 1, "level": level, "night": night}), encoding="utf-8"
+    )
+
+
+def test_say_speaks_at_her_saved_voice_level(home, player, speech):
+    save_voice(home, 50)
+
+    assert cli.main(["say", "Halo"]) == 0
+
+    assert player.peaks == [0.5]  # the fake voice is a full-scale clip
+
+
+def test_say_without_a_saved_level_speaks_at_the_normal_level_and_saves_nothing(
+    home, player, speech
+):
+    assert cli.main(["say", "Halo"]) == 0
+
+    assert player.peaks == [1.0]
+    assert not voice_file(home).exists()
+
+
+def test_say_volume_tries_a_level_without_saving_it(home, player, speech):
+    save_voice(home, 50)
+
+    assert cli.main(["say", "--volume", "30", "Halo"]) == 0
+
+    assert player.peaks == [pytest.approx(0.3)]
+    assert json.loads(voice_file(home).read_text(encoding="utf-8"))["level"] == 50
+
+
+def test_say_volume_above_one_hundred_is_louder_but_never_clips(home, player, speech):
+    assert cli.main(["say", "--volume", "150", "Halo"]) == 0
+
+    [peak] = player.peaks
+    assert 0.9 < peak < 0.98
+
+
+@pytest.mark.parametrize("value", ["9", "151", "80.5", "keras"])
+def test_say_volume_outside_ten_to_one_hundred_fifty_is_refused(value, capsys):
+    with pytest.raises(SystemExit) as exit_info:
+        cli.build_parser().parse_args(["say", "--volume", value, "Halo"])
+
+    assert exit_info.value.code == 2
+    assert (
+        f"argument --volume: harus bilangan bulat 10 sampai 150, bukan '{value}'"
+        in capsys.readouterr().err
+    )
 
 
 def test_mics_prints_the_audio_device_list(monkeypatch, capsys):
@@ -5373,6 +5448,7 @@ def test_run_with_the_games_on_gives_the_brain_the_game_tools_and_watches_while_
 
     [
         guest,
+        voice_volume,
         tools,
         data_tools,
         income,
@@ -5391,6 +5467,7 @@ def test_run_with_the_games_on_gives_the_brain_the_game_tools_and_watches_while_
     ] = brains[0].providers
     assert (
         type(guest),
+        type(voice_volume),
         type(tools),
         type(memory_tools),
         type(schedule),
@@ -5404,6 +5481,7 @@ def test_run_with_the_games_on_gives_the_brain_the_game_tools_and_watches_while_
         type(music),
     ) == (
         GuestTools,
+        VoiceVolumeTools,
         GachaTools,
         MemoryTools,
         ScheduleTools,
@@ -5465,6 +5543,7 @@ def test_run_without_a_cookie_has_the_game_tools_but_no_watcher(
 
     assert [type(tools) for tools in brains[0].providers] == [
         GuestTools,
+        VoiceVolumeTools,
         GachaTools,
         GameDataTools,
         IncomeTools,
@@ -5490,6 +5569,7 @@ def test_run_with_the_games_off_builds_none_of_it(home, run_fakes, brains, games
     assert (games.built, watchers) == ([], [])
     assert [type(tools) for tools in brains[0].providers] == [
         GuestTools,
+        VoiceVolumeTools,
         MemoryTools,
         ScheduleTools,
         TodoTools,
@@ -5511,6 +5591,7 @@ def test_chat_with_the_games_on_gives_the_brain_the_game_tools(home, brains, gam
 
     assert [type(tools) for tools in brains[0].providers] == [
         GuestTools,
+        VoiceVolumeTools,
         GachaTools,
         GameDataTools,
         IncomeTools,
@@ -5569,7 +5650,7 @@ def test_the_data_tools_follow_the_game_tools_and_read_hoyolab_for_the_configure
 
     assert cli.main([*argv, "--dry-run"]) == 0
 
-    [_, tools, data_tools, income, code_tools, *_] = brains[0].providers
+    [_, _, tools, data_tools, income, code_tools, *_] = brains[0].providers
     assert (type(tools), type(data_tools), type(income), type(code_tools)) == (
         GachaTools,
         GameDataTools,
@@ -6530,9 +6611,9 @@ def test_run_gives_the_brain_her_memory_tools_and_the_notes_at_each_session_star
     assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
 
     brain = brains[0]
-    # After guest mode's tool, then the schedule, to-do, journal, focus, briefing, PC, play
-    # time, offers, and music.
-    [_, tools, _, _, _, _, _, _, _, _, _] = brain.providers
+    # After guest mode's and the voice volume's tools, then the schedule, to-do, journal,
+    # focus, briefing, PC, play time, offers, and music.
+    [_, _, tools, _, _, _, _, _, _, _, _, _] = brain.providers
     assert isinstance(tools, MemoryTools)
     assert brain.memory_section() == memory_prompt_section([])
     assert tools.run("remember", {"text": "Master alergi udang."})[1] is False
@@ -6551,6 +6632,7 @@ def test_chat_gives_the_brain_the_notes_saved_in_data_memory_json(home, brains, 
 
     assert [type(tools) for tools in brains[0].providers] == [
         GuestTools,
+        VoiceVolumeTools,
         MemoryTools,
         ScheduleTools,
         TodoTools,
@@ -6575,6 +6657,7 @@ def test_with_the_memory_off_the_brain_gets_neither_the_tools_nor_the_notes(
 
     assert [type(tools) for tools in brains[0].providers] == [
         GuestTools,
+        VoiceVolumeTools,
         ScheduleTools,
         TodoTools,
         JournalTools,
@@ -6893,6 +6976,7 @@ def test_run_gives_the_brain_the_schedule_tools_and_fires_her_schedule_while_she
     brain = brains[0]
     assert [type(tools) for tools in brain.providers] == [
         GuestTools,
+        VoiceVolumeTools,
         MemoryTools,
         ScheduleTools,
         TodoTools,
@@ -7058,6 +7142,7 @@ def test_with_the_schedule_off_she_gets_neither_the_tools_nor_a_scheduler(
 
     assert [type(tools) for tools in brains[0].providers] == [
         GuestTools,
+        VoiceVolumeTools,
         MemoryTools,
         TodoTools,
         JournalTools,
@@ -7607,6 +7692,7 @@ def test_with_claude_she_may_look_at_the_screen_at_the_configured_size(
 
     assert [type(tools) for tools in brains[0].providers] == [
         GuestTools,
+        VoiceVolumeTools,
         MemoryTools,
         ScheduleTools,
         TodoTools,
@@ -7761,6 +7847,7 @@ def test_without_claude_or_with_vision_off_the_brain_gets_no_screen_tool(
 
     assert [type(tools) for tools in brains[0].providers] == [
         GuestTools,
+        VoiceVolumeTools,
         MemoryTools,
         ScheduleTools,
         TodoTools,
@@ -8018,6 +8105,7 @@ def test_with_the_briefing_off_she_gets_neither_the_tool_nor_the_greeting(
 
     assert [type(tools) for tools in brains[0].providers] == [
         GuestTools,
+        VoiceVolumeTools,
         MemoryTools,
         ScheduleTools,
         TodoTools,
@@ -11524,6 +11612,147 @@ def test_check_says_guest_mode_right_after_the_game_mode(home, nothing_installed
     assert lines[game + 1] == guest_mode_line("\n".join(lines))
 
 
+# --- her voice volume --------------------------------------------------------------------------
+
+WHISPER_HOUR = datetime(2026, 10, 24, 23, 0)  # the PC's local time, inside the default window
+
+
+@pytest.fixture
+def voice_clock(monkeypatch) -> None:
+    """Every VoiceLevel a command builds reads 23:00 on its clock."""
+    monkeypatch.setattr(
+        cli, "VoiceLevel", lambda path, night: VoiceLevel(path, night, now=lambda: WHISPER_HOUR)
+    )
+
+
+def test_run_gives_the_brain_her_voice_volume_and_the_assistant_plays_at_its_level(
+    home, run_fakes, brains, player
+):
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    voice_tools = brains[0].providers[1]
+    assistant = RecordingAssistant.instances[0]
+    assert isinstance(voice_tools, VoiceVolumeTools)
+    assert isinstance(assistant.collaborators["player"], VolumePlayer)
+
+    result, is_error = voice_tools.run("voice_volume", {"level": 40})
+    assistant.collaborators["player"].play(np.ones(240, dtype=np.float32), 24000)
+
+    assert (is_error, json.loads(result)["level"]) == (False, 40)
+    assert json.loads(voice_file(home).read_text(encoding="utf-8"))["level"] == 40
+    assert player.peaks == [pytest.approx(0.4)]  # her next clip is at the new level
+
+
+def test_run_whispers_inside_the_window_once_whisper_mode_is_on(
+    home, run_fakes, brains, player, voice_clock
+):
+    save_voice(home, 100, night=True)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    RecordingAssistant.instances[0].collaborators["player"].play(
+        np.ones(240, dtype=np.float32), 24000
+    )
+    assert player.peaks == [0.5]
+
+
+def test_run_voices_phone_replies_without_her_volume(home, run_fakes, speech):
+    # The phone plays its own reply: only the PC's player carries her volume.
+    save_voice(home, 10)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    assert RecordingAssistant.instances[0].collaborators["speech"] is speech[0]
+
+
+def test_chat_gives_the_brain_her_voice_volume_on_the_same_file(home, brains, monkeypatch):
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main(["chat", "--dry-run"]) == 0
+
+    result, is_error = brains[0].providers[1].run("voice_volume", {"change": "softer"})
+    assert (is_error, json.loads(result)["level"]) == (False, 80)
+    assert json.loads(voice_file(home).read_text(encoding="utf-8")) == {
+        "version": 1,
+        "level": 80,
+        "night": False,
+    }
+
+
+def voice_volume_line(out: str) -> str:
+    [line] = [
+        line for line in out.splitlines() if "Volume suaraku" in line or "File volume suara" in line
+    ]
+    return line
+
+
+VOICE_WINDOW = "(22:00-06:00 paling keras 50%)"
+
+
+@pytest.mark.parametrize(
+    ("saved", "expected"),
+    [
+        (None, f"✓ Volume suaraku: 100%, mode bisik mati {VOICE_WINDOW}"),
+        ((80, False), f"✓ Volume suaraku: 80%, mode bisik mati {VOICE_WINDOW}"),
+        ((30, True), f"✓ Volume suaraku: 30%, mode bisik aktif {VOICE_WINDOW}"),
+        ((120, True), f"✓ Volume suaraku: 120%, mode bisik aktif {VOICE_WINDOW}, sekarang 50%"),
+    ],
+    ids=["missing", "level", "whisper_below_its_level", "whispering"],
+)
+def test_check_says_her_voice_level_and_whisper_mode(
+    saved, expected, home, nothing_installed, voice_clock, capsys
+):
+    if saved is not None:
+        save_voice(home, *saved)
+
+    cli.main(["check"])
+
+    assert voice_volume_line(capsys.readouterr().out) == expected
+    assert voice_file(home).exists() is (saved is not None)  # check never creates it
+
+
+def test_check_names_the_configured_whisper_window(home, nothing_installed, voice_clock, capsys):
+    append_config(home, "voice:\n  night:\n    from: '23:30'\n    until: '05:00'\n    level: 40\n")
+
+    cli.main(["check"])
+
+    assert voice_volume_line(capsys.readouterr().out) == (
+        "✓ Volume suaraku: 100%, mode bisik mati (23:30-05:00 paling keras 40%)"
+    )
+
+
+def test_check_points_at_a_broken_voice_file_it_moved_aside(
+    home, nothing_installed, voice_clock, capsys
+):
+    voice_file(home).parent.mkdir()
+    voice_file(home).write_text("broken", encoding="utf-8")
+
+    cli.main(["check"])
+
+    [moved] = (home / "data").glob("voice.json.corrupt-*")
+    assert voice_volume_line(capsys.readouterr().out) == (
+        f"! Volume suaraku: 100%, mode bisik mati {VOICE_WINDOW}; file volume yang rusak "
+        f"dipindah ke {Path('data') / moved.name} (lihat README, bagian Volume suaraku)"
+    )
+
+
+def test_check_fails_on_a_voice_file_it_cannot_read(home, nothing_installed, capsys):
+    voice_file(home).mkdir(parents=True)  # a folder where the file should be
+
+    assert cli.main(["check"]) == 1
+
+    line = voice_volume_line(capsys.readouterr().out)
+    assert line.startswith(f"✗ File volume suara {Path('data') / 'voice.json'} tidak bisa dibaca:")
+
+
+def test_check_says_her_voice_volume_right_after_guest_mode(home, nothing_installed, capsys):
+    cli.main(["check"])
+
+    lines = capsys.readouterr().out.splitlines()
+    guest = lines.index(guest_mode_line("\n".join(lines)))
+    assert lines[guest + 1] == voice_volume_line("\n".join(lines))
+
+
 # --- web search and free offers ----------------------------------------------------------------
 
 
@@ -12993,8 +13222,9 @@ def test_run_gives_the_weekly_report_once_a_week_while_she_listens_and_pushes_it
 
     assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
 
-    assert [type(tools) for tools in brains[0].providers][:6] == [
+    assert [type(tools) for tools in brains[0].providers][:7] == [
         GuestTools,
+        VoiceVolumeTools,
         GachaTools,
         GameDataTools,
         IncomeTools,
@@ -13560,6 +13790,7 @@ def test_run_gives_the_brain_her_to_do_tools_and_the_tasks_due_today_in_the_brie
     brain = brains[0]
     assert [type(tools) for tools in brain.providers] == [
         GuestTools,
+        VoiceVolumeTools,
         MemoryTools,
         ScheduleTools,
         TodoTools,
@@ -13598,6 +13829,7 @@ def test_chat_gives_the_brain_the_tasks_saved_in_data_todo_json_with_either_back
 
     assert [type(tools) for tools in brains[0].providers] == [
         GuestTools,
+        VoiceVolumeTools,
         MemoryTools,
         ScheduleTools,
         TodoTools,
@@ -13629,6 +13861,7 @@ def test_with_the_todo_list_off_the_brain_gets_neither_the_tools_nor_the_tasks(
 
     assert [type(tools) for tools in brains[0].providers] == [
         GuestTools,
+        VoiceVolumeTools,
         MemoryTools,
         ScheduleTools,
         JournalTools,
@@ -13911,6 +14144,7 @@ def test_run_gives_the_brain_her_journal_tools_right_after_the_to_do_tools(
 
     assert [type(tools) for tools in brains[0].providers] == [
         GuestTools,
+        VoiceVolumeTools,
         MemoryTools,
         ScheduleTools,
         TodoTools,
@@ -13965,8 +14199,9 @@ def test_chat_reads_the_journal_saved_in_data_journal_json_with_either_backend(
 
     assert cli.main(["chat", "--dry-run"]) == 0
 
-    assert [type(tools) for tools in brains[0].providers][:5] == [
+    assert [type(tools) for tools in brains[0].providers][:6] == [
         GuestTools,
+        VoiceVolumeTools,
         MemoryTools,
         ScheduleTools,
         TodoTools,
@@ -14278,8 +14513,8 @@ def optional_parameters(schema: dict) -> int:
 
 
 # The tools guest mode leaves open: the house, the day, songs, the PC's health, the free
-# offers, web search, guest mode itself, and the focus timer (only `run` has one), a control
-# Master must be able to stop with guests around.
+# offers, web search, guest mode itself, her own voice volume (a control, nothing private), and
+# the focus timer (only `run` has one), a control Master must be able to stop with guests around.
 OPEN_TO_GUESTS = frozenset(
     {
         "control_device",
@@ -14293,6 +14528,7 @@ OPEN_TO_GUESTS = frozenset(
         "send_offer_link",
         "web_search",
         "guest_mode",
+        "voice_volume",
         "focus_timer",
     }
 )
@@ -14345,6 +14581,7 @@ def test_the_claude_request_with_every_tool_on_stays_within_the_strict_tool_limi
         "journal_read",
         "gacha_income",
         "guest_mode",
+        "voice_volume",
         *FINANCE_TOOLS,
     } <= names
     # Every tool is either closed in guest mode or still open: a new one must be sorted.
@@ -14376,7 +14613,7 @@ def test_the_claude_request_with_every_tool_on_stays_within_the_strict_tool_limi
         "record_expense",
         "journal_write",
     } <= {tool["name"] for tool in strict}
-    assert "guest_mode" not in {tool["name"] for tool in strict}
+    assert not {"guest_mode", "voice_volume"} & {tool["name"] for tool in strict}
 
 
 # --- songs on YouTube ------------------------------------------------------------------------
@@ -14435,6 +14672,7 @@ def test_run_and_chat_give_the_brain_the_music_tool_with_either_backend(
 
     assert [type(tools) for tools in brains[0].providers] == [
         GuestTools,
+        VoiceVolumeTools,
         MemoryTools,
         ScheduleTools,
         TodoTools,
@@ -14533,6 +14771,7 @@ def test_with_music_off_the_brain_gets_no_music_tool(
 
     assert [type(tools) for tools in brains[0].providers] == [
         GuestTools,
+        VoiceVolumeTools,
         MemoryTools,
         ScheduleTools,
         TodoTools,

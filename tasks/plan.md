@@ -770,7 +770,7 @@ new dependency; 18 of 20 strict tools and 17 of 24 optional parameters stay.
 - [x] Task 197: the `voice` config (the whisper window), `config.example.yaml`
 - [x] Task 198: `VoiceLevel` (the state file, the steps, the whisper window, `level_now`)
 - [x] Task 199: `VoiceVolumeTools` (`voice_volume`) and the media device's line
-- [ ] Task 200: wiring in `run`, `chat`, and `say --volume`, the check line, the strict budget and tool sorting tests
+- [x] Task 200: wiring in `run`, `chat`, and `say --volume`, the check line, the strict budget and tool sorting tests
 - [ ] Task 201: README "Volume suaraku", CHANGELOG
 
 ### Checkpoint: Volume suaraku
