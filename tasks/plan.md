@@ -821,7 +821,7 @@ parameters stay.
 - [x] Task 209: `JapaneseTools` (`japanese_lesson`) and the persona section
 - [x] Task 210: the briefing's `word_of_the_day` and `BRIEFING_PROMPT`
 - [x] Task 211: the `japanese` config, `config.example.yaml`
-- [ ] Task 212: wiring in `run` and `chat`, guest mode sorting, `waifu jepang`, the check line
+- [x] Task 212: wiring in `run` and `chat`, guest mode sorting, `waifu jepang`, the check line
 - [ ] Task 213: README "Belajar bahasa Jepang", CHANGELOG
 
 ### Checkpoint: Belajar bahasa Jepang

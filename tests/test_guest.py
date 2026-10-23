@@ -4,6 +4,7 @@ from datetime import datetime
 import pytest
 
 from waifu.brain.focus_tools import FOCUS_TIMER
+from waifu.brain.japanese_tools import JAPANESE_LESSON
 from waifu.brain.memory_tools import FORGET, REMEMBER
 from waifu.brain.play_time_tools import PLAY_TIME
 from waifu.brain.schedule_tools import CANCEL_SCHEDULE, LIST_SCHEDULES, RUN_ROUTINE, SCHEDULE
@@ -181,9 +182,18 @@ def test_every_private_tool_is_refused_while_it_is_on(tool):
 
 
 @pytest.mark.parametrize(
-    "tool", [CONTROL_DEVICE, LIST_DEVICES, RUN_ROUTINE, SCHEDULE, DAILY_BRIEFING, FOCUS_TIMER]
+    "tool",
+    [
+        CONTROL_DEVICE,
+        LIST_DEVICES,
+        RUN_ROUTINE,
+        SCHEDULE,
+        DAILY_BRIEFING,
+        FOCUS_TIMER,
+        JAPANESE_LESSON,  # beginner words and how many Master knows are low-stakes
+    ],
 )
-def test_the_house_the_day_and_the_focus_timer_are_never_refused(tool):
+def test_the_house_the_day_the_focus_timer_and_the_japanese_lessons_are_never_refused(tool):
     guest = guest_mode(Clock(at(24, 20)))
     guest.turn_on()
 

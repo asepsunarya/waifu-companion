@@ -49,6 +49,7 @@ from waifu.brain.base import Brain, BrainReply, ToolCallRecord
 from waifu.brain.finance_tools import FinanceTools
 from waifu.brain.focus_tools import FocusTools
 from waifu.brain.guest_tools import GuestTools
+from waifu.brain.japanese_tools import JapaneseTools
 from waifu.brain.journal_tools import JournalTools
 from waifu.brain.memory_tools import MemoryTools
 from waifu.brain.music_tools import MusicTools
@@ -66,6 +67,7 @@ from waifu.briefing import BRIEFING_PROMPT, DAILY_BRIEFING, BriefingTimer, Brief
 from waifu.config import (
     AvatarConfig,
     FreeOffersConfig,
+    JapaneseConfig,
     JournalConfig,
     MusicConfig,
     PcHealthConfig,
@@ -149,6 +151,7 @@ from waifu.gacha.tools import GachaTools
 from waifu.gacha.weekly import WEEKLY_REPORT_PROMPT, WeeklyReportTimer, WeeklyReportTools
 from waifu.gacha.zenless import ZzzAgent
 from waifu.guest import PRIVATE_TOOLS, GuestMode
+from waifu.japanese import JapaneseStore, WordProgress, load_words, word_of_the_day
 from waifu.journal import JOURNAL_PROMPT, JournalStore, JournalTimer
 from waifu.memory import MemoryStore, memory_prompt_section
 from waifu.offers.errors import OffersError
@@ -252,6 +255,14 @@ def no_real_journal(tmp_path, monkeypatch):
     directory at the repository fails instead of reading or writing the owner's journal in
     data/journal.json (building a store touches no file, so the refusal comes first)."""
     monkeypatch.setattr(cli, "JournalStore", only_under(tmp_path, cli.JournalStore))
+
+
+@pytest.fixture(autouse=True)
+def no_real_japanese_lessons(tmp_path, monkeypatch):
+    """Every Japanese lesson store a command builds lives under tmp_path: a test that leaves the
+    working directory at the repository fails instead of reading or writing the owner's words
+    in data/japanese.json (building a store touches no file, so the refusal comes first)."""
+    monkeypatch.setattr(cli, "JapaneseStore", only_under(tmp_path, cli.JapaneseStore))
 
 
 @pytest.fixture(autouse=True)
@@ -14504,6 +14515,314 @@ def test_the_example_journal_block_is_valid_once_written_out(home):
     assert cli.load_config(home / "config.yaml").journal == JournalConfig()
 
 
+# --- Japanese lessons --------------------------------------------------------------------------
+
+JAPANESE_NOW = datetime(2026, 10, 24, 20, 0, tzinfo=WIB)  # Saturday evening
+WORDS = load_words()
+JAPANESE_NOTE = (
+    "Kata hari ini dihitung sudah dipelajari saat Cyrene menyebutnya, di sapaan pagi atau saat "
+    "ditanya."
+)
+
+
+@pytest.fixture
+def japanese_clock(monkeypatch) -> FocusClock:
+    """The WIB clock of the lesson tool and of `waifu jepang`, at JAPANESE_NOW."""
+    clock = FocusClock(JAPANESE_NOW)
+    monkeypatch.setattr(cli, "wib_now", clock)
+    return clock
+
+
+def turn_on_japanese(home: Path, settings: str = "") -> None:
+    append_config(home, f"japanese:\n  enabled: true\n{settings}")
+
+
+def japanese_file(home: Path) -> Path:
+    """Where the example config keeps Master's words, inside the test's working directory."""
+    return home / "data" / "japanese.json"
+
+
+def japanese_store(path: Path) -> JapaneseStore:
+    return JapaneseStore(path, now=lambda: JAPANESE_NOW)
+
+
+def japanese_tools(brain: HouseBrain) -> JapaneseTools:
+    [tools] = [provider for provider in brain.providers if isinstance(provider, JapaneseTools)]
+    return tools
+
+
+def lesson(brain: HouseBrain, arguments: dict) -> dict:
+    result, is_error = japanese_tools(brain).run("japanese_lesson", arguments)
+    assert is_error is False, result
+    return json.loads(result)
+
+
+def first_day_from(start: datetime, *, with_kanji: bool) -> datetime:
+    """The first day from `start` whose word of the day has a kanji form, or has none."""
+    days = (start + timedelta(days=offset) for offset in range(len(WORDS)))
+    return next(
+        day for day in days if (word_of_the_day(WORDS, day.date()).kanji is not None) == with_kanji
+    )
+
+
+def test_a_japanese_store_outside_tmp_path_is_refused_so_no_test_touches_the_owner_s_words():
+    with pytest.raises(AssertionError, match="JapaneseStore outside tmp_path"):
+        cli.JapaneseStore(ROOT / "data" / "japanese.json")
+
+
+def test_run_gives_the_brain_the_lesson_tool_right_after_the_focus_timer(
+    home, run_fakes, brains, japanese_clock
+):
+    turn_on_japanese(home, "  path: belajar/jepang.json\n")
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    assert [type(tools) for tools in brains[0].providers] == [
+        GuestTools,
+        VoiceVolumeTools,
+        MemoryTools,
+        ScheduleTools,
+        TodoTools,
+        JournalTools,
+        FocusTools,
+        JapaneseTools,
+        BriefingTools,
+        PcTools,
+        PlayTimeTools,
+        OffersTools,
+        MusicTools,
+    ]
+    today = JAPANESE_NOW.date()
+    word = word_of_the_day(WORDS, today)
+    assert lesson(brains[0], {})["word"]["word_id"] == word.id
+    path = home / "belajar" / "jepang.json"  # a dry run keeps Master's real words
+    assert japanese_store(path).progress() == {word.id: WordProgress(1, today, today)}
+
+
+def test_chat_s_briefing_gives_the_word_of_the_day_and_the_tool_counts_it_learned_once(
+    home, brains, japanese_clock, monkeypatch
+):
+    turn_on_japanese(home)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main(["chat", "--dry-run"]) == 0
+
+    assert JapaneseTools in [type(tools) for tools in brains[0].providers]
+    word = word_of_the_day(WORDS, date.today())  # the briefing's day is the PC's local date
+    assert daily_briefing(brains[0])["word_of_the_day"] == {
+        "kana": word.kana,
+        "kanji": word.kanji,
+        "meaning": word.meaning,
+    }
+    daily_briefing(brains[0])
+    assert lesson(brains[0], {"action": "progress"})["learned"] == 1
+
+
+@pytest.mark.parametrize("argv", [["run", "--no-speaker-check"], ["chat"]])
+def test_with_japanese_off_she_gets_no_lesson_tool_and_the_briefing_no_word(
+    argv, home, run_fakes, brains, monkeypatch
+):
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main([*argv, "--dry-run"]) == 0
+
+    assert not any(isinstance(tools, JapaneseTools) for tools in brains[0].providers)
+    assert "word_of_the_day" not in daily_briefing(brains[0])
+    assert not japanese_file(home).exists()
+
+
+@pytest.mark.parametrize("argv", [["jepang"], ["jepang", "hari-ini"]])
+def test_jepang_prints_today_s_word_with_its_example_and_learns_nothing(
+    argv, home, japanese_clock, capsys
+):
+    turn_on_japanese(home)
+    day = first_day_from(JAPANESE_NOW, with_kanji=True)
+    japanese_clock.now = day
+    word = word_of_the_day(WORDS, day.date())
+
+    assert cli.main(argv) == 0
+
+    assert capsys.readouterr().out.splitlines() == [
+        f"Kata hari ini, {WEEKDAYS_ID[day.weekday()]} {day:%d-%m-%Y}: {word.kana} "
+        f"({word.kanji}), artinya {word.meaning}",
+        f"Contoh: {word.example}",
+        f"Artinya: {word.example_meaning}",
+        JAPANESE_NOTE,
+    ]
+    assert not japanese_file(home).exists()
+
+
+def test_jepang_writes_a_word_without_a_kanji_form_in_kana_alone(home, japanese_clock, capsys):
+    turn_on_japanese(home)
+    day = first_day_from(JAPANESE_NOW, with_kanji=False)
+    japanese_clock.now = day
+    word = word_of_the_day(WORDS, day.date())
+
+    assert cli.main(["jepang"]) == 0
+
+    first = capsys.readouterr().out.splitlines()[0]
+    assert first.endswith(f": {word.kana}, artinya {word.meaning}")
+
+
+def test_jepang_works_with_the_lessons_off_and_says_so(home, japanese_clock, capsys):
+    assert cli.main(["jepang"]) == 0
+
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0] == "! Belajar bahasa Jepang mati (japanese.enabled: false)."
+    assert lines[1].startswith("Kata hari ini, Sabtu 24-10-2026: ")
+
+
+def test_jepang_progres_without_a_word_learned_says_so_and_makes_no_file(
+    home, japanese_clock, capsys
+):
+    turn_on_japanese(home)
+
+    assert cli.main(["jepang", "progres"]) == 0
+
+    assert capsys.readouterr().out.splitlines() == [
+        f"Belum ada kata yang dipelajari (0 dari {len(WORDS)})."
+    ]
+    assert not japanese_file(home).exists()
+
+
+def test_jepang_progres_counts_the_learned_the_mastered_and_the_due_words(
+    home, japanese_clock, capsys
+):
+    turn_on_japanese(home)
+    store = japanese_store(japanese_file(home))
+    today = JAPANESE_NOW.date()
+    first, second, third = (word.id for word in WORDS[:3])
+    for word_id in (first, second, third):
+        store.learn(word_id, today - timedelta(days=40))
+    for _ in range(4):
+        store.grade(first, True, today - timedelta(days=20))  # mastered, due again by now
+    store.grade(second, True, today)  # due in two days
+
+    assert cli.main(["jepang", "progres"]) == 0
+
+    assert capsys.readouterr().out.splitlines() == [
+        f"Dipelajari: 3 dari {len(WORDS)} kata, 1 dikuasai",
+        "Perlu diulang hari ini: 2 kata",
+    ]
+
+
+def test_jepang_progres_says_when_no_word_is_due_today(home, japanese_clock, capsys):
+    turn_on_japanese(home)
+    store = japanese_store(japanese_file(home))
+    store.learn(WORDS[0].id, JAPANESE_NOW.date())
+    store.grade(WORDS[0].id, True, JAPANESE_NOW.date())
+
+    assert cli.main(["jepang", "progres"]) == 0
+
+    assert capsys.readouterr().out.splitlines() == [
+        f"Dipelajari: 1 dari {len(WORDS)} kata, 0 dikuasai",
+        "Tidak ada kata yang perlu diulang hari ini.",
+    ]
+
+
+def test_jepang_progres_exits_1_when_the_file_cannot_be_read(
+    home, japanese_clock, monkeypatch, capsys
+):
+    turn_on_japanese(home)
+
+    def unreadable(self):
+        raise PermissionError("access denied")
+
+    monkeypatch.setattr(JapaneseStore, "progress", unreadable)
+
+    assert cli.main(["jepang", "progres"]) == 1
+
+    assert capsys.readouterr().out.splitlines() == [
+        f"✗ File belajar bahasa Jepang {Path('data') / 'japanese.json'} tidak bisa dibaca: "
+        "access denied"
+    ]
+
+
+def japanese_line(out: str) -> str:
+    [line] = [line for line in out.splitlines() if "belajar bahasa jepang" in line.lower()]
+    return line
+
+
+@pytest.mark.parametrize(
+    ("settings", "expected"),
+    [
+        (None, "! Belajar bahasa Jepang mati"),
+        (
+            "japanese:\n  enabled: true\n",
+            f"✓ Belajar bahasa Jepang: 0 dari {len(WORDS)} kata dipelajari, 0 dikuasai",
+        ),
+    ],
+    ids=["off_by_default", "on"],
+)
+def test_check_says_whether_the_japanese_lessons_are_on(
+    settings, expected, home, nothing_installed, capsys
+):
+    if settings is not None:
+        append_config(home, settings)
+
+    cli.main(["check"])
+
+    assert japanese_line(capsys.readouterr().out) == expected
+    assert not japanese_file(home).exists()
+
+
+def test_check_counts_the_learned_and_the_mastered_words(home, nothing_installed, capsys):
+    turn_on_japanese(home)
+    store = japanese_store(japanese_file(home))
+    learned = date(2026, 9, 1)
+    for word in WORDS[:2]:
+        store.learn(word.id, learned)
+    for _ in range(4):
+        store.grade(WORDS[0].id, True, learned)
+
+    cli.main(["check"])
+
+    assert japanese_line(capsys.readouterr().out) == (
+        f"✓ Belajar bahasa Jepang: 2 dari {len(WORDS)} kata dipelajari, 1 dikuasai"
+    )
+
+
+def test_check_moves_a_broken_japanese_file_aside_and_points_at_it(home, nothing_installed, capsys):
+    turn_on_japanese(home)
+    japanese_file(home).parent.mkdir(exist_ok=True)
+    japanese_file(home).write_text("broken", encoding="utf-8")
+
+    cli.main(["check"])
+
+    line = japanese_line(capsys.readouterr().out)
+    [moved] = (home / "data").glob("japanese.json.corrupt-*")
+    assert line == (
+        f"! Belajar bahasa Jepang: 0 dari {len(WORDS)} kata dipelajari, 0 dikuasai; file "
+        f"belajar bahasa Jepang yang rusak dipindah ke {Path('data') / moved.name} (lihat "
+        "README, bagian Belajar bahasa Jepang)"
+    )
+
+
+def test_check_fails_when_the_japanese_file_cannot_be_read(home, nothing_installed, capsys):
+    turn_on_japanese(home)
+    japanese_file(home).mkdir(parents=True)  # a folder where the file should be
+
+    assert cli.main(["check"]) == 1
+
+    assert japanese_line(capsys.readouterr().out).startswith(
+        f"✗ File belajar bahasa Jepang {Path('data') / 'japanese.json'} tidak bisa dibaca: "
+    )
+
+
+def test_check_says_the_japanese_lessons_right_after_the_journal(home, nothing_installed, capsys):
+    cli.main(["check"])
+
+    lines = capsys.readouterr().out.splitlines()
+    journal = lines.index(journal_line("\n".join(lines)))
+    assert lines[journal + 1] == "! Belajar bahasa Jepang mati"
+
+
+def test_the_example_japanese_block_is_valid_once_written_out(home):
+    write_out_example_block(home, "japanese")
+
+    assert cli.load_config(home / "config.yaml").japanese == JapaneseConfig()
+
+
 def strict_parameters(schema: dict) -> list[dict]:
     """The parameter schemas of every object in a strict input schema, nested ones too."""
     found: list[dict] = []
@@ -14528,8 +14847,9 @@ def optional_parameters(schema: dict) -> int:
 
 
 # The tools guest mode leaves open: the house, the day, songs, the PC's health, the free
-# offers, web search, guest mode itself, her own voice volume (a control, nothing private), and
-# the focus timer (only `run` has one), a control Master must be able to stop with guests around.
+# offers, web search, guest mode itself, her own voice volume (a control, nothing private), the
+# Japanese lessons (beginner words and how many Master knows are low-stakes), and the focus timer
+# (only `run` has one), a control Master must be able to stop with guests around.
 OPEN_TO_GUESTS = frozenset(
     {
         "control_device",
@@ -14544,6 +14864,7 @@ OPEN_TO_GUESTS = frozenset(
         "web_search",
         "guest_mode",
         "voice_volume",
+        "japanese_lesson",
         "focus_timer",
     }
 )
@@ -14560,6 +14881,7 @@ def test_the_claude_request_with_every_tool_on_stays_within_the_strict_tool_limi
     append_config(
         home, "routines:\n  tidur:\n    steps:\n      - {device: lampu_kamar, command: off}\n"
     )
+    append_config(home, "japanese:\n  enabled: true\n")
     (home / "config").mkdir()
     shutil.copy(ROOT / "config" / "persona.md", home / "config" / "persona.md")
     sent: list[dict] = []
@@ -14597,6 +14919,7 @@ def test_the_claude_request_with_every_tool_on_stays_within_the_strict_tool_limi
         "gacha_income",
         "guest_mode",
         "voice_volume",
+        "japanese_lesson",
         *FINANCE_TOOLS,
     } <= names
     # Every tool is either closed in guest mode or still open: a new one must be sorted.
@@ -14628,7 +14951,7 @@ def test_the_claude_request_with_every_tool_on_stays_within_the_strict_tool_limi
         "record_expense",
         "journal_write",
     } <= {tool["name"] for tool in strict}
-    assert not {"guest_mode", "voice_volume"} & {tool["name"] for tool in strict}
+    assert not {"guest_mode", "voice_volume", "japanese_lesson"} & {tool["name"] for tool in strict}
 
 
 # --- songs on YouTube ------------------------------------------------------------------------

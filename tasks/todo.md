@@ -2006,13 +2006,13 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 206a · **Files:** `src/waifu/config.py`, `config.example.yaml`, `tests/test_config.py` · **Scope:** S
 
-## Task 212: Wiring, guest mode, `waifu jepang`, and the check line
+## Task 212: Wiring, guest mode, `waifu jepang`, and the check line ✅
 
 **Acceptance criteria:**
-- [ ] With `japanese.enabled`, `run` and `chat` give the brain `JapaneseTools` and the briefing tool the word of the day; off, neither
-- [ ] `japanese_lesson` is sorted as open to guests and non-strict in the every-tool test; never refused by guest mode
-- [ ] `waifu jepang [hari-ini|progres]` prints today's word or the progress without creating the file, warns while off, and exits 1 when the file cannot be read
-- [ ] `waifu check` shows the progress right after the journal line, a moved file, or an unreadable one
+- [x] With `japanese.enabled`, `run` and `chat` give the brain `JapaneseTools` and the briefing tool the word of the day; off, neither
+- [x] `japanese_lesson` is sorted as open to guests and non-strict in the every-tool test; never refused by guest mode
+- [x] `waifu jepang [hari-ini|progres]` prints today's word or the progress without creating the file, warns while off, and exits 1 when the file cannot be read
+- [x] `waifu check` shows the progress right after the journal line, a moved file, or an unreadable one
 
 **Dependencies:** 209, 210, 211 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py`, `tests/test_guest.py` · **Scope:** M
 

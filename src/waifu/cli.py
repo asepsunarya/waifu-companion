@@ -60,6 +60,7 @@ from waifu.brain.factory import build_brain, confirmation_gate
 from waifu.brain.finance_tools import FinanceTools
 from waifu.brain.focus_tools import FocusTools
 from waifu.brain.guest_tools import GuestTools
+from waifu.brain.japanese_tools import JapaneseTools
 from waifu.brain.journal_tools import JournalTools
 from waifu.brain.memory_tools import MemoryTools
 from waifu.brain.music_tools import MusicTools
@@ -169,6 +170,14 @@ from waifu.gacha.zenless import EVENT_REWARD, ZzzAgent
 from waifu.game_mode import GameMode
 from waifu.gate import WakeGate
 from waifu.guest import GuestMode
+from waifu.japanese import (
+    JapaneseStore,
+    Word,
+    learn_word_of_the_day,
+    lesson_counts,
+    load_words,
+    word_of_the_day,
+)
 from waifu.journal import JOURNAL_READ, JournalError, JournalStore, JournalTimer
 from waifu.memory import MemoryStore, memory_prompt_section
 from waifu.music import MusicService, open_in_browser, open_link, search_link, youtube_link
@@ -725,6 +734,20 @@ def build_parser() -> argparse.ArgumentParser:
         _focus,
         "Tampilkan waktu fokus hari ini dan minggu ini, dari catatan teman fokus Cyrene selama "
         "'waifu run' menyala.",
+    )
+    japanese = command(
+        "jepang",
+        _japanese,
+        "Belajar bahasa Jepang: tampilkan kata hari ini atau kemajuan Master, tanpa otak dan "
+        "tanpa mencatat apa pun.",
+    )
+    japanese.add_argument(
+        "view",
+        nargs="?",
+        choices=JAPANESE_VIEWS,
+        default="hari-ini",
+        help="hari-ini (kata hari ini dengan contohnya, bawaan) atau progres (berapa kata yang "
+        "sudah dipelajari, dikuasai, dan perlu diulang hari ini)",
     )
     youtube = commands.add_parser(
         "youtube",
@@ -1584,15 +1607,17 @@ def _companion_brain(
     """The brain with `guest_mode`'s tool first, her own voice volume (`voice_level`), then the
     game tools when they are on, her long-term memory when it is on, her schedule when it is on,
     Master's to-do list when it is on, Master's journal when it is on, with `focus` (only `run`
-    has one) Master's focus timer, the day's briefing when it is on, with `pc` how the PC is
-    doing, how long Master's games were open when play time is on, the free offers when they are
-    on (their links pushed through `notifier`), Master's money from tepira when it is on, songs
-    on YouTube when they are on, with Claude her eyes on the screen when vision is on, and with
-    `usage` what her requests cost.
+    has one) Master's focus timer, Master's Japanese lessons when they are on, the day's
+    briefing when it is on, with `pc` how the PC is doing, how long Master's games were open
+    when play time is on, the free offers when they are on (their links pushed through
+    `notifier`), Master's money from tepira when it is on, songs on YouTube when they are on,
+    with Claude her eyes on the screen when vision is on, and with `usage` what her requests
+    cost.
 
     With memory, every new session lists the notes as they are in the file at that moment.
     The to-do list is the real one also in a dry run (it moves no device), and the briefing
-    tells its tasks due today and overdue.
+    tells its tasks due today and overdue. So are Master's Japanese words, and the briefing
+    tells the word of the day, learned once in the same store as the lesson tool's.
     With `usage`, every Claude response is recorded in its ledger. With `turn_images` (only
     while the phone camera is offered), Claude sees the photo a phone message carries, and
     with `camera_turn` the screen tool looks at the PC in a turn sent through the phone camera
@@ -1607,6 +1632,8 @@ def _companion_brain(
     notes = _memory_store(config) if config.memory.enabled else None
     todo = _todo_store(config) if config.todo.enabled else None
     journal = _journal_store(config) if config.journal.enabled else None
+    japanese = _japanese_store(config) if config.japanese.enabled else None
+    words = load_words() if japanese is not None else ()
     providers: list[ToolProvider] = [
         GuestTools(guest_mode),
         VoiceVolumeTools(voice_level),
@@ -1628,9 +1655,17 @@ def _companion_brain(
         providers.append(JournalTools(journal, now=wib_now, answer_window=answer_window))
     if focus is not None:
         providers.append(FocusTools(focus, now=wib_now))
+    if japanese is not None:
+        providers.append(JapaneseTools(words, japanese, now=wib_now))
     if config.briefing.enabled:
         providers.append(
-            _briefing_tools(config.briefing, schedule, todo=todo, guest_mode=guest_mode.is_on)
+            _briefing_tools(
+                config.briefing,
+                schedule,
+                todo=todo,
+                guest_mode=guest_mode.is_on,
+                japanese=None if japanese is None else _japanese_word_of_the_day(words, japanese),
+            )
         )
     if pc is not None:
         providers.append(PcTools(pc, owner_call=owner_call))
@@ -3570,6 +3605,75 @@ def _preview(text: str) -> str:
     return text[: JOURNAL_PREVIEW_CHARS - 1] + "…"
 
 
+# --- Japanese lessons ------------------------------------------------------------------------
+
+JAPANESE_VIEWS = ("hari-ini", "progres")
+JAPANESE_NOTE = (
+    "Kata hari ini dihitung sudah dipelajari saat {name} menyebutnya, di sapaan pagi atau saat "
+    "ditanya."
+)
+
+
+def _japanese_store(config: AppConfig) -> JapaneseStore:
+    """Master's Japanese words, in the file `japanese.path` names, whether the lessons are on or
+    not (`run`, `chat`, `waifu jepang`, and `check` share it)."""
+    return JapaneseStore(config.japanese.path, now=wib_now)
+
+
+def _japanese_word_of_the_day(
+    words: Sequence[Word], store: JapaneseStore
+) -> Callable[[date], Word]:
+    """The briefing's Japanese word for a day, learned once in `store`."""
+
+    def word_for(day: date) -> Word:
+        return learn_word_of_the_day(words, store, day)[0]
+
+    return word_for
+
+
+def _japanese(args: argparse.Namespace) -> int:
+    """Print today's Japanese word, or with `progres` how many words Master learned, from the
+    built-in list and the lesson file alone: it records nothing, creates no file, and works with
+    the lessons off too. Exit 1 when the lesson file cannot be read."""
+    config = load_config(args.config)
+    if args.view == "progres":
+        return _japanese_progress(config, wib_now().date())
+    _warn_when_japanese_is_off(config)
+    today = wib_now().date()
+    word = word_of_the_day(load_words(), today)
+    written = word.kana if word.kanji is None else f"{word.kana} ({word.kanji})"
+    print(f"Kata hari ini, {_day_text(today)}: {written}, artinya {word.meaning}")
+    print(f"Contoh: {word.example}")
+    print(f"Artinya: {word.example_meaning}")
+    print(JAPANESE_NOTE.format(name=config.assistant.name))
+    return 0
+
+
+def _japanese_progress(config: AppConfig, today: date) -> int:
+    store = _japanese_store(config)
+    try:
+        progress = store.progress()
+    except OSError as exc:
+        print(f"{FAIL} File belajar bahasa Jepang {store.path} tidak bisa dibaca: {exc}")
+        return 1
+    _warn_when_japanese_is_off(config)
+    counts = lesson_counts(load_words(), progress, today)
+    if not counts.learned:
+        print(f"Belum ada kata yang dipelajari (0 dari {counts.total}).")
+        return 0
+    print(f"Dipelajari: {counts.learned} dari {counts.total} kata, {counts.mastered} dikuasai")
+    if counts.due:
+        print(f"Perlu diulang hari ini: {counts.due} kata")
+    else:
+        print("Tidak ada kata yang perlu diulang hari ini.")
+    return 0
+
+
+def _warn_when_japanese_is_off(config: AppConfig) -> None:
+    if not config.japanese.enabled:
+        print(f"{WARN} Belajar bahasa Jepang mati (japanese.enabled: false).")
+
+
 # --- morning briefing ------------------------------------------------------------------------
 
 
@@ -3595,12 +3699,17 @@ def _briefing_tools(
     *,
     todo: TodoStore | None = None,
     guest_mode: Callable[[], bool] | None = None,
+    japanese: Callable[[date], Word] | None = None,
 ) -> BriefingTools:
-    """The day's date, weather, entries of `schedule` (none without one), and with `todo` the
-    tasks due today and overdue, for the brain; while `guest_mode` says guests are around,
-    without the tasks and the reminder texts."""
+    """The day's date, weather, entries of `schedule` (none without one), with `todo` the tasks
+    due today and overdue, and with `japanese` the word of the day, for the brain; while
+    `guest_mode` says guests are around, without the tasks and the reminder texts."""
     return BriefingTools(
-        weather=_weather_client(briefing), schedule=schedule, todo=todo, guest_mode=guest_mode
+        weather=_weather_client(briefing),
+        schedule=schedule,
+        todo=todo,
+        japanese=japanese,
+        guest_mode=guest_mode,
     )
 
 
@@ -5383,6 +5492,7 @@ def _checks(config_path: Path) -> Iterator[Check]:
     yield _schedule_check(config)
     yield _todo_check(config)
     yield _journal_check(config)
+    yield _japanese_check(config)
     yield _music_check(config)
     yield _briefing_check(config.briefing)
     yield _rain_alert_check(config)
@@ -5652,6 +5762,30 @@ def _journal_check(config: AppConfig) -> Check:
     return OK, status
 
 
+def _japanese_check(config: AppConfig) -> Check:
+    """How many words of the built-in list Master learned and mastered, and where a broken
+    lesson file was moved, if one was."""
+    japanese = config.japanese
+    if not japanese.enabled:
+        return WARN, "Belajar bahasa Jepang mati"
+    try:
+        progress = _japanese_store(config).progress()  # moves a broken file aside, as `run` would
+    except OSError as exc:
+        return FAIL, f"File belajar bahasa Jepang {japanese.path} tidak bisa dibaca: {exc}"
+    counts = lesson_counts(load_words(), progress, wib_now().date())
+    status = (
+        f"Belajar bahasa Jepang: {counts.learned} dari {counts.total} kata dipelajari, "
+        f"{counts.mastered} dikuasai"
+    )
+    moved = _set_aside_files(japanese.path)
+    if moved:
+        return WARN, (
+            f"{status}; file belajar bahasa Jepang yang rusak dipindah ke "
+            f"{', '.join(map(str, moved))} (lihat README, bagian Belajar bahasa Jepang)"
+        )
+    return OK, status
+
+
 def _music_check(config: AppConfig) -> Check:
     """Whether she opens songs on YouTube when asked, and on which service; nothing is opened."""
     if not config.music.enabled:
@@ -5879,8 +6013,8 @@ def _free_offers_check(config: AppConfig) -> Check:
 
 
 def _set_aside_files(path: Path) -> list[Path]:
-    """The copies a broken memory, schedule, to-do, journal, usage, offers, play time, focus, or
-    voice volume file was renamed to (`<name>.corrupt-<time>`), oldest first.
+    """The copies a broken memory, schedule, to-do, journal, Japanese lesson, usage, offers, play
+    time, focus, or voice volume file was renamed to (`<name>.corrupt-<time>`), oldest first.
 
     They stay until the owner repairs or deletes them, so `check` points at them every time.
     """
