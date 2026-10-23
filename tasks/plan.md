@@ -870,7 +870,7 @@ told prayers in a small state file under the rules of `prompt_timer.py`, so a re
 one twice. Off by default; no persona line or dependency, so 18 of 20 strict tools and 17 of 24
 optional parameters stay.
 - [x] Task 220a: contract: SPEC, tasks
-- [ ] Task 220: `prayer_times.py` (the sun, noon, the altitude times, the Kemenag times)
+- [x] Task 220: `prayer_times.py` (the sun, noon, the altitude times, the Kemenag times)
 - [ ] Task 221: the `prayer` config, `config.example.yaml`
 - [ ] Task 222: `WeatherClient.location()` and `PrayerPlace`
 - [ ] Task 223: `PrayerTools` (`prayer_times`)

@@ -2091,12 +2091,12 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** none · **Files:** `SPEC.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
 
-## Task 220: The prayer time math
+## Task 220: The prayer time math ✅
 
 **Acceptance criteria:**
-- [ ] `solar_noon` and `sun_at_altitude` agree with NOAA's independent fractional-year formulas within a minute for every day of a year in Jakarta and Bandung
-- [ ] `prayer_times` gives Kemenag's schedule for Jakarta within 2 minutes on 3+ dates, Dzuhur about 11:39 in early November and 12:09 in mid-February; the ihtiyath is added and rounded up, terbit has it subtracted and rounded down, imsak is Subuh minus 10 minutes
-- [ ] Far north: no Subuh, Isya, or imsak at 60°N at the June solstice (Dzuhur and Maghrib sane), no terbit, Ashar, or Maghrib in a polar night
+- [x] `solar_noon` and `sun_at_altitude` agree with NOAA's independent fractional-year formulas within a minute for every day of a year in Jakarta and Bandung
+- [x] `prayer_times` gives Kemenag's schedule for Jakarta within 2 minutes on 3+ dates, Dzuhur about 11:39 in early November and 12:09 in mid-February; the ihtiyath is added and rounded up, terbit has it subtracted and rounded down, imsak is Subuh minus 10 minutes
+- [x] Far north: no Subuh, Isya, or imsak at 60°N at the June solstice (Dzuhur and Maghrib sane), no terbit, Ashar, or Maghrib in a polar night
 
 **Dependencies:** 220a · **Files:** `src/waifu/prayer_times.py`, `tests/test_prayer_times.py` · **Scope:** M
 
