@@ -101,6 +101,15 @@ def test_the_description_keeps_her_voice_apart_from_the_windows_volume(rig):
         assert guidance in spec.description
 
 
+def test_the_description_keeps_speaking_slower_apart_from_speaking_softer(rig):
+    # "pelan-pelan" mostly means slowly: it must not lower and save her volume.
+    [spec] = rig.tools.specs()
+
+    assert "pelan-pelan" not in spec.description
+    assert '"jangan keras-keras ngomongnya"' in spec.description
+    assert "Speaking slower or faster is not this tool" in spec.description
+
+
 def test_the_description_says_her_answer_is_heard_at_now_not_at_the_level_just_set(rig):
     # Whisper mode may hold her below the level just set; she must not claim it is heard.
     [spec] = rig.tools.specs()

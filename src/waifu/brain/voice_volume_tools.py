@@ -57,11 +57,12 @@ _DESCRIPTION = (
     "Your own voice volume on the PC: the level your speech is played at, from 10 to 150 "
     "percent (100 is normal), and whisper mode. Use it only for YOUR voice: "
     '"kecilkan suaramu", "suara kamu terlalu keras", "keraskan suaramu", "kecilkan volume '
-    'suaramu", "ngomongnya pelan-pelan aja", "suaramu berapa?", "mode bisik". The possessive '
-    'decides: "suaramu", "suara kamu", or "volume suaramu" are your voice even with the word '
-    'volume; "volume" alone, "musik", "PC", or the Windows volume are not yours: use '
+    'suaramu", "jangan keras-keras ngomongnya", "suaramu berapa?", "mode bisik". The '
+    'possessive decides: "suaramu", "suara kamu", or "volume suaramu" are your voice even with '
+    'the word volume; "volume" alone, "musik", "PC", or the Windows volume are not yours: use '
     "control_device on the media device for them, which presses the Windows volume keys and "
-    "changes everything the PC plays, your voice included. "
+    "changes everything the PC plays, your voice included. Speaking slower or faster is not "
+    "this tool. "
     "`level` sets a percentage, 10 to 150 percent; `change` is one step of 20 percent, "
     "`louder` or `softer`; give one of them, not both. `night` true turns whisper mode on: "
     "every night inside its window your voice is at most the night level; false turns it off. "
