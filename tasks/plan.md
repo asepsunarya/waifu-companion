@@ -753,6 +753,31 @@ announcements, the quick buttons, and the terminal commands are unchanged. No ne
 - [x] By hand (2026-10-24, a scratch folder with the example config, dry-run mocks, and a scripted Ollama client): `_companion_brain` with a real `GuestMode`; "mode tamu" turned it on (until 05:00, the night's end coming first), the next turn began a new session whose prompt ended with the guest section instead of the remembered fact, `list_tasks` was refused while the lamp turned on, "mode tamu selesai" turned it off, and the turn after it began a new session with the memory section again; the log showed the switches and the refusal
 - [ ] On the owner's PC: "Cyrene, mode tamu" turns it on; "pengeluaranku bulan ini berapa?" is refused briefly; the lamp still answers; "mode tamu selesai" turns it off and the next answer knows her memory again; `waifu check` shows the guest mode line
 
+### Phase 41: Volume suaraku (v1.37, see SPEC → volume suaraku)
+Decision: the gain lives in a `VolumePlayer` around the PC's `Player`, so it lands after synthesis
+and RVC (whose 16-bit PCM upload would hard-clip a gain above 100), covers `run`, `chat --speak`,
+and `say` in one place, leaves the avatar the clip before the gain (the mouth keeps its size), and
+never touches the phone, whose replies are synthesised apart. Linear amplitude; 100 is the clip
+untouched; above 100 a tanh soft limiter keeps every peak below 0.98. The level and the whisper
+switch live in `data/voice.json` (re-read at every clip, so the three commands agree and the
+greeting after `until` is at the normal level), and a file that cannot be read never silences
+her. Whisper mode is switched by voice; the config holds only its window (`from`, an alias, and
+`until`, across midnight) and its level. One non-strict tool, `voice_volume {level?, change?,
+night?}`, open in guest mode; the media device's line points "suaramu" to it. No persona line, no
+new dependency; 18 of 20 strict tools and 17 of 24 optional parameters stay.
+- [x] Task 196a: contract: SPEC, tasks
+- [ ] Task 196: `apply_volume` (the gain and the soft limiter) and `VolumePlayer`
+- [ ] Task 197: the `voice` config (the whisper window), `config.example.yaml`
+- [ ] Task 198: `VoiceLevel` (the state file, the steps, the whisper window, `level_now`)
+- [ ] Task 199: `VoiceVolumeTools` (`voice_volume`) and the media device's line
+- [ ] Task 200: wiring in `run`, `chat`, and `say --volume`, the check line, the strict budget and tool sorting tests
+- [ ] Task 201: README "Volume suaraku", CHANGELOG
+
+### Checkpoint: Volume suaraku
+- [ ] Python suite and ruff clean; no test played audio, spoke, or pushed; the strict-tool budget unchanged (18 of 20 strict tools, 17 of 24 optional parameters, `voice_volume` non-strict)
+- [ ] By hand: `apply_volume` on a full-scale clip at 150 peaks below 0.98; a scratch folder's `waifu check` shows the volume line, and `_companion_brain` answers "kecilkan suaramu" with `voice_volume` writing the scratch state file
+- [ ] On the owner's PC: "Cyrene, kecilkan suaramu" makes her softer without moving the Windows volume; "volume 30" still moves the Windows volume; `waifu say --volume 150 Halo` is loud but not crackly; "nyalakan mode bisik" whispers after 22:00 and the morning greeting is at the normal level
+
 ## Risks and Mitigations
 
 | Risk | Impact | Mitigation |

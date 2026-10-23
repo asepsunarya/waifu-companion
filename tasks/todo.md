@@ -1850,3 +1850,58 @@ named `tests/test_<package>_<module>.py`.
 - [x] Fix pass: SPEC, README, CHANGELOG, `config.example.yaml`, the guest section, and the `guest_mode` description sort `game_events` as closed and the focus timer as open; README says `waifu check` warns only for `speaker.enabled: false`, since it cannot see `waifu run --no-speaker-check`
 
 **Dependencies:** 193, 194 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
+
+## Task 196a: Volume suaraku contract ✅
+
+**Acceptance criteria:**
+- [x] SPEC "volume suaraku (v1.37)" (stories, non-goals, the gain and the limiter, the avatar and the phone, `VolumePlayer`, `VoiceLevel` and its file, the whisper window, the config, `voice_volume`, the media device's line, the CLI, known limits); tasks 196a-201 in the plan and here
+
+**Dependencies:** none · **Files:** `SPEC.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
+
+## Task 196: The gain and `VolumePlayer`
+
+**Acceptance criteria:**
+- [ ] `apply_volume` returns the clip itself at 100, scales it below, and above 100 scales it and soft-limits every sample (linear below the knee, below 0.98 always, monotonic), float32 kept, silence silent
+- [ ] `VolumePlayer` plays the gained clip through the player it wraps, reading the level at every clip, and passes `stop` and both answers through
+
+**Dependencies:** 196a · **Files:** `src/waifu/voice/volume.py`, `tests/test_voice_volume.py` · **Scope:** S
+
+## Task 197: The `voice` config
+
+**Acceptance criteria:**
+- [ ] `voice.state_path` and `voice.night` (`from` 22:00, `until` 06:00, `level` 50, 10-100), bare YAML times read; a time zone, `from` equal to `until`, `from_`, and unknown keys refused naming the setting; `config.example.yaml` documents it and its block is valid once written out
+
+**Dependencies:** 196a · **Files:** `src/waifu/config.py`, `config.example.yaml`, `tests/test_config.py` · **Scope:** S
+
+## Task 198: `VoiceLevel`
+
+**Acceptance criteria:**
+- [ ] A missing file is level 100 with whisper mode off and stays missing; `set_level`, `change`, and `set_night` write the file atomically and only on a change, steps of 20 held in 10-150
+- [ ] A broken file is moved aside (a counter for a second one) and read as missing; a failed move raises
+- [ ] `whispering` holds inside the window, `from` counted and `until` not, also across midnight; `level_now` is the lower of the level and the night level while whispering, the normal level at `until`, and never raises (the last state read, or 100, with one warning)
+
+**Dependencies:** 197 · **Files:** `src/waifu/voice_level.py`, `tests/test_voice_level.py` · **Scope:** M
+
+## Task 199: `voice_volume`
+
+**Acceptance criteria:**
+- [ ] `voice_volume {level?, change?, night?}` is non-strict with a static description that sends "suaramu" here and "volume", "musik", and "PC" to the media device; set, step, bounds, whisper on and off, and the state answer in Indonesian with the whisper cap named; bad arguments, a file error, and her own turns are error results
+- [ ] The media device's line points her own voice to `voice_volume`
+
+**Dependencies:** 198 · **Files:** `src/waifu/brain/voice_volume_tools.py`, `tests/test_voice_volume_tools.py`, `src/waifu/brain/tools.py`, `tests/test_brain_tools.py` · **Scope:** M
+
+## Task 200: Wiring and the check line
+
+**Acceptance criteria:**
+- [ ] `run` and `chat` give the brain `VoiceVolumeTools`; `run`'s Assistant, `chat --speak`, and `say` play through a `VolumePlayer` at the file's level; `say --volume N` plays at N (10-150, else an argparse error) and saves nothing
+- [ ] `waifu check` shows the level and whisper mode, and a moved or unreadable file
+- [ ] The strict budget test names `voice_volume` as non-strict and open in guest mode
+
+**Dependencies:** 196, 198, 199 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** M
+
+## Task 201: Docs
+
+**Acceptance criteria:**
+- [ ] README "Volume suaraku" with a contents entry, a link from "Musik, volume, dan aplikasi PC", and checklist items; CHANGELOG v1.37; full suite and ruff clean
+
+**Dependencies:** 200 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S

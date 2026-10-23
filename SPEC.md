@@ -1698,6 +1698,59 @@ Privacy: nothing new is stored or sent: guest mode lives in memory only; the too
 
 Safety: tests use fake clocks and fake brains or SDK-shaped fake clients, never a real device, push, or speech.
 
+### volume suaraku (v1.37)
+
+Her voice comes out of the PC at whatever level the TTS and the anime voice give it, and the only knob so far is the Windows volume (the `media` device, v1.8), which also moves the music and the game. Master wants her own voice softer or louder by itself, and softer at night, without touching the PC's volume.
+
+User stories:
+
+1. "Cyrene, kecilkan suaramu" / "suaramu kekerasan" → her own voice gets one step (20 percent) softer, and she says so in one short sentence, already at the new level ("Segini ya, delapan puluh persen."). "Keraskan suaramu", "suara kamu kurang keras" → one step louder. "Suaramu 60 persen" sets it; "suaramu berapa?" tells it. Also typed in `waifu chat` and in the phone chat (the voice on the PC changes; the phone plays its own reply as before).
+2. "Kecilkan volume", "volume 30", "kecilkan musiknya" stay the media device's Windows volume keys (v1.8), which move everything the PC plays, her voice included. The tool's description and the media device's line tell the two apart: "suaramu" / "suara kamu" is hers, "volume", "musik", and "PC" are the media device.
+3. "Cyrene, nyalakan mode bisik" → every night from `voice.night.from` (22:00) until `voice.night.until` (06:00) her voice is at most `voice.night.level` (50) percent, until "matikan mode bisik". The morning greeting at or after `until` is at her normal level again.
+4. The level and whisper mode survive a restart of `waifu run`; `waifu say` speaks at the current level, and `--volume 60` tries one without saving it; `waifu check` tells the level and whisper mode.
+
+Non-goals (v1.37): the Windows master volume, per-app volume in the Windows mixer, or the music's volume (the media device's job); the phone's playback (a phone reply is played by the phone, at the phone's volume); edge-tts's `volume` setting (static, edge-tts only, and it would change the phone's voice too); loudness matching between voices or clips; a whispering voice style (only the level changes); switching whisper mode by the hour on its own or from `config.yaml` (it is switched by voice; the config holds only its window and level); fades; a `waifu volume` command (voice, chat, and the phone change it; `say --volume` tries a level); scaling the avatar's mouth with the level; a new dependency; a strict tool (`voice_volume` requires nothing: the budget stays 18 of 20 strict tools and 17 of 24 optional parameters).
+
+The gain:
+- Linear amplitude: a level of 50 halves every sample (-6 dB), 150 multiplies it by 1.5. The boring choice; the steps of 20 are even in amplitude, not in loudness.
+- Applied after synthesis and the anime voice (RVC), right before playback, never before RVC: the clip goes to the RVC server as 16-bit PCM, which hard-clips anything beyond full scale, and RVC may re-level it anyway.
+- At 100 the clip is played untouched (the same array). Below 100 it is only scaled. Above 100 it is scaled, then every sample goes through a soft limiter: linear up to 0.8 of full scale, above it `sign(x) * (0.8 + 0.18 * tanh((|x| - 0.8) / 0.18))`, continuous and smooth at the knee and always below 0.98, so no peak reaches full scale and clips, whatever level the voice came at (the RVC output level is not controlled in this repo). The output stays float32. Silence stays silence.
+- The avatar's lip-sync gets the clip before the gain, so the mouth does not shrink at 10 percent or in whisper mode: the Assistant and `cli._speak` hand the avatar the clip before `play`, and the gain is in the player.
+
+`voice/volume.py`:
+- `LEVELS = (10, 150)`, `STEP = 20`, `NORMAL = 100`; `apply_volume(audio, level) -> np.ndarray` as above.
+- `VolumePlayer(player, level: Callable[[], int])`, an `AudioPlayer`: `play(audio, sample_rate)` plays `apply_volume(audio, level())` through `player`, the level read at every clip; `stop()` delegates (cutting her off, v1.11). It makes no PortAudio call itself, so `Player`'s one-thread rule holds.
+
+`voice_level.py` — `VoiceLevel(path, night: VoiceNightConfig, *, now=datetime.now)`, the level and whisper mode:
+- The file `data/voice.json` (`voice.state_path`): `{"version": 1, "level": 100, "night": false}`, exactly these keys, `level` a whole number 10–150 (not a boolean), `night` a boolean. Re-read at every call, replaced atomically (`write_json_atomic`), never created by reading (missing: level 100, whisper mode off), and a file that is not such a state is moved aside as `<name>.corrupt-YYYYmmdd-HHMMSS[-n]` (ERROR log) and read as missing; a failed move raises `OSError`. One lock serialises the calls of a process. `run`, `chat`, and `say` share the file, so a change made in one is heard in the others at their next clip.
+- `state() -> VoiceState(level, night)`; `set_level(level)`, `change("louder" | "softer")` (one `STEP`, held in `LEVELS`), and `set_night(on)` each return `VoiceChange(before, after)` and write nothing when nothing changes (ValueError for a level outside `LEVELS` or another direction). INFO logs "Voice level 80 (was 100)", "Whisper mode on", "Whisper mode off".
+- `whispering(state) -> bool`: whisper mode on and the PC's local time (naive `datetime.now`, as the briefing, the rain alert, and guest mode use) inside the window: `from <= t < until` when `from` is before `until`, else, across midnight, `t >= from or t < until`; `from` counts, `until` does not.
+- `level_now() -> int`: the level a clip is played at, `min(level, night.level)` while whispering, else `level`. Read at every clip at play time, so a reply said at or after `until` (the morning greeting among them) is at the normal level, and a change is heard from her very next clip, the reply confirming it included. It never raises: when the file cannot be read (an `OSError`, or a broken file that cannot be moved aside) it logs one WARNING until the file reads again and uses the last state it read, or level 100 with whisper mode off. She never goes silent over her volume.
+
+Config `voice`: `state_path` (`data/voice.json`) and `night`: `from` (22:00), `until` (06:00), `level` (50, 10–100). `from` and `until` are clock times HH:MM (a bare YAML `22:00` too, which YAML reads as base 60), never with a time zone (pydantic reads 1440 and more as seconds in UTC), and never equal (an empty window); `until` before `from` wraps past midnight. The field is `from_` with the alias `from` (a Python keyword); only `from` is accepted in the file. `VoiceConfig` is taken (the TTS voice union), so the models are `VoiceVolumeConfig` and `VoiceNightConfig`.
+
+`brain/voice_volume_tools.py` — `VoiceVolumeTools(level: VoiceLevel)`, a `ToolProvider` with `voice_volume {level?: integer, change?: enum[louder, softer], night?: boolean}`, non-strict (nothing required), without numeric bounds in the schema (the ranges are in the description and checked in code). Its description is static English: only for HER own voice ("suaramu", "suara kamu", "ngomongnya pelan-pelan", "mode bisik"); "volume", "musik", "PC", and the Windows volume are `control_device` on the media device, which changes everything the PC plays, her voice included; `level` 10 to 150 percent (100 normal), `change` one step of 20 percent, `night` whisper mode on or off (at most the night level inside its window every night), nothing to tell the state; phone replies play on the phone and are not affected; only at Master's request; one short sentence with the percentage spoken naturally; after an error result, say its message briefly and do not call again in this turn.
+- Arguments (null counts as left out): `level` a whole number 10–150, never a boolean; `change` one of the two; not `level` and `change` together; `night` a boolean, alone or with either; none: the state. Not an object, an unknown key, or a bad value is an error result.
+- Results: `{"level", "night", "night_from", "night_until", "night_level", "now", "whispering", "message"}` (times `HH:MM`; `now` the level a clip is played at now), with `"changed"` after a change. Messages: "Suaraku sekarang 80 persen.", "Suaraku memang sudah 80 persen.", "Suaraku sudah paling keras, 150 persen.", "Suaraku sudah paling pelan, 10 persen.", "Mode bisik aktif: dari jam 22:00 sampai 06:00 suaraku paling keras 50 persen.", "Mode bisik memang sudah aktif.", "Mode bisik mati.", "Mode bisik memang mati."; with both a level and `night`, the night message, a space, then the level message. The state: "Suaraku 100 persen; mode bisik mati." or "Suaraku 100 persen; mode bisik aktif, jam 22:00 sampai 06:00 paling keras 50 persen.". While whispering with the level above the night level, a level message and the state end ", tapi sekarang mode bisik menahannya di 50 persen sampai jam 06:00." instead, so she never claims a louder voice that is not heard.
+- `begin_turn` refuses the tool in her own turns (`BRIEFING_PROMPT`, `WEEKLY_REPORT_PROMPT`, `JOURNAL_PROMPT`): her volume is Master's to change. `run` never raises: a file that cannot be read or written is a logged error result ("Volume suaraku tidak bisa dibaca atau disimpan saat ini.").
+- Guest mode (v1.36) leaves it open: a control, nothing private.
+
+The media device's line (in `control_device` and the persona's device list) ends "; volume di sini volume Windows untuk semua suara PC, termasuk suaramu: untuk suaramu sendiri pakai voice_volume", so "kecilkan suaramu" goes to her tool. No persona line (decision): the tool's description and the device line carry the difference, and both personas stay as they are.
+
+The phone: `reply_for_phone` synthesises for the phone and never plays through the PC's player, so phone replies are not affected; a change typed on the phone is heard on the PC.
+
+CLI:
+- `run` builds one `VoiceLevel(config.voice.state_path, config.voice.night)`, gives the brain `VoiceVolumeTools` (always, right after `GuestTools`) and the Assistant `VolumePlayer(Player(config.audio.output_device), voice_level.level_now)`. `chat` builds its own (the same file); with `--speak` its player is wrapped too.
+- `waifu say [--volume N]`: plays at `level_now()` (the file read, never created), or at `N` (10–150; anything else is argparse's error "harus bilangan bulat 10 sampai 150, bukan '…'"), saving nothing. `_speak` takes any `AudioPlayer`.
+- `check`, right after the guest mode line: `✓ Volume suaraku: 100%, mode bisik mati (22:00-06:00 paling keras 50%)`, `✓ Volume suaraku: 100%, mode bisik aktif (22:00-06:00 paling keras 50%)` (with `, sekarang 50%` while it holds), `! …; file volume yang rusak dipindah ke …`, or `✗ File volume <path> tidak bisa dibaca: …`.
+- Docs: README (Indonesian) section "Volume suaraku" after "Musik, volume, dan aplikasi PC" (examples, the difference from the Windows volume, whisper mode, the phone, `say --volume`, the check row), linked from that section, with a contents entry and checklist items; `config.example.yaml` documents `voice`; CHANGELOG v1.37.
+
+Known limits: a clip is played at one level, so a long reply begun at 21:59 is said whole at the day level; a morning greeting set before `night.until` (`briefing.time` earlier than `until`) is whispered; the Windows volume still scales everything, her voice included; at 150 a voice that already peaks near full scale is limited more than amplified; levels off the steps of 20 are reached only with `level`.
+
+Privacy: nothing new is sent; the file holds the level and the switch only.
+
+Safety: tests never play audio: `VolumePlayer` wraps fakes, `tests/test_cli.py` replaces `Player`, state files live under tmp_path, and clocks are fake.
+
 ## Code Style
 
 See `CLAUDE.md` → Code Conventions and Patterns. Dataclasses for value
