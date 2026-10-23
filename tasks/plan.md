@@ -778,6 +778,28 @@ new dependency; 18 of 20 strict tools and 17 of 24 optional parameters stay.
 - [x] By hand (2026-10-24, a scratch folder with the example config, no audio played): `apply_volume` on a full-scale sine peaked at 0.9798 at 150, 0.5 at 50, and returned the clip itself at 100; the check line read `✓ Volume suaraku: 100%, mode bisik mati (22:00-06:00 paling keras 50%)`; at 23:00 the tool went softer (80), whisper on, louder (100, "tapi mode bisik menahannya di 50 persen sampai jam 06:00"), level 30, and a `VolumePlayer` around a recorder played peaks 1.0, 0.8, 0.5, 0.5, 0.3; `_companion_brain` with a scripted Ollama client answered "kecilkan suaramu" with `voice_volume {change: softer}`, writing `{"version":1,"level":80,"night":false}`
 - [ ] On the owner's PC: "Cyrene, kecilkan suaramu" makes her softer without moving the Windows volume; "volume 30" still moves the Windows volume; `waifu say --volume 150 Halo` is loud but not crackly; "nyalakan mode bisik" whispers after 22:00 and the morning greeting is at the normal level
 
+### Phase 42: Ulangi (v1.38, see SPEC → ulangi)
+Decision: the repeat is answered in the voice loop, never by the brain: a pure gate
+(`repeat.py`) accepts only a small set of whole repeat phrases once her names and a few softeners
+are left out, and `handle_utterance` then says her last words on the PC again through `speak`.
+What she remembers is written only on `run`'s thread, right before it is spoken, by the three
+callers that say her own words (a reply, the announcements, a request's answer), never by `speak`
+(reactions and the startup line use it from other threads). Since the repeat is no turn, the
+confirmation gate never sees it, so a pending question stays pending and Master's next real turn
+answers it. Guest mode's generation, passed as `guest_marker`, is stored with the words: once it
+has moved, nothing is repeated. The phone is not intercepted (its page shows her words) and its
+replies are never remembered. No tool, config, dependency, or persona change.
+- [x] Task 202a: contract: SPEC, tasks
+- [ ] Task 202: `is_repeat_request` (the strict phrase set)
+- [ ] Task 203: the Assistant remembers her last words on the PC and repeats them without the brain
+- [ ] Task 204: guest mode clears them (`guest_marker`, wiring in `run`)
+- [ ] Task 205: README "Ulangi", CHANGELOG
+
+### Checkpoint: Ulangi
+- [ ] Python suite and ruff clean; no test played audio, spoke, or pushed; the strict-tool budget unchanged
+- [ ] By hand: a scratch Assistant with fakes repeats a reply, an announcement, and a confirmation question without a brain turn, and "iya" after the repeat confirms
+- [ ] On the owner's PC: "Cyrene, ulangi" right after a reply says it again at once; "tadi bilang apa?" in the follow-up window too; "ulangi lagunya" still goes to the brain; after "mode tamu", "Cyrene, ulangi" says there is nothing to repeat
+
 ## Risks and Mitigations
 
 | Risk | Impact | Mitigation |
@@ -797,6 +819,7 @@ new dependency; 18 of 20 strict tools and 17 of 24 optional parameters stay.
 | Play time tracking touches a game's anti-cheat (mhyprot, HoYoKProtect) | An account flag or a game that refuses to start | Only the process snapshot, which names processes without opening them; never `OpenProcess`, a module or thread snapshot, or WMI on a game; written in SPEC and in `processes.py` |
 | Journal entries spoken, pushed, or remembered when nobody asked | Private notes said in front of guests or sent away | Tools only when asked (descriptions, persona); the greeting and weekly report turns get an error from both tools in code; the nightly question has no push and cannot write; never in the system prompt or memory unless Master asks |
 | Guest mode leaves something private reachable | Master's money, journal, tasks, or memory said in front of guests | One shared refusal in `run_tool` for a fixed list, a test that sorts every tool of a full request, a new session without the remembered facts at the next turn, the briefing reduced and the private self-started turns dropped; the switching turn and the fixed announcements are documented limits |
+| A repeat request answers a confirmation question or repeats private words to guests | The PC turned off on "ulangi", or what Master heard before guests came said in front of them | The repeat never reaches the brain, so the gate never sees it and a pending question waits for Master's next real turn; only whole repeat phrases count; the remembered words carry guest mode's generation and are forgotten once it has moved |
 
 ## Open Questions
 

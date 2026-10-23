@@ -1751,6 +1751,46 @@ Privacy: nothing new is sent; the file holds the level and the switch only.
 
 Safety: tests never play audio: `VolumePlayer` wraps fakes, `tests/test_cli.py` replaces `Player`, state files live under tmp_path, and clocks are fake.
 
+### ulangi (v1.38)
+
+Master misses what she said (the AC was loud, he was not listening) and has to ask the brain again, which costs a turn and tokens and may not give the same words. A plain repeat request is answered on the PC by saying her last words again, at once, without the brain.
+
+User stories:
+
+1. "Cyrene, ulangi" (or "ulang lagi", "bisa diulang?", "tadi bilang apa?", "apa tadi?", "sekali lagi", "maaf, apa?", "hah?") right after she said something → she says the same text again, word for word, with the same emotion on the avatar, without asking the brain (instant, no tokens). Inside the follow-up window without her name too.
+2. "Ulangi lagunya", "putar sekali lagi", "apa tadi lampunya sudah mati?", "tadi aku bilang apa?" → these hold other words, so they go to the brain as always.
+3. Before she has said anything (or once guest mode has switched since) → "Belum ada yang bisa kuulangi, Master."
+4. She asked "PC mau kumatikan sekarang, Master? Jawab iya kalau jadi." → "ulangi" says the question again; "iya" after it still turns the PC off. The repeat itself never answers the question.
+
+Non-goals (v1.38): repeating on the phone (decision below); a replay button on the phone page; repeating something older than the last thing ("yang sebelumnya"); repeating slower or only a part ("ulangi pelan-pelan", "ulangi angkanya": other words, so the brain); repeating Master's own words; redoing an action ("sekali lagi" after "Sudah, Master." says those words again, it never calls a tool again); keeping it across a restart; a fuzzy name match (the words of her name, wake words, and owner call are left out only as configured, like `is_yes`); a Japanese phrase; `waifu chat` (no voice loop); a tool, a config key, a check line, a persona line, or a dependency (the strict budget stays 18 of 20 strict tools and 17 of 24 optional parameters).
+
+`repeat.py` — `is_repeat_request(text, names=()) -> bool`, pure:
+- The words as `is_yes` splits them (NFKC, lowercase, runs of letters and digits), leaving out "master", the words of `names` (her name, wake words such as "hai cyrene", and what she calls the owner), and the softeners `dong`, `deh`, `ya`, `coba`, `tolong`. A question mark is allowed ("hah?").
+- What is left must be exactly one of `REPEAT_PHRASES`: `ulangi`, `ulangi lagi`, `ulang lagi`, `bisa diulang`, `bisa diulangi`, `tadi bilang apa`, `tadi kamu bilang apa`, `kamu tadi bilang apa`, `kamu bilang apa tadi`, `bilang apa tadi`, `apa tadi`, `sekali lagi`, `hah`; each of them after `maaf`; and `maaf apa`. Nothing else: no other word, no repeat of a word ("ulangi ulangi"), not empty, and not a bare "apa?".
+
+What she remembers: `Assistant._last_said`, a frozen `_Said(text, emotion, marker)` in memory only, written only on `run`'s thread (so no lock), right before the words are spoken (`_say_remembered`), so a reply that was cut off (v1.11) or could not be voiced can still be asked for again, whole:
+- Her reply to Master's voice turn (`handle_utterance`), the text as spoken (without its tag) and its emotion.
+- What she says by herself in one go (`_say_announcements`): the reminders, the game's lead-in, and the announcements, joined as spoken, with the first one's emotion.
+- Her spoken answer to an `ask_aloud` request (the morning greeting, the journal question), only when it is said (not when its `required_tool` failed).
+- Never: the acknowledgement of a bare wake word, the avatar's reactions and the double-click's listen line (`speak_reaction`), the startup line (`speak` from the CLI), anything said on the phone, the "nothing to repeat" line, or the repeat itself. `speak` itself records nothing (it runs on other threads too).
+- `marker` is guest mode's generation when it was spoken: `Assistant(..., guest_marker: Callable[[], object] | None = None)`, guest mode's `generation` in `run`. When the marker has moved since (guest mode turned on, off, or ended by itself, also by the phone or with nothing said on the PC), the memory is cleared and treated as empty: what she said before guests came is never repeated in front of them, nor what they heard after they left. The reply that switched guest mode was spoken after the switch, so it can be repeated. Without `guest_marker` the marker is None. Decision: kept across a new brain session (the morning greeting's `new_session`, the idle reset, the turn limit), since the words were said aloud on the PC either way.
+
+The repeat, in `handle_utterance`: once the wake gate accepts an utterance whose command is not empty and `is_repeat_request(command, [name, *wake_words, owner_call])` holds (in the follow-up window the command still holds her name, which the gate keeps), she says `_last_said` again through `speak` like a reply (the avatar mouths it with its emotion, the follow-up window opens, her voice level of v1.37 applies, the level of now). No brain turn: no turn lock, no `begin_turn` of the confirmation or screen gates, no history, no tokens. INFO "Repeating what she said last" (never the text: reply text stays out of the INFO log). With nothing to repeat: `NOTHING_TO_REPEAT` "Belum ada yang bisa kuulangi, {owner}." with NEUTRAL, the follow-up window opened, INFO "Nothing to repeat". `handle_utterance` returns the text said.
+
+The confirmation gate (v1.9): since the repeat is no turn, a question waiting for Master's yes stays waiting: Master's next real turn answers it, so "iya" after "ulangi" confirms (inside the follow-up window the repeat opened, without the name), and the repeat itself is never a yes or a no. The 60-second answer window still counts from the refusal: a repeat does not renew it.
+
+Focus and game quiet (v1.30, v1.34): quiet holds only what she says by herself, so a repeat is answered as always. It leaves the queues alone: announcements held by quiet were never said, so they are never what she repeats, and they are not released by it; its follow-up window holds the patient announcements and the requests as a reply's does.
+
+The phone: not intercepted (decision): the phone page already shows her words, so a typed or spoken "ulangi" on the phone is a brain turn like any message (it counts for the gates and goes into the history). Phone replies are never remembered as the PC's last words, and a repeat on the PC never says a phone reply.
+
+CLI: `run` passes `guest_marker=guest_mode.generation` to the Assistant. Docs: README (Indonesian) section "Ulangi" after "Mode tamu" (the phrases, what she repeats and what not, the confirmation question, quiet, guest mode, the phone, "sekali lagi"), with a contents entry, an example in "Pemakaian sehari-hari", and checklist items; CHANGELOG v1.38.
+
+Known limits: "sekali lagi" after an action repeats her words and does not redo it ("nyalakan lagi" or "putar lagi lagunya" go to the brain); a name Whisper misspells and the config does not list, inside the follow-up window ("Sairin, ulangi"), sends the request to the brain (a turn, safe); the brain's history never learns Master asked her to repeat; with speaker verification off any voice can ask her to repeat what she said since guest mode last switched; a long reply is repeated whole.
+
+Privacy: nothing is stored or sent: the last words live in memory only, and the log never holds them.
+
+Safety: tests use fake brains, speech, players, and clocks; nothing is played.
+
 ## Code Style
 
 See `CLAUDE.md` → Code Conventions and Patterns. Dataclasses for value

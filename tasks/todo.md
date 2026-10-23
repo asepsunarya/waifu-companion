@@ -1908,3 +1908,43 @@ named `tests/test_<package>_<module>.py`.
 - [x] Fix pass: README and SPEC say the grid steps, softer in whisper mode, "volume suaramu" in the table, that her answer is heard at the new level on the PC unless whisper mode holds it, and that reminders and announcements follow her level and whisper mode (with the phone notifications for one that must wake Master)
 
 **Dependencies:** 200 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
+
+## Task 202a: Ulangi contract ✅
+
+**Acceptance criteria:**
+- [x] SPEC "ulangi (v1.38)" (stories, non-goals, the phrase gate, what she remembers and what not, the guest marker, the repeat in `handle_utterance`, the confirmation gate, quiet, the phone decision, the CLI, known limits); tasks 202a-205 in the plan and here
+
+**Dependencies:** none · **Files:** `SPEC.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
+
+## Task 202: `is_repeat_request`
+
+**Acceptance criteria:**
+- [ ] Every phrase of `REPEAT_PHRASES` counts, with or without "maaf" before it, a question mark, her names, wake words, owner call, "master", and the softeners; "maaf, apa?" too
+- [ ] Anything with another word ("ulangi lagunya", "putar sekali lagi", "apa tadi lampunya sudah mati?", "tadi aku bilang apa?", "apa kabar"), a doubled word, a bare "apa?", or nothing left is not a repeat request
+
+**Dependencies:** 202a · **Files:** `src/waifu/repeat.py`, `tests/test_repeat.py` · **Scope:** S
+
+## Task 203: Her last words, repeated without the brain
+
+**Acceptance criteria:**
+- [ ] A repeat request in the follow-up window or with the wake word says her last reply, announcements, or request answer again word for word with its emotion, opens the follow-up window, and asks the brain nothing; a lookalike goes to the brain
+- [ ] Nothing said yet: "Belum ada yang bisa kuulangi, Master."; the acknowledgement, reactions, the startup line, and a request answer that was not said are never repeated; a reply cut off is repeated whole
+- [ ] A question waiting for Master's yes stays waiting through a repeat, and "iya" after it confirms; quiet answers a repeat and keeps its held announcements; a phone reply is never repeated, and a phone "ulangi" is a brain turn
+- [ ] INFO "Repeating what she said last" without the text
+
+**Dependencies:** 202 · **Files:** `src/waifu/app.py`, `tests/test_app.py` · **Scope:** M
+
+## Task 204: Guest mode clears them
+
+**Acceptance criteria:**
+- [ ] `Assistant(guest_marker=...)`: once the marker has moved since she said it, a repeat request gets the nothing-to-repeat line; words said after the switch are repeated
+- [ ] `run` passes guest mode's `generation` as `guest_marker`
+
+**Dependencies:** 203 · **Files:** `src/waifu/app.py`, `tests/test_app.py`, `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** S
+
+## Task 205: Docs
+
+**Acceptance criteria:**
+- [ ] README "Ulangi" with a contents entry, an example in "Pemakaian sehari-hari", and checklist items; CHANGELOG v1.38; full suite and ruff clean
+
+**Dependencies:** 204 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
