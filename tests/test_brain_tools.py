@@ -158,15 +158,17 @@ def test_device_line_without_aliases_or_commands():
     assert device_lines(registry) == ["- tv: TV — perintah: (belum ada)"]
 
 
-def test_the_media_device_line_says_play_pause_and_mute_toggle():
-    # So "pause musiknya jam 11 malam" never becomes a key that restarts paused music at night.
+def test_the_media_device_line_says_play_pause_and_mute_toggle_and_whose_volume_it_is():
+    # So "pause musiknya jam 11 malam" never becomes a key that restarts paused music at night,
+    # and "kecilkan suaramu" goes to her own voice_volume rather than the Windows volume.
     registry = DeviceRegistry([MediaKeys("musik", "Musik PC", ["musik"])])
 
     assert device_lines(registry) == [
         "- musik: Musik PC (alias: musik) — perintah: play_pause, next, previous, stop, mute, "
         "volume_up (value 1-100), volume_down (value 1-100), volume (value 0-100) — play_pause "
         "dan mute bolak-balik (toggle): di jadwal, pakai stop untuk menghentikan musik dan "
-        "volume untuk mengecilkan suara"
+        "volume untuk mengecilkan suara; volume di sini volume Windows untuk semua suara PC, "
+        "termasuk suaramu: untuk suaramu sendiri pakai voice_volume"
     ]
 
 

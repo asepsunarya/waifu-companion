@@ -1882,11 +1882,11 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 197 · **Files:** `src/waifu/voice_level.py`, `tests/test_voice_level.py` · **Scope:** M
 
-## Task 199: `voice_volume`
+## Task 199: `voice_volume` ✅
 
 **Acceptance criteria:**
-- [ ] `voice_volume {level?, change?, night?}` is non-strict with a static description that sends "suaramu" here and "volume", "musik", and "PC" to the media device; set, step, bounds, whisper on and off, and the state answer in Indonesian with the whisper cap named; bad arguments, a file error, and her own turns are error results
-- [ ] The media device's line points her own voice to `voice_volume`
+- [x] `voice_volume {level?, change?, night?}` is non-strict with a static description that sends "suaramu" here and "volume", "musik", and "PC" to the media device; set, step, bounds, whisper on and off, and the state answer in Indonesian with the whisper cap named; bad arguments, a file error, and her own turns are error results
+- [x] The media device's line points her own voice to `voice_volume`
 
 **Dependencies:** 198 · **Files:** `src/waifu/brain/voice_volume_tools.py`, `tests/test_voice_volume_tools.py`, `src/waifu/brain/tools.py`, `tests/test_brain_tools.py` · **Scope:** M
 

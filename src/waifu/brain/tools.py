@@ -199,9 +199,12 @@ def _device_line(device: Device, feeds_pc: bool = False) -> str:
         )
     elif device.kind == "media":
         # A scheduled toggle runs silently while Master may sleep: it can restart paused music.
+        # Its volume is Windows', for everything the PC plays: her own voice has voice_volume.
         note = (
             " — play_pause dan mute bolak-balik (toggle): di jadwal, pakai stop untuk "
-            "menghentikan musik dan volume untuk mengecilkan suara"
+            "menghentikan musik dan volume untuk mengecilkan suara; volume di sini volume "
+            "Windows untuk semua suara PC, termasuk suaramu: untuk suaramu sendiri pakai "
+            "voice_volume"
         )
     return f"- {device.id}: {device.name}{aliases} — perintah: {commands}{note}"
 
