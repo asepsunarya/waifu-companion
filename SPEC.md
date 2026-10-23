@@ -1587,6 +1587,51 @@ Privacy: nothing is saved or sent; a measurement's samples live in memory for it
 
 Safety: no test opens a stream or plays audio: a fake sounddevice everywhere, and one test runs the installed sounddevice's own name matching over a made-up listing (skipped without it), querying and opening no device; every clock in the focus tests is a fake.
 
+### tombol cepat di HP (v1.35)
+
+From the phone the owner mostly wants one thing done: the lamp off, the AC to 24, "mode tidur". Typing it to her costs a brain turn (seconds, and API money with Claude) for a one-word job. The phone page (v1.14) gains a panel of quick buttons that run his devices and routines directly through the device registry, as `waifu device` and `waifu routine run` do, without the brain.
+
+User stories:
+
+1. On the phone page, a lamp button left of the text box opens "Tombol cepat": a group per device (a lamp: Nyala, Mati, Nyala/mati, 10%, 30%, 60%, 100%; the AC: Nyala, Mati, and the learned temperatures of 18°C, 20°C, ... 28°C; a plug: Nyala, Mati, Nyala/mati) and a group "Rutinitas" with a button per routine ("Mode tidur"). A tap runs it at once, and a short Indonesian toast tells the result ("Lampu kamar dinyalakan.", "Mode tidur: 3 dari 3 langkah berhasil. Dijadwalkan jam 01.00 nanti.").
+2. The PC is never a button: no shutdown, restart, sleep, or wake, and no button at all for the plug that feeds the PC (`powers_pc`), not even "on". Those stay voice and chat commands with the confirmation in code (v1.9).
+3. Optionally, `phone.quick_actions` picks and orders the devices and routines that show; without it every device that can have buttons and every routine shows.
+
+Non-goals (v1.35): a button for the PC or a `powers_pc` plug behind a second confirmation step (decision: left out, which is simpler and safer than a confirm step with a short-lived server token; README says so); media keys and apps (not on/off switches: `play_pause` and `mute` toggle without showing the state, and opening an app takes the focus from a game); other IR buttons (volume, input, navigation); AC +/- (an IR device's state is only the last code this process sent, a change made with the remote is invisible, so +/- would guess; a preset names its temperature); live device state on the buttons; changing routines or buttons from the phone; telling the brain about a button (her conversation may still say the lamp is on until she reads the live state with `list_devices`); buttons in `chat` or without `phone.enabled`; a brain tool (the strict-tool budget stays 18 of 20 strict tools and 17 of 24 optional parameters).
+
+The buttons (`phone/actions.py`), built afresh from the registry and the config at every request, so a newly learned IR code shows at the next load of the page:
+- Devices of kind `light`, `plug`, `ir`, and `mock` (a dry run's mocks keep the real device's kind), in config order, leaving out every device for which `registry.powers_pc` is true (the PC and its plug, with every command); kinds `pc`, `media`, and `apps` never.
+- Per device, of the commands it has, in this order: `on` ("Nyala"), `off` ("Mati"), `toggle` ("Nyala/mati"), `power` ("Tombol power", an IR remote's power button); for a light with `brightness`, brightness 10, 30, 60, and 100 ("10%"); for an IR device, `temp_N` for each N of 18, 20, 22, 24, 26, and 28 that is learned ("24°C"). A device with none of these has no group. A device whose commands cannot be read (an IR code file that is not valid JSON) is left out and logged at WARNING, and the rest still show.
+- Routines: every routine, in config order, in one group "Rutinitas", each labelled by its description, else its name.
+- An action's id: `dev.<device>.<command>`, `dev.<device>.brightness.<value>`, or `rt.<routine>` (device ids, IR command names, and routine names are lowercase slugs, so an id is plain ASCII: `ACTION_ID`).
+- `QuickActions(registry, routines, *, schedule=None, chosen=QuickActionsConfig(), now=datetime.now)`: `groups() -> list[QuickGroup(name, actions)]`, each `QuickAction(id, label, device, command, value, routine)`; `find(id) -> QuickAction | None`, which looks the id up in a list built then (nothing of the device, the command, or the value comes from the phone); `run(action) -> QuickResult(ok, message)`, one at a time under a lock of its own (the devices have no locks; the scheduler, the brain, and game mode still call the registry from their own threads). A device action is refused first with `routines.pc_power_refusal(registry, device, "tombol cepat HP")`, as defence in depth (such a device is never listed, so `find` never returns one), then runs through `registry.execute`, its message as it is ("Lampu kamar dinyalakan.", or the registry's Indonesian failure). A routine runs through `run_routine(registry, routine, name=..., schedule=..., now=...)` with the run's schedule (a delayed step is scheduled, and a new run replaces the pending steps of the one before, as by voice): `"<label>: <n> dari <m> langkah berhasil."`, then the first failed step's message, then each different message of a scheduled step ("Dijadwalkan jam 01.00 nanti."); ok when every step is.
+
+Config `phone.quick_actions` (default: every device and routine above): `devices` and `routines`, each a list that shows those in that order (empty: none of them), or left out (all of them). A ConfigError at load for an unknown device or routine, a device of type `pc`, `media`, or `apps`, a `powers_pc` plug (`phone.quick_actions may not name 'colokan_pc': it powers the PC, which is never a quick button`), and a name given twice.
+
+Phone server (`PhoneServer(..., actions: QuickActions | None = None)`):
+- `GET /actions` behind the device cookie (401 otherwise, as `/config.json`), never cached: `{"groups": [{"name", "actions": [{"id", "label"}]}]}`; `{"groups": []}` without `actions`.
+- `POST /action {"id"}` is a POST route like `/chat`, so it needs one `Origin` of the page's own (403) and the device cookie (401); then at most `ACTION_RATE_LIMIT` (10) actions per device in any `ACTION_RATE_WINDOW_S` (60 s), counted before the body is read (429 with `Retry-After: 60`; the avatar server's `RollingLimit`, made public, per `Device.id`, since every request comes from 127.0.0.1 through `tailscale serve`); the body of at most 1 KB, strict JSON with only `id` (411, 413, 400, or 415 as for `/pair`); an id shaped as `ACTION_ID` (400); an id in the current list (404, "Tombol itu sudah tidak ada. Muat ulang halaman."); one action at a time per device (429, apart from the chat's one at a time, so a button works while she answers a chat); then 200 `{"ok", "message"}`. A device's failure is a 200 with `ok: false`, so its text reaches the toast; anything raised is a 500 with `FAILED_TEXT`, logged with its traceback.
+- `GET /action` and `POST /actions` are 405 (`Allow: POST`, `Allow: GET`).
+- Logs: INFO `Phone device d1 ran quick action dev.lampu_kamar.on: ok` (or `failed`), the message at DEBUG; refusals at INFO with the device id, and the action id only once it is shaped as one. Never the cookie or the token.
+
+Page (`avatar/web/phone/`):
+- `index.html`: `#quick-toggle`, a round 44 px button left of the text box (`aria-expanded`, `aria-controls="quick"`, label "Tombol cepat"), hidden until `/actions` lists a group; `<section id="quick" aria-label="Tombol cepat" hidden>` between the viewfinder and the notice.
+- `actions.js` (pure, under `node --test`): `parseActionGroups(data)` (malformed groups and actions dropped, empty groups too; null when the answer has no list), `actionRequest(id)` (`{body, contentType}`), `actionOutcome(data)` (`{ok, text}`, or null for an answer it cannot read).
+- `phone.js`: once the chat shows it reads `/actions` (a problem leaves the button hidden, without a notice). The toggle shows and hides the panel, built with `createElement`: an `<h2>` and a `role="group"` per group, `type="button"` buttons; Escape in the panel closes it and puts the focus on the toggle; opening it closes the viewfinder, and opening the viewfinder closes it (one tray at a time). A tap posts the id; until the answer the button is `aria-busy` and every button `aria-disabled` (not `disabled`, so the focus stays), and taps are ignored. The answer's message, or the problem, shows in `#notice` for 6 s (`role="status"`); 401 shows the pairing form. Chat and talk stay usable meanwhile.
+- `audio.js`: problem kinds `action_unknown` (404 on `/action`) and `action_limit` (429 on `/action`).
+- `phone.css`: buttons at least 44 px high in a grid of `minmax(96px, 1fr)` (three a row at 360-412 px), the panel at most 36dvh with its own scroll, the chat list smaller while it is open, styles for `aria-busy` and `aria-disabled`; no new animation.
+- `sw.js` keeps `/phone/actions.js` with the shell; `/actions` and `/action` pass to the network.
+
+CLI: `run` hands the phone server `QuickActions(registry, config.routines, schedule=<the run's schedule>, chosen=config.phone.quick_actions)`, with the run's own registry (the mocks under `--dry-run`).
+
+Guest mode (v1.36) leaves the quick buttons working: they are device control.
+
+Docs: README "Tombol cepat di HP" in "Cyrene di HP" (what shows, the PC is never a button, the toast, the limits, `phone.quick_actions`), checklist items; `config.example.yaml` documents `quick_actions`; CHANGELOG v1.35.
+
+Privacy: nothing new is stored or sent; action ids and their outcome are logged as above; the brain never sees a button.
+
+Safety: tests use `MockDevice` registries, never a real device, 127.0.0.1 port 0, fake clocks, and tmp schedules; no test sends a PC power command: the PC kinds are refused at load, never listed, and refused again at run time.
+
 ## Code Style
 
 See `CLAUDE.md` → Code Conventions and Patterns. Dataclasses for value

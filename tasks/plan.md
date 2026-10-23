@@ -698,6 +698,31 @@ config key, tool, tool parameter, or dependency.
 - [x] By hand on the owner's PC (2026-10-23, `waifu mic --seconds 2` beside the running `waifu run`): two inputs listed, the headset marked as the Windows default; ambient levels only, as nobody spoke. Again after the fix pass: one input listed (the headset was not connected then), the onboard jack, marked as used and the Windows default, at -52 dB RMS, "butuh -40 dB"
 - [ ] On the owner's PC: `waifu mic` while Master speaks names the mic that hears him; after setting `audio.input_device` to its line and restarting `waifu run`, `waifu check` names that mic and "Cyrene" is answered; a 30-minute focus block with a resin reminder queued says it at the break
 
+### Phase 39: Tombol cepat di HP (v1.35, see SPEC → tombol cepat di HP)
+Decision: Python owns every rule. `phone/actions.py` builds the buttons afresh from the registry
+and the config at every request (lights, plugs, IR, and mocks; on/off/toggle/power, brightness
+presets, the learned AC temperatures among six presets; every routine), and the server's POST
+takes only an id that it looks up in that list, so the phone never names a device, command, or
+value. The PC and a `powers_pc` plug are never buttons (refused in the config, never listed,
+refused again at run time) instead of a second confirm step with a token: simpler and safer.
+`/action` is a POST route behind the existing Origin and cookie checks, limited per paired device
+(`RollingLimit`, the avatar server's, made public) and one at a time per device; the actions run
+one at a time under the module's own lock. A device's failure is a 200 with `ok: false`, since the
+page shows only its own texts for an error status. No brain tool, tool parameter, or dependency.
+- [x] Task 179a: contract: SPEC, tasks
+- [ ] Task 179: `phone.quick_actions` and its validation
+- [ ] Task 180: `QuickActions` (the buttons, `find`, `run`)
+- [ ] Task 181: `GET /actions` and `POST /action` (`RollingLimit` made public)
+- [ ] Task 182: wiring in `run`
+- [ ] Task 183: the page's pure helpers (`actions.js`, the problem kinds)
+- [ ] Task 184: the panel (HTML, CSS, `phone.js`, the service worker)
+- [ ] Task 185: README, CHANGELOG, `config.example.yaml`
+
+### Checkpoint: Tombol cepat di HP
+- [ ] Python suite, JS tests, and ruff clean; no test ran a real device or sent a PC power command; the strict-tool budget unchanged (18 of 20 strict tools, 17 of 24 optional parameters, no tool or schema changed)
+- [ ] By hand: a phone server on a free port (never 9883) with a mock registry answers `/actions` and `/action` with curl, and refuses a foreign Origin, a missing cookie, an unknown id, and the eleventh action in a minute
+- [ ] On the owner's PC: the lamp button turns the lamp on and off from the phone with a toast; an AC preset sends its code; "Mode tidur" runs and names its scheduled step; there is no button for the PC or its plug; the panel fits at 360 px
+
 ## Risks and Mitigations
 
 | Risk | Impact | Mitigation |
