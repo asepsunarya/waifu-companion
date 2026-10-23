@@ -59,6 +59,7 @@ Cyrene : "Komputer mau kumatikan sekarang, Master? Jawab iya kalau jadi." (minta
 - [Ulangi](#ulangi)
 - [Belajar bahasa Jepang](#belajar-bahasa-jepang)
 - [Pengingat istirahat](#pengingat-istirahat)
+- [Waktu sholat](#waktu-sholat)
 - [Pemecahan masalah](#pemecahan-masalah)
 - [Checklist uji perangkat keras](#checklist-uji-perangkat-keras)
 - [Privasi](#privasi)
@@ -4374,6 +4375,8 @@ memulai atau menghentikan sesi kalau Master minta.
   atau lewat [Cyrene di HP](#cyrene-di-hp).
 - [Pengingat istirahat](#pengingat-istirahat) tidak muncul selama blok fokus dan tidak menghitung
   apa pun; sesudah blok hitungannya mulai dari nol.
+- [Pengingat waktu sholat](#waktu-sholat), kalau dinyalakan, tetap diucapkan tepat waktu seperti
+  pengingat yang Master pasang sendiri.
 - Notifikasi HP dari fitur lain (misalnya game atau kesehatan PC) tetap terkirim seperti biasa;
   hanya suaranya di PC yang menunggu. Peringatan hujan yang tertunda sampai hujannya mulai tidak
   diucapkan lagi. Pemberitahuan lain, termasuk pengingat resin atau daily dan GPU panas, tetap
@@ -4489,6 +4492,8 @@ Jalankan ulang `waifu run` setelah mengubahnya. `waifu chat` tidak punya mode ga
   ditutup (juga selagi jendela lanjutan terbuka atau di tengah blok fokus).
 - **[Pengingat istirahat](#pengingat-istirahat) dengan `breaks.during_games: true`**: diucapkan
   selagi main seperti pengingat Master. Tanpa itu, kalimatnya ditahan seperti pemberitahuan lain.
+- **[Pengingat waktu sholat](#waktu-sholat)**, kalau dinyalakan: tepat waktu seperti pengingat
+  Master, juga dengan `phone` (yang sudah ke HP tetap diucapkan).
 - **Master tetap bisa bicara dengannya** seperti biasa: panggil namanya, klik dua kali avatarnya,
   atau lewat [Cyrene di HP](#cyrene-di-hp). Elusan dan colekan di avatar tetap dijawab; hanya
   sapaan "sudah kembali" yang dilewati selama game menahan pengumumannya.
@@ -5170,6 +5175,8 @@ bilang singkat bahwa itu ditutup dulu selama ada tamu:
 - [Belajar bahasa Jepang](#belajar-bahasa-jepang): kata hari ini, kuis, dan kemajuannya. Kata
   pemula dan berapa kata yang Master hafal bukan hal pribadi.
 - [Pengingat istirahat](#pengingat-istirahat): kalimatnya tidak menyebut hal pribadi.
+- [Waktu sholat](#waktu-sholat): jadwalnya dan pengingatnya. Waktu sholat untuk kota yang sudah
+  disebut cuaca bukan hal pribadi.
 - [Tombol cepat di HP](#tombol-cepat-di-hp): tombolnya mengendalikan perangkat tanpa otak
   Cyrene.
 - Perintah terminal (`waifu todo`, `waifu jurnal`, `waifu tepira`, dan lainnya): terminal milik
@@ -5193,9 +5200,9 @@ lama; persona memintanya tidak menyebut hal pribadi Master di jawaban itu.
   dilewati selama mode tamu, dan tidak diulang hari itu (atau minggu itu). `waifu gacha report`
   tetap menampilkan minggunya.
 - Yang tetap diucapkan apa adanya: pengingat dan jadwal yang Master pasang sendiri, dengan
-  teksnya (Master sendiri yang memilih isinya), kalimat teman fokus, dan pemberitahuan game, kode
-  redeem, PC, hujan, versi baru, promo, biaya API (menyebut pengeluaran API), dan pengingat
-  tidur. Pengingat yang terlalu pribadi bisa dibatalkan dulu dengan
+  teksnya (Master sendiri yang memilih isinya), kalimat teman fokus, pengingat waktu sholat, dan
+  pemberitahuan game, kode redeem, PC, hujan, versi baru, promo, biaya API (menyebut pengeluaran
+  API), dan pengingat tidur. Pengingat yang terlalu pribadi bisa dibatalkan dulu dengan
   `waifu schedule cancel <id>`.
 
 ### Kapan berakhir
@@ -5511,6 +5518,137 @@ hanya diingat selama `waifu run` berjalan dan hanya dicatat di log DEBUG; log IN
 kalimatnya (`Announcing: ...`) saat diucapkan, seperti pemberitahuan lain. Kalimatnya ke
 `ntfy.sh` hanya dengan `breaks.push` dan notifikasi HP menyala. Mode tamu tidak mengubah apa pun:
 kalimatnya tidak menyebut hal pribadi.
+
+## Waktu sholat
+
+Cyrene bisa memberi tahu waktu sholat untuk tempat Master (imsak, subuh, terbit, dzuhur, ashar,
+maghrib, isya) saat ditanya, dan kalau Master mau, bilang sekali saat masuk waktu tiap sholat.
+Waktunya dihitung di PC ini dengan metode Kemenag RI, tanpa internet dan tanpa akun. Fitur ini
+**mati dari awal**: selama mati, tidak ada tool, pengingat, atau kalimat soal sholat sama sekali.
+Bisa dengan otak Ollama maupun Claude, tanpa paket tambahan.
+
+```text
+Master : "Cyrene, jadwal sholat hari ini?"
+Cyrene : "Di Bandung hari ini Subuh jam 04.08, Dzuhur 11.36, Ashar 14.47, Maghrib 17.45, dan Isya 18.57."
+(11.36)  Cyrene : "Sayang, sudah masuk waktu Dzuhur."
+```
+
+### Menyalakan
+
+Tulis di `config.yaml`, lalu jalankan ulang `waifu run`:
+
+```yaml
+prayer:
+  enabled: true
+  latitude: -6.9175        # boleh tidak ditulis: tempat di bagian briefing yang dipakai
+  longitude: 107.6191      # diisi bersama latitude
+  ihtiyath_minutes: 2      # menit pengaman yang ditambahkan ke tiap waktu sholat (0-5)
+  remind: [subuh, dzuhur, ashar, maghrib, isya]  # sholat yang diingatkan ([] = tanpa pengingat)
+  minutes_before: 0        # N menit sebelum waktunya (0 = tepat saat masuk waktu, paling lama 30)
+  push: false              # true: juga dikirim ke HP (butuh notify)
+```
+
+Hanya `enabled: true` yang perlu ditulis; tanpa yang lain berlaku nilai di atas.
+
+### Tempatnya
+
+- `prayer.latitude` dan `prayer.longitude` kalau ditulis (paling tepat: koordinat rumah, misalnya
+  dari Google Maps), kalau tidak koordinat `briefing.latitude`/`longitude`, kalau tidak
+  `briefing.city` (lihat [Sapaan pagi](#sapaan-pagi-dan-ringkasan-harian)).
+- Kota dicari sekali lewat Open-Meteo, seperti untuk cuaca, saat pertama dibutuhkan (bukan saat
+  `waifu run` mulai), lalu diingat sampai `waifu run` berhenti. Kota yang dicari adalah pusat
+  kotanya, jadi waktunya bisa beda semenit dengan rumah di pinggir kota.
+- Tanpa satu pun, dia bilang lokasinya belum diatur.
+
+### Bertanya
+
+"Jadwal sholat hari ini?", "Maghrib jam berapa?", "jadwal sholat besok", atau "Isya tanggal 1
+November jam berapa?": dia membacakan waktu dari perhitungannya, bukan dari ingatannya, untuk hari
+ini atau tanggal lain sampai setahun ke depan atau ke belakang. Dia hanya menyebut waktunya: tidak
+pernah menyuruh atau menanyakan apakah Master sudah sholat. Di sapaan pagi, laporan game mingguan,
+dan pertanyaan jurnal dia tidak membahasnya. `waifu chat` juga bisa ditanya.
+
+### Pengingat
+
+- Selama `waifu run`, untuk tiap sholat di `remind` dia bilang sekali "Sayang, sudah masuk waktu
+  Dzuhur." saat masuk waktunya. Dengan `minutes_before: 10`: "Sayang, sepuluh menit lagi masuk
+  waktu Dzuhur." (sekali saja, tidak diulang saat masuk waktunya).
+- Karena Master sendiri yang menyalakannya, pengingatnya diucapkan seperti pengingat yang Master
+  pasang sendiri: juga di tengah [blok fokus](#teman-fokus), selagi [mode game](#mode-game)
+  menahan pengumuman (juga dengan `phone`), dan saat jendela lanjutan terbuka. Kalau dia sedang
+  bicara, pengingatnya menyusul sesudahnya.
+- Tiap sholat hanya sekali sehari, juga kalau `waifu run` dijalankan ulang: yang sudah diucapkan
+  dicatat di `data\prayer.json` (`prayer.state_path`) sebelum diucapkan.
+- Yang terlewat lebih dari 30 menit (PC baru menyala, bangun dari sleep, atau `waifu run` baru
+  dijalankan) tidak diucapkan lagi.
+- Dengan `push: true` dan notifikasi HP menyala, kalimatnya juga dikirim ke HP (dengan ikon
+  masjid).
+- `remind: []` mematikan pengingatnya; jadwalnya tetap bisa ditanya. `waifu chat` tidak punya
+  pengingat.
+
+### Melihat di terminal
+
+`waifu sholat` menampilkan waktu hari ini, `waifu sholat 2026-11-01` tanggal lain:
+
+```text
+> waifu sholat
+Waktu sholat di -6.9175, 107.6191, Sabtu 24-10-2026 (WIB):
+  Imsak    03:58
+  Subuh    04:08
+  Terbit   05:22
+  Dzuhur   11:36
+  Ashar    14:47
+  Maghrib  17:45
+  Isya     18:57
+Metode Kemenag RI: Subuh -20°, Isya -18°, Ashar bayangan 1x, ihtiyath 2 menit.
+```
+
+Perintah ini tetap jalan saat fitur mati (dengan peringatan `! Waktu sholat mati`), dan selesai
+dengan kode 1 kalau lokasinya belum diatur atau kotanya tidak bisa dicari.
+
+`waifu check` menampilkan salah satu baris ini (tanpa mencari kota):
+
+```text
+✓ Waktu sholat: untuk Bandung, ihtiyath 2 menit, pengingat subuh, dzuhur, ashar, maghrib, isya
+✓ Waktu sholat: untuk -6.9175, 107.6191, ihtiyath 2 menit, pengingat subuh, maghrib 10 menit sebelumnya, juga ke HP
+✓ Waktu sholat: untuk Bandung, ihtiyath 2 menit, tanpa pengingat
+! Waktu sholat: lokasi belum diatur (isi briefing.city, atau prayer.latitude dan prayer.longitude)
+! Waktu sholat mati
+```
+
+Kalau `data\prayer.json` rusak (misalnya diubah tangan), file itu dipindah ke
+`data\prayer.json.corrupt-<waktu>` dan dia mulai baru (pengingat hari itu bisa terucap sekali
+lagi); `waifu check` menunjuk file itu sampai dihapus.
+
+### Metode dan batasannya
+
+- Kemenag RI: Subuh saat matahari 20° di bawah ufuk, Isya 18°, Ashar saat bayangan sama dengan
+  panjang benda ditambah bayangan tengah hari (Syafi'i), Maghrib saat matahari terbenam, Dzuhur
+  saat matahari di puncak. Ihtiyath (bawaan 2 menit) ditambahkan ke tiap waktu sholat lalu
+  dibulatkan ke atas; terbit dikurangi ihtiyath dan dibulatkan ke bawah; imsak 10 menit sebelum
+  Subuh.
+- Hasilnya bisa beda satu atau dua menit dengan jadwal resmi Kemenag (koordinat kota yang mereka
+  pakai, koreksi ketinggian tempat, dan data posisi mataharinya). Untuk ibadah, jadwal resmi atau
+  masjid setempat tetap jadi patokan.
+- Waktunya selalu WIB: tempat di WITA, WIT, atau luar negeri tetap ditampilkan dalam WIB.
+- Jauh dari khatulistiwa, ada waktu yang tidak terjadi (misalnya Isya di musim panas di Eropa
+  utara): ditampilkan `--` dan tidak diingatkan hari itu.
+- Pengingat bisa telat sampai 30 detik (dia melihat tiap 30 detik), dan lebih lama kalau sedang
+  bicara.
+
+### Mode tamu
+
+Mode tamu tidak mengubah apa pun: jadwalnya tetap bisa ditanya (waktu sholat untuk kota yang
+sudah disebut cuaca bukan hal pribadi), dan pengingatnya tetap diucapkan.
+
+### Privasi waktu sholat
+
+Waktunya dihitung di PC ini; yang dikirim ke Open-Meteo hanya nama kota, seperti untuk cuaca
+(tidak ada sama sekali dengan koordinat). `data\prayer.json` hanya berisi tanggal dan pengingat
+mana yang sudah diucapkan hari itu, bukan apakah Master sholat. Dengan Claude, hasil tool-nya
+(nama tempat dan waktunya) ikut ke API Anthropic seperti obrolan biasa. Log INFO mencatat
+kalimatnya (`Announcing: ...`) saat diucapkan, seperti pengingat lain. Kalimatnya ke `ntfy.sh`
+hanya dengan `prayer.push` dan notifikasi HP menyala.
 
 ## Pemecahan masalah
 
@@ -6239,6 +6377,17 @@ di sampingnya)
 - [ ] "Cyrene, temani aku fokus 25 menit": selama blok dia tidak mengingatkan istirahat.
 - [ ] Setelah selesai, kembalikan `every_minutes` ke 60 (atau hapus barisnya).
 
+**Waktu sholat** (lihat [Waktu sholat](#waktu-sholat))
+
+- [ ] Tulis `prayer` dengan `enabled: true` (dengan `briefing.city` atau koordinat), lalu
+      jalankan ulang `waifu run`: `waifu check` menampilkan `✓ Waktu sholat: untuk ..., ihtiyath 2
+      menit, pengingat subuh, dzuhur, ashar, maghrib, isya`.
+- [ ] `waifu sholat` menampilkan waktu hari ini; bandingkan dengan jadwal Kemenag untuk kota
+      Master: bedanya paling banyak satu atau dua menit.
+- [ ] "Cyrene, jadwal sholat besok": dia membacakan waktu besok tanpa menambahkan nasihat.
+- [ ] Biarkan `waifu run` menyala melewati waktu Dzuhur: dia bilang sekali "..., sudah masuk
+      waktu Dzuhur.". Jalankan ulang `waifu run` beberapa menit sesudahnya: tidak diulang.
+
 ## Privasi
 
 - **Suara tidak pernah keluar dari PC.** Rekaman mic, verifikasi suara, dan
@@ -6351,6 +6500,10 @@ di sampingnya)
   atau mouse terakhir disentuh, bukan tombolnya, layarnya, atau aplikasinya, dan hitungannya hanya
   diingat selama `waifu run` berjalan. Kalimatnya ke `ntfy.sh` hanya dengan `breaks.push` dan
   notifikasi HP menyala. Lihat [Privasi pengingat istirahat](#privasi-pengingat-istirahat).
+- **Waktu sholat:** dihitung di PC ini; yang ke Open-Meteo hanya nama kota, seperti untuk cuaca.
+  `data\prayer.json` hanya berisi tanggal dan pengingat mana yang sudah diucapkan, bukan apakah
+  Master sholat. Kalimatnya ke `ntfy.sh` hanya dengan `prayer.push` dan notifikasi HP menyala.
+  Lihat [Privasi waktu sholat](#privasi-waktu-sholat).
 - **Voiceprint adalah data biometrik.** `data/voiceprint.npy` (dan seluruh `data/`)
   ada di `.gitignore` dan tidak boleh di-commit atau dibagikan. Begitu juga
   `config.yaml` (local key Tuya) dan `models/`.

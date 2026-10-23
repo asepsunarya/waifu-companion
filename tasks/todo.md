@@ -2143,9 +2143,9 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 223, 224 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** M
 
-## Task 226: Docs
+## Task 226: Docs ✅
 
 **Acceptance criteria:**
-- [ ] README "Waktu sholat" with a contents entry, mentions in "Teman fokus", "Mode game", and "Mode tamu", checklist items, and a Privasi bullet; CHANGELOG v1.41; full suite and ruff clean
+- [x] README "Waktu sholat" with a contents entry, mentions in "Teman fokus", "Mode game", and "Mode tamu", checklist items, and a Privasi bullet; CHANGELOG v1.41; full suite and ruff clean
 
 **Dependencies:** 225 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S

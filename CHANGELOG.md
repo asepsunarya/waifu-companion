@@ -4,6 +4,23 @@ Ringkasan per versi, yang terbaru di atas. Rinciannya ada di README (bagian yang
 setiap versi) dan di SPEC.md. Setelah memperbarui, **mulai ulang `waifu run`** supaya semuanya
 aktif, lalu jalankan `waifu check`.
 
+## v1.41: waktu sholat
+
+- Mati sampai dinyalakan (`prayer.enabled: true`); selama mati, tidak ada yang dia ucapkan soal
+  sholat. "Jadwal sholat hari ini?", "Maghrib jam berapa?", atau "jadwal sholat besok" dijawab
+  dengan imsak, subuh, terbit, dzuhur, ashar, maghrib, dan isya untuk tempat Master, dihitung di
+  PC ini tanpa internet dengan metode Kemenag RI (Subuh -20°, Isya -18°, Ashar Syafi'i,
+  ihtiyath 2 menit yang bisa diatur), dalam WIB. Dia hanya menyebut waktunya, tanpa menasihati.
+- Tempatnya `prayer.latitude`/`longitude`, atau koordinat atau kota di bagian `briefing` (kota
+  dicari sekali lewat Open-Meteo, seperti untuk cuaca).
+- Selama `waifu run` dia bilang sekali saat masuk waktu tiap sholat di `remind` (bawaan kelimanya):
+  "Sayang, sudah masuk waktu Dzuhur.", atau `minutes_before` menit sebelumnya. Seperti pengingat
+  yang Master pasang sendiri, juga di tengah blok fokus atau saat main game. Tidak diulang hari itu,
+  juga setelah `waifu run` dijalankan ulang (`data\prayer.json`); yang terlewat lebih dari 30 menit
+  tidak diucapkan. Ke HP hanya dengan `push: true`.
+- Tetap jalan di mode tamu. `waifu sholat [YYYY-MM-DD]` menampilkan jadwalnya; `waifu check` punya
+  baris `Waktu sholat`. README: "Waktu sholat".
+
 ## v1.40: pengingat istirahat
 
 - Mati sampai dinyalakan (`breaks.enabled: true`): setelah satu jam terus memakai keyboard atau

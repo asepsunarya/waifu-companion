@@ -876,11 +876,11 @@ optional parameters stay.
 - [x] Task 223: `PrayerTools` (`prayer_times`)
 - [x] Task 224: `PrayerWatcher` (the window, the lines, the state file, delivery, the thread)
 - [x] Task 225: wiring in `run` and `chat`, guest sorting, `waifu sholat`, the check line
-- [ ] Task 226: README "Waktu sholat", CHANGELOG
+- [x] Task 226: README "Waktu sholat", CHANGELOG
 
 ### Checkpoint: Waktu sholat
-- [ ] Python suite and ruff clean; no test spoke, pushed, or reached Open-Meteo; the strict-tool budget unchanged
-- [ ] By hand: `waifu sholat` with scratch coordinates prints the day's times; a real `PrayerWatcher` on fake clocks says each prayer once, and a restart within the window says nothing again
+- [x] Python suite and ruff clean; no test spoke, pushed, or reached Open-Meteo; the strict-tool budget unchanged (2026-10-24: 9405 pytest, 489 JS; `prayer_times` is non-strict in the every-tool request, so 18 of 20 strict tools and 17 of 24 optional parameters stay)
+- [x] By hand (2026-10-24, a scratch folder with the example config and `prayer` at -6.9175, 107.6191, `minutes_before: 10`, no network): `waifu sholat` printed Sabtu 24-10-2026 as imsak 03:58, subuh 04:08, terbit 05:22, dzuhur 11:36, ashar 14:47, maghrib 17:45, isya 18:57 and created no file; `_prayer_check` read `✓ Waktu sholat: untuk -6.9175, 107.6191, ihtiyath 2 menit, pengingat subuh, dzuhur, ashar, maghrib, isya 10 menit sebelumnya` and the example config `! Waktu sholat mati`; a real `PrayerWatcher` polled every 30 s through the day on a fake clock said "Sayang, sepuluh menit lagi masuk waktu ..." once each at 03:58, 11:26, 14:37, 17:35, and 18:47 (neutral, pushed with the mosque tag), a restart at 12:00 inside Dzuhur's window said nothing, and the file ended `{"version":1,"date":"2026-10-24","told":["subuh","dzuhur","ashar","maghrib","isya"]}`
 - [ ] On the owner's PC: with `prayer.enabled` and his city, `waifu sholat` matches the Kemenag schedule within a minute or two, "jadwal sholat besok" reads tomorrow's times, and Dzuhur is said once at its time
 
 ## Risks and Mitigations
