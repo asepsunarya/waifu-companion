@@ -88,7 +88,7 @@
     {"id": "w085", "kana": "がっこう", "kanji": "学校", "meaning": "sekolah", "example": "学校までバスで行きます。", "example_meaning": "Saya pergi ke sekolah naik bus."},
     {"id": "w086", "kana": "だいがく", "kanji": "大学", "meaning": "universitas", "example": "大学でえいごをべんきょうしています。", "example_meaning": "Saya belajar bahasa Inggris di universitas."},
     {"id": "w087", "kana": "かいしゃ", "kanji": "会社", "meaning": "perusahaan, kantor", "example": "会社は駅のちかくです。", "example_meaning": "Kantornya dekat stasiun."},
-    {"id": "w088", "kana": "えき", "kanji": "駅", "meaning": "stasiun", "example": "駅まであるいて十分です。", "example_meaning": "Ke stasiun sepuluh menit jalan kaki."},
+    {"id": "w088", "kana": "えき", "kanji": "駅", "meaning": "stasiun", "example": "駅まであるいてじゅっぷんです。", "example_meaning": "Ke stasiun sepuluh menit jalan kaki."},
     {"id": "w089", "kana": "みせ", "kanji": "店", "meaning": "toko", "example": "この店のラーメンはおいしいです。", "example_meaning": "Ramen di toko ini enak."},
     {"id": "w090", "kana": "びょういん", "kanji": "病院", "meaning": "rumah sakit", "example": "病院へ行ったほうがいいですよ。", "example_meaning": "Sebaiknya kamu pergi ke rumah sakit."},
     {"id": "w091", "kana": "としょかん", "kanji": "図書館", "meaning": "perpustakaan", "example": "図書館は九時に開きます。", "example_meaning": "Perpustakaan buka jam sembilan."},

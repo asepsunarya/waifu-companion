@@ -101,6 +101,14 @@ def test_every_example_is_one_japanese_sentence_for_the_japanese_voice():
     assert bad == []
 
 
+def test_no_example_holds_a_form_the_japanese_voice_reads_as_another_word():
+    # A lone 十分 is じゅうぶん ("enough") to a speech engine, not じゅっぷん ("ten minutes"),
+    # and "歩いて十分です" makes sense either way; 三十分 has one reading.
+    misread = re.compile("(?<![一二三四五六七八九])十分")
+
+    assert [word.id for word in WORDS if misread.search(word.example)] == []
+
+
 def test_every_meaning_is_indonesian_that_her_voice_says_whole():
     # Her voice drops anything in parentheses, so a meaning must hold none.
     bad = [
