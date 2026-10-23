@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import contextlib
 import hashlib
 import inspect
 import io
@@ -1360,6 +1361,7 @@ def event_player(events, monkeypatch) -> None:
         (["say", "--raw", "Halo"], "say"),
         (["say", "--fallback", "--raw", "Halo"], "say"),
         (["mics"], "mics"),
+        (["mic", "--seconds", "2"], "mic"),
         (["voices"], "voices"),
         (["check"], "check"),
         (["avatar"], "avatar"),
@@ -3991,7 +3993,11 @@ def test_check_with_everything_ready_exits_0(home, monkeypatch, capsys):
     monkeypatch.setitem(
         sys.modules,
         "sounddevice",
-        fake_module("sounddevice", query_devices=lambda device, kind: {"name": "USB Mic"}),
+        fake_module(
+            "sounddevice",
+            query_devices=lambda device, kind=None: {"name": "USB Mic"},
+            default=types.SimpleNamespace(device=(1, 3)),
+        ),
     )
 
     assert cli.main(["check"]) == 0
@@ -4000,8 +4006,307 @@ def test_check_with_everything_ready_exits_0(home, monkeypatch, capsys):
     assert "✓ Whisper (faster_whisper) dapat dimuat" in out
     assert "✓ ECAPA (speechbrain) dapat dimuat" in out
     assert "✓ CUDA tersedia: NVIDIA GeForce RTX 5060 Ti" in out
-    assert "USB Mic" in out
+    assert "✓ Mikrofon: USB Mic, default Windows (audio.input_device kosong)" in out
     assert requested == [("http://127.0.0.1:11434/api/tags", 2.0)]
+
+
+# --- which microphone: waifu mic and the check's mic line ------------------------------------
+
+MIC_RATE = 44100
+MIC_HOST_APIS = [{"name": "MME"}, {"name": "Windows WASAPI"}]
+
+
+def audio_device(index: int, name: str, hostapi: int, inputs: int, outputs: int = 0) -> dict:
+    rate = 44100.0 if hostapi == 0 else 48000.0
+    return {
+        "index": index,
+        "name": name,
+        "hostapi": hostapi,
+        "max_input_channels": inputs,
+        "max_output_channels": outputs,
+        "default_samplerate": rate,
+    }
+
+
+# What PortAudio lists on the owner's PC, shortened: MME cuts names to 31 characters.
+OWNER_AUDIO_DEVICES = [
+    audio_device(0, "Microsoft Sound Mapper - Input", 0, 2),
+    audio_device(1, "Headset (Polaris-BT)", 0, 1),
+    audio_device(2, "Microphone (High Definition Aud", 0, 2),
+    audio_device(3, "Headphones (High Definition Aud", 0, 0, 2),
+    audio_device(4, "Headset (Polaris-BT)", 1, 1),
+    audio_device(5, "Microphone (High Definition Audio Device)", 1, 2),
+]
+ONBOARD_MIC = 2  # the Windows default in the owner's diagnosis
+HEADSET_MIC = 1
+
+
+def master_speaking() -> np.ndarray:
+    """A second of "halo Cyrene" (-23 dB RMS) in a quiet room (-60 dB)."""
+    room = np.random.default_rng(3).normal(0.0, 10 ** (-60 / 20), MIC_RATE)
+    t = np.arange(MIC_RATE // 2) / MIC_RATE
+    room[MIC_RATE // 4 : MIC_RATE // 4 + len(t)] += 0.1 * np.sin(2 * np.pi * 220 * t)
+    return room
+
+
+def noise_floor() -> np.ndarray:
+    """Only the room at about -51 dB RMS: the onboard jack while Master spoke."""
+    return np.random.default_rng(5).normal(0.0, 10 ** (-51 / 20), MIC_RATE)
+
+
+class FakeSoundDevice:
+    """sounddevice for `waifu mic` and `waifu check`: `devices`, the Windows default input at
+    `default_input`, and input streams that hand out `heard[index]` (silence otherwise) or
+    raise `broken[index]`, never recording; `reads` holds (device, rate, frames) per read."""
+
+    def __init__(
+        self, devices=OWNER_AUDIO_DEVICES, *, default_input=ONBOARD_MIC, heard=None, broken=None
+    ) -> None:
+        self.devices = devices
+        self.default = types.SimpleNamespace(device=(default_input, 3))
+        self.heard = heard or {}
+        self.broken = broken or {}
+        self.reads: list[tuple[int, int, int]] = []
+
+    def module(self) -> types.ModuleType:
+        return fake_module(
+            "sounddevice",
+            default=self.default,
+            query_hostapis=lambda: MIC_HOST_APIS,
+            query_devices=self.query_devices,
+            InputStream=self.input_stream,
+        )
+
+    def query_devices(self, device=None, kind=None):
+        if device is None and kind is None:
+            return self.devices
+        if device is None:
+            device = self.default.device[0]
+        if isinstance(device, str):
+            # sounddevice's exact "name, host API" match, the form `waifu mic` suggests
+            matches = [
+                info
+                for info in self.devices
+                if info["max_input_channels"]
+                and f"{info['name']}, {MIC_HOST_APIS[info['hostapi']]['name']}" == device
+            ]
+            if len(matches) != 1:
+                raise ValueError(f"No input device matching {device!r}")
+            return matches[0]
+        return self.devices[device]
+
+    @contextlib.contextmanager
+    def input_stream(self, *, samplerate, device, channels, dtype):
+        assert (channels, dtype) == (1, "float32")
+        if device in self.broken:
+            raise self.broken[device]
+        heard = self.heard.get(device, np.zeros(1))
+
+        def read(frames: int) -> tuple[np.ndarray, bool]:
+            self.reads.append((device, samplerate, frames))
+            return np.resize(heard, frames).astype(np.float32).reshape(-1, 1), False
+
+        yield types.SimpleNamespace(read=read)
+
+
+def use_sounddevice(monkeypatch, sd: FakeSoundDevice) -> FakeSoundDevice:
+    monkeypatch.setitem(sys.modules, "sounddevice", sd.module())
+    return sd
+
+
+def use_input_device(home: Path, value: str) -> None:
+    """The example config with `audio.input_device` set to `value`."""
+    config = home / "config.yaml"
+    text = config.read_text(encoding="utf-8")
+    chosen = re.sub(r"(?m)^  input_device: null.*$", f'  input_device: "{value}"', text, count=1)
+    assert chosen != text
+    config.write_text(chosen, encoding="utf-8")
+
+
+def files_in(folder: Path) -> set[Path]:
+    return {path for path in folder.rglob("*") if path.is_file()}
+
+
+def test_mic_lists_each_input_once_measures_each_and_gives_the_config_line_of_the_best(
+    home, monkeypatch, capsys
+):
+    # The owner's PC: the Windows default is the onboard jack, which hears only the room.
+    sd = use_sounddevice(
+        monkeypatch,
+        FakeSoundDevice(heard={HEADSET_MIC: master_speaking(), ONBOARD_MIC: noise_floor()}),
+    )
+    before = files_in(home)
+
+    assert cli.main(["mic", "--seconds", "1"]) == 0
+
+    out = capsys.readouterr().out.splitlines()
+    assert out[:4] == [
+        "Cyrene memakai mic default Windows, sekarang Microphone (High Definition Aud "
+        "(audio.input_device kosong). Default yang berubah baru dipakai setelah 'waifu run' "
+        "dijalankan ulang.",
+        "Mikrofon di PC ini:",
+        "  1. Headset (Polaris-BT), MME",
+        "  2. Microphone (High Definition Aud, MME  <- dipakai Cyrene, default Windows",
+    ]
+    assert out[5].startswith("Sebut 'halo Cyrene' beberapa kali selama 1 detik di tiap mikrofon")
+    assert out[6] == "[1/2] Headset (Polaris-BT), MME: mendengarkan..."
+    assert out[7].startswith("  puncak -20 dB, RMS ") and out[7].endswith("✓ suara terdengar")
+    assert out[8] == "[2/2] Microphone (High Definition Aud, MME: mendengarkan..."
+    assert out[9].startswith("  puncak ") and "RMS -51 dB" in out[9]
+    assert out[9].endswith("✗ suara tidak terdengar (butuh -39 dB)")
+    assert out[11].startswith("✓ Suaramu paling jelas di Headset (Polaris-BT).")
+    assert out[12] == '    input_device: "Headset (Polaris-BT), MME"'
+    assert "waifu enroll" in out[13]
+    assert sd.reads == [(HEADSET_MIC, MIC_RATE, MIC_RATE), (ONBOARD_MIC, MIC_RATE, MIC_RATE)]
+    assert files_in(home) == before  # nothing heard is saved
+
+
+def test_mic_says_when_the_mic_cyrene_uses_already_hears_master_best(home, monkeypatch, capsys):
+    use_sounddevice(monkeypatch, FakeSoundDevice(heard={ONBOARD_MIC: master_speaking()}))
+
+    assert cli.main(["mic", "--seconds", "1"]) == 0
+
+    out = capsys.readouterr().out
+    assert (
+        "✓ Suaramu paling jelas di mic yang dipakai Cyrene: Microphone (High Definition Aud." in out
+    )
+    assert "input_device:" not in out
+    assert "  1. Headset (Polaris-BT), MME\n" in out
+    assert "✗ sunyi total: mic mati, di-mute, atau diblokir Windows" in out  # the headset
+
+
+def test_mic_marks_the_configured_input_device_apart_from_the_windows_default(
+    home, monkeypatch, capsys
+):
+    use_input_device(home, "Headset (Polaris-BT), MME")
+    use_sounddevice(monkeypatch, FakeSoundDevice(heard={HEADSET_MIC: master_speaking()}))
+
+    assert cli.main(["mic"]) == 0
+
+    out = capsys.readouterr().out
+    assert (
+        "Cyrene memakai audio.input_device 'Headset (Polaris-BT), MME': Headset (Polaris-BT)."
+        in out
+    )
+    assert "  1. Headset (Polaris-BT), MME  <- dipakai Cyrene\n" in out
+    assert "  2. Microphone (High Definition Aud, MME  <- default Windows\n" in out
+    assert "selama 3 detik" in out
+    assert "✓ Suaramu paling jelas di mic yang dipakai Cyrene: Headset (Polaris-BT)." in out
+
+
+def test_mic_with_a_configured_name_that_opens_nothing_says_why_and_still_measures(
+    home, monkeypatch, capsys
+):
+    use_input_device(home, "Mic lama")
+    sd = use_sounddevice(monkeypatch, FakeSoundDevice(heard={ONBOARD_MIC: master_speaking()}))
+
+    assert cli.main(["mic", "--seconds", "1"]) == 0
+
+    out = capsys.readouterr().out
+    assert "✗ audio.input_device 'Mic lama' tidak bisa dipakai: No input device matching" in out
+    assert "dipakai Cyrene" not in out
+    assert '    input_device: "Microphone (High Definition Aud, MME"' in out
+    assert len(sd.reads) == 2
+
+
+def test_mic_goes_on_past_a_mic_that_cannot_be_opened(home, monkeypatch, capsys):
+    sd = use_sounddevice(
+        monkeypatch,
+        FakeSoundDevice(
+            heard={ONBOARD_MIC: master_speaking()},
+            broken={HEADSET_MIC: RuntimeError("Unanticipated host error")},
+        ),
+    )
+
+    assert cli.main(["mic", "--seconds", "1"]) == 0
+
+    out = capsys.readouterr().out
+    assert "  ✗ Tidak bisa dibuka: Unanticipated host error" in out
+    assert sd.reads == [(ONBOARD_MIC, MIC_RATE, MIC_RATE)]
+    assert "✓ Suaramu paling jelas di mic yang dipakai Cyrene" in out
+
+
+def test_mic_that_heard_no_speech_anywhere_says_how_to_make_it_hear(home, monkeypatch, capsys):
+    use_sounddevice(monkeypatch, FakeSoundDevice(heard={ONBOARD_MIC: noise_floor()}))
+
+    assert cli.main(["mic", "--seconds", "1"]) == 0
+
+    last = capsys.readouterr().out.splitlines()[-1]
+    assert last.startswith("✗ Tidak ada mic yang mendengar suara sekeras yang dibutuhkan Cyrene.")
+    assert "Settings, System, Sound, Input" in last
+
+
+def test_mic_without_any_input_device_points_at_the_connection_and_privacy(
+    home, monkeypatch, capsys
+):
+    outputs = [device for device in OWNER_AUDIO_DEVICES if not device["max_input_channels"]]
+    sd = use_sounddevice(monkeypatch, FakeSoundDevice(outputs, default_input=-1))
+
+    assert cli.main(["mic"]) == 0
+
+    assert capsys.readouterr().out.strip() == f"✗ {cli.NO_MIC_FOUND}"
+    assert sd.reads == []
+
+
+def test_mic_without_a_windows_default_says_cyrene_has_none_to_open(home, monkeypatch, capsys):
+    use_sounddevice(
+        monkeypatch, FakeSoundDevice(default_input=-1, heard={HEADSET_MIC: master_speaking()})
+    )
+
+    assert cli.main(["mic", "--seconds", "1"]) == 0
+
+    out = capsys.readouterr().out
+    assert out.startswith("✗ audio.input_device kosong, dan Windows tidak punya mic default.\n")
+    assert "<-" not in out
+    assert '    input_device: "Headset (Polaris-BT), MME"' in out
+
+
+@pytest.mark.parametrize("seconds", ["0", "-2", "nan", "lama"])
+def test_mic_listens_for_more_than_zero_seconds(seconds, home, capsys):
+    with pytest.raises(SystemExit) as exit_info:
+        cli.main(["mic", "--seconds", seconds])
+
+    assert exit_info.value.code == 2
+    assert "harus angka lebih dari 0" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    ("input_device", "line"),
+    [
+        (
+            "Headset (Polaris-BT), MME",
+            "✓ Mikrofon: Headset (Polaris-BT) dari audio.input_device "
+            "(default Windows: Microphone (High Definition Aud)",
+        ),
+        (
+            "Microphone (High Definition Audio Device), Windows WASAPI",
+            "✓ Mikrofon: Microphone (High Definition Audio Device) dari audio.input_device, sama "
+            "dengan default Windows",
+        ),
+    ],
+    ids=["another_mic", "the_default_through_wasapi"],
+)
+def test_check_names_the_configured_mic_and_whether_it_is_the_windows_default(
+    input_device, line, home, nothing_installed, monkeypatch, capsys
+):
+    use_input_device(home, input_device)
+    sd = use_sounddevice(monkeypatch, FakeSoundDevice())
+
+    cli.main(["check"])
+
+    assert line in capsys.readouterr().out.splitlines()
+    assert sd.reads == []  # the check never listens
+
+
+def test_check_names_the_windows_default_mic_cyrene_uses_without_input_device(
+    home, nothing_installed, monkeypatch, capsys
+):
+    use_sounddevice(monkeypatch, FakeSoundDevice(default_input=HEADSET_MIC))
+
+    cli.main(["check"])
+
+    lines = capsys.readouterr().out.splitlines()
+    assert "✓ Mikrofon: Headset (Polaris-BT), default Windows (audio.input_device kosong)" in lines
 
 
 def test_check_reports_an_ollama_model_that_is_not_pulled(

@@ -224,6 +224,15 @@ from waifu.version import (
 )
 from waifu.version_watch import VersionWatcher
 from waifu.voice.audio import MicStream, Player, list_devices
+from waifu.voice.mic_check import (
+    InputDevice,
+    Levels,
+    input_devices,
+    level_bar,
+    measure,
+    same_device_name,
+    windows_default_input,
+)
 from waifu.voice.rvc import (
     SERVER_SCRIPT,
     RvcClient,
@@ -285,6 +294,11 @@ COMMAND_NAME_RULE = "pakai huruf kecil, angka, atau garis bawah (misalnya temp_2
 # against; half the weakest one is a forgiving start that stays above other voices.
 THRESHOLD_SHARE_OF_WEAKEST = 0.5
 MIN_SUGGESTED_THRESHOLD = 0.25
+MIC_CHECK_SECONDS = 3.0  # how long `waifu mic` listens to each microphone
+NO_MIC_FOUND = (
+    "Windows tidak menemukan mikrofon. Sambungkan mic atau headset, lalu cek Windows Settings, "
+    "Privacy & security, Microphone."
+)
 
 DEFAULT_CONFIG = Path("config.yaml")
 RUN_LOCK = Path("data") / "run.lock"
@@ -634,6 +648,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="dengan suara cadangan offline (suara Windows), yang dipakai kalau edge-tts gagal",
     )
     command("mics", _mics, "Daftar perangkat audio.")
+    mic = command(
+        "mic",
+        _mic,
+        "Cari mic yang mendengar suara Master: tiap mic didengarkan sebentar sambil Master "
+        "bicara, tanpa menyimpan rekaman.",
+    )
+    mic.add_argument(
+        "--seconds",
+        type=_positive_seconds,
+        default=MIC_CHECK_SECONDS,
+        metavar="DETIK",
+        help=f"lama mendengarkan tiap mic (default {MIC_CHECK_SECONDS:g})",
+    )
     command(
         "voices",
         _voices,
@@ -1044,6 +1071,17 @@ def _non_negative_seconds(text: str) -> float:
     except ValueError:
         raise invalid from None
     if not (math.isfinite(seconds) and seconds >= 0):
+        raise invalid
+    return seconds
+
+
+def _positive_seconds(text: str) -> float:
+    invalid = argparse.ArgumentTypeError(f"harus angka lebih dari 0, bukan {text!r}")
+    try:
+        seconds = float(text)
+    except ValueError:
+        raise invalid from None
+    if not (math.isfinite(seconds) and seconds > 0):
         raise invalid
     return seconds
 
@@ -1981,6 +2019,104 @@ def _say(args: argparse.Namespace) -> int:
 def _mics(args: argparse.Namespace) -> int:
     print(list_devices())
     return 0
+
+
+def _mic(args: argparse.Namespace) -> int:
+    """Every input device, marked with the one Cyrene uses and the Windows default, then each
+    one's levels while Master speaks, and the config line for the one that heard him best.
+    Nothing is saved. Runs beside `waifu run`: its streams are shared, like a second app's."""
+    config = load_config(args.config)
+    import sounddevice
+
+    devices = input_devices(sounddevice)
+    if not devices:
+        print(f"{FAIL} {NO_MIC_FOUND}")
+        return 0
+    default = windows_default_input(sounddevice)
+    used = _mic_in_use(sounddevice, config.audio.input_device, default)
+    print("Mikrofon di PC ini:")
+    for number, device in enumerate(devices, start=1):
+        marks = [
+            mark
+            for mark, name in (("dipakai Cyrene", used), ("default Windows", default))
+            if name is not None and same_device_name(device.name, name)
+        ]
+        print(f"  {number}. {device.config_value}" + (f"  <- {', '.join(marks)}" if marks else ""))
+    print(
+        f"\nSebut 'halo Cyrene' beberapa kali selama {args.seconds:g} detik di tiap mikrofon, "
+        "dengan suara biasa. Rekamannya tidak disimpan."
+    )
+    heard: list[tuple[InputDevice, Levels]] = []
+    for number, device in enumerate(devices, start=1):
+        print(f"[{number}/{len(devices)}] {device.config_value}: mendengarkan...", flush=True)
+        try:
+            found = measure(sounddevice, device, args.seconds, config.audio.vad)
+        except Exception as exc:  # unplugged, a headset that went to sleep, a driver error
+            print(f"  {FAIL} Tidak bisa dibuka: {exc}")
+            continue
+        print(f"  {_mic_levels(found)}")
+        if found.heard_speech:
+            heard.append((device, found))
+    print()
+    _suggest_mic(heard, used)
+    return 0
+
+
+def _mic_in_use(sd: Any, input_device: int | str | None, default: str | None) -> str | None:
+    """The name of the input Cyrene opens, said; None (after saying why) when none opens."""
+    if input_device is None:
+        if default is None:
+            print(f"{FAIL} audio.input_device kosong, dan Windows tidak punya mic default.")
+        else:
+            print(
+                f"Cyrene memakai mic default Windows, sekarang {default} (audio.input_device "
+                "kosong). Default yang berubah baru dipakai setelah 'waifu run' dijalankan ulang."
+            )
+        return default
+    try:
+        name = sd.query_devices(input_device, "input")["name"]
+    except Exception as exc:  # a name that matches no input, or several
+        print(f"{FAIL} audio.input_device {input_device!r} tidak bisa dipakai: {exc}")
+        return None
+    print(f"Cyrene memakai audio.input_device {input_device!r}: {name}.")
+    return name
+
+
+def _mic_levels(found: Levels) -> str:
+    """One measurement: its levels, its bar, and whether the VAD would take it for speech."""
+    if found.silent:
+        return f"{level_bar(found)} {FAIL} sunyi total: mic mati, di-mute, atau diblokir Windows"
+    verdict = (
+        f"{OK} suara terdengar"
+        if found.heard_speech
+        else f"{FAIL} suara tidak terdengar (butuh {found.speech_bar_db:.0f} dB)"
+    )
+    loudness = f"puncak {found.peak_db:.0f} dB, RMS {found.rms_db:.0f} dB"
+    return f"{loudness} {level_bar(found)} {verdict}"
+
+
+def _suggest_mic(heard: list[tuple[InputDevice, Levels]], used: str | None) -> None:
+    """Which mic to use: the one that heard speech furthest above the VAD's bar."""
+    if not heard:
+        print(
+            f"{FAIL} Tidak ada mic yang mendengar suara sekeras yang dibutuhkan Cyrene. Dekatkan "
+            "mic, naikkan volume rekamannya di Windows (Settings, System, Sound, Input), lalu "
+            "jalankan 'waifu mic' lagi."
+        )
+        return
+    best, _ = max(heard, key=lambda pair: pair[1].loudest_frame_db - pair[1].speech_bar_db)
+    if used is not None and same_device_name(best.name, used):
+        print(f"{OK} Suaramu paling jelas di mic yang dipakai Cyrene: {best.name}.")
+        return
+    print(
+        f"{OK} Suaramu paling jelas di {best.name}. Supaya Cyrene memakainya, isi "
+        "audio.input_device di config.yaml (baris ini di bawah audio:):"
+    )
+    print(f"    {best.config_line}")
+    print(
+        "Lalu jalankan ulang 'waifu run', dan daftarkan ulang suaramu dengan 'waifu enroll' "
+        "lewat mic itu."
+    )
 
 
 def _voices(args: argparse.Namespace) -> int:
@@ -5665,13 +5801,20 @@ def _cuda_check(config: AppConfig) -> Check:
 
 
 def _microphone_check(config: AppConfig) -> Check:
+    """The input Cyrene opens and whether it is the Windows default; nothing is recorded."""
     try:
         import sounddevice
 
-        info = sounddevice.query_devices(config.audio.input_device, "input")
+        name = sounddevice.query_devices(config.audio.input_device, "input")["name"]
+        default = windows_default_input(sounddevice)
     except Exception as exc:  # missing package or PortAudio, no input device, bad device name
         return FAIL, f"Mikrofon tidak ditemukan: {exc}"
-    return OK, f"Mikrofon: {info['name']}"
+    if config.audio.input_device is None:
+        return OK, f"Mikrofon: {name}, default Windows (audio.input_device kosong)"
+    if default is not None and same_device_name(name, default):
+        return OK, f"Mikrofon: {name} dari audio.input_device, sama dengan default Windows"
+    other = f"default Windows: {default}" if default is not None else "Windows tanpa mic default"
+    return OK, f"Mikrofon: {name} dari audio.input_device ({other})"
 
 
 def _fallback_voice_checks(config: AppConfig) -> Iterator[Check]:
