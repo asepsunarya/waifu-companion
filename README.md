@@ -6118,8 +6118,11 @@ di sampingnya)
       `data\japanese.json`.
 - [ ] Sapaan pagi diakhiri kata hari ini: katanya terdengar dengan suara Jepang, artinya dengan
       suara Indonesia, tanpa romaji.
-- [ ] "Cyrene, kuis bahasa Jepang dong": dia menanyakan satu kata saja lalu menunggu. Jawab
-      artinya: dia memuji. Jawab salah di kata berikutnya: dia menyebut artinya dengan lembut.
+- [ ] Hari pertama, "Cyrene, kuis bahasa Jepang dong": dia menanyakan satu kata saja (kata hari
+      ini) lalu menunggu. Jawab salah: dia menyebut artinya dengan lembut, dan belum ada kata lain
+      yang perlu diulang. `waifu jepang progres` lalu menunjukkan
+      `Tidak ada kata yang perlu diulang hari ini.`
+- [ ] Besoknya, kuis lagi: kata kemarin ditanya lagi. Jawab artinya dengan benar: dia memuji.
 - [ ] `waifu jepang progres` menghitung kata yang sudah dipelajari dan yang perlu diulang hari ini.
 
 ## Privasi
