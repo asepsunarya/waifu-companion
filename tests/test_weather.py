@@ -12,7 +12,15 @@ from datetime import datetime
 
 import pytest
 
-from waifu.weather import RAIN_CODES, Hour, Weather, WeatherClient, WeatherError, get_json
+from waifu.weather import (
+    RAIN_CODES,
+    Hour,
+    Location,
+    Weather,
+    WeatherClient,
+    WeatherError,
+    get_json,
+)
 
 FORECAST_HOST = "api.open-meteo.com"
 GEOCODING_HOST = "geocoding-api.open-meteo.com"
@@ -641,6 +649,52 @@ def test_the_forecast_is_not_asked_with_less_than_a_second_left_and_the_city_is_
     assert weather.place == "Bandung, Jawa Barat"
     assert len(fetch.requests_to(GEOCODING_HOST)) == 1
     assert fetch.timeouts == [8.0, 8.0]  # the next call asks only the forecast, with 8 s
+
+
+def test_the_location_of_coordinates_needs_no_request_and_takes_the_city_s_name():
+    fetch = FakeOpenMeteo()
+
+    named = WeatherClient(latitude=-7.25, longitude=112.75, city="Surabaya", fetch=fetch)
+    bare = WeatherClient(latitude=-7.25, longitude=112.75, fetch=fetch)
+
+    assert named.location() == Location("Surabaya", -7.25, 112.75)
+    assert bare.location() == Location("-7.25, 112.75", -7.25, 112.75)
+    assert fetch.urls == []
+
+
+def test_the_location_of_a_city_is_geocoded_once_within_8_s_and_kept_for_the_forecast():
+    clock = FakeClock()
+    fetch = FakeOpenMeteo(clock=clock)
+    client = WeatherClient(city="Bandung", fetch=fetch, clock=clock)
+
+    first = client.location()
+    again = client.location()
+    weather = client.today()
+
+    assert first == again == Location("Bandung, Jawa Barat", -6.90389, 107.61861)
+    assert weather.place == "Bandung, Jawa Barat"
+    assert len(fetch.requests_to(GEOCODING_HOST)) == 1
+    assert fetch.timeouts[0] == 8.0
+
+
+def test_a_location_that_cannot_be_found_is_a_weather_error_tried_again_next_time():
+    fetch = FakeOpenMeteo(geocoding=urllib.error.URLError("no route"))
+    client = WeatherClient(city="Bandung", fetch=fetch)
+    with pytest.raises(WeatherError, match="koneksi internet"):
+        client.location()
+    fetch.replies[GEOCODING_HOST] = geocoding_reply(BANDUNG)
+
+    assert client.location().place == "Bandung, Jawa Barat"
+    assert len(fetch.requests_to(GEOCODING_HOST)) == 2
+
+
+def test_no_location_is_a_weather_error_asking_no_one():
+    fetch = FakeOpenMeteo()
+
+    with pytest.raises(WeatherError, match="briefing.city"):
+        WeatherClient(fetch=fetch).location()
+
+    assert fetch.urls == []
 
 
 def slow_client(**options) -> WeatherClient:

@@ -872,7 +872,7 @@ optional parameters stay.
 - [x] Task 220a: contract: SPEC, tasks
 - [x] Task 220: `prayer_times.py` (the sun, noon, the altitude times, the Kemenag times)
 - [x] Task 221: the `prayer` config, `config.example.yaml`
-- [ ] Task 222: `WeatherClient.location()` and `PrayerPlace`
+- [x] Task 222: `WeatherClient.location()` and `PrayerPlace`
 - [ ] Task 223: `PrayerTools` (`prayer_times`)
 - [ ] Task 224: `PrayerWatcher` (the window, the lines, the state file, delivery, the thread)
 - [ ] Task 225: wiring in `run` and `chat`, guest sorting, `waifu sholat`, the check line

@@ -2108,11 +2108,11 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 220a · **Files:** `src/waifu/config.py`, `config.example.yaml`, `tests/test_config.py` · **Scope:** S
 
-## Task 222: The place
+## Task 222: The place ✅
 
 **Acceptance criteria:**
-- [ ] `WeatherClient.location()` gives coordinates without a request, geocodes a city once for the client's life, and raises `WeatherError` when it fails
-- [ ] `PrayerPlace.locate()` gives the place, says "lokasi belum diatur" without one, and turns a `WeatherError` into a `PrayerError` with its message
+- [x] `WeatherClient.location()` gives coordinates without a request, geocodes a city once for the client's life, and raises `WeatherError` when it fails
+- [x] `PrayerPlace.locate()` gives the place, says "lokasi belum diatur" without one, and turns a `WeatherError` into a `PrayerError` with its message
 
 **Dependencies:** 220a · **Files:** `src/waifu/weather.py`, `tests/test_weather.py`, `src/waifu/prayer.py`, `tests/test_prayer.py` · **Scope:** S
 

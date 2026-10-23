@@ -94,7 +94,9 @@ class WeatherError(Exception):
 
 
 @dataclass(frozen=True)
-class _Location:
+class Location:
+    """Where the weather is for: the name she says and its coordinates."""
+
     place: str
     latitude: float
     longitude: float
@@ -130,10 +132,15 @@ class WeatherClient:
         self._failure_level = failure_level
         # Coordinates win over the city, which still names the place she says; a geocoded city
         # is kept here for the client's life.
-        self._location: _Location | None = None
+        self._location: Location | None = None
         if latitude is not None and longitude is not None:
             place = city or f"{latitude}, {longitude}"
-            self._location = _Location(place, latitude, longitude)
+            self._location = Location(place, latitude, longitude)
+
+    def location(self) -> Location:
+        """The place: its coordinates without a request, else the city geocoded within
+        `TIME_LIMIT_S` and kept for the client's life; WeatherError when there is none."""
+        return self._locate(self._clock() + TIME_LIMIT_S)
 
     def today(self) -> Weather:
         """The weather now, today, and tomorrow morning, within `TIME_LIMIT_S`; WeatherError
@@ -162,7 +169,7 @@ class WeatherClient:
             )
             raise WeatherError(UNREADABLE) from None
 
-    def _locate(self, deadline: float) -> _Location:
+    def _locate(self, deadline: float) -> Location:
         if self._location is None:
             if self._city is None:
                 raise WeatherError(
@@ -178,7 +185,7 @@ class WeatherClient:
             )
         return self._location
 
-    def _geocode(self, city: str, deadline: float) -> _Location:
+    def _geocode(self, city: str, deadline: float) -> Location:
         data = self._get(GEOCODING_URL, {"name": city, "count": 1, "language": "id"}, deadline)
         try:
             location = _first_place(data)
@@ -227,7 +234,7 @@ class WeatherClient:
             raise WeatherError(UNREADABLE) from None
 
 
-def _first_place(data: Any) -> _Location | None:
+def _first_place(data: Any) -> Location | None:
     """The first geocoding result, or None when there is none (Open-Meteo omits empty fields)."""
     if not isinstance(data, dict):
         raise TypeError(f"the reply is a {type(data).__name__}, not an object")
@@ -242,7 +249,7 @@ def _first_place(data: Any) -> _Location | None:
     province = found.get("admin1")
     if isinstance(province, str) and province not in ("", name):
         place = f"{name}, {province}"
-    return _Location(place, _number(found["latitude"]), _number(found["longitude"]))
+    return Location(place, _number(found["latitude"]), _number(found["longitude"]))
 
 
 def _weather(place: str, data: Any) -> Weather:
