@@ -193,7 +193,7 @@ class AvatarFiles:
         return ServedFile(core, CONTENT_TYPES[".js"])
 
 
-class _RollingLimit:
+class RollingLimit:
     """Admits at most `limit` events within any `window_s` seconds; thread-safe."""
 
     def __init__(self, limit: int, window_s: float, clock: Callable[[], float]) -> None:
@@ -242,7 +242,7 @@ class AvatarServer(ThreadingHTTPServer):
         self.bus = bus
         self.files = AvatarFiles(config, web_root)
         self.on_interact = on_interact
-        self.interaction_limit = _RollingLimit(INTERACT_RATE_LIMIT, INTERACT_RATE_WINDOW_S, clock)
+        self.interaction_limit = RollingLimit(INTERACT_RATE_LIMIT, INTERACT_RATE_WINDOW_S, clock)
         self._token = secrets.token_urlsafe(TOKEN_BYTES)
         self._viewer: Event = viewer_settings(config, bus.name)
         self._thread: threading.Thread | None = None
