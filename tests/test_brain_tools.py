@@ -530,6 +530,55 @@ def test_a_crashing_provider_tool_becomes_an_error_result(caplog):
     assert "HoYoLAB exploded" in caplog.text
 
 
+def refuse(*names: str):
+    """A refusal like guest mode's: a fixed answer for `names`, None for any other tool."""
+    return lambda name: "Mode tamu sedang aktif." if name in names else None
+
+
+def test_a_refused_tool_is_answered_with_its_refusal_and_never_runs(caplog):
+    games = GameTools()
+    caplog.set_level(logging.INFO, logger="waifu.brain.tools")
+
+    result, is_error = run_tool(house(), "game_status", {}, [games], refusal=refuse("game_status"))
+
+    assert (json.loads(result), is_error) == (
+        {"ok": False, "message": "Mode tamu sedang aktif."},
+        True,
+    )
+    assert games.calls == []
+    assert "Refused tool 'game_status' before running it" in caplog.text
+
+
+def test_a_tool_the_refusal_lets_through_runs_as_always():
+    games = GameTools()
+    registry = house()
+
+    run_tool(registry, "game_status", {}, [games], refusal=refuse("gacha_history"))
+    run_tool(
+        registry,
+        "control_device",
+        {"device": "lampu_kamar", "command": "on"},
+        [games],
+        refusal=refuse("gacha_history"),
+    )
+
+    assert games.calls == [("game_status", {})]
+    assert registry.get("lampu_kamar").calls == [("on", None)]
+
+
+def test_the_refusal_comes_before_the_question_for_master_s_yes():
+    registry = pc_house()
+    gate = gate_in_turn("Cyrene, matikan komputer.")
+
+    result, _ = run_tool(
+        registry, "control_device", SHUTDOWN, confirmations=gate, refusal=refuse("control_device")
+    )
+
+    assert "needs_confirmation" not in json.loads(result)
+    assert gate.with_question("Baik.") == "Baik."  # nothing waits for a yes
+    assert registry.get("komputer").calls == []
+
+
 def test_unknown_tool_names_the_provider_tools_too():
     result, is_error = run_tool(house(), "open_garage", {}, [GameTools()])
     assert is_error

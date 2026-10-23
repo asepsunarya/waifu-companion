@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any, Protocol
 
 from waifu.brain.base import ToolCallRecord, ToolSpec
@@ -100,12 +100,19 @@ def run_tool(
     providers: Sequence[ToolProvider] = (),
     *,
     confirmations: ConfirmationGate | None = None,
+    refusal: Callable[[str], str | None] | None = None,
 ) -> tuple[str, bool]:
     """Run one tool call from the model. Returns (compact JSON, is_error) and never raises.
 
-    With `confirmations`, a `control_device` call that would turn the PC off is held until
-    Master's next words say yes; the brains always pass one.
+    A call that `refusal` (guest mode's) answers with a text is refused with it before
+    anything runs, the confirmation gate included. With `confirmations`, a `control_device`
+    call that would turn the PC off is held until Master's next words say yes; the brains
+    always pass one.
     """
+    reason = None if refusal is None else refusal(name)
+    if reason is not None:
+        logger.info("Refused tool '%s' before running it", name)
+        return _error(reason)
     if name == CONTROL_DEVICE:
         return _run_control_device(registry, arguments, confirmations)
     if name == LIST_DEVICES:

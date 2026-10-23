@@ -1,5 +1,6 @@
 import copy
 import json
+import logging
 from collections.abc import Callable
 from datetime import datetime
 from types import SimpleNamespace
@@ -1028,6 +1029,98 @@ def test_a_session_at_its_turn_cap_waits_for_the_answer_to_its_question():
         "content": format_user_turn("Cyrene, matikan komputer.", NOW),
     }
     assert len(client.requests[4]["messages"]) == 2
+
+
+class Marker:
+    """A session marker like guest mode's generation, moved on by the test."""
+
+    def __init__(self) -> None:
+        self.value = 0
+
+    def __call__(self) -> int:
+        return self.value
+
+
+def test_a_moved_session_marker_starts_a_new_session_before_the_next_turn(caplog):
+    marker = Marker()
+    prompt = SessionPrompt("Ingatan: Master alergi udang.")
+    client = FakeOllama(reply("Halo!"), reply("Hai!"))
+    brain = brain_with(client, system_prompt=prompt, session_marker=marker)
+
+    brain.respond("halo", now=NOW)
+    marker.value += 1  # guest mode turned on
+    prompt.text = "Mode tamu sedang aktif."
+    with caplog.at_level(logging.INFO, logger="waifu.brain.ollama_brain"):
+        brain.respond("hai", now=NOW)
+
+    assert client.requests[1]["messages"] == [
+        {"role": "system", "content": "Mode tamu sedang aktif."},
+        {"role": "user", "content": format_user_turn("hai", NOW)},
+    ]
+    assert "Guest mode was turned on or off; starting a new session" in caplog.text
+
+
+def test_a_session_marker_that_stays_keeps_the_session():
+    client = FakeOllama(reply("Halo!"), reply("Hai!"))
+    brain = brain_with(client, session_marker=Marker())
+
+    brain.respond("halo", now=NOW)
+    brain.respond("hai", now=NOW)
+
+    assert len(client.requests[1]["messages"]) == 4
+
+
+def test_the_session_marker_is_read_before_the_session_s_prompt():
+    marker = Marker()
+
+    def prompt() -> str:
+        marker.value += 1
+        return SYSTEM_PROMPT
+
+    client = FakeOllama(reply("Halo!"), reply("Hai!"))
+    brain = brain_with(client, system_prompt=prompt, session_marker=marker)
+
+    brain.respond("halo", now=NOW)
+    brain.respond("hai", now=NOW)
+
+    assert len(client.requests[1]["messages"]) == 2
+
+
+def test_a_moved_session_marker_ends_the_session_even_while_a_question_awaits_its_yes():
+    registry = pc_house()
+    marker = Marker()
+    client = FakeOllama(shutdown(), reply("Baik, Master."), shutdown(), reply(""))
+    brain = gated_brain(client, registry, session_marker=marker)
+
+    brain.respond("Cyrene, matikan komputer.", now=NOW)
+    marker.value += 1
+    answer = brain.respond("iya", now=NOW)
+
+    assert client.requests[2]["messages"][1:] == [
+        {"role": "user", "content": format_user_turn("iya", NOW)}
+    ]
+    assert registry.get("komputer").calls == []
+    [held] = answer.tool_calls
+    assert json.loads(held.result)["needs_confirmation"] is True
+
+
+def test_the_tool_refusal_refuses_a_call_before_it_runs():
+    registry = house()
+    client = FakeOllama(
+        reply("", call("control_device", device="lampu_kamar", command="on")), reply("Maaf.")
+    )
+    brain = brain_with(
+        client,
+        registry,
+        tool_refusal=lambda name: "Mode tamu sedang aktif." if name == "control_device" else None,
+    )
+
+    result = brain.respond("nyalakan lampu", now=NOW)
+
+    assert registry.get("lampu_kamar").calls == []
+    refused = client.requests[1]["messages"][-1]
+    assert json.loads(refused["content"])["message"] == "Mode tamu sedang aktif."
+    assert [record.is_error for record in result.tool_calls] == [True]
 
 
 def test_a_no_keeps_the_pc_on_even_when_the_model_calls_again():

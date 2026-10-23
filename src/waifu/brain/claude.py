@@ -15,6 +15,12 @@ note would be missing from both that session's prompt and its history. One that
 recorded or undid an expense in tepira says so after its apology, since tepira
 keeps it.
 
+Guest mode reaches the brain through two callables. `tool_refusal` answers the private
+tools' calls with its refusal before they run (`run_tool`). `session_marker` (guest mode's
+generation) is read as a session's system prompt is read, before it, and a turn that finds it
+moved ends the session first, also while a question awaits Master's yes, which is forgotten
+then: the history may hold what guests must not hear, and the prompt says what was hidden.
+
 A call held for Master's yes (`confirmations`) is answered like any failed tool
 call, so the gate never touches the system prompt, the tools, or earlier turns.
 The gate's question is added to the spoken reply only, never to the history; a
@@ -201,6 +207,8 @@ class ClaudeBrain(Brain):
         on_usage: Callable[[str, TokenUsage], None] | None = None,
         turn_images: TurnImages | None = None,
         web_search: WebSearchTool | None = None,
+        tool_refusal: Callable[[str], str | None] | None = None,
+        session_marker: Callable[[], object] | None = None,
     ) -> None:
         self._max_tool_rounds = config.max_tool_rounds
         self._registry = registry
@@ -215,6 +223,9 @@ class ClaudeBrain(Brain):
         self._streams = web_search is not None
         self._system_prompt = system_prompt
         self._session_system = ""
+        self._tool_refusal = tool_refusal
+        self._session_marker = session_marker
+        self._session_mark: object = None  # the marker as the session's prompt was read
         self._history: list[dict[str, Any]] = []
 
     def respond(self, user_text: str, *, now: datetime | None = None) -> BrainReply:
@@ -238,6 +249,8 @@ class ClaudeBrain(Brain):
                 gate.forget_question()
         if not self._history:
             # A new session (or a rolled-back first turn): its system prompt is fixed from here.
+            # The marker first, so a switch while the prompt is read ends the session next turn.
+            self._session_mark = self._read_marker()
             self._session_system = _read_system_prompt(self._system_prompt)
         turn_start = len(self._history)
         user_turn = format_user_turn(user_text, now or datetime.now())
@@ -295,9 +308,11 @@ class ClaudeBrain(Brain):
         """Why the session should end before this turn, or None when it goes on.
 
         While a question awaits Master's answer (`awaiting`), a new session would hide the
-        question this turn may answer, so it waits one turn; only at _SESSION_IMAGE_CAP it
-        does not.
+        question this turn may answer, so it waits one turn; only a moved session marker (guest
+        mode switched) and _SESSION_IMAGE_CAP do not wait.
         """
+        if self._history and self._read_marker() != self._session_mark:
+            return "began before guest mode was turned on or off"
         image_bytes = _image_bytes(self._history)
         if image_bytes >= _SESSION_IMAGE_CAP:
             return f"holds {image_bytes // 2**20} MB of images, too many to wait for an answer"
@@ -381,6 +396,7 @@ class ClaudeBrain(Brain):
             call.input,
             self._providers,
             confirmations=self._confirmations,
+            refusal=self._tool_refusal,
         )
         logger.info(
             "Tool %s %s -> %s",
@@ -391,6 +407,9 @@ class ClaudeBrain(Brain):
         arguments = dict(call.input) if isinstance(call.input, Mapping) else {}
         tool_calls.append(ToolCallRecord(call.name, arguments, result, is_error))
         return _tool_result(call.id, result, is_error, self._take_images())
+
+    def _read_marker(self) -> object:
+        return None if self._session_marker is None else self._session_marker()
 
     def _take_images(self) -> list[ToolImage]:
         """What the providers have to show for the call that just ran (a screenshot)."""

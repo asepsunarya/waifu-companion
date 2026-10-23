@@ -1789,11 +1789,11 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 186 · **Files:** `src/waifu/guest.py`, `tests/test_guest.py` · **Scope:** S
 
-## Task 188: The refusal and the new session
+## Task 188: The refusal and the new session ✅
 
 **Acceptance criteria:**
-- [ ] `run_tool(..., refusal=)` answers a refused call with an error and runs nothing, before the confirmation gate
-- [ ] Both brains pass `tool_refusal` to every call; with `session_marker`, a turn after the marker changed starts a new session, also while a question awaits Master's yes (which is forgotten); an unchanged marker keeps the session
+- [x] `run_tool(..., refusal=)` answers a refused call with an error and runs nothing, before the confirmation gate
+- [x] Both brains pass `tool_refusal` to every call; with `session_marker`, a turn after the marker changed starts a new session, also while a question awaits Master's yes (which is forgotten); an unchanged marker keeps the session
 
 **Dependencies:** 187 · **Files:** `src/waifu/brain/tools.py`, `src/waifu/brain/claude.py`, `src/waifu/brain/ollama_brain.py`, `tests/test_brain_tools.py`, `tests/test_brain_claude.py`, `tests/test_brain_ollama.py` · **Scope:** M
 

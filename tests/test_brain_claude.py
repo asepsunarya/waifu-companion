@@ -1530,6 +1530,113 @@ def test_a_session_at_its_turn_cap_waits_for_the_answer_to_its_question():
     assert len(client.requests[4]["messages"]) == 1
 
 
+class Marker:
+    """A session marker like guest mode's generation, moved on by the test."""
+
+    def __init__(self) -> None:
+        self.value = 0
+
+    def __call__(self) -> int:
+        return self.value
+
+
+def test_a_moved_session_marker_starts_a_new_session_before_the_next_turn(caplog):
+    marker = Marker()
+    prompt = SessionPrompt("Ingatan: Master alergi udang.")
+    client = FakeAnthropic(
+        message([text("Halo!")], "end_turn"), message([text("Hai!")], "end_turn")
+    )
+    brain = make_brain(client, system_prompt=prompt, session_marker=marker)
+
+    brain.respond("halo", now=NOW)
+    marker.value += 1  # guest mode turned on
+    prompt.text = "Mode tamu sedang aktif."
+    with caplog.at_level(logging.INFO, logger=claude_module.__name__):
+        brain.respond("hai", now=NOW)
+
+    assert client.requests[1]["messages"] == [
+        {"role": "user", "content": format_user_turn("hai", NOW)}
+    ]
+    assert client.requests[1]["system"] == "Mode tamu sedang aktif."
+    assert "began before guest mode was turned on or off" in caplog.text
+
+
+def test_a_session_marker_that_stays_keeps_the_session():
+    marker = Marker()
+    client = FakeAnthropic(
+        message([text("Halo!")], "end_turn"), message([text("Hai!")], "end_turn")
+    )
+    brain = make_brain(client, session_marker=marker)
+
+    brain.respond("halo", now=NOW)
+    brain.respond("hai", now=NOW)
+
+    assert len(client.requests[1]["messages"]) == 3
+
+
+def test_the_session_marker_is_read_before_the_session_s_prompt():
+    # Guest mode switched while the prompt was being read: that session may hold the old
+    # prompt, so the marker it keeps must be the old one too, and the next turn starts afresh.
+    marker = Marker()
+
+    def prompt() -> str:
+        marker.value += 1
+        return SYSTEM_PROMPT
+
+    client = FakeAnthropic(
+        message([text("Halo!")], "end_turn"), message([text("Hai!")], "end_turn")
+    )
+    brain = make_brain(client, system_prompt=prompt, session_marker=marker)
+
+    brain.respond("halo", now=NOW)
+    brain.respond("hai", now=NOW)
+
+    assert len(client.requests[1]["messages"]) == 1
+
+
+def test_a_moved_session_marker_ends_the_session_even_while_a_question_awaits_its_yes():
+    # Guest mode switched between her question and Master's yes: the new session never heard
+    # the question, so the yes runs nothing.
+    registry = pc_house()
+    marker = Marker()
+    client = FakeAnthropic(
+        shutdown("call_1"),
+        message([text("Baik, Master.")], "end_turn"),
+        shutdown("call_2"),
+        message([], "end_turn"),
+    )
+    brain = gated_brain(client, registry, session_marker=marker)
+
+    brain.respond("Cyrene, matikan komputer.", now=NOW)
+    marker.value += 1
+    answer = brain.respond("iya", now=NOW)
+
+    assert client.requests[2]["messages"] == [
+        {"role": "user", "content": format_user_turn("iya", NOW)}
+    ]
+    assert registry.get("komputer").calls == []
+    [held] = answer.tool_calls
+    assert json.loads(held.result)["needs_confirmation"] is True
+
+
+def test_the_tool_refusal_refuses_a_call_before_it_runs():
+    registry = house()
+    client = FakeAnthropic(*lamp_on_then_done())
+    brain = make_brain(
+        client,
+        registry,
+        tool_refusal=lambda name: "Mode tamu sedang aktif." if name == "control_device" else None,
+    )
+
+    reply = brain.respond("nyalakan lampu", now=NOW)
+
+    assert registry.get("lampu_kamar").calls == []
+    [refused] = tool_results(client.requests[1]["messages"][-1])
+    assert refused["is_error"] is True
+    assert json.loads(refused["content"])["message"] == "Mode tamu sedang aktif."
+    assert [call.is_error for call in reply.tool_calls] == [True]
+
+
 def test_a_no_keeps_the_pc_on_even_when_the_model_calls_again():
     registry = pc_house()
     client = FakeAnthropic(

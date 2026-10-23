@@ -9,6 +9,12 @@ the prompt never changes mid-session. A rolled-back turn that saved or deleted
 a note ends its session: the note would be missing from both that session's
 prompt and its history.
 
+Guest mode reaches the brain through two callables: `tool_refusal` answers the
+private tools' calls with its refusal before they run, and a turn that finds
+`session_marker` (guest mode's generation, read before a session's prompt) moved
+ends the session first, also while a question awaits Master's yes, which is
+forgotten then.
+
 A call held for Master's yes (`confirmations`) ends the reply with the gate's
 question, kept in the history like the rest of what she said; a rolled-back turn
 drops its request instead, since Master never hears its question.
@@ -68,6 +74,8 @@ class OllamaBrain(Brain):
         providers: Sequence[ToolProvider] = (),
         confirmations: ConfirmationGate | None = None,
         owner_call: str = "Master",
+        tool_refusal: Callable[[str], str | None] | None = None,
+        session_marker: Callable[[], object] | None = None,
     ) -> None:
         self._config = config
         self._registry = registry
@@ -76,6 +84,9 @@ class OllamaBrain(Brain):
         self._owner_call = owner_call
         self._system_prompt = system_prompt
         self._session_system = ""
+        self._tool_refusal = tool_refusal
+        self._session_marker = session_marker
+        self._session_mark: object = None  # the marker as the session's prompt was read
         self._client = client
         self._session = SessionClock(session_idle_minutes, max_session_turns, clock)
         self._tools = [to_ollama(spec) for spec in build_tool_specs(registry, self._providers)]
@@ -91,12 +102,21 @@ class OllamaBrain(Brain):
             # also hands over images, is never given to this brain: the local model cannot see.
             if hasattr(provider, "begin_turn"):
                 provider.begin_turn(user_text)
+        awaiting = gate is not None and gate.awaiting_answer()
+        if self._history and self._read_marker() != self._session_mark:
+            logger.info("Guest mode was turned on or off; starting a new session")
+            self.reset()
+            if gate is not None and awaiting:
+                # The new session never saw the question, so Master's yes must run nothing.
+                gate.forget_question()
         # A new session would hide the question this turn may answer, so it waits one turn.
-        if self._session.should_reset() and not (gate is not None and gate.awaiting_answer()):
+        elif self._session.should_reset() and not awaiting:
             logger.info("Session idle or at its turn cap; starting a new one")
             self.reset()
         if not self._history:
             # A new session (or a rolled-back first turn): its system prompt is fixed from here.
+            # The marker first, so a switch while the prompt is read ends the session next turn.
+            self._session_mark = self._read_marker()
             source = self._system_prompt
             self._session_system = source() if callable(source) else source
         turn_start = len(self._history)
@@ -120,6 +140,9 @@ class OllamaBrain(Brain):
     def reset(self) -> None:
         self._history = []
         self._session.reset()
+
+    def _read_marker(self) -> object:
+        return None if self._session_marker is None else self._session_marker()
 
     def _run_turn(self, records: list[ToolCallRecord]) -> str:
         text = self._chat_until_answered(records)
@@ -177,7 +200,12 @@ class OllamaBrain(Brain):
         )
         for name, arguments in calls:
             result, is_error = run_tool(
-                self._registry, name, arguments, self._providers, confirmations=self._confirmations
+                self._registry,
+                name,
+                arguments,
+                self._providers,
+                confirmations=self._confirmations,
+                refusal=self._tool_refusal,
             )
             logger.debug("Tool %s(%s) -> %s", name, arguments, result)
             records.append(ToolCallRecord(name, _as_dict(arguments), result, is_error))
