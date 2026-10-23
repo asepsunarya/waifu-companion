@@ -2088,15 +2088,14 @@ def _mic_in_use(sd: Any, input_device: int | str | None, default: str | None) ->
 def _mic_levels(found: Levels) -> str:
     """One measurement: its levels, its bar, and whether the VAD would have heard speech."""
     if found.silent:
-        return (
-            f"{level_bar(found)} {FAIL} hampir tanpa suara: mic di-mute atau diblokir "
-            "Windows, atau headset Bluetooth belum siap (coba --seconds 5)"
+        verdict = (
+            f"{FAIL} hampir tanpa suara: mic di-mute atau diblokir Windows, atau headset "
+            "Bluetooth belum siap (coba --seconds 5)"
         )
-    verdict = (
-        f"{OK} suara terdengar"
-        if found.heard_speech
-        else f"{FAIL} suara tidak terdengar (butuh {found.speech_bar_db:.0f} dB)"
-    )
+    elif found.heard_speech:
+        verdict = f"{OK} suara terdengar"
+    else:
+        verdict = f"{FAIL} suara tidak terdengar (butuh {found.speech_bar_db:.0f} dB)"
     loudness = f"puncak {found.peak_db:.0f} dB, RMS {found.rms_db:.0f} dB"
     return f"{loudness} {level_bar(found)} {verdict}"
 

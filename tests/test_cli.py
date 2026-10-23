@@ -4212,9 +4212,12 @@ def test_mic_says_when_the_mic_cyrene_uses_already_hears_master_best(home, monke
     )
     assert "input_device:" not in out
     assert "  1. Headset (Polaris-BT), MME\n" in out
-    assert (  # the headset
+    [headset] = [line for line in out.splitlines() if "hampir tanpa suara" in line]
+    # Its levels too: digital zero (muted, blocked) reads apart from a headset's near-silence.
+    assert headset.startswith("  puncak -200 dB, RMS -200 dB [")
+    assert headset.endswith(
         "✗ hampir tanpa suara: mic di-mute atau diblokir Windows, atau headset Bluetooth "
-        "belum siap (coba --seconds 5)" in out
+        "belum siap (coba --seconds 5)"
     )
 
 
