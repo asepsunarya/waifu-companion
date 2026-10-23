@@ -844,7 +844,7 @@ tool, persona line, or dependency, so 18 of 20 strict tools and 17 of 24 optiona
 stay.
 - [x] Task 214a: contract: SPEC, tasks
 - [x] Task 214: `read_input_idle` and the conftest refusal of `GetLastInputInfo`
-- [ ] Task 215: the `breaks` config, `config.example.yaml`
+- [x] Task 215: the `breaks` config, `config.example.yaml`
 - [ ] Task 216: `follow_activity` (continuous activity, breaks, sleeps, the grid)
 - [ ] Task 217: `BreakWatcher` (focus, active hours, failures, delivery, the thread)
 - [ ] Task 218: wiring in `run` (game mode, `during_games`, push), the check line

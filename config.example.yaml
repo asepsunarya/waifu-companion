@@ -533,6 +533,25 @@ schedule:
 #   enabled: false         # true: kata hari ini di sapaan pagi, kuis, dan kemajuannya
 #   path: data/japanese.json  # kata yang sudah dipelajari dan jadwal ulangannya, hanya di PC ini
 
+# Pengingat istirahat (README, bagian "Pengingat istirahat"): selama `waifu run`, setelah
+# every_minutes menit terus memakai keyboard atau mouse di PC ini, dia bilang sekali dengan lembut
+# "Sayang, sudah satu jam di depan layar. Istirahatkan matamu sebentar dan minum air, ya.", lalu
+# menunggu every_minutes lagi. Jeda tanpa keyboard dan mouse selama idle_reset_minutes, atau PC
+# yang sleep, dihitung istirahat: hitungannya mulai lagi dari nol. Tidak pernah di tengah blok
+# fokus (teman fokus punya istirahatnya sendiri). Selagi mode game menahan pengumuman, kalimatnya
+# ikut ditahan dan dilewati kalau sudah basi, kecuali during_games: true. Main dengan stik
+# (controller) tidak terbaca sebagai aktif. Tidak ada yang disimpan: yang dibaca hanya berapa lama
+# sejak keyboard atau mouse terakhir disentuh, bukan tombolnya atau layarnya. Mati tanpa ditulis:
+# tulis bagian ini tanpa tanda # di depannya, lalu ganti enabled menjadi true.
+# breaks:
+#   enabled: false         # true: dia mengingatkan istirahat setelah lama di depan layar
+#   every_minutes: 60      # menit terus di depan layar sebelum dia mengingatkan (20-180)
+#   idle_reset_minutes: 5  # jeda tanpa keyboard dan mouse selama N menit dihitung istirahat (2-15)
+#   during_games: false    # true: tetap diucapkan selagi mode game menahan pengumuman
+#   push: false            # true: juga dikirim ke HP (butuh notify)
+#   active_from:           # misalnya 08:00: hanya dari jam ini (kosong = sepanjang hari)
+#   active_until:          # misalnya 02:00: sampai jam ini, boleh melewati tengah malam (kosong = sepanjang hari)
+
 # Promo gratis (README, bagian "Pencarian web dan promo gratis"): "Ada game gratis apa sekarang?"
 # membuatnya membaca game yang gratis untuk disimpan di Epic Games Store (dari Epic sendiri) dan
 # di Steam, GOG, dan lainnya (dari GamerPower.com). "Ada promo AI gratis nggak?" membacakan promo

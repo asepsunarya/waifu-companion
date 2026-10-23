@@ -2042,11 +2042,11 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 214a · **Files:** `tests/conftest.py`, `tests/test_safety_guard.py`, `src/waifu/input_idle.py`, `tests/test_input_idle.py` · **Scope:** S
 
-## Task 215: The `breaks` config
+## Task 215: The `breaks` config ✅
 
 **Acceptance criteria:**
-- [ ] `breaks.enabled` (false), `every_minutes` (60, 20-180), `idle_reset_minutes` (5, 2-15), `during_games` (false), `push` (false), `active_from`/`active_until` (both or neither, not equal, no time zone, across midnight allowed, bare YAML times read as clock times); bad values refused naming the setting
-- [ ] `config.example.yaml` documents it and its block written out holds the defaults
+- [x] `breaks.enabled` (false), `every_minutes` (60, 20-180), `idle_reset_minutes` (5, 2-15), `during_games` (false), `push` (false), `active_from`/`active_until` (both or neither, not equal, no time zone, across midnight allowed, bare YAML times read as clock times); bad values refused naming the setting
+- [x] `config.example.yaml` documents it and its block written out holds the defaults
 
 **Dependencies:** 214a · **Files:** `src/waifu/config.py`, `config.example.yaml`, `tests/test_config.py` · **Scope:** S
 

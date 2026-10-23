@@ -6,6 +6,7 @@ import pytest
 
 from waifu.config import (
     AppConfig,
+    BreaksConfig,
     ConfigError,
     FallbackTtsConfig,
     FocusConfig,
@@ -1369,6 +1370,60 @@ def test_the_example_japanese_block_written_out_holds_the_defaults(tmp_path):
     written_out = "\n".join(line.removeprefix("# ") for line in commented.splitlines())
 
     assert load_config(write_yaml(tmp_path, written_out)).japanese == JapaneseConfig()
+
+
+def test_break_reminders_are_off_by_default_and_count_an_hour_with_five_minute_breaks():
+    breaks = AppConfig().breaks
+    assert (breaks.enabled, breaks.every_minutes, breaks.idle_reset_minutes) == (False, 60, 5)
+    assert (breaks.during_games, breaks.push) == (False, False)
+    assert (breaks.active_from, breaks.active_until) == (None, None)  # all day
+
+
+def test_break_settings_load_from_yaml_including_bare_yaml_times(tmp_path):
+    text = (
+        "breaks:\n  enabled: true\n  every_minutes: 45\n  idle_reset_minutes: 3\n"
+        "  during_games: true\n  push: true\n  active_from: 8:00\n  active_until: '02:00'\n"
+    )
+
+    breaks = load_config(write_yaml(tmp_path, text)).breaks
+
+    assert (breaks.enabled, breaks.every_minutes, breaks.idle_reset_minutes) == (True, 45, 3)
+    assert (breaks.during_games, breaks.push) == (True, True)
+    # Across midnight: the owner plays late.
+    assert (breaks.active_from, breaks.active_until) == (time(8, 0), time(2, 0))
+
+
+BREAK_HOURS_TOGETHER = "breaks.active_from and breaks.active_until go together"
+BREAK_HOURS_EMPTY = "breaks.active_from must differ from breaks.active_until"
+
+
+@pytest.mark.parametrize(
+    ("lines", "named"),
+    [
+        ("  every_minutes: 19\n", "breaks.every_minutes"),
+        ("  every_minutes: 181\n", "breaks.every_minutes"),
+        ("  idle_reset_minutes: 1\n", "breaks.idle_reset_minutes"),
+        ("  idle_reset_minutes: 16\n", "breaks.idle_reset_minutes"),
+        ("  active_from: '08:00'\n", BREAK_HOURS_TOGETHER),
+        ("  active_until: '02:00'\n", BREAK_HOURS_TOGETHER),
+        ("  active_from: '08:00'\n  active_until: '08:00'\n", BREAK_HOURS_EMPTY),
+        ("  active_from: 24:00\n  active_until: '02:00'\n", "breaks.active_from"),  # UTC seconds
+        ("  active_from: '08:00'\n  active_until: 2330\n", "breaks.active_until"),
+        ("  active_from: '08:00+07:00'\n  active_until: '02:00'\n", "breaks.active_from"),
+        ("  minutes: 60\n", "breaks.minutes"),
+    ],
+)
+def test_bad_break_settings_are_refused_naming_the_setting(tmp_path, lines, named):
+    with pytest.raises(ConfigError, match=re.escape(named)):
+        load_config(write_yaml(tmp_path, "breaks:\n" + lines))
+
+
+def test_the_example_breaks_block_written_out_holds_the_defaults(tmp_path):
+    example = (ROOT / "config.example.yaml").read_text(encoding="utf-8")
+    commented = example[example.index("\n# breaks:\n") + 1 :].split("\n\n", 1)[0]
+    written_out = "\n".join(line.removeprefix("# ") for line in commented.splitlines())
+
+    assert load_config(write_yaml(tmp_path, written_out)).breaks == BreaksConfig()
 
 
 def test_web_search_is_on_for_indonesia_by_default():

@@ -973,6 +973,44 @@ class JapaneseConfig(_Strict):
     path: Path = Path("data/japanese.json")
 
 
+class BreaksConfig(_Strict):
+    """Her gentle reminder to rest after a long stretch at the PC: how long a stretch is, which
+    pause without keyboard or mouse input counts as a break, and when she may say it."""
+
+    enabled: bool = False
+    every_minutes: int = Field(default=60, ge=20, le=180)  # of activity before each reminder
+    # A pause this long is a break; always shorter than every_minutes.
+    idle_reset_minutes: int = Field(default=5, ge=2, le=15)
+    # While game mode holds her announcements, say it anyway, like Master's reminders.
+    during_games: bool = False
+    # With notifications on, also push it to the phone.
+    push: bool = False
+    # Both or neither (all day); across midnight when active_until comes first.
+    active_from: _Clock | None = None
+    active_until: _Clock | None = None
+
+    @field_validator("active_from", "active_until", mode="before")
+    @classmethod
+    def _yaml_sexagesimal_is_hh_mm(cls, value: object) -> object:
+        return _clock_from_yaml(value)
+
+    @field_validator("active_from", "active_until")
+    @classmethod
+    def _a_clock_time(cls, value: _Clock | None) -> _Clock | None:
+        # Pydantic reads 1440 or more (24:00, 2330) as seconds in UTC, an aware time.
+        if value is not None and value.tzinfo is not None:
+            raise ValueError("must be a clock time HH:MM without a time zone")
+        return value
+
+    @model_validator(mode="after")
+    def _active_hours_together_and_not_empty(self) -> BreaksConfig:
+        if (self.active_from is None) != (self.active_until is None):
+            raise ValueError("breaks.active_from and breaks.active_until go together")
+        if self.active_from is not None and self.active_from == self.active_until:
+            raise ValueError("breaks.active_from must differ from breaks.active_until")
+        return self
+
+
 class MusicConfig(_Strict):
     """Songs on YouTube, opened in the default browser when Master asks."""
 
@@ -1163,6 +1201,7 @@ class AppConfig(_Strict):
     voice: VoiceVolumeConfig = Field(default_factory=VoiceVolumeConfig)
     journal: JournalConfig = Field(default_factory=JournalConfig)
     japanese: JapaneseConfig = Field(default_factory=JapaneseConfig)
+    breaks: BreaksConfig = Field(default_factory=BreaksConfig)
     web_search: WebSearchConfig = Field(default_factory=WebSearchConfig)
     free_offers: FreeOffersConfig = Field(default_factory=FreeOffersConfig)
     vision: VisionConfig = Field(default_factory=VisionConfig)
