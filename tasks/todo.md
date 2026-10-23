@@ -1818,10 +1818,10 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 187 · **Files:** `src/waifu/briefing.py`, `tests/test_briefing.py` · **Scope:** S
 
-## Task 192: Private requests
+## Task 192: Private requests ✅
 
 **Acceptance criteria:**
-- [ ] `ask_aloud(..., private=True)` is dropped before its turn while guest mode is on (no reset, nothing said or passed on, logged without the prompt), and answered as before when it is off; a request that is not private is answered in guest mode
+- [x] `ask_aloud(..., private=True)` is dropped before its turn while guest mode is on (no reset, nothing said or passed on, logged without the prompt), and answered as before when it is off; a request that is not private is answered in guest mode
 
 **Dependencies:** 186a · **Files:** `src/waifu/app.py`, `tests/test_app.py` · **Scope:** S
 

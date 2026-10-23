@@ -230,6 +230,7 @@ class Rig:
         camera_turn: CameraTurn | None = None,
         quiet: Callable[[], bool] | None = None,
         game_holding: Callable[[], bool] | None = None,
+        guest_mode: Callable[[], bool] | None = None,
     ) -> None:
         config = config or AppConfig()
         self.events: list[str] = []
@@ -260,6 +261,7 @@ class Rig:
             camera_turn=camera_turn,
             quiet=quiet,
             game_holding=game_holding,
+            guest_mode=guest_mode,
         )
 
     def utterance(self) -> Utterance:
@@ -2658,6 +2660,88 @@ def test_the_naive_wall_clock_is_compared_with_an_aware_expiry_as_the_pc_s_local
     listen_once(rig)
 
     assert asked(rig) == ([JOURNAL_PROMPT] if answered else [])
+
+
+# Private requests in guest mode: the journal question and the weekly report are skipped
+
+WEEKLY_PROMPT = "Ini laporan game mingguanmu sendiri."
+
+
+class GuestSwitch:
+    """Stands in for guest mode's `is_on`, switched by the test."""
+
+    def __init__(self, on: bool) -> None:
+        self.on = on
+
+    def __call__(self) -> bool:
+        return self.on
+
+
+def test_a_private_request_is_dropped_in_guest_mode_before_its_turn(caplog):
+    rig = Rig(brain=ForgetfulBrain, with_avatar=True, guest_mode=GuestSwitch(on=True))
+    replies = PassedOn()
+    rig.assistant.ask_aloud(JOURNAL_PROMPT, on_reply=replies, new_session=True, private=True)
+
+    with caplog.at_level(logging.INFO, logger="waifu.app"):
+        listen_once(rig)
+
+    assert rig.brain.calls == []  # not even a new session for nothing
+    assert rig.speech.texts == []
+    assert replies.texts == []
+    assert [event for event in rig.events if event.startswith("avatar")] == []
+    assert "Not saying a private request while guest mode is on" in caplog.text
+    assert JOURNAL_PROMPT not in caplog.text
+
+
+@pytest.mark.parametrize("guest_mode", [GuestSwitch(on=False), None], ids=["off", "none"])
+def test_a_private_request_is_answered_as_always_without_guests(guest_mode):
+    rig = Rig(guest_mode=guest_mode)
+    replies = PassedOn()
+    rig.assistant.ask_aloud(JOURNAL_PROMPT, on_reply=replies, private=True)
+
+    listen_once(rig)
+
+    assert asked(rig) == [JOURNAL_PROMPT]
+    assert replies.wait() == [REPLY]
+
+
+def test_a_request_that_is_not_private_is_answered_in_guest_mode():
+    # The morning greeting is said in guest mode, reduced by the briefing tool.
+    rig = Rig(guest_mode=GuestSwitch(on=True))
+    rig.assistant.ask_aloud(GREETING_PROMPT)
+
+    listen_once(rig)
+
+    assert asked(rig) == [GREETING_PROMPT]
+    assert rig.speech.texts == [REPLY]
+
+
+def test_every_private_request_goes_in_one_pass_and_the_next_one_is_answered(caplog):
+    rig = Rig(guest_mode=GuestSwitch(on=True))
+    rig.assistant.ask_aloud(WEEKLY_PROMPT, private=True)
+    rig.assistant.ask_aloud(JOURNAL_PROMPT, private=True)
+    rig.assistant.ask_aloud(GREETING_PROMPT)
+
+    with caplog.at_level(logging.INFO, logger="waifu.app"):
+        listen_once(rig)
+
+    assert asked(rig) == [GREETING_PROMPT]
+    assert caplog.text.count("Not saying a private request while guest mode is on") == 2
+
+
+def test_a_private_request_queued_before_guests_came_is_dropped_once_they_are_here():
+    # Checked when she would answer it, after a hold: guest mode turned on meanwhile.
+    guests = GuestSwitch(on=False)
+    rig = Rig(guest_mode=guests)
+    rig.assistant.ask_aloud(WEEKLY_PROMPT, private=True)
+    rig.assistant.listen_now()  # the follow-up window holds it
+    listen_once(rig)
+
+    guests.on = True
+    rig.clock.now += 8
+    listen_once(rig)
+
+    assert asked(rig) == []
 
 
 # Announcements held past their expiry: a rain alert said after its rain began

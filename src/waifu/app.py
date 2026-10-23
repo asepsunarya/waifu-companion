@@ -19,7 +19,8 @@ what a game held comes out after a short lead-in once it has closed. An announce
 still waiting at its expiry is dropped (a rain alert after its rain began), and so is an
 announcement a game held past its game expiry (a resin reminder the game played made out of
 date), which a focus block alone keeps however long it lasts. A text queued more than once is
-said once.
+said once. A private request (her nightly journal question, the weekly game report) that comes
+to be answered while guest mode is on is dropped too.
 
 The owner's paired phone (`waifu.phone`) talks to her from the phone server's threads:
 `reply_for_phone` and `transcribe_for_phone`, handed to the server as `PhoneAnswers`. Brain
@@ -226,6 +227,7 @@ class _Request:
     required_tool: str | None
     new_session: bool
     expires_at: datetime | None
+    private: bool  # dropped while guest mode is on
 
 
 class Assistant:
@@ -247,11 +249,13 @@ class Assistant:
         camera_turn: CameraTurn | None = None,
         quiet: Callable[[], bool] | None = None,
         game_holding: Callable[[], bool] | None = None,
+        guest_mode: Callable[[], bool] | None = None,
     ) -> None:
         """`quiet` (the focus timer's `in_block`, in game mode also whether a game holds her
         announcements) says when what she would say by herself must wait: only `remind` is
         said then. `game_holding` (game mode's `holding`, part of `quiet`) tells the waits a
-        game made: the announcements it held come out after GAME_HELD."""
+        game made: the announcements it held come out after GAME_HELD. `guest_mode` (guest
+        mode's `is_on`) says when her private requests are dropped."""
         self._name = config.assistant.name
         self._owner_call = config.assistant.owner_call
         self._followup_s = config.assistant.followup_seconds
@@ -271,6 +275,7 @@ class Assistant:
         self._camera_turn = camera_turn
         self._quiet = quiet
         self._game_holding = game_holding
+        self._guest_mode = guest_mode
         self._mic: Microphone | None = None
         self._segmenter: Segmenter | None = None
         self._speaker_error_logged = False
@@ -462,6 +467,7 @@ class Assistant:
         required_tool: str | None = None,
         new_session: bool = False,
         expires_at: datetime | None = None,
+        private: bool = False,
     ) -> None:
         """Queue a prompt for the brain whose reply she says by herself; safe from any thread.
 
@@ -480,9 +486,13 @@ class Assistant:
         said before it: the morning greeting never repeats an earlier finance answer's figures.
         A request still waiting when `expires_at` (on `now`) has passed is dropped, logged and
         never said: her nightly question held past midnight would ask about a day that has
-        ended. None never expires.
+        ended. None never expires. A `private` request (Master's journal, his game accounts)
+        that comes to be answered while guest mode is on is dropped the same way, before its
+        turn: guests may be listening.
         """
-        self._requests.put(_Request(prompt, on_reply, required_tool, new_session, expires_at))
+        self._requests.put(
+            _Request(prompt, on_reply, required_tool, new_session, expires_at, private)
+        )
 
     def speak(self, text: str, emotion: str = NEUTRAL, *, followup: bool = True) -> None:
         """Say `text` with the microphone paused and the avatar mouthing it with `emotion`.
@@ -673,7 +683,7 @@ class Assistant:
         (its follow-up window has closed). A failure is logged and listening goes on, as for
         an utterance.
         """
-        request = self._next_request_in_date()
+        request = self._next_request_due()
         if request is None:
             return
         logger.info("Speaking up by herself in answer to a request")
@@ -701,18 +711,24 @@ class Assistant:
                 target=_pass_on, args=(request.on_reply, reply.text), name="pass-on", daemon=True
             ).start()
 
-    def _next_request_in_date(self) -> _Request | None:
-        """The oldest queued request that has not expired, if any; the expired ones before it
-        are dropped. Checked once, before the turn: a reply thought up in time is said even
-        when its speech ends after the expiry, since its turn saw the old day."""
+    def _next_request_due(self) -> _Request | None:
+        """The oldest queued request that has not expired and is not private while guest mode
+        is on, if any; the dropped ones before it go in the same pass. Checked once, before the
+        turn: a reply thought up in time is said even when its speech ends after the expiry,
+        since its turn saw the old day."""
         while True:
             try:
                 request = self._requests.get_nowait()
             except queue.Empty:
                 return None
-            if not _expired(request.expires_at, self._now()):
+            if _expired(request.expires_at, self._now()):
+                logger.info(
+                    "Not saying a request held past %s: it is out of date", request.expires_at
+                )
+            elif request.private and self._guest_mode is not None and self._guest_mode():
+                logger.info("Not saying a private request while guest mode is on")
+            else:
                 return request
-            logger.info("Not saying a request held past %s: it is out of date", request.expires_at)
 
     def _think(
         self,
