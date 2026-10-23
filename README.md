@@ -4965,9 +4965,11 @@ dari torch dan paket `nvidia-*` di venv.
   `waifu run` dimulai; default yang berubah sesudahnya (misalnya headset Bluetooth baru
   tersambung) baru dipakai setelah `waifu run` dijalankan ulang. Colokan mic di PC (misalnya
   "Microphone (High Definition Audio Device)") yang tidak tersambung ke mic sungguhan hanya
-  mendengar bising, sekitar -50 dB, padahal suara baru dianggap bicara di atas -45 dB
-  (`audio.vad.threshold_db`). Baris `Mikrofon` di `waifu check` menyebut mic yang dipakai dan
-  apakah itu default Windows.
+  mendengar bising, sekitar -50 dB. Suara baru dianggap bicara kalau mencapai -45 dB
+  (`audio.vad.threshold_db`) dan sekaligus 12 dB (`audio.vad.margin_db`) di atas bising mic itu
+  sendiri, jadi sekitar -38 dB untuk colokan yang bisingnya -50 dB; angka `butuh ... dB` yang
+  ditulis `waifu mic` untuk tiap mic adalah batas itu. Baris `Mikrofon` di `waifu check`
+  menyebut mic yang dipakai dan apakah itu default Windows.
 - Headset Bluetooth: selama mic-nya terbuka, Windows memindahkan headset ke mode hands-free
   yang kualitasnya lebih rendah, jadi musik dan suara Cyrene di headset itu terdengar seperti
   telepon (sebentar saja saat `waifu mic` mendengarkannya). Pindahnya butuh satu-dua detik:
