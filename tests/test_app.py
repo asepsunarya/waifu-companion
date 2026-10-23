@@ -3186,6 +3186,22 @@ def test_a_command_that_only_looks_like_a_repeat_request_goes_to_the_brain(looka
     assert first == repeated == "Baik, Master."
 
 
+def test_coba_sekali_lagi_after_a_failure_asks_the_brain_to_try_again():
+    rig = Rig(
+        "Cyrene, nyalakan lampu kamar",
+        "coba sekali lagi",
+        reply="Maaf Master, lampu kamar tidak merespons.",
+    )
+    rig.assistant.handle_utterance(rig.utterance())
+    rig.clock.now += 2  # inside the follow-up window, so no name is needed
+    rig.brain.reply = REPLY
+
+    retried = rig.assistant.handle_utterance(rig.utterance())
+
+    assert retried == REPLY
+    assert asked(rig) == ["nyalakan lampu kamar", "coba sekali lagi"]
+
+
 def test_with_nothing_said_yet_she_says_so_and_listens_for_master(caplog):
     rig = Rig("Cyrene, ulangi", "nyalakan lampu kamar", with_avatar=True)
 

@@ -17,6 +17,10 @@ from collections.abc import Iterable
 _WORD = re.compile(r"[^\W_]+")
 # Always left out, like her names: "master", and words that soften a request without changing it.
 _SKIPPED = frozenset({"master", "dong", "deh", "ya", "coba", "tolong"})
+# With these, "sekali lagi" asks her to try again ("coba sekali lagi" after a failure), which is
+# a new attempt for the brain, not a repeat; they soften only the other phrases ("coba ulangi").
+_TRY_AGAIN = frozenset({"coba", "tolong"})
+_ONCE_MORE = ("sekali", "lagi")
 _PHRASES = frozenset(
     {
         ("ulangi",),
@@ -45,10 +49,15 @@ def is_repeat_request(text: str, names: Iterable[str] = ()) -> bool:
 
     `names` are her name, the wake words she answers to, and what she calls the owner; their
     words are left out with "master" and the softeners ("dong", "ya", "tolong", ...), and the
-    words left must be one of REPEAT_PHRASES.
+    words left must be one of REPEAT_PHRASES. "Sekali lagi" with "coba" or "tolong" ("coba
+    sekali lagi") asks her to try again, so it is not one.
     """
+    words = _words(text)
     skipped = _SKIPPED | {word for name in names for word in _words(name)}
-    return tuple(word for word in _words(text) if word not in skipped) in REPEAT_PHRASES
+    left = tuple(word for word in words if word not in skipped)
+    if left[-len(_ONCE_MORE) :] == _ONCE_MORE and not _TRY_AGAIN.isdisjoint(words):
+        return False
+    return left in REPEAT_PHRASES
 
 
 def _words(text: str) -> list[str]:

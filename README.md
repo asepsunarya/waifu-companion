@@ -5250,7 +5250,8 @@ Cyrene").
 Dalam 8 detik sesudah dia bicara (`assistant.followup_seconds`), "ulangi" saja cukup, tanpa
 namanya. Ucapan yang memuat kata lain tetap dijawab otaknya seperti biasa: "ulangi lagunya",
 "putar sekali lagi", "apa tadi lampunya sudah mati?", "tadi aku bilang apa?", dan juga "apa?"
-saja.
+saja. "Coba sekali lagi" dan "tolong sekali lagi" (misalnya sesudah perintah yang gagal) berarti
+minta dicoba lagi, bukan diulang, jadi juga dijawab otaknya.
 
 ### Yang diulang
 

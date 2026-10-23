@@ -63,6 +63,21 @@ def test_her_names_master_and_the_softeners_are_left_out(text):
     assert is_repeat_request(text, NAMES)
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        "coba sekali lagi",
+        "Tolong sekali lagi.",
+        "coba deh sekali lagi",
+        "coba sekali lagi dong",
+        "Cyrene, coba sekali lagi",
+        "maaf, coba sekali lagi",
+    ],
+)
+def test_coba_or_tolong_with_sekali_lagi_asks_her_to_try_again_not_to_repeat(text):
+    assert not is_repeat_request(text, NAMES)
+
+
 def test_what_she_calls_the_owner_is_left_out_when_given_as_a_name():
     assert is_repeat_request("Sayang, ulangi.", ("Cyrene", "Sayang"))
     assert not is_repeat_request("Sayang, ulangi.", ("Cyrene",))
