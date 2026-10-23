@@ -69,6 +69,9 @@ MAX_STEP_DELAY_MINUTES = 24 * 60
 # The media keys that toggle: run later without a word, they could start the music Master
 # paused, or unmute the PC, while he sleeps. Never scheduled and never a delayed routine step.
 MEDIA_TOGGLES = frozenset({"play_pause", "mute"})
+# The device types the phone page's quick buttons may show: switches, not the PC, media keys, or
+# apps (a `powers_pc` plug is refused on its own).
+QUICK_BUTTON_TYPES = frozenset({"tuya_light", "tuya_plug", "ir", "mock"})
 
 
 def cookie_names(cookie: str) -> set[str]:
@@ -673,6 +676,14 @@ class WeeklyReportConfig(_Strict):
         return _clock_from_yaml(value)
 
 
+class QuickActionsConfig(_Strict):
+    """Which devices and routines the phone page's quick buttons show, in this order; None
+    shows all of them (every device that can have buttons, every routine), [] none."""
+
+    devices: list[str] | None = None
+    routines: list[str] | None = None
+
+
 class PhoneConfig(_Strict):
     """Cyrene on the owner's phone: a page served on 127.0.0.1 and shared through Tailscale."""
 
@@ -683,6 +694,7 @@ class PhoneConfig(_Strict):
     state_path: Path = Path("data/phone.json")
     # The phone page's camera; offered only with vision on and the Claude backend.
     camera: bool = True
+    quick_actions: QuickActionsConfig = Field(default_factory=QuickActionsConfig)
 
     @field_validator("host")
     @classmethod
@@ -1172,6 +1184,36 @@ class AppConfig(_Strict):
                 "game_mode needs play_time.enabled: true: it knows a game is running from the "
                 "play time watcher"
             )
+        return self
+
+    @model_validator(mode="after")
+    def _quick_buttons_name_known_switches_and_routines_but_never_the_pc(self) -> AppConfig:
+        quick = self.phone.quick_actions
+        where = "phone.quick_actions"
+        devices = {device.id: device for device in self.devices}
+        for kind, names in (("device", quick.devices), ("routine", quick.routines)):
+            for name in names or []:
+                if names.count(name) > 1:
+                    raise ValueError(f"{where} names the {kind} '{name}' twice")
+        for name in quick.devices or []:
+            device = devices.get(name)
+            if device is None:
+                raise ValueError(f"{where} names the unknown device '{name}'")
+            if device.type == "pc":
+                raise ValueError(f"{where} may not name '{name}': the PC is never a quick button")
+            if device.powers_pc:
+                raise ValueError(
+                    f"{where} may not name '{name}': it powers the PC, which is never a quick "
+                    "button"
+                )
+            if device.type not in QUICK_BUTTON_TYPES:
+                raise ValueError(
+                    f"{where} may not name '{name}': quick buttons are for lights, plugs, and IR "
+                    f"devices, not type '{device.type}'"
+                )
+        for name in quick.routines or []:
+            if name not in self.routines:
+                raise ValueError(f"{where} names the unknown routine '{name}'")
         return self
 
 

@@ -710,7 +710,7 @@ refused again at run time) instead of a second confirm step with a token: simple
 one at a time under the module's own lock. A device's failure is a 200 with `ok: false`, since the
 page shows only its own texts for an error status. No brain tool, tool parameter, or dependency.
 - [x] Task 179a: contract: SPEC, tasks
-- [ ] Task 179: `phone.quick_actions` and its validation
+- [x] Task 179: `phone.quick_actions` and its validation
 - [ ] Task 180: `QuickActions` (the buttons, `find`, `run`)
 - [ ] Task 181: `GET /actions` and `POST /action` (`RollingLimit` made public)
 - [ ] Task 182: wiring in `run`

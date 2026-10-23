@@ -1705,11 +1705,11 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** none · **Files:** `SPEC.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
 
-## Task 179: `phone.quick_actions` and its validation
+## Task 179: `phone.quick_actions` and its validation ✅
 
 **Acceptance criteria:**
-- [ ] `phone.quick_actions` with `devices` and `routines`, each a list or left out (all); unknown keys refused; the default leaves both out
-- [ ] A ConfigError names an unknown device or routine, a device of type pc, media, or apps, a `powers_pc` plug, and a name given twice
+- [x] `phone.quick_actions` with `devices` and `routines`, each a list or left out (all); unknown keys refused; the default leaves both out
+- [x] A ConfigError names an unknown device or routine, a device of type pc, media, or apps, a `powers_pc` plug, and a name given twice
 
 **Dependencies:** 179a · **Files:** `src/waifu/config.py`, `tests/test_config.py` · **Scope:** S
 

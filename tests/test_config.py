@@ -899,6 +899,56 @@ def test_bad_phone_settings_are_refused(tmp_path, lines):
         load_config(write_yaml(tmp_path, "phone:\n" + lines))
 
 
+QUICK_DEVICES = (
+    ROUTINE_DEVICES
+    + PC_PLUG
+    + "  - id: musik\n    name: Musik PC\n    type: media\n"
+    + "  - id: kipas\n    name: Kipas\n    type: mock\n"
+    + "routines:\n"
+    + "  tidur:\n    steps: [{device: lampu_kamar, command: off}]\n"
+    + "  pagi:\n    steps: [{device: lampu_kamar, command: on}]\n"
+)
+
+
+def test_the_phone_shows_every_quick_button_by_default():
+    quick = AppConfig().phone.quick_actions
+    assert (quick.devices, quick.routines) == (None, None)
+
+
+def test_the_quick_buttons_can_be_picked_and_ordered(tmp_path):
+    text = QUICK_DEVICES + (
+        "phone:\n  quick_actions:\n    devices: [kipas, lampu_kamar]\n    routines: []\n"
+    )
+    quick = load_config(write_yaml(tmp_path, text)).phone.quick_actions
+    assert (quick.devices, quick.routines) == (["kipas", "lampu_kamar"], [])
+
+
+@pytest.mark.parametrize(
+    ("lines", "match"),
+    [
+        ("    devices: [kulkas]\n", "unknown device 'kulkas'"),
+        ("    routines: [siang]\n", "unknown routine 'siang'"),
+        ("    devices: [komputer]\n", "'komputer': the PC is never a quick button"),
+        ("    devices: [colokan_pc]\n", "'colokan_pc': it powers the PC"),
+        ("    devices: [musik]\n", "'musik'"),
+        ("    devices: [kipas, kipas]\n", "'kipas' twice"),
+        ("    routines: [tidur, tidur]\n", "'tidur' twice"),
+        ("    lights: [lampu_kamar]\n", "lights"),
+    ],
+)
+def test_bad_quick_buttons_are_refused(tmp_path, lines, match):
+    text = QUICK_DEVICES + "phone:\n  quick_actions:\n" + lines
+    with pytest.raises(ConfigError, match=match):
+        load_config(write_yaml(tmp_path, text))
+
+
+def test_an_apps_device_is_never_a_quick_button(tmp_path):
+    apps = "      spotify: 'C:/Program Files/Spotify/Spotify.exe'\n"
+    text = apps_device(apps) + "phone:\n  quick_actions:\n    devices: [aplikasi]\n"
+    with pytest.raises(ConfigError, match="'aplikasi'"):
+        load_config(write_yaml(tmp_path, text))
+
+
 def test_pc_health_is_on_with_notices_by_default():
     pc = AppConfig().pc_health
     assert (pc.enabled, pc.notices, pc.poll_seconds) == (True, True, 60)
