@@ -52,6 +52,15 @@ function moduleImports(path) {
   return found.map((specifier) => new URL(specifier, new URL(path, PAGE_URL)).pathname);
 }
 
+/** The declarations of the stylesheet's rule whose selectors include exactly `selector`, or null. */
+function cssRule(selector) {
+  const css = readFileSync(new URL("phone/phone.css", WEB_ROOT), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+  for (const [, selectors, declarations] of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    if (selectors.split(",").some((one) => one.trim() === selector)) return declarations;
+  }
+  return null;
+}
+
 function manifest() {
   return JSON.parse(readFileSync(new URL("phone/manifest.webmanifest", WEB_ROOT), "utf8"));
 }
@@ -172,6 +181,14 @@ describe("phone page", () => {
 
     assert.ok(order.every((index) => index >= 0), "every part is in the chat");
     assert.deepEqual(order, order.toSorted((a, b) => a - b));
+  });
+
+  it("gives the text box the quick toggle's room while the owner types with the panel closed", () => {
+    // At 360 px with the camera button the toggle leaves the text box 116 px; without it, 168 px as before v1.35.
+    const rule = cssRule('#composer:has(#text:focus:not(:placeholder-shown)) #quick-toggle[aria-expanded="false"]');
+
+    assert.ok(rule, "the rule");
+    assert.match(rule, /(^|;)\s*display:\s*none\s*(;|$)/);
   });
 
   it("has the canvas and the message the renderers draw into", () => {

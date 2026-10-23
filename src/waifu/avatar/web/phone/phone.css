@@ -479,6 +479,12 @@ body[data-state="speaking"] #status::before {
   color: #fff;
 }
 
+/* While the owner types, the closed panel's toggle gives the text box its room: at 360 px with the camera button,
+   168 px instead of 116. Tapping another button takes the focus from the text box, so the toggle is back by then. */
+#composer:has(#text:focus:not(:placeholder-shown)) #quick-toggle[aria-expanded="false"] {
+  display: none;
+}
+
 /* The panel takes the viewfinder's place between the chat list and the text box, below the notice, so a toast moves
    only the list; the list gives it room. */
 #chat:has(#quick:not([hidden])) #bubbles {

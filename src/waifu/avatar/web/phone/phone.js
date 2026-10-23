@@ -935,7 +935,8 @@ page.text.addEventListener("keydown", (event) => {
   event.preventDefault();
   sendText();
 });
-page.text.addEventListener("input", fitTextBox);
+// The text box is wider while the owner types in it (phone.css hides the quick toggle then): its lines change.
+for (const type of ["input", "focus", "blur"]) page.text.addEventListener(type, fitTextBox);
 page.pairForm.addEventListener("submit", pair);
 page.retry.addEventListener("click", () => location.reload());
 

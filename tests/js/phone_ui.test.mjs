@@ -1338,6 +1338,23 @@ describe("phone quick buttons", () => {
     assert.equal(page.element("quick").hidden, false);
   });
 
+  it("fit the text box's height again when it gains or loses the focus, as the toggle beside it hides or shows", async () => {
+    // phone.css hides the closed panel's toggle while the owner types: the text box is wider then, so a message wraps
+    // into fewer lines.
+    const page = await openPage({ actions: QUICK });
+    const text = page.element("text");
+    text.value = "nyalakan lampu kamar dan AC jam sembilan malam";
+
+    text.scrollHeight = 44;
+    text.dispatch("focus");
+    const focusedHeight = text.style.height;
+    text.scrollHeight = 66;
+    text.dispatch("blur");
+
+    assert.equal(focusedHeight, "44px");
+    assert.equal(text.style.height, "66px");
+  });
+
   it("take the viewfinder's place, and give it back", async () => {
     const page = await openPage({ config: CAMERA_CONFIG, actions: QUICK });
     page.element("camera").dispatch("click");

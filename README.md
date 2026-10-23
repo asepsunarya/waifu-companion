@@ -3808,7 +3808,8 @@ phone:
 
 Untuk hal sekali ketuk tidak perlu mengetik ke Cyrene: tombol **lampu** di kiri kotak pesan
 membuka panel **Tombol cepat** di tempat jendela kamera (ketuk lagi untuk menutupnya; membuka
-kamera juga menutupnya). Tombolnya
+kamera juga menutupnya). Selagi Master mengetik pesan, tombol lampu menyingkir supaya kotak
+pesannya lebih lebar. Tombolnya
 dijalankan langsung di PC lewat daftar perangkat, seperti `waifu device` dan
 `waifu routine run`, tanpa otak Cyrene: lebih cepat, tanpa biaya API, dan dia tidak berbicara.
 Hasilnya muncul 6 detik di atas panel (tombolnya tidak bergeser), misalnya "Lampu kamar dinyalakan." atau "Mode
