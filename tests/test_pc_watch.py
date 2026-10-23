@@ -87,7 +87,8 @@ class Rig:
         self.now = NIGHT
         self.notifier = FakeNotifier()
         self.announced: list[tuple[str, str]] = []
-        self.expiries: list[datetime | None] = []  # until when each announcement may be said
+        # Until when each announcement may be said: (always, once a game held it).
+        self.expiries: list[tuple[datetime | None, datetime | None]] = []
         self.watcher = PcWatcher(
             self.read,
             PcHealthConfig(**config),
@@ -98,9 +99,16 @@ class Rig:
             now=lambda: self.now,
         )
 
-    def announce(self, text: str, emotion: str, *, expires_at: datetime | None) -> None:
+    def announce(
+        self,
+        text: str,
+        emotion: str,
+        *,
+        expires_at: datetime | None = None,
+        game_expires_at: datetime | None = None,
+    ) -> None:
         self.announced.append((text, emotion))
-        self.expiries.append(expires_at)
+        self.expiries.append((expires_at, game_expires_at))
 
     def poll(
         self, snapshot: PcSnapshot | Exception | None = None, *, after_s: float = 0.0
@@ -287,14 +295,14 @@ def test_a_new_streak_within_the_hour_of_the_last_notice_stays_quiet():
     assert (quiet, told) == ([], [gpu_text(88)])
 
 
-def test_a_hot_gpu_notice_held_unsaid_is_dropped_once_the_next_could_be_told():
+def test_a_hot_gpu_notice_a_game_held_unsaid_is_dropped_once_the_next_could_be_told():
     # Held through a long game, the hourly notices would pile up and be said, out of date,
-    # after it; a GPU still hot by then has a newer notice.
+    # after it; a GPU still hot by then has a newer notice. A focus block alone keeps it.
     rig = Rig()
 
     rig.hot_for(3)
 
-    assert rig.expiries == [NIGHT + timedelta(hours=1)]
+    assert rig.expiries == [(None, NIGHT + timedelta(hours=1))]
 
 
 def test_a_nearly_full_drive_notice_never_expires():
@@ -302,7 +310,7 @@ def test_a_nearly_full_drive_notice_never_expires():
 
     rig.poll()
 
-    assert rig.expiries == [None]
+    assert rig.expiries == [(None, None)]
 
 
 def test_the_once_per_hour_rule_follows_the_monotonic_clock_not_the_date():
@@ -373,7 +381,7 @@ def test_a_failing_read_is_logged_tells_nothing_and_the_next_poll_reads_again(ca
 
 
 def test_an_announcement_that_raises_is_logged_and_the_push_still_goes(caplog):
-    def announce(text: str, emotion: str, *, expires_at: datetime | None) -> None:
+    def announce(text: str, emotion: str, *, game_expires_at: datetime | None) -> None:
         raise RuntimeError("the voice loop is gone")
 
     notifier = FakeNotifier()
@@ -485,7 +493,7 @@ def test_the_thread_waits_poll_seconds_and_goes_on_after_a_failing_read(caplog):
     told = threading.Event()
     spoken: list[str] = []
 
-    def announce(text: str, emotion: str, *, expires_at: datetime | None) -> None:
+    def announce(text: str, emotion: str, *, game_expires_at: datetime | None) -> None:
         spoken.append(text)
         told.set()
 

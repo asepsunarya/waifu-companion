@@ -3,11 +3,11 @@
 Every `poll_minutes` it reads the status of the configured games, works out the
 reminders, claims the HoYoLAB check-in once per check-in day, and delivers what
 there is to tell as one phone push, said in order. The reminders about a game's
-state (stamina, dailies, weeklies, expeditions) may be said only until the next
-poll: held longer (a focus block, or a game in game mode), play has likely changed
-what they tell, so they are dropped unsaid. Problems and the check-in wait as long
-as they must. It runs in a daemon thread; a failing poll is logged and the next one
-comes as usual.
+state (stamina, dailies, weeklies, expeditions) held by a game (game mode) past the
+next poll are dropped unsaid: the game played has likely changed what they tell. A
+focus block alone holds them as long as it lasts, like problems and the check-in,
+which wait as long as they must. It runs in a daemon thread; a failing poll is
+logged and the next one comes as usual.
 """
 
 from __future__ import annotations
@@ -38,7 +38,8 @@ logger = logging.getLogger(__name__)
 GAME_TAG = "video_game"  # ntfy shows it as a game controller emoji
 EMOTION_STRENGTH = {"sad": 3, "surprised": 2, "happy": 1}
 RETRY_KINDS = frozenset({"network", "rate_limit"})  # a check-in that may work on the next poll
-# What a game's play changes: told as the poll saw it, out of date once the next poll looks again.
+# What a game's play changes: told as the poll saw it, out of date once a game held it past the
+# next poll.
 STATE_KINDS = frozenset({"stamina", "daily", "weekly", "expeditions"})
 STOP_TIMEOUT_S = 5.0
 
@@ -165,9 +166,9 @@ class GachaWatcher:
         return [*([claimed] if claimed else []), *problems]
 
     def _deliver(self, notices: list[Notice], now: datetime) -> None:
-        """One push; then the reminders about the games' state, said only until the next poll,
-        and the rest, in that order (the order they were worked out in), each with the
-        strongest emotion of them all, so said together they sound as one."""
+        """One push; then the reminders about the games' state, which a game may hold only until
+        the next poll, and the rest, in that order (the order they were worked out in), each
+        with the strongest emotion of them all, so said together they sound as one."""
         if not notices:
             return
         emotion = max(
@@ -180,6 +181,7 @@ class GachaWatcher:
         next_poll = now + timedelta(minutes=self._config.poll_minutes)
         state = [notice for notice in notices if notice.kind in STATE_KINDS]
         lasting = [notice for notice in notices if notice.kind not in STATE_KINDS]
-        for told, expires_at in ((state, next_poll), (lasting, None)):
+        for told, game_expires_at in ((state, next_poll), (lasting, None)):
             if told:
-                self._announce(" ".join(n.text for n in told), emotion, expires_at=expires_at)
+                text = " ".join(n.text for n in told)
+                self._announce(text, emotion, game_expires_at=game_expires_at)

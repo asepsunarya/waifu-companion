@@ -1379,11 +1379,23 @@ def _announcer(
     left unsaid while a game runs. Any other notice is queued, and her quiet holds it while a
     game holds her announcements."""
 
-    def announce(text: str, emotion: str = NEUTRAL, *, expires_at: datetime | None = None) -> None:
+    def announce(
+        text: str,
+        emotion: str = NEUTRAL,
+        *,
+        expires_at: datetime | None = None,
+        game_expires_at: datetime | None = None,
+    ) -> None:
         if pushed and game_mode is not None and game_mode.diverting():
             logger.info("Not saying a notice while a game runs: it went to the phone")
             return
-        assistant.announce(text, emotion, wait_for_followup=patient, expires_at=expires_at)
+        assistant.announce(
+            text,
+            emotion,
+            wait_for_followup=patient,
+            expires_at=expires_at,
+            game_expires_at=game_expires_at,
+        )
 
     return announce
 

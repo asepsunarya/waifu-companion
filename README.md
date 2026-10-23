@@ -2229,10 +2229,10 @@ check-in disimpan di `data\gacha\reminders.json`, jadi Cyrene yang di-restart ti
 mengulangnya. Stamina dan ekspedisi yang masih penuh disampaikan sekali lagi setelah
 restart, karena selama PC mati dia tidak tahu apakah sempat kamu pakai. Tidak ada jam
 tenang: dia juga bicara di malam hari selama `waifu run` jalan. Pengingat stamina, daily,
-mingguan, dan ekspedisi yang tertahan (blok fokus atau [Mode game](#mode-game)) sampai
-pengecekan berikutnya tidak diucapkan lagi, karena isinya mungkin sudah berubah (resin sudah
-dipakai, daily sudah selesai); notifikasi HP-nya, kalau menyala, sudah terkirim. Masalah dan
-check-in tetap diucapkan.
+mingguan, dan ekspedisi yang ditahan [Mode game](#mode-game) sampai pengecekan berikutnya tidak
+diucapkan lagi, karena game yang dimainkan mungkin sudah mengubah isinya (resin sudah dipakai,
+daily sudah selesai); notifikasi HP-nya, kalau menyala, sudah terkirim. Blok fokus tanpa main
+game menahannya sampai istirahat seperti biasa, dan masalah serta check-in tetap diucapkan.
 
 ### Ketentuan dan risiko
 
@@ -3943,8 +3943,9 @@ mengulangnya, jadi bisa jauh lebih lama dari sejak PC dinyalakan pagi ini.
   paling sedikit `gpu_warn_minutes` (bawaan 3 menit): "Master, GPU-nya sudah 88°C beberapa menit.
   Istirahat sebentar atau cek pendinginnya, ya." Paling sering sekali per jam. Satu pembacaan di
   bawah batas, atau tanpa angka suhu, membuat hitungannya mulai dari awal. Kalau kalimatnya
-  tertahan (blok fokus atau [Mode game](#mode-game)) sampai sejam, kalimat itu dilewati, jadi
-  tidak menumpuk selama main lama; notifikasi HP-nya, kalau menyala, sudah terkirim.
+  ditahan [Mode game](#mode-game) sampai sejam, kalimat itu dilewati, jadi tidak menumpuk selama
+  main lama; notifikasi HP-nya, kalau menyala, sudah terkirim. Blok fokus tanpa main game
+  menahannya sampai istirahat seperti biasa.
 - PC dibaca setiap `poll_seconds` (bawaan 60 detik), mulai begitu dia siap mendengarkan.
 - Seperti pengingat, kalimatnya diucapkan di sela obrolan, tidak pernah memotong Master atau
   jawabannya, dengan wajah sedih, dan dikirim juga ke HP kalau notifikasi menyala (lihat
@@ -4188,9 +4189,9 @@ memulai atau menghentikan sesi kalau Master minta.
   atau lewat [Cyrene di HP](#cyrene-di-hp).
 - Notifikasi HP dari fitur lain (misalnya game atau kesehatan PC) tetap terkirim seperti biasa;
   hanya suaranya di PC yang menunggu. Peringatan hujan yang tertunda sampai hujannya mulai tidak
-  diucapkan lagi, begitu juga pengingat stamina, daily, mingguan, atau ekspedisi yang tertunda
-  lebih dari `gacha.poll_minutes` (bawaan 15 menit) dan pemberitahuan GPU panas yang tertunda
-  lebih dari sejam.
+  diucapkan lagi. Pemberitahuan lain, termasuk pengingat resin atau daily dan GPU panas, tetap
+  diucapkan saat istirahat, berapa lama pun bloknya (kalau game dibuka di tengah blok, lihat
+  [Mode game](#mode-game)).
 
 ### Kalimatnya
 
@@ -4322,6 +4323,9 @@ Jalankan ulang `waifu run` setelah mengubahnya. `waifu chat` tidak punya mode ga
 - Pemberitahuan GPU panas yang tertahan sampai sejam dilewati: dari main lama yang membuat GPU
   terus panas, paling banyak satu (yang terakhir, kalau belum sejam) diucapkan sesudah game
   ditutup.
+- Pengingat game dan GPU panas hanya dilewati karena game: kalau game dibuka di tengah blok
+  fokus, yang sudah tertahan sejak awal blok ikut dilewati, tapi blok fokus tanpa main game
+  menahannya sampai istirahat, seperti sebelum ada mode game.
 - Dengan `phone`, kalau notifikasi HP gagal terkirim (misalnya internet putus), pemberitahuan
   itu juga tidak diucapkan.
 

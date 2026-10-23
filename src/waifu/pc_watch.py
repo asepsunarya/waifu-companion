@@ -4,9 +4,10 @@ Every `poll_seconds` it reads the PC. A fixed drive with less than `disk_warn_gb
 told once per drive per local date; a GPU at or above `gpu_warn_c` in every poll for at
 least `gpu_warn_minutes` (timed on the monotonic clock; a poll below the line or without a
 reading starts the streak over) is told at most once per hour. Each notice is said between
-utterances and pushed to the phone when notifications are on. A hot-GPU notice still unsaid an
-hour later (held through a focus block or a game) is dropped: by then the next one could be
-told, so a long hot game never piles them up. What was told lives only in this process, so a
+utterances and pushed to the phone when notifications are on. A hot-GPU notice a game (game
+mode) held unsaid for an hour is dropped: by then the next one could be told, so a long hot
+game never piles them up; a focus block alone holds it as long as it lasts, like the disk
+notice. What was told lives only in this process, so a
 restart may repeat a notice once. It runs in a daemon thread; a failing read, announcement, or
 push is logged and the next poll comes as usual.
 """
@@ -141,12 +142,12 @@ class PcWatcher:
             "Istirahat sebentar atau cek pendinginnya, ya."
         ]
 
-    def _deliver(self, text: str, expires_at: datetime | None) -> None:
-        """Say the notice, unless still unsaid at `expires_at`, and push it; a failure of
-        either is logged, never raised."""
+    def _deliver(self, text: str, game_expires_at: datetime | None) -> None:
+        """Say the notice, unless a game held it unsaid until `game_expires_at`, and push it; a
+        failure of either is logged, never raised."""
         if self._announce is not None:
             try:
-                self._announce(text, NOTICE_EMOTION, expires_at=expires_at)
+                self._announce(text, NOTICE_EMOTION, game_expires_at=game_expires_at)
             except Exception:
                 logger.exception("Could not say a PC notice")
         if self._notifier is not None:

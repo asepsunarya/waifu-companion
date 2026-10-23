@@ -26,14 +26,20 @@ from waifu.config import (
     AvatarConfig,
     BrainConfig,
     ClaudeConfig,
+    GachaConfig,
+    PcHealthConfig,
     PhoneConfig,
     SpeakerConfig,
 )
 from waifu.devices.mock import MockDevice
 from waifu.devices.registry import DeviceRegistry
 from waifu.finance.values import WIB
+from waifu.gacha.hoyolab import GameStatus
+from waifu.gacha.watcher import GachaWatcher
 from waifu.gate import WakeGate
 from waifu.journal import JOURNAL_PROMPT
+from waifu.pc_health import Drive, GpuStatus, PcSnapshot
+from waifu.pc_watch import PcWatcher
 from waifu.phone.auth import PhoneAuth
 from waifu.phone.server import PhoneBackend, PhoneReply, PhoneServer
 from waifu.screen import ScreenImage, encode_png
@@ -2807,3 +2813,175 @@ def test_an_announcement_without_an_expiry_is_said_however_long_it_waited():
     listen_once(rig)
 
     assert rig.speech.texts == [ANNOUNCEMENT]
+
+
+# What only a game makes out of date: the gacha reminders about a game's state and the hot-GPU
+# notice wait through a focus block however long it lasts (v1.30); a game held them, they go
+
+EVENING = datetime(2026, 10, 12, 20, 30, tzinfo=WIB)  # the dailies are mentioned from 20:00
+STAMINA_NEARLY_FULL_DAILIES_OPEN = GameStatus(
+    game="hsr",
+    stamina=295,
+    stamina_max=300,
+    stamina_full_in_s=30 * 60,
+    daily_current=300,
+    daily_max=500,
+    daily_done=False,
+    weekly=(),
+    expeditions_total=4,
+    expeditions_finished=1,
+    checked_in=True,
+)
+HOT_GPU = PcSnapshot(
+    35.0,
+    14.2,
+    31.9,
+    (Drive("C:", 120.0, 465.1),),
+    GpuStatus("NVIDIA GeForce RTX 5060 Ti", 88, 97, 12.1, 15.9, 171.5),
+    5 * 3600,
+)
+NO_GAME_HOLDS = pytest.mark.parametrize(
+    "game_holding", [None, lambda: False], ids=["no_game_mode", "no_game_running"]
+)
+
+
+class StatusHoyolab:
+    """HoYoLAB as the gacha watcher reads it: every game in `status`; the check-in is off."""
+
+    def __init__(self, status: GameStatus) -> None:
+        self._status = status
+
+    def status(self, games: list[str]) -> dict[str, GameStatus]:
+        return {game: self._status for game in games}
+
+    def checkin(self, game_id: str) -> None:
+        raise AssertionError("the check-in is off")
+
+
+def gacha_reminders(rig: Rig, tmp_path: Path) -> list[str]:
+    """One poll of the real gacha watcher on the rig's wall clock, telling the rig's Assistant
+    (no push), at EVENING: its notices' texts (resin nearly full, the dailies open)."""
+    rig.now = EVENING
+    config = GachaConfig(enabled=True, games=["hsr"], checkin=False, data_dir=tmp_path / "gacha")
+    watcher = GachaWatcher(
+        StatusHoyolab(STAMINA_NEARLY_FULL_DAILIES_OPEN),
+        config,
+        notifier=None,
+        announce=rig.assistant.announce,
+        now=lambda: rig.now,
+    )
+    told = watcher.poll_once()
+    assert [notice.kind for notice in told] == ["stamina", "daily"]
+    return [notice.text for notice in told]
+
+
+def hot_gpu_notice(rig: Rig) -> str:
+    """The real PC watcher on the rig's clocks, telling the rig's Assistant (no push), once a
+    minute until the GPU has been hot for gpu_warn_minutes: its notice."""
+    watcher = PcWatcher(
+        lambda: HOT_GPU,
+        PcHealthConfig(),
+        announce=rig.assistant.announce,
+        notifier=None,
+        owner_call="Master",
+        clock=rig.clock,
+        now=lambda: rig.now,
+    )
+    told = watcher.poll_once()
+    for _ in range(3):  # gpu_warn_minutes
+        rig.clock.now += 60
+        told += watcher.poll_once()
+    [notice] = told
+    return notice
+
+
+@NO_GAME_HOLDS
+def test_a_focus_block_keeps_the_gacha_reminders_about_a_game_s_state_however_long_it_lasts(
+    game_holding, tmp_path
+):
+    # As before game mode: nothing was played, so what they tell has not changed by playing.
+    focus = Quiet()
+    rig = Rig(quiet=focus, game_holding=game_holding)
+    reminders = gacha_reminders(rig, tmp_path)
+    listen_once(rig)
+
+    rig.now += timedelta(minutes=30)  # past the watcher's next poll (poll_minutes 15)
+    focus.on = False
+    listen_once(rig)
+
+    assert rig.speech.texts == [" ".join(reminders)]
+
+
+def test_a_game_drops_the_gacha_reminders_about_its_state_held_past_the_next_poll(tmp_path, caplog):
+    game = Quiet()
+    rig = Rig(quiet=game, game_holding=game)
+    gacha_reminders(rig, tmp_path)
+    listen_once(rig)
+
+    rig.now += timedelta(minutes=30)
+    game.on = False
+    with caplog.at_level(logging.INFO, logger="waifu.app"):
+        listen_once(rig)
+
+    assert rig.speech.texts == []
+    assert "Not saying an announcement a game held past 2026-10-12 20:45:00+07:00" in caplog.text
+
+
+def test_gacha_reminders_a_game_held_until_before_the_next_poll_are_said_after_the_lead_in(
+    tmp_path,
+):
+    game = Quiet()
+    rig = Rig(quiet=game, game_holding=game)
+    reminders = gacha_reminders(rig, tmp_path)
+    listen_once(rig)
+
+    rig.now += timedelta(minutes=10)
+    game.on = False
+    listen_once(rig)
+
+    assert rig.speech.texts == [" ".join([GAME_HELD, *reminders])]
+
+
+def test_a_game_started_during_a_focus_block_drops_the_reminders_it_held_past_the_next_poll(
+    tmp_path,
+):
+    # Master played during the block, so the resin and the dailies may have changed.
+    focus, game = Quiet(), Quiet(on=False)
+    rig = Rig(quiet=lambda: focus() or game(), game_holding=game)
+    gacha_reminders(rig, tmp_path)
+    listen_once(rig)
+
+    game.on = True
+    listen_once(rig)
+    rig.now += timedelta(minutes=30)
+    focus.on = game.on = False
+    listen_once(rig)
+
+    assert rig.speech.texts == []
+
+
+@NO_GAME_HOLDS
+def test_a_focus_block_keeps_the_hot_gpu_notice_however_long_it_lasts(game_holding):
+    focus = Quiet()
+    rig = Rig(quiet=focus, game_holding=game_holding)
+    notice = hot_gpu_notice(rig)
+    listen_once(rig)
+
+    rig.now += timedelta(hours=2)
+    focus.on = False
+    listen_once(rig)
+
+    assert rig.speech.texts == [notice]
+
+
+def test_a_game_drops_the_hot_gpu_notice_it_held_for_an_hour():
+    game = Quiet()
+    rig = Rig(quiet=game, game_holding=game)
+    hot_gpu_notice(rig)
+    listen_once(rig)
+
+    rig.now += timedelta(hours=1)
+    game.on = False
+    listen_once(rig)
+
+    assert rig.speech.texts == []

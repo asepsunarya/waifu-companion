@@ -2395,7 +2395,8 @@ class RecordingAssistant:
     `required_tool`, `new_sessions` whether each starts a new session, and `expiries` until
     when each may be said;
     `waiting_for_followup` the texts of announcements that wait while the follow-up window is
-    open, and `announced_until` until when each announcement may be said; `reminded` what
+    open, `announced_until` until when each announcement may be said, and `game_held_until`
+    until when a game may hold each; `reminded` what
     `remind` queued (Master's own lines); `phone_messages`, `phone_photos`
     (None for a message without one), `phone_cameras` (whether each was sent through the
     camera), and `phone_recordings` what the phone asked."""
@@ -2408,6 +2409,7 @@ class RecordingAssistant:
         self.announced: list[tuple[str, str]] = []
         self.waiting_for_followup: list[str] = []
         self.announced_until: list[datetime | None] = []
+        self.game_held_until: list[datetime | None] = []
         self.reminded: list[tuple[str, str]] = []
         self.asked: list[tuple[str, Callable[[str], None] | None, str | None]] = []
         self.new_sessions: list[bool] = []
@@ -2447,10 +2449,17 @@ class RecordingAssistant:
             assert self.reacted.acquire(timeout=WAIT_S), f"only {self.reactions} after {WAIT_S} s"
 
     def announce(
-        self, text: str, emotion: str = "neutral", *, wait_for_followup=False, expires_at=None
+        self,
+        text: str,
+        emotion: str = "neutral",
+        *,
+        wait_for_followup=False,
+        expires_at=None,
+        game_expires_at=None,
     ) -> None:
         self.announced.append((text, emotion))
         self.announced_until.append(expires_at)
+        self.game_held_until.append(game_expires_at)
         if wait_for_followup:
             self.waiting_for_followup.append(text)
 
@@ -5012,8 +5021,10 @@ def test_run_with_the_games_on_gives_the_brain_the_game_tools_and_watches_while_
     assert watcher.owner_call == "Master"
     assert watcher.notifier is None  # notify is off in the example config
     assert (watcher.ran_when_started, watcher.ran_when_stopped) == (False, True)
-    watcher.announce("Master, resin penuh.", "surprised")
+    next_poll = datetime(2026, 10, 12, 20, 45)
+    watcher.announce("Master, resin penuh.", "surprised", game_expires_at=next_poll)
     assert assistant.announced == [("Master, resin penuh.", "surprised")]
+    assert (assistant.announced_until, assistant.game_held_until) == ([None], [next_poll])
 
 
 def call_the_owner(home: Path, word: str) -> None:

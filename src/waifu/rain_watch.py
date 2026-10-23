@@ -72,8 +72,16 @@ Wait = Callable[[threading.Event, float], bool]
 
 
 class Announce(Protocol):
-    def __call__(self, text: str, emotion: str, *, expires_at: datetime | None) -> None:
-        """Queue `text` to be said, dropped when still unsaid at `expires_at`."""
+    def __call__(
+        self,
+        text: str,
+        emotion: str,
+        *,
+        expires_at: datetime | None = None,
+        game_expires_at: datetime | None = None,
+    ) -> None:
+        """Queue `text` to be said, dropped when still unsaid at `expires_at`, or at
+        `game_expires_at` when a game held it (game mode); None never."""
         ...
 
 

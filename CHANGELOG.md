@@ -9,10 +9,11 @@ aktif, lalu jalankan `waifu check`.
 - Mode game baru, mati dari awal: selama HSR, Genshin, atau ZZZ terbuka (dia tahu dari jam
   main), Cyrene bisa menahan pemberitahuannya sendiri sampai game terakhir ditutup
   (`game_mode.announcements: hold`), lalu mengucapkannya sekaligus sesudah "Tadi selama main
-  ada kabar.". Pengingat resin, daily, mingguan, atau ekspedisi yang tertahan lewat satu
-  pengecekan HoYoLAB, dan pemberitahuan GPU panas yang tertahan lewat sejam, dilewati karena
-  sudah basi; yang sama persis hanya diucapkan sekali. Dengan `phone`, pemberitahuan
-  yang memang dikirim ke HP tidak diucapkan selama main, dan sisanya ditahan. Sapaan pagi,
+  ada kabar.". Pengingat resin, daily, mingguan, atau ekspedisi yang ditahan game lewat satu
+  pengecekan HoYoLAB, dan pemberitahuan GPU panas yang ditahan game lewat sejam, dilewati karena
+  sudah basi (blok fokus tanpa main game tetap menahannya sampai istirahat); yang sama persis
+  hanya diucapkan sekali. Dengan `phone`, pemberitahuan yang memang dikirim ke HP tidak
+  diucapkan selama main, dan sisanya ditahan. Sapaan pagi,
   laporan game mingguan, dan pertanyaan malam jurnal ikut menunggu dan tetap dilewati kalau
   sudah lewat waktunya. Pengingat dan jadwal yang Master pasang, juga pengingat tidur jam main,
   tetap berbunyi selama main.
@@ -25,8 +26,9 @@ aktif, lalu jalankan `waifu check`.
 - `waifu check` menampilkan baris `Mode game`. Butuh `play_time.enabled: true` (bawaannya):
   `config.yaml` ditolak kalau mode game dinyalakan dengan jam main mati, atau kalau
   `on_start`/`on_stop` menyebut rutinitas yang tidak ada.
-- Tanpa bagian `game_mode` tidak ada yang berubah; contohnya ada di `config.example.yaml`.
-  README: "Mode game".
+- Selain peringatan hujan di atas dan kalimat yang sama persis yang tertahan dua kali (sekarang
+  diucapkan sekali), tanpa bagian `game_mode` tidak ada yang berubah: blok fokus tetap seperti
+  v1.30. Contohnya ada di `config.example.yaml`. README: "Mode game".
 
 ## v1.33: pendapatan gacha
 

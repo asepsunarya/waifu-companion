@@ -66,15 +66,22 @@ class Clock:
 
 class Announced(list):
     """Stands in for her voice: records each announcement as (text, emotion), and in
-    `expiries` until when each may be said."""
+    `expiries` until when each may be said: (always, once a game held it)."""
 
     def __init__(self) -> None:
         super().__init__()
-        self.expiries: list[datetime | None] = []
+        self.expiries: list[tuple[datetime | None, datetime | None]] = []
 
-    def __call__(self, text: str, emotion: str, *, expires_at: datetime | None) -> None:
+    def __call__(
+        self,
+        text: str,
+        emotion: str,
+        *,
+        expires_at: datetime | None = None,
+        game_expires_at: datetime | None = None,
+    ) -> None:
         self.append((text, emotion))
-        self.expiries.append(expires_at)
+        self.expiries.append((expires_at, game_expires_at))
 
 
 @pytest.fixture
@@ -126,8 +133,11 @@ def test_several_notices_are_one_push_and_said_in_order_with_the_strongest_emoti
     assert [emotion for _, emotion in announced] == ["sad", "sad"]
 
 
-def test_a_reminder_about_a_game_s_state_may_be_said_only_until_the_next_poll(tmp_path, clock):
-    # Held through a game (or a focus block), it would tell a state play has likely changed.
+def test_a_reminder_about_a_game_s_state_may_be_held_by_a_game_only_until_the_next_poll(
+    tmp_path, clock
+):
+    # Held through a game, it would tell a state play has likely changed; a focus block alone
+    # keeps it however long it lasts, as before game mode.
     clock.now = datetime(2026, 10, 12, 20, 30, tzinfo=WIB)  # evening, dailies still open
     open_dailies = replace(NEAR_FULL, daily_current=300, daily_done=False)
     watcher, _, announced = make_watcher(tmp_path, FakeHoyolab({"hsr": open_dailies}), clock)
@@ -135,7 +145,7 @@ def test_a_reminder_about_a_game_s_state_may_be_said_only_until_the_next_poll(tm
     watcher.poll_once()
 
     assert len(announced) == 1
-    assert announced.expiries == [clock.now + timedelta(minutes=15)]  # poll_minutes
+    assert announced.expiries == [(None, clock.now + timedelta(minutes=15))]  # poll_minutes
 
 
 def test_a_problem_and_the_checkin_are_said_however_long_they_wait(tmp_path, clock):
@@ -146,7 +156,7 @@ def test_a_problem_and_the_checkin_are_said_however_long_they_wait(tmp_path, clo
     watcher.poll_once()
 
     assert len(announced) == 1
-    assert announced.expiries == [None]
+    assert announced.expiries == [(None, None)]
 
 
 def test_reminders_and_problems_call_the_owner_what_she_calls_them(tmp_path, clock):

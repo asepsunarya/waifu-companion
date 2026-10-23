@@ -16,8 +16,10 @@ prompt (the morning greeting) and says the reply, and `remind` says what Master 
 himself (a reminder he set, the focus timer's lines). While `quiet` holds (a focus block is
 under way, or in game mode a game runs) only what `remind` queued is said; the rest waits, and
 what a game held comes out after a short lead-in once it has closed. An announcement or request
-still waiting at its expiry is dropped (a rain alert after its rain began), and a text queued
-more than once is said once.
+still waiting at its expiry is dropped (a rain alert after its rain began), and so is an
+announcement a game held past its game expiry (a resin reminder the game played made out of
+date), which a focus block alone keeps however long it lasts. A text queued more than once is
+said once.
 
 The owner's paired phone (`waifu.phone`) talks to her from the phone server's threads:
 `reply_for_phone` and `transcribe_for_phone`, handed to the server as `PhoneAnswers`. Brain
@@ -207,6 +209,7 @@ class _Announcement:
     text: str
     emotion: str
     expires_at: datetime | None
+    game_expires_at: datetime | None  # counted only when a game held it
 
 
 @dataclasses.dataclass(frozen=True)
@@ -413,6 +416,7 @@ class Assistant:
         *,
         wait_for_followup: bool = False,
         expires_at: datetime | None = None,
+        game_expires_at: datetime | None = None,
     ) -> None:
         """Queue something to say by herself; safe from any thread (the gacha watcher's).
 
@@ -423,9 +427,12 @@ class Assistant:
         crossed the budget) never uses up the window in which Master answers her. One still
         waiting when `expires_at` (on `now`) has passed is dropped, logged and never said: a
         rain alert held through a focus block or a game until its rain began. None never
-        expires.
+        expires. `game_expires_at` is an expiry only for what a game held (game mode): one a
+        game held that is still waiting then is dropped the same way, since the game played may
+        have changed what it tells (a resin reminder, a hot GPU), while a focus block alone
+        keeps it however long the block lasts, as before game mode.
         """
-        announcement = _Announcement(text, emotion, expires_at)
+        announcement = _Announcement(text, emotion, expires_at, game_expires_at)
         if wait_for_followup:
             self._patient_announcements.put(announcement)
         else:
@@ -438,7 +445,7 @@ class Assistant:
         Said like a plain `announce`ment (between utterances, also while the follow-up window
         is open, before the announcements queued with it), and also while `quiet` holds.
         """
-        self._reminders.put(_Announcement(text, emotion, None))
+        self._reminders.put(_Announcement(text, emotion, None, None))
 
     def ask_aloud(
         self,
@@ -598,9 +605,9 @@ class Assistant:
     def _say_announcements(self, followup_open: bool, quiet: bool) -> bool:
         """Say every queued reminder and announcement in one go, reminders first, with the
         first one's emotion, except the announcements while `quiet`, those that wait while
-        the follow-up window is open, and those that have expired (dropped). A text queued
-        more than once is said once, and the announcements a game held come after GAME_HELD.
-        True when there was any to say."""
+        the follow-up window is open, and those that have expired (dropped; by their game
+        expiry too when a game held them). A text queued more than once is said once, and the
+        announcements a game held come after GAME_HELD. True when there was any to say."""
         reminders = _take_all(self._reminders)
         announcements: list[_Announcement] = []
         if quiet:
@@ -609,9 +616,10 @@ class Assistant:
             announcements = _take_all(self._announcements)
         if not (quiet or followup_open):
             announcements += _take_all(self._patient_announcements)
-        news = [announcement for announcement in announcements if self._in_date(announcement)]
+        held_by_game = self._held_by_game
+        news = [item for item in announcements if self._in_date(item, held_by_game)]
         lead_in: list[str] = []
-        if announcements and self._held_by_game:
+        if announcements and held_by_game:
             self._held_by_game = False
             lead_in = [GAME_HELD] if news else []
         due = reminders + news
@@ -631,14 +639,23 @@ class Assistant:
         if waiting and self._game_holding():
             self._held_by_game = True
 
-    def _in_date(self, announcement: _Announcement) -> bool:
-        """Whether `announcement` has not expired; an expired one is logged, not its text."""
-        if not _expired(announcement.expires_at, self._now()):
-            return True
-        logger.info(
-            "Not saying an announcement held past %s: it is out of date", announcement.expires_at
-        )
-        return False
+    def _in_date(self, announcement: _Announcement, held_by_game: bool) -> bool:
+        """Whether `announcement` has not expired, its game expiry counted only when a game
+        held it; an expired one is logged, not its text."""
+        now = self._now()
+        if _expired(announcement.expires_at, now):
+            logger.info(
+                "Not saying an announcement held past %s: it is out of date",
+                announcement.expires_at,
+            )
+            return False
+        if held_by_game and _expired(announcement.game_expires_at, now):
+            logger.info(
+                "Not saying an announcement a game held past %s: it is out of date",
+                announcement.game_expires_at,
+            )
+            return False
+        return True
 
     def _answer_next_request(self) -> None:
         """Answer the oldest `ask_aloud` request aloud, if any.
