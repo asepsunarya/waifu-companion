@@ -11,6 +11,7 @@ from waifu.config import (
     FocusConfig,
     GameModeConfig,
     GuestModeConfig,
+    JapaneseConfig,
     JournalConfig,
     PlayTimeConfig,
     RainAlertConfig,
@@ -1334,6 +1335,40 @@ def test_the_example_journal_block_written_out_holds_the_defaults(tmp_path):
     written_out = "\n".join(line.removeprefix("# ") for line in commented.splitlines())
 
     assert load_config(write_yaml(tmp_path, written_out)).journal == JournalConfig()
+
+
+def test_japanese_lessons_are_off_by_default():
+    japanese = AppConfig().japanese
+    assert japanese.enabled is False
+    assert japanese.path == Path("data/japanese.json")
+
+
+def test_japanese_settings_load_from_yaml(tmp_path):
+    text = "japanese:\n  enabled: true\n  path: data/jepang.json\n"
+    japanese = load_config(write_yaml(tmp_path, text)).japanese
+    assert japanese.enabled is True
+    assert japanese.path == Path("data/jepang.json")
+
+
+@pytest.mark.parametrize(
+    ("lines", "named"),
+    [
+        ("  enabled: kadang\n", "japanese.enabled"),
+        ("  words: 10\n", "japanese.words"),  # the list is built in
+        ("  push: true\n", "japanese.push"),  # the greeting's own push carries the word
+    ],
+)
+def test_bad_japanese_settings_are_refused_naming_the_setting(tmp_path, lines, named):
+    with pytest.raises(ConfigError, match=re.escape(named)):
+        load_config(write_yaml(tmp_path, "japanese:\n" + lines))
+
+
+def test_the_example_japanese_block_written_out_holds_the_defaults(tmp_path):
+    example = (ROOT / "config.example.yaml").read_text(encoding="utf-8")
+    commented = example[example.index("\n# japanese:\n") + 1 :].split("\n\n", 1)[0]
+    written_out = "\n".join(line.removeprefix("# ") for line in commented.splitlines())
+
+    assert load_config(write_yaml(tmp_path, written_out)).japanese == JapaneseConfig()
 
 
 def test_web_search_is_on_for_indonesia_by_default():

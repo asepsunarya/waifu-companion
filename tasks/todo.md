@@ -1999,10 +1999,10 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 208 · **Files:** `src/waifu/briefing.py`, `tests/test_briefing.py` · **Scope:** S
 
-## Task 211: The `japanese` config
+## Task 211: The `japanese` config ✅
 
 **Acceptance criteria:**
-- [ ] `japanese.enabled` (false) and `japanese.path`; unknown keys refused naming the setting; `config.example.yaml` documents it and its block written out holds the defaults
+- [x] `japanese.enabled` (false) and `japanese.path`; unknown keys refused naming the setting; `config.example.yaml` documents it and its block written out holds the defaults
 
 **Dependencies:** 206a · **Files:** `src/waifu/config.py`, `config.example.yaml`, `tests/test_config.py` · **Scope:** S
 

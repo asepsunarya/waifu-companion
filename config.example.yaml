@@ -518,6 +518,21 @@ schedule:
 #   ask_at:                # misalnya 21:30: sekali sehari mulai jam itu dia bertanya bagaimana hari Master (12:00-23:59; kosong = mati)
 #   state_path: data/journal_question.json  # hari terakhir dia bertanya
 
+# Belajar bahasa Jepang (README, bagian "Belajar bahasa Jepang"): satu kata Jepang tingkat pemula
+# (JLPT N5) setiap hari dari daftar bawaan berisi 300 kata, tanpa internet. Kata hari ini dia
+# sebut di akhir sapaan pagi (dengan kana lalu artinya), dan "kata Jepang hari ini apa?" juga
+# bisa kapan saja. "Kuis bahasa Jepang dong" membuatnya menanyakan arti kata yang sudah Master
+# pelajari, satu per satu, lalu menunggu jawaban Master; kata yang sering benar makin jarang
+# ditanya (sistem Leitner), yang salah ditanya lagi besok. "Aku sudah belajar berapa kata?"
+# menjawab kemajuannya. Kuis hanya kalau Master minta, dan tetap boleh di mode tamu. Yang
+# disimpan hanya kata mana yang sudah dipelajari dan kapan ditanya lagi, di PC ini (path);
+# dengan Claude, kata dan jawaban Master ikut ke API Anthropic seperti obrolan biasa. Lihat
+# dengan `waifu jepang [hari-ini|progres]`. Mati tanpa ditulis: tulis bagian ini tanpa tanda #
+# di depannya, lalu ganti enabled menjadi true.
+# japanese:
+#   enabled: false         # true: kata hari ini di sapaan pagi, kuis, dan kemajuannya
+#   path: data/japanese.json  # kata yang sudah dipelajari dan jadwal ulangannya, hanya di PC ini
+
 # Promo gratis (README, bagian "Pencarian web dan promo gratis"): "Ada game gratis apa sekarang?"
 # membuatnya membaca game yang gratis untuk disimpan di Epic Games Store (dari Epic sendiri) dan
 # di Steam, GOG, dan lainnya (dari GamerPower.com). "Ada promo AI gratis nggak?" membacakan promo

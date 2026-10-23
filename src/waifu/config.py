@@ -964,6 +964,15 @@ class JournalConfig(_Strict):
         return value
 
 
+class JapaneseConfig(_Strict):
+    """Belajar bahasa Jepang: a word a day from the built-in list, in the morning greeting, and
+    a quiz on the words Master learned when he asks. The list ships in the package; `path`
+    holds which words he learned and when each is asked again."""
+
+    enabled: bool = False
+    path: Path = Path("data/japanese.json")
+
+
 class MusicConfig(_Strict):
     """Songs on YouTube, opened in the default browser when Master asks."""
 
@@ -1153,6 +1162,7 @@ class AppConfig(_Strict):
     guest_mode: GuestModeConfig = Field(default_factory=GuestModeConfig)
     voice: VoiceVolumeConfig = Field(default_factory=VoiceVolumeConfig)
     journal: JournalConfig = Field(default_factory=JournalConfig)
+    japanese: JapaneseConfig = Field(default_factory=JapaneseConfig)
     web_search: WebSearchConfig = Field(default_factory=WebSearchConfig)
     free_offers: FreeOffersConfig = Field(default_factory=FreeOffersConfig)
     vision: VisionConfig = Field(default_factory=VisionConfig)
