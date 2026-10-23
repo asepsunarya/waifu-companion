@@ -496,14 +496,44 @@ def test_a_todo_list_that_cannot_be_read_is_told_as_the_tasks_problem(tmp_path, 
     assert "the to-do file is locked" in caplog.text
 
 
-def test_with_japanese_lessons_the_briefing_holds_the_word_of_its_day(tmp_path):
+def test_with_japanese_lessons_her_morning_greeting_holds_the_word_of_its_day(tmp_path):
     word = WordOfTheDay()
+    tools = make_tools(tmp_path, japanese=word)
+    tools.begin_turn(BRIEFING_PROMPT)
 
-    briefing, is_error = brief(make_tools(tmp_path, japanese=word))
+    briefing, is_error = brief(tools)
 
     assert briefing["word_of_the_day"] == {"kana": "たべる", "kanji": "食べる", "meaning": "makan"}
     assert word.days_asked == [date(2026, 10, 13)]
     assert is_error is False
+
+
+@pytest.mark.parametrize(
+    "words", ["Cyrene, cuaca hari ini gimana?", "hari ini ada jadwal apa?", "rangkum hariku"]
+)
+def test_master_s_own_questions_get_no_word_and_learn_none(tmp_path, words):
+    # The word belongs to the greeting; asked for, it comes from japanese_lesson. A weather
+    # question at 15:00 must not end with it, nor count it learned unsaid.
+    word = WordOfTheDay()
+    tools = make_tools(tmp_path, japanese=word)
+    tools.begin_turn(BRIEFING_PROMPT)
+    brief(tools)
+    tools.begin_turn(words)
+
+    briefing, is_error = brief(tools)
+
+    assert "word_of_the_day" not in briefing
+    assert word.days_asked == [date(2026, 10, 13)]  # the greeting's alone
+    assert is_error is False
+
+
+def test_before_any_turn_the_briefing_has_no_word(tmp_path):
+    word = WordOfTheDay()
+
+    briefing, _ = brief(make_tools(tmp_path, japanese=word))
+
+    assert "word_of_the_day" not in briefing
+    assert word.days_asked == []
 
 
 def test_without_japanese_lessons_the_briefing_has_no_word(tmp_path):
@@ -520,6 +550,7 @@ def test_guest_mode_keeps_the_word_of_the_day(tmp_path):
         now=Clock(),
         guest_mode=GuestSwitch(on=True),
     )
+    tools.begin_turn(BRIEFING_PROMPT)
 
     briefing, _ = brief(tools)
 
@@ -528,9 +559,11 @@ def test_guest_mode_keeps_the_word_of_the_day(tmp_path):
 
 def test_a_word_of_the_day_that_fails_is_left_out_and_logged(tmp_path, caplog):
     word = WordOfTheDay(OSError("the Japanese file is locked"))
+    tools = make_tools(tmp_path, japanese=word)
+    tools.begin_turn(BRIEFING_PROMPT)
 
     with caplog.at_level(logging.ERROR, logger="waifu.briefing"):
-        briefing, is_error = brief(make_tools(tmp_path, japanese=word))
+        briefing, is_error = brief(tools)
 
     assert briefing["word_of_the_day"] is None
     assert briefing["weather"] == BANDUNG_JSON

@@ -3342,7 +3342,7 @@ pengingat hari ini, [tugas](#daftar-tugas) yang tenggatnya hari ini atau sudah l
 kalau [teman main gacha](#teman-main-gacha-hoyoverse) menyala, dan hal dari
 [ingatannya](#ingatan-cyrene) yang penting hari ini (ulang tahun, ujian), lalu di akhir
 [kata Jepang hari ini](#belajar-bahasa-jepang) kalau belajar bahasa Jepang menyala. Data yang
-sama juga dipakai kapan saja kalau Master bertanya. Fitur ini sudah menyala dari awal
+sama, tanpa kata Jepangnya, juga dipakai kapan saja kalau Master bertanya. Fitur ini sudah menyala dari awal
 (`briefing.enabled: true`), tapi cuacanya baru ada setelah kotanya diisi (lihat
 [Mengatur kota](#mengatur-kota)).
 
@@ -5341,7 +5341,8 @@ japanese:
 - **Satu kata baru setiap hari**, sama sepanjang hari. Urutannya acak tapi tetap, dan semua 300
   kata keluar dulu sebelum ada yang berulang (sekitar sepuluh bulan).
 - [Sapaan pagi](#sapaan-pagi-dan-ringkasan-harian) menyebutnya di akhir: katanya dengan kana, lalu
-  artinya. "Kata Jepang hari ini apa?" bisa kapan saja, dengan contoh kalimat dan artinya.
+  artinya. Hanya sapaan itu: pertanyaan cuaca atau jadwal di jam lain tidak ikut menyebutnya.
+  "Kata Jepang hari ini apa?" bisa kapan saja, dengan contoh kalimat dan artinya.
 - Kata itu dihitung sudah dipelajari begitu dia menyebutnya (di sapaan pagi atau saat ditanya).
   Hari tanpa sapaan dan tanpa ditanya, kata hari itu terlewat sampai putaran berikutnya.
 - Bahasa Jepangnya ditulis dengan kana atau kanji, jadi diucapkan dengan suara Jepang, dan artinya

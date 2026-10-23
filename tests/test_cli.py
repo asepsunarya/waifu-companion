@@ -14608,6 +14608,7 @@ def test_chat_s_briefing_gives_the_word_of_the_day_and_the_tool_counts_it_learne
     assert cli.main(["chat", "--dry-run"]) == 0
 
     assert JapaneseTools in [type(tools) for tools in brains[0].providers]
+    briefing_tools(brains[0]).begin_turn(BRIEFING_PROMPT)  # her morning greeting's turn
     word = word_of_the_day(WORDS, date.today())  # the briefing's day is the PC's local date
     assert daily_briefing(brains[0])["word_of_the_day"] == {
         "kana": word.kana,

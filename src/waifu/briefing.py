@@ -1,13 +1,15 @@
 """Cyrene's morning briefing: the day's data on request, and her own greeting once a day.
 
 `daily_briefing` gives the model today's date, the weather where Master lives, today's
-schedule entries, when the to-do list is on, the tasks due today and overdue, and when Master
-learns Japanese, the word of the day, at any hour ("cuaca hari ini gimana?", "hari ini ada
-jadwal apa?"). A weather, schedule, or to-do failure fills its problem field instead of failing
-the tool, so she can still tell the rest. The spec carries no data, so it stays byte-identical
-for the brain's lifetime and keeps the prompt cache warm. In guest mode it leaves out the tasks
-and the reminder entries (their text is Master's), keeping the weather, the device and routine
-entries, and the word of the day.
+schedule entries, and when the to-do list is on, the tasks due today and overdue, at any hour
+("cuaca hari ini gimana?", "hari ini ada jadwal apa?"). When Master learns Japanese, her own
+morning greeting (`BRIEFING_PROMPT`, heard by `begin_turn`) also gets the word of the day, and
+only it: a weather question later that day must not end with a vocabulary line, nor count the
+word learned unsaid (asked for, the word comes from `japanese_lesson`). A weather, schedule, or
+to-do failure fills its problem field instead of failing the tool, so she can still tell the
+rest. The spec carries no data, so it stays byte-identical for the brain's lifetime and keeps
+the prompt cache warm. In guest mode it leaves out the tasks and the reminder entries (their
+text is Master's), keeping the weather, the device and routine entries, and the word of the day.
 
 `BriefingTimer` asks for her greeting once a day, the first time `waifu run` is on between
 `briefing.time` and `briefing.until`: a `PromptTimer` that hands `BRIEFING_PROMPT` to
@@ -76,13 +78,15 @@ class BriefingTools:
         """Without `todo` (the to-do list is off) the result has no `tasks` field, nor while
         `guest_mode` (guest mode's `is_on`) says guests are around, when the reminders are
         left out of the schedule too. With `japanese` (today's word for a date, learned once)
-        it holds `word_of_the_day`, in guest mode too; without it, no such field."""
+        her morning greeting's result holds `word_of_the_day`, in guest mode too; any other
+        turn's, or without it, no such field."""
         self._weather = weather
         self._schedule = schedule
         self._todo = todo
         self._japanese = japanese
         self._now = now
         self._guest_mode = guest_mode
+        self._greeting = False
 
     def specs(self) -> list[ToolSpec]:
         return [
@@ -106,6 +110,11 @@ class BriefingTools:
                 input_schema={"type": "object", "properties": {}, "additionalProperties": False},
             )
         ]
+
+    def begin_turn(self, user_text: str) -> None:
+        """Start a turn with its words as heard: only her morning greeting gets the word of the
+        day."""
+        self._greeting = user_text == BRIEFING_PROMPT
 
     def run(self, name: str, arguments: object) -> tuple[str, bool]:
         try:
@@ -134,7 +143,7 @@ class BriefingTools:
         }
         if self._todo is not None and not guests:
             briefing["tasks"], briefing["tasks_problem"] = _tasks_today(self._todo, now.date())
-        if self._japanese is not None:
+        if self._japanese is not None and self._greeting:
             briefing["word_of_the_day"] = _word_of_the_day(self._japanese, now.date())
         return _to_json(briefing), False
 
