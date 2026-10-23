@@ -25,7 +25,7 @@ _STATUS_OFF = "Mode tamu tidak aktif."
 _DESCRIPTION = (
     "Turn guest mode on or off, or check it. Guest mode keeps Master's private things from "
     "guests in the room: while it is on, the tools for Master's money, journal, memory, to-do "
-    "list, play and focus time, game accounts, schedule list, API cost, and the screen refuse, "
+    "list, play time, game accounts, schedule list, API cost, and the screen refuse, "
     "and the next turn starts a new conversation without your memory of Master. Call with `on` "
     'true when Master says guests are here or asks for guest mode ("mode tamu"), with `on` '
     'false when Master says it is over ("mode tamu selesai"), and leave `on` out when Master '

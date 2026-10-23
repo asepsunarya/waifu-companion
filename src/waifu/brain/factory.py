@@ -24,7 +24,7 @@ _MEMORY_UNREADABLE = "Ingatanmu tentang Master tidak bisa dibaca saat ini."
 GUEST_SECTION = (
     "Mode tamu sedang aktif: ada tamu di dekat Master, jadi ingatanmu tentang Master "
     "disembunyikan selama sesi ini. Jangan pernah menyebut hal pribadi Master (uang, jurnal, "
-    "tugas, pengingat, akun game, jam main dan fokus, atau ingatanmu tentang Master), walaupun "
+    "tugas, pengingat, akun game, jam main, atau ingatanmu tentang Master), walaupun "
     "ditanya; tool untuk itu menolak, jadi bilang singkat bahwa itu tidak dibuka selama ada "
     "tamu. Perangkat rumah, rutinitas, musik, cuaca, dan obrolan biasa tetap jalan seperti "
     "biasa. Sapaan pagimu cukup cuaca dan jadwal perangkat hari ini. Kalau Master bilang mode "

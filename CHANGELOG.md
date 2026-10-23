@@ -7,12 +7,12 @@ aktif, lalu jalankan `waifu check`.
 ## v1.36: mode tamu
 
 - "Cyrene, mode tamu" (lewat suara, `waifu chat`, atau chat di HP) menutup hal pribadi Master
-  selama ada tamu: keuangan tepira, jurnal, ingatan, daftar tugas, jam main dan teman fokus,
-  akun game (status, pull, pendapatan, karakter, endgame, jadwal banner dan event, laporan
-  mingguan, kode redeem), daftar jadwal, biaya API, dan melihat layar ditolak, dan dia bilang
-  singkat bahwa itu ditutup dulu.
-  Perangkat, rutinitas, lagu, cuaca, promo gratis, pencarian web, obrolan biasa, dan tombol
-  cepat di HP tetap jalan.
+  selama ada tamu: keuangan tepira, jurnal, ingatan, daftar tugas, jam main, akun game
+  (status, pull, pendapatan, karakter, endgame, jadwal banner dan event, laporan mingguan, kode
+  redeem), daftar jadwal, biaya API, dan melihat layar ditolak, dan dia bilang singkat bahwa itu
+  ditutup dulu. Perangkat, rutinitas, lagu, cuaca, teman fokus (sesi yang sedang jalan tetap
+  bisa dihentikan), promo gratis, pencarian web, obrolan biasa, dan tombol cepat di HP tetap
+  jalan.
 - Mulai giliran berikutnya dia memulai obrolan baru tanpa ingatannya tentang Master; saat "mode
   tamu selesai", obrolan baru lagi dan ingatannya kembali. Pertanyaan konfirmasi yang belum
   dijawab ikut terlupa.

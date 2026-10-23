@@ -49,9 +49,9 @@ PRIVATE_TOOLS = frozenset(
         "reopen_task",
         "remove_task",
         "edit_task",
-        # Play and focus time
+        # Play time. Not focus_timer: it is a control, and a block started before the guests
+        # came must still stop on Master's word.
         "play_time",
-        "focus_timer",
         # Game accounts
         "game_status",
         "gacha_history",

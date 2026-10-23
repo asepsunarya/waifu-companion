@@ -12,12 +12,14 @@ import pytest
 from anthropic.types.beta import BetaToolParam
 
 from waifu.brain.focus_tools import FocusTools
-from waifu.brain.tools import to_anthropic, to_ollama
+from waifu.brain.tools import run_tool, to_anthropic, to_ollama
 from waifu.briefing import BRIEFING_PROMPT
+from waifu.devices.registry import DeviceRegistry
 from waifu.finance.values import WIB
 from waifu.focus import FocusBlock, FocusStore
 from waifu.focus_timer import FocusPlan, FocusTimer
 from waifu.gacha.weekly import WEEKLY_REPORT_PROMPT
+from waifu.guest import GuestMode
 from waifu.journal import JOURNAL_PROMPT
 
 NOW = datetime(2026, 10, 17, 20, 0, tzinfo=WIB)  # Saturday 20:00
@@ -235,6 +237,22 @@ def test_stop_ends_the_session_and_tells_its_focus(rig):
 
 def test_stop_without_a_session_says_none_was_running(rig):
     assert rig.ask({"action": "stop"}) == {"stopped": False}
+
+
+def test_master_can_stop_a_running_block_after_guests_arrive(rig):
+    # Guest mode refuses in the shared dispatcher by name: a block started before the guests
+    # came must still stop on Master's word, or its lines go on in front of them.
+    guest = GuestMode(now=lambda: NOW.replace(tzinfo=None))
+    rig.ask({"action": "start"})
+    guest.turn_on()
+    rig.at(10)
+
+    result, is_error = run_tool(
+        DeviceRegistry([]), "focus_timer", {"action": "stop"}, [rig.tools], refusal=guest.refusal
+    )
+
+    assert is_error is False
+    assert json.loads(result) == {"stopped": True, "focused": {"hours": 0, "minutes": 10}}
 
 
 def test_a_null_argument_counts_as_left_out(rig):

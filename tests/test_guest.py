@@ -181,9 +181,9 @@ def test_every_private_tool_is_refused_while_it_is_on(tool):
 
 
 @pytest.mark.parametrize(
-    "tool", [CONTROL_DEVICE, LIST_DEVICES, RUN_ROUTINE, SCHEDULE, DAILY_BRIEFING]
+    "tool", [CONTROL_DEVICE, LIST_DEVICES, RUN_ROUTINE, SCHEDULE, DAILY_BRIEFING, FOCUS_TIMER]
 )
-def test_the_house_and_the_day_are_never_refused(tool):
+def test_the_house_the_day_and_the_focus_timer_are_never_refused(tool):
     guest = guest_mode(Clock(at(24, 20)))
     guest.turn_on()
 
@@ -221,7 +221,6 @@ def test_the_private_tools_are_master_s_own_records_and_accounts():
         REMOVE_TASK,
         EDIT_TASK,
         PLAY_TIME,
-        FOCUS_TIMER,
         GAME_STATUS,
         GACHA_HISTORY,
         GACHA_INCOME,

@@ -14278,7 +14278,8 @@ def optional_parameters(schema: dict) -> int:
 
 
 # The tools guest mode leaves open: the house, the day, songs, the PC's health, the free
-# offers, web search, and guest mode itself.
+# offers, web search, guest mode itself, and the focus timer (only `run` has one), a control
+# Master must be able to stop with guests around.
 OPEN_TO_GUESTS = frozenset(
     {
         "control_device",
@@ -14292,6 +14293,7 @@ OPEN_TO_GUESTS = frozenset(
         "send_offer_link",
         "web_search",
         "guest_mode",
+        "focus_timer",
     }
 )
 
@@ -14347,7 +14349,7 @@ def test_the_claude_request_with_every_tool_on_stays_within_the_strict_tool_limi
     } <= names
     # Every tool is either closed in guest mode or still open: a new one must be sorted.
     assert names <= PRIVATE_TOOLS | OPEN_TO_GUESTS
-    assert PRIVATE_TOOLS - names == {"focus_timer"}  # only `run` has a focus timer
+    assert names >= PRIVATE_TOOLS  # a full chat request carries every private tool
     strict = [tool for tool in request["tools"] if tool.get("strict")]
     schemas = [tool["input_schema"] for tool in strict]
     parameters = [parameter for schema in schemas for parameter in strict_parameters(schema)]

@@ -5024,7 +5024,7 @@ bilang singkat bahwa itu ditutup dulu selama ada tamu:
 - ingatan: yang diucapkan selama mode tamu tidak disimpan sebagai hal tentang Master, dan
   catatan Master tidak bisa dihapus;
 - daftar tugas (semuanya);
-- jam main dan teman fokus;
+- jam main;
 - akun game: status, riwayat pull, pendapatan, karakter, endgame, jadwal banner dan event
   (jawabannya memuat progres event dan bintang endgame Master), laporan mingguan, dan kode
   redeem;
@@ -5037,6 +5037,9 @@ bilang singkat bahwa itu ditutup dulu selama ada tamu:
 - Perangkat rumah (mematikan PC tetap dengan konfirmasi), rutinitas, menambah jadwal atau
   pengingat, lagu di YouTube, kesehatan PC, cuaca dan ringkasan hari (tanpa tugas dan teks
   pengingat), promo gratis, pencarian web, dan obrolan biasa.
+- [Teman fokus](#teman-fokus): memulai, menghentikan, dan menanyakan sisa waktunya, jadi sesi
+  yang jalan sebelum tamu datang tetap bisa dihentikan. Jawabannya bisa menyebut berapa lama
+  Master fokus hari itu dan minggu itu.
 - [Tombol cepat di HP](#tombol-cepat-di-hp): tombolnya mengendalikan perangkat tanpa otak
   Cyrene.
 - Perintah terminal (`waifu todo`, `waifu jurnal`, `waifu tepira`, dan lainnya): terminal milik
