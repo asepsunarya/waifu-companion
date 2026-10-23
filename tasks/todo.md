@@ -2116,13 +2116,13 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 220a · **Files:** `src/waifu/weather.py`, `tests/test_weather.py`, `src/waifu/prayer.py`, `tests/test_prayer.py` · **Scope:** S
 
-## Task 223: `prayer_times`
+## Task 223: `prayer_times` ✅
 
 **Acceptance criteria:**
-- [ ] Today's or a given day's times for the place as "HH:MM" (null where none), with the place, weekday, method, and ihtiyath; a date not YYYY-MM-DD, unknown keys, or a day more than 366 days away refused; a place that cannot be found is an error with its message; never raises
-- [ ] Refused in the morning greeting, the weekly report, and the journal question; the spec is static and non-strict
+- [x] Today's or a given day's times for the place as "HH:MM" (null where none), with the place, weekday, method, and ihtiyath; a date not YYYY-MM-DD, unknown keys, or a day more than 366 days away refused; a place that cannot be found is an error with its message; never raises
+- [x] Refused in the morning greeting, the weekly report, and the journal question; the spec is static and non-strict
 
-**Dependencies:** 220, 221, 222 · **Files:** `src/waifu/brain/prayer_tools.py`, `tests/test_brain_prayer_tools.py` · **Scope:** M
+**Dependencies:** 220, 221, 222 · **Files:** `src/waifu/brain/prayer_tools.py`, `tests/test_prayer_tools.py` · **Scope:** M
 
 ## Task 224: `PrayerWatcher`
 
