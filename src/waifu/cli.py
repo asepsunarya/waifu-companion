@@ -68,6 +68,7 @@ from waifu.brain.offers_tools import OffersTools
 from waifu.brain.pc_tools import PcTools
 from waifu.brain.persona import WEEKDAYS_ID
 from waifu.brain.play_time_tools import PlayTimeTools
+from waifu.brain.prayer_tools import PrayerTools
 from waifu.brain.schedule_tools import ScheduleTools
 from waifu.brain.screen_tools import ScreenTools
 from waifu.brain.todo_tools import TodoTools
@@ -208,6 +209,9 @@ from waifu.play_time import (
     wib_now,
 )
 from waifu.play_watch import PlayTimeWatcher
+from waifu.prayer import PrayerError, PrayerPlace
+from waifu.prayer_times import PRAYERS, prayer_times
+from waifu.prayer_watch import PrayerWatcher
 from waifu.processes import running_executables
 from waifu.rain_watch import RainWatcher, RainWindow, rain_window, raining_now, spoken_hour
 from waifu.routines import describe_routine, describe_step, routine_problems, run_routine
@@ -270,7 +274,7 @@ from waifu.voice.windows_voices import (
     missing_voice_hint,
 )
 from waifu.voice_level import VoiceLevel
-from waifu.weather import WeatherClient, WeatherError
+from waifu.weather import Location, WeatherClient, WeatherError
 
 if TYPE_CHECKING:
     import anthropic
@@ -750,6 +754,19 @@ def build_parser() -> argparse.ArgumentParser:
         default="hari-ini",
         help="hari-ini (kata hari ini dengan contohnya, bawaan) atau progres (berapa kata yang "
         "sudah dipelajari, dikuasai, dan perlu diulang hari ini)",
+    )
+    prayer = command(
+        "sholat",
+        _prayer,
+        "Tampilkan waktu sholat hari ini (atau tanggal lain) untuk tempat Master, dihitung di PC "
+        "ini dengan metode Kemenag RI, tanpa otak.",
+    )
+    prayer.add_argument(
+        "date",
+        nargs="?",
+        type=_due_date,
+        default=None,
+        help="tanggalnya, YYYY-MM-DD (bawaan: hari ini)",
     )
     youtube = commands.add_parser(
         "youtube",
@@ -1311,6 +1328,9 @@ def _listen(args: argparse.Namespace) -> int:
     # One focus timer for this run: her tool starts and stops it, and while a block is under way
     # the Assistant says only what Master asked for himself.
     focus = _focus_timer(config)
+    # One place for the prayer times while they are on, shared by her tool and the reminders, so
+    # a city is looked up once per run (at its first use, never at startup).
+    prayer = _prayer_place(config) if config.prayer.enabled else None
     # One guest mode for this run, in memory only: the brain refuses the private tools and starts
     # afresh as it switches, the briefing leaves Master's tasks out, and the Assistant skips her
     # private turns while it is on and forgets her last words (for "ulangi") as it switches.
@@ -1335,6 +1355,7 @@ def _listen(args: argparse.Namespace) -> int:
             focus=focus,
             guest_mode=guest_mode,
             voice_level=voice_level,
+            prayer=prayer,
         )
         stt = WhisperStt(config.stt, name)
         gate = WakeGate(config.assistant.wake_words, config.assistant.followup_seconds)
@@ -1415,13 +1436,7 @@ def _listen(args: argparse.Namespace) -> int:
                         _version_watcher(config, running, assistant, notifier, game_mode),
                         _offers_watcher(config, assistant, notifier, usage, game_mode),
                         # Master set the reminders: they speak in a focus block or a game too.
-                        _scheduler(
-                            config,
-                            schedule,
-                            registry,
-                            announce=assistant.remind,
-                            notifier=notifier,
-                        ),
+                        _masters_reminders(config, schedule, registry, prayer, assistant, notifier),
                         _briefing_timer(config, assistant, notifier),
                         _weekly_report_timer(config, gacha, assistant, notifier),
                         _journal_timer(config, assistant),
@@ -1606,16 +1621,18 @@ def _companion_brain(
     focus: FocusTimer | None = None,
     guest_mode: GuestMode,
     voice_level: VoiceLevel,
+    prayer: PrayerPlace | None = None,
 ) -> Brain:
     """The brain with `guest_mode`'s tool first, her own voice volume (`voice_level`), then the
     game tools when they are on, her long-term memory when it is on, her schedule when it is on,
     Master's to-do list when it is on, Master's journal when it is on, with `focus` (only `run`
     has one) Master's focus timer, Master's Japanese lessons when they are on, the day's
-    briefing when it is on, with `pc` how the PC is doing, how long Master's games were open
-    when play time is on, the free offers when they are on (their links pushed through
-    `notifier`), Master's money from tepira when it is on, songs on YouTube when they are on,
-    with Claude her eyes on the screen when vision is on, and with `usage` what her requests
-    cost.
+    briefing when it is on, the prayer times when they are on (at `prayer`, the place `run`
+    shares with the reminders, else a place of their own), with `pc` how the PC is doing, how
+    long Master's games were open when play time is on, the free offers when they are on (their
+    links pushed through `notifier`), Master's money from tepira when it is on, songs on YouTube
+    when they are on, with Claude her eyes on the screen when vision is on, and with `usage`
+    what her requests cost.
 
     With memory, every new session lists the notes as they are in the file at that moment.
     The to-do list is the real one also in a dry run (it moves no device), and the briefing
@@ -1668,6 +1685,14 @@ def _companion_brain(
                 todo=todo,
                 guest_mode=guest_mode.is_on,
                 japanese=None if japanese is None else _japanese_word_of_the_day(words, japanese),
+            )
+        )
+    if config.prayer.enabled:
+        providers.append(
+            PrayerTools(
+                prayer or _prayer_place(config),
+                ihtiyath_minutes=config.prayer.ihtiyath_minutes,
+                now=wib_now,
             )
         )
     if pc is not None:
@@ -3268,6 +3293,25 @@ def _session_schedule(config: AppConfig, *, dry_run: bool) -> Iterator[ScheduleS
                 Path(folder) / config.schedule.path.name,
                 max_entries=config.schedule.max_entries,
             )
+
+
+@contextmanager
+def _masters_reminders(
+    config: AppConfig,
+    schedule: ScheduleStore | None,
+    registry: DeviceRegistry,
+    prayer: PrayerPlace | None,
+    assistant: Assistant,
+    notifier: Notifier | None,
+) -> Iterator[None]:
+    """The reminders Master asked for while the block runs, queued as his own (`remind`): what
+    he scheduled, and with `prayer` the prayer times. One item of `run`'s watchers, which are
+    at Python's limit of blocks nested in one function."""
+    with (
+        _scheduler(config, schedule, registry, announce=assistant.remind, notifier=notifier),
+        _prayer_watcher(config, prayer, assistant, notifier),
+    ):
+        yield
 
 
 def _scheduler(
@@ -5006,6 +5050,95 @@ def _break_teller(
     return tell
 
 
+# --- waktu sholat ----------------------------------------------------------------------------
+
+PRAYER_ROWS = (
+    ("imsak", "Imsak"),
+    ("subuh", "Subuh"),
+    ("terbit", "Terbit"),
+    ("dzuhur", "Dzuhur"),
+    ("ashar", "Ashar"),
+    ("maghrib", "Maghrib"),
+    ("isya", "Isya"),
+)
+PRAYER_NO_TIME = "--: matahari tidak sampai ke sudut waktunya di tempat ini pada hari itu."
+PRAYER_METHOD = "Metode Kemenag RI: Subuh -20°, Isya -18°, Ashar bayangan 1x, ihtiyath {} menit."
+
+
+def _prayer_place(config: AppConfig) -> PrayerPlace:
+    """Where the prayer times are for: `prayer`'s coordinates, else the briefing's place (its
+    coordinates, else its city, geocoded at the first use and kept); none without either.
+    Nothing is looked up here. The weather client logs its failures at DEBUG: the tool, the
+    watcher, and `waifu sholat` tell them themselves."""
+    prayer = config.prayer
+    if prayer.latitude is not None and prayer.longitude is not None:
+        place = Location(
+            f"{prayer.latitude}, {prayer.longitude}", prayer.latitude, prayer.longitude
+        )
+        return PrayerPlace(lambda: place)
+    weather = _weather_client(config.briefing, failure_level=logging.DEBUG)
+    return PrayerPlace(None if weather is None else weather.location)
+
+
+@contextmanager
+def _prayer_watcher(
+    config: AppConfig,
+    place: PrayerPlace | None,
+    assistant: Assistant,
+    notifier: Notifier | None,
+) -> Iterator[None]:
+    """Her reminder as each prayer of `prayer.remind` comes in while the block runs, at `place`
+    (none with the prayer times off) and through Master's own reminder queue: he turned it on,
+    so a focus block or a game never holds it, and game mode's `phone` mode never leaves it
+    unsaid. Also pushed to the phone when `prayer.push` and notifications are on; none without a
+    prayer to remind of."""
+    prayer = config.prayer
+    if place is None or not prayer.remind:
+        yield
+        return
+    watcher = PrayerWatcher(
+        place,
+        prayer,
+        remind=assistant.remind,
+        notifier=notifier if prayer.push else None,
+        owner_call=config.assistant.owner_call,
+        title=config.assistant.name,
+    )
+    watcher.start()
+    try:
+        yield
+    finally:
+        watcher.stop()
+
+
+def _prayer(args: argparse.Namespace) -> int:
+    """Print a day's prayer times (today in WIB by default) at the place, without the brain; it
+    works with the prayer times off too. Exit 1 without a place or when it cannot be found."""
+    config = load_config(args.config)
+    prayer = config.prayer
+    if not prayer.enabled:
+        print(f"{WARN} Waktu sholat mati (prayer.enabled: false).")
+    try:
+        place = _prayer_place(config).locate()
+    except PrayerError as exc:
+        print(f"{FAIL} {exc}")
+        return 1
+    day = args.date or wib_now().date()
+    times = prayer_times(
+        day, place.latitude, place.longitude, ihtiyath_minutes=prayer.ihtiyath_minutes
+    )
+    print(f"Waktu sholat di {place.place}, {_day_text(day)} (WIB):")
+    missing = False
+    for name, label in PRAYER_ROWS:
+        moment = getattr(times, name)
+        missing = missing or moment is None
+        print(f"  {label:<8} {'--' if moment is None else f'{moment:%H:%M}'}")
+    if missing:
+        print(PRAYER_NO_TIME)
+    print(PRAYER_METHOD.format(prayer.ihtiyath_minutes))
+    return 0
+
+
 # --- free offers -----------------------------------------------------------------------------
 
 
@@ -5572,6 +5705,7 @@ def _checks(config_path: Path) -> Iterator[Check]:
     yield _guest_mode_check(config)
     yield _voice_volume_check(config)
     yield _breaks_check(config)
+    yield _prayer_check(config)
     yield _free_offers_check(config)
     yield from _voice_package_checks(config)
     yield _microphone_check(config)
@@ -6062,6 +6196,40 @@ def _breaks_check(config: AppConfig) -> Check:
         status += ", juga saat main"
     if breaks.push and config.notify.enabled:
         status += ", juga ke HP"
+    return OK, status
+
+
+def _prayer_check(config: AppConfig) -> Check:
+    """For which place the prayer times are, the ihtiyath, which prayers she reminds of and how
+    early, whether they go to the phone too, and where a broken state file was moved, if one
+    was; from the config alone, never looking the place up."""
+    prayer = config.prayer
+    if not prayer.enabled:
+        return WARN, "Waktu sholat mati"
+    if prayer.latitude is not None:
+        place: str | None = f"{prayer.latitude}, {prayer.longitude}"
+    else:
+        place = _weather_place(config.briefing)
+    if place is None:
+        return WARN, (
+            "Waktu sholat: lokasi belum diatur (isi briefing.city, atau prayer.latitude dan "
+            "prayer.longitude)"
+        )
+    status = f"Waktu sholat: untuk {place}, ihtiyath {prayer.ihtiyath_minutes} menit"
+    if not prayer.remind:
+        status += ", tanpa pengingat"
+    else:
+        status += f", pengingat {', '.join(name for name in PRAYERS if name in prayer.remind)}"
+        if prayer.minutes_before:
+            status += f" {prayer.minutes_before} menit sebelumnya"
+        if prayer.push and config.notify.enabled:
+            status += ", juga ke HP"
+    moved = _set_aside_files(prayer.state_path)
+    if moved:
+        return WARN, (
+            f"{status}; file pengingat sholat yang rusak dipindah ke "
+            f"{', '.join(map(str, moved))} (lihat README, bagian Waktu sholat)"
+        )
     return OK, status
 
 

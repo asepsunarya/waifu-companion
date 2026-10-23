@@ -2133,13 +2133,13 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 220, 221, 222 · **Files:** `src/waifu/prayer_watch.py`, `tests/test_prayer_watch.py` · **Scope:** M
 
-## Task 225: Wiring, guest mode, `waifu sholat`, and the check line
+## Task 225: Wiring, guest mode, `waifu sholat`, and the check line ✅
 
 **Acceptance criteria:**
-- [ ] With `prayer.enabled`, `run` and `chat` give the brain `PrayerTools`; `run` starts the watcher with one shared place, `assistant.remind`, and the notifier only with `prayer.push` and notifications on; off, or with an empty `remind`, no watcher; `chat` never
-- [ ] `prayer_times` is sorted as open to guests and non-strict in the every-tool test
-- [ ] `waifu sholat [YYYY-MM-DD]` prints the times, warns while off, and exits 1 without a place or when the lookup fails
-- [ ] `waifu check` shows the prayer line right after the break reminder line, and a moved state file
+- [x] With `prayer.enabled`, `run` and `chat` give the brain `PrayerTools`; `run` starts the watcher with one shared place, `assistant.remind`, and the notifier only with `prayer.push` and notifications on; off, or with an empty `remind`, no watcher; `chat` never
+- [x] `prayer_times` is sorted as open to guests and non-strict in the every-tool test
+- [x] `waifu sholat [YYYY-MM-DD]` prints the times, warns while off, and exits 1 without a place or when the lookup fails
+- [x] `waifu check` shows the prayer line right after the break reminder line, and a moved state file
 
 **Dependencies:** 223, 224 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** M
 

@@ -875,7 +875,7 @@ optional parameters stay.
 - [x] Task 222: `WeatherClient.location()` and `PrayerPlace`
 - [x] Task 223: `PrayerTools` (`prayer_times`)
 - [x] Task 224: `PrayerWatcher` (the window, the lines, the state file, delivery, the thread)
-- [ ] Task 225: wiring in `run` and `chat`, guest sorting, `waifu sholat`, the check line
+- [x] Task 225: wiring in `run` and `chat`, guest sorting, `waifu sholat`, the check line
 - [ ] Task 226: README "Waktu sholat", CHANGELOG
 
 ### Checkpoint: Waktu sholat

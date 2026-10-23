@@ -57,6 +57,7 @@ from waifu.brain.offers_tools import OffersTools
 from waifu.brain.pc_tools import PcTools
 from waifu.brain.persona import WEEKDAYS_ID
 from waifu.brain.play_time_tools import PlayTimeTools
+from waifu.brain.prayer_tools import PrayerTools
 from waifu.brain.schedule_tools import ScheduleTools
 from waifu.brain.screen_tools import ScreenTools
 from waifu.brain.todo_tools import TodoTools
@@ -164,6 +165,8 @@ from waifu.phone.actions import QuickResult
 from waifu.phone.auth import CODE_LIFETIME, PhoneAuth, Refusal
 from waifu.phone.server import PhoneError, PhoneReply
 from waifu.play_time import PlayTimeStore, Session
+from waifu.prayer import NO_PLACE as PRAYER_NO_PLACE
+from waifu.prayer_times import prayer_times
 from waifu.processes import running_executables
 from waifu.schedule import DeviceAction, Entry, Reminder, RoutineAction, ScheduleStore
 from waifu.scheduler import MONTHS_ID, Scheduler
@@ -680,6 +683,41 @@ def break_watchers(events, monkeypatch) -> list[FakeBreakWatcher]:
         return built[-1]
 
     monkeypatch.setattr(cli, "BreakWatcher", build)
+    return built
+
+
+class FakePrayerWatcher:
+    """Stands in for PrayerWatcher without a thread, remembering what it was given, whether
+    `waifu run` listened when it started and stopped, and the test's `events` up to then."""
+
+    def __init__(
+        self, place, config, *, remind, notifier, owner_call, title, events: list[str]
+    ) -> None:
+        self.place, self.config, self.remind = place, config, remind
+        self.notifier, self.owner_call, self.title = notifier, owner_call, title
+        self._events = events
+        self.listening: list[bool] = []
+        self.events_when_started: list[str] | None = None
+
+    def start(self) -> None:
+        self.listening.append(listening())
+        self.events_when_started = list(self._events)
+
+    def stop(self) -> None:
+        self.listening.append(listening())
+
+
+@pytest.fixture(autouse=True)
+def prayer_watchers(events, monkeypatch) -> list[FakePrayerWatcher]:
+    """The real watcher would look the place up and speak in a thread through every `run` with
+    the prayer reminders on, so every test gets the fake."""
+    built: list[FakePrayerWatcher] = []
+
+    def build(place, config, **arguments) -> FakePrayerWatcher:
+        built.append(FakePrayerWatcher(place, config, **arguments, events=events))
+        return built[-1]
+
+    monkeypatch.setattr(cli, "PrayerWatcher", build)
     return built
 
 
@@ -12041,6 +12079,355 @@ def test_check_says_the_break_reminder_right_after_her_voice_volume(
     assert lines[voice + 1] == "! Pengingat istirahat mati"
 
 
+# --- waktu sholat --------------------------------------------------------------------------------
+
+PRAYER_NOW = datetime(2026, 10, 24, 20, 0, tzinfo=WIB)  # Saturday evening
+PRAYER_ROWS = ("imsak", "subuh", "terbit", "dzuhur", "ashar", "maghrib", "isya")
+PRAYER_TEXT = "Master, sudah masuk waktu Dzuhur."
+
+
+@pytest.fixture
+def prayer_clock(monkeypatch) -> FocusClock:
+    """The WIB clock of the prayer tool and of `waifu sholat`, at PRAYER_NOW."""
+    clock = FocusClock(PRAYER_NOW)
+    monkeypatch.setattr(cli, "wib_now", clock)
+    return clock
+
+
+def enable_prayer(home: Path, extra: str = "") -> None:
+    append_config(home, "prayer:\n  enabled: true\n" + extra)
+
+
+AT_BANDUNG = "  latitude: -6.9175\n  longitude: 107.6191\n"
+
+
+def prayer_tools(brain: HouseBrain) -> PrayerTools:
+    [tools] = [provider for provider in brain.providers if isinstance(provider, PrayerTools)]
+    return tools
+
+
+def ask_prayer_times(brain: HouseBrain, arguments: dict | None = None) -> dict:
+    result, is_error = prayer_tools(brain).run("prayer_times", arguments or {})
+    assert is_error is False, result
+    return json.loads(result)
+
+
+def expected_rows(day: date, latitude: float, longitude: float, ihtiyath: int = 2) -> list[str]:
+    times = prayer_times(day, latitude, longitude, ihtiyath_minutes=ihtiyath)
+    rows = []
+    for name in PRAYER_ROWS:
+        moment = getattr(times, name)
+        rows.append(f"  {name.capitalize():<8} {'--' if moment is None else f'{moment:%H:%M}'}")
+    return rows
+
+
+def test_run_offers_no_prayer_times_and_reminds_of_none_by_default(
+    home, run_fakes, brains, prayer_watchers
+):
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    assert not any(isinstance(tools, PrayerTools) for tools in brains[0].providers)
+    assert prayer_watchers == []
+
+
+def test_run_gives_the_brain_the_prayer_tool_right_after_the_briefing(
+    home, run_fakes, brains, prayer_clock
+):
+    enable_prayer(home, AT_BANDUNG)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    assert [type(tools) for tools in brains[0].providers] == [
+        GuestTools,
+        VoiceVolumeTools,
+        MemoryTools,
+        ScheduleTools,
+        TodoTools,
+        JournalTools,
+        FocusTools,
+        BriefingTools,
+        PrayerTools,
+        PcTools,
+        PlayTimeTools,
+        OffersTools,
+        MusicTools,
+    ]
+    answer = ask_prayer_times(brains[0])
+    assert (answer["place"], answer["date"]) == ("-6.9175, 107.6191", "2026-10-24")
+    assert answer["dzuhur"] == f"{prayer_times(PRAYER_NOW.date(), -6.9175, 107.6191).dzuhur:%H:%M}"
+
+
+def test_run_reminds_of_the_prayers_through_master_s_reminders_while_she_listens(
+    home, run_fakes, brains, prayer_watchers
+):
+    enable_prayer(home, AT_BANDUNG)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    [watcher] = prayer_watchers
+    assert watcher.config == cli.load_config(home / "config.yaml").prayer
+    assert (watcher.owner_call, watcher.title, watcher.notifier) == ("Master", "Cyrene", None)
+    assert watcher.listening == [False, True]
+    assert "mic opened" in watcher.events_when_started  # once she is ready to listen
+    watcher.remind(PRAYER_TEXT, "neutral")
+    assistant = RecordingAssistant.instances[0]
+    # He asked for it: said in a focus block or a game too, never only announced.
+    assert (assistant.reminded, assistant.announced) == ([(PRAYER_TEXT, "neutral")], [])
+
+
+def test_run_s_tool_and_reminders_look_the_city_up_once_and_not_at_startup(
+    home, run_fakes, brains, prayer_watchers, prayer_clock, open_meteo
+):
+    write_out_example_briefing(home)
+    enable_prayer(home)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    assert open_meteo.queries(GEOCODING_HOST) == []
+    assert ask_prayer_times(brains[0])["place"] == "Bandung, Jawa Barat"
+    [watcher] = prayer_watchers
+    assert watcher.place.locate().place == "Bandung, Jawa Barat"
+    assert len(open_meteo.queries(GEOCODING_HOST)) == 1
+    assert open_meteo.queries(FORECAST_HOST) == []
+
+
+def test_run_with_no_prayer_to_remind_offers_the_times_only(
+    home, run_fakes, brains, prayer_watchers
+):
+    enable_prayer(home, AT_BANDUNG + "  remind: []\n")
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    assert any(isinstance(tools, PrayerTools) for tools in brains[0].providers)
+    assert prayer_watchers == []
+
+
+@pytest.mark.parametrize(
+    ("push", "notify", "pushed"),
+    [(True, True, True), (True, False, False), (False, True, False)],
+    ids=["push", "notify_off", "push_off"],
+)
+def test_run_pushes_the_prayer_reminders_only_with_push_and_notifications_on(
+    push, notify, pushed, home, run_fakes, brains, prayer_watchers, monkeypatch
+):
+    if notify:
+        enable_notify(home)
+    enable_prayer(home, AT_BANDUNG + f"  push: {str(push).lower()}\n")
+    notifier = FakeNotifier()
+    use_notifier(monkeypatch, notifier)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    [watcher] = prayer_watchers
+    assert watcher.notifier is (notifier if pushed else None)
+
+
+def test_chat_offers_the_prayer_tool_and_never_reminds(
+    home, brains, prayer_watchers, prayer_clock, monkeypatch
+):
+    enable_prayer(home, AT_BANDUNG)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main(["chat", "--dry-run"]) == 0
+
+    assert ask_prayer_times(brains[0])["place"] == "-6.9175, 107.6191"
+    assert prayer_watchers == []
+
+
+def test_the_prayer_tool_without_a_place_says_how_to_set_one(home, run_fakes, brains, prayer_clock):
+    enable_prayer(home)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    result, is_error = prayer_tools(brains[0]).run("prayer_times", {})
+    assert is_error is True
+    assert json.loads(result)["message"] == PRAYER_NO_PLACE
+
+
+def test_sholat_prints_today_s_times_at_the_coordinates(home, prayer_clock, capsys):
+    enable_prayer(home, AT_BANDUNG)
+
+    assert cli.main(["sholat"]) == 0
+
+    assert capsys.readouterr().out.splitlines() == [
+        "Waktu sholat di -6.9175, 107.6191, Sabtu 24-10-2026 (WIB):",
+        *expected_rows(date(2026, 10, 24), -6.9175, 107.6191),
+        "Metode Kemenag RI: Subuh -20°, Isya -18°, Ashar bayangan 1x, ihtiyath 2 menit.",
+    ]
+
+
+def test_sholat_prints_the_day_asked_for_with_master_s_ihtiyath(home, prayer_clock, capsys):
+    enable_prayer(home, AT_BANDUNG + "  ihtiyath_minutes: 0\n")
+
+    assert cli.main(["sholat", "2027-03-11"]) == 0
+
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0] == "Waktu sholat di -6.9175, 107.6191, Kamis 11-03-2027 (WIB):"
+    assert lines[1:8] == expected_rows(date(2027, 3, 11), -6.9175, 107.6191, ihtiyath=0)
+    assert lines[8].endswith("ihtiyath 0 menit.")
+
+
+def test_sholat_finds_the_briefing_city(home, prayer_clock, open_meteo, capsys):
+    write_out_example_briefing(home)
+    enable_prayer(home)
+
+    assert cli.main(["sholat"]) == 0
+
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0] == "Waktu sholat di Bandung, Jawa Barat, Sabtu 24-10-2026 (WIB):"
+    assert lines[1:8] == expected_rows(date(2026, 10, 24), -6.90389, 107.61861)
+    assert len(open_meteo.queries(GEOCODING_HOST)) == 1
+
+
+def test_sholat_prefers_the_prayer_coordinates_to_the_briefing_city(
+    home, prayer_clock, open_meteo, capsys
+):
+    write_out_example_briefing(home)
+    enable_prayer(home, AT_BANDUNG)
+
+    assert cli.main(["sholat"]) == 0
+
+    assert capsys.readouterr().out.startswith("Waktu sholat di -6.9175, 107.6191, ")
+    assert open_meteo.urls == []
+
+
+def test_sholat_marks_a_time_the_sun_never_reaches(home, prayer_clock, capsys):
+    enable_prayer(home, "  latitude: 60.0\n  longitude: 105.0\n")
+
+    assert cli.main(["sholat", "2027-06-21"]) == 0
+
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[1:3] == ["  Imsak    --", "  Subuh    --"]
+    assert lines[7] == "  Isya     --"
+    assert lines[8] == "--: matahari tidak sampai ke sudut waktunya di tempat ini pada hari itu."
+
+
+def test_sholat_works_with_the_prayer_times_off_and_says_so(home, prayer_clock, capsys):
+    append_config(home, "prayer:\n" + AT_BANDUNG)
+
+    assert cli.main(["sholat"]) == 0
+
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0] == "! Waktu sholat mati (prayer.enabled: false)."
+    assert lines[1].startswith("Waktu sholat di -6.9175, 107.6191, ")
+
+
+def test_sholat_without_a_place_says_how_to_set_one(home, prayer_clock, capsys):
+    enable_prayer(home)
+
+    assert cli.main(["sholat"]) == 1
+
+    assert capsys.readouterr().out.splitlines() == [f"✗ {PRAYER_NO_PLACE}"]
+
+
+def test_sholat_when_the_city_cannot_be_found_says_why(home, prayer_clock, open_meteo, capsys):
+    write_out_example_briefing(home)
+    enable_prayer(home)
+    open_meteo.failure = urllib.error.URLError("no route")
+
+    assert cli.main(["sholat"]) == 1
+
+    assert capsys.readouterr().out.splitlines() == [
+        "✗ Server cuaca tidak bisa dihubungi. Cek koneksi internet, lalu coba lagi."
+    ]
+
+
+def test_sholat_refuses_a_date_not_written_yyyy_mm_dd(home, prayer_clock, capsys):
+    with pytest.raises(SystemExit) as exited:
+        cli.main(["sholat", "besok"])
+
+    assert exited.value.code == 2
+    assert "tulis tanggalnya YYYY-MM-DD" in capsys.readouterr().err
+
+
+def prayer_line(out: str) -> str:
+    [line] = [line for line in out.splitlines() if "Waktu sholat" in line]
+    return line
+
+
+@pytest.mark.parametrize(
+    ("settings", "briefing", "notify", "expected"),
+    [
+        (None, False, False, "! Waktu sholat mati"),
+        (
+            "",
+            False,
+            False,
+            "! Waktu sholat: lokasi belum diatur (isi briefing.city, atau prayer.latitude dan "
+            "prayer.longitude)",
+        ),
+        (
+            AT_BANDUNG,
+            False,
+            False,
+            "✓ Waktu sholat: untuk -6.9175, 107.6191, ihtiyath 2 menit, pengingat subuh, dzuhur, "
+            "ashar, maghrib, isya",
+        ),
+        (
+            "  ihtiyath_minutes: 3\n  remind: [maghrib, subuh]\n  minutes_before: 10\n"
+            "  push: true\n",
+            True,
+            True,
+            "✓ Waktu sholat: untuk Bandung, ihtiyath 3 menit, pengingat subuh, maghrib 10 menit "
+            "sebelumnya, juga ke HP",
+        ),
+        (
+            "  remind: []\n  push: true\n",
+            True,
+            True,
+            "✓ Waktu sholat: untuk Bandung, ihtiyath 2 menit, tanpa pengingat",
+        ),
+        (
+            "  push: true\n",
+            True,
+            False,
+            "✓ Waktu sholat: untuk Bandung, ihtiyath 2 menit, pengingat subuh, dzuhur, ashar, "
+            "maghrib, isya",
+        ),
+    ],
+    ids=["off", "no-place", "coordinates", "everything", "no-reminders", "push-without-notify"],
+)
+def test_check_says_how_the_prayer_times_are_set_without_looking_the_place_up(
+    settings, briefing, notify, expected, home, nothing_installed, capsys
+):
+    if briefing:
+        write_out_example_briefing(home)
+    if notify:
+        enable_notify(home)
+    if settings is not None:
+        enable_prayer(home, settings)
+
+    cli.main(["check"])
+
+    assert prayer_line(capsys.readouterr().out) == expected
+
+
+def test_check_points_at_a_broken_prayer_state_file_moved_aside(home, nothing_installed, capsys):
+    enable_prayer(home, AT_BANDUNG)
+    moved = home / "data" / "prayer.json.corrupt-20261024-120000"
+    moved.parent.mkdir(exist_ok=True)
+    moved.write_text("{not json", encoding="utf-8")
+
+    cli.main(["check"])
+
+    assert prayer_line(capsys.readouterr().out) == (
+        "! Waktu sholat: untuk -6.9175, 107.6191, ihtiyath 2 menit, pengingat subuh, dzuhur, "
+        f"ashar, maghrib, isya; file pengingat sholat yang rusak dipindah ke "
+        f"{Path('data') / moved.name} (lihat "
+        "README, bagian Waktu sholat)"
+    )
+
+
+def test_check_says_the_prayer_times_right_after_the_break_reminder(
+    home, nothing_installed, capsys
+):
+    cli.main(["check"])
+
+    lines = capsys.readouterr().out.splitlines()
+    breaks = lines.index(breaks_line("\n".join(lines)))
+    assert lines[breaks + 1] == "! Waktu sholat mati"
+
+
 # --- web search and free offers ----------------------------------------------------------------
 
 
@@ -15129,6 +15516,8 @@ OPEN_TO_GUESTS = frozenset(
         "voice_volume",
         "japanese_lesson",
         "focus_timer",
+        # Computed for the city the weather already names: nothing private.
+        "prayer_times",
     }
 )
 
@@ -15145,6 +15534,7 @@ def test_the_claude_request_with_every_tool_on_stays_within_the_strict_tool_limi
         home, "routines:\n  tidur:\n    steps:\n      - {device: lampu_kamar, command: off}\n"
     )
     append_config(home, "japanese:\n  enabled: true\n")
+    append_config(home, "prayer:\n  enabled: true\n")
     (home / "config").mkdir()
     shutil.copy(ROOT / "config" / "persona.md", home / "config" / "persona.md")
     sent: list[dict] = []
@@ -15183,6 +15573,7 @@ def test_the_claude_request_with_every_tool_on_stays_within_the_strict_tool_limi
         "guest_mode",
         "voice_volume",
         "japanese_lesson",
+        "prayer_times",
         *FINANCE_TOOLS,
     } <= names
     # Every tool is either closed in guest mode or still open: a new one must be sorted.
@@ -15214,7 +15605,8 @@ def test_the_claude_request_with_every_tool_on_stays_within_the_strict_tool_limi
         "record_expense",
         "journal_write",
     } <= {tool["name"] for tool in strict}
-    assert not {"guest_mode", "voice_volume", "japanese_lesson"} & {tool["name"] for tool in strict}
+    not_strict = {"guest_mode", "voice_volume", "japanese_lesson", "prayer_times"}
+    assert not not_strict & {tool["name"] for tool in strict}
 
 
 # --- songs on YouTube ------------------------------------------------------------------------
