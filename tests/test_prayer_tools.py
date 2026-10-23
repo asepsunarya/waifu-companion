@@ -90,6 +90,17 @@ def test_the_description_says_where_the_times_come_from_and_how_to_speak_of_them
         assert guidance in spec.description
 
 
+def test_the_description_keeps_imsak_and_terbit_out_of_the_schedule_unless_asked():
+    [spec] = tools().specs()
+
+    assert (
+        "for the schedule, say the five prayers briefly (subuh, dzuhur, ashar, maghrib, isya)"
+        in spec.description
+    )
+    assert "imsak or terbit only when Master asks for them" in spec.description
+    assert "all of them" not in spec.description
+
+
 def test_the_spec_is_the_same_at_every_call_for_prompt_caching():
     provider = tools()
     before = provider.specs()

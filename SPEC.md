@@ -1921,7 +1921,7 @@ The place (`prayer.py`):
 
 The tool (`brain/prayer_tools.py`):
 - `prayer_times {date?}` (`YYYY-MM-DD`, today in WIB when left out or null; within 366 days of today), non-strict, its spec static English. The result: `{"place" (null when the place is not `named`), "date", "day" (Indonesian weekday), "timezone": "WIB", "imsak", "subuh", "terbit", "dzuhur", "ashar", "maghrib", "isya" ("HH:MM", null where it cannot be computed there that day), "method": "Kemenag RI", "ihtiyath_minutes"}`. A place that cannot be found is an error with the `PrayerError` message.
-- The description: the times only from this tool, never from memory; a null `place` means she names no place; said briefly and respectfully; never urging Master to pray or commenting on it; a null time means the sun does not reach its angle there that day.
+- The description: the times only from this tool, never from memory; a null `place` means she names no place; only the times asked for, and for the schedule the five prayers, imsak or terbit only when Master asks for them (imsak and terbit are for display); said briefly and respectfully; never urging Master to pray or commenting on it; a null time means the sun does not reach its angle there that day.
 - In her own turns (the morning greeting, the weekly game report, the nightly journal question) it refuses: "Waktu sholat hanya untuk permintaan Master, bukan untuk ...". Guest mode leaves it open: the times and the city hold nothing private (the weather tells the city too).
 
 The reminders (`prayer_watch.py`):

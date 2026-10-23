@@ -5569,7 +5569,8 @@ Hanya `enabled: true` yang perlu ditulis; tanpa yang lain berlaku nilai di atas.
 
 "Jadwal sholat hari ini?", "Maghrib jam berapa?", "jadwal sholat besok", atau "Isya tanggal 1
 November jam berapa?": dia membacakan waktu dari perhitungannya, bukan dari ingatannya, untuk hari
-ini atau tanggal lain sampai setahun ke depan atau ke belakang. Dia hanya menyebut waktunya: tidak
+ini atau tanggal lain sampai setahun ke depan atau ke belakang. Untuk jadwal dia menyebut kelima
+waktu sholat; imsak dan terbit hanya kalau ditanya. Dia hanya menyebut waktunya: tidak
 pernah menyuruh atau menanyakan apakah Master sudah sholat. Di sapaan pagi, laporan game mingguan,
 dan pertanyaan jurnal dia tidak membahasnya. `waifu chat` juga bisa ditanya.
 
