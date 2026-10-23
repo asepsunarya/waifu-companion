@@ -3059,8 +3059,11 @@ voice:
     level: 30         # paling keras N persen selama mode bisik (10-100)
 ```
 
-Kalau `briefing.time` lebih awal dari `until`, sapaan paginya ikut berbisik. Kalimat yang mulai
-diucapkan sebelum jam `from` diucapkan sampai selesai dengan volume biasa.
+Kalau `briefing.time` lebih awal dari `until`, sapaan paginya ikut berbisik. Begitu juga
+pengingat dan pengumuman jadwal: "bangunkan aku jam 5" dengan mode bisik menyala diucapkan paling
+keras 50 persen. Untuk pengingat yang harus membangunkan Master, nyalakan juga
+[notifikasi ke HP](#3-notifikasi-ke-hp-ntfy). Kalimat yang mulai diucapkan sebelum jam `from`
+diucapkan sampai selesai dengan volume biasa.
 
 ### Tersimpan dan dicoba
 
@@ -3068,6 +3071,10 @@ diucapkan sebelum jam `from` diucapkan sampai selesai dengan volume biasa.
   restart, dan sama untuk `waifu run`, `waifu chat --speak`, dan `waifu say`: yang diubah di satu
   tempat terdengar di tempat lain mulai kalimat berikutnya. Filenya baru dibuat saat volumenya
   pertama kali diubah.
+- Semua yang dia ucapkan di PC memakai volume ini, termasuk pengingat, sapaan pagi, dan
+  pengumuman lain yang dia mulai sendiri: di 10 persen pengingatnya pun ikut pelan. Pengingat
+  yang tidak boleh terlewat sebaiknya juga dikirim lewat
+  [notifikasi ke HP](#3-notifikasi-ke-hp-ntfy).
 - `waifu say "Halo Master"` diucapkan dengan volume suaranya sekarang (termasuk mode bisik).
   `waifu say --volume 150 "Halo Master"` mencoba volume lain (10-150) tanpa menyimpannya.
 - Kalau filenya rusak, file itu dipindah ke `voice.json.corrupt-<waktu>` dan volumenya kembali
