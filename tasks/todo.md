@@ -1975,11 +1975,11 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 206 · **Files:** `src/waifu/japanese.py`, `tests/test_japanese.py` · **Scope:** S
 
-## Task 208: `JapaneseStore`
+## Task 208: `JapaneseStore` ✅
 
 **Acceptance criteria:**
-- [ ] A missing file is nothing learned and stays missing; `learn` writes a new word in box 1 due the same day and writes nothing for a known one; `grade` writes the review and returns None for a word never learned
-- [ ] A broken file is moved aside (a counter for a second one) and read as empty; a naive clock is refused; a byte order mark is read
+- [x] A missing file is nothing learned and stays missing; `learn` writes a new word in box 1 due the same day and writes nothing for a known one; `grade` writes the review and returns None for a word never learned
+- [x] A broken file is moved aside (a counter for a second one) and read as empty; a naive clock is refused; a byte order mark is read
 
 **Dependencies:** 207 · **Files:** `src/waifu/japanese.py`, `tests/test_japanese.py` · **Scope:** M
 
