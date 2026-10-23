@@ -801,6 +801,34 @@ replies are never remembered. No tool, config, dependency, or persona change.
 - [x] Fix pass (2026-10-24): "coba sekali lagi" and "tolong sekali lagi" go to the brain as a retry; the guest marker is read before the turn, so a reply whose turn switched guest mode is never repeated; the privacy lines say announcements were logged as `Announcing: ...` when first said; 9034 pytest and ruff clean, no tool, schema, or config changed
 - [ ] On the owner's PC: "Cyrene, ulangi" right after a reply says it again at once; "tadi bilang apa?" in the follow-up window too; "ulangi lagunya" still goes to the brain; after "mode tamu", "Cyrene, ulangi" says there is nothing to repeat
 
+### Phase 43: Belajar bahasa Jepang (v1.39, see SPEC → belajar bahasa jepang)
+Decision: the words are a JSON list shipped in the package (`src/waifu/japanese_words.json`, not
+under a `data` folder, which `.gitignore` ignores anywhere), read with the `__file__` pattern and
+validated by a test against the voice's own language split, so every Japanese field reaches the
+Japanese voice whole. The word of the day keeps no state: a fixed shuffle of the ids (SHA-256)
+walked one word per day, so none repeats before all have come. Master's progress is a Leitner
+store in `data/japanese.json` with the rules of `todo.py`; a word counts as learned when she
+introduces it (the greeting's `word_of_the_day` or the tool's `today`), and `waifu jepang` only
+reads. One non-strict tool, `japanese_lesson {action?, word_id?, correct?}`: the model judges
+Master's answer and records it with `grade`, which her own turns can never call. Open in guest
+mode (low-stakes, like the focus totals). Off by default, so the provider order and every
+existing test stay as they are; no new dependency; 18 of 20 strict tools and 17 of 24 optional
+parameters stay.
+- [x] Task 206a: contract: SPEC, tasks
+- [ ] Task 206: the word list and `load_words`, validated
+- [ ] Task 207: `word_of_the_day`, `review`, `next_quiz`
+- [ ] Task 208: `JapaneseStore`
+- [ ] Task 209: `JapaneseTools` (`japanese_lesson`) and the persona section
+- [ ] Task 210: the briefing's `word_of_the_day` and `BRIEFING_PROMPT`
+- [ ] Task 211: the `japanese` config, `config.example.yaml`
+- [ ] Task 212: wiring in `run` and `chat`, guest mode sorting, `waifu jepang`, the check line
+- [ ] Task 213: README "Belajar bahasa Jepang", CHANGELOG
+
+### Checkpoint: Belajar bahasa Jepang
+- [ ] Python suite and ruff clean; no test spoke or pushed; the strict-tool budget unchanged
+- [ ] By hand: with the feature on in a scratch folder, `waifu jepang` and `waifu jepang progres` read without creating the file; the tool learns today's word, quizzes it, and grades it; the check line counts it
+- [ ] On the owner's PC: the morning greeting ends with the word of the day in kana and its meaning, spoken by the Japanese voice; "kuis bahasa Jepang dong" asks one word and waits; `waifu jepang progres` counts it
+
 ## Risks and Mitigations
 
 | Risk | Impact | Mitigation |

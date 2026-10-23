@@ -1951,3 +1951,74 @@ named `tests/test_<package>_<module>.py`.
 - [x] Fix pass: README, SPEC, and CHANGELOG say "coba sekali lagi" goes to the brain and the reply that switched guest mode is not repeated; the privacy lines say only the repeat keeps the text out of the log (announcements were logged as `Announcing: ...` when first said)
 
 **Dependencies:** 204 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
+
+## Task 206a: Belajar bahasa Jepang contract ✅
+
+**Acceptance criteria:**
+- [x] SPEC "belajar bahasa jepang (v1.39)" (stories, non-goals, the word list and its validation, the word of the day, the Leitner boxes and the store, when a word counts as learned, `japanese_lesson`, the guest mode decision, the briefing's word, the persona, the config, the CLI, known limits); tasks 206a-213 in the plan and here
+
+**Dependencies:** none · **Files:** `SPEC.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
+
+## Task 206: The word list
+
+**Acceptance criteria:**
+- [ ] `src/waifu/japanese_words.json` ships as package data with at least 300 N5 words and phrases; `load_words` reads it into `Word`s and refuses a file that is not such a list
+- [ ] A test validates it: exact keys, unique ids, words, and examples, no empty field, the reading kana only, the kanji form and the example one Japanese run, the Indonesian fields Indonesian only and untouched by `clean_for_speech`
+
+**Dependencies:** 206a · **Files:** `src/waifu/japanese.py`, `src/waifu/japanese_words.json`, `pyproject.toml`, `tests/test_japanese.py` · **Scope:** M
+
+## Task 207: The word of the day and the Leitner rules
+
+**Acceptance criteria:**
+- [ ] `word_of_the_day` is the same all day, differs the next day, and goes through every word before one repeats
+- [ ] `review` moves a right answer up a box (5 stays 5) and a wrong one to box 1, due after 1, 2, 4, 8, or 16 days; `next_quiz` picks the due word with the lowest box, then the earliest due
+
+**Dependencies:** 206 · **Files:** `src/waifu/japanese.py`, `tests/test_japanese.py` · **Scope:** S
+
+## Task 208: `JapaneseStore`
+
+**Acceptance criteria:**
+- [ ] A missing file is nothing learned and stays missing; `learn` writes a new word in box 1 due the same day and writes nothing for a known one; `grade` writes the review and returns None for a word never learned
+- [ ] A broken file is moved aside (a counter for a second one) and read as empty; a naive clock is refused; a byte order mark is read
+
+**Dependencies:** 207 · **Files:** `src/waifu/japanese.py`, `tests/test_japanese.py` · **Scope:** M
+
+## Task 209: `japanese_lesson` and the persona
+
+**Acceptance criteria:**
+- [ ] `japanese_lesson {action?, word_id?, correct?}` is non-strict with a static description; today, quiz, grade, and progress answer as the SPEC says; bad arguments, an unknown or unlearned word, and a file error are error results; her own turns get no quiz or grade
+- [ ] Both personas hold one identical "Belajar bahasa Jepang:" section before "Mode tamu:"
+
+**Dependencies:** 208 · **Files:** `src/waifu/brain/japanese_tools.py`, `tests/test_japanese_tools.py`, `config/persona.md`, `config/persona_hsr.md`, `tests/test_brain_persona.py` · **Scope:** M
+
+## Task 210: The briefing's word
+
+**Acceptance criteria:**
+- [ ] With `japanese`, `daily_briefing` holds `word_of_the_day` (learned once), in guest mode too, null after a failure; without it no such field; the spec is the same either way
+- [ ] `BRIEFING_PROMPT` names the word of the day and still reads as no yes, look word, or play verb
+
+**Dependencies:** 208 · **Files:** `src/waifu/briefing.py`, `tests/test_briefing.py` · **Scope:** S
+
+## Task 211: The `japanese` config
+
+**Acceptance criteria:**
+- [ ] `japanese.enabled` (false) and `japanese.path`; unknown keys refused naming the setting; `config.example.yaml` documents it and its block written out holds the defaults
+
+**Dependencies:** 206a · **Files:** `src/waifu/config.py`, `config.example.yaml`, `tests/test_config.py` · **Scope:** S
+
+## Task 212: Wiring, guest mode, `waifu jepang`, and the check line
+
+**Acceptance criteria:**
+- [ ] With `japanese.enabled`, `run` and `chat` give the brain `JapaneseTools` and the briefing tool the word of the day; off, neither
+- [ ] `japanese_lesson` is sorted as open to guests and non-strict in the every-tool test; never refused by guest mode
+- [ ] `waifu jepang [hari-ini|progres]` prints today's word or the progress without creating the file, warns while off, and exits 1 when the file cannot be read
+- [ ] `waifu check` shows the progress right after the journal line, a moved file, or an unreadable one
+
+**Dependencies:** 209, 210, 211 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py`, `tests/test_guest.py` · **Scope:** M
+
+## Task 213: Docs
+
+**Acceptance criteria:**
+- [ ] README "Belajar bahasa Jepang" with a contents entry, mentions in the briefing section and "Mode tamu", checklist items, and a Privasi bullet; CHANGELOG v1.39; full suite and ruff clean
+
+**Dependencies:** 212 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
