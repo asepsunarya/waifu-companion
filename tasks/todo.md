@@ -1728,6 +1728,7 @@ named `tests/test_<package>_<module>.py`.
 - [x] `GET /actions` needs the device cookie and lists the groups (empty without actions); `POST /action {"id"}` needs the page's Origin and the cookie, runs the action, and answers `{"ok", "message"}`, a device failure as `ok: false`
 - [x] 10 actions per device a minute (429 with `Retry-After`; another device is not limited; the window passes on the server's clock); one at a time per device (429), apart from the chat's; a malformed or oversized body is 400/413/415/411; an unknown id, the PC, and the PC's plug are 404 and run nothing; anything raised is a 500 in Indonesian
 - [x] INFO logs name the device and the action, never the token; `RollingLimit` is public
+- [x] Fix pass: a press while the phone's last one still runs is a 409 without `Retry-After` ("Perintah tadi masih jalan. Tunggu sebentar."), so the page tells it from the limit's 429
 
 **Dependencies:** 180 · **Files:** `src/waifu/phone/server.py`, `src/waifu/avatar/server.py`, `tests/test_phone_server.py` · **Scope:** M
 
@@ -1735,6 +1736,7 @@ named `tests/test_<package>_<module>.py`.
 
 **Acceptance criteria:**
 - [x] `run` with the phone on hands the phone server `QuickActions` over the run's registry (the dry run's mocks), routines, schedule, and `phone.quick_actions`
+- [x] Fix pass: a test presses a routine with a delayed step while the run serves and finds the step in the run's own schedule (it failed with `schedule=` dropped)
 
 **Dependencies:** 181 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** S
 
@@ -1743,6 +1745,7 @@ named `tests/test_<package>_<module>.py`.
 **Acceptance criteria:**
 - [x] `actions.js`: `parseActionGroups` keeps well-formed groups and actions (null without a list), `actionRequest(id)` is the JSON body, `actionOutcome` reads `{ok, message}` (null otherwise)
 - [x] `problemForStatus("/action", 404)` is `action_unknown`, 429 `action_limit`; both have Indonesian texts
+- [x] Fix pass: 409 on `/action` is `action_busy`, with the server's text
 
 **Dependencies:** 179a · **Files:** `src/waifu/avatar/web/phone/actions.js`, `src/waifu/avatar/web/phone/audio.js`, `tests/js/phone_actions.test.mjs`, `tests/js/phone_audio.test.mjs` · **Scope:** S
 
@@ -1752,6 +1755,7 @@ named `tests/test_<package>_<module>.py`.
 - [x] The toggle shows only when `/actions` lists a group (a failure shows no notice); it opens and closes the panel with `aria-expanded`; Escape closes it; the panel and the viewfinder close each other
 - [x] A tap posts the id, marks the button busy and every button disabled until the answer, ignores taps meanwhile, and toasts the message or the problem; 401 shows the pairing form
 - [x] 44 px buttons in a grid for 360-412 px, the panel scrolls within 36dvh; the service worker keeps `/phone/actions.js` and passes `/actions` and `/action`; no inline style or script
+- [x] Fix pass: the notice sits above the panel, so a toast never moves the buttons (it pushed the panel up a row and back 6 s later, and a second tap hit another button); opening the panel puts the focus on its first button and Escape on the toggle closes it too; the toggle steps aside while the owner types with the panel closed, so the text box is 168 px again at 360 px with the camera button (116 px with the toggle), its height fitted again on focus and blur
 
 **Dependencies:** 183 · **Files:** `src/waifu/avatar/web/phone/index.html`, `phone.js`, `phone.css`, `sw.js`, `tests/js/phone_ui.test.mjs`, `tests/js/phone_page.test.mjs`, `tests/js/phone_sw.test.mjs` · **Scope:** M
 
