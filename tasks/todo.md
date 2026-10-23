@@ -1713,12 +1713,12 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 179a · **Files:** `src/waifu/config.py`, `tests/test_config.py` · **Scope:** S
 
-## Task 180: `QuickActions`
+## Task 180: `QuickActions` ✅
 
 **Acceptance criteria:**
-- [ ] `groups()` lists lights, plugs, IR devices, and mocks in config order with on, off, toggle, and power as they have them, brightness 10/30/60/100 for a light, the learned temperatures among 18-28 (even) for an IR device, and every routine in "Rutinitas" (description, else name); never the PC, a `powers_pc` plug, media, or apps; `chosen` picks and orders; a device whose commands cannot be read is left out and logged
-- [ ] `find(id)` looks the id up in a list built then (a forgotten IR code or a removed routine is None)
-- [ ] `run` runs a device action through the registry with its message, a routine through `run_routine` with the schedule and a summary (counts, the first failure, the scheduled times); a `powers_pc` device is refused without being called
+- [x] `groups()` lists lights, plugs, IR devices, and mocks in config order with on, off, toggle, and power as they have them, brightness 10/30/60/100 for a light, the learned temperatures among 18-28 (even) for an IR device, and every routine in "Rutinitas" (description, else name); never the PC, a `powers_pc` plug, media, or apps; `chosen` picks and orders; a device whose commands cannot be read is left out and logged
+- [x] `find(id)` looks the id up in a list built then (a forgotten IR code or a removed routine is None)
+- [x] `run` runs a device action through the registry with its message, a routine through `run_routine` with the schedule and a summary (counts, the first failure, the scheduled times); a `powers_pc` device is refused without being called
 
 **Dependencies:** 179 · **Files:** `src/waifu/phone/actions.py`, `tests/test_phone_actions.py` · **Scope:** M
 
