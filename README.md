@@ -41,6 +41,7 @@ Cyrene : "Komputer mau kumatikan sekarang, Master? Jawab iya kalau jadi." (minta
 - [Jadwal, pengingat, dan rutinitas](#jadwal-pengingat-dan-rutinitas)
 - [Daftar tugas](#daftar-tugas)
 - [Musik, volume, dan aplikasi PC](#musik-volume-dan-aplikasi-pc)
+- [Volume suaraku](#volume-suaraku)
 - [Lagu di YouTube](#lagu-di-youtube)
 - [Melihat layar](#melihat-layar)
 - [Sapaan pagi dan ringkasan harian](#sapaan-pagi-dan-ringkasan-harian)
@@ -642,6 +643,7 @@ waifu speaker-test    # skor kecocokan langsung, Ctrl+C untuk berhenti
 | `waifu say "Halo Master, おかえりなさい!"` | Uji suara: bagian Indonesia lalu Jepang |
 | `waifu say --raw "Halo Master"` | Sama, tapi tanpa suara anime (RVC), untuk membandingkan |
 | `waifu say --fallback "Halo Master"` | Sama, tapi dengan suara cadangan offline (suara Windows) yang dipakai kalau edge-tts gagal (lihat [Suara cadangan offline](#suara-cadangan-offline)) |
+| `waifu say --volume 150 "Halo Master"` | Sama, tapi dengan volume suaranya 10 sampai 150 persen untuk mencoba, tanpa menyimpannya (tanpa `--volume`: volume suaranya sekarang; lihat [Volume suaraku](#volume-suaraku)) |
 | `waifu devices` | Daftar perangkat dan perintah yang tersedia |
 | `waifu device <id> <perintah> [angka]` | Jalankan satu perintah, misalnya `waifu device ac temp 24` |
 | `waifu learn-ir <id> <perintah>` / `waifu learn-ir <id> --missing` | Pelajari tombol remote IR |
@@ -665,7 +667,7 @@ waifu speaker-test    # skor kecocokan langsung, Ctrl+C untuk berhenti
 | `waifu youtube <link atau judul lagu>` | Buka video atau playlist YouTube itu, atau halaman pencarian YouTube untuk judulnya, di browser default (lihat [Lagu di YouTube](#lagu-di-youtube)) |
 | `waifu offers` / `offers games` / `offers ai` | Game gratis dan promo AI yang tersimpan, dengan linknya; `waifu offers ai --scan` mencari promo AI sekarang dengan Claude (berbayar) (lihat [Pencarian web dan promo gratis](#pencarian-web-dan-promo-gratis)) |
 | `waifu tepira` / `tepira dompet` / `tujuan [nama]` / `transaksi [-n N]` / `token` | Keuangan dari tepira: ringkasan bulan ini, saldo dompet, tujuan tabungan, dan transaksi terbaru; `token` membuat token API Cyrene baru tanpa internet (lihat [Keuangan dari tepira](#keuangan-dari-tepira)) |
-| `waifu check` | Periksa config, versi `waifu run` yang berjalan, kabar versi baru, kode IR, aplikasi PC, rutinitas, voiceprint, otak, ingatan, jadwal, daftar tugas, jurnal, lagu YouTube, sapaan pagi, peringatan hujan, biaya API, kesehatan PC, jam main, teman fokus, mode game, mode tamu, pencarian web, promo gratis, paket suara, CUDA, mic, suara cadangan offline, suara anime, avatar, keuangan tepira, dan Cyrene di HP |
+| `waifu check` | Periksa config, versi `waifu run` yang berjalan, kabar versi baru, kode IR, aplikasi PC, rutinitas, voiceprint, otak, ingatan, jadwal, daftar tugas, jurnal, lagu YouTube, sapaan pagi, peringatan hujan, biaya API, kesehatan PC, jam main, teman fokus, mode game, mode tamu, volume suaranya, pencarian web, promo gratis, paket suara, CUDA, mic, suara cadangan offline, suara anime, avatar, keuangan tepira, dan Cyrene di HP |
 
 Opsi untuk semua perintah: `--config <file>` (default `config.yaml`), `--dry-run`
 (perangkat simulasi), `-v` (log lebih rinci), `--log-file <file>` (log juga ditulis
@@ -681,6 +683,7 @@ Contoh kalimat saat `waifu run`:
 - "Matikan TV, Cyrene." (nama boleh di mana saja dalam kalimat)
 - "Cyrene, pause musiknya." / "Cyrene, buka Spotify." (lihat
   [Musik, volume, dan aplikasi PC](#musik-volume-dan-aplikasi-pc))
+- "Cyrene, kecilkan suaramu." (lihat [Volume suaraku](#volume-suaraku))
 - "Cyrene, putar lagu Hope Is the Thing With Feathers." (lihat
   [Lagu di YouTube](#lagu-di-youtube))
 - "Cyrene?" saja: dia menjawab "はい、Master?" dan menunggu perintah berikutnya.
@@ -2824,7 +2827,8 @@ devices:
       cyberpunk: "steam://rungameid/1091500"
 ```
 
-Alias `volume` dan `suara` membuat "kecilkan volume" berarti volume PC. Kalau proyektor atau
+Alias `volume` dan `suara` membuat "kecilkan volume" berarti volume PC ("kecilkan suaramu"
+tetap suaranya sendiri, lihat [Volume suaraku](#volume-suaraku)). Kalau proyektor atau
 TV juga punya tombol volume yang sudah dipelajari, Cyrene bisa bertanya perangkat mana yang
 dimaksud; sebut saja perangkatnya ("kecilkan volume proyektor").
 
@@ -2847,7 +2851,8 @@ Indikator volume Windows ikut muncul di layar, seperti saat tombol volume keyboa
 Tombol volume mengubah volume Windows yang juga dipakai suara Cyrene (kecuali
 `audio.output_device` menunjuk speaker lain). Setelah `volume 0` atau `mute`, jawaban dan
 pengingat lisannya tidak terdengar sampai volumenya dinaikkan lagi; hanya notifikasi ntfy di
-HP yang tetap sampai, kalau diaktifkan.
+HP yang tetap sampai, kalau diaktifkan. Untuk mengecilkan atau mengeraskan suara Cyrene saja,
+tanpa musik dan game, bilang "kecilkan suaramu" (lihat [Volume suaraku](#volume-suaraku)).
 
 Perangkat `apps` punya perintah `open_<nama>` untuk setiap aplikasi, urut seperti di
 `config.yaml` (`open_spotify`, `open_genshin`, `open_cyberpunk`). Aturannya:
@@ -2984,6 +2989,101 @@ routines:
   atau jendela lain, lalu coba lagi.
 - **"Windows menolak tombol medianya".** Windows sedang memblokir input, misalnya layar
   terkunci atau jendela izin administrator sedang terbuka.
+
+## Volume suaraku
+
+Suara Cyrene di PC punya volume sendiri, terpisah dari volume Windows: "kecilkan suaramu"
+membuatnya lebih pelan tanpa mengecilkan musik atau game. Selalu tersedia, dengan otak Ollama
+maupun Claude, tanpa paket tambahan.
+
+```text
+Master : "Cyrene, kecilkan suaramu."
+Cyrene : "Segini ya, Master, delapan puluh persen."
+Master : "Cyrene, nyalakan mode bisik."
+Cyrene : "Mode bisik aktif, Master: dari jam sepuluh malam sampai jam enam pagi suaraku paling keras lima puluh persen."
+```
+
+### Contoh kalimat
+
+- **Lebih pelan atau lebih keras:** "Cyrene, kecilkan suaramu", "suara kamu kekerasan",
+  "ngomongnya pelan-pelan aja" (turun 20 persen); "keraskan suaramu", "suara kamu kurang
+  keras" (naik 20 persen).
+- **Angka:** "Cyrene, suaramu 60 persen." Dari 10 sampai 150 persen; 100 persen suara biasanya.
+- **Bertanya:** "Suaramu berapa persen?", "mode bisik nyala?"
+- **Mode bisik:** "Cyrene, nyalakan mode bisik" dan "matikan mode bisik" (lihat
+  [Mode bisik](#mode-bisik)).
+- Bisa lewat suara, `waifu chat`, atau chat [Cyrene di HP](#cyrene-di-hp); yang berubah suaranya
+  di PC. [Mode tamu](#mode-tamu) tidak menutupnya.
+
+Jawabannya sudah diucapkan dengan volume yang baru, jadi bedanya langsung terdengar. Dia tidak
+mengubah volumenya sendiri tanpa diminta.
+
+### Beda dengan volume Windows
+
+| Kalimat | Yang berubah |
+|---|---|
+| "kecilkan suaramu", "suara kamu", "mode bisik" | Volume suara Cyrene saja |
+| "kecilkan volume", "volume 30", "kecilkan musiknya", "volume PC" | Volume Windows lewat perangkat `musik` (lihat [Musik, volume, dan aplikasi PC](#musik-volume-dan-aplikasi-pc)): semua suara PC, termasuk suara Cyrene |
+
+Kalau dia salah tangkap, sebut lebih jelas: "suaramu sendiri" untuk suaranya, "volume PC" untuk
+Windows. Volume Windows tetap mengatur semuanya: dengan volume Windows 20%, suaranya 150% pun
+tetap pelan, dan setelah `mute` dia tidak terdengar sama sekali.
+
+### Lebih keras dari 100 persen
+
+Di atas 100 persen suaranya diperkuat dengan pembatas lembut supaya tidak pecah: bagian yang
+paling keras ditekan sedikit, jadi 150 persen terdengar lebih keras tapi bagian kerasnya tidak
+naik sebanyak itu. Di bawah 100 persen suaranya hanya dikecilkan. Gerak mulut avatar tetap
+sama besar di volume berapa pun.
+
+### Mode bisik
+
+Mati sampai Master menyalakannya. Selama menyala, setiap malam dari `voice.night.from` (bawaan
+22:00) sampai `voice.night.until` (bawaan 06:00) suaranya paling keras `voice.night.level`
+(bawaan 50) persen, menurut jam PC. Di luar jam itu volumenya kembali seperti biasa, jadi sapaan
+pagi sesudah jam 06:00 terdengar normal. Volume yang sudah lebih pelan dari 50 persen tetap
+segitu. "Keraskan suaramu" selama mode bisik menaikkan volume biasanya, dan dia bilang mode bisik
+masih menahannya sampai jam 06:00.
+
+Untuk mengubah jam atau volumenya, tulis di `config.yaml`, lalu jalankan ulang `waifu run`:
+
+```yaml
+voice:
+  night:
+    from: "23:00"     # mulai jam ini setiap malam
+    until: "05:30"    # sampai jam ini (boleh melewati tengah malam)
+    level: 30         # paling keras N persen selama mode bisik (10-100)
+```
+
+Kalau `briefing.time` lebih awal dari `until`, sapaan paginya ikut berbisik. Kalimat yang mulai
+diucapkan sebelum jam `from` diucapkan sampai selesai dengan volume biasa.
+
+### Tersimpan dan dicoba
+
+- Volume dan mode bisik disimpan di `data\voice.json` (`voice.state_path`), jadi tetap sesudah
+  restart, dan sama untuk `waifu run`, `waifu chat --speak`, dan `waifu say`: yang diubah di satu
+  tempat terdengar di tempat lain mulai kalimat berikutnya. Filenya baru dibuat saat volumenya
+  pertama kali diubah.
+- `waifu say "Halo Master"` diucapkan dengan volume suaranya sekarang (termasuk mode bisik).
+  `waifu say --volume 150 "Halo Master"` mencoba volume lain (10-150) tanpa menyimpannya.
+- Kalau filenya rusak, file itu dipindah ke `voice.json.corrupt-<waktu>` dan volumenya kembali
+  100 persen. Kalau filenya tidak bisa dibaca, dia tetap bicara dengan volume terakhir yang
+  terbaca.
+
+`waifu check` menunjukkan volumenya, dan volume yang terdengar sekarang kalau mode bisik sedang
+menahannya:
+
+```text
+✓ Volume suaraku: 100%, mode bisik mati (22:00-06:00 paling keras 50%)
+✓ Volume suaraku: 120%, mode bisik aktif (22:00-06:00 paling keras 50%), sekarang 50%
+```
+
+### Di HP
+
+Balasan di [HP](#cyrene-di-hp) diputar oleh HP dengan volume HP, jadi volume suaranya tidak
+berpengaruh di sana. "Kecilkan suaramu" yang diketik di HP mengubah suaranya di PC.
+
+Tidak ada yang dikirim ke mana pun: `data\voice.json` hanya berisi volume dan mode bisik.
 
 ## Lagu di YouTube
 
@@ -5035,8 +5135,9 @@ bilang singkat bahwa itu ditutup dulu selama ada tamu:
 ### Yang tetap jalan
 
 - Perangkat rumah (mematikan PC tetap dengan konfirmasi), rutinitas, menambah jadwal atau
-  pengingat, lagu di YouTube, kesehatan PC, cuaca dan ringkasan hari (tanpa tugas dan teks
-  pengingat), promo gratis, pencarian web, dan obrolan biasa.
+  pengingat, lagu di YouTube, [volume suaranya](#volume-suaraku), kesehatan PC, cuaca dan
+  ringkasan hari (tanpa tugas dan teks pengingat), promo gratis, pencarian web, dan obrolan
+  biasa.
 - [Teman fokus](#teman-fokus): memulai, menghentikan, dan menanyakan sisa waktunya, jadi sesi
   yang jalan sebelum tamu datang tetap bisa dihentikan. Jawabannya bisa menyebut berapa lama
   Master fokus hari itu dan minggu itu.
@@ -5510,6 +5611,19 @@ dan `off` untuk `ac` harus sudah dipelajari.)
       lagi saat musik sudah berhenti tidak memutarnya.
 - [ ] "Cyrene, pause musiknya jam 11 malam": dia tidak menjadwalkan `play_pause`, tapi
       `stop` (cek dengan `waifu schedule list`, lalu batalkan).
+
+**Volume suaraku** (lihat [Volume suaraku](#volume-suaraku))
+
+- [ ] `waifu check` menampilkan `✓ Volume suaraku: 100%, mode bisik mati (22:00-06:00 paling
+      keras 50%)`.
+- [ ] `waifu say --volume 30 "Halo Master"` terdengar pelan, dan
+      `waifu say --volume 150 "Halo Master"` lebih keras tapi tidak pecah atau kresek.
+- [ ] Sambil musik diputar, "Cyrene, kecilkan suaramu": jawabannya sudah lebih pelan, musiknya
+      tidak ikut pelan, dan indikator volume Windows tidak muncul. "Cyrene, volume 30" tetap
+      menggeser volume Windows.
+- [ ] Sesudah jam 22:00, "Cyrene, nyalakan mode bisik": suaranya pelan. Sapaan pagi sesudah
+      jam 06:00 terdengar dengan volume biasa.
+- [ ] Mulai ulang `waifu run`: volumenya masih seperti terakhir diubah.
 
 **Lagu di YouTube** (lihat [Lagu di YouTube](#lagu-di-youtube); jangan sedang main game)
 

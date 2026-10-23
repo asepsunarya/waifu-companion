@@ -1899,9 +1899,9 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 196, 198, 199 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py`, `tests/test_app.py` · **Scope:** M
 
-## Task 201: Docs
+## Task 201: Docs ✅
 
 **Acceptance criteria:**
-- [ ] README "Volume suaraku" with a contents entry, a link from "Musik, volume, dan aplikasi PC", and checklist items; CHANGELOG v1.37; full suite and ruff clean
+- [x] README "Volume suaraku" with a contents entry, a link from "Musik, volume, dan aplikasi PC", and checklist items; CHANGELOG v1.37; full suite and ruff clean
 
 **Dependencies:** 200 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S

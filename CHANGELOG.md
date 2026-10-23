@@ -4,6 +4,23 @@ Ringkasan per versi, yang terbaru di atas. Rinciannya ada di README (bagian yang
 setiap versi) dan di SPEC.md. Setelah memperbarui, **mulai ulang `waifu run`** supaya semuanya
 aktif, lalu jalankan `waifu check`.
 
+## v1.37: volume suaraku
+
+- Suara Cyrene di PC punya volume sendiri: "Cyrene, kecilkan suaramu" / "keraskan suaramu"
+  (20 persen sekali), "suaramu 60 persen" (10 sampai 150), atau "suaramu berapa?", lewat suara,
+  `waifu chat`, atau chat di HP. Musik, game, dan volume Windows tidak ikut berubah; "kecilkan
+  volume" dan "volume 30" tetap tombol volume Windows lewat perangkat musik. Jawabannya sudah
+  diucapkan dengan volume yang baru.
+- Di atas 100 persen suaranya diperkuat dengan pembatas lembut supaya tidak pecah. Gerak mulut
+  avatar tetap sama besar.
+- Mode bisik (mati sampai dinyalakan): "nyalakan mode bisik" membuat suaranya paling keras 50
+  persen setiap malam dari jam 22:00 sampai 06:00 (`voice.night`), sampai "matikan mode bisik".
+  Sapaan pagi sesudah jam 06:00 terdengar dengan volume biasa.
+- Volume dan mode bisik disimpan di `data\voice.json`, jadi tetap sesudah restart, dan dipakai
+  juga oleh `waifu chat --speak` dan `waifu say`; `waifu say --volume 150 "Halo"` mencoba volume
+  lain tanpa menyimpannya. Balasan di HP diputar dengan volume HP dan tidak terpengaruh.
+- `waifu check` punya baris `Volume suaraku`. README: "Volume suaraku".
+
 ## v1.36: mode tamu
 
 - "Cyrene, mode tamu" (lewat suara, `waifu chat`, atau chat di HP) menutup hal pribadi Master
