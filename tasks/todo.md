@@ -1834,10 +1834,10 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 189, 190, 191, 192 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** M
 
-## Task 194: The persona section
+## Task 194: The persona section ✅
 
 **Acceptance criteria:**
-- [ ] Both personas have the same "Mode tamu:" section before "Keuangan Master:", naming `guest_mode` with on true, on false, and without on, and never bringing up Master's private things while it is on
+- [x] Both personas have the same "Mode tamu:" section before "Keuangan Master:", naming `guest_mode` with on true, on false, and without on, and never bringing up Master's private things while it is on
 
 **Dependencies:** 190 · **Files:** `config/persona.md`, `config/persona_hsr.md`, `tests/test_brain_persona.py` · **Scope:** S
 

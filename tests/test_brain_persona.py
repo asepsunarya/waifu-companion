@@ -122,6 +122,26 @@ def test_committed_persona_keeps_the_journal_private_and_only_for_master_s_askin
 
 
 @pytest.mark.parametrize("persona_file", ["persona.md", "persona_hsr.md"])
+def test_committed_personas_switch_guest_mode_and_keep_master_s_things_quiet_meanwhile(
+    persona_file,
+):
+    persona = load_persona(ROOT / "config" / persona_file)
+
+    guest = persona.split("Mode tamu:", 1)[1].split("\n\n", 1)[0]
+
+    assert "guest_mode" in guest
+    assert "panggil dengan on true" in guest
+    assert "panggil dengan on false" in guest
+    assert "panggil tanpa on" in guest
+    assert "jangan pernah menyebut hal pribadi Master" in guest
+    # The turn that switches it on still runs in the old session.
+    assert "termasuk di giliran yang menyalakannya" in guest
+    assert "tidak dibuka selama ada tamu" in guest
+    # Before the money, which stays the last section.
+    assert persona.index("Mode tamu:") < persona.index("Keuangan Master:")
+
+
+@pytest.mark.parametrize("persona_file", ["persona.md", "persona_hsr.md"])
 def test_committed_personas_name_none_of_the_v1_16_hsr_tools(persona_file):
     # The model calls a tool by the name the persona gives it, and the v1.16 names are gone:
     # each one costs a wasted "tidak dikenal" round.
