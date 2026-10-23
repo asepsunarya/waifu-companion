@@ -2050,11 +2050,11 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 214a · **Files:** `src/waifu/config.py`, `config.example.yaml`, `tests/test_config.py` · **Scope:** S
 
-## Task 216: The continuous-activity rule
+## Task 216: The continuous-activity rule ✅
 
 **Acceptance criteria:**
-- [ ] `follow_activity` starts counting at a poll with recent input, gives the line once the last input reaches `every_minutes` and then every `every_minutes` on the same grid, and never while the input is older than the due point
-- [ ] An idle gap of `idle_reset_minutes`, or a poll gap of that long by the tick count or the wall clock, starts the count again
+- [x] `follow_activity` starts counting at a poll with recent input, gives the line once the last input reaches `every_minutes` and then every `every_minutes` on the same grid, and never while the input is older than the due point
+- [x] An idle gap of `idle_reset_minutes`, or a poll gap of that long by the tick count or the wall clock, starts the count again
 
 **Dependencies:** 214 · **Files:** `src/waifu/break_watch.py`, `tests/test_break_watch.py` · **Scope:** S
 
