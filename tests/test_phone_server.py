@@ -36,6 +36,7 @@ from waifu.config import AvatarConfig, PhoneConfig, RoutineConfig, RoutineStep
 from waifu.devices.base import DeviceError, DeviceResult
 from waifu.devices.mock import MockDevice
 from waifu.devices.registry import DeviceRegistry
+from waifu.listen_pause import ListenPause
 from waifu.phone import server as phone_server
 from waifu.phone.actions import QuickActions
 from waifu.phone.auth import CODE_LIFETIME, PhoneAuth
@@ -3071,6 +3072,27 @@ def test_the_phone_lists_and_presses_the_alarm_s_buttons_while_it_rings(
     }
     assert (status, json.loads(body)) == (200, {"ok": True, "message": "Alarm dimatikan."})
     assert bell.ringing() is False
+
+
+def test_the_phone_lists_and_presses_dengar_lagi_while_her_hearing_is_paused(
+    serve: Serve, auth: PhoneAuth, tmp_path: Path
+) -> None:
+    pause = ListenPause(tmp_path / "listen_pause.json")
+    pause.start()
+    devices, _ = quick_house()
+    registry = DeviceRegistry(list(devices.values()), pc_power_ids=["colokan_pc"])
+    server = serve(actions=QuickActions(registry, {}, listen_pause=pause))
+    token = pair_device(auth)
+
+    groups = json.loads(request(server, "/actions", token=token)[2])["groups"]
+    status, _, body = press(server, token, "mic.listen")
+
+    assert groups[0] == {
+        "name": "Mikrofon",
+        "actions": [{"id": "mic.listen", "label": "Dengar lagi"}],
+    }
+    assert (status, json.loads(body)) == (200, {"ok": True, "message": "Mendengarkan lagi."})
+    assert pause.paused() is False
 
 
 # --- the Suara page --------------------------------------------------------------------------

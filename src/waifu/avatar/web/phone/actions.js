@@ -6,6 +6,8 @@
 const JSON_TYPE = "application/json";
 // The quick buttons of an alarm that rings on the PC (SPEC, "alarm bangun (v1.46)").
 const ALARM_PREFIX = "al.";
+// "Dengar lagi", while her hearing is paused by Ctrl+Alt+Q (SPEC, "hotkey global (v1.48)").
+const LISTEN_PREFIX = "mic.";
 
 const isPlainObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 const isText = (value) => typeof value === "string" && value.trim() !== "";
@@ -33,6 +35,14 @@ export function parseActionGroups(data) {
 /** Whether the button `id` is one of a ringing alarm's: pressing it takes the alarm's buttons away. */
 export function isAlarmAction(id) {
   return id.startsWith(ALARM_PREFIX);
+}
+
+/**
+ * Whether the button `id` shows only for a while: a ringing alarm's, or "Dengar lagi" while her hearing is paused.
+ * Pressing one may take it away, and it may go by itself, so the list is read again.
+ */
+export function isPassingAction(id) {
+  return isAlarmAction(id) || id.startsWith(LISTEN_PREFIX);
 }
 
 /** The body of POST /action for the button `id`: {body, contentType}. */

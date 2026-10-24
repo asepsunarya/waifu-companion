@@ -20,13 +20,14 @@
 // panel of them in the viewfinder's place: the owner's switches and routines, run on the PC without asking her. A tap
 // sends the button's id to POST /action (actions.js) and the PC's answer shows as a toast; one runs at a time. The
 // buttons are read again whenever the page shows again and the panel opens, since an alarm that rings on the PC (SPEC,
-// "alarm bangun (v1.46)") adds its own, first: the panel then opens on them.
+// "alarm bangun (v1.46)") adds its own, first: the panel then opens on them. While her hearing is paused (Ctrl+Alt+Q,
+// SPEC "hotkey global (v1.48)"), "Dengar lagi" shows too, without opening the panel.
 //
 // The "Suara" button in the top bar (SPEC, "diagnosa suara (v1.47)") opens a sheet over the page that shows what her
 // mic on the PC hears: the mic and its level against the VAD's gate, and her last utterances with what she did with
 // each (voice.js). It reads GET /voice every VOICE_REFRESH_MS while it is open and the page visible, one read at a time,
 // and the owner switches the mic or changes the voice settings there (POST /voice/set). The PC hides it in guest mode.
-import { actionOutcome, actionRequest, isAlarmAction, parseActionGroups } from "./actions.js";
+import { actionOutcome, actionRequest, isAlarmAction, isPassingAction, parseActionGroups } from "./actions.js";
 import {
   DEFAULT_OWNER_CALL,
   MAX_TALK_S,
@@ -71,7 +72,8 @@ import {
 const CONFIG_URL = "/config.json";
 const ACTIONS_URL = "/actions";
 const ACTION_URL = "/action";
-// While the panel lists a ringing alarm's buttons, the list is read again this often, so they go once it stops.
+// While the panel lists a ringing alarm's buttons or "Dengar lagi", the list is read again this often, so they go once
+// the alarm stops or her hearing is back.
 const ALARM_REFRESH_MS = 15_000;
 const VOICE_URL = "/voice";
 const VOICE_SET_URL = "/voice/set";
@@ -196,8 +198,10 @@ let quickButtons = [];
 let quickRunning = false;
 // The groups the panel shows, as JSON, so a new listing rebuilds it only when they changed.
 let quickListed = "[]";
-// Whether they hold a ringing alarm's buttons, and the timer that reads them again meanwhile (null when none runs).
+// Whether they hold a ringing alarm's buttons, whether they hold any button that shows only for a while (an alarm's or
+// "Dengar lagi"), and the timer that reads them again meanwhile (null when none runs).
 let quickRinging = false;
+let quickPassing = false;
 let alarmPoll = null;
 // The Suara sheet: the last status read, the timer reading it again (null when none runs), whether a read or a change
 // runs, the mics its picker lists (as JSON, so it is rebuilt only when they changed), and whether its settings' boxes
@@ -884,14 +888,16 @@ async function loadQuick() {
 
 /**
  * Builds the panel of `groups` and shows or hides its toggle. An alarm's buttons (ids `al.`) open the panel, so a tap
- * on the alarm's push lands on "Matikan alarm", and are read again every ALARM_REFRESH_MS while they show; an open
- * panel puts the focus on its first button, which it replaced.
+ * on the alarm's push lands on "Matikan alarm"; they and "Dengar lagi" are read again every ALARM_REFRESH_MS while they
+ * show. An open panel puts the focus on its first button, which it replaced.
  */
 function showQuick(groups) {
   quickButtons = [];
   page.quick.replaceChildren(...groups.map(quickGroup));
   page.quickToggle.hidden = groups.length === 0;
-  quickRinging = groups.some(({ actions }) => actions.some(({ id }) => isAlarmAction(id)));
+  const ids = groups.flatMap(({ actions }) => actions.map(({ id }) => id));
+  quickRinging = ids.some(isAlarmAction);
+  quickPassing = ids.some(isPassingAction);
   pollWhileRinging();
   if (groups.length === 0) {
     setQuickOpen(false);
@@ -901,10 +907,13 @@ function showQuick(groups) {
   if (!page.quick.hidden) quickButtons[0]?.focus();
 }
 
-/** Reads the buttons again every ALARM_REFRESH_MS while an alarm's show and the page is visible; else stops. */
+/**
+ * Reads the buttons again every ALARM_REFRESH_MS while an alarm's or "Dengar lagi" show and the page is visible; else
+ * stops.
+ */
 function pollWhileRinging() {
   stopAlarmPoll();
-  if (quickRinging && !document.hidden) alarmPoll = setInterval(loadQuick, ALARM_REFRESH_MS);
+  if (quickPassing && !document.hidden) alarmPoll = setInterval(loadQuick, ALARM_REFRESH_MS);
 }
 
 function stopAlarmPoll() {
@@ -976,7 +985,7 @@ function setQuickRunning(pressed, running) {
 
 /**
  * Runs the quick button `id`, pressed as `button`, on the PC and toasts what it did or why it could not. An alarm's
- * button reads the buttons again, as the press may have taken the alarm's away.
+ * button or "Dengar lagi" reads the buttons again, as the press may have taken its group away.
  */
 async function runQuick(button, id) {
   if (quickRunning) return;
@@ -987,7 +996,7 @@ async function runQuick(button, id) {
     showPairing();
     return;
   }
-  if (isAlarmAction(id)) loadQuick();
+  if (isPassingAction(id)) loadQuick();
   if (result.problem) {
     showNotice(result.problem);
     return;

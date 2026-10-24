@@ -21,6 +21,10 @@ const QUICK = {
   ],
 };
 const LAMP_ON = { ok: true, message: "Lampu kamar: perintah 'on' berhasil (simulasi)." };
+// The same buttons while her hearing is paused (Ctrl+Alt+Q): "Dengar lagi" comes first.
+const PAUSED = {
+  groups: [{ name: "Mikrofon", actions: [{ id: "mic.listen", label: "Dengar lagi" }] }, ...QUICK.groups],
+};
 // The same buttons while an alarm rings on the PC: its group comes first.
 const RINGING = {
   groups: [
@@ -388,6 +392,19 @@ describe("PC quick-button page", () => {
       ["Lampu kamar", "Rutinitas"],
     );
     assert.equal(page.element("notice").textContent, "Alarm dimatikan.");
+  });
+
+  it("reads the buttons again after Dengar lagi, so its group goes once she listens again", async () => {
+    const page = await openPage({ actions: PAUSED, actionReply: { ok: true, message: "Mendengarkan lagi." } });
+    page.setActions(QUICK);
+
+    await press(page, "Dengar lagi");
+
+    assert.equal(actionRequests(page).at(-1).init.body, '{"id":"mic.listen"}');
+    assert.deepEqual(
+      groupsOf(page).map(({ heading }) => heading.textContent),
+      ["Lampu kamar", "Rutinitas"],
+    );
   });
 
   it("says so when the PC lists no buttons any more, and shows them when they come back", async () => {

@@ -2622,11 +2622,11 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 272, 274, 275 · **Files:** `src/waifu/hotkey_actions.py`, `src/waifu/avatar/interactions.py`, `tests/test_hotkey_actions.py`, `tests/test_avatar_interactions.py` · **Scope:** M
 
-## Task 277: "Dengar lagi"
+## Task 277: "Dengar lagi" ✅
 
 **Acceptance criteria:**
-- [ ] While the pause holds, the quick buttons list "Dengar lagi" (`mic.listen`) after the alarm's; it is found whenever there is a pause and ends it outside the devices' lock
-- [ ] `isPassingAction`; the phone page and the PC page read the list again after pressing it, and the phone page every 15 s while it shows
+- [x] While the pause holds, the quick buttons list "Dengar lagi" (`mic.listen`) after the alarm's; it is found whenever there is a pause and ends it outside the devices' lock
+- [x] `isPassingAction`; the phone page and the PC page read the list again after pressing it, and the phone page every 15 s while it shows
 
 **Dependencies:** 274 · **Files:** `src/waifu/phone/actions.py`, `src/waifu/avatar/web/phone/actions.js`, `src/waifu/avatar/web/phone/phone.js`, `src/waifu/avatar/web/tombol/tombol.js`, `tests/test_phone_actions.py`, `tests/js/*.test.mjs` · **Scope:** S
 

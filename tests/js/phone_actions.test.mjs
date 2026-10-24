@@ -7,6 +7,7 @@ import {
   actionOutcome,
   actionRequest,
   isAlarmAction,
+  isPassingAction,
   parseActionGroups,
 } from "../../src/waifu/avatar/web/phone/actions.js";
 
@@ -72,6 +73,19 @@ describe("isAlarmAction", () => {
     assert.equal(isAlarmAction("al.stop"), true);
     assert.equal(isAlarmAction("al.snooze"), true);
     for (const id of ["dev.lampu_kamar.on", "rt.tidur", "dev.alarm.on"]) assert.equal(isAlarmAction(id), false, id);
+  });
+});
+
+describe("isPassingAction", () => {
+  it("tells the buttons that show only for a while: a ringing alarm's and Dengar lagi", () => {
+    for (const id of ["al.stop", "al.snooze", "mic.listen"]) assert.equal(isPassingAction(id), true, id);
+    for (const id of ["dev.lampu_kamar.on", "rt.tidur", "dev.mic.on", "rt.mic"]) {
+      assert.equal(isPassingAction(id), false, id);
+    }
+  });
+
+  it("leaves Dengar lagi out of the alarm's buttons", () => {
+    assert.equal(isAlarmAction("mic.listen"), false);
   });
 });
 

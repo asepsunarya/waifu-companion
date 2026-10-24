@@ -148,6 +148,10 @@ const VOICE = {
   ],
 };
 const SWITCHING = { ok: true, message: "Mic sedang diganti. Hasilnya muncul di sini sebentar lagi.", pending: true };
+// The same buttons while her hearing is paused (Ctrl+Alt+Q): "Dengar lagi" comes first.
+const PAUSED = {
+  groups: [{ name: "Mikrofon", actions: [{ id: "mic.listen", label: "Dengar lagi" }] }, ...QUICK.groups],
+};
 // The same buttons while an alarm rings on the PC: its group comes first.
 const RINGING = {
   groups: [
@@ -1538,6 +1542,49 @@ describe("phone quick buttons", () => {
     assert.equal(whileHidden, before);
     assert.equal(page.element("quick").hidden, false);
     assert.equal(focused, quickButton(page, "Matikan alarm"));
+  });
+
+  it("are read again after Dengar lagi, so its group goes once she listens again", async () => {
+    const page = await openPage({ actions: PAUSED, actionReply: { ok: true, message: "Mendengarkan lagi." } });
+    page.setActions(QUICK);
+
+    await press(page, "Dengar lagi");
+
+    assert.equal(lastRequest(page, "/action").init.body, '{"id":"mic.listen"}');
+    assert.deepEqual(
+      quickGroups(page).map(({ heading }) => heading),
+      ["Lampu kamar", "Rutinitas"],
+    );
+    assert.equal(page.element("notice").textContent, "Mendengarkan lagi.");
+  });
+
+  it("are read again every fifteen seconds while Dengar lagi shows", async (t) => {
+    t.mock.timers.enable({ apis: ["setInterval"] });
+    const page = await openPage({ actions: PAUSED });
+    const listed = () => page.requests.filter(({ route }) => route === "/actions").length;
+    const before = listed();
+    page.setActions(QUICK); // the pause ended by itself
+
+    t.mock.timers.tick(15_000);
+    await settle();
+    const read = listed();
+    t.mock.timers.tick(60_000);
+    await settle();
+
+    assert.equal(read, before + 1);
+    assert.equal(listed(), read, "Dengar lagi went, so the timer stopped");
+  });
+
+  it("never open the closed panel by themselves for Dengar lagi", async () => {
+    const page = await openPage({ actions: QUICK });
+    page.setActions(PAUSED);
+
+    document.hidden = false;
+    document.dispatch("visibilitychange");
+    await settle();
+
+    assert.equal(quickGroups(page)[0].heading, "Mikrofon");
+    assert.equal(page.element("quick").hidden, true);
   });
 
   it("hide their toggle and close the panel once the PC lists none", async () => {

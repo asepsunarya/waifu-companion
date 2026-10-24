@@ -21,6 +21,7 @@ from waifu.devices.ir_codes import IrCodeStore
 from waifu.devices.ir_device import IrDevice
 from waifu.devices.mock import MockDevice
 from waifu.devices.registry import DeviceRegistry
+from waifu.listen_pause import ListenPause
 from waifu.phone.actions import ACTION_ID, QuickAction, QuickActions
 from waifu.schedule import AlarmAction, DeviceAction, Entry, ScheduleStore
 
@@ -557,3 +558,105 @@ def test_a_stop_never_waits_for_a_slow_device(tmp_path: Path) -> None:
 
     assert stopped.ok is True
     assert alarm.ringing() is False
+
+
+# --- the listen pause ----------------------------------------------------------------------------
+
+
+def listen_pause(tmp_path: Path) -> ListenPause:
+    return ListenPause(tmp_path / "listen_pause.json", now=lambda: BEDTIME)
+
+
+def test_while_the_pause_holds_dengar_lagi_comes_after_the_alarm_and_before_the_devices(
+    tmp_path: Path,
+) -> None:
+    alarm, pause = bell(tmp_path), listen_pause(tmp_path)
+    ring(alarm)
+    pause.start()
+
+    groups = buttons(quick(routines={"tidur": tidur()}, alarm=alarm, listen_pause=pause))
+
+    assert list(groups)[:3] == ["Alarm", "Mikrofon", "Lampu kamar"]
+    assert groups["Mikrofon"] == [("mic.listen", "Dengar lagi")]
+
+
+def test_without_a_pause_there_is_no_microphone_group(tmp_path: Path) -> None:
+    assert "Mikrofon" not in buttons(quick(listen_pause=listen_pause(tmp_path)))
+    assert "Mikrofon" not in buttons(quick())
+
+
+def test_the_pause_id_is_a_plain_slug(tmp_path: Path) -> None:
+    pause = listen_pause(tmp_path)
+    pause.start()
+
+    (action,) = quick(listen_pause=pause).groups()[0].actions
+
+    assert ACTION_ID.fullmatch(action.id)
+    assert action.listen is True
+
+
+def test_dengar_lagi_ends_the_pause(tmp_path: Path) -> None:
+    pause = listen_pause(tmp_path)
+    pause.start()
+
+    result = run(quick(listen_pause=pause), "mic.listen")
+
+    assert (result.ok, result.message) == (True, "Mendengarkan lagi.")
+    assert pause.paused() is False
+
+
+def test_a_tap_after_the_pause_ended_gets_a_friendly_answer(tmp_path: Path) -> None:
+    result = run(quick(listen_pause=listen_pause(tmp_path)), "mic.listen")
+
+    assert (result.ok, result.message) == (True, "Sudah mendengarkan.")
+
+
+def test_a_pause_that_cannot_be_ended_says_so(tmp_path: Path, monkeypatch) -> None:
+    pause = listen_pause(tmp_path)
+    pause.start()
+
+    def locked() -> bool:
+        raise PermissionError(32, "The file is used by another process")
+
+    monkeypatch.setattr(pause, "end", locked)
+
+    result = run(quick(listen_pause=pause), "mic.listen")
+
+    assert (result.ok, result.message) == (
+        False,
+        "Belum bisa mendengarkan lagi. Coba lagi sebentar.",
+    )
+
+
+def test_without_a_pause_dengar_lagi_is_unknown() -> None:
+    assert quick().find("mic.listen") is None
+
+
+def test_dengar_lagi_never_waits_for_a_slow_device(tmp_path: Path) -> None:
+    class Slow(MockDevice):
+        def __init__(self, *args, **kwargs) -> None:
+            super().__init__(*args, **kwargs)
+            self.entered = threading.Event()
+            self.release = threading.Event()
+
+        def execute(self, command: str, value: int | None = None) -> DeviceResult:
+            self.entered.set()
+            assert self.release.wait(WAIT_S)
+            return super().execute(command, value)
+
+    pause = listen_pause(tmp_path)
+    pause.start()
+    slow = Slow("kipas", "Kipas", kind="plug")
+    actions = quick({"kipas": slow}, listen_pause=pause)
+    pressing = threading.Thread(target=run, args=(actions, "dev.kipas.on"))
+    pressing.start()
+    assert slow.entered.wait(WAIT_S)
+
+    try:
+        result = run(actions, "mic.listen")
+    finally:
+        slow.release.set()
+        pressing.join(WAIT_S)
+
+    assert result.ok is True
+    assert pause.paused() is False

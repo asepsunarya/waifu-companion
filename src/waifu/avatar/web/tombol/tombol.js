@@ -3,9 +3,9 @@
 // token's prefix. The page shows the phone's buttons (GET actions), always open: the owner's switches and routines,
 // run on the PC without asking Cyrene. A click sends the button's id to POST action (actions.js) and the PC's answer
 // shows as a toast; one runs at a time. The buttons are read again every REFRESH_MS, when the window gets the focus,
-// and after a press of an alarm's button, since an alarm that rings (SPEC, "alarm bangun (v1.46)") adds its own, first,
-// while it rings.
-import { actionOutcome, actionRequest, isAlarmAction, parseActionGroups } from "../phone/actions.js";
+// and after a press of an alarm's button or "Dengar lagi", since an alarm that rings (SPEC, "alarm bangun (v1.46)")
+// adds its own, first, while it rings, and a pause of her hearing (SPEC, "hotkey global (v1.48)") adds "Dengar lagi".
+import { actionOutcome, actionRequest, isPassingAction, parseActionGroups } from "../phone/actions.js";
 import { deskText, requestDesk } from "./desk.js";
 
 const ACTIONS_URL = "actions";
@@ -108,14 +108,14 @@ function setRunning(pressed, value) {
 
 /**
  * Runs the button `id`, clicked as `button`, on the PC and toasts what it did or why it could not. An alarm's button
- * reads the buttons again, as the press may have taken the alarm's away.
+ * or "Dengar lagi" reads the buttons again, as the press may have taken its group away.
  */
 async function runQuick(button, id) {
   if (running) return;
   setRunning(button, true);
   const result = await requestDesk(fetch, ACTION_URL, actionRequest(id));
   setRunning(button, false);
-  if (isAlarmAction(id)) loadButtons({ first: false });
+  if (isPassingAction(id)) loadButtons({ first: false });
   if (result.problem) {
     showToast(deskText(result.problem));
     return;

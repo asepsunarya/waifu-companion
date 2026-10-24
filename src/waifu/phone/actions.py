@@ -21,6 +21,10 @@ menit". Its buttons are found whenever there is a bell, so a tap after the ring 
 friendly answer, and they run outside the devices' lock, so a routine another phone runs never
 delays a stop. A page still runs one press at a time (the servers' claims, the pages' own guard):
 a stop tapped where a press still runs waits for it; a stop by voice never waits.
+
+While her hearing is paused (`waifu.listen_pause`, Ctrl+Alt+Q), a group "Mikrofon" with "Dengar
+lagi" comes after the alarm's, found and run the same way: whenever there is a pause, outside
+the devices' lock.
 """
 
 from __future__ import annotations
@@ -37,6 +41,7 @@ from waifu.alarm import AlarmBell
 from waifu.config import QuickActionsConfig, RoutineConfig
 from waifu.devices.base import Device, DeviceResult
 from waifu.devices.registry import DeviceRegistry
+from waifu.listen_pause import ListenPause
 from waifu.routines import pc_power_refusal, run_routine
 from waifu.schedule import ScheduleError, ScheduleStore
 
@@ -45,7 +50,7 @@ logger = logging.getLogger(__name__)
 # What a button's id looks like: device ids, IR command names, and routine names are lowercase
 # slugs, so an id is plain ASCII.
 ACTION_ID = re.compile(
-    r"dev\.[a-z0-9_]+\.[a-z0-9_]+(\.[0-9]{1,3})?|rt\.[a-z0-9_]+|al\.(stop|snooze)"
+    r"dev\.[a-z0-9_]+\.[a-z0-9_]+(\.[0-9]{1,3})?|rt\.[a-z0-9_]+|al\.(stop|snooze)|mic\.listen"
 )
 ROUTINES_GROUP = "Rutinitas"
 ALARM_GROUP = "Alarm"
@@ -54,6 +59,10 @@ ALARM_ENDED = "Alarm sudah tidak berbunyi."
 ALARM_SNOOZED = "Alarm ditunda sampai jam {time}."
 ALARM_NOTHING_TO_SNOOZE = "Alarm sudah tidak berbunyi, jadi tidak ada yang ditunda."
 ALARM_NOT_SNOOZED = "Alarm tidak bisa ditunda: {problem}"
+LISTEN_GROUP = "Mikrofon"
+LISTENING_AGAIN = "Mendengarkan lagi."
+ALREADY_LISTENING = "Sudah mendengarkan."
+NOT_LISTENING_YET = "Belum bisa mendengarkan lagi. Coba lagi sebentar."
 # Where a refused device "never runs from", in `pc_power_refusal`'s sentence: the phone's
 # buttons unless told otherwise.
 WHERE = "tombol cepat HP"
@@ -75,8 +84,8 @@ ACTION_BUSY_TEXT = "Perintah tadi masih jalan. Tunggu sebentar."
 
 @dataclass(frozen=True)
 class QuickAction:
-    """One button: a device command (`device`, `command`, `value`), a `routine`, or what to
-    do with a ringing `alarm` ("stop" or "snooze")."""
+    """One button: a device command (`device`, `command`, `value`), a `routine`, what to
+    do with a ringing `alarm` ("stop" or "snooze"), or ending the listen pause (`listen`)."""
 
     id: str
     label: str
@@ -85,6 +94,7 @@ class QuickAction:
     value: int | None = None
     routine: str = ""
     alarm: str = ""
+    listen: bool = False
 
 
 @dataclass(frozen=True)
@@ -102,8 +112,8 @@ class QuickResult:
 
 
 class QuickActions:
-    """The buttons of `registry`'s devices and of `routines`, as `chosen` picks them, and of
-    `alarm` while it rings.
+    """The buttons of `registry`'s devices and of `routines`, as `chosen` picks them, of
+    `alarm` while it rings, and of `listen_pause` while it holds.
 
     A routine's delayed steps go into `schedule` (None: they fail, as with the schedule off),
     timed from `now`. Actions run one at a time: the devices have no locks of their own.
@@ -120,6 +130,7 @@ class QuickActions:
         now: Callable[[], datetime] = datetime.now,
         where: str = WHERE,
         alarm: AlarmBell | None = None,
+        listen_pause: ListenPause | None = None,
     ) -> None:
         self._registry = registry
         self._routines = routines
@@ -128,32 +139,42 @@ class QuickActions:
         self._now = now
         self._where = where
         self._alarm = alarm
+        self._pause = listen_pause
         self._lock = threading.Lock()
 
     def groups(self) -> list[QuickGroup]:
-        """The alarm's buttons while it rings, every device's, in config order (or `chosen`'s),
-        then the routines'."""
+        """The alarm's buttons while it rings, "Dengar lagi" while the listen pause holds,
+        every device's, in config order (or `chosen`'s), then the routines'."""
         groups = [group for device in self._devices() if (group := _device_group(device))]
         routines = self._routine_actions()
         if routines:
             groups.append(QuickGroup(ROUTINES_GROUP, routines))
+        if self._pause is not None and self._pause.paused():
+            groups.insert(0, QuickGroup(LISTEN_GROUP, (_LISTEN_ACTION,)))
         if self._alarm is not None and self._alarm.ringing():
             groups.insert(0, QuickGroup(ALARM_GROUP, self._alarm_actions()))
         return groups
 
     def find(self, action_id: str) -> QuickAction | None:
         """The button `action_id` names in the list of now, or None; the alarm's buttons
-        whenever there is a bell, ringing or not."""
+        whenever there is a bell, ringing or not, and "Dengar lagi" whenever there is a pause."""
         alarm_actions = () if self._alarm is None else self._alarm_actions()
+        listen_actions = () if self._pause is None else (_LISTEN_ACTION,)
         actions = (action for group in self.groups() for action in group.actions)
-        found = (action for action in (*alarm_actions, *actions) if action.id == action_id)
+        found = (
+            action
+            for action in (*alarm_actions, *listen_actions, *actions)
+            if action.id == action_id
+        )
         return next(found, None)
 
     def run(self, action: QuickAction) -> QuickResult:
         """Runs `action` (from `find`) and says how it went; never raises for a device's failure.
-        An alarm's button runs at once, outside the devices' lock."""
+        An alarm's button and "Dengar lagi" run at once, outside the devices' lock."""
         if action.alarm:
             return self._run_alarm(action)
+        if action.listen:
+            return self._end_pause()
         with self._lock:
             if action.routine:
                 return self._run_routine(action)
@@ -202,6 +223,17 @@ class QuickActions:
             return QuickResult(ok=False, message=ALARM_NOTHING_TO_SNOOZE)
         return QuickResult(ok=True, message=ALARM_SNOOZED.format(time=f"{entry.at:%H.%M}"))
 
+    def _end_pause(self) -> QuickResult:
+        assert self._pause is not None  # its button is found only with a pause
+        try:
+            ended = self._pause.end()
+        except OSError as exc:
+            logger.warning("Could not end the listen pause from a quick button: %s", exc)
+            return QuickResult(ok=False, message=NOT_LISTENING_YET)
+        if ended:
+            logger.info("The listen pause ended from a quick button")
+        return QuickResult(ok=True, message=LISTENING_AGAIN if ended else ALREADY_LISTENING)
+
     def _run_device(self, action: QuickAction) -> QuickResult:
         refusal = pc_power_refusal(self._registry, action.device, self._where)
         if refusal is not None:
@@ -217,6 +249,9 @@ class QuickActions:
             self._registry, routine, name=name, schedule=self._schedule, now=self._now
         )
         return _routine_outcome(_routine_label(name, routine), routine, results)
+
+
+_LISTEN_ACTION = QuickAction("mic.listen", "Dengar lagi", listen=True)
 
 
 def group_json(group: QuickGroup) -> dict[str, Any]:
