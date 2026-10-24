@@ -13,12 +13,14 @@ the offline fallback voice speaks through it, so a forgotten fake would use the 
 Windows voices. Nor the real process list: the play time watcher reads it, so a forgotten fake
 would make a test pass or fail by whether the owner is playing. Nor the owner's last keyboard or
 mouse input: the break reminder reads it, so a forgotten fake would make a test pass or fail by
-whether the owner is at the PC. Nor the owner's microphones and speakers: once sounddevice is
-imported, opening a stream, playing, recording, or restarting PortAudio is refused, and so is
-winmm's list of the microphones plugged in, which the mic switch reads.
+whether the owner is at the PC. Nor the owner's microphones and speakers: opening a sounddevice
+stream, playing, recording, or restarting PortAudio is refused, also in the test that imports
+sounddevice first, and so is winmm's list of the microphones plugged in, which the mic switch
+reads.
 """
 
 import ctypes
+import importlib.abc
 import ipaddress
 import os
 import socket
@@ -202,6 +204,55 @@ def _refusing_sounddevice(name: str, purpose: str):
     return refuse
 
 
+def _refuse_real_audio(sounddevice, monkeypatch) -> None:
+    for name, purpose in _REFUSED_SOUNDDEVICE.items():
+        monkeypatch.setattr(sounddevice, name, _refusing_sounddevice(name, purpose), raising=False)
+
+
+class _SounddeviceImportGuard(importlib.abc.MetaPathFinder):
+    """Finds sounddevice as the other finders do, with a loader that refuses its real audio
+    through the running test's `monkeypatch` as soon as the module has run: the code imports it
+    lazily, so a forgotten fake in a test run on its own is the first to import it, after the
+    fixture below looked for it. Put back after the test, like every guard: sounddevice's exit
+    handler stops PortAudio."""
+
+    def __init__(self) -> None:
+        self.monkeypatch: pytest.MonkeyPatch | None = None  # the running test's, else None
+
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname != "sounddevice" or self.monkeypatch is None:
+            return None
+        for finder in sys.meta_path:
+            find = getattr(finder, "find_spec", None)
+            spec = None if finder is self or find is None else find(fullname, path, target)
+            if spec is not None and spec.loader is not None:
+                spec.loader = _RefusingLoader(spec.loader, self.monkeypatch)
+                return spec
+        return None
+
+
+class _RefusingLoader(importlib.abc.Loader):
+    """sounddevice's own loader, refusing its real audio once the module has run."""
+
+    def __init__(self, loader, monkeypatch: pytest.MonkeyPatch) -> None:
+        self._loader = loader
+        self._monkeypatch = monkeypatch
+
+    def __getattr__(self, name: str):
+        return getattr(self._loader, name)
+
+    def create_module(self, spec):
+        return self._loader.create_module(spec)
+
+    def exec_module(self, module) -> None:
+        self._loader.exec_module(module)
+        _refuse_real_audio(module, self._monkeypatch)
+
+
+_SOUNDDEVICE_IMPORT_GUARD = _SounddeviceImportGuard()
+sys.meta_path.insert(0, _SOUNDDEVICE_IMPORT_GUARD)
+
+
 def _refuse_registry_write(*args, **kwargs):
     raise AssertionError("a test tried to write the real Windows registry")
 
@@ -273,13 +324,14 @@ def _refuse_real_power_actions(monkeypatch):
         monkeypatch.setattr(ctypes, "windll", ctypes.LibraryLoader(_guarded_windll))
     if hasattr(os, "startfile"):
         monkeypatch.setattr(os, "startfile", _refuse_startfile)
-    # Only once a test has imported it: importing it here would start PortAudio for every run.
+    # Never imported here, which would start PortAudio for every run: refused now when it was
+    # imported already, else by the import guard as the test imports it.
     sounddevice = sys.modules.get("sounddevice")
     if sounddevice is not None:
-        for name, purpose in _REFUSED_SOUNDDEVICE.items():
-            monkeypatch.setattr(
-                sounddevice, name, _refusing_sounddevice(name, purpose), raising=False
-            )
+        _refuse_real_audio(sounddevice, monkeypatch)
+    _SOUNDDEVICE_IMPORT_GUARD.monkeypatch = monkeypatch
+    yield
+    _SOUNDDEVICE_IMPORT_GUARD.monkeypatch = None
 
 
 @pytest.fixture(autouse=True)

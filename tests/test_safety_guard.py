@@ -380,6 +380,38 @@ def test_restarting_the_real_portaudio_is_refused(real_sounddevice, refused_syst
     refused_system_calls.clear()  # these were on purpose
 
 
+@pytest.fixture
+def stub_sounddevice(tmp_path, monkeypatch):
+    """`import sounddevice` in the test loads this stub as if for the first time in the run (no
+    PortAudio is loaded); whatever sys.modules held before is put back afterwards."""
+    (tmp_path / "sounddevice.py").write_text(
+        "def InputStream(*args, **kwargs):\n"
+        "    return 'a real stream'\n"
+        "\n\n"
+        "def play(*args, **kwargs):\n"
+        "    return 'played'\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setitem(sys.modules, "sounddevice", None)  # recorded, so it is put back...
+    del sys.modules["sounddevice"]  # ...and gone for the test
+    monkeypatch.syspath_prepend(str(tmp_path))
+
+
+def test_sounddevice_imported_for_the_first_time_in_a_test_is_refused_at_once(
+    stub_sounddevice, refused_system_calls
+):
+    # A forgotten fake in a test run on its own is the first to import sounddevice (the code
+    # imports it lazily): its real streams must be refused from that import on.
+    import sounddevice
+
+    with pytest.raises(AssertionError, match="open a real audio stream"):
+        sounddevice.InputStream()
+    with pytest.raises(AssertionError, match="play real audio"):
+        sounddevice.play([0.0], 16000)
+    assert refused_system_calls == ["sounddevice.InputStream", "sounddevice.play"]
+    refused_system_calls.clear()  # these were on purpose
+
+
 def test_the_real_sounddevice_still_matches_device_names(real_sounddevice, monkeypatch):
     listing = [{"name": "Headset (Polaris-BT)", "hostapi": 0, "max_input_channels": 1}]
     monkeypatch.setattr(real_sounddevice, "query_devices", lambda *args: listing)
