@@ -520,7 +520,7 @@ class Assistant:
             hearing.heard_request = True
             reply_text, hearing.tts_s = self._tell_heard()
         elif self._lexicon is not None and (
-            taught := reading_request(result.command, self._her_names)
+            taught := reading_request(result.command, self._her_names, (self._owner_call,))
         ):
             reply_text, hearing.tts_s = self._teach_reading(self._lexicon, *taught)
         else:

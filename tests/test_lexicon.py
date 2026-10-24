@@ -311,6 +311,16 @@ def test_a_reading_request_gives_the_term_and_the_reading_as_said(command, rule)
     assert reading_request(command, NAMES) == rule
 
 
+def test_masters_form_of_address_is_left_out_before_the_request_only():
+    assert reading_request(
+        "Sayang, cara baca Acheron itu A Ke Ron.", NAMES, leading=("Sayang",)
+    ) == ("Acheron", "A Ke Ron")
+    assert reading_request("cara baca GM itu Game Sayang", NAMES, leading=("Sayang",)) == (
+        "GM",
+        "Game Sayang",
+    )
+
+
 @pytest.mark.parametrize(
     ("command", "rule"),
     [

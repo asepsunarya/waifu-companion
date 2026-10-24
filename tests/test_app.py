@@ -4084,6 +4084,19 @@ def test_she_learns_a_reading_inside_the_follow_up_window_without_her_name(tmp_p
     assert rig.brain.turns == []
 
 
+def test_she_learns_a_reading_said_after_masters_form_of_address(tmp_path):
+    lexicon = Lexicon(tmp_path / "tts_lexicon.json")
+    rig = Rig(
+        "Cyrene", "Sayang, cara baca Kafka itu Kaf Ka.", config=CALLED_SAYANG, lexicon=lexicon
+    )
+
+    rig.assistant.handle_utterance(rig.utterance())
+    rig.assistant.handle_utterance(rig.utterance())
+
+    assert lexicon.read() == {"Kafka": "Kaf Ka"}
+    assert rig.brain.turns == []
+
+
 def test_a_question_about_a_reading_goes_to_the_brain_and_writes_nothing(tmp_path):
     path = tmp_path / "tts_lexicon.json"
     rig = Rig("Cyrene, cara baca HSR itu gimana?", lexicon=Lexicon(path))

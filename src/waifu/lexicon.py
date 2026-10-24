@@ -112,19 +112,22 @@ def pronounce(text: str, rules: Mapping[str, str] | None = None) -> str:
     return _pattern(tuple(built_in), tuple(rules)).sub(reading, text)
 
 
-def reading_request(command: str, names: Iterable[str] = ()) -> tuple[str, str] | None:
+def reading_request(
+    command: str, names: Iterable[str] = (), leading: Iterable[str] = ()
+) -> tuple[str, str] | None:
     """The (term, reading) of a whole "cara baca <term> itu <reading>" as said, None for
     anything else. `names` are her name and wake words: their words are left out before and
-    after it, with "master" and softeners before it and "ya", "dong", "deh" after it. A "?",
-    a question word, or a question tag ending the reading makes it a question; the term takes
-    1 to TERM_MAX_WORDS words before the first "itu", the reading 1 to READING_MAX_WORDS after
-    it."""
+    after it, with the words of `leading` (Master's form of address), "master", and softeners
+    before it and "ya", "dong", "deh" after it. A "?", a question word, or a question tag
+    ending the reading makes it a question; the term takes 1 to TERM_MAX_WORDS words before
+    the first "itu", the reading 1 to READING_MAX_WORDS after it."""
     if "?" in command:
         return None
     name_words = {word.casefold() for name in names for word in name.split()}
+    leading_words = {word.casefold() for call in leading for word in call.split()}
     words = [stripped for word in command.split() if (stripped := word.strip(_EDGE_MARKS))]
     start, end = 0, len(words)
-    while start < end and words[start].casefold() in _LEADING_SKIPPED | name_words:
+    while start < end and words[start].casefold() in _LEADING_SKIPPED | name_words | leading_words:
         start += 1
     while end > start and words[end - 1].casefold() in _TRAILING_SKIPPED | name_words:
         end -= 1
