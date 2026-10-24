@@ -2359,10 +2359,10 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 246 · **Files:** `src/waifu/cli.py`, `src/waifu/guest.py`, `tests/test_cli.py`, `tests/test_guest.py` · **Scope:** S
 
-## Task 248: `waifu rekap`
+## Task 248: `waifu rekap` ✅
 
 **Acceptance criteria:**
-- [ ] `waifu rekap [hari-ini|kemarin|YYYY-MM-DD]` prints the day, a line per part that is on, and a `✗` line and exit 1 for a part that failed; every part off is a `!` line; a bad word, date, or a date out of range is an argparse error
+- [x] `waifu rekap [hari-ini|kemarin|YYYY-MM-DD]` prints the day, a line per part that is on, and a `✗` line and exit 1 for a part that failed; every part off is a `!` line; a bad word, date, or a date out of range is an argparse error
 
 **Dependencies:** 245 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** S
 

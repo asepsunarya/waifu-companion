@@ -9139,6 +9139,141 @@ def test_with_every_part_off_she_gets_no_recap(home, brains, monkeypatch):
     assert not any(isinstance(tools, DailyRecapTools) for tools in brains[0].providers)
 
 
+RECAP_NOW = datetime(2026, 10, 24, 21, 30, tzinfo=WIB)  # a Saturday
+RECAP_NOTE = (
+    "Hanya dari catatan di PC ini: jam main dan fokus dihitung selama 'waifu run' menyala, dan "
+    "pull dari riwayat yang terakhir disimpan."
+)
+
+
+@pytest.fixture
+def recap_clock(monkeypatch) -> "FocusClock":
+    """The WIB clock of `waifu rekap` and the stores it reads, at RECAP_NOW."""
+    clock = FocusClock(RECAP_NOW)
+    monkeypatch.setattr(cli, "wib_now", clock)
+    return clock
+
+
+def test_rekap_kemarin_prints_each_part_from_the_stores_without_the_brain(home, brains, capsys):
+    enable_gacha(home)
+    yesterday = fill_yesterday(home)
+    day = f"{WEEKDAYS_ID[yesterday.weekday()]} {yesterday:%d-%m-%Y}"
+
+    assert cli.main(["rekap", "kemarin"]) == 0
+
+    assert capsys.readouterr().out.splitlines() == [
+        f"Rekap {day}, dari catatan Cyrene:",
+        "Tugas: 1 selesai, 1 masih menunggu",
+        "  selesai: kirim laporan",
+        f"  menunggu: bayar listrik, tenggat {day}",
+        "Fokus: 50 menit",
+        "Main game: 1 jam (Honkai: Star Rail 1 jam)",
+        "Gacha: Honkai: Star Rail 2 pull",
+        "Jurnal: 1 catatan",
+        "Jadwal: 23:00 rutinitas tidur",
+        RECAP_NOTE,
+    ]
+    assert brains == []
+
+
+def test_rekap_prints_today_until_now_with_tidak_ada_for_an_empty_part_and_makes_no_file(
+    home, recap_clock, capsys
+):
+    assert cli.main(["rekap"]) == 0
+
+    assert capsys.readouterr().out.splitlines() == [
+        "Rekap Sabtu 24-10-2026, sampai 21:30, dari catatan Cyrene:",
+        "Tugas: tidak ada",
+        "Fokus: tidak ada",
+        "Main game: tidak ada",
+        "Jurnal: tidak ada",
+        "Jadwal: tidak ada",
+        RECAP_NOTE,
+    ]
+    assert not (home / "data").exists()
+
+
+def test_rekap_names_each_top_pull_the_words_learned_and_what_is_still_to_come(
+    home, recap_clock, capsys
+):
+    enable_gacha(home)
+    turn_on_japanese(home)
+    word = load_words()[0]
+    lessons = JapaneseStore(japanese_file(home), now=recap_clock)
+    lessons.learn(word.id, RECAP_NOW.date())
+    lessons.grade(word.id, True, RECAP_NOW.date())
+    noon = f"{RECAP_NOW.replace(hour=12).astimezone(SERVER_TIME):%Y-%m-%d %H:%M:%S}"
+    records = [GachaRecord(i, 800000001, 11, "Arrows", 3, "Light Cone", noon) for i in range(1, 10)]
+    records.append(GachaRecord(10, 800000001, 11, "Acheron", 5, "Character", noon))
+    GachaStore(home / "data" / "gacha").save(GAMES["hsr"], 800000001, records, complete=True)
+    store = ScheduleStore(schedule_file(home), now=lambda: datetime(2026, 10, 24, 8, 0))
+    store.add(datetime(2026, 10, 24, 22, 0), "none", Reminder("telepon Ibu"))
+    store.add(datetime(2026, 10, 24, 9, 0), "none", Reminder("minum vitamin"))
+
+    assert cli.main(["rekap", "hari-ini"]) == 0
+
+    lines = capsys.readouterr().out.splitlines()
+    assert "Gacha: Honkai: Star Rail 10 pull, 5★ Acheron (10 pull, menang 50/50)" in lines
+    assert f"Kata Jepang: 1 kata baru ({word.kana}: {word.meaning}), 1 kata diulang" in lines
+    assert "Jadwal: 09:00 minum vitamin; 22:00 telepon Ibu (nanti)" in lines
+
+
+def test_rekap_marks_a_part_that_fails_prints_the_rest_and_exits_1(
+    home, recap_clock, monkeypatch, capsys
+):
+    def unreadable(self, since, until):
+        raise PermissionError("access denied")
+
+    monkeypatch.setattr(FocusStore, "totals", unreadable)
+
+    assert cli.main(["rekap"]) == 1
+
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[1:4] == [
+        "Tugas: tidak ada",
+        "✗ Catatan fokus tidak bisa dibaca saat ini.",
+        "Main game: tidak ada",
+    ]
+
+
+def test_rekap_with_every_part_off_says_so(home, recap_clock, capsys):
+    for section in ("todo", "focus", "play_time", "journal", "schedule"):
+        append_config(home, f"{section}:\n  enabled: false\n")
+
+    assert cli.main(["rekap"]) == 0
+
+    assert capsys.readouterr().out.splitlines() == [
+        "! Rekap kosong: semua catatan yang dibacanya mati (todo, focus, play_time, gacha, "
+        "japanese, journal, schedule)."
+    ]
+
+
+@pytest.mark.parametrize("day", ["besok", "24-10-2026", "2026-02-30", "minggu-lalu"])
+def test_rekap_refuses_another_word_or_a_date_not_written_yyyy_mm_dd(
+    day, home, recap_clock, capsys
+):
+    with pytest.raises(SystemExit) as exited:
+        cli.main(["rekap", day])
+
+    assert exited.value.code == 2
+    assert "tulis hari-ini, kemarin, atau tanggal YYYY-MM-DD" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    ("day", "message"),
+    [
+        ("2026-10-25", "Hari itu belum terjadi"),
+        ("2026-09-23", "Rekap hanya sampai 30 hari ke belakang, paling jauh Kamis 24-09-2026."),
+    ],
+)
+def test_rekap_refuses_a_day_out_of_range(day, message, home, recap_clock, capsys):
+    with pytest.raises(SystemExit) as exited:
+        cli.main(["rekap", day])
+
+    assert exited.value.code == 2
+    assert message in capsys.readouterr().err
+
+
 # --- versi baru --------------------------------------------------------------------------------
 
 V111 = Release("v1.11", "memotong bicaranya")

@@ -970,7 +970,7 @@ optional parameters, and 0 of 16 unions stay.
 - [x] Task 245: the gatherer (`recap.py`): the parts, per-part isolation, the JSON
 - [x] Task 246: the `daily_recap` tool, her own turns
 - [x] Task 247: the brain gets it: the sources, guest mode, the strict budget
-- [ ] Task 248: `waifu rekap`
+- [x] Task 248: `waifu rekap`
 - [ ] Task 249: README, CHANGELOG
 
 ### Checkpoint: Rekap hari ini

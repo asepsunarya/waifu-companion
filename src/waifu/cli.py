@@ -37,7 +37,7 @@ from itertools import count, groupby
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from time import sleep
-from typing import TYPE_CHECKING, Any, get_args
+from typing import TYPE_CHECKING, Any, Literal, get_args
 
 import httpx
 import numpy as np
@@ -224,7 +224,18 @@ from waifu.prayer_times import PRAYERS, prayer_times
 from waifu.prayer_watch import PrayerWatcher
 from waifu.processes import running_executables
 from waifu.rain_watch import RainWatcher, RainWindow, rain_window, raining_now, spoken_hour
-from waifu.recap import DailyRecap, FocusSeconds, StoredPulls
+from waifu.recap import (
+    DailyRecap,
+    FocusSeconds,
+    GamePulls,
+    Planned,
+    PlayDay,
+    RecapError,
+    StoredPulls,
+    TasksDay,
+    WordsDay,
+    recap_day,
+)
 from waifu.routines import describe_routine, describe_step, routine_problems, run_routine
 from waifu.schedule import (
     Action,
@@ -749,6 +760,21 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="hari",
         help="hari-ini (sisa hari ini, bawaan), besok, akhir-pekan, atau tanggal YYYY-MM-DD",
     )
+    recap = command(
+        "rekap",
+        _recap,
+        "Tampilkan rekap hari ini, kemarin, atau tanggal lain sampai 30 hari ke belakang dari "
+        "catatan di PC ini (tugas, fokus, jam main, pull, kata Jepang, jurnal, jadwal), tanpa "
+        "otak.",
+    )
+    recap.add_argument(
+        "day",
+        nargs="?",
+        type=_recap_day,
+        default="hari-ini",
+        metavar="hari",
+        help="hari-ini (sampai sekarang, bawaan), kemarin, atau tanggal YYYY-MM-DD",
+    )
     usage = command(
         "usage",
         _usage,
@@ -1221,6 +1247,25 @@ def _forecast_day(text: str) -> str | date:
             "tulis hari-ini, besok, akhir-pekan, atau tanggal YYYY-MM-DD, misalnya 2026-10-25, "
             f"bukan {text!r}"
         ) from None
+
+
+def _recap_day(text: str) -> date:
+    """`hari-ini`, `kemarin`, or a date written exactly YYYY-MM-DD, from 30 days ago up to
+    today (WIB)."""
+    if text in RECAP_DAYS:
+        day = RECAP_DAYS[text]
+    else:
+        try:
+            day = _due_date(text)
+        except argparse.ArgumentTypeError:
+            raise argparse.ArgumentTypeError(
+                "tulis hari-ini, kemarin, atau tanggal YYYY-MM-DD, misalnya 2026-10-23, "
+                f"bukan {text!r}"
+            ) from None
+    try:
+        return recap_day(day, wib_now().date())
+    except RecapError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from None
 
 
 def _transaction_count(text: str) -> int:
@@ -4190,6 +4235,121 @@ def _focus_seconds(config: AppConfig, timer: FocusTimer | None) -> FocusSeconds 
         return None
     store = _focus_store(config)
     return lambda since, until: store.totals(since, until).seconds
+
+
+# `waifu rekap`'s words for the days.
+RECAP_DAYS: dict[str, Literal["today", "yesterday"]] = {"hari-ini": "today", "kemarin": "yesterday"}
+# The config sections whose switches turn the recap's parts on, in the parts' order.
+RECAP_SWITCHES = ("todo", "focus", "play_time", "gacha", "japanese", "journal", "schedule")
+RECAP_NOTE = (
+    "Hanya dari catatan di PC ini: jam main dan fokus dihitung selama 'waifu run' menyala, dan "
+    "pull dari riwayat yang terakhir disimpan."
+)
+
+
+def _recap(args: argparse.Namespace) -> int:
+    """Print the recap of the day asked (today up to now by default) from the records of the
+    features that are on, read as the `daily_recap` tool reads them, without the brain: a line
+    per part, and a `✗` line for a part that cannot be read. Exit 1 when one cannot."""
+    config = load_config(args.config)
+    schedule = _schedule_store(config) if config.schedule.enabled else None
+    recap = _daily_recap(config, schedule)
+    if not recap.parts:
+        print(
+            f"{WARN} Rekap kosong: semua catatan yang dibacanya mati ({', '.join(RECAP_SWITCHES)})."
+        )
+        return 0
+    day = recap.gather(args.day)
+    until = f", sampai {day.now:%H:%M}" if day.is_today else ""
+    print(f"Rekap {_day_text(day.day)}{until}, dari catatan {config.assistant.name}:")
+    for part in recap.parts:
+        value = getattr(day, part)
+        if value is not None:
+            print("\n".join(_RECAP_LINES[part](value)))
+        if part in day.problems:
+            print(f"{FAIL} {day.problems[part]}")
+    print(RECAP_NOTE)
+    return 1 if day.problems else 0
+
+
+def _tasks_lines(tasks: TasksDay) -> list[str]:
+    if not (tasks.done or tasks.still_due):
+        return ["Tugas: tidak ada"]
+    return [
+        f"Tugas: {len(tasks.done)} selesai, {len(tasks.still_due)} masih menunggu",
+        *(f"  selesai: {task.text}" for task in tasks.done),
+        *(
+            f"  menunggu: {task.text}, tenggat {_day_text(task.due)}"
+            for task in tasks.still_due
+            if task.due is not None
+        ),
+    ]
+
+
+def _focus_lines(seconds: int) -> list[str]:
+    return [f"Fokus: {_play_duration(seconds) if whole_minutes(seconds) else 'tidak ada'}"]
+
+
+def _play_lines(play: PlayDay) -> list[str]:
+    if not whole_minutes(play.seconds):
+        return ["Main game: tidak ada"]
+    games = ", ".join(
+        f"{GAMES[game.game].name} {_play_duration(game.seconds)}"
+        for game in play.games
+        if whole_minutes(game.seconds)
+    )
+    return [f"Main game: {_play_duration(play.seconds)} ({games})"]
+
+
+def _pulls_lines(pulls: tuple[GamePulls, ...]) -> list[str]:
+    if not pulls:
+        return ["Gacha: tidak ada"]
+    return [f"Gacha: {'; '.join(_game_pulls_text(game) for game in pulls)}"]
+
+
+def _game_pulls_text(pulls: GamePulls) -> str:
+    """`Honkai: Star Rail 10 pull, 5★ Acheron (10 pull, menang 50/50)`."""
+    game = pulls.game
+    rarity = "S" if game.id == "zzz" else "5★"
+    tops = [top for banner in pulls.banners for top in banner.tops]
+    texts = [f"{game.name} {pulls.count} pull"]
+    for top in sorted(tops, key=lambda top: (top.time, top.id)):
+        fifty = {True: ", menang 50/50", False: ", kalah 50/50", None: ""}[top.won_5050]
+        texts.append(f"{rarity} {top.name} ({top.pulls} pull{fifty})")
+    return ", ".join(texts)
+
+
+def _words_lines(words: WordsDay) -> list[str]:
+    if not (words.learned or words.reviewed):
+        return ["Kata Jepang: tidak ada"]
+    learned = ", ".join(f"{word.kana}: {word.meaning}" for word in words.learned)
+    new = f"{len(words.learned)} kata baru ({learned})" if words.learned else "0 kata baru"
+    return [f"Kata Jepang: {new}, {words.reviewed} kata diulang"]
+
+
+def _journal_lines(notes: int) -> list[str]:
+    return [f"Jurnal: {notes} catatan" if notes else "Jurnal: tidak ada"]
+
+
+def _schedule_lines(planned: tuple[Planned, ...]) -> list[str]:
+    if not planned:
+        return ["Jadwal: tidak ada"]
+    entries = "; ".join(
+        f"{item.at:%H:%M} {item.what}{'' if item.passed else ' (nanti)'}" for item in planned
+    )
+    return [f"Jadwal: {entries}"]
+
+
+# Each part of the recap as `waifu rekap` prints it, by its name in `recap.PARTS`.
+_RECAP_LINES: dict[str, Callable[[Any], list[str]]] = {
+    "tasks": _tasks_lines,
+    "focus": _focus_lines,
+    "play_time": _play_lines,
+    "gacha": _pulls_lines,
+    "japanese": _words_lines,
+    "journal": _journal_lines,
+    "schedule": _schedule_lines,
+}
 
 
 # --- the running version -----------------------------------------------------------------------
