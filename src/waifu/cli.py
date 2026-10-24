@@ -109,6 +109,7 @@ from waifu.config import (
     cookie_names,
     load_config,
 )
+from waifu.config_patch import Change, apply_changes, snippet
 from waifu.devices.base import DeviceError, DeviceResult
 from waifu.devices.ir_codes import COMMAND_PATTERN, IrCodeStoreError
 from waifu.devices.ir_device import IrDevice
@@ -445,6 +446,13 @@ NOTIFY_OFF = (
 )
 NOTIFY_TEST_MESSAGE = "Tes notifikasi dari {name}. Kalau ini muncul di HP, notifikasi sudah siap."
 NOTIFY_TAG = "video_game"  # ntfy shows it as a game controller emoji
+# `waifu setup`: its steps in the order `all` runs them, and what Master may answer.
+SETUP_STEPS = ("mic",)
+SETUP_TITLES = {"mic": "Mikrofon"}
+YES_WORDS = frozenset({"y", "ya", "iya", "yes", "ok", "oke"})
+NO_WORDS = frozenset({"n", "no", "tidak", "ga", "gak", "nggak", "enggak", "t"})
+SKIP_WORD = "l"  # lewati
+StepOutcome = Literal["written", "failed", "unchanged"]
 GACHA_DESCRIPTION = (
     "Teman main game HoYoverse: status stamina dan daily, check-in harian HoYoLAB, "
     "riwayat pull (pity, 50/50), data akun game (karakter, endgame, kalender event), kode "
@@ -784,6 +792,19 @@ def build_parser() -> argparse.ArgumentParser:
         default=MIC_CHECK_SECONDS,
         metavar="DETIK",
         help=f"lama mendengarkan tiap mic (default {MIC_CHECK_SECONDS:g})",
+    )
+    setup = command(
+        "setup",
+        _setup,
+        "Panduan setup pertama, langkah demi langkah: jawabanmu ditulis langsung ke config.yaml "
+        "(isi sebelumnya disimpan di folder data). Tiap langkah bisa dilewati.",
+    )
+    setup.add_argument(
+        "step",
+        nargs="?",
+        default="all",
+        choices=[*SETUP_STEPS, "all"],
+        help="satu langkah saja; tanpa ini (all) semua langkah berurutan, lalu waifu check",
     )
     command(
         "voices",
@@ -6659,6 +6680,153 @@ def _youtube(args: argparse.Namespace) -> int:
         return 1
     print(f"{OK} {opened}: {link}")
     return 0
+
+
+# --- panduan setup ---------------------------------------------------------------------------
+
+
+class _SetupStopped(Exception):
+    """Master's input ended: setup stops where it is."""
+
+
+def _setup(args: argparse.Namespace) -> int:
+    """The first setup, step by step in the terminal; with `all`, `check` afterwards."""
+    steps = SETUP_STEPS if args.step == "all" else (args.step,)
+    outcomes: list[StepOutcome] = []
+    stopped = False
+    try:
+        for number, step in enumerate(steps, start=1):
+            if len(steps) > 1:
+                print(f"\n== {number}/{len(steps)} {SETUP_TITLES[step]} ==")
+            outcomes.append(_SETUP_HANDLERS[step](args))
+    except _SetupStopped:
+        print("Setup berhenti.")
+        stopped = True
+    if "written" in outcomes and _running_status(RUN_LOCK, RUNNING_FILE)[0]:
+        print(
+            f"{WARN} 'waifu run' sedang berjalan: tutup lalu jalankan lagi supaya perubahan ini "
+            "dipakai."
+        )
+    if args.step == "all" and not stopped:
+        print("\n== Pemeriksaan (waifu check) ==")
+        return _check(args)
+    return 1 if "failed" in outcomes else 0
+
+
+def _ask(question: str) -> str:
+    """Master's answer, stripped; the end of his input stops setup."""
+    try:
+        return input(f"{question} ").strip()
+    except EOFError:
+        print()
+        raise _SetupStopped from None
+
+
+def _ask_yes(question: str, *, default: bool) -> bool:
+    hint = "(Y/n)" if default else "(y/N)"
+    while True:
+        reply = _ask(f"{question} {hint}").lower()
+        if not reply:
+            return default
+        if reply in YES_WORDS:
+            return True
+        if reply in NO_WORDS:
+            return False
+        print("Jawab y atau n.")
+
+
+def _ask_numbers(question: str, count: int) -> list[int] | None:
+    """Numbers 1 to `count` in the order typed (Enter = 1); None when Master skips."""
+    while True:
+        reply = _ask(question).lower()
+        if reply == SKIP_WORD:
+            return None
+        if not reply:
+            return [1]
+        words = reply.replace(",", " ").split()
+        numbers = [int(word) for word in words if word.isascii() and word.isdecimal()]
+        unique = len(numbers) == len(words) == len(set(numbers))
+        if unique and all(1 <= number <= count for number in numbers):
+            return numbers
+        print(f"Ketik nomor 1 sampai {count} (beberapa dipisah koma), atau {SKIP_WORD}.")
+
+
+def _write_config(config_path: Path, changes: list[Change]) -> bool:
+    """Writes `changes` into config.yaml through the patcher; on failure, the snippet to paste
+    by hand, every local key hidden."""
+    outcome = apply_changes(config_path, changes)
+    if outcome.written:
+        print(f"{OK} {config_path} diperbarui: {', '.join(change.path for change in changes)}.")
+        print(f"  Isi sebelumnya tersimpan di {outcome.backup}.")
+        return True
+    print(f"{FAIL} {config_path} tidak diubah: {outcome.problem}.")
+    if outcome.backup is not None:
+        print(f"  Isi sebelumnya tersimpan di {outcome.backup}.")
+    print(f"Ubah sendiri di {config_path}, hanya kunci yang disebut di sini:")
+    print("".join(f"    {line}\n" for line in snippet(changes).splitlines()), end="")
+    if any(change.secret for change in changes):
+        print(
+            'local_key yang disembunyikan: salin nilai "key" dari devices.json pada perangkat '
+            'yang "id"-nya sama dengan device_id di atas.'
+        )
+    return False
+
+
+def _setup_mic(args: argparse.Namespace) -> StepOutcome:
+    """Measures each mic while Master speaks and writes the one, or the ones in order, he picks
+    as audio.input_device."""
+    config = load_config(args.config)
+    import sounddevice
+
+    devices = input_devices(sounddevice)
+    if not devices:
+        print(f"{FAIL} {NO_MIC_FOUND}")
+        return "unchanged"
+    picked, _ = _list_mics(sounddevice, devices, config)
+    print(
+        f"\nTiap mic didengarkan {MIC_CHECK_SECONDS:g} detik: sebut 'halo Cyrene' beberapa kali "
+        "dengan suara biasa. Rekamannya tidak disimpan."
+    )
+    if not _ask_yes("Ukur sekarang?", default=True):
+        print("Mikrofon dilewati.")
+        return "unchanged"
+    heard = _measure_mics(sounddevice, devices, MIC_CHECK_SECONDS, config.audio)
+    print()
+    if not heard:
+        print(f"{FAIL} {NO_MIC_HEARD.format(command='waifu setup mic')}")
+        return "unchanged"
+    ranked = sorted(heard, key=lambda pair: _speech_margin(pair[1]), reverse=True)
+    print("Mic yang mendengar suaramu, paling jelas dulu:")
+    for number, (device, found) in enumerate(ranked, start=1):
+        margin = _speech_margin(found)
+        print(f"  {number}. {device.config_value} ({margin:+.0f} dB dari batas dengar)")
+    numbers = _ask_numbers(
+        "Pilih nomornya. Beberapa nomor (misalnya 1,2) = urutan cadangan kalau yang pertama "
+        f"terputus. Enter = 1, {SKIP_WORD} = lewati:",
+        len(ranked),
+    )
+    if numbers is None:
+        print("Mikrofon dilewati.")
+        return "unchanged"
+    names = [ranked[number - 1][0].config_value for number in numbers]
+    chosen: str | list[str | int] = names[0] if len(names) == 1 else list(names)
+    if config.audio.input_device == chosen:
+        print(f"{OK} audio.input_device sudah begitu; tidak ada yang diubah.")
+        return "unchanged"
+    if picked is not None:
+        print(
+            f"{WARN} Mic yang dipilih di HP ({picked}) tetap dicoba lebih dulu daripada "
+            "audio.input_device; ganti di halaman Suara di HP kalau perlu."
+        )
+    if not _write_config(args.config, [Change(("audio", "input_device"), chosen)]):
+        return "failed"
+    print("Lalu daftarkan ulang suaramu lewat mic itu: waifu enroll")
+    return "written"
+
+
+_SETUP_HANDLERS: dict[str, Callable[[argparse.Namespace], StepOutcome]] = {
+    "mic": _setup_mic,
+}
 
 
 # --- check -----------------------------------------------------------------------------------

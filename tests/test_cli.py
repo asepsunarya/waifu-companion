@@ -18961,3 +18961,157 @@ def test_check_says_the_hotkeys_need_windows(home, nothing_installed, capsys, mo
     cli.main(["check"])
 
     assert hotkeys_lines(capsys.readouterr().out) == ["! Hotkey global hanya ada di Windows"]
+
+
+# --- panduan setup (v1.51) -------------------------------------------------------------------
+
+
+def answer(monkeypatch, *lines: str) -> None:
+    """What Master types, one answer per line; his input ends after the last."""
+    monkeypatch.setattr(sys, "stdin", io.StringIO("".join(f"{line}\n" for line in lines)))
+
+
+def config_backups(home: Path) -> list[Path]:
+    folder = home / "data"
+    return sorted(folder.glob("config.yaml.bak-*")) if folder.exists() else []
+
+
+def setup_config(home: Path) -> cli.AppConfig:
+    return cli.load_config(home / "config.yaml")
+
+
+def test_setup_mic_measures_each_mic_and_writes_the_clearest_on_enter(home, monkeypatch, capsys):
+    sd = use_sounddevice(
+        monkeypatch,
+        FakeSoundDevice(heard={HEADSET_MIC: master_speaking(), ONBOARD_MIC: noise_floor()}),
+    )
+    original = (home / "config.yaml").read_bytes()
+    answer(monkeypatch, "", "")
+
+    assert cli.main(["setup", "mic"]) == 0
+
+    out = capsys.readouterr().out
+    assert "Mic yang mendengar suaramu, paling jelas dulu:\n  1. Headset (Polaris-BT), MME (" in out
+    assert setup_config(home).audio.input_device == "Headset (Polaris-BT), MME"
+    [backup] = config_backups(home)
+    assert backup.read_bytes() == original
+    assert "✓ config.yaml diperbarui: audio.input_device." in out
+    assert "waifu enroll" in out
+    assert sd.opened == [(HEADSET_MIC, MIC_RATE), (ONBOARD_MIC, MIC_RATE)]
+
+
+def test_setup_mic_writes_several_mics_in_the_order_typed(home, monkeypatch):
+    heard = {HEADSET_MIC: master_speaking(), ONBOARD_MIC: master_speaking_softly_by_a_click()}
+    use_sounddevice(monkeypatch, FakeSoundDevice(heard=heard))
+    answer(monkeypatch, "y", "2, 1")
+
+    assert cli.main(["setup", "mic"]) == 0
+
+    assert setup_config(home).audio.input_device == [
+        "Microphone (High Definition Aud, MME",
+        "Headset (Polaris-BT), MME",
+    ]
+
+
+def test_setup_mic_asks_again_after_an_answer_it_cannot_use(home, monkeypatch, capsys):
+    use_sounddevice(monkeypatch, FakeSoundDevice(heard={HEADSET_MIC: master_speaking()}))
+    answer(monkeypatch, "", "2", "satu", "1,1", "1")
+
+    assert cli.main(["setup", "mic"]) == 0
+
+    assert capsys.readouterr().out.count("Ketik nomor 1 sampai 1") == 3
+    assert setup_config(home).audio.input_device == "Headset (Polaris-BT), MME"
+
+
+def test_setup_mic_skipped_measures_and_writes_nothing(home, monkeypatch, capsys):
+    sd = use_sounddevice(monkeypatch, FakeSoundDevice(heard={HEADSET_MIC: master_speaking()}))
+    original = (home / "config.yaml").read_bytes()
+    answer(monkeypatch, "n")
+
+    assert cli.main(["setup", "mic"]) == 0
+
+    assert "Mikrofon dilewati." in capsys.readouterr().out
+    assert sd.opened == []
+    assert (home / "config.yaml").read_bytes() == original
+    assert not (home / "data").exists()
+
+
+def test_setup_mic_skipped_at_the_pick_writes_nothing(home, monkeypatch, capsys):
+    use_sounddevice(monkeypatch, FakeSoundDevice(heard={HEADSET_MIC: master_speaking()}))
+    answer(monkeypatch, "", "l")
+
+    assert cli.main(["setup", "mic"]) == 0
+
+    assert "Mikrofon dilewati." in capsys.readouterr().out
+    assert config_backups(home) == []
+
+
+def test_setup_mic_writes_nothing_when_the_pick_is_already_set(home, monkeypatch, capsys):
+    use_input_device(home, "Headset (Polaris-BT), MME")
+    use_sounddevice(monkeypatch, FakeSoundDevice(heard={HEADSET_MIC: master_speaking()}))
+    original = (home / "config.yaml").read_bytes()
+    answer(monkeypatch, "", "")
+
+    assert cli.main(["setup", "mic"]) == 0
+
+    out = capsys.readouterr().out
+    assert "✓ audio.input_device sudah begitu; tidak ada yang diubah." in out
+    assert (home / "config.yaml").read_bytes() == original
+    assert config_backups(home) == []
+
+
+def test_setup_mic_says_a_mic_picked_on_the_phone_still_leads(home, monkeypatch, capsys):
+    write_override(home, input_device="Microphone (High Definition Aud, MME")
+    use_sounddevice(monkeypatch, FakeSoundDevice(heard={HEADSET_MIC: master_speaking()}))
+    answer(monkeypatch, "", "")
+
+    assert cli.main(["setup", "mic"]) == 0
+
+    assert (
+        "! Mic yang dipilih di HP (Microphone (High Definition Aud, MME) tetap dicoba lebih "
+        "dulu daripada audio.input_device"
+    ) in capsys.readouterr().out
+    assert setup_config(home).audio.input_device == "Headset (Polaris-BT), MME"
+
+
+def test_setup_mic_with_no_mic_hearing_master_writes_nothing(home, monkeypatch, capsys):
+    use_sounddevice(monkeypatch, FakeSoundDevice(heard={ONBOARD_MIC: noise_floor()}))
+    answer(monkeypatch, "")
+
+    assert cli.main(["setup", "mic"]) == 0
+
+    assert f"✗ {cli.NO_MIC_HEARD.format(command='waifu setup mic')}" in capsys.readouterr().out
+    assert config_backups(home) == []
+
+
+def test_setup_mic_without_any_mic_says_so(home, monkeypatch, capsys):
+    outputs = [device for device in OWNER_AUDIO_DEVICES if not device["max_input_channels"]]
+    use_sounddevice(monkeypatch, FakeSoundDevice(outputs, default_input=-1))
+    answer(monkeypatch)
+
+    assert cli.main(["setup", "mic"]) == 0
+
+    assert f"✗ {cli.NO_MIC_FOUND}" in capsys.readouterr().out
+
+
+def test_setup_hands_over_the_line_when_config_yaml_cannot_be_patched(home, monkeypatch, capsys):
+    write_config(home, "audio: {input_device: null}\n")
+    use_sounddevice(monkeypatch, FakeSoundDevice(heard={HEADSET_MIC: master_speaking()}))
+    answer(monkeypatch, "", "")
+
+    assert cli.main(["setup", "mic"]) == 1
+
+    out = capsys.readouterr().out
+    assert "✗ config.yaml tidak diubah: audio tidak ditulis sebagai blok bertingkat." in out
+    assert '    audio:\n      input_device: "Headset (Polaris-BT), MME"\n' in out
+    assert setup_config(home).audio.input_device is None
+
+
+def test_setup_stops_when_input_ends(home, monkeypatch, capsys):
+    use_sounddevice(monkeypatch, FakeSoundDevice(heard={HEADSET_MIC: master_speaking()}))
+    answer(monkeypatch)
+
+    assert cli.main(["setup", "mic"]) == 0
+
+    assert capsys.readouterr().out.endswith("Setup berhenti.\n")
+    assert config_backups(home) == []
