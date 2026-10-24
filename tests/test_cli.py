@@ -171,7 +171,14 @@ from waifu.play_time import PlayTimeStore, Session
 from waifu.prayer import NO_PLACE as PRAYER_NO_PLACE
 from waifu.prayer_times import prayer_times
 from waifu.processes import running_executables
-from waifu.schedule import DeviceAction, Entry, Reminder, RoutineAction, ScheduleStore
+from waifu.schedule import (
+    AlarmAction,
+    DeviceAction,
+    Entry,
+    Reminder,
+    RoutineAction,
+    ScheduleStore,
+)
 from waifu.scheduler import MONTHS_ID, Scheduler
 from waifu.screen import ScreenImage
 from waifu.single_instance import InstanceLock
@@ -7359,6 +7366,22 @@ def test_schedule_list_and_cancel_say_the_weekday_or_the_day_a_calendar_entry_re
         "j4  Minggu 28-02-2027 08:00  tiap 29 Februari  perangkat lampu_kamar on",
         'j3  Rabu 05-05-2027 08:00    tiap 5 Mei        pengingat "Master, ulang tahun Ibu!"',
         "✓ Dibatalkan j4: perangkat lampu_kamar on, Minggu 28-02-2027 08:00, tiap 29 Februari",
+    ]
+
+
+def test_schedule_list_and_cancel_name_an_alarm_with_its_label(home, capsys):
+    store = ScheduleStore(schedule_file(home), now=lambda: SAVED_ON)
+    store.add(datetime(2026, 10, 14, 6, 0), "weekdays", AlarmAction("berangkat kerja"))
+    store.add(datetime(2026, 10, 14, 5, 30), "none", AlarmAction())
+
+    assert cli.main(["schedule", "list"]) == 0
+    assert cli.main(["schedule", "cancel", "j2"]) == 0
+
+    assert capsys.readouterr().out.splitlines() == [
+        "ID  BERIKUTNYA             ULANG            ISI",
+        "j2  Rabu 14-10-2026 05:30  sekali           alarm",
+        'j1  Rabu 14-10-2026 06:00  tiap hari kerja  alarm "berangkat kerja"',
+        "✓ Dibatalkan j2: alarm, Rabu 14-10-2026 05:30, sekali",
     ]
 
 

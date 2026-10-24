@@ -239,6 +239,7 @@ from waifu.recap import (
 from waifu.routines import describe_routine, describe_step, routine_problems, run_routine
 from waifu.schedule import (
     Action,
+    AlarmAction,
     DeviceAction,
     Entry,
     Reminder,
@@ -3638,6 +3639,8 @@ def _action_text(action: Action) -> str:
     if isinstance(action, DeviceAction):
         routine = f" (rutinitas {action.routine})" if action.routine is not None else ""
         return f"perangkat {_command_text(action.device, action.command, action.value)}{routine}"
+    if isinstance(action, AlarmAction):
+        return "alarm" if action.label is None else f'alarm "{action.label}"'
     return f"rutinitas {action.name}"
 
 

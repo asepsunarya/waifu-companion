@@ -8,6 +8,7 @@ import pytest
 
 from waifu import schedule
 from waifu.schedule import (
+    AlarmAction,
     DeviceAction,
     Entry,
     Reminder,
@@ -70,12 +71,18 @@ def test_an_entry_and_its_actions_are_frozen():
         MEDICINE,
         DeviceAction("ac", "temp", 26),
         RoutineAction("tidur"),
+        AlarmAction("berangkat kerja"),
     ]
 
     for value in frozen:
         field = dataclasses.fields(value)[0].name
         with pytest.raises(dataclasses.FrozenInstanceError):
             setattr(value, field, "lain")
+
+
+def test_an_alarm_has_no_label_unless_it_says_so():
+    assert AlarmAction() == AlarmAction(None)
+    assert AlarmAction("berangkat kerja").label == "berangkat kerja"
 
 
 def test_a_device_action_without_a_value_has_none():
@@ -905,6 +912,86 @@ def test_a_routine_step_is_saved_with_its_routine_and_read_back(tmp_path):
     assert added.action == delayed
 
 
+def test_an_alarm_is_saved_with_its_label_and_read_back(tmp_path):
+    store = make_store(tmp_path)
+
+    added = store.add(TODAY_15, "weekdays", AlarmAction("berangkat kerja"))
+
+    assert read_json(store.path)["entries"][0]["action"] == {
+        "type": "alarm",
+        "label": "berangkat kerja",
+    }
+    assert make_store(tmp_path).entries() == [added]
+    assert added.action == AlarmAction("berangkat kerja")
+
+
+def test_an_alarm_without_a_label_is_saved_without_the_label_key(tmp_path):
+    store = make_store(tmp_path)
+
+    added = store.add(TODAY_15, "none", AlarmAction())
+
+    assert read_json(store.path)["entries"][0]["action"] == {"type": "alarm"}
+    assert make_store(tmp_path).entries() == [added]
+
+
+def test_an_alarm_label_is_stripped_and_its_whitespace_collapsed(tmp_path):
+    store = make_store(tmp_path)
+
+    added = store.add(TODAY_15, "none", AlarmAction("  berangkat\n  kerja  "))
+
+    assert added.action == AlarmAction("berangkat kerja")
+
+
+@pytest.mark.parametrize("label", ["", "   ", "\n"])
+def test_an_empty_alarm_label_is_no_label(tmp_path, label):
+    store = make_store(tmp_path)
+
+    added = store.add(TODAY_15, "none", AlarmAction(label))
+
+    assert added.action == AlarmAction()
+
+
+def test_an_alarm_label_of_100_characters_is_saved_and_a_longer_one_refused(tmp_path):
+    store = make_store(tmp_path)
+
+    store.add(TODAY_15, "none", AlarmAction("a" * 100))
+    with pytest.raises(ScheduleError) as refused:
+        store.add(TODAY_15, "none", AlarmAction("a" * 101))
+
+    assert str(refused.value) == "Label alarmnya terlalu panjang, paling banyak 100 karakter."
+    assert len(store.entries()) == 1
+
+
+def test_an_alarm_label_that_is_not_text_is_refused(tmp_path):
+    store = make_store(tmp_path)
+
+    with pytest.raises(ScheduleError, match="Label alarm"):
+        store.add(TODAY_15, "none", AlarmAction(7))
+
+    assert not store.path.exists()
+
+
+def test_a_fired_daily_alarm_moves_to_tomorrow_with_its_label(tmp_path):
+    clock = Clock()
+    store = make_store(tmp_path, clock)
+    store.add(TODAY_15, "daily", AlarmAction("minum obat"))
+    clock.current = TODAY_15
+
+    moved = store.fired("j1", TODAY_15)
+
+    assert moved is not None
+    assert (moved.at, moved.action) == (TODAY_15 + timedelta(days=1), AlarmAction("minum obat"))
+
+
+def test_an_unknown_kind_of_action_is_refused_naming_the_four_kinds(tmp_path):
+    with pytest.raises(ScheduleError) as refused:
+        make_store(tmp_path).add(TODAY_15, "none", "bangunkan aku")
+
+    assert str(refused.value) == (
+        "Jenis jadwalnya tidak dikenal: pengingat, perangkat, rutinitas, atau alarm."
+    )
+
+
 def test_a_device_action_of_no_routine_is_saved_without_the_routine_key(tmp_path):
     store = make_store(tmp_path)
 
@@ -1607,6 +1694,15 @@ CORRUPT_CONTENTS = {
         ]
     ),
     "routine name a number": corrupt_file([VALID | {"action": {"type": "routine", "name": 1}}]),
+    "alarm with a text": corrupt_file(
+        [VALID | {"action": {"type": "alarm", "label": "kerja", "text": "Bangun!"}}]
+    ),
+    "alarm label null": corrupt_file([VALID | {"action": {"type": "alarm", "label": None}}]),
+    "alarm label a number": corrupt_file([VALID | {"action": {"type": "alarm", "label": 6}}]),
+    "alarm label empty": corrupt_file([VALID | {"action": {"type": "alarm", "label": " "}}]),
+    "alarm label too long": corrupt_file(
+        [VALID | {"action": {"type": "alarm", "label": "a" * 101}}]
+    ),
     "duplicate ids": corrupt_file([VALID, VALID | {"at": "2026-10-13T16:00"}], next_id=3),
 }
 

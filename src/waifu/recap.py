@@ -34,7 +34,14 @@ from waifu.gacha.history import BannerPulls, StoredHistory, pulls_since
 from waifu.japanese import Word, WordProgress
 from waifu.journal import Note
 from waifu.play_time import PlayRecord, play_totals, played_seconds, whole_minutes, wib_now
-from waifu.schedule import DeviceAction, Entry, Reminder, occurrence_on
+from waifu.schedule import (
+    AlarmAction,
+    DeviceAction,
+    Entry,
+    Reminder,
+    alarm_name,
+    occurrence_on,
+)
 from waifu.todo import Task
 
 T = TypeVar("T")
@@ -392,8 +399,8 @@ def _last_review(progress: WordProgress) -> date | None:
 
 
 def _planned(schedule: ScheduleSource, day: date, now: datetime) -> tuple[Planned, ...]:
-    """The reminders and routines due on `day`, soonest first; the schedule's naive local times
-    are read as WIB."""
+    """The reminders, alarms, and routines due on `day`, soonest first; the schedule's naive
+    local times are read as WIB."""
     local_now = now.replace(tzinfo=None)
     planned = []
     for entry in schedule.entries():
@@ -403,7 +410,12 @@ def _planned(schedule: ScheduleSource, day: date, now: datetime) -> tuple[Planne
         moment = occurrence_on(entry, day, now=local_now)
         if moment is None:
             continue
-        what = action.text if isinstance(action, Reminder) else f"rutinitas {action.name}"
+        if isinstance(action, Reminder):
+            what = action.text
+        elif isinstance(action, AlarmAction):
+            what = alarm_name(action)
+        else:
+            what = f"rutinitas {action.name}"
         planned.append(Planned(moment, what, moment <= local_now))
     return tuple(sorted(planned, key=lambda item: item.at))
 

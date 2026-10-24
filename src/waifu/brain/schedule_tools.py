@@ -33,6 +33,7 @@ from waifu.schedule import (
     MAX_REMINDER_CHARS,
     REPEATS,
     Action,
+    AlarmAction,
     DeviceAction,
     Entry,
     Reminder,
@@ -370,13 +371,16 @@ def _when_json(entry: Entry) -> dict[str, object]:
 
 
 def _describe_action(action: Action) -> str:
-    """A short Indonesian description: `pengingat: <text>`, `perangkat: ac temp 26`."""
+    """A short Indonesian description: `pengingat: <text>`, `perangkat: ac temp 26`,
+    `alarm: <label>`."""
     if isinstance(action, Reminder):
         return f"pengingat: {action.text}"
     if isinstance(action, DeviceAction):
         value = f" {action.value}" if action.value is not None else ""
         routine = f" (rutinitas {action.routine})" if action.routine is not None else ""
         return f"perangkat: {action.device} {action.command}{value}{routine}"
+    if isinstance(action, AlarmAction):
+        return "alarm" if action.label is None else f"alarm: {action.label}"
     return f"rutinitas: {action.name}"
 
 

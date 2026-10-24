@@ -18,6 +18,7 @@ from waifu.gacha.tools import GachaTools
 from waifu.memory import MemoryStore
 from waifu.schedule import (
     MAX_REMINDER_CHARS,
+    AlarmAction,
     DeviceAction,
     Reminder,
     RoutineAction,
@@ -924,6 +925,19 @@ def test_list_schedules_describes_every_entry_soonest_first_in_indonesian(tmp_pa
         },
         False,
     )
+
+
+def test_list_schedules_names_an_alarm_with_its_label_never_as_a_routine(tmp_path):
+    tools, store, _ = make_tools(tmp_path)
+    store.add(datetime(2026, 10, 14, 6, 0), "none", AlarmAction("berangkat kerja"))
+    store.add(datetime(2026, 10, 15, 5, 30), "weekdays", AlarmAction())
+
+    data, _ = run(tools, "list_schedules", {})
+
+    assert [entry["action"] for entry in data["entries"]] == [
+        "alarm: berangkat kerja",
+        "alarm",
+    ]
 
 
 def test_list_schedules_gives_the_weekday_of_weekly_and_the_day_of_monthly_and_yearly_entries(

@@ -23,7 +23,13 @@ from waifu.brain.tools import to_anthropic, to_ollama
 from waifu.briefing import BRIEFING_PROMPT, BriefingTimer, BriefingTools
 from waifu.config import AssistantConfig, BriefingConfig
 from waifu.japanese import Word
-from waifu.schedule import DeviceAction, Reminder, RoutineAction, ScheduleStore
+from waifu.schedule import (
+    AlarmAction,
+    DeviceAction,
+    Reminder,
+    RoutineAction,
+    ScheduleStore,
+)
 from waifu.screen import ScreenImage
 from waifu.todo import Task
 from waifu.weather import Weather, WeatherError
@@ -263,6 +269,19 @@ def test_the_briefing_holds_the_date_the_weather_and_todays_schedule(tmp_path):
     assert is_error is False
 
 
+def test_the_briefing_names_todays_alarms_with_their_labels(tmp_path):
+    store = make_store(tmp_path)
+    store.add(datetime(2026, 10, 13, 15, 0), "none", AlarmAction("jemput adik"))
+    store.add(datetime(2026, 10, 13, 22, 0), "none", AlarmAction())
+
+    briefing, _ = brief(make_tools(tmp_path, schedule=store))
+
+    assert briefing["schedule_today"] == [
+        {"time": "15:00", "what": "alarm jemput adik"},
+        {"time": "22:00", "what": "alarm"},
+    ]
+
+
 def test_the_result_is_compact_json_with_japanese_text_unescaped(tmp_path):
     tokyo = Weather(
         place="東京",
@@ -469,6 +488,19 @@ def test_in_guest_mode_the_briefing_leaves_out_the_tasks_and_the_reminder_texts(
     }
     assert is_error is False
     assert todo.days_asked == []  # the list is not even read
+
+
+def test_in_guest_mode_the_briefing_leaves_out_the_alarms_as_it_does_the_reminders(tmp_path):
+    store = make_store(tmp_path)
+    store.add(datetime(2026, 10, 13, 15, 0), "none", AlarmAction("jemput adik"))
+    store.add(datetime(2026, 10, 13, 22, 0), "none", DeviceAction("ac", "temp", 26))
+    tools = BriefingTools(
+        weather=FakeWeather(), schedule=store, now=Clock(), guest_mode=GuestSwitch(on=True)
+    )
+
+    briefing, _ = brief(tools)
+
+    assert briefing["schedule_today"] == [{"time": "22:00", "what": "ac temp 26"}]
 
 
 def test_once_guest_mode_is_off_the_briefing_is_whole_again(tmp_path):

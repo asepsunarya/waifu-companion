@@ -21,7 +21,13 @@ from waifu.recap import (
     recap_day,
     recap_json,
 )
-from waifu.schedule import DeviceAction, Reminder, RoutineAction, ScheduleStore
+from waifu.schedule import (
+    AlarmAction,
+    DeviceAction,
+    Reminder,
+    RoutineAction,
+    ScheduleStore,
+)
 from waifu.todo import TodoStore
 
 TODAY = date(2026, 10, 24)  # a Saturday
@@ -403,6 +409,20 @@ def test_yesterday_s_schedule_holds_what_was_due_after_the_entries_were_made(sch
     # Friday 07:00 is before the entries were made at 08:00.
     assert [(p.at.strftime("%H:%M"), p.what, p.passed) for p in planned] == [
         ("23:00", "rutinitas tidur", True)
+    ]
+
+
+def test_the_schedule_names_an_alarm_due_that_day_with_its_label(tmp_path):
+    made = at(8, day=-1).replace(tzinfo=None)
+    store = ScheduleStore(tmp_path / "schedule.json", now=lambda: made)
+    store.add(at(6).replace(tzinfo=None), "daily", AlarmAction("berangkat kerja"))
+    store.add(at(22).replace(tzinfo=None), "none", AlarmAction())
+
+    planned = recap(schedule=store).gather(TODAY).schedule
+
+    assert [(p.at.strftime("%H:%M"), p.what, p.passed) for p in planned] == [
+        ("06:00", "alarm berangkat kerja", True),
+        ("22:00", "alarm", False),
     ]
 
 

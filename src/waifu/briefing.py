@@ -31,7 +31,15 @@ from waifu.brain.persona import WEEKDAYS_ID
 from waifu.config import BriefingConfig
 from waifu.japanese import Word
 from waifu.prompt_timer import PromptTimer
-from waifu.schedule import Action, DeviceAction, Entry, Reminder, ScheduleStore
+from waifu.schedule import (
+    Action,
+    AlarmAction,
+    DeviceAction,
+    Entry,
+    Reminder,
+    ScheduleStore,
+    alarm_name,
+)
 from waifu.todo import Task, TodoStore
 from waifu.weather import Weather, WeatherClient, WeatherError
 
@@ -165,7 +173,7 @@ class BriefingTools:
         self, today: date, *, reminders: bool
     ) -> tuple[list[dict[str, str]], str | None]:
         """(today's entries, soonest first, None), or ([], why they could not be read); the
-        reminders only with `reminders`."""
+        reminders and alarms (their texts and labels are Master's) only with `reminders`."""
         if self._schedule is None:
             return [], None
         try:
@@ -176,7 +184,8 @@ class BriefingTools:
         return [
             _entry_json(entry)
             for entry in entries
-            if entry.at.date() == today and (reminders or not isinstance(entry.action, Reminder))
+            if entry.at.date() == today
+            and (reminders or not isinstance(entry.action, Reminder | AlarmAction))
         ], None
 
 
@@ -222,12 +231,15 @@ def _entry_json(entry: Entry) -> dict[str, str]:
 
 
 def _describe(action: Action) -> str:
-    """What an entry does, in Indonesian: the reminder's text, `ac temp 26`, `rutinitas tidur`."""
+    """What an entry does, in Indonesian: the reminder's text, `ac temp 26`, `rutinitas tidur`,
+    `alarm berangkat kerja`."""
     if isinstance(action, Reminder):
         return action.text
     if isinstance(action, DeviceAction):
         value = "" if action.value is None else f" {action.value}"
         return f"{action.device} {action.command}{value}"
+    if isinstance(action, AlarmAction):
+        return alarm_name(action)
     return f"rutinitas {action.name}"
 
 

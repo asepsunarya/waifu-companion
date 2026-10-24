@@ -1,9 +1,10 @@
-"""Cyrene's schedule: reminders and timed device commands that fire while `waifu run` is on.
+"""Cyrene's schedule: reminders, timed device commands, and alarms that fire while `waifu run`
+is on.
 
-The model adds an entry through its `schedule` tool; the scheduler thread fires what is
-due (`due`) and then marks it fired, which removes a one-shot entry and moves a repeating
-one to its next occurrence. The owner can list and cancel entries from the terminal
-(`waifu schedule`) or edit the JSON file by hand.
+The model adds an entry through its `schedule` or `alarm` tool; the scheduler thread fires
+what is due (`due`) and then marks it fired, which removes a one-shot entry and moves a
+repeating one to its next occurrence. The owner can list and cancel entries from the
+terminal (`waifu schedule`) or edit the JSON file by hand.
 
 Times are naive local datetimes at minute precision, read from the PC clock like the time
 stamp of every turn. Moving to the next occurrence adds whole calendar days and keeps the
@@ -39,6 +40,7 @@ logger = logging.getLogger(__name__)
 
 FILE_VERSION = 1
 MAX_REMINDER_CHARS = 200
+MAX_ALARM_LABEL_CHARS = 100
 MAX_DAYS_AHEAD = 366
 Repeat = Literal["none", "daily", "weekdays", "weekends", "weekly", "monthly", "yearly"]
 REPEATS: tuple[Repeat, ...] = (
@@ -81,6 +83,8 @@ _ACTION_KEYS = {
         {"type", "device", "command", "value", "routine"},
     ),
     "routine": ({"type", "name"},),
+    # An alarm's label is written only when it has one.
+    "alarm": ({"type"}, {"type", "label"}),
 }
 
 # One lock for every store: two stores on the same file in this process must not lose
@@ -108,7 +112,19 @@ class RoutineAction:
     name: str  # a routine of config.yaml
 
 
-Action = Reminder | DeviceAction | RoutineAction
+@dataclass(frozen=True)
+class AlarmAction:
+    """Wakes Master: she says it aloud again and again until he stops it (`waifu.alarm`)."""
+
+    label: str | None = None  # what it is for ("berangkat kerja"), said with the ring
+
+
+Action = Reminder | DeviceAction | RoutineAction | AlarmAction
+
+
+def alarm_name(action: AlarmAction) -> str:
+    """`alarm berangkat kerja`, or `alarm` without a label: an alarm in a list of the day."""
+    return "alarm" if action.label is None else f"alarm {action.label}"
 
 
 @dataclass(frozen=True)
@@ -409,7 +425,26 @@ def _checked_action(action: object) -> Action:
         if not _filled(action.name):
             raise ScheduleError("Jadwal rutinitas butuh nama rutinitasnya.")
         return action
-    raise ScheduleError("Jenis jadwalnya tidak dikenal: pengingat, perangkat, atau rutinitas.")
+    if isinstance(action, AlarmAction):
+        return AlarmAction(_checked_label(action.label))
+    raise ScheduleError(
+        "Jenis jadwalnya tidak dikenal: pengingat, perangkat, rutinitas, atau alarm."
+    )
+
+
+def _checked_label(label: object) -> str | None:
+    """An alarm's label with its whitespace collapsed, None when empty; ScheduleError when it
+    is not text or too long."""
+    if label is None:
+        return None
+    if not isinstance(label, str):
+        raise ScheduleError("Label alarmnya harus berupa teks.")
+    collapsed = " ".join(label.split())
+    if len(collapsed) > MAX_ALARM_LABEL_CHARS:
+        raise ScheduleError(
+            f"Label alarmnya terlalu panjang, paling banyak {MAX_ALARM_LABEL_CHARS} karakter."
+        )
+    return collapsed or None
 
 
 def _filled(value: object) -> bool:
@@ -477,6 +512,10 @@ def _dump_action(action: Action) -> dict[str, object]:
         if action.routine is not None:
             data["routine"] = action.routine
         return data
+    if isinstance(action, AlarmAction):
+        if action.label is None:
+            return {"type": "alarm"}
+        return {"type": "alarm", "label": action.label}
     return {"type": "routine", "name": action.name}
 
 
@@ -550,7 +589,7 @@ def _parse_action(raw: object, where: str) -> Action:
         or raw.keys() not in _ACTION_KEYS.get(kind, ())
     ):
         raise ValueError(
-            f"{where} must be a reminder, device, or routine action with exactly its keys"
+            f"{where} must be a reminder, device, routine, or alarm action with exactly its keys"
         )
     if kind == "reminder":
         return Reminder(_parse_text(raw["text"], f"{where}.text"))
@@ -565,7 +604,19 @@ def _parse_action(raw: object, where: str) -> Action:
             value,
             routine,
         )
+    if kind == "alarm":
+        return AlarmAction(_parse_label(raw, f"{where}.label"))
     return RoutineAction(_parse_text(raw["name"], f"{where}.name"))
+
+
+def _parse_label(raw: dict[str, object], where: str) -> str | None:
+    """An alarm's label: left out (None), or text that is not blank and not too long."""
+    if "label" not in raw:
+        return None
+    label = raw["label"]
+    if not _filled(label) or len(label) > MAX_ALARM_LABEL_CHARS:
+        raise ValueError(f"{where} must be text of 1 to {MAX_ALARM_LABEL_CHARS} characters")
+    return label
 
 
 def _parse_text(value: object, where: str) -> str:
