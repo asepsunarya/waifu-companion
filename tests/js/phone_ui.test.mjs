@@ -1687,6 +1687,44 @@ describe("phone Suara sheet", () => {
     assert.equal(picker.value, "");
   });
 
+  it("keeps a phone pick that is not plugged in on the picker, so Pakai never drops it unasked", async () => {
+    const unplugged = { ...VOICE, override_mic: "Headset (Polaris-BT), MME", devices: VOICE.devices.slice(1) };
+    const page = await openVoice({ voice: unplugged });
+    const picker = page.element("voice-device");
+
+    assert.deepEqual(
+      picker.children.map((option) => [option.value, option.textContent]),
+      [
+        ["", "Ikuti urutan di config"],
+        ["Headset (Polaris-BT), MME", "Headset (Polaris-BT), MME (tidak tersambung)"],
+        ["Microphone (High Definition Aud, MME", "Microphone (High Definition Aud · MME"],
+      ],
+    );
+    assert.equal(picker.value, "Headset (Polaris-BT), MME");
+  });
+
+  it("shows the mic in effect again when the sheet opens after a pick that was never applied", async () => {
+    const page = await openVoice();
+    page.element("voice-device").value = "Microphone (High Definition Aud, MME";
+    page.element("voice-close").dispatch("click");
+
+    page.element("voice-toggle").dispatch("click");
+    await settle();
+
+    assert.equal(page.element("voice-device").value, "");
+  });
+
+  it("shows the mic in effect again after a switch the PC refused", async () => {
+    const refused = { ok: false, message: "Mic itu tidak bisa dibuka. Tetap memakai Headset.", pending: false };
+    const page = await openVoice({ voiceReply: refused });
+    page.element("voice-device").value = "Microphone (High Definition Aud, MME";
+
+    page.element("voice-switch").dispatch("click");
+    await settle();
+
+    assert.equal(page.element("voice-device").value, "");
+  });
+
   it("fills the settings' boxes with the settings in use", async () => {
     const page = await openVoice();
 

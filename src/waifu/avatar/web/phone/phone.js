@@ -81,6 +81,7 @@ const VOICE_TIMEOUT_MS = 4000;
 // What the PC answers when it hides the sheet (guest mode) or has none: the sheet closes and its button goes.
 const VOICE_GONE = new Set(["voice_hidden", "voice_missing"]);
 const VOICE_FOLLOW_CONFIG = "Ikuti urutan di config";
+const VOICE_NOT_PLUGGED = "(tidak tersambung)";
 const VOICE_NO_MIC = "Belum ada mic yang terbuka. Cyrene mencoba lagi tiap 5 detik.";
 const CHAT_URL = "/chat";
 const TALK_URL = "/talk";
@@ -1009,6 +1010,7 @@ function openVoice() {
   cancelTalk();
   closeViewfinder();
   voiceBoxesFilled = false;
+  voiceListed = ""; // the picker shows the mic in effect again, not a pick never applied
   page.voice.hidden = false;
   page.voiceToggle.setAttribute("aria-expanded", "true");
   page.voiceClose.focus();
@@ -1110,22 +1112,29 @@ function showSwitchOutcome({ pending, last }) {
   showVoiceNote(page.voiceMicNote, last.message, !last.ok);
 }
 
-/** The picker's mics, rebuilt only when the PC lists others, so a pick under way is kept. */
+/**
+ * The picker's mics, rebuilt only when the PC lists others or picks another, so a pick under way is kept, with the mic
+ * picked on the phone selected; one not plugged in is still offered, so the picker never shows nothing (and "Pakai"
+ * never drops the pick unasked).
+ */
 function showVoiceDevices(status) {
-  const listed = JSON.stringify(status.devices);
+  const listed = JSON.stringify([status.devices, status.overrideMic]);
   if (listed === voiceListed) return;
   voiceListed = listed;
-  const follow = document.createElement("option");
-  follow.value = "";
-  follow.textContent = VOICE_FOLLOW_CONFIG;
-  const options = status.devices.map(({ value, name, host_api }) => {
-    const option = document.createElement("option");
-    option.value = value;
-    option.textContent = [name, host_api].filter(Boolean).join(" · ");
-    return option;
-  });
-  page.voiceDevice.replaceChildren(follow, ...options);
-  page.voiceDevice.value = status.overrideMic ?? "";
+  const option = (value, text) => {
+    const found = document.createElement("option");
+    found.value = value;
+    found.textContent = text;
+    return found;
+  };
+  const picked = status.overrideMic;
+  const gone = picked !== null && !status.devices.some(({ value }) => value === picked);
+  page.voiceDevice.replaceChildren(
+    option("", VOICE_FOLLOW_CONFIG),
+    ...(gone ? [option(picked, `${picked} ${VOICE_NOT_PLUGGED}`)] : []),
+    ...status.devices.map(({ value, name, host_api }) => option(value, [name, host_api].filter(Boolean).join(" · "))),
+  );
+  page.voiceDevice.value = picked ?? "";
 }
 
 function fillVoiceBoxes(status) {
@@ -1171,7 +1180,10 @@ async function changeVoice(request, note, { switching = false } = {}) {
   const outcome = voiceOutcome(result.data);
   if (outcome === null) showVoiceNote(note, problemText("bad_reply", ownerCall), true);
   else showVoiceNote(note, outcome.text, !outcome.ok);
-  if (switching) voiceSwitchAwaited = outcome?.pending === true;
+  if (switching) {
+    voiceSwitchAwaited = outcome?.pending === true;
+    voiceListed = ""; // the picker shows the mic in effect, also after a switch refused or rolled back
+  }
   readVoice();
 }
 
