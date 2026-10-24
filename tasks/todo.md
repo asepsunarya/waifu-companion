@@ -2786,3 +2786,43 @@ named `tests/test_<package>_<module>.py`.
 - [x] Fix pass: the README names ZZZ's endgame (not its events) among what has no progress; the overnight line's wait and the stamina reminder's minutes, and the shared calendar read, in the README, the CHANGELOG, and the SPEC
 
 **Dependencies:** 293 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
+
+## Task 295a: Konfirmasi kamus contract ✅
+
+**Acceptance criteria:**
+- [x] SPEC "konfirmasi kamus (v1.49.1)" (the bug, stories, non-goals, the question, forgetting by voice, the remark words, docs, decisions, known limits, privacy, safety) and the paragraphs of "kamus cyrene (v1.49)" it changes; tasks 295a-298 in the plan and here
+
+**Dependencies:** none · **Files:** `SPEC.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
+
+## Task 295: The remark words
+
+**Acceptance criteria:**
+- [ ] "cara baca jam itu begini", "cara baca buku itu penting", "... itu dengan tartil", "... itu pakai kompas", and the other added words (in the term or the reading) are no reading request
+- [ ] Every reading request kept by the earlier tests still is one
+
+**Dependencies:** 295a · **Files:** `src/waifu/lexicon.py`, `tests/test_lexicon.py` · **Scope:** XS
+
+## Task 296: The yes before a reading is kept
+
+**Acceptance criteria:**
+- [ ] "cara baca X itu Y" is answered "Jadi X kubaca Y? Bilang iya kalau benar." without the brain and keeps nothing; a refused rule is still said at once
+- [ ] Master's next accepted voice turn keeps the rule when it is a plain yes ("iya", "Iya, Master.", "oke, catat aja", "iya bener") within 60 s, with v1.49's answer; anything else (another command, "bukan", "iya?", a yes after 61 s) keeps nothing, is answered as usual, and leaves no question for a later yes
+- [ ] An utterance the gate does not accept leaves the question waiting; a phone message (a brain turn) drops it
+- [ ] The logs never name the word or the reading; guest mode as before
+
+**Dependencies:** 295a · **Files:** `src/waifu/lexicon.py`, `src/waifu/app.py`, `tests/test_app.py` · **Scope:** S
+
+## Task 297: Forgetting a reading by voice
+
+**Acceptance criteria:**
+- [ ] `forget_request` takes "lupakan cara baca X" and "hapus cara baca X" with names, softeners, and fillers left out; a question, a demonstrative ("itu"), a pronoun, a remark, or a term over 3 words is none
+- [ ] The Assistant forgets Master's rule without the brain and names the word; a built-in is refused aloud and kept; no rule is said; a file that cannot be written is said and warned about; the logs never name the word
+
+**Dependencies:** 296 · **Files:** `src/waifu/lexicon.py`, `src/waifu/app.py`, `tests/test_lexicon.py`, `tests/test_app.py` · **Scope:** S
+
+## Task 298: Docs
+
+**Acceptance criteria:**
+- [ ] README "Kamus Cyrene" (the question and the yes, forgetting by voice, the remark words, privacy, checklist) and its example line; CHANGELOG v1.49.1 between v1.50 and v1.49; full suite, ruff, and JS tests clean
+
+**Dependencies:** 297 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S

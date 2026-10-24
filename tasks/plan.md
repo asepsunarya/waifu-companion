@@ -1088,6 +1088,26 @@ strict tools, 17 of 24 optional parameters, and 0 of 16 unions stay.
 - [x] Fix pass (2026-10-25): "cara baca X itu Y" refuses remarks and pronouns ("cara baca HSR itu salah", "cara baca kamu itu salah", "... itu dari kanan ke kiri", "... itu susah banget") and a term that is her name, a wake word, or the owner call, so they go to the brain instead of becoming rules; "ga", "gak", "kah", "kan", "mana" make a question only as the reading's last word, so "Gallagher itu Ga Le Ger" is kept and "itu Ha Es Er kan" is not; "harusnya", "dibaca", ... after "itu", "aja", "oke", "nih" at the end, and a first "nama"/"kata"/"tulisan" of a longer term are left out; the owner call is left out before the request; the confirmation names the word ("Oke Master. Acheron mulai sekarang kubaca A Ke Ron."), synthesised before the rule is kept so the word keeps its old reading, never played when the file cannot be written, and a voice failure never loses the rule; the hotwords put the games and their rosters (5 names each, taking turns, the one read last first) before the routines and the aliases, so three rosters read with the example config's devices each keep 5 names (it was 10, 5, and 0); a broken dictionary is reported without its words, and the README, the SPEC, and the docstring say the "Heard" line logs the request in full; the README lists what goes to the brain and is not saved (questions, remarks, pronouns and her names, near misses, the phone). By hand, a scratch script (deleted afterwards) over the real Assistant, SpeechRouter, and Lexicon with a recording voice and owner_call "Sayang": "Cyrene, cara baca HSR itu salah." and "cara baca kamu itu salah" went to the brain; "Cara baca Gallagher itu Ga Le Ger." and "Sayang, cara baca nama Acheron itu harusnya A Ke Ron aja." were answered without the brain, the voice getting "Oke Sayang. Acheron mulai sekarang kubaca A Ke Ron." as written; "cara baca HSR itu Ha Es Er kan" went to the brain; the next reply reached the voice as "A Ke Ron sama Ga Le Ger siap, Sayang. Ha Es Er malam ini?" and the file held only Gallagher and Acheron. The example config with its commented devices, gacha on for hsr, genshin, and zzz, and three 10-name rosters gave 36 terms and 400 characters with 5 names per game. 10809 pytest and 601 JS tests, ruff clean; nothing under src/waifu/brain changed, so 18 of 20 strict tools, 17 of 24 optional parameters, and 0 of 16 unions stay
 - [ ] On the owner's PC: "Cyrene" and a device alias are heard more often with the TV on, and Edge says "Ha Es Er"
 
+### Phase 53.1: konfirmasi kamus (v1.49.1, bug fix, see SPEC → konfirmasi kamus)
+Decision: "cara baca X itu Y" kept ordinary sentences as rules ("cara baca jam itu begini" made
+every "jam" sound "begini"). She now asks "Jadi X kubaca Y? Bilang iya kalau benar." and keeps the
+rule only when Master's next accepted voice turn is a plain yes (`is_yes` with the record order
+words and "bener") within 60 s; anything else, and any brain turn, drops it silently. "lupakan
+cara baca X" / "hapus cara baca X" forgets a rule without the brain (a built-in cannot be
+forgotten), and more remark words (begini, dengan, pakai, penting, dulu, ...) send a sentence to
+the brain. No tool, config key, or dependency: 18 of 20 strict tools, 17 of 24 optional
+parameters, and 0 of 16 unions stay.
+- [x] Task 295a: contract: SPEC, tasks
+- [ ] Task 295: the remark words
+- [ ] Task 296: the yes before a reading is kept (`_ask_reading`, the yes, the window, brain turns)
+- [ ] Task 297: forgetting a reading by voice (`forget_request`, `_forget_reading`)
+- [ ] Task 298: README, CHANGELOG
+
+### Checkpoint: konfirmasi kamus
+- [ ] Python suite and ruff clean; no test spoke, played audio, or read the repository's `data/`; the strict-tool budget unchanged
+- [ ] By hand: in a scratch folder with fake voices and a fake brain over the real Assistant and Lexicon, the four sentences keep nothing, a yes keeps the reading, a non-yes drops it, and "lupakan cara baca X" forgets it
+- [ ] On the owner's PC: "Cyrene, cara baca Acheron itu A Ke Ron", then "iya": `waifu lafal list` shows it; "Cyrene, lupakan cara baca Acheron" removes it
+
 ### Phase 54: Sebelum reset (v1.50, see SPEC → sebelum reset)
 Decision: pure planner rules over the event calendar and the status the gacha watcher reads. The
 watcher read no calendar before, so it reads each game's once per game day at the evening line's
