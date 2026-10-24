@@ -163,6 +163,7 @@ from waifu.hotkeys import Hotkey, HotkeyStatus, Registration, read_status, write
 from waifu.input_idle import read_input_idle
 from waifu.japanese import JapaneseStore, WordProgress, load_words, word_of_the_day
 from waifu.journal import JOURNAL_PROMPT, JournalStore, JournalTimer
+from waifu.lexicon import Lexicon
 from waifu.memory import MemoryStore, memory_prompt_section
 from waifu.offers.errors import OffersError
 from waifu.offers.store import OffersStore
@@ -192,6 +193,7 @@ from waifu.version import CodeVersion, Release, RunningVersion, read_running, wr
 from waifu.voice.audio import MicrophoneError
 from waifu.voice.base import SpeakerEmbedder, SpeechToText, Transcript
 from waifu.voice.diagnosis import UtteranceLog
+from waifu.voice.hotwords import build_hotwords
 from waifu.voice.mic_source import MicSource
 from waifu.voice.panel import VoicePanel
 from waifu.voice.rvc import RvcError
@@ -286,6 +288,14 @@ def no_real_japanese_lessons(tmp_path, monkeypatch):
     working directory at the repository fails instead of reading or writing the owner's words
     in data/japanese.json (building a store touches no file, so the refusal comes first)."""
     monkeypatch.setattr(cli, "JapaneseStore", only_under(tmp_path, cli.JapaneseStore))
+
+
+@pytest.fixture(autouse=True)
+def no_real_lexicon(tmp_path, monkeypatch):
+    """Every pronunciation dictionary a command builds lives under tmp_path: a test that leaves
+    the working directory at the repository fails instead of reading or writing the owner's
+    rules in data/tts_lexicon.json (building one touches no file, so the refusal comes first)."""
+    monkeypatch.setattr(cli, "Lexicon", only_under(tmp_path, cli.Lexicon))
 
 
 @pytest.fixture(autouse=True)
@@ -1207,8 +1217,8 @@ def speech(events, monkeypatch) -> list["SpeakingRouter"]:
     whether it speaks only through the offline fallback."""
     built: list[SpeakingRouter] = []
 
-    def build(tts, *, converter=None, fallback_only=False):
-        built.append(SpeakingRouter(events, converter, fallback_only))
+    def build(tts, *, converter=None, fallback_only=False, lexicon=None):
+        built.append(SpeakingRouter(events, converter, fallback_only, lexicon))
         return built[-1]
 
     monkeypatch.setattr(cli, "build_speech_router", build)
@@ -1929,7 +1939,7 @@ def test_chat_exit_word_is_case_insensitive(home, brains, monkeypatch):
 
 def test_chat_speak_voices_each_reply(home, brains, player, monkeypatch):
     router = FakeRouter()
-    monkeypatch.setattr(cli, "build_speech_router", lambda tts, converter=None: router)
+    monkeypatch.setattr(cli, "build_speech_router", lambda tts, converter=None, **_: router)
     monkeypatch.setattr(sys, "stdin", io.StringIO("halo\n"))
 
     assert cli.main(["chat", "--dry-run", "--speak"]) == 0
@@ -1940,7 +1950,7 @@ def test_chat_speak_voices_each_reply(home, brains, player, monkeypatch):
 
 def test_chat_speak_voices_each_reply_at_her_saved_voice_level(home, brains, player, monkeypatch):
     save_voice(home, 60)
-    monkeypatch.setattr(cli, "build_speech_router", lambda tts, converter=None: FakeRouter())
+    monkeypatch.setattr(cli, "build_speech_router", lambda tts, converter=None, **_: FakeRouter())
     monkeypatch.setattr(sys, "stdin", io.StringIO("halo\n"))
 
     assert cli.main(["chat", "--dry-run", "--speak"]) == 0
@@ -2213,7 +2223,7 @@ def test_check_flags_an_invalid_declared_ir_name_instead_of_suggesting_learn_ir(
 def test_say_speaks_the_joined_words_through_the_router_and_player(home, player, monkeypatch):
     router = FakeRouter()
     monkeypatch.setattr(
-        cli, "build_speech_router", lambda tts, converter=None, fallback_only=False: router
+        cli, "build_speech_router", lambda tts, converter=None, fallback_only=False, **_: router
     )
 
     assert cli.main(["say", "Halo", "Master,", "おかえりなさい!"]) == 0
@@ -2228,6 +2238,26 @@ def test_say_with_the_anime_voice_off_starts_no_rvc_server(home, player, rvc, sp
     assert rvc.servers == [] and rvc.clients == []
     assert speech[0].converter is None
     assert events == ["say Halo"]
+
+
+def test_chat_speak_reads_with_masters_pronunciation_rules(
+    home, brains, player, speech, monkeypatch
+):
+    save_reading(home)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("halo\n"))
+
+    assert cli.main(["chat", "--dry-run", "--speak"]) == 0
+
+    assert speech[0].lexicon() == {"Acheron": "A Ke Ron"}
+
+
+@pytest.mark.parametrize("options", [[], ["--fallback"]])
+def test_say_reads_with_masters_pronunciation_rules(home, player, speech, options):
+    save_reading(home)
+
+    assert cli.main(["say", *options, "Halo"]) == 0
+
+    assert speech[0].lexicon() == {"Acheron": "A Ke Ron"}
 
 
 def test_say_speaks_with_her_voice_keeping_the_fallback_for_its_failures(home, player, speech):
@@ -2722,10 +2752,14 @@ class RecordingAssistant:
 
 
 class PreloadingStt(SpeechToText):
-    """Stands in for WhisperStt: hears nothing, records when it is built and preloaded."""
+    """Stands in for WhisperStt: hears nothing, records when it is built and preloaded, and
+    keeps the hotwords it was given."""
 
-    def __init__(self, events: list[str]) -> None:
+    def __init__(
+        self, events: list[str], *, hotwords: Callable[[], str | None] | None = None
+    ) -> None:
         self.events = events
+        self.hotwords = hotwords
         events.append("whisper built")
 
     def transcribe(self, audio: np.ndarray, sample_rate: int) -> Transcript:
@@ -2772,11 +2806,14 @@ class EventMic(FakeMic):
 
 
 class SpeakingRouter(FakeRouter):
-    def __init__(self, events: list[str], converter=None, fallback_only: bool = False) -> None:
+    def __init__(
+        self, events: list[str], converter=None, fallback_only: bool = False, lexicon=None
+    ) -> None:
         super().__init__()
         self.events = events
         self.converter = converter
         self.fallback_only = fallback_only
+        self.lexicon = lexicon
 
     def synthesize(self, text: str) -> tuple[np.ndarray, int]:
         self.events.append(f"say {text}")
@@ -2842,16 +2879,23 @@ def run_fakes(home, brains, player, events, speech, monkeypatch):
     """`waifu run` with every model, the mic, and the speech engine faked; `events` shows order."""
     RecordingAssistant.instances = []
     mics: list[FakeMic] = []
+    stts: list[PreloadingStt] = []
 
     def open_mic(sample_rate, frame_ms, device=None):
         mics.append(EventMic(events))
         return mics[-1]
 
+    def whisper(config, name, **options):
+        stts.append(PreloadingStt(events, **options))
+        return stts[-1]
+
     monkeypatch.setattr(cli, "Assistant", RecordingAssistant)
     monkeypatch.setattr(cli, "MicStream", open_mic)
     monkeypatch.setattr(cli, "EcapaEmbedder", lambda *args, **kwargs: PreloadingEmbedder(events))
-    monkeypatch.setattr(cli, "WhisperStt", lambda config, name: PreloadingStt(events))
-    return types.SimpleNamespace(mics=mics, events=events, lock=home / "data" / "run.lock")
+    monkeypatch.setattr(cli, "WhisperStt", whisper)
+    return types.SimpleNamespace(
+        mics=mics, stts=stts, events=events, lock=home / "data" / "run.lock"
+    )
 
 
 def test_run_without_a_voiceprint_explains_enroll_and_exits_2(run_fakes, capsys):
@@ -2884,6 +2928,30 @@ def test_run_no_speaker_check_skips_the_voiceprint(run_fakes):
     assert assistant.collaborators["verifier"] is None
     assert assistant.collaborators["speaker_check"] is False
     assert assistant.ran_with is not None
+
+
+def test_run_gives_whisper_the_hotwords_of_the_config(home, run_fakes):
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    [stt] = run_fakes.stts
+    assert stt.hotwords() == build_hotwords(cli.load_config(home / "config.yaml"))
+
+
+def save_reading(home: Path) -> None:
+    """Master's rule for "Acheron", in the dictionary file the example config names."""
+    Lexicon(home / "data" / "tts_lexicon.json").add("Acheron", "A Ke Ron")
+
+
+def test_run_reads_masters_pronunciation_rules_for_her_voice_and_his_lessons(
+    home, run_fakes, speech
+):
+    save_reading(home)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    assert speech[0].lexicon() == {"Acheron": "A Ke Ron"}
+    taught = RecordingAssistant.instances[0].collaborators["lexicon"]
+    assert taught.read() == {"Acheron": "A Ke Ron"}
 
 
 def test_run_starts_at_once_and_quietly_by_default():
@@ -3080,8 +3148,10 @@ def test_run_announce_does_not_open_the_followup_window(router, announcing, brai
     # Right after "Cyrene siap, Master." the owner says something not meant for her.
     frames = [SILENT_FRAME] * 10 + [LOUD_FRAME] * 40 + [SILENT_FRAME] * 40
     monkeypatch.setattr(cli, "MicStream", lambda *args, **kwargs: FakeMic(frames))
-    monkeypatch.setattr(cli, "WhisperStt", lambda config, name: HearingStt("matikan semua lampu"))
-    monkeypatch.setattr(cli, "build_speech_router", lambda tts, converter=None: router())
+    monkeypatch.setattr(
+        cli, "WhisperStt", lambda config, name, **_: HearingStt("matikan semua lampu")
+    )
+    monkeypatch.setattr(cli, "build_speech_router", lambda tts, converter=None, **_: router())
 
     assert cli.main(["run", "--dry-run", "--announce"]) == 0
 
@@ -3092,7 +3162,7 @@ def test_run_announce_still_answers_the_wake_word(announcing, brains, monkeypatc
     frames = [SILENT_FRAME] * 10 + [LOUD_FRAME] * 40 + [SILENT_FRAME] * 40
     monkeypatch.setattr(cli, "MicStream", lambda *args, **kwargs: FakeMic(frames))
     monkeypatch.setattr(
-        cli, "WhisperStt", lambda config, name: HearingStt("Cyrene, matikan semua lampu")
+        cli, "WhisperStt", lambda config, name, **_: HearingStt("Cyrene, matikan semua lampu")
     )
 
     assert cli.main(["run", "--dry-run", "--announce"]) == 0
@@ -3247,7 +3317,7 @@ def test_run_answers_with_the_tag_s_emotion_and_never_says_the_tag(
     monkeypatch.setattr(HouseBrain, "reply", TAGGED_REPLY)
     frames = [SILENT_FRAME] * 10 + [LOUD_FRAME] * 40 + [SILENT_FRAME] * 40
     monkeypatch.setattr(cli, "MicStream", lambda *args, **kwargs: FakeMic(frames))
-    monkeypatch.setattr(cli, "WhisperStt", lambda config, name: HearingStt("Cyrene, lampu"))
+    monkeypatch.setattr(cli, "WhisperStt", lambda config, name, **_: HearingStt("Cyrene, lampu"))
 
     assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
 
@@ -3492,9 +3562,11 @@ def one_utterance(home, brains, player, monkeypatch):
     """`waifu run` with the real Assistant and Whisper wrapper, hearing one spoken phrase."""
     frames = [SILENT_FRAME] * 10 + [LOUD_FRAME] * 40 + [SILENT_FRAME] * 40
     monkeypatch.setattr(cli, "MicStream", lambda *args, **kwargs: FakeMic(frames))
-    monkeypatch.setattr(cli, "build_speech_router", lambda tts, converter=None: FakeRouter())
+    monkeypatch.setattr(cli, "build_speech_router", lambda tts, converter=None, **_: FakeRouter())
     monkeypatch.setattr(
-        cli, "WhisperStt", lambda config, name: WhisperStt(config, name, register_dlls=list)
+        cli,
+        "WhisperStt",
+        lambda config, name, **options: WhisperStt(config, name, register_dlls=list, **options),
     )
     return brains
 
@@ -5850,9 +5922,9 @@ def data_sources(monkeypatch) -> list[tuple[object, list[str]]]:
     and for which games."""
     sources: list[tuple[object, list[str]]] = []
 
-    def build(source, games):
+    def build(source, games, **options):
         sources.append((source, list(games)))
-        return GameDataTools(source, games)
+        return GameDataTools(source, games, **options)
 
     monkeypatch.setattr(cli, "GameDataTools", build)
     return sources
@@ -5920,6 +5992,24 @@ def test_the_data_tools_offer_only_the_configured_games_and_their_modes(
         "shiyu_defense",
         "deadly_assault",
     ]
+
+
+def test_a_roster_the_brain_reads_in_run_joins_whispers_hotwords(
+    home, run_fakes, brains, games, watchers, monkeypatch
+):
+    enable_gacha(home)
+    hooks: list[Callable[[str, list[str]], None]] = []
+
+    def build(source, games, **options):
+        hooks.append(options["on_roster"])
+        return GameDataTools(source, games, **options)
+
+    monkeypatch.setattr(cli, "GameDataTools", build)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+    hooks[0]("hsr", ["Acheron"])
+
+    assert run_fakes.stts[0].hotwords().split(", ")[-1] == "Acheron"
 
 
 @pytest.mark.parametrize("argv", [["run", "--no-speaker-check"], ["chat"]])
@@ -7088,6 +7178,110 @@ def test_check_fails_a_memory_file_it_cannot_read(home, nothing_installed, capsy
 
     line = memory_line(capsys.readouterr().out)
     assert line.startswith(f"✗ File ingatan {Path('data/memory.json')} tidak bisa dibaca")
+
+
+# --- the pronunciation dictionary (waifu lafal) ---------------------------------------------
+
+BUILT_IN_LINES = [
+    "HSR: Ha Es Er (bawaan)",
+    "ZZZ: Zet Zet Zet (bawaan)",
+    "HoYoLAB: Hoyolab (bawaan)",
+    "HoYoverse: Hoyovers (bawaan)",
+]
+
+
+def lexicon_file(home: Path) -> Path:
+    return home / "data" / "tts_lexicon.json"
+
+
+def test_lafal_needs_an_action():
+    with pytest.raises(SystemExit):
+        cli.build_parser().parse_args(["lafal"])
+
+
+def test_lafal_list_shows_the_built_in_rules_and_creates_no_file(home, capsys):
+    assert cli.main(["lafal", "list"]) == 0
+
+    assert capsys.readouterr().out.splitlines() == BUILT_IN_LINES
+    assert not lexicon_file(home).exists()
+
+
+def test_lafal_add_saves_masters_reading(home, capsys):
+    assert cli.main(["lafal", "add", "Acheron", "A", "Ke", "Ron"]) == 0
+
+    assert capsys.readouterr().out == "✓ Acheron dibaca: A Ke Ron\n"
+    assert Lexicon(lexicon_file(home)).read() == {"Acheron": "A Ke Ron"}
+
+
+def test_lafal_add_takes_a_term_of_several_words_in_quotes(home, capsys):
+    assert cli.main(["lafal", "add", "Star Rail", "Star", "Rel"]) == 0
+
+    assert capsys.readouterr().out == "✓ Star Rail dibaca: Star Rel\n"
+
+
+def test_lafal_add_prints_why_a_rule_is_refused_and_exits_1(home, capsys):
+    assert cli.main(["lafal", "add", "Kafka", "kafka", "saja"]) == 1
+
+    assert capsys.readouterr().out == "✗ Bacaannya tidak boleh memuat kata itu sendiri.\n"
+    assert not lexicon_file(home).exists()
+
+
+def test_lafal_list_shows_masters_rules_first_and_the_built_ins_he_has_not_replaced(home, capsys):
+    cli.main(["lafal", "add", "Acheron", "A", "Ke", "Ron"])
+    cli.main(["lafal", "add", "hsr", "Honkai", "Star", "Rail"])
+    capsys.readouterr()
+
+    assert cli.main(["lafal", "list"]) == 0
+
+    assert capsys.readouterr().out.splitlines() == [
+        "Acheron: A Ke Ron",
+        "hsr: Honkai Star Rail",
+        *BUILT_IN_LINES[1:],
+    ]
+
+
+def test_lafal_remove_drops_masters_rule_in_any_case(home, capsys):
+    Lexicon(lexicon_file(home)).add("Acheron", "A Ke Ron")
+
+    assert cli.main(["lafal", "remove", "acheron"]) == 0
+
+    assert capsys.readouterr().out == "✓ Dihapus: Acheron\n"
+    assert Lexicon(lexicon_file(home)).read() == {}
+
+
+def test_lafal_remove_of_a_built_in_rule_says_to_replace_it_instead(home, capsys):
+    assert cli.main(["lafal", "remove", "hsr"]) == 1
+
+    assert capsys.readouterr().out == (
+        "✗ HSR adalah aturan bawaan; ganti bacaannya dengan 'waifu lafal add HSR <bacaan>'.\n"
+    )
+
+
+def test_lafal_remove_of_an_unknown_word_says_so(home, capsys):
+    assert cli.main(["lafal", "remove", "Kafka"]) == 1
+
+    assert capsys.readouterr().out == "✗ Tidak ada aturan untuk Kafka.\n"
+
+
+@pytest.mark.parametrize(
+    "argv", [["lafal", "list"], ["lafal", "add", "Kafka", "Kaf", "Ka"], ["lafal", "remove", "X"]]
+)
+def test_lafal_says_when_the_file_cannot_be_used_and_exits_1(home, capsys, argv):
+    lexicon_file(home).mkdir(parents=True)  # a folder where the file should be
+
+    assert cli.main(argv) == 1
+
+    out = capsys.readouterr().out
+    assert out.startswith("✗ Kamus ") and "tts_lexicon.json" in out
+
+
+def test_lafal_follows_the_configured_path(home, capsys):
+    write_config(home, "tts:\n  lexicon_path: kamus/lafal.json\n")
+
+    assert cli.main(["lafal", "add", "Kafka", "Kaf", "Ka"]) == 0
+
+    assert Lexicon(home / "kamus" / "lafal.json").read() == {"Kafka": "Kaf Ka"}
+    assert not lexicon_file(home).exists()
 
 
 # --- schedules, reminders, and routines ------------------------------------------------------

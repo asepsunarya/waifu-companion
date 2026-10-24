@@ -205,6 +205,7 @@ from waifu.japanese import (
     word_of_the_day,
 )
 from waifu.journal import JOURNAL_READ, JournalError, JournalStore, JournalTimer
+from waifu.lexicon import BUILT_IN_READINGS, Lexicon, LexiconError
 from waifu.listen_pause import ListenPause
 from waifu.memory import MemoryStore, memory_prompt_section
 from waifu.music import MusicService, open_in_browser, open_link, search_link, youtube_link
@@ -289,6 +290,7 @@ from waifu.voice.audio import (
     restart_portaudio,
 )
 from waifu.voice.diagnosis import UtteranceLog
+from waifu.voice.hotwords import Vocabulary
 from waifu.voice.mic_check import (
     InputDevice,
     Levels,
@@ -527,6 +529,13 @@ TODO_DESCRIPTION = (
     "jam; pengingat pada jam tertentu tetap lewat jadwal. Tanpa aksi, 'waifu todo' menampilkan "
     "tugas yang belum selesai. Perintah ini jalan walau todo.enabled: false; Cyrene yang sedang "
     "berjalan langsung melihat perubahannya."
+)
+LEXICON_DESCRIPTION = (
+    "Kamus Cyrene: cara suara Indonesianya membaca sebuah kata, misalnya HSR dibaca "
+    '"Ha Es Er". Aturan bawaan selalu ada; aturanmu sendiri disimpan di tts.lexicon_path dan '
+    'bisa juga diajarkan lewat suara: "Cyrene, cara baca Acheron itu A Ke Ron". Cyrene yang '
+    "sedang berjalan memakainya mulai kalimat berikutnya. Suara Jepang dan teks di HP tidak "
+    "diubah."
 )
 JOURNAL_DESCRIPTION = (
     "Jurnal harian Master: catatan singkat per tanggal, dengan kata-kata Master sendiri. Tanpa "
@@ -1046,6 +1055,28 @@ def build_parser() -> argparse.ArgumentParser:
     clear.add_argument(
         "--yes", action="store_true", help="benar-benar hapus (tanpa ini hanya dihitung)"
     )
+    lexicon_command = commands.add_parser(
+        "lafal",
+        parents=[shared],
+        help="Kamus Cyrene: cara suara Indonesianya membaca sebuah kata.",
+        description=LEXICON_DESCRIPTION,
+    )
+    lexicon_actions = lexicon_command.add_subparsers(dest="action", required=True, metavar="<aksi>")
+    command(
+        "list",
+        _lafal_list,
+        "Tampilkan aturanmu, lalu aturan bawaan yang tidak kamu ganti.",
+        lexicon_actions,
+    )
+    lafal_add = command("add", _lafal_add, "Simpan cara baca satu kata.", lexicon_actions)
+    lafal_add.add_argument(
+        "term", metavar="kata", help='kata yang dibaca, misalnya Acheron ("Star Rail" pakai kutip)'
+    )
+    lafal_add.add_argument("reading", nargs="+", metavar="bacaan", help="misalnya A Ke Ron")
+    lafal_remove = command(
+        "remove", _lafal_remove, "Hapus aturanmu untuk satu kata.", lexicon_actions
+    )
+    lafal_remove.add_argument("term", metavar="kata")
     schedule_command = commands.add_parser(
         "schedule",
         parents=[shared],
@@ -1487,6 +1518,11 @@ def _listen(args: argparse.Namespace) -> int:
     # The pause of her hearing that Ctrl+Alt+Q starts, shared by the voice loop, the hotkeys, and
     # the phone's "Dengar lagi"; one an earlier run left is cleared.
     pause = _cleared_listen_pause(config)
+    # The words Whisper should expect: the config's, and the roster names the brain reads.
+    vocabulary = Vocabulary(config)
+    # Master's readings for her Indonesian voices, re-read at every clip, which he teaches her by
+    # voice too.
+    lexicon = _lexicon(config)
     # Her own voice level: her tool sets it, and the player reads it at every clip she says, except
     # an alarm's ring, which holds a level of its own for its clip.
     voice_level = _voice_level(config)
@@ -1514,8 +1550,9 @@ def _listen(args: argparse.Namespace) -> int:
             voice_level=voice_level,
             prayer=prayer,
             alarm=alarm,
+            vocabulary=vocabulary,
         )
-        stt = WhisperStt(config.stt, name)
+        stt = WhisperStt(config.stt, name, hotwords=vocabulary.text)
         gate = WakeGate(config.assistant.wake_words, config.assistant.followup_seconds)
         segmenter = EnergySegmenter(
             config.audio.sample_rate,
@@ -1544,7 +1581,9 @@ def _listen(args: argparse.Namespace) -> int:
                 config,
                 brain=brain,
                 stt=stt,
-                speech=build_speech_router(config.tts, converter=converter),
+                speech=build_speech_router(
+                    config.tts, converter=converter, lexicon=lexicon.readings
+                ),
                 # Only the PC's speaker: the phone's replies are synthesised apart.
                 player=VolumePlayer(Player(config.audio.output_device), hold.level_now),
                 gate=gate,
@@ -1561,6 +1600,7 @@ def _listen(args: argparse.Namespace) -> int:
                 hold_level=hold.held,
                 diagnosis=heard,
                 listen_pause=pause,
+                lexicon=lexicon,
             )
             reactions = InteractionHandler(
                 config.avatar.interactions,
@@ -1751,7 +1791,13 @@ def _chat(args: argparse.Namespace) -> int:
             _avatar_bus(config, wanted=args.speak) as avatar,
             _voice_converter(config, wanted=args.speak) as converter,
         ):
-            speech = build_speech_router(config.tts, converter=converter) if args.speak else None
+            speech = (
+                build_speech_router(
+                    config.tts, converter=converter, lexicon=_lexicon(config).readings
+                )
+                if args.speak
+                else None
+            )
             player = (
                 VolumePlayer(Player(config.audio.output_device), voice_level.level_now)
                 if args.speak
@@ -1816,6 +1862,7 @@ def _companion_brain(
     voice_level: VoiceLevel,
     prayer: PrayerPlace | None = None,
     alarm: AlarmBell | None = None,
+    vocabulary: Vocabulary | None = None,
 ) -> Brain:
     """The brain with `guest_mode`'s tool first, her own voice volume (`voice_level`), then the
     game tools when they are on, her long-term memory when it is on, her schedule when it is on
@@ -1829,7 +1876,8 @@ def _companion_brain(
     long Master's games were open when play time is on, the free offers when they are on (their
     links pushed through `notifier`), Master's money from tepira when it is on, songs on YouTube
     when they are on, with Claude her eyes on the screen when vision is on, and with `usage`
-    what her requests cost.
+    what her requests cost. With `vocabulary` (only `run` has one), each roster the game tools
+    read joins Whisper's hotwords.
 
     With memory, every new session lists the notes as they are in the file at that moment.
     The to-do list is the real one also in a dry run (it moves no device), and the briefing
@@ -1854,7 +1902,9 @@ def _companion_brain(
     providers: list[ToolProvider] = [
         GuestTools(guest_mode),
         VoiceVolumeTools(voice_level),
-        *_game_tools(config, gacha),
+        *_game_tools(
+            config, gacha, on_roster=None if vocabulary is None else vocabulary.set_roster
+        ),
     ]
     if notes is not None:
         providers.append(MemoryTools(notes, owner_call=owner_call))
@@ -2616,7 +2666,12 @@ def _say(args: argparse.Namespace) -> int:
     level = _voice_level(config).level_now if volume is None else lambda: volume
     with _avatar_bus(config) as avatar, _voice_converter(config, wanted=not args.raw) as converter:
         spoken = _speak(
-            build_speech_router(config.tts, converter=converter, fallback_only=args.fallback),
+            build_speech_router(
+                config.tts,
+                converter=converter,
+                fallback_only=args.fallback,
+                lexicon=_lexicon(config).readings,
+            ),
             VolumePlayer(Player(config.audio.output_device), level),
             text,
             avatar=avatar,
@@ -2924,7 +2979,13 @@ def build_gacha(config: AppConfig) -> GachaParts:
     return GachaParts(hoyolab, history)
 
 
-def _game_tools(config: AppConfig, gacha: GachaParts | None) -> list[ToolProvider]:
+def _game_tools(
+    config: AppConfig,
+    gacha: GachaParts | None,
+    *,
+    on_roster: Callable[[str, list[str]], None] | None = None,
+) -> list[ToolProvider]:
+    """The game tools while gacha is on; `on_roster` gets each roster the data tools read."""
     if gacha is None:
         return []
     tools: list[ToolProvider] = [
@@ -2934,7 +2995,7 @@ def _game_tools(config: AppConfig, gacha: GachaParts | None) -> list[ToolProvide
             config.gacha.games,
             server_utc_offset=config.gacha.server_utc_offset,
         ),
-        GameDataTools(gacha.hoyolab, config.gacha.games),
+        GameDataTools(gacha.hoyolab, config.gacha.games, on_roster=on_roster),
         IncomeTools(
             gacha.hoyolab,
             config.gacha.games,
@@ -4091,6 +4152,67 @@ def _due_text(due: date | None, today: date) -> str:
     if due == today:
         return f"{_day_text(due)} (hari ini)"
     return _day_text(due)
+
+
+# --- the pronunciation dictionary ------------------------------------------------------------
+
+
+def _lexicon(config: AppConfig) -> Lexicon:
+    """Master's pronunciation rules, in the file `tts.lexicon_path` names."""
+    return Lexicon(config.tts.lexicon_path)
+
+
+def _lafal_list(args: argparse.Namespace) -> int:
+    lexicon = _lexicon(load_config(args.config))
+    try:
+        rules = lexicon.read()
+    except OSError as exc:
+        print(f"{FAIL} Kamus {lexicon.path} tidak bisa dibaca: {exc}")
+        return 1
+    for term, reading in rules.items():
+        print(f"{term}: {reading}")
+    replaced = {term.casefold() for term in rules}
+    for term, reading in BUILT_IN_READINGS.items():
+        if term.casefold() not in replaced:
+            print(f"{term}: {reading} (bawaan)")
+    return 0
+
+
+def _lafal_add(args: argparse.Namespace) -> int:
+    lexicon = _lexicon(load_config(args.config))
+    try:
+        term, reading = lexicon.add(args.term, " ".join(args.reading))
+    except LexiconError as exc:
+        print(f"{FAIL} {exc}")
+        return 1
+    except OSError as exc:
+        print(f"{FAIL} Kamus {lexicon.path} tidak bisa disimpan: {exc}")
+        return 1
+    print(f"{OK} {term} dibaca: {reading}")
+    return 0
+
+
+def _lafal_remove(args: argparse.Namespace) -> int:
+    """Drop Master's rule for the word; a built-in rule can only be replaced (`add`)."""
+    lexicon = _lexicon(load_config(args.config))
+    try:
+        removed = lexicon.remove(args.term)
+    except OSError as exc:
+        print(f"{FAIL} Kamus {lexicon.path} tidak bisa disimpan: {exc}")
+        return 1
+    if removed is not None:
+        print(f"{OK} Dihapus: {removed}")
+        return 0
+    wanted = " ".join(args.term.split()).casefold()
+    built_in = next((term for term in BUILT_IN_READINGS if term.casefold() == wanted), None)
+    if built_in is not None:
+        print(
+            f"{FAIL} {built_in} adalah aturan bawaan; ganti bacaannya dengan "
+            f"'waifu lafal add {built_in} <bacaan>'."
+        )
+    else:
+        print(f"{FAIL} Tidak ada aturan untuk {args.term}.")
+    return 1
 
 
 # --- the journal -----------------------------------------------------------------------------

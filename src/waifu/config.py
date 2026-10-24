@@ -325,6 +325,8 @@ class TtsConfig(_Strict):
     default_language: str = "id"
     rvc: RvcConfig = Field(default_factory=RvcConfig)
     fallback: FallbackTtsConfig = Field(default_factory=FallbackTtsConfig)
+    # Master's own readings for her Indonesian voices (`waifu lafal`, "cara baca X itu Y").
+    lexicon_path: Path = Path("data/tts_lexicon.json")
 
     @model_validator(mode="after")
     def _default_language_has_voice(self) -> TtsConfig:

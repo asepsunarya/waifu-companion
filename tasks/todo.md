@@ -2701,11 +2701,11 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 283 · **Files:** `src/waifu/lexicon.py`, `src/waifu/app.py`, `tests/test_lexicon.py`, `tests/test_app.py` · **Scope:** S
 
-## Task 286: The CLI
+## Task 286: The CLI ✅
 
 **Acceptance criteria:**
-- [ ] `tts.lexicon_path` with its example; `waifu lafal add|list|remove` with the built-ins marked and protected
-- [ ] `run` gives Whisper the vocabulary and the brain's game tools its roster hook, and the router and the Assistant the dictionary; `chat --speak` and `say` give the router the dictionary
+- [x] `tts.lexicon_path` with its example; `waifu lafal add|list|remove` with the built-ins marked and protected
+- [x] `run` gives Whisper the vocabulary and the brain's game tools its roster hook, and the router and the Assistant the dictionary; `chat --speak` and `say` give the router the dictionary
 
 **Dependencies:** 281, 282, 284, 285 · **Files:** `src/waifu/config.py`, `src/waifu/cli.py`, `config.example.yaml`, `tests/test_config.py`, `tests/test_cli.py` · **Scope:** M
 

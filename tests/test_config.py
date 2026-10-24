@@ -19,6 +19,7 @@ from waifu.config import (
     PrayerConfig,
     RainAlertConfig,
     TepiraConfig,
+    TtsConfig,
     VersionNoticeConfig,
     VoiceVolumeConfig,
     WeeklyReportConfig,
@@ -201,6 +202,17 @@ def test_the_example_config_spells_out_the_fallback_voice_defaults():
     fallback = load_config(ROOT / "config.example.yaml").tts.fallback
     assert fallback == FallbackTtsConfig()
     assert "  fallback:\n" in (ROOT / "config.example.yaml").read_text(encoding="utf-8")
+
+
+def test_masters_pronunciation_rules_live_in_data_by_default():
+    assert TtsConfig().lexicon_path == Path("data/tts_lexicon.json")
+
+
+def test_the_example_config_names_the_pronunciation_rules_file():
+    example = (ROOT / "config.example.yaml").read_text(encoding="utf-8")
+
+    assert load_config(ROOT / "config.example.yaml").tts.lexicon_path == TtsConfig().lexicon_path
+    assert "  lexicon_path: data/tts_lexicon.json" in example
 
 
 def test_the_fallback_pause_must_be_positive(tmp_path):

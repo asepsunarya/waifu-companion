@@ -75,6 +75,10 @@ tts:
     #   ref_audio_path: D:/voices/cyrene_ref.wav
     #   prompt_text: "参照音声で話している日本語の文"
     #   prompt_lang: ja
+  # Cara baca kata untuk suara Indonesia (README, bagian "Kamus Cyrene"): HSR dibaca "Ha Es Er"
+  # dan seterusnya. Tambah bacaanmu sendiri dengan 'waifu lafal add <kata> <bacaan>' atau bilang
+  # "Cyrene, cara baca Acheron itu A Ke Ron"; disimpan di file ini, bukan di config.yaml.
+  lexicon_path: data/tts_lexicon.json
   # Suara cadangan offline (README, bagian "Suara cadangan offline"): kalau edge-tts gagal
   # (tanpa internet, atau Microsoft menolaknya), bagian itu diucapkan suara bawaan Windows,
   # lalu edge-tts dicoba lagi setelah retry_s detik. Tambahkan suaranya gratis di Settings →
