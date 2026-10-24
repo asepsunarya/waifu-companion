@@ -2832,3 +2832,83 @@ named `tests/test_<package>_<module>.py`.
 - [x] Fix pass: README and CHANGELOG v1.49.1 name "bener", the bare name, the announcements, the forget phrasings, and "pelan-pelan"; one more checklist line
 
 **Dependencies:** 297 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
+
+## Task 299a: Panduan setup contract ✅
+
+**Acceptance criteria:**
+- [x] SPEC "panduan setup (v1.51)" (the problem, stories, non-goals, the patcher, the wizard's files, the CLI, the check hints, docs, decisions, known limits, privacy, safety); phase 55 and a risk row in the plan; tasks 299a-306 here
+
+**Dependencies:** none · **Files:** `SPEC.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
+
+## Task 299: The line patcher
+
+**Acceptance criteria:**
+- [ ] `patch_text` replaces only the targeted values in config.example.yaml (`lampu_kamar`'s tuya keys, `ac`'s and `proyektor`'s `ir.host`, `audio.input_device` with its comment kept) and inserts `colokan_pc`'s missing address and version at the block's indentation; every other byte stays
+- [ ] CRLF files keep CRLF (inserted lines too), a file without a final newline works, a missing `audio` or `notify` section is appended, a missing `notify.topic` goes after the section's comments
+- [ ] Devices at dash column 0, `id` not the first key, quoted ids, similar ids (`lampu` beside `lampu_kamar`), commented-out items, a multi-line `commands` list beside the touched key, and an `ir.tuya` block are found
+- [ ] Values are quoted so they load back exactly (quotes, `#`, `: `, brackets, `&*!`, leading space, yes/null/3.3 look-alikes, emoji, a list)
+- [ ] `PatchError` without a value for tabs, a flow mapping, a block scalar, a block sequence under the key, an unclosed quote or list, anchors, aliases, tags, merge keys, duplicated sections, ids, or keys, an inline parent value, a missing device or nested parent
+- [ ] `snippet` groups the changes as YAML with secrets hidden; `masked` shows no character of the secret
+
+**Dependencies:** 299a · **Files:** `src/waifu/config_patch.py`, `tests/test_config_patch.py` · **Scope:** M
+
+## Task 300: Writing config.yaml safely
+
+**Acceptance criteria:**
+- [ ] `apply_changes` backs the original bytes up to `data/<name>.bak-YYYYMMDD-HHMMSS` (`-2` on a collision), writes atomically, reloads, and compares the whole config with the intended one; the BOM is kept
+- [ ] A config that does not load, a file that is not UTF-8, an invalid new value, or a `PatchError` writes nothing; a reload that differs (a quoted top-level key appended twice) or fails restores the original bytes and says so; a file that cannot be replaced is left as it was
+- [ ] The problem text never holds a value or the loader's text; the log names paths only
+
+**Dependencies:** 299 · **Files:** `src/waifu/config_patch.py`, `tests/test_config_patch.py` · **Scope:** S
+
+## Task 301: The wizard's files and the matching
+
+**Acceptance criteria:**
+- [ ] `read_cloud_devices` reads devices.json (skipping entries that are not objects or lack id or key), takes the address and version from it or from snapshot.json, accepts only a private LAN IPv4 and versions 3.1-3.5, never `last_ip`, and keeps the key out of `repr`; a missing or broken devices.json raises `TuyaImportError`
+- [ ] `tuya_targets` lists `tuya_light`, `tuya_plug`, and IR devices with `backend: tuya`, in config order
+- [ ] `suggest` matches by name, aliases, and id with a category hint, never a sub-device, a light or plug entry once, an IR blaster for every IR target, nothing under 0.5
+- [ ] `tuya_changes` sets device_id, local_key (secret), and address and version only when known
+
+**Dependencies:** 299 · **Files:** `src/waifu/tuya_import.py`, `tests/test_tuya_import.py` · **Scope:** M
+
+## Task 302: `waifu setup mic`
+
+**Acceptance criteria:**
+- [ ] `waifu mic`'s listing and measuring are helpers it shares with setup; its output is unchanged
+- [ ] Setup measures each mic on the owner's yes, lists the mics that heard him best first, and writes one name (Enter = the best) or a list ("1,2") as `audio.input_device`, with a backup; it says to run `waifu enroll` again
+- [ ] A wrong answer is asked again; n skips; the same value writes nothing; a phone pick is named as leading; the end of input stops setup
+
+**Dependencies:** 300 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** M
+
+## Task 303: `waifu setup tuya`
+
+**Acceptance criteria:**
+- [ ] The steps, the on-screen secret warning, and the poll question are explained before the wizard; the runner gets `[python, -m, tinytuya, wizard]` in the folder of config.yaml; n skips; an existing devices.json is read without running it again unless he says yes; Ctrl+C or a failed wizard is said
+- [ ] Each Tuya target is confirmed, picked, or skipped; device_id, local_key, address, and version are written; a real device_id is replaced only on his yes; a light or plug entry is not taken twice
+- [ ] No local key is printed (the summary and the snippet hide it, with the devices.json instruction)
+- [ ] tinytuya.json and tuya-raw.json are deleted on his yes and kept on no; `.gitignore` lists the four wizard files; tests/conftest.py refuses running tinytuya
+
+**Dependencies:** 300, 301 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py`, `tests/conftest.py`, `tests/test_safety_guard.py` · **Scope:** M
+
+## Task 304: `waifu setup ir` and `waifu setup notify`
+
+**Acceptance criteria:**
+- [ ] ir: each Broadlink address asked once (Enter keeps it, a non-IPv4 asked again), written to every device on it; the `learn-ir --missing` lines follow
+- [ ] notify: a new topic matching the pattern is written with `enabled: true` and printed once for the subscribe steps; an existing topic is kept unless he says yes; a test push only on yes
+
+**Dependencies:** 300 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** M
+
+## Task 305: `waifu setup all` and the check hints
+
+**Acceptance criteria:**
+- [ ] `waifu setup` and `waifu setup all` run mic, tuya, ir, notify, then `check`; the end of input stops before `check`; a restart of a running `waifu run` is asked for after a write
+- [ ] `waifu check` warns for each Tuya device at the placeholder and each Broadlink blaster at 192.168.1.50, naming `waifu setup tuya` and `waifu setup ir`; the example config still exits 0 and no other line changes
+
+**Dependencies:** 302, 303, 304 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** S
+
+## Task 306: Docs
+
+**Acceptance criteria:**
+- [ ] README "Setup pertama" (and in the table of contents), "Lampu dan colokan Tuya" and the Privasi line about the wizard's files corrected; CHANGELOG v1.51; full suite, ruff, and JS tests clean
+
+**Dependencies:** 305 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S

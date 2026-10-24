@@ -1134,6 +1134,32 @@ the planner. No tool: 18 of 20 strict tools, 17 of 24 optional parameters, and 0
 - [ ] The owner accepts the about 4 HoYoLAB calendar reads a day (the task allowed none beyond those cached or fetched before; the evening line cannot be made without them) and up to two planner lines for one game in one game day (the evening line and the overnight line, against "one per game per day"), or turns `gacha.reminders.planner` off
 - [ ] On the owner's PC: an evening line names a real event or season, and HSR's window progress matches the stars in the game
 
+### Phase 55: Panduan setup (v1.51, see SPEC → panduan setup)
+Decision: `waifu setup [mic|tuya|ir|notify|all]` asks in the terminal and writes config.yaml
+itself, the first command that does. A small patcher changes only the targeted lines (comments,
+order, quoting, and line endings kept; ruamel is not installed), backs the file up to `data/`
+first, reloads it with `load_config` and compares the whole config with the intended one, and
+restores it on any difference, handing over a snippet with every local key hidden. tinytuya's
+own wizard runs in the project folder with the owner's terminal attached; Cyrene reads only the
+devices.json and snapshot.json it writes, matches them to the Tuya devices in config.yaml by
+name with the owner's confirmation, and offers to delete the files holding the cloud credentials.
+`waifu check` points at `waifu setup` while the placeholders remain. No tool or dependency: 18 of
+20 strict tools, 17 of 24 optional parameters, and 0 of 16 unions stay.
+- [x] Task 299a: contract: SPEC, tasks
+- [ ] Task 299: the line patcher (`config_patch.patch_text`, `snippet`, `masked`)
+- [ ] Task 300: writing config.yaml safely (`apply_changes`: backup, atomic write, reload and compare, restore)
+- [ ] Task 301: the wizard's files and the matching (`tuya_import.py`)
+- [ ] Task 302: `waifu setup mic` (and the mic helpers `waifu mic` shares)
+- [ ] Task 303: `waifu setup tuya` (the wizard runner, the import, the credential files, the test guard)
+- [ ] Task 304: `waifu setup ir` and `waifu setup notify`
+- [ ] Task 305: `waifu setup all` and the check hints
+- [ ] Task 306: README, CHANGELOG
+
+### Checkpoint: Panduan setup
+- [ ] Python suite, ruff, and JS tests clean; no test ran tinytuya, reached the network, opened a mic, or read the repository's config.yaml or `data/`; the strict-tool budget unchanged (18 of 20 strict tools, 17 of 24 optional parameters, 0 of 16 unions)
+- [ ] By hand: in a scratch folder with a copy of config.example.yaml and made-up wizard files, `waifu setup tuya`, `ir`, and `notify` write the values, keep every comment, and leave a backup; a broken layout gets the snippet with the key hidden
+- [ ] On the owner's PC: `waifu setup` fills the mic, the Tuya devices, the blaster, and notify, and `waifu check` shows no placeholder line
+
 ## Risks and Mitigations
 
 | Risk | Impact | Mitigation |
@@ -1158,6 +1184,7 @@ the planner. No tool: 18 of 20 strict tools, 17 of 24 optional parameters, and 0
 | An alarm that never wakes Master, or a device command that stops it | Master oversleeps, or "matikan lampu" ends the alarm | It rings louder each minute, never whispered, until a whole stop phrase, a button, the brain, or 10 minutes; the first ring and a missed alarm are pushed; while it rings only whole phrases stop it, tested against device commands; the tool, the README, and `waifu check` say it rings only while `waifu run` runs on an awake PC |
 | A mic switch or a PortAudio restart while audio runs | A crash inside PortAudio, a cut clip, or a deaf Cyrene | Every open, close, and restart on `run`'s thread between frames, a restart only with the mic closed, the player's lock and the listing's lock held, and never with a numbered device; a mic that does not open is rolled back; with none, silent frames keep rings and reminders going while she retries every 5 s |
 | A global hotkey that blocks or leaks keys, or a pause that leaves her deaf | Ctrl+Alt+X never reaches her while she speaks, Master's typing is seen, or she seems broken | `RegisterHotKey` sees only its combos; the message loop calls only `interrupt` and queues the rest; the pause is said aloud, shown on the avatar and in `waifu check`, and ends by Ctrl+Alt+Q, a double-click, Ctrl+Alt+C, the "Dengar lagi" button, a restart, or after 2 h; tests refuse the real user32 functions |
+| `waifu setup` writes config.yaml wrongly or shows a secret | A config that no longer loads, another value changed, a lost comment, or a local key on screen | Only the targeted lines change, layouts it cannot read are refused, a backup goes to `data/` first, the file is reloaded and the whole config compared with the intended one, and any difference restores it and hands over a snippet with every local key hidden; the wizard's credential files are offered for deletion |
 
 ## Open Questions
 
