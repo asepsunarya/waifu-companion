@@ -159,6 +159,7 @@ from waifu.gacha.tools import GachaTools
 from waifu.gacha.weekly import WEEKLY_REPORT_PROMPT, WeeklyReportTimer, WeeklyReportTools
 from waifu.gacha.zenless import ZzzAgent
 from waifu.guest import PRIVATE_TOOLS, GuestMode
+from waifu.hotkeys import Hotkey, HotkeyStatus, Registration, read_status, write_status
 from waifu.input_idle import read_input_idle
 from waifu.japanese import JapaneseStore, WordProgress, load_words, word_of_the_day
 from waifu.journal import JOURNAL_PROMPT, JournalStore, JournalTimer
@@ -2615,7 +2616,8 @@ class RecordingAssistant:
     until when a game may hold each; `reminded` what
     `remind` queued (Master's own lines); `phone_messages`, `phone_photos`
     (None for a message without one), `phone_cameras` (whether each was sent through the
-    camera), and `phone_recordings` what the phone asked."""
+    camera), and `phone_recordings` what the phone asked. A hotkey's `speak` (`("say", text,
+    followup)`) and `repeat_now` (`("repeat",)`) count as reactions too."""
 
     instances: list["RecordingAssistant"] = []
 
@@ -2659,6 +2661,14 @@ class RecordingAssistant:
 
     def listen_now(self) -> None:
         self.reactions.append(("listen",))
+        self.reacted.release()
+
+    def speak(self, text: str, emotion: str = "neutral", *, followup=True, level=None) -> None:
+        self.reactions.append(("say", text, followup))
+        self.reacted.release()
+
+    def repeat_now(self) -> None:
+        self.reactions.append(("repeat",))
         self.reacted.release()
 
     def await_reactions(self, count: int) -> None:
@@ -2785,6 +2795,45 @@ def enrolled(home) -> Path:
     voiceprint = home / "data" / "voiceprint.npy"
     SpeakerVerifier(FixedEmbedder(), voiceprint, 0.3).enroll([LOUD_FRAME] * 3, SAMPLE_RATE)
     return voiceprint
+
+
+class FakeHotkeyThread:
+    """Stands in for HotkeyThread: never touches user32 (tests/conftest.py refuses it). Every
+    combo registers but those whose key is in `taken`, which another program holds."""
+
+    taken: set[str] = set()
+
+    def __init__(self, hotkeys, on_press, **kwargs) -> None:
+        self.hotkeys = list(hotkeys)
+        self.on_press = on_press
+        self.running = False
+        self.ran = False
+
+    def __enter__(self) -> "FakeHotkeyThread":
+        self.running = self.ran = True
+        return self
+
+    def __exit__(self, *exc_info) -> None:
+        self.running = False
+
+    def registrations(self) -> tuple[Registration, ...]:
+        return tuple(
+            Registration(hotkey, 1409 if hotkey.key in self.taken else 0) for hotkey in self.hotkeys
+        )
+
+
+@pytest.fixture(autouse=True)
+def hotkey_threads(monkeypatch) -> list[FakeHotkeyThread]:
+    """Every hotkey thread `waifu run` starts in these tests, all of them fakes."""
+    FakeHotkeyThread.taken = set()
+    started: list[FakeHotkeyThread] = []
+
+    def start(hotkeys, on_press, **kwargs) -> FakeHotkeyThread:
+        started.append(FakeHotkeyThread(hotkeys, on_press, **kwargs))
+        return started[-1]
+
+    monkeypatch.setattr(cli, "HotkeyThread", start)
+    return started
 
 
 @pytest.fixture
@@ -18204,3 +18253,325 @@ def test_mic_names_the_mic_picked_on_the_phone(home, monkeypatch, capsys):
         in out
     )
     assert "  1. Headset (Polaris-BT), MME  <- dipakai Cyrene\n" in out
+
+
+# --- global hotkeys (v1.48) ---------------------------------------------------------------------
+
+DEFAULT_HOTKEYS = [
+    Hotkey("talk", "C"),
+    Hotkey("stop", "X"),
+    Hotkey("repeat", "R"),
+    Hotkey("quiet", "Q"),
+]
+
+
+def pause_file(home: Path) -> Path:
+    return home / "data" / "listen_pause.json"
+
+
+def hotkeys_file(home: Path) -> Path:
+    return home / "data" / "hotkeys.json"
+
+
+def pause_now(path: Path, minutes: int = 120) -> datetime:
+    """A pause file as `waifu run` writes it on Ctrl+Alt+Q; when it ends."""
+    since = datetime.now().replace(microsecond=0)
+    until = since + timedelta(minutes=minutes)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({"version": 1, "since": since.isoformat(), "until": until.isoformat()}),
+        encoding="utf-8",
+    )
+    return until
+
+
+def test_run_registers_the_global_hotkeys_while_she_listens_and_records_them(
+    home, run_fakes, hotkey_threads, monkeypatch
+):
+    seen: list[object] = []
+
+    def listen(self, mic, segmenter) -> None:
+        [thread] = hotkey_threads
+        seen.extend([thread.running, read_status(hotkeys_file(home))])
+
+    monkeypatch.setattr(RecordingAssistant, "run", listen)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    [thread] = hotkey_threads
+    assert thread.hotkeys == DEFAULT_HOTKEYS
+    registered = tuple(Registration(hotkey, 0) for hotkey in DEFAULT_HOTKEYS)
+    assert seen == [True, HotkeyStatus(os.getpid(), registered)]
+    assert not thread.running
+    assert not hotkeys_file(home).exists()
+
+
+def test_run_gives_the_assistant_and_the_phone_one_listen_pause(
+    home, run_fakes, phone_servers, monkeypatch
+):
+    append_config(home, PHONE_ON)
+    seen: list[object] = []
+
+    def listen(self, mic, segmenter) -> None:
+        pause = self.collaborators["listen_pause"]
+        pause.start()
+        seen.append(phone_servers[0].actions.groups()[0].name)
+
+    monkeypatch.setattr(RecordingAssistant, "run", listen)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    pause = RecordingAssistant.instances[0].collaborators["listen_pause"]
+    assert pause.path == Path("data/listen_pause.json")
+    assert pause.hours == 2
+    assert seen == ["Mikrofon"]
+
+
+def test_run_clears_a_pause_left_by_an_earlier_run(home, run_fakes, monkeypatch, caplog):
+    pause_now(pause_file(home))
+    paused: list[bool] = []
+    monkeypatch.setattr(
+        RecordingAssistant,
+        "run",
+        lambda self, mic, segmenter: paused.append(self.collaborators["listen_pause"].paused()),
+    )
+
+    with caplog.at_level(logging.INFO, logger="waifu.cli"):
+        assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    assert paused == [False]
+    assert not pause_file(home).exists()
+    assert "Cleared a listen pause left by an earlier run" in caplog.text
+
+
+def test_run_takes_the_hotkeys_and_the_pause_s_hours_from_the_config(
+    home, run_fakes, hotkey_threads
+):
+    append_config(home, "hotkeys:\n  talk: f9\n  repeat: null\n  quiet_hours: 0.5\n")
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    [thread] = hotkey_threads
+    assert thread.hotkeys == [Hotkey("talk", "F9"), Hotkey("stop", "X"), Hotkey("quiet", "Q")]
+    assert RecordingAssistant.instances[0].collaborators["listen_pause"].hours == 0.5
+
+
+def test_run_without_the_quiet_hotkey_has_no_listen_pause(home, run_fakes, hotkey_threads):
+    append_config(home, "hotkeys:\n  quiet: null\n")
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    assert RecordingAssistant.instances[0].collaborators["listen_pause"] is None
+    assert [hotkey.action for hotkey in hotkey_threads[0].hotkeys] == ["talk", "stop", "repeat"]
+
+
+@pytest.mark.parametrize(
+    "hotkeys",
+    ["  enabled: false\n", "  talk: null\n  stop: null\n  repeat: null\n  quiet: null\n"],
+    ids=["off", "every-key-null"],
+)
+def test_run_with_the_hotkeys_off_registers_none_and_has_no_pause(
+    home, run_fakes, hotkey_threads, hotkeys
+):
+    append_config(home, "hotkeys:\n" + hotkeys)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    assert hotkey_threads == []
+    assert RecordingAssistant.instances[0].collaborators["listen_pause"] is None
+    assert not hotkeys_file(home).exists()
+
+
+def test_run_registers_no_hotkey_outside_windows(home, run_fakes, hotkey_threads, monkeypatch):
+    monkeypatch.setattr(cli.sys, "platform", "linux")
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    assert hotkey_threads == []
+    assert RecordingAssistant.instances[0].collaborators["listen_pause"] is None
+
+
+def test_the_talk_hotkey_listens_and_says_a_listen_line_like_a_double_click(
+    home, run_fakes, hotkey_threads, monkeypatch
+):
+    append_config(home, "avatar:\n  interactions:\n    double_click_listen: false\n")
+
+    def run(self: RecordingAssistant, mic, segmenter) -> None:
+        hotkey_threads[0].on_press("talk")
+        self.await_reactions(2)
+
+    monkeypatch.setattr(RecordingAssistant, "run", run)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    reactions = RecordingAssistant.instances[0].reactions
+    assert reactions[0] == ("listen",)
+    assert reactions[1][0] == "speak"
+
+
+def test_the_stop_hotkey_cuts_her_off_at_once_and_she_listens(
+    home, run_fakes, hotkey_threads, monkeypatch
+):
+    def run(self: RecordingAssistant, mic, segmenter) -> None:
+        self.cut_answers = [True]
+        hotkey_threads[0].on_press("stop")
+        cuts_at_once = self.cuts
+        self.await_reactions(1)
+        assert cuts_at_once == 1
+
+    monkeypatch.setattr(RecordingAssistant, "run", run)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    assert RecordingAssistant.instances[0].reactions == [("listen",)]
+
+
+def test_the_repeat_and_quiet_hotkeys_repeat_her_and_pause_her_hearing(
+    home, run_fakes, hotkey_threads, monkeypatch
+):
+    paused: list[bool] = []
+
+    def run(self: RecordingAssistant, mic, segmenter) -> None:
+        hotkey_threads[0].on_press("repeat")
+        hotkey_threads[0].on_press("quiet")
+        self.await_reactions(2)
+        paused.append(self.collaborators["listen_pause"].paused())
+
+    monkeypatch.setattr(RecordingAssistant, "run", run)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    reactions = RecordingAssistant.instances[0].reactions
+    assert reactions[0] == ("repeat",)
+    assert reactions[1][0] == "say" and reactions[1][2] is False
+    assert reactions[1][1].startswith("Oke Master, aku tidak mendengarkan dulu sampai jam ")
+    assert paused == [True]
+
+
+def test_tombol_shows_dengar_lagi_while_waifu_run_pauses_her_hearing(home, monkeypatch):
+    pause_now(pause_file(home))
+    browser = use_desk_browser(monkeypatch, presses=("mic.listen",))
+    monkeypatch.setattr(cli, "sleep", InterruptingSleep(1))
+
+    assert cli.main(["tombol"]) == 0
+
+    assert browser.group_names[0] == "Mikrofon"
+    assert browser.answers == [{"ok": True, "message": "Mendengarkan lagi."}]
+    assert not pause_file(home).exists()
+
+
+def hotkeys_lines(out: str) -> list[str]:
+    return [line for line in out.splitlines() if "Hotkey" in line]
+
+
+DEFAULT_COMBOS = (
+    "Ctrl+Alt+C bicara, Ctrl+Alt+X potong, Ctrl+Alt+R ulangi, Ctrl+Alt+Q berhenti mendengarkan"
+)
+
+
+def test_check_lists_the_hotkeys_to_try_right_after_the_mic_line(home, nothing_installed, capsys):
+    cli.main(["check"])
+
+    lines = capsys.readouterr().out.splitlines()
+    [line] = hotkeys_lines("\n".join(lines))
+    assert line == f"✓ Hotkey global: {DEFAULT_COMBOS}; dicoba saat 'waifu run' jalan"
+    assert "Mikrofon" in lines[lines.index(line) - 1]
+
+
+def running_with_hotkeys(home: Path, pid: int, taken: dict[str, int]) -> InstanceLock:
+    """The run lock held, as by a `waifu run` of process `pid` that recorded its hotkeys, those of
+    `taken` refused with their errors."""
+    write_status(
+        hotkeys_file(home),
+        pid,
+        [Registration(hotkey, taken.get(hotkey.key, 0)) for hotkey in DEFAULT_HOTKEYS],
+    )
+    lock = InstanceLock(home / "data" / "run.lock")
+    assert lock.acquire()
+    return lock
+
+
+def test_check_trusts_what_the_running_waifu_run_registered(home, nothing_installed, capsys):
+    lock = running_with_hotkeys(home, os.getpid(), {"Q": 1409, "R": 5})
+    try:
+        cli.main(["check"])
+    finally:
+        lock.release()
+
+    assert hotkeys_lines(capsys.readouterr().out) == [
+        f"✓ Hotkey global: {DEFAULT_COMBOS}; aktif di 'waifu run'",
+        "! Hotkey Ctrl+Alt+R (ulangi) tidak bisa didaftarkan (Windows error 5); ganti "
+        "hotkeys.repeat di config.yaml",
+        "! Hotkey Ctrl+Alt+Q (berhenti mendengarkan) sudah dipakai program lain; ganti "
+        "hotkeys.quiet di config.yaml",
+    ]
+
+
+def test_check_ignores_what_a_run_that_has_ended_recorded(home, nothing_installed, capsys):
+    write_status(hotkeys_file(home), 4_000_000_000, [Registration(Hotkey("quiet", "Q"), 1409)])
+
+    cli.main(["check"])
+
+    assert hotkeys_lines(capsys.readouterr().out) == [
+        f"✓ Hotkey global: {DEFAULT_COMBOS}; dicoba saat 'waifu run' jalan"
+    ]
+
+
+def test_check_ignores_a_record_whose_process_has_ended_while_the_lock_is_held(
+    home, nothing_installed, capsys
+):
+    lock = running_with_hotkeys(home, 4_000_000_000, {"Q": 1409})
+    try:
+        cli.main(["check"])
+    finally:
+        lock.release()
+
+    assert hotkeys_lines(capsys.readouterr().out) == [
+        f"✓ Hotkey global: {DEFAULT_COMBOS}; dicoba saat 'waifu run' jalan"
+    ]
+
+
+def test_check_says_until_when_she_does_not_listen(home, nothing_installed, capsys):
+    until = pause_now(pause_file(home))
+
+    cli.main(["check"])
+
+    [line] = hotkeys_lines(capsys.readouterr().out)
+    assert line.endswith(f"; sedang tidak mendengarkan sampai {until:%H:%M}")
+
+
+@pytest.mark.parametrize(
+    ("hotkeys", "expected"),
+    [
+        ("  enabled: false\n", "! Hotkey global mati (hotkeys.enabled: false)"),
+        (
+            "  talk: null\n  stop: null\n  repeat: null\n  quiet: null\n",
+            "! Hotkey global mati (semua tombolnya null)",
+        ),
+    ],
+)
+def test_check_warns_when_the_hotkeys_are_off(home, nothing_installed, capsys, hotkeys, expected):
+    append_config(home, "hotkeys:\n" + hotkeys)
+
+    cli.main(["check"])
+
+    assert hotkeys_lines(capsys.readouterr().out) == [expected]
+
+
+def test_check_lists_only_the_hotkeys_switched_on_with_their_keys(home, nothing_installed, capsys):
+    append_config(home, "hotkeys:\n  talk: f9\n  repeat: null\n")
+
+    cli.main(["check"])
+
+    assert hotkeys_lines(capsys.readouterr().out) == [
+        "✓ Hotkey global: Ctrl+Alt+F9 bicara, Ctrl+Alt+X potong, Ctrl+Alt+Q berhenti "
+        "mendengarkan; dicoba saat 'waifu run' jalan"
+    ]
+
+
+def test_check_says_the_hotkeys_need_windows(home, nothing_installed, capsys, monkeypatch):
+    monkeypatch.setattr(cli.sys, "platform", "linux")
+
+    cli.main(["check"])
+
+    assert hotkeys_lines(capsys.readouterr().out) == ["! Hotkey global hanya ada di Windows"]

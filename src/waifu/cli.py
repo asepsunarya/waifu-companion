@@ -185,6 +185,16 @@ from waifu.gacha.zenless import EVENT_REWARD, ZzzAgent
 from waifu.game_mode import GameMode
 from waifu.gate import WakeGate
 from waifu.guest import GuestMode
+from waifu.hotkey_actions import HotkeyActions
+from waifu.hotkeys import (
+    ERROR_HOTKEY_ALREADY_REGISTERED,
+    Hotkey,
+    HotkeyStatus,
+    HotkeyThread,
+    Registration,
+    read_status,
+    write_status,
+)
 from waifu.input_idle import read_input_idle
 from waifu.japanese import (
     JapaneseStore,
@@ -195,6 +205,7 @@ from waifu.japanese import (
     word_of_the_day,
 )
 from waifu.journal import JOURNAL_READ, JournalError, JournalStore, JournalTimer
+from waifu.listen_pause import ListenPause
 from waifu.memory import MemoryStore, memory_prompt_section
 from waifu.music import MusicService, open_in_browser, open_link, search_link, youtube_link
 from waifu.notify import Notifier, build_notifier
@@ -366,6 +377,15 @@ DEFAULT_CONFIG = Path("config.yaml")
 RUN_LOCK = Path("data") / "run.lock"
 # What the running `waifu run` started with, for `check` and `waifu version`; next to the lock.
 RUNNING_FILE = Path("data") / "running.json"
+# Which global hotkeys the running `waifu run` registered, for `check`; only while it runs.
+HOTKEYS_FILE = Path("data") / "hotkeys.json"
+# What each global hotkey does, as `check` names it.
+HOTKEY_ACTION_TEXT = {
+    "talk": "bicara",
+    "stop": "potong",
+    "repeat": "ulangi",
+    "quiet": "berhenti mendengarkan",
+}
 ALREADY_RUNNING = (
     "Cyrene sudah berjalan (mungkin dari autostart). Tutup jendelanya dulu, "
     "atau jalankan 'waifu autostart status'."
@@ -1464,6 +1484,9 @@ def _listen(args: argparse.Namespace) -> int:
     # What she heard lately and what she did with it, in memory only, for the phone's Suara page
     # and "tadi kamu denger apa?"; forgotten as guest mode switches.
     heard = UtteranceLog(marker=guest_mode.generation)
+    # The pause of her hearing that Ctrl+Alt+Q starts, shared by the voice loop, the hotkeys, and
+    # the phone's "Dengar lagi"; one an earlier run left is cleared.
+    pause = _cleared_listen_pause(config)
     # Her own voice level: her tool sets it, and the player reads it at every clip she says, except
     # an alarm's ring, which holds a level of its own for its clip.
     voice_level = _voice_level(config)
@@ -1537,6 +1560,7 @@ def _listen(args: argparse.Namespace) -> int:
                 alarm=alarm,
                 hold_level=hold.held,
                 diagnosis=heard,
+                listen_pause=pause,
             )
             reactions = InteractionHandler(
                 config.avatar.interactions,
@@ -1565,7 +1589,7 @@ def _listen(args: argparse.Namespace) -> int:
                 verifier=verifier,
                 speaker_threshold=config.speaker.threshold,
             )
-            with mic, touches.answered_by(reactions):
+            with mic, _masters_input(config, touches, reactions, assistant, pause):
                 mode = " (perangkat simulasi)" if args.dry_run else ""
                 print(
                     f"{name} siap mendengarkan{mode}. "
@@ -1613,6 +1637,7 @@ def _listen(args: argparse.Namespace) -> int:
                                 schedule=schedule,
                                 chosen=config.phone.quick_actions,
                                 alarm=alarm,
+                                listen_pause=pause,
                             ),
                             voice=voice,
                             guest_mode=guest_mode.is_on,
@@ -2088,6 +2113,93 @@ class _InteractionRelay:
                 self._handler = None
 
 
+# --- global hotkeys ------------------------------------------------------------------------------
+
+
+def _hotkeys_on(config: AppConfig) -> bool:
+    """Whether `waifu run` registers global hotkeys: on Windows, with any of them switched on."""
+    return sys.platform == "win32" and config.hotkeys.enabled and bool(config.hotkeys.bindings)
+
+
+def _listen_pause(config: AppConfig) -> ListenPause | None:
+    """The pause of her hearing that Ctrl+Alt+Q starts, in its file; None without that hotkey."""
+    settings = config.hotkeys
+    if not _hotkeys_on(config) or settings.quiet is None:
+        return None
+    return ListenPause(settings.pause_path, hours=settings.quiet_hours)
+
+
+def _cleared_listen_pause(config: AppConfig) -> ListenPause | None:
+    """`run`'s listen pause, cleared: a pause never outlives a restart, which would leave her
+    deaf without a word."""
+    pause = _listen_pause(config)
+    if pause is None:
+        return None
+    try:
+        if pause.end():
+            logger.info("Cleared a listen pause left by an earlier run")
+    except OSError as exc:
+        logger.warning("Could not clear the listen pause left by an earlier run: %s", exc)
+    return pause
+
+
+@contextmanager
+def _masters_input(
+    config: AppConfig,
+    touches: _InteractionRelay,
+    reactions: InteractionHandler,
+    assistant: Assistant,
+    pause: ListenPause | None,
+) -> Iterator[None]:
+    """Master's own input reaches her while the block runs: the avatar's touches and the global
+    hotkeys, answered by the same interaction handler."""
+    with touches.answered_by(reactions), _global_hotkeys(config, assistant, reactions, pause):
+        yield
+
+
+@contextmanager
+def _global_hotkeys(
+    config: AppConfig,
+    assistant: Assistant,
+    reactions: InteractionHandler,
+    pause: ListenPause | None,
+) -> Iterator[None]:
+    """The global hotkeys of `hotkeys` while the block runs, on Windows; their registrations are
+    recorded in HOTKEYS_FILE for `check` until the block ends. Nothing with them off."""
+    if not _hotkeys_on(config):
+        yield
+        return
+    hotkeys = [Hotkey(action, key) for action, key in config.hotkeys.bindings.items()]
+    actions = HotkeyActions(
+        reactions=reactions,
+        interrupt=assistant.interrupt,
+        repeat=assistant.repeat_now,
+        speak=assistant.speak,
+        pause=pause,
+        owner_call=config.assistant.owner_call,
+    )
+    with actions, HotkeyThread(hotkeys, actions.press) as thread:
+        _record_hotkeys(thread.registrations())
+        try:
+            yield
+        finally:
+            _forget_hotkeys()
+
+
+def _record_hotkeys(registrations: Sequence[Registration]) -> None:
+    try:
+        write_status(HOTKEYS_FILE, os.getpid(), registrations)
+    except OSError as exc:
+        logger.warning("Could not record the global hotkeys in %s: %s", HOTKEYS_FILE, exc)
+
+
+def _forget_hotkeys() -> None:
+    try:
+        HOTKEYS_FILE.unlink(missing_ok=True)
+    except OSError as exc:
+        logger.warning("Could not remove %s: %s", HOTKEYS_FILE, exc)
+
+
 # --- speaker verification --------------------------------------------------------------------
 
 
@@ -2344,8 +2456,10 @@ def _quick_page(args: argparse.Namespace) -> int:
             schedule=schedule,
             chosen=config.phone.quick_actions,
             where=PC_WHERE,
-            # Another process than `waifu run`: the bell's file shows a ring of the run's.
+            # Another process than `waifu run`: the bell's file shows a ring of the run's, and
+            # the pause's file a pause of its hearing.
             alarm=_alarm_bell(config, schedule, dry_run=args.dry_run),
+            listen_pause=_listen_pause(config),
         )
         groups = actions.groups()
         if not groups:
@@ -6359,6 +6473,7 @@ def _checks(config_path: Path) -> Iterator[Check]:
     yield _free_offers_check(config)
     yield from _voice_package_checks(config)
     yield _microphone_check(config)
+    yield from _hotkeys_check(config)
     yield from _fallback_voice_checks(config)
     yield from _anime_voice_checks(config)
     yield from _avatar_checks(config)
@@ -7048,6 +7163,57 @@ def _microphone_check(config: AppConfig) -> Check:
         mark, line = _microphone_in_use(config, value, name, picked, listed, default)
         return mark, line + _phone_voice_settings(override)
     return FAIL, f"Mikrofon tidak ditemukan: {problem}"
+
+
+def _hotkeys_check(config: AppConfig) -> Iterator[Check]:
+    """The global hotkeys switched on and what each does; whether the running `waifu run` holds
+    them, each one another program holds, from what that run recorded (trusted only while the
+    run lock is held and the process that recorded it is alive); and a listen pause under way.
+    No Win32 call: registering here would take the combos from the running `waifu run`."""
+    settings = config.hotkeys
+    if sys.platform != "win32":
+        yield WARN, "Hotkey global hanya ada di Windows"
+        return
+    if not settings.enabled:
+        yield WARN, "Hotkey global mati (hotkeys.enabled: false)"
+        return
+    if not settings.bindings:
+        yield WARN, "Hotkey global mati (semua tombolnya null)"
+        return
+    combos = ", ".join(
+        f"{Hotkey(action, key).combo} {HOTKEY_ACTION_TEXT[action]}"
+        for action, key in settings.bindings.items()
+    )
+    status = _running_hotkeys()
+    line = f"Hotkey global: {combos}; " + (
+        "dicoba saat 'waifu run' jalan" if status is None else "aktif di 'waifu run'"
+    )
+    pause = _listen_pause(config)
+    until = None if pause is None else pause.until()  # an ended pause's file goes, as in `run`
+    if until is not None:
+        line += f"; sedang tidak mendengarkan sampai {until:%H:%M}"
+    yield OK, line
+    for registration in () if status is None else status.registrations:
+        if registration.registered:
+            continue
+        hotkey = registration.hotkey
+        if registration.error == ERROR_HOTKEY_ALREADY_REGISTERED:
+            why = "sudah dipakai program lain"
+        else:
+            why = f"tidak bisa didaftarkan (Windows error {registration.error})"
+        named = f"Hotkey {hotkey.combo} ({HOTKEY_ACTION_TEXT[hotkey.action]})"
+        yield WARN, f"{named} {why}; ganti hotkeys.{hotkey.action} di config.yaml"
+
+
+def _running_hotkeys() -> HotkeyStatus | None:
+    """What the running `waifu run` recorded of its global hotkeys; None while none runs, or
+    when the record is another process's (one that ended without removing it)."""
+    if not _instance_running(RUN_LOCK):
+        return None
+    status = read_status(HOTKEYS_FILE)
+    if status is None or not process_alive(status.pid):
+        return None
+    return status
 
 
 def _microphone_in_use(

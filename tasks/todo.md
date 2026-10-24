@@ -2630,11 +2630,11 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 274 · **Files:** `src/waifu/phone/actions.py`, `src/waifu/avatar/web/phone/actions.js`, `src/waifu/avatar/web/phone/phone.js`, `src/waifu/avatar/web/tombol/tombol.js`, `tests/test_phone_actions.py`, `tests/js/*.test.mjs` · **Scope:** S
 
-## Task 278: Wiring and the check line
+## Task 278: Wiring and the check line ✅
 
 **Acceptance criteria:**
-- [ ] `run` on Windows clears and shares one pause, runs the actions and the hotkey thread while she listens, and records their registrations; `waifu tombol` shows the pause's button; `run`'s tests start a fake hotkey thread
-- [ ] `waifu check` lists the combos, trusts the recorded registrations only while `waifu run` runs, names each refused combo with its setting, and tells a pause under way
+- [x] `run` on Windows clears and shares one pause, runs the actions and the hotkey thread while she listens, and records their registrations; `waifu tombol` shows the pause's button; `run`'s tests start a fake hotkey thread
+- [x] `waifu check` lists the combos, trusts the recorded registrations only while `waifu run` runs, names each refused combo with its setting, and tells a pause under way
 
 **Dependencies:** 273, 275, 276, 277 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** M
 

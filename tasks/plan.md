@@ -1054,7 +1054,7 @@ and 0 of 16 unions stay.
 - [x] Task 275: the voice loop: the pause gates `run`, `repeat_now`, the avatar's `hearing`
 - [x] Task 276: the actions (`hotkey_actions.py`) and `InteractionHandler.press`
 - [x] Task 277: the quick button "Dengar lagi" on the phone and the PC page
-- [ ] Task 278: the CLI wiring and the check line
+- [x] Task 278: the CLI wiring and the check line
 - [ ] Task 279: README, CHANGELOG
 
 ### Checkpoint: Hotkey global
