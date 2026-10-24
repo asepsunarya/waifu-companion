@@ -843,6 +843,21 @@ def test_the_week_starts_just_after_since_in_server_time():
     assert character.count == 2
 
 
+def test_until_also_bounds_the_pulls_from_above():
+    records = [
+        pulled_at(1, "2026-10-12 01:00:00"),  # 00:00 WIB exactly: the day before's
+        pulled_at(2, "2026-10-12 01:00:01"),
+        pulled_at(3, "2026-10-13 01:00:00"),  # the next midnight: still this day's
+        pulled_at(4, "2026-10-13 01:00:01"),
+    ]
+    midnight = datetime(2026, 10, 12, 0, 0, tzinfo=WIB)
+
+    [character] = pulls_since(HSR, records, midnight, 8, until=midnight + timedelta(days=1))
+
+    assert character.count == 2
+    assert [banner.count for banner in pulls_since(HSR, records, midnight, 8)] == [3]
+
+
 def test_the_server_offset_decides_when_a_pull_was_made():
     records = [pulled_at(1, "2026-10-11 19:30:00")]  # 18:30 WIB on UTC+8, 20:30 WIB on UTC+6
 

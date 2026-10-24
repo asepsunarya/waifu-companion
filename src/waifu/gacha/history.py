@@ -379,15 +379,23 @@ def pulls_since(
     since: datetime,
     offset: int,
     extra_standard: Iterable[str] = (),
+    *,
+    until: datetime | None = None,
 ) -> list[BannerPulls]:
-    """Each banner's pulls made after `since` (aware), in display order, without the banners
-    that have none; a record's time is server time, `offset` hours from UTC. Each top's pulls
-    and 50/50 are worked out over the banner's whole history, as `banner_stats` does."""
+    """Each banner's pulls made after `since` (aware), and with `until` up to it, in display
+    order, without the banners that have none; a record's time is server time, `offset` hours
+    from UTC. Each top's pulls and 50/50 are worked out over the banner's whole history, as
+    `banner_stats` does."""
     extra = list(extra_standard)
     zone = server_timezone(offset)
     found = []
     for banner, pulls in _by_banner(game, records):
-        recent = {record.id for record in pulls if _server_moment(record.time, zone) > since}
+        recent = {
+            record.id
+            for record in pulls
+            if since < (moment := _server_moment(record.time, zone))
+            and (until is None or moment <= until)
+        }
         if not recent:
             continue
         tops = _walk(game, banner, pulls, extra)[0]
