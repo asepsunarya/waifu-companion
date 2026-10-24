@@ -26,6 +26,7 @@ Cyrene : "Komputer mau kumatikan sekarang, Master? Jawab iya kalau jadi." (minta
 - [Kebutuhan](#kebutuhan)
 - [Arsitektur](#arsitektur)
 - [Instalasi](#instalasi)
+- [Setup pertama](#setup-pertama)
 - [Memilih otak: Ollama atau Claude](#memilih-otak-ollama-atau-claude)
 - [Menyambungkan perangkat](#menyambungkan-perangkat)
 - [Mendaftarkan suara Master](#mendaftarkan-suara-master)
@@ -237,6 +238,9 @@ notepad config.yaml
 waifu check
 ```
 
+Mic, perangkat Tuya, IR blaster, dan notifikasi HP tidak perlu diisi dengan tangan: lanjutkan
+dengan `waifu setup` (lihat [Setup pertama](#setup-pertama)).
+
 `config.yaml` tidak di-commit karena berisi local key perangkat. Bagian-bagiannya:
 
 | Bagian | Isi |
@@ -273,6 +277,46 @@ pengingat dan pengumuman jadwal atau game, permintaan maaf, sapaan saat `run --a
 dan kalimat reaksi avatar. "Iya, Sayang" tetap dihitung sebagai jawaban iya. Kata itu
 dipakai persis seperti ditulis, kecuali di awal kalimat huruf pertamanya dibuat kapital
 (`sayang` jadi "Sayang, jadwal ... gagal", tetapi tetap "Sudah, sayang.").
+
+## Setup pertama
+
+`config.yaml` yang baru disalin masih berisi contoh: perangkat Tuya dengan
+`isi_dari_tinytuya_wizard`, IR blaster di `192.168.1.50`, tanpa mic dan tanpa notifikasi HP.
+`waifu setup` memandumu mengisi keempatnya langsung di terminal, dalam bahasa Indonesia, lalu
+menuliskannya sendiri ke `config.yaml`:
+
+```powershell
+waifu setup          # keempat langkah berurutan, lalu waifu check
+waifu setup mic      # atau satu langkah saja: mic, tuya, ir, atau notify
+```
+
+| Langkah | Yang ditanyakan | Yang ditulis |
+|---|---|---|
+| `mic` | Tiap mic didengarkan 3 detik selagi kamu menyebut "halo Cyrene"; pilih nomor mic yang paling jelas (Enter = yang teratas), atau beberapa nomor berurutan (`1,2`) supaya yang berikutnya jadi cadangan kalau yang pertama terputus | `audio.input_device` |
+| `tuya` | Wizard tinytuya dijalankan di terminalmu (kamu mengetik API Key dan API Secret sendiri ke wizard), lalu tiap lampu, colokan, dan IR blaster Tuya di `config.yaml` dicocokkan dengan perangkat dari wizard menurut namanya (lihat [Lampu dan colokan Tuya](#lampu-dan-colokan-tuya)) | `device_id`, `local_key`, `address`, `version` |
+| `ir` | Alamat IP tiap IR blaster Broadlink (Enter = tetap), lalu perintah `waifu learn-ir` untuk tombol remote yang belum dipelajari | `ir.host` semua perangkat di blaster itu |
+| `notify` | Nyalakan notifikasi HP? Topik ntfy acak dibuat, lalu langkah berlangganan di aplikasi ntfy; notifikasi tes hanya kalau kamu jawab `y` | `notify.enabled`, `notify.topic` |
+
+- Setiap langkah bisa dilewati: `n`, atau `l` saat diminta nomor. Ctrl+C menghentikan setup.
+  Menjalankannya lagi aman: yang sudah terisi ditunjukkan dan tetap, kecuali kamu memilih
+  menggantinya. `device_id` yang sudah asli hanya diganti kalau kamu jawab `y`, dan topik ntfy
+  hanya diganti kalau kamu minta topik baru (HP lalu harus berlangganan topik baru itu).
+- Hanya kunci yang disebut yang diubah: komentar, urutan, tanda kutip, dan akhir baris
+  `config.yaml` tetap. Sebelum menulis, isi lamanya disalin ke
+  `data\config.yaml.bak-<tanggal>-<jam>`. Sesudahnya `config.yaml` dibaca ulang dan
+  dibandingkan seluruhnya; kalau hasilnya tidak persis seperti yang dimaksud, isi lama
+  dikembalikan.
+- Kalau `config.yaml`-mu ditulis dalam bentuk yang tidak bisa diubah per baris (misalnya
+  `tuya: {...}` dalam satu baris, tab, atau anchor YAML), tidak ada yang diubah: setup
+  menampilkan potongan YAML untuk kamu tempel sendiri. Local key tidak pernah ditampilkan;
+  salin nilai `"key"` dari `devices.json` untuk perangkat dengan `"id"` yang sama.
+- Perubahan dipakai setelah `waifu run` dijalankan ulang; setup mengingatkan kalau
+  `waifu run` sedang berjalan. Setelah langkah `mic`, daftarkan ulang suaramu dengan
+  `waifu enroll` lewat mic itu. Mic yang dipilih di halaman Suara di HP tetap dicoba lebih
+  dulu daripada `audio.input_device`, dan setup mengatakannya.
+- `waifu check` menandai yang masih contoh dengan `!`: perangkat Tuya dengan
+  `isi_dari_tinytuya_wizard` ("Jalankan: waifu setup tuya") dan IR blaster di `192.168.1.50`
+  ("waifu setup ir"; abaikan kalau blastermu memang di alamat itu).
 
 ## Memilih otak: Ollama atau Claude
 
@@ -361,21 +405,23 @@ Setelah mengubah perangkat, cek dengan `waifu devices` dan `waifu check`.
    atau **Tuya Smart** (Wi-Fi 2.4 GHz).
 2. Buat akun developer di Tuya IoT Platform dan hubungkan akun aplikasimu, mengikuti
    panduan tinytuya:
-   <https://github.com/jasonacox/tinytuya#get-the-tuya-device-local-key>.
-3. Jalankan wizard tinytuya **di folder terpisah di luar repo**, karena wizard
-   menulis `tinytuya.json`, `devices.json`, `snapshot.json`, dan `tuya-raw.json` ke
-   folder aktif, dan file-file itu berisi API secret serta local key:
-
-   ```powershell
-   $repo = (Get-Location).Path
-   New-Item -ItemType Directory -Force $HOME\tuya-wizard | Out-Null
-   Set-Location $HOME\tuya-wizard
-   & "$repo\.venv\Scripts\python.exe" -m tinytuya wizard
-   Set-Location $repo
-   ```
-
-4. Salin data tiap perangkat dari `devices.json` (`id`, `key`, `ip`, `version`) ke
-   `config.yaml`:
+   <https://github.com/jasonacox/tinytuya#get-the-tuya-device-local-key>. Singkatnya: di
+   <https://iot.tuya.com> buat Cloud Project (Smart Home, data center yang sama dengan akun
+   Smart Life-mu), lalu Devices > Link App Account dan pindai QR-nya dari aplikasi Smart Life.
+   Yang disalin dari halaman Overview project: Access ID/Client ID (API Key) dan Access
+   Secret/Client Secret (API Secret).
+3. Dari folder proyek, jalankan `waifu setup tuya`. Cyrene menjelaskan langkah di atas, lalu
+   menjalankan wizard tinytuya (`python -m tinytuya wizard`) di terminalmu: kamu mengetik API
+   Key, API Secret, satu Device ID (atau `scan`), dan region langsung ke wizard, dan Cyrene
+   tidak membacanya. Wizard menampilkan API Secret dan semua local key di layar, jadi jangan
+   merekam atau membagikan layar. Jawab Y untuk "Poll local devices?" supaya IP dan versi tiap
+   perangkat ditemukan (wizard memindai jaringan rumahmu); n membiarkan `address: Auto`.
+4. Cyrene lalu mencocokkan tiap lampu, colokan, dan IR blaster Tuya di `config.yaml` dengan
+   perangkat dari wizard menurut namanya. Tekan Enter untuk setuju, ketik nomor lain untuk
+   memilih, atau `l` untuk melewati. `device_id`, `local_key`, `address` (kalau IP-nya
+   ditemukan), dan `version` ditulis ke `config.yaml` (isi lamanya disalin ke `data\` dulu),
+   dan local key tidak pernah ditampilkan. Hasilnya, sama dengan kalau diisi sendiri dari
+   `devices.json` (`id`, `key`, `ip`, `version`):
 
    ```yaml
    - id: lampu_kamar
@@ -389,6 +435,14 @@ Setelah mengubah perangkat, cek dengan `waifu devices` dan `waifu check`.
        version: 3.3                      # "version"
    ```
 
+5. Terakhir Cyrene menawarkan menghapus `tinytuya.json` dan `tuya-raw.json`, yang berisi API
+   Key dan API Secret akun Tuya-mu (dan jawaban lengkap cloud, termasuk semua local key);
+   Cyrene tidak membutuhkannya, tapi wizard berikutnya akan menanyakan keduanya lagi. Wizard
+   menulis keempat filenya (`tinytuya.json`, `devices.json`, `snapshot.json`, `tuya-raw.json`)
+   ke folder proyek, dan semuanya ada di `.gitignore`. `devices.json` dan `snapshot.json` tetap
+   berisi local key: jangan dibagikan. Menjalankan `waifu setup tuya` lagi membaca
+   `devices.json` yang ada, kecuali kamu minta wizard dijalankan lagi.
+
 Catatan versi protokol:
 
 - Kebanyakan lampu dan colokan memakai **3.3**. Firmware yang lebih baru bisa memakai
@@ -396,7 +450,8 @@ Catatan versi protokol:
 - Kalau versi atau local key salah, perintah gagal dengan pesan
   "... menolak koneksi. Cek local_key dan version-nya di config.yaml."
 - **Local key berubah setiap kali perangkat dipasang ulang** di aplikasi. Jalankan
-  wizard lagi setelah reset atau pairing ulang.
+  `waifu setup tuya` lagi dan minta wizard dijalankan setelah reset atau pairing ulang:
+  perangkat yang sama (`device_id` sama) langsung mendapat local key barunya.
 - Beri perangkat IP tetap (reservasi DHCP di router) supaya `address` tidak berubah.
 
 Coba langsung dari CLI:
@@ -423,8 +478,12 @@ ir:
   host: 192.168.1.50
 ```
 
-**Tuya IR universal remote.** Ambil `device_id`/`local_key`-nya dengan wizard
-tinytuya seperti di atas, lalu:
+`waifu setup ir` menanyakan alamat ini dan menuliskannya ke semua perangkat di blaster itu
+(Cyrene tidak mencarinya sendiri di jaringan), lalu menyebut perintah `waifu learn-ir` untuk
+tombol yang belum dipelajari.
+
+**Tuya IR universal remote.** Ambil `device_id`/`local_key`-nya dengan `waifu setup tuya`
+seperti di atas (IR blaster ikut dicocokkan), atau isi sendiri:
 
 ```yaml
 ir:
@@ -620,7 +679,7 @@ Cyrene hanya menanggapi suara yang cocok dengan voiceprint Master. Daftarkan di
 ruangan dan dengan mic yang sama seperti pemakaian sehari-hari.
 
 ```powershell
-waifu mic             # mic mana yang mendengar suaramu, dan baris audio.input_device-nya
+waifu setup mic       # mic mana yang mendengar suaramu, ditulis ke audio.input_device
 waifu enroll          # 6 rekaman x 4 detik; bacakan kalimat yang muncul
 waifu speaker-test    # skor kecocokan langsung, Ctrl+C untuk berhenti
 ```
@@ -662,6 +721,7 @@ waifu speaker-test    # skor kecocokan langsung, Ctrl+C untuk berhenti
 | `waifu enroll` / `waifu speaker-test` | Daftarkan suara / cek skor kecocokan |
 | `waifu mics` | Daftar perangkat audio dan nomornya |
 | `waifu mic` / `waifu mic --seconds 5` | Cari mic yang mendengar suaramu: tiap mic didengarkan sebentar sambil kamu menyebut "halo Cyrene", lalu baris `audio.input_device` untuk mic terbaik (lihat [Pemecahan masalah](#pemecahan-masalah)) |
+| `waifu setup` / `waifu setup mic`, `tuya`, `ir`, `notify` | Panduan setup pertama: mic, perangkat Tuya (lewat wizard tinytuya), alamat IR blaster, dan notifikasi HP, ditulis langsung ke `config.yaml` dengan cadangan di `data\`; tanpa langkah, keempatnya lalu `waifu check` (lihat [Setup pertama](#setup-pertama)) |
 | `waifu voices` | Daftar suara Windows per bahasa, dan suara cadangan offline yang dipakai tiap bahasa |
 | `waifu avatar` / `waifu avatar --demo` | Tampilkan avatar saja, tanpa mendengarkan; `--demo` mengganti ekspresi setiap 3 detik, dan reaksi elusan atau colekan dicetak di terminal (lihat [Avatar 3D](#avatar-3d-つくよみちゃん) dan [Avatar Live2D & interaksi](#avatar-live2d--interaksi)) |
 | `waifu lafal list` / `add <kata> <bacaan>` / `remove <kata>` | Lihat, tambah, dan hapus cara baca kata untuk suara Indonesianya (lihat [Kamus Cyrene](#kamus-cyrene)) |
@@ -1694,6 +1754,10 @@ aktif, dia bilang game mana yang perlu dinyalakan.
 3. Di aplikasi ntfy: **+** → isi topik itu (server bawaan `ntfy.sh`).
 4. Isi `notify` di `config.yaml` (langkah 4), lalu `waifu notify-test`: notifikasi tes
    harus masuk ke HP.
+
+Atau jalankan `waifu setup notify`: topiknya dibuat, ditampilkan bersama langkah berlangganan,
+dan ditulis ke `config.yaml` dengan `notify.enabled: true`; notifikasi tes dikirim kalau kamu
+jawab `y` (lihat [Setup pertama](#setup-pertama)).
 
 Server publik `ntfy.sh` mengantar pesan ke siapa pun yang tahu nama topiknya, jadi
 topiknya harus panjang dan acak (Cyrene menolak topik yang terlalu pendek) dan jangan
@@ -6580,7 +6644,8 @@ dari torch dan paket `nvidia-*` di venv.
   `input_device: "..."` untuk mic yang paling jelas mendengarmu. Pakai baris
   itu untuk mengganti baris `input_device` di bagian `audio:` di `config.yaml`, jalankan ulang
   `waifu run`, lalu daftarkan ulang suaramu dengan `waifu enroll` lewat mic itu. Rekamannya tidak disimpan, dan `waifu mic` boleh
-  dijalankan selagi `waifu run` jalan.
+  dijalankan selagi `waifu run` jalan. `waifu setup mic` mengukur dengan cara yang sama lalu
+  menuliskan mic pilihanmu (atau beberapa, berurutan) ke `config.yaml` sendiri.
 - Kalau `audio.input_device` kosong, Cyrene memakai mic default Windows yang ada saat
   `waifu run` dimulai; default yang berubah sesudahnya (misalnya headset Bluetooth baru
   tersambung) baru dipakai setelah `waifu run` dijalankan ulang. Colokan mic di PC (misalnya
@@ -6672,6 +6737,10 @@ menguji nomor 5.
 - [ ] Setiap perangkat bereaksi lewat CLI: `waifu device lampu_kamar on`,
       `waifu device ac temp 24`, `waifu device proyektor power`,
       `waifu device tv power`.
+- [ ] `waifu setup`: mic yang kamu pilih, perangkat Tuya dari wizard, alamat IR blaster, dan
+      topik ntfy tertulis di `config.yaml` dengan komentarnya tetap utuh, ada cadangan di
+      `data\config.yaml.bak-...`, notifikasi tes masuk ke HP, dan `waifu check` tidak lagi
+      menampilkan baris "waifu setup". `waifu device lampu_kamar on` menyalakan lampu.
 - [ ] `waifu mic`: sambil kamu menyebut "halo Cyrene", mic yang dipakai Cyrene menunjukkan
       `✓ suara terdengar` (atau isi `audio.input_device` dengan baris yang dia sarankan), dan
       baris `Mikrofon` di `waifu check` menyebut mic itu.
@@ -7549,8 +7618,14 @@ di sampingnya)
   log atau output `waifu autostart status` (yang menampilkan 5 baris terakhirnya), atau
   hapus folder `logs\` kalau tidak diperlukan.
 - File hasil wizard tinytuya (`tinytuya.json`, `devices.json`, `snapshot.json`,
-  `tuya-raw.json`) berisi API secret dan local key tapi **tidak** tercakup
-  `.gitignore`; simpan di folder di luar repo seperti langkah wizard di atas.
+  `tuya-raw.json`) berisi API secret dan local key. `waifu setup tuya` menjalankan wizard di
+  folder proyek, dan `.gitignore` mencakup keempat file itu; setelah impor Cyrene menawarkan
+  menghapus `tinytuya.json` dan `tuya-raw.json`. Jangan bagikan `devices.json` dan
+  `snapshot.json`. Cyrene hanya membaca `devices.json` dan `snapshot.json`, tidak pernah
+  membaca API Key atau API Secret, dan tidak pernah menampilkan atau mencatat local key.
+- Cadangan `config.yaml` dari `waifu setup` (`data\config.yaml.bak-...`) berisi local key yang
+  sama dengan `config.yaml`; seluruh `data\` ada di `.gitignore`. Topik ntfy hanya ditampilkan
+  sekali, saat langkah berlangganan, dan tidak pernah dicatat di log.
 - Perintah Tuya, Broadlink, dan Wake-on-LAN berjalan di jaringan lokal; Cyrene tidak
   memakai cloud Tuya. Cloud Tuya hanya dipakai wizard untuk mengambil local key.
 

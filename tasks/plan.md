@@ -1146,18 +1146,18 @@ name with the owner's confirmation, and offers to delete the files holding the c
 `waifu check` points at `waifu setup` while the placeholders remain. No tool or dependency: 18 of
 20 strict tools, 17 of 24 optional parameters, and 0 of 16 unions stay.
 - [x] Task 299a: contract: SPEC, tasks
-- [ ] Task 299: the line patcher (`config_patch.patch_text`, `snippet`, `masked`)
-- [ ] Task 300: writing config.yaml safely (`apply_changes`: backup, atomic write, reload and compare, restore)
-- [ ] Task 301: the wizard's files and the matching (`tuya_import.py`)
-- [ ] Task 302: `waifu setup mic` (and the mic helpers `waifu mic` shares)
-- [ ] Task 303: `waifu setup tuya` (the wizard runner, the import, the credential files, the test guard)
-- [ ] Task 304: `waifu setup ir` and `waifu setup notify`
-- [ ] Task 305: `waifu setup all` and the check hints
-- [ ] Task 306: README, CHANGELOG
+- [x] Task 299: the line patcher (`config_patch.patch_text`, `snippet`, `masked`)
+- [x] Task 300: writing config.yaml safely (`apply_changes`: backup, atomic write, reload and compare, restore)
+- [x] Task 301: the wizard's files and the matching (`tuya_import.py`)
+- [x] Task 302: `waifu setup mic` (and the mic helpers `waifu mic` shares)
+- [x] Task 303: `waifu setup tuya` (the wizard runner, the import, the credential files, the test guard)
+- [x] Task 304: `waifu setup ir` and `waifu setup notify`
+- [x] Task 305: `waifu setup all` and the check hints
+- [x] Task 306: README, CHANGELOG
 
 ### Checkpoint: Panduan setup
-- [ ] Python suite, ruff, and JS tests clean; no test ran tinytuya, reached the network, opened a mic, or read the repository's config.yaml or `data/`; the strict-tool budget unchanged (18 of 20 strict tools, 17 of 24 optional parameters, 0 of 16 unions)
-- [ ] By hand: in a scratch folder with a copy of config.example.yaml and made-up wizard files, `waifu setup tuya`, `ir`, and `notify` write the values, keep every comment, and leave a backup; a broken layout gets the snippet with the key hidden
+- [x] Python suite, ruff, and JS tests clean; no test ran tinytuya, reached the network, opened a mic, or read the repository's config.yaml or `data/`; the strict-tool budget unchanged (18 of 20 strict tools, 17 of 24 optional parameters, 0 of 16 unions) (2026-10-25: 11168 pytest and 601 JS tests, ruff check and format clean; the wizard is a fake runner writing made-up devices.json and snapshot.json, the mics the fake sounddevice, the notifier a fake, and every config a temp copy of config.example.yaml or a small one; tests/conftest.py now also refuses any subprocess running tinytuya; nothing under src/waifu/brain or in a tool spec changed, so no tool schema moved)
+- [x] By hand: in a scratch folder with a copy of config.example.yaml and made-up wizard files, `waifu setup tuya`, `ir`, and `notify` write the values, keep every comment, and leave a backup; a broken layout gets the snippet with the key hidden (2026-10-25, mktemp folders deleted afterwards: through `python -m waifu setup` with piped answers on the example turned CRLF with a BOM and a made-up devices.json, `setup tuya` read the list without running the wizard and wrote the lamp's four keys, `setup ir` moved both Broadlink devices to 192.168.1.23 and listed both `learn-ir --missing` commands, and `setup notify` wrote `enabled: true` and a new topic; the BOM and CRLF on all 755 lines stayed, each step left its own backup, only the targeted lines changed (diff), the summary showed the key's length only, and `waifu check` then warned only for the plug still at the placeholder; a fake wizard runner in-process wrote both devices and deleted tinytuya.json on yes; the flow-mapping and loader-failure paths are covered by tests)
 - [ ] On the owner's PC: `waifu setup` fills the mic, the Tuya devices, the blaster, and notify, and `waifu check` shows no placeholder line
 
 ## Risks and Mitigations

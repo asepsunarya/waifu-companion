@@ -4,6 +4,34 @@ Ringkasan per versi, yang terbaru di atas. Rinciannya ada di README (bagian yang
 setiap versi) dan di SPEC.md. Setelah memperbarui, **mulai ulang `waifu run`** supaya semuanya
 aktif, lalu jalankan `waifu check`.
 
+## v1.51: panduan setup
+
+- `waifu setup` memandumu mengisi yang masih contoh di `config.yaml`, langsung di terminal, lalu
+  menuliskannya sendiri: **mic** (tiap mic didengarkan 3 detik selagi kamu menyebut "halo
+  Cyrene", lalu pilih nomornya, atau beberapa berurutan sebagai cadangan), **perangkat Tuya**
+  (wizard tinytuya dijalankan di terminalmu, kamu mengetik API Key dan API Secret sendiri ke
+  wizard, lalu tiap lampu, colokan, dan IR blaster Tuya dicocokkan menurut namanya dan
+  `device_id`, `local_key`, `address`, `version` ditulis), **IR blaster** (alamat IP blaster
+  Broadlink untuk semua perangkat di blaster itu, lalu perintah `waifu learn-ir` yang masih
+  perlu), dan **notifikasi HP** (topik ntfy acak, langkah berlangganan di aplikasi ntfy, dan
+  notifikasi tes kalau kamu mau). Tanpa langkah, keempatnya berurutan lalu `waifu check`; atau
+  satu saja: `waifu setup mic`, `tuya`, `ir`, `notify`.
+- Setiap langkah bisa dilewati (`n`, atau `l` saat diminta nomor), dan menjalankannya lagi aman:
+  `device_id` yang sudah asli dan topik ntfy yang sudah ada hanya diganti kalau kamu minta.
+- Hanya kunci yang disebut yang diubah; komentar dan format `config.yaml` tetap. Isi lamanya
+  disalin dulu ke `data\config.yaml.bak-<tanggal>-<jam>`, dan kalau setelah ditulis
+  `config.yaml` tidak terbaca persis seperti yang dimaksud, isi lama dikembalikan. Bentuk YAML
+  yang tidak bisa diubah per baris tidak disentuh: setup menampilkan potongan untuk ditempel
+  sendiri.
+- Local key tidak pernah ditampilkan atau dicatat. Wizard menulis filenya ke folder proyek (semua
+  ada di `.gitignore`); setelah impor Cyrene menawarkan menghapus `tinytuya.json` dan
+  `tuya-raw.json`, yang berisi API Key dan API Secret akun Tuya-mu.
+- `waifu check` menandai perangkat Tuya yang masih `isi_dari_tinytuya_wizard` ("Jalankan:
+  waifu setup tuya") dan IR blaster di alamat contoh `192.168.1.50` ("waifu setup ir"; abaikan
+  kalau blastermu memang di alamat itu).
+- Perubahan dipakai setelah `waifu run` dijalankan ulang. Tidak ada tool baru.
+- README: "Setup pertama", "Lampu dan colokan Tuya".
+
 ## v1.50: sebelum reset
 
 - Mulai `daily_time` (bawaan 20:00), Cyrene menyebut sekali sehari per game apa yang mau habis
