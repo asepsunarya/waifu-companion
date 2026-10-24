@@ -2483,11 +2483,11 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 260a · **Files:** `tests/conftest.py`, `tests/test_safety_guard.py` · **Scope:** S
 
-## Task 261: The level tap
+## Task 261: The level tap ✅
 
 **Acceptance criteria:**
-- [ ] `MicStream.level` gives the RMS and peak of the last second (paused or not) without keeping samples; `frames()` raises `MicrophoneFlat` after 8 s of exact zeros, not for a quiet mic or while paused; `name` and `host_api` name the opened device
-- [ ] `restart_portaudio` terminates and initialises PortAudio (only initialises when it is not running) and waits for a clip `Player.play` is playing
+- [x] `MicStream.level` gives the RMS and peak of the last second (paused or not) without keeping samples; `frames()` raises `MicrophoneFlat` after 8 s of exact zeros, not for a quiet mic or while paused; `name` and `host_api` name the opened device
+- [x] `restart_portaudio` terminates and initialises PortAudio (only initialises when it is not running) and waits for a clip `Player.play` is playing
 
 **Dependencies:** 260 · **Files:** `src/waifu/voice/audio.py`, `tests/test_voice_audio.py` · **Scope:** M
 

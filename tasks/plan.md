@@ -1020,7 +1020,7 @@ denger apa?" is a strict local phrase like "ulangi". No tool: 18 of 20 strict to
 optional parameters, and 0 of 16 unions stay.
 - [x] Task 260a: contract: SPEC, tasks
 - [x] Task 260: test guards: sounddevice streams, playback, and restarts; winmm's input listing
-- [ ] Task 261: `MicStream`'s level tap, flat run, and name; `restart_portaudio` under the player's lock
+- [x] Task 261: `MicStream`'s level tap, flat run, and name; `restart_portaudio` under the player's lock
 - [ ] Task 262: the segmenter's floor and bar, `set_gate`, `relearn`, and too-short segments
 - [ ] Task 263: the records (`voice/diagnosis.py`) and the voice loop fills them
 - [ ] Task 264: "tadi kamu denger apa?" (`heard.py`) and her answer

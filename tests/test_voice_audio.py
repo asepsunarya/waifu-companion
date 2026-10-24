@@ -5,7 +5,16 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from waifu.voice.audio import MicrophoneError, MicStream, Player, list_devices, resample
+from waifu.voice import audio
+from waifu.voice.audio import (
+    MicrophoneError,
+    MicrophoneFlat,
+    MicStream,
+    Player,
+    list_devices,
+    resample,
+    restart_portaudio,
+)
 
 WAIT_S = 2.0  # an upper bound for events between threads, never a sleep
 
@@ -75,6 +84,8 @@ class FakeSounddevice:
         self.streams: list[FakeInputStream] = []
         self.queries: list[tuple] = []
         self.calls: list[tuple] = []
+        self.restarts: list[str] = []  # "terminate" and "initialize", in order
+        self._initialized = 1  # sounddevice's count of PortAudio starts
         self.default = SimpleNamespace(device=[1, 0])
         self.devices = [
             {"name": "Speakers (Realtek)", "index": 0, "hostapi": 0,
@@ -89,7 +100,7 @@ class FakeSounddevice:
         self.queries.append((device, kind))
         if device is None and kind is None:
             return self.devices
-        return {"name": "USB Mic", "default_samplerate": self.default_samplerate}
+        return {"name": "USB Mic", "hostapi": 1, "default_samplerate": self.default_samplerate}
 
     def query_hostapis(self):
         return ({"name": "MME"}, {"name": "Windows WASAPI"})
@@ -120,6 +131,14 @@ class FakeSounddevice:
     def stop(self):
         self.calls.append(("stop",))
         self._stop_and_close()
+
+    def _terminate(self):  # private in sounddevice 0.5.6, as restart_portaudio uses it
+        self.restarts.append("terminate")
+        self._initialized -= 1
+
+    def _initialize(self):
+        self.restarts.append("initialize")
+        self._initialized += 1
 
     def end_clip(self) -> None:
         """The held clip plays out by itself."""
@@ -562,3 +581,162 @@ def test_list_devices_shows_host_api_and_channels_in_indonesian():
 
     assert text.splitlines()[0].startswith("Perangkat audio")
     assert "Headset, Windows WASAPI (1 masuk, 2 keluar)" in text
+
+
+# --- the level tap, the flat run, and the device's name ---------------------------------------
+
+
+def test_the_level_is_the_rms_and_peak_of_the_last_second_on_the_mic_s_clock():
+    now = [5.0]
+    sd = FakeSounddevice()
+    with MicStream(16000, 30, sd_module=sd, clock=lambda: now[0]) as mic:
+        for _ in range(33):  # 0.99 s: not a whole second yet
+            sd.streams[0].push(np.full(480, 0.1))
+        assert mic.level is None
+        now[0] = 6.0
+        sd.streams[0].push(np.full(480, 0.1))
+        sd.streams[0].push(np.full(480, 0.01))  # the next second has begun
+
+        level = mic.level
+
+    assert level.rms_db == pytest.approx(-20.0, abs=0.01)
+    assert level.peak_db == pytest.approx(-20.0, abs=0.01)
+    assert level.at == 6.0
+
+
+def test_the_level_s_peak_is_the_loudest_sample_either_way():
+    sd = FakeSounddevice()
+    with MicStream(16000, 30, sd_module=sd) as mic:
+        block = np.full(480, 0.01)
+        block[7] = -0.5
+        for _ in range(34):
+            sd.streams[0].push(block)
+
+        assert mic.level.peak_db == pytest.approx(-6.02, abs=0.01)
+
+
+def test_the_level_is_measured_while_she_speaks_too():
+    sd = FakeSounddevice()
+    with MicStream(16000, 30, sd_module=sd) as mic:
+        mic.pause()
+        for _ in range(34):
+            sd.streams[0].push(np.full(480, 0.5))
+
+        assert mic.level.rms_db == pytest.approx(-6.02, abs=0.01)
+
+
+def flat_clock() -> tuple[list[float], MicStream, FakeSounddevice]:
+    now = [0.0]
+    sd = FakeSounddevice()
+    return now, MicStream(16000, 30, sd_module=sd, clock=lambda: now[0]), sd
+
+
+def test_a_mic_that_sends_only_exact_zeros_for_eight_seconds_is_flat():
+    now, mic, sd = flat_clock()
+    with mic:
+        frames = mic.frames()
+        sd.streams[0].push(np.zeros(480))
+        next(frames)
+        now[0] = 7.9
+        sd.streams[0].push(np.zeros(480))
+        next(frames)  # not yet
+        now[0] = 8.0
+        sd.streams[0].push(np.zeros(480))
+
+        with pytest.raises(MicrophoneFlat, match="sunyi total"):
+            next(frames)
+    assert issubclass(MicrophoneFlat, MicrophoneError)
+
+
+def test_a_quiet_mic_with_its_own_noise_is_never_flat():
+    now, mic, sd = flat_clock()
+    with mic:
+        frames = mic.frames()
+        for second in range(12):
+            now[0] = float(second)
+            sd.streams[0].push(np.full(480, 1e-4))
+            next(frames)
+
+
+def test_any_sound_ends_a_run_of_zeros():
+    now, mic, sd = flat_clock()
+    with mic:
+        frames = mic.frames()
+        for moment, value in [(0.0, 0.0), (6.0, 0.0), (6.5, 0.2), (7.0, 0.0), (14.0, 0.0)]:
+            now[0] = moment
+            sd.streams[0].push(np.full(480, value))
+            next(frames)
+
+
+def test_zeros_while_she_speaks_are_not_counted_as_flat():
+    now, mic, sd = flat_clock()
+    with mic:
+        frames = mic.frames()
+        mic.pause()
+        for second in range(12):  # a long reply over a headset that sends zeros meanwhile
+            now[0] = float(second)
+            sd.streams[0].push(np.zeros(480))
+        mic.resume()
+        sd.streams[0].push(np.zeros(480))
+
+        assert np.all(next(frames) == 0.0)
+
+
+def test_the_opened_device_is_named_with_its_host_api():
+    sd = FakeSounddevice()
+    mic = MicStream(16000, 30, device="USB", sd_module=sd)
+    assert (mic.name, mic.host_api) == (None, None)
+
+    with mic:
+        assert (mic.name, mic.host_api) == ("USB Mic", "Windows WASAPI")
+
+
+# --- restarting PortAudio -------------------------------------------------------------------
+
+
+def test_restarting_portaudio_stops_and_starts_it_so_it_lists_the_devices_of_now():
+    sd = FakeSounddevice()
+
+    restart_portaudio(sd_module=sd)
+
+    assert sd.restarts == ["terminate", "initialize"]
+    assert sd._initialized == 1
+
+
+def test_restarting_a_portaudio_that_failed_to_start_only_starts_it():
+    sd = FakeSounddevice()
+    sd._initialized = 0
+
+    restart_portaudio(sd_module=sd)
+
+    assert sd.restarts == ["initialize"]
+
+
+def test_a_restart_waits_for_the_clip_being_played():
+    sd = FakeSounddevice(hold_clips=True)
+    player = Player(sd_module=sd)
+    playing = threading.Thread(target=player.play, args=(sine(440, 24000, 0.2), 24000))
+    playing.start()
+    assert sd.watching.wait(WAIT_S)
+    restarting = threading.Thread(target=restart_portaudio, kwargs={"sd_module": sd})
+    restarting.start()
+
+    restarting.join(0.2)
+    assert sd.restarts == []  # PortAudio's stop would close the clip's stream under it
+    sd.end_clip()
+    playing.join(WAIT_S)
+    restarting.join(WAIT_S)
+
+    assert sd.restarts == ["terminate", "initialize"]
+
+
+def test_a_restart_waits_for_a_device_listing():
+    sd = FakeSounddevice()
+    with audio.LISTING:
+        restarting = threading.Thread(target=restart_portaudio, kwargs={"sd_module": sd})
+        restarting.start()
+        restarting.join(0.2)
+        assert sd.restarts == []
+    restarting.join(WAIT_S)
+
+    assert sd.restarts == ["terminate", "initialize"]

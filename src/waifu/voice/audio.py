@@ -3,16 +3,23 @@
 sounddevice is imported lazily (or injected as `sd_module`) so tests and text
 mode never load PortAudio or open a real device. The microphone runs half
 duplex: `pause()` while the assistant speaks so she never hears herself.
+
+PortAudio lists the devices once, as it starts, so a microphone that came back after it started
+is found only by restarting it (`restart_portaudio`), which closes every stream: the restart
+holds `PLAYBACK`, which `Player.play` holds for its whole clip, and `LISTING`, which a device
+listing on another thread holds, and is made only with the microphone closed.
 """
 
 from __future__ import annotations
 
 import contextlib
 import logging
+import math
 import queue
 import threading
 import time
 from collections.abc import Callable, Iterator
+from dataclasses import dataclass
 from types import TracebackType
 from typing import Any
 
@@ -24,10 +31,36 @@ MAX_QUEUED_S = 5.0
 POLL_S = 0.1
 STALL_S = 2.0
 END_POLL_S = 0.05  # how often `Player.play` checks whether its clip has played out
+LEVEL_WINDOW_S = 1.0  # the span of `MicStream.level`
+# How long a mic may send exact zeros before it counts as flat: well above a Bluetooth headset's
+# switch to hands-free, which sends near-silence (not zeros) for a second or two.
+FLAT_S = 8.0
+
+# Held by `Player.play` for its whole clip and by a device listing, and both by
+# `restart_portaudio`, whose stop of PortAudio would close a stream or a listing under them.
+PLAYBACK = threading.Lock()
+LISTING = threading.Lock()
 
 
 class MicrophoneError(Exception):
     """The microphone stopped delivering audio; the message is Indonesian and safe to show."""
+
+
+class MicrophoneFlat(MicrophoneError):
+    """The microphone has sent only exact zeros for FLAT_S: muted at the driver, or gone."""
+
+
+@dataclass(frozen=True)
+class MicLevel:
+    """What the microphone heard over the last LEVEL_WINDOW_S, in dBFS."""
+
+    rms_db: float
+    peak_db: float
+    at: float  # when the window ended, on the stream's clock
+
+
+def _db(amplitude: float) -> float:
+    return 20 * math.log10(amplitude + 1e-10)
 
 
 def _sounddevice(sd_module: Any) -> Any:
@@ -76,7 +109,9 @@ class MicStream:
 
     Use as a context manager; `frames()` ends once the stream is closed and
     raises `MicrophoneError` when PortAudio stops calling back (mic unplugged,
-    driver reset after sleep) instead of waiting forever.
+    driver reset after sleep) instead of waiting forever, and `MicrophoneFlat` once it has sent
+    only exact zeros for FLAT_S while not paused. `level` is what it heard over the last second,
+    paused or not, measured on the audio thread without keeping the samples.
     """
 
     def __init__(
@@ -104,9 +139,24 @@ class MicStream:
         self._closed = True
         self._dropped = 0
         self._last_callback = 0.0
+        # The level window being measured, on the audio thread only.
+        self._level_samples = 0
+        self._sum_squares = 0.0
+        self._peak = 0.0
+        self._level: MicLevel | None = None
+        self._zeros_since: float | None = None  # when the current run of exact zeros began
+        self.name: str | None = None
+        self.host_api: str | None = None
+
+    @property
+    def level(self) -> MicLevel | None:
+        """The level of the last whole second; None before one has passed. Any thread."""
+        return self._level
 
     def __enter__(self) -> MicStream:
         info = self._sd.query_devices(self._device, "input")
+        self.name = info["name"]
+        self.host_api = self._sd.query_hostapis()[info["hostapi"]]["name"]
         self._device_rate = round(info["default_samplerate"])
         self._stream = self._sd.InputStream(
             samplerate=self._device_rate,
@@ -161,6 +211,7 @@ class MicStream:
                     return
                 self._check_alive()
                 continue
+            self._check_flat()
             self._report_dropped()
             if epoch != self._epoch:
                 epoch = self._epoch
@@ -174,12 +225,21 @@ class MicStream:
     def _on_audio(self, indata: np.ndarray, frames: int, time_info: Any, status: Any) -> None:
         # Runs on PortAudio's audio thread: copy and hand off, never block.
         # Callbacks keep coming while paused, so this also proves the mic is alive.
-        self._last_callback = self._clock()
+        now = self._clock()
+        self._last_callback = now
         if status:
             logger.warning("Microphone status: %s", status)
+        samples = indata[:, 0]
+        if samples.size:
+            self._measure(samples, now)
         if self._paused:
+            self._zeros_since = None
             return
-        block = indata[:, 0].copy()
+        if samples.any():
+            self._zeros_since = None
+        elif self._zeros_since is None:
+            self._zeros_since = now
+        block = samples.copy()
         try:
             self._queue.put_nowait(block)
         except queue.Full:
@@ -187,6 +247,25 @@ class MicStream:
                 self._queue.get_nowait()
             self._queue.put_nowait(block)
             self._dropped += 1  # counted here, logged by the reader: no I/O on the audio thread
+
+    def _measure(self, samples: np.ndarray, now: float) -> None:
+        """Add `samples` to the level window and publish the window once it spans LEVEL_WINDOW_S.
+        Arithmetic only, on the audio thread: the samples are never kept."""
+        self._sum_squares += float(np.dot(samples, samples))
+        self._peak = max(self._peak, float(samples.max()), -float(samples.min()))
+        self._level_samples += samples.size
+        if self._level_samples < self._device_rate * LEVEL_WINDOW_S:
+            return
+        rms = math.sqrt(self._sum_squares / self._level_samples)
+        self._level = MicLevel(_db(rms), _db(self._peak), now)
+        self._level_samples, self._sum_squares, self._peak = 0, 0.0, 0.0
+
+    def _check_flat(self) -> None:
+        since = self._zeros_since
+        if since is None or self._clock() - since < FLAT_S:
+            return
+        logger.error("Microphone sent only exact zeros for %.1f s", self._clock() - since)
+        raise MicrophoneFlat("Mikrofon hanya mengirim sunyi total.")
 
     def _check_alive(self) -> None:
         silent_s = self._clock() - self._last_callback
@@ -248,21 +327,24 @@ class Player:
 
     def play(self, audio: np.ndarray, sample_rate: int) -> bool:
         """Play `audio` and wait; True when it played to the end, False when `stop()` cut it."""
-        info = self._sd.query_devices(self._device, "output")
-        device_rate = round(info["default_samplerate"])
-        self._sd.play(
-            resample(audio, sample_rate, device_rate), samplerate=device_rate, device=self._device
-        )
-        with self._lock:
-            self._playing = True
-            self._cut.clear()
-        try:
-            self._await_end_or_cut(self._sd.get_stream())
-        finally:
+        with PLAYBACK:  # a PortAudio restart waits for the clip
+            info = self._sd.query_devices(self._device, "output")
+            device_rate = round(info["default_samplerate"])
+            self._sd.play(
+                resample(audio, sample_rate, device_rate),
+                samplerate=device_rate,
+                device=self._device,
+            )
             with self._lock:
-                self._playing = False
-                cut = self._cut.is_set()
-            self._sd.stop()  # stops the stream when cut, and closes it, on this thread
+                self._playing = True
+                self._cut.clear()
+            try:
+                self._await_end_or_cut(self._sd.get_stream())
+            finally:
+                with self._lock:
+                    self._playing = False
+                    cut = self._cut.is_set()
+                self._sd.stop()  # stops the stream when cut, and closes it, on this thread
         return not cut
 
     def stop(self) -> bool:
@@ -282,6 +364,22 @@ class Player:
         while stream.active:
             if self._cut.wait(END_POLL_S):
                 return
+
+
+def restart_portaudio(sd_module: Any = None) -> None:
+    """Stop PortAudio and start it again, so it lists the devices of now.
+
+    Its stop closes every stream: call it only with the microphone closed. It waits for a clip
+    being played (`PLAYBACK`) and a listing under way (`LISTING`). sounddevice 0.5.6 has no
+    public restart: its private `_terminate` and `_initialize` keep a count of starts, which a
+    start that failed leaves at 0 (then it is only started).
+    """
+    sd = _sounddevice(sd_module)
+    with PLAYBACK, LISTING:
+        while sd._initialized:
+            sd._terminate()
+        sd._initialize()
+    logger.info("Restarted PortAudio to list the audio devices of now")
 
 
 def list_devices(sd_module: Any = None) -> str:
