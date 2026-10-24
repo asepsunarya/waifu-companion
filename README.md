@@ -409,7 +409,14 @@ Setelah mengubah perangkat, cek dengan `waifu devices` dan `waifu check`.
    <https://iot.tuya.com> buat Cloud Project (Smart Home, data center yang sama dengan akun
    Smart Life-mu), lalu Devices > Link App Account dan pindai QR-nya dari aplikasi Smart Life.
    Yang disalin dari halaman Overview project: Access ID/Client ID (API Key) dan Access
-   Secret/Client Secret (API Secret).
+   Secret/Client Secret (API Secret); Device ID yang ditanyakan wizard ada di tab Devices
+   project itu.
+   - Kalau tab Devices tetap kosong setelah QR dipindai, data center project-nya salah: ubah
+     data center project (atau buat project baru) sampai perangkatmu muncul.
+   - Layanan IoT Core project gratis tapi berlaku terbatas (awalnya 1 bulan). Sesudah habis,
+     wizard tidak bisa mengambil daftar perangkat ("Error from Tuya server", kadang dengan
+     "subscription has expired"); perpanjang di <https://iot.tuya.com> (1, 3, atau 6 bulan,
+     cukup mengisi formulir).
 3. Dari folder proyek, jalankan `waifu setup tuya`. Cyrene menjelaskan langkah di atas, lalu
    menjalankan wizard tinytuya (`python -m tinytuya wizard`) di terminalmu: kamu mengetik API
    Key, API Secret, satu Device ID (atau `scan`), dan region langsung ke wizard, dan Cyrene
@@ -455,7 +462,9 @@ Catatan versi protokol:
   "... menolak koneksi. Cek local_key dan version-nya di config.yaml."
 - **Local key berubah setiap kali perangkat dipasang ulang** di aplikasi. Jalankan
   `waifu setup tuya` lagi dan minta wizard dijalankan setelah reset atau pairing ulang:
-  perangkat yang sama (`device_id` sama) langsung mendapat local key barunya.
+  perangkat yang sama (`device_id` sama) langsung mendapat local key barunya. Kalau layanan
+  IoT Core project-mu sudah habis, perpanjang dulu di <https://iot.tuya.com>; tanpa itu wizard
+  tidak mendapat daftar baru dan tidak ada yang diimpor.
 - Beri perangkat IP tetap (reservasi DHCP di router) supaya `address` tidak berubah.
 
 Coba langsung dari CLI:

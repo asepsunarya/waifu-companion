@@ -19264,6 +19264,24 @@ def test_setup_tuya_explains_the_steps_and_the_risks_before_the_wizard(home, mon
     assert "Perangkat Tuya di config.yaml:\n  - Lampu kamar (lampu_kamar): belum diisi" in before
 
 
+def test_setup_tuya_warns_of_the_two_usual_blockers_before_the_wizard(home, monkeypatch, capsys):
+    # tinytuya's own guide: no devices after the QR scan means the wrong data center, and the
+    # IoT Core service lasts a month at first, after which the wizard cannot reach the cloud.
+    use_wizard(monkeypatch, FakeWizard())
+    answer(monkeypatch, "", "l", "l", "n")
+
+    cli.main(["setup", "tuya"])
+
+    out = capsys.readouterr().out
+    before = out[: out.index(WIZARD_SAYS)]
+    assert "Sekali saja" not in before
+    assert "Kalau tab Devices tetap kosong setelah dipindai, data center project-nya salah" in (
+        before
+    )
+    assert "Layanan IoT Core project gratis tapi berlaku terbatas (awalnya 1 bulan)" in before
+    assert "satu Device ID (salin dari tab Devices project-mu" in before
+
+
 def test_setup_tuya_skipped_runs_no_wizard(home, monkeypatch, capsys):
     wizard = use_wizard(monkeypatch, FakeWizard())
     answer(monkeypatch, "n")
