@@ -2719,3 +2719,65 @@ named `tests/test_<package>_<module>.py`.
 - [x] Fix pass: the README lists what goes to the brain and is not saved (questions, remarks, pronouns and her names, near misses, the phone's chat and voice notes) and says the "Heard" line logs the request; the vocabulary's new order; the CHANGELOG and the SPEC follow
 
 **Dependencies:** 286 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
+
+## Task 288a: Sebelum reset contract ✅
+
+**Acceptance criteria:**
+- [x] SPEC "sebelum reset (v1.50)" (stories, non-goals, the rules, the stamina hold, the watcher, the play watcher's `on_finished`, config, CLI, decisions, known limits, privacy, safety); tasks 288a-294 in the plan and here
+
+**Dependencies:** none · **Files:** `SPEC.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
+
+## Task 288: The planner switch
+
+**Acceptance criteria:**
+- [ ] `gacha.reminders.planner` is on by default and can be turned off; `config.example.yaml` lists it
+
+**Dependencies:** 288a · **Files:** `src/waifu/config.py`, `config.example.yaml`, `tests/test_config.py` · **Scope:** XS
+
+## Task 289: The evening rules
+
+**Acceptance criteria:**
+- [ ] `ending_events` keeps the running events ending within 48 hours with progress below the total and not done, soonest first, at most 2; events without progress or an end never count
+- [ ] `ending_seasons` keeps the running windows ending within 72 hours below their total; a window without a total never counts
+- [ ] `evening_due` follows `reminders.planner`, the evening, and the day's key; `evening_notice` makes one line per game per game day, seasons first and each told once, and sets no key when there is nothing to tell
+- [ ] A real-shaped HSR calendar read through `starrail.read_calendar` gives the expected line
+
+**Dependencies:** 288 · **Files:** `src/waifu/gacha/planner.py`, `tests/test_gacha_planner.py` · **Scope:** M
+
+## Task 290: The overnight rule and the stamina hold
+
+**Acceptance criteria:**
+- [ ] `overnight_notice` tells once a night a game closed from 22:00 until 03:00 whose stamina fills before the morning, never one already full, closed earlier, or after the morning has come
+- [ ] `stamina_held` holds that game's stamina line until the morning, and `due_notices(..., stamina_held=)` leaves its occasion for after it
+
+**Dependencies:** 289 · **Files:** `src/waifu/gacha/planner.py`, `src/waifu/gacha/reminders.py`, `tests/test_gacha_planner.py`, `tests/test_gacha_reminders.py` · **Scope:** S
+
+## Task 291: The play watcher tells the sessions it just finished
+
+**Acceptance criteria:**
+- [ ] `on_finished` hears each session a poll finished within `SLEEP_POLLS` polls of its end, outside the lock, after a poll that worked (kept through a failing write), never one ended by a sleep, never from `stop()`, and a failing callback is logged
+
+**Dependencies:** 288a · **Files:** `src/waifu/play_watch.py`, `tests/test_play_watch.py` · **Scope:** S
+
+## Task 292: The watcher
+
+**Acceptance criteria:**
+- [ ] The calendar is read once per game per game day, only at the evening with the planner on, guests away, and no line yet; a network or rate-limit error is read again at the next poll, any other gives up that day
+- [ ] Session ends from the queue give the overnight line at the first poll with that game's status and hold its stamina line until the morning
+- [ ] Guest mode spends no key or read and the ends wait; `planner` lines are held by a game only until the next poll
+
+**Dependencies:** 290, 291 · **Files:** `src/waifu/gacha/watcher.py`, `tests/test_gacha_watcher.py` · **Scope:** M
+
+## Task 293: The CLI wiring
+
+**Acceptance criteria:**
+- [ ] `run` gives the gacha watcher the calendar reader, guest mode, the morning, and the queue the play watcher fills, only while the planner and play time are on
+
+**Dependencies:** 292 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** S
+
+## Task 294: Docs
+
+**Acceptance criteria:**
+- [ ] README "Pengingat" with the planner rows; CHANGELOG v1.50; full suite, ruff, and JS tests clean
+
+**Dependencies:** 293 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S

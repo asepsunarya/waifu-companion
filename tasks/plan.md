@@ -1088,6 +1088,29 @@ strict tools, 17 of 24 optional parameters, and 0 of 16 unions stay.
 - [x] Fix pass (2026-10-25): "cara baca X itu Y" refuses remarks and pronouns ("cara baca HSR itu salah", "cara baca kamu itu salah", "... itu dari kanan ke kiri", "... itu susah banget") and a term that is her name, a wake word, or the owner call, so they go to the brain instead of becoming rules; "ga", "gak", "kah", "kan", "mana" make a question only as the reading's last word, so "Gallagher itu Ga Le Ger" is kept and "itu Ha Es Er kan" is not; "harusnya", "dibaca", ... after "itu", "aja", "oke", "nih" at the end, and a first "nama"/"kata"/"tulisan" of a longer term are left out; the owner call is left out before the request; the confirmation names the word ("Oke Master. Acheron mulai sekarang kubaca A Ke Ron."), synthesised before the rule is kept so the word keeps its old reading, never played when the file cannot be written, and a voice failure never loses the rule; the hotwords put the games and their rosters (5 names each, taking turns, the one read last first) before the routines and the aliases, so three rosters read with the example config's devices each keep 5 names (it was 10, 5, and 0); a broken dictionary is reported without its words, and the README, the SPEC, and the docstring say the "Heard" line logs the request in full; the README lists what goes to the brain and is not saved (questions, remarks, pronouns and her names, near misses, the phone). By hand, a scratch script (deleted afterwards) over the real Assistant, SpeechRouter, and Lexicon with a recording voice and owner_call "Sayang": "Cyrene, cara baca HSR itu salah." and "cara baca kamu itu salah" went to the brain; "Cara baca Gallagher itu Ga Le Ger." and "Sayang, cara baca nama Acheron itu harusnya A Ke Ron aja." were answered without the brain, the voice getting "Oke Sayang. Acheron mulai sekarang kubaca A Ke Ron." as written; "cara baca HSR itu Ha Es Er kan" went to the brain; the next reply reached the voice as "A Ke Ron sama Ga Le Ger siap, Sayang. Ha Es Er malam ini?" and the file held only Gallagher and Acheron. The example config with its commented devices, gacha on for hsr, genshin, and zzz, and three 10-name rosters gave 36 terms and 400 characters with 5 names per game. 10809 pytest and 601 JS tests, ruff clean; nothing under src/waifu/brain changed, so 18 of 20 strict tools, 17 of 24 optional parameters, and 0 of 16 unions stay
 - [ ] On the owner's PC: "Cyrene" and a device alias are heard more often with the TV on, and Edge says "Ha Es Er"
 
+### Phase 54: Sebelum reset (v1.50, see SPEC → sebelum reset)
+Decision: pure planner rules over the event calendar and the status the gacha watcher reads. The
+watcher read no calendar before, so it reads each game's once per game day at the evening line's
+time (about 4 requests a day, under 1% of its load); events ending within 48 hours and endgame
+seasons ending within 72 hours with progress below the total make one evening line per game per
+day, a season told once. A game closed between 22:00 and 03:00 whose stamina fills before the
+morning (`briefing.time`) gets its own once-a-night line, and the stamina line waits for the
+morning. The play watcher tells the sessions it just finished through a queue; guest mode silences
+the planner. No tool: 18 of 20 strict tools, 17 of 24 optional parameters, and 0 of 16 unions stay.
+- [x] Task 288a: contract: SPEC, tasks
+- [ ] Task 288: `gacha.reminders.planner`
+- [ ] Task 289: the evening rules: ending events and seasons (`gacha/planner.py`)
+- [ ] Task 290: the overnight rule and the stamina hold
+- [ ] Task 291: the play watcher tells the sessions it just finished
+- [ ] Task 292: the watcher: the calendar once a game day, the queue, guest mode, the `planner` kind
+- [ ] Task 293: the CLI wiring
+- [ ] Task 294: README, CHANGELOG
+
+### Checkpoint: Sebelum reset
+- [ ] Python suite, ruff, and JS tests clean; no test made a request or read the repository's `data/`; the strict-tool budget unchanged (18 of 20 strict tools, 17 of 24 optional parameters, 0 of 16 unions)
+- [ ] By hand: in a scratch folder with a fake HoYoLAB and real-shaped calendars, the evening line, the overnight line, and the held stamina line come as the SPEC says
+- [ ] On the owner's PC: an evening line names a real event or season, and HSR's window progress matches the stars in the game
+
 ## Risks and Mitigations
 
 | Risk | Impact | Mitigation |
