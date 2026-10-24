@@ -65,6 +65,7 @@ Cyrene : "Komputer mau kumatikan sekarang, Master? Jawab iya kalau jadi." (minta
 - [Waktu sholat](#waktu-sholat)
 - [Tombol cepat di PC](#tombol-cepat-di-pc)
 - [Diagnosa suara](#diagnosa-suara)
+- [Hotkey global](#hotkey-global)
 - [Pemecahan masalah](#pemecahan-masalah)
 - [Checklist uji perangkat keras](#checklist-uji-perangkat-keras)
 - [Privasi](#privasi)
@@ -708,6 +709,9 @@ Contoh kalimat saat `waifu run`:
   seketika (lihat [Ulangi](#ulangi)).
 - "Cyrene, tadi kamu denger apa?" saat dia tidak menjawab: dia bilang yang dia dengar dan
   kenapa diam (lihat [Diagnosa suara](#diagnosa-suara)).
+- Ctrl+Alt+C, juga di tengah game layar penuh: dia langsung mendengarkan tanpa dipanggil
+  namanya; Ctrl+Alt+Q: dia berhenti mendengarkan sampai ditekan lagi (lihat
+  [Hotkey global](#hotkey-global)).
 
 Obrolan dilupakan setelah 10 menit tanpa percakapan atau 40 giliran
 (`assistant.session_idle_minutes`, `assistant.max_session_turns`). Hal penting tentang
@@ -6244,6 +6248,80 @@ lewat Tailscale (tidak lewat Funnel, tidak saat mode tamu), dan jawaban "tadi ka
 tidak dicatat di log. Yang disimpan hanya `data\voice_override.json`: nama mic pilihan HP dan tiga
 angka setelan.
 
+## Hotkey global
+
+Saat game layar penuh sedang di depan, avatar tertutup dan namanya kalah oleh suara game. Empat
+tombol pintas Ctrl+Alt tetap sampai ke Cyrene apa pun jendela yang sedang aktif, juga game layar
+penuh. Hanya di Windows dan selama `waifu run` jalan; sudah menyala tanpa pengaturan.
+
+| Tombol | Yang terjadi |
+|---|---|
+| **Ctrl+Alt+C** | Langsung mendengarkan tanpa dipanggil namanya, seperti klik dua kali avatar: dia bilang "はい, Master?" lalu menunggu 8 detik. Kalau dia sedang bicara, ucapannya dipotong dan dia langsung mendengarkan. Verifikasi suara tetap berlaku. |
+| **Ctrl+Alt+X** | Memotong ucapannya saat itu juga, juga di tengah jawaban panjang, lalu dia mendengarkan seperti sesudah klik dua kali. Kalau dia sedang diam, tidak terjadi apa-apa. |
+| **Ctrl+Alt+R** | Mengulang ucapan terakhirnya, seperti "ulangi" (lihat [Ulangi](#ulangi)). Diabaikan selagi dia mendengarkanmu, berpikir, atau bicara. |
+| **Ctrl+Alt+Q** | Berhenti mendengarkan (lihat di bawah); tekan lagi untuk mendengarkan lagi. |
+
+Hotkey tetap jalan walau avatar mati atau `avatar.interactions.double_click_listen: false`.
+
+### Berhenti mendengarkan (Ctrl+Alt+Q)
+
+Saat main bareng teman lewat voice chat, namanya yang disebut teman bisa membangunkannya.
+Ctrl+Alt+Q: "Oke Master, aku tidak mendengarkan dulu sampai jam 16.30. Tekan tombol yang sama
+kalau mau ngobrol lagi." Sejak itu tidak ada suara mic yang sampai ke Whisper, sementara:
+
+- pengingat, alarm, dan kabar lain tetap diucapkan; selagi alarm berbunyi dia tetap mendengar,
+  jadi "aku sudah bangun" tetap mematikannya;
+- mic tetap terbuka, jadi pindah mic otomatis tetap jalan dan halaman Suara masih menunjukkan
+  level-nya (daftar **Yang terdengar** berhenti bertambah);
+- sapaan pagi dan pertanyaan yang dia mulai sendiri menunggu sampai dia mendengarkan lagi.
+
+Avatar menampilkan **Tidak mendengarkan** di pojok kiri atas, juga sebagai maskot. Dia
+mendengarkan lagi dengan:
+
+- Ctrl+Alt+Q lagi: "Oke Master, aku dengar lagi." (8 detik sesudahnya cukup tanpa nama);
+- Ctrl+Alt+C atau klik dua kali avatar;
+- tombol **Dengar lagi** di grup **Mikrofon** pada tombol cepat di HP atau `waifu tombol`;
+- otomatis sesudah 2 jam (`hotkeys.quiet_hours`): "Aku mendengarkan lagi sekarang, Master.";
+- menjalankan ulang `waifu run`.
+
+Ctrl+Alt+X selama dia tidak mendengarkan hanya memotong ucapannya (misalnya pengingat), tanpa
+membuka mic lagi.
+
+### Mengganti atau mematikan tombolnya
+
+```yaml
+hotkeys:
+  talk: F9        # Ctrl+Alt+F9 untuk langsung mendengarkan
+  repeat: null    # tanpa Ctrl+Alt+R
+```
+
+Tiap tombol satu huruf A-Z, angka 0-9, atau F1-F12 (Ctrl+Alt selalu ditambahkan); `null`
+mematikan satu hotkey, `enabled: false` mematikan semuanya. Semua pengaturannya ada di
+`config.example.yaml`, bagian `hotkeys`. Jalankan ulang `waifu run` sesudah mengubahnya.
+
+`waifu check` punya baris `Hotkey global`: kombinasinya, apakah sedang aktif di `waifu run` yang
+jalan, dan sampai jam berapa dia tidak mendengarkan. Windows memberikan satu kombinasi hanya ke
+program pertama yang memintanya; kalau sudah dipakai program lain, `waifu check` menulis
+`! Hotkey Ctrl+Alt+Q (berhenti mendengarkan) sudah dipakai program lain; ganti hotkeys.quiet di
+config.yaml` (log `waifu run` juga menyebutnya), dan hotkey lain tetap jalan.
+
+### Kalau tombolnya tidak sampai
+
+- Game yang dijalankan sebagai administrator, game dengan anti-cheat, atau game yang memasang
+  pengait keyboard sendiri bisa menelan kombinasi itu tanpa pesan apa pun. Pakai **Dengar lagi**
+  di HP, atau coba tombol lain.
+- Keyboard dengan **AltGr** (misalnya tata letak Jerman atau Polandia): bagi Windows, AltGr sama
+  dengan Ctrl+Alt, jadi kombinasi ini mengambil huruf khususnya (AltGr+Q di keyboard Jerman
+  adalah "@"). Ganti tombolnya atau matikan dengan `null`. Keyboard US biasa tidak terpengaruh.
+- Selagi dia berpikir, Ctrl+Alt+C diabaikan, sama seperti klik dua kali.
+
+### Privasi hotkey
+
+Windows hanya memberi tahu bahwa salah satu kombinasi itu ditekan; tombol lain yang kamu ketik
+tidak pernah terlihat oleh Cyrene, dan log hanya menulis kombinasi dan aksinya.
+`data\listen_pause.json` berisi jam mulai dan selesai selama dia tidak mendengarkan, lalu
+dihapus; `data\hotkeys.json` berisi tombol dan nomor proses `waifu run` selama dia jalan.
+
 ## Pemecahan masalah
 
 Log `waifu run` tampil di terminal dalam bahasa Inggris. Baris seperti
@@ -6282,6 +6360,10 @@ dari torch dan paket `nvidia-*` di venv.
   bereaksi (tanpa nama, tak ada kata): pertanyaannya lewat mic yang sama, jadi kalau mic itu tidak
   mendengarmu, atau suaramu dianggap suara orang lain, pertanyaan itu pun tidak dijawab. Kalau dia
   diam saja, langsung jalankan `waifu mic`.
+- Kalau avatar menampilkan **Tidak mendengarkan**, atau baris `Hotkey global` di `waifu check`
+  menulis `sedang tidak mendengarkan sampai ...`, dia sengaja tidak mendengarkan (Ctrl+Alt+Q):
+  tekan Ctrl+Alt+Q lagi, atau **Dengar lagi** di tombol cepat HP (lihat
+  [Hotkey global](#hotkey-global)).
 - Jalankan `waifu mic`, lalu sebut "halo Cyrene" beberapa kali dengan suara biasa. Dia
   menampilkan tiap mic sekali, menandai mic yang dipakai Cyrene dan default Windows,
   mendengarkan tiap mic 3 detik (`waifu mic --seconds 5` untuk lebih lama), lalu menulis
@@ -7019,6 +7101,19 @@ di sampingnya)
 - [ ] "Cyrene, mode tamu": tombol Suara di HP hilang. "Mode tamu selesai": tombol itu kembali
       saat halaman HP dibuka lagi.
 
+**Hotkey global** (lihat [Hotkey global](#hotkey-global))
+
+- [ ] Selagi `waifu run` jalan, `waifu check` menampilkan `✓ Hotkey global: Ctrl+Alt+C bicara,
+      Ctrl+Alt+X potong, Ctrl+Alt+R ulangi, Ctrl+Alt+Q berhenti mendengarkan; aktif di 'waifu
+      run'` tanpa baris `! Hotkey`.
+- [ ] Di game layar penuh, Ctrl+Alt+C: dia bilang "はい, Master?", lalu "nyalakan lampu kamar"
+      tanpa namanya dijawab.
+- [ ] Selagi dia membacakan jawaban panjang, Ctrl+Alt+X memotongnya seketika; sesudahnya
+      Ctrl+Alt+R mengulangnya.
+- [ ] Ctrl+Alt+Q: dia bilang sampai jam berapa, avatar menampilkan "Tidak mendengarkan", dan
+      "Cyrene, nyalakan lampu kamar" tidak dijawab, tapi pengingat tetap diucapkan. **Dengar
+      lagi** di HP: dia mendengarkan lagi dan tulisan di avatar hilang.
+
 **Belajar bahasa Jepang** (lihat [Belajar bahasa Jepang](#belajar-bahasa-jepang))
 
 - [ ] Dengan `japanese.enabled: true`, `waifu check` menampilkan `✓ Belajar bahasa Jepang: 0 dari
@@ -7129,6 +7224,10 @@ di sampingnya)
   Whisper) hanya di memori dan hanya ke HP yang dipasangkan, tidak saat mode tamu. Mic dan setelan
   pilihan HP ada di `data\voice_override.json`. Lihat
   [Privasi diagnosa suara](#privasi-diagnosa-suara).
+- **Hotkey global:** Cyrene hanya tahu bahwa salah satu kombinasi Ctrl+Alt-nya ditekan, tidak
+  pernah tombol lain yang kamu ketik. `data\listen_pause.json` ada hanya selama dia tidak
+  mendengarkan, dan `data\hotkeys.json` selama `waifu run` jalan. Lihat
+  [Privasi hotkey](#privasi-hotkey).
 - **Daftar tugas** ada di `data\todo.json`, hanya di PC ini; rahasia seperti kata sandi atau
   nomor kartu tidak pernah disimpan. Lihat
   [File data\todo.json dan privasi tugas](#file-datatodojson-dan-privasi-tugas).

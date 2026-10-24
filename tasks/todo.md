@@ -2638,9 +2638,9 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 273, 275, 276, 277 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** M
 
-## Task 279: Docs
+## Task 279: Docs ✅
 
 **Acceptance criteria:**
-- [ ] README "Hotkey global" with a contents entry and checklist items; CHANGELOG v1.48; full suite, ruff, and JS tests clean
+- [x] README "Hotkey global" with a contents entry and checklist items; CHANGELOG v1.48; full suite, ruff, and JS tests clean
 
 **Dependencies:** 278 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S

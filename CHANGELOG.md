@@ -4,6 +4,26 @@ Ringkasan per versi, yang terbaru di atas. Rinciannya ada di README (bagian yang
 setiap versi) dan di SPEC.md. Setelah memperbarui, **mulai ulang `waifu run`** supaya semuanya
 aktif, lalu jalankan `waifu check`.
 
+## v1.48: hotkey global
+
+- Empat tombol pintas yang tetap sampai ke Cyrene walau game layar penuh sedang di depan
+  (hanya Windows, selama `waifu run` jalan): **Ctrl+Alt+C** langsung mendengarkan tanpa
+  dipanggil namanya, seperti klik dua kali avatar; **Ctrl+Alt+X** memotong ucapannya;
+  **Ctrl+Alt+R** mengulang ucapan terakhirnya; **Ctrl+Alt+Q** berhenti mendengarkan.
+- Selama Ctrl+Alt+Q tidak ada suara mic yang sampai ke Whisper, jadi voice chat game tidak
+  membangunkannya, tapi pengingat, alarm, dan kabar tetap diucapkan, dan selagi alarm berbunyi
+  dia tetap mendengar "aku sudah bangun". Dia bilang sampai jam berapa, avatar menampilkan
+  **Tidak mendengarkan**, dan dia mendengarkan lagi dengan Ctrl+Alt+Q, Ctrl+Alt+C, klik dua
+  kali, tombol **Dengar lagi** di tombol cepat HP dan `waifu tombol`, atau sendiri sesudah 2 jam.
+- Tiap tombol bisa diganti (A-Z, 0-9, F1-F12) atau dimatikan di bagian baru `hotkeys`; semuanya
+  sudah menyala tanpa ditulis. Kombinasi yang sudah dipakai program lain disebut di log dan di
+  baris baru `Hotkey global` di `waifu check`.
+- Di keyboard ber-AltGr, Ctrl+Alt sama dengan AltGr: ganti tombol yang kamu pakai untuk huruf
+  khusus. Game dengan anti-cheat atau yang berjalan sebagai administrator bisa menelan
+  kombinasinya; pakai **Dengar lagi** di HP.
+- Tombol lain yang kamu ketik tidak pernah terlihat oleh Cyrene. Tidak ada tool baru.
+- README: "Hotkey global".
+
 ## v1.47: diagnosa suara
 
 - Halaman HP punya tombol **Suara**: mic yang dipakai Cyrene dan host API-nya, mic default
