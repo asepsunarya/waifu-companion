@@ -2194,9 +2194,9 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 228, 229 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py`, `SPEC.md` · **Scope:** M
 
-## Task 231: Docs
+## Task 231: Docs ✅
 
 **Acceptance criteria:**
-- [ ] README "Tombol cepat di PC" with a contents entry, a checklist item, and a Privasi bullet; CHANGELOG v1.42; full suite, JS tests, and ruff clean
+- [x] README "Tombol cepat di PC" with a contents entry, a checklist item, and a Privasi bullet; CHANGELOG v1.42; full suite, JS tests, and ruff clean
 
-**Dependencies:** 230 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
+**Dependencies:** 230 · **Files:** `README.md`, `CHANGELOG.md`, `SPEC.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S

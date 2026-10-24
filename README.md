@@ -60,6 +60,7 @@ Cyrene : "Komputer mau kumatikan sekarang, Master? Jawab iya kalau jadi." (minta
 - [Belajar bahasa Jepang](#belajar-bahasa-jepang)
 - [Pengingat istirahat](#pengingat-istirahat)
 - [Waktu sholat](#waktu-sholat)
+- [Tombol cepat di PC](#tombol-cepat-di-pc)
 - [Pemecahan masalah](#pemecahan-masalah)
 - [Checklist uji perangkat keras](#checklist-uji-perangkat-keras)
 - [Privasi](#privasi)
@@ -3986,6 +3987,9 @@ atau menyebut PC, colokan PC, musik, atau aplikasi. Jalankan ulang `waifu run`, 
 halaman di HP. Tanpa tombol sama sekali (misalnya `devices: []` dan `routines: []`), tombol
 lampu di HP tidak muncul.
 
+Tombol yang sama bisa dibuka di browser PC dengan `waifu tombol`: lihat
+[Tombol cepat di PC](#tombol-cepat-di-pc).
+
 ### Mengatur HP yang dipasangkan
 
 ```powershell
@@ -5177,8 +5181,8 @@ bilang singkat bahwa itu ditutup dulu selama ada tamu:
 - [Pengingat istirahat](#pengingat-istirahat): kalimatnya tidak menyebut hal pribadi.
 - [Waktu sholat](#waktu-sholat): jadwalnya dan pengingatnya. Waktu sholat untuk kota yang sudah
   disebut cuaca bukan hal pribadi, dan koordinat rumah tidak pernah dia sebut.
-- [Tombol cepat di HP](#tombol-cepat-di-hp): tombolnya mengendalikan perangkat tanpa otak
-  Cyrene.
+- [Tombol cepat di HP](#tombol-cepat-di-hp) dan [di PC](#tombol-cepat-di-pc): tombolnya
+  mengendalikan perangkat tanpa otak Cyrene.
 - Perintah terminal (`waifu todo`, `waifu jurnal`, `waifu tepira`, dan lainnya): terminal milik
   Master.
 
@@ -5659,6 +5663,70 @@ mana yang sudah diucapkan hari itu, bukan apakah Master sholat. Dengan Claude, h
 obrolan biasa. Log INFO mencatat
 kalimatnya (`Announcing: ...`) saat diucapkan, seperti pengingat lain. Kalimatnya ke `ntfy.sh`
 hanya dengan `prayer.push` dan notifikasi HP menyala.
+
+## Tombol cepat di PC
+
+[Tombol cepat](#tombol-cepat-di-hp) yang sama dengan di HP juga bisa dipakai di PC, di browser
+PC ini: lampu, AC, colokan, dan rutinitas, sekali klik, tanpa bicara ke Cyrene dan tanpa biaya
+API. Tidak perlu `waifu run`, avatar, atau Tailscale, dan tidak ada pengaturan baru.
+
+```powershell
+.venv\Scripts\waifu tombol             # buka halaman Tombol cepat di browser PC ini
+.venv\Scripts\waifu tombol --dry-run   # dengan perangkat simulasi, untuk mencoba
+```
+
+```text
+Tombol cepat di PC: http://127.0.0.1:53211/t/Gz7mNcckSlaxLMFcD9ptmJzD6qRMkzBA/. Tekan Ctrl+C untuk menutup.
+```
+
+### Memakai
+
+- Browser bawaan Windows membuka halaman **Tombol cepat**: satu kartu per perangkat dan satu
+  kartu **Rutinitas**, dengan tombol yang sama seperti di HP. `phone.quick_actions` memilih dan
+  mengurutkannya untuk keduanya (lihat [Tombol cepat di HP](#tombol-cepat-di-hp)), juga kalau
+  `phone.enabled: false`. Klik satu tombol: hasilnya muncul 6 detik di bawah jendela ("Lampu
+  kamar dinyalakan.", atau alasan perangkatnya gagal).
+- **Jendela terminalnya harus tetap terbuka** selama halaman dipakai; Ctrl+C menutupnya
+  ("Selesai."). Halaman yang masih terbuka sesudahnya bilang "Tombol cepat di PC sudah ditutup.
+  ...". Alamatnya baru setiap kali `waifu tombol` dijalankan (port dan token baru), jadi tidak
+  bisa dijadikan bookmark.
+- Kalau browser tidak bisa dibuka otomatis, terminal bilang begitu: buka sendiri alamat yang
+  tercetak (di Windows Terminal cukup Ctrl+klik). Halamannya tetap jalan.
+- **PC tidak pernah jadi tombol**, sama seperti di HP: tidak ada tombol untuk mematikan,
+  me-restart, menidurkan, atau menyalakan PC, dan tidak ada tombol untuk colokan PC.
+- Satu tombol berjalan pada satu waktu, paling banyak 10 tombol per menit untuk semua tab
+  bersama, seperti di HP. Tombol di PC dan di HP berjalan di program yang berbeda, jadi
+  keduanya bisa jalan bersamaan, seperti `waifu device` selagi `waifu run` berjalan.
+- Rutinitas dengan langkah yang ditunda menaruh langkah itu di jadwal Cyrene
+  (`data\schedule.json`), yang dijalankan `waifu run` tepat waktunya, sama seperti
+  `waifu routine run`. Dengan `--dry-run` jadwalnya sementara dan hilang saat ditutup.
+- Tanpa tombol sama sekali, `waifu tombol` hanya bilang `! Belum ada tombol cepat: ...` dan
+  tidak membuka apa pun. `waifu check` punya baris `✓ Tombol cepat di PC: 7 tombol, buka dengan
+  'waifu tombol'`.
+- Cyrene tidak tahu tombol yang ditekan (tanya lagi untuk keadaan sekarang), dan
+  [mode tamu](#mode-tamu) tidak mengubah apa pun: tombolnya tetap jalan, seperti di HP.
+
+### Siapa yang bisa menekan
+
+Hanya halaman yang dibuka `waifu tombol` di browser PC ini:
+
+- server-nya hanya mendengarkan di `127.0.0.1`, jadi komputer atau HP lain di Wi-Fi yang sama
+  tidak bisa membukanya;
+- alamatnya memuat token acak yang baru setiap kali; tanpa token itu setiap permintaan dijawab
+  "Tidak ditemukan.";
+- situs lain yang terbuka di browser yang sama tidak bisa menekan tombol atau membaca tokennya:
+  tombol hanya diterima dari halaman itu sendiri, dan nama situs yang diarahkan ke 127.0.0.1
+  ditolak.
+
+Program lain di akun Windows yang sama memang bisa mengendalikan perangkat (seperti
+`waifu device`), jadi itu di luar yang dijaga halaman ini.
+
+### Privasi tombol cepat di PC
+
+Tidak ada yang disimpan atau dikirim ke luar PC, dan otak Cyrene tidak terlibat. Tokennya hanya
+ada di alamat yang dibuka browser (riwayat browser menyimpannya, tapi tidak berlaku lagi begitu
+halamannya ditutup) dan di terminal, tidak pernah di log, juga dengan `-v`. Terminal mencatat
+tombol dan hasilnya (`PC page ran quick action dev.lampu_kamar.on: ok`).
 
 ## Pemecahan masalah
 
@@ -6398,6 +6466,15 @@ di sampingnya)
 - [ ] Biarkan `waifu run` menyala melewati waktu Dzuhur: dia bilang sekali "..., sudah masuk
       waktu Dzuhur.". Jalankan ulang `waifu run` beberapa menit sesudahnya: tidak diulang.
 
+**Tombol cepat di PC** (lihat [Tombol cepat di PC](#tombol-cepat-di-pc))
+
+- [ ] `waifu tombol`: browser terbuka di halaman Tombol cepat dengan lampu, AC, dan rutinitas,
+      tanpa PC dan colokan PC, dan terminal menampilkan alamatnya.
+- [ ] Klik **Nyala** di Lampu kamar: lampu menyala dan "Lampu kamar dinyalakan." muncul di
+      bawah; klik **Mode tidur**: semua langkahnya jalan.
+- [ ] Tekan Ctrl+C di terminal, lalu klik satu tombol di halaman: muncul "Tombol cepat di PC
+      sudah ditutup. ...".
+
 ## Privasi
 
 - **Suara tidak pernah keluar dari PC.** Rekaman mic, verifikasi suara, dan
@@ -6514,6 +6591,9 @@ di sampingnya)
   `data\prayer.json` hanya berisi tanggal dan pengingat mana yang sudah diucapkan, bukan apakah
   Master sholat. Kalimatnya ke `ntfy.sh` hanya dengan `prayer.push` dan notifikasi HP menyala.
   Lihat [Privasi waktu sholat](#privasi-waktu-sholat).
+- **Tombol cepat di PC:** halamannya hanya di `127.0.0.1` dan hanya dengan token acak di
+  alamatnya, yang tidak pernah ditulis ke log; tidak ada yang disimpan atau dikirim ke luar PC.
+  Lihat [Privasi tombol cepat di PC](#privasi-tombol-cepat-di-pc).
 - **Voiceprint adalah data biometrik.** `data/voiceprint.npy` (dan seluruh `data/`)
   ada di `.gitignore` dan tidak boleh di-commit atau dibagikan. Begitu juga
   `config.yaml` (local key Tuya) dan `models/`.

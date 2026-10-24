@@ -900,11 +900,11 @@ or dependency, so 18 of 20 strict tools and 17 of 24 optional parameters stay.
 - [x] Task 228: `QuickActions(where=...)` and `DeskServer`
 - [x] Task 229: the page (`web/tombol/`: `desk.js`, `tombol.js`, HTML, CSS)
 - [x] Task 230: `waifu tombol` and the check line
-- [ ] Task 231: README, CHANGELOG
+- [x] Task 231: README, CHANGELOG
 
 ### Checkpoint: Tombol cepat di PC
-- [ ] Python suite, JS tests, and ruff clean; no test opened a browser, ran a real device, or sent a PC power command; the strict-tool budget unchanged
-- [ ] By hand: a `DeskServer` on a free port with a mock registry answers the page, `actions`, and `action` with curl, and refuses a foreign Host, a foreign Origin, a wrong token, the PC's buttons, and the eleventh press in a minute
+- [x] Python suite, JS tests, and ruff clean; no test opened a browser, ran a real device, or sent a PC power command; the strict-tool budget unchanged (2026-10-24: 9549 pytest, 527 JS; no tool, schema, persona, brain, or config file changed, so 18 of 20 strict tools and 17 of 24 optional parameters stay)
+- [x] By hand: a `DeskServer` on a free port with a mock registry answers the page, `actions`, and `action` with curl, and refuses a foreign Host, a foreign Origin, a wrong token, the PC's buttons, and the eleventh press in a minute (2026-10-24, port 59208 from a scratch script, never 9882/9883: the page, `tombol/tombol.js`, `tombol/desk.js`, `tombol/tombol.css`, and `phone/actions.js` 200 with `no-store` on the page, `Referrer-Policy: no-referrer`, and the protecting headers, `phone/phone.js` and `index.html` 404; `/` and a wrong token 404; Host `evil.example` 403 with the token; the lamp, AC 24, and "Mode tidur" ran, its delayed step in the scratch schedule; a foreign or missing Origin 403, a form post 415, a preflight 405 with `Allow: POST` and no CORS header; the PC's shutdown and wake and the PC plug's off 404; an injected id 400; the eleventh press 429 with `Retry-After: 60`; the token nowhere in the DEBUG log, the request lines as `/t/<token>/`. In the browser pane at 1280 px light: three cards a row, a click toasted the 429 and, a minute later, the lamp's message, no CSP error and no favicon request; at 360 px dark: one column, 44 px buttons, no sideways scroll; with the server stopped, a click toasted "Tombol cepat di PC sudah ditutup. ...". `cli.main(["tombol", "--dry-run"])` on the example config in a scratch folder with a fake opener served the list (200), printed the address, and ended with "Selesai."; `check` there read `✓ Tombol cepat di PC: 7 tombol, buka dengan 'waifu tombol'`)
 - [ ] On the owner's PC: `waifu tombol` opens the page in his browser, the lamp turns on and off from it with a toast, "Mode tidur" runs, and Ctrl+C closes it
 
 ## Risks and Mitigations

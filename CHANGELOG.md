@@ -4,6 +4,19 @@ Ringkasan per versi, yang terbaru di atas. Rinciannya ada di README (bagian yang
 setiap versi) dan di SPEC.md. Setelah memperbarui, **mulai ulang `waifu run`** supaya semuanya
 aktif, lalu jalankan `waifu check`.
 
+## v1.42: tombol cepat di PC
+
+- `waifu tombol` membuka tombol cepat HP di browser PC ini: lampu, AC, colokan, dan rutinitas,
+  sekali klik, tanpa bicara ke Cyrene dan tanpa biaya API. Tombolnya sama dengan di HP
+  (`phone.quick_actions` memilihnya untuk keduanya); tidak perlu `waifu run`, avatar, atau
+  Tailscale, dan tidak ada pengaturan baru. `--dry-run` memakai perangkat simulasi.
+- Jendela terminalnya tetap terbuka selama halaman dipakai; Ctrl+C menutupnya. Alamatnya baru
+  setiap kali, dengan token acak, dan hanya di `127.0.0.1`: situs lain di browser yang sama dan
+  komputer lain tidak bisa menekan tombolnya.
+- PC dan colokan PC tetap tidak pernah jadi tombol; paling banyak 10 tombol per menit, satu per
+  satu, seperti di HP. `waifu check` punya baris `Tombol cepat di PC`. README: "Tombol cepat di
+  PC".
+
 ## v1.41: waktu sholat
 
 - Mati sampai dinyalakan (`prayer.enabled: true`); selama mati, tidak ada yang dia ucapkan soal

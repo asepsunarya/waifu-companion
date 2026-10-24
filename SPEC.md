@@ -1979,7 +1979,7 @@ CLI:
 
 Guest mode (v1.36) lives in `waifu run`; the page is another process, so its buttons keep working, as the phone's do (device control, nothing private).
 
-Docs: README (Indonesian) "Tombol cepat di PC" right after "Tombol cepat di HP" (opening it, what shows, who can press, the console, the limits), a contents entry, a checklist item, and a Privasi bullet; CHANGELOG v1.42.
+Docs: README (Indonesian) section "Tombol cepat di PC" after "Waktu sholat" (opening it, what shows, the console, the limits, who can press, privacy) with a contents entry, a pointer from "Tombol cepat di HP", a mention in "Mode tamu", a checklist item, and a Privasi bullet; CHANGELOG v1.42.
 
 Decisions:
 - `waifu tombol` serves its own page in the foreground instead of a route of `waifu run`'s avatar server, which runs only with `avatar.enabled` and a model: it works with or without the avatar and `waifu run`, needs no new port or setting, and its token is made in the process that opens the browser, never handed over in a file. The cost: the console stays open while the page is used, and its `QuickActions` is another than the phone's, so a press on the PC and one on the phone may run at the same moment, as `waifu device` beside `waifu run` already may (Tuya opens a connection per command; Broadlink authenticates again).
