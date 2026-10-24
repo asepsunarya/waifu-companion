@@ -150,10 +150,31 @@ class VadConfig(_Strict):
 
 
 class AudioConfig(_Strict):
-    input_device: int | str | None = None
+    # One mic, or several in order of preference; the Windows default comes after them all.
+    input_device: int | str | list[int | str] | None = None
     output_device: int | str | None = None
     sample_rate: int = 16000
     vad: VadConfig = Field(default_factory=VadConfig)
+    # The mic and the voice settings picked on the phone's Suara page (`voice_override.py`).
+    override_path: Path = Path("data/voice_override.json")
+
+    @field_validator("input_device")
+    @classmethod
+    def _mics_listed(
+        cls, value: int | str | list[int | str] | None
+    ) -> int | str | list[int | str] | None:
+        if isinstance(value, list) and not value:
+            raise ValueError("list at least one mic, or leave input_device empty (null)")
+        return value
+
+    @property
+    def input_preferences(self) -> list[int | str]:
+        """`input_device` as a list in order of preference; empty when it is unset."""
+        if self.input_device is None:
+            return []
+        if isinstance(self.input_device, list):
+            return list(self.input_device)
+        return [self.input_device]
 
 
 class SpeakerConfig(_Strict):

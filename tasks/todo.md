@@ -2514,11 +2514,11 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 263 · **Files:** `src/waifu/heard.py`, `src/waifu/app.py`, `tests/test_heard.py`, `tests/test_app.py` · **Scope:** S
 
-## Task 265: Preferences and the override file
+## Task 265: Preferences and the override file ✅
 
 **Acceptance criteria:**
-- [ ] `audio.input_device` takes a number, a name, a non-empty list of them, or null; `input_preferences` lists them; `audio.override_path`
-- [ ] `VoiceOverrideStore` reads, writes atomically, sets a broken file aside, and keeps every value within its bounds
+- [x] `audio.input_device` takes a number, a name, a non-empty list of them, or null; `input_preferences` lists them; `audio.override_path`
+- [x] `VoiceOverrideStore` reads, writes atomically, sets a broken file aside, and keeps every value within its bounds
 
 **Dependencies:** 260a · **Files:** `src/waifu/config.py`, `src/waifu/voice_override.py`, `tests/test_config.py`, `tests/test_voice_override.py` · **Scope:** S
 

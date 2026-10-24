@@ -1811,3 +1811,41 @@ def test_the_example_weekly_report_block_written_out_holds_the_defaults(tmp_path
 
     weekly = load_config(write_yaml(tmp_path, written_out)).weekly_report
     assert weekly == WeeklyReportConfig()
+
+
+# --- the microphones in order of preference (v1.47) -------------------------------------------
+
+
+def test_without_input_device_cyrene_prefers_no_mic_but_the_windows_default():
+    audio = AppConfig().audio
+
+    assert audio.input_preferences == []
+    assert audio.override_path == Path("data/voice_override.json")
+
+
+@pytest.mark.parametrize(
+    ("written", "preferences"),
+    [
+        ('"Headset (Polaris-BT), MME"', ["Headset (Polaris-BT), MME"]),
+        ("3", [3]),
+        (
+            '["Headset (Polaris-BT), MME", "Microphone (USB), MME", 2]',
+            ["Headset (Polaris-BT), MME", "Microphone (USB), MME", 2],
+        ),
+    ],
+)
+def test_input_device_names_one_mic_or_several_in_order(tmp_path, written, preferences):
+    config = load_config(write_yaml(tmp_path, f"audio:\n  input_device: {written}\n"))
+
+    assert config.audio.input_preferences == preferences
+
+
+def test_an_empty_list_of_mics_is_refused(tmp_path):
+    with pytest.raises(ConfigError, match="input_device"):
+        load_config(write_yaml(tmp_path, "audio:\n  input_device: []\n"))
+
+
+def test_the_voice_override_file_can_live_elsewhere(tmp_path):
+    text = "audio:\n  override_path: data/suara_hp.json\n"
+
+    assert load_config(write_yaml(tmp_path, text)).audio.override_path == Path("data/suara_hp.json")
