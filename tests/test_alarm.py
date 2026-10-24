@@ -6,6 +6,7 @@ Every bell writes under tmp_path with fake clocks: nothing is played, pushed, or
 import json
 import logging
 from datetime import date, datetime, timedelta
+from pathlib import Path
 
 import pytest
 
@@ -428,6 +429,32 @@ def test_an_expired_ring_left_by_a_stopped_run_is_deleted_at_the_next_read(tmp_p
     assert later.due_ring() is None
     assert not room.path.exists()
     assert "The alarm rang until 06:10 without being stopped" in caplog.text
+
+
+def test_an_ended_ring_whose_file_cannot_be_deleted_is_logged_once(tmp_path, caplog, monkeypatch):
+    room = Bedroom(tmp_path, max_minutes=10)
+    room.bell.start(alarm_entry())
+    room.advance(3600)
+    unlink = Path.unlink
+
+    def locked(path, missing_ok=False):
+        if path == room.path:
+            raise PermissionError(32, "The file is used by another process")
+        unlink(path, missing_ok=missing_ok)
+
+    monkeypatch.setattr(Path, "unlink", locked)
+    seen = []
+    with caplog.at_level(logging.INFO, logger="waifu.alarm"):
+        for _ in range(3):
+            seen += [room.bell.ringing(), room.bell.due_ring()]
+            room.advance(REREAD_S)
+        monkeypatch.undo()
+        seen.append(room.bell.ringing())
+
+    assert seen == [False, None] * 3 + [False]
+    assert not room.path.exists()
+    assert caplog.text.count("The alarm rang until 06:10 without being stopped") == 1
+    assert caplog.text.count("Could not delete the ended alarm's file") == 1
 
 
 def test_a_kept_ring_that_has_ended_is_read_again_before_its_file_is_deleted(tmp_path):

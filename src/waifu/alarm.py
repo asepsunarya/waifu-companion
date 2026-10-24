@@ -12,7 +12,8 @@ can stop or snooze it. The voice loop asks at every audio frame, so a state read
 `REREAD_S` before the file is read again; a ring about to be said is always read afresh. A file
 that is not a ring is moved aside, never overwritten, and one whose ring has ended is deleted,
 read afresh first, so a ring another process has just started is never taken for it.
-Reading never raises into the voice loop: a file that cannot be read is no ring, warned once.
+Reading never raises into the voice loop: a file that cannot be read is no ring, warned once,
+and an ended ring's file that cannot be deleted is tried again at each read, logged once.
 
 While it rings, Master's whole utterance may stop or snooze it without the brain
 (`alarm_request`): only a small set of whole phrases counts, as for "ulangi" (`waifu.repeat`),
@@ -174,6 +175,7 @@ class AlarmBell:
         self._read_at: float | None = None  # when, on `clock`
         self._said: tuple[datetime, int] | None = None  # (started, index) of the last ring said
         self._unreadable = False  # warned that the file cannot be read
+        self._undeletable: datetime | None = None  # an ended ring left undeleted, logged once
 
     def ringing(self) -> bool:
         """Whether an alarm rings, from a state read at most REREAD_S ago; never raises."""
@@ -292,15 +294,21 @@ class AlarmBell:
         return state
 
     def _unless_ended(self, state: RingState | None) -> RingState | None:
-        """`state`, or None once its ring has ended, when its file is deleted."""
+        """`state`, or None once its ring has ended, when its file is deleted; a file that
+        cannot be deleted is tried again at each read, logged once."""
         if state is None or self._now() < state.until:
             return state
-        logger.info("The alarm rang until %s without being stopped", f"{state.until:%H:%M}")
+        logged = self._undeletable == state.started
+        if not logged:
+            logger.info("The alarm rang until %s without being stopped", f"{state.until:%H:%M}")
         try:
             self._remove()
         except OSError as exc:
-            logger.warning("Could not delete the ended alarm's file %s: %s", self.path, exc)
-            self._kept = None
+            if not logged:
+                logger.warning("Could not delete the ended alarm's file %s: %s", self.path, exc)
+            self._undeletable, self._kept = state.started, None
+        else:
+            self._undeletable = None
         return None
 
     def _read_file(self) -> RingState | None:
