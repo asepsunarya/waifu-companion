@@ -132,7 +132,18 @@ class ScheduleTools:
                 "('10 menit lagi', 'jam 3 sore', 'besok pagi') into a clock time from it and "
                 "pass `at` as YYYY-MM-DD HH:MM (local, 24-hour). A clock time that has "
                 "already passed today usually means tomorrow. `repeat`: daily, weekdays "
-                "(Monday-Friday), or weekends (Saturday-Sunday); leave it out for once. Give "
+                "(Monday-Friday), weekends (Saturday-Sunday), weekly (every week on the "
+                "weekday of `at`), monthly (every month on the day of the month of `at`, "
+                "on the last day of a month without it), or yearly (every year on the month "
+                "and day of `at`, 29 February on 28 February in other years); leave it out "
+                "for once. For weekly, monthly, and yearly an `at` that has passed is fine: "
+                "the entry starts at its next time, and a yearly one ignores the year. For a "
+                "day the current month lacks ('tiap tanggal 31' in November), pass the next "
+                "month that has it, never the month's last day, which would become the day "
+                "it repeats on. A birthday or an anniversary is a yearly reminder "
+                "('ingatkan ulang tahun Ibu tiap 5 Mei': 5 May at 08:00 unless Master says a "
+                f"time, with the reminder '{owner}, hari ini ulang tahun Ibu!'), and a bill "
+                "a monthly one ('bayar listrik tiap tanggal 20'). Give "
                 "exactly one action: `reminder`, the words for what you will say to Master "
                 "when it fires, in Indonesian, short, at most "
                 f"{MAX_REMINDER_CHARS} characters ('{owner}, sudah jam tiga, waktunya minum "
@@ -192,14 +203,7 @@ class ScheduleTools:
         mapping = _arguments_mapping(arguments, allowed=_SCHEDULE_KEYS)
         at = parse_local_time(_text(mapping, "at"))
         entry = self._store.add(at, _repeat(mapping), self._action(mapping))
-        return _to_json(
-            {
-                "ok": True,
-                "id": entry.id,
-                "at": entry.at.strftime(LOCAL_TIME),
-                "repeat": entry.repeat,
-            }
-        ), False
+        return _to_json({"ok": True, "id": entry.id, **_when_json(entry)}), False
 
     def _action(self, arguments: Mapping[str, object]) -> Action:
         """The one action the arguments name; null counts as left out, as Ollama sends it."""
@@ -303,9 +307,13 @@ def _list_schedules_spec() -> ToolSpec:
         name=LIST_SCHEDULES,
         description=(
             "List every scheduled reminder, device command, and routine, soonest first: its "
-            "id (j1, j2, ...), the next local time it fires, its repeat, and what it does. "
-            "Use it when Master asks what is scheduled, and before cancel_schedule when you "
-            "are not sure of the id. Summarise it for Master instead of reading it out."
+            "id (j1, j2, ...), the next local time it fires, its repeat (a monthly or yearly "
+            "one with `day`, the day of the month it repeats on), and what it does. Use it "
+            "when Master asks what is scheduled, and before cancel_schedule when you are not "
+            "sure of the id. For a period ('jadwal bulan ini apa?', 'ulang tahun siapa bulan "
+            "ini?'), pick the entries in it yourself, repeating ones included: a yearly entry "
+            "comes every year on the month and day of its next time, a monthly one every "
+            "month on its `day`. Summarise it for Master instead of reading it out."
         ),
         input_schema={"type": "object", "properties": {}, "additionalProperties": False},
     )
@@ -338,12 +346,15 @@ def _repeat(arguments: Mapping[str, object]) -> str:
 
 
 def _entry_json(entry: Entry) -> dict[str, object]:
-    return {
-        "id": entry.id,
-        "at": entry.at.strftime(LOCAL_TIME),
-        "repeat": entry.repeat,
-        "action": _describe_action(entry.action),
-    }
+    return {"id": entry.id, **_when_json(entry), "action": _describe_action(entry.action)}
+
+
+def _when_json(entry: Entry) -> dict[str, object]:
+    """Its next time and its repeat, with the day a monthly or yearly entry repeats on."""
+    when: dict[str, object] = {"at": entry.at.strftime(LOCAL_TIME), "repeat": entry.repeat}
+    if entry.day is not None:
+        when["day"] = entry.day
+    return when
 
 
 def _describe_action(action: Action) -> str:

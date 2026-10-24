@@ -245,6 +245,27 @@ def test_schedule_says_how_to_write_the_time_the_reminder_and_the_action(tmp_pat
         assert guidance in description
 
 
+def test_schedule_explains_weekly_monthly_and_yearly_entries_birthdays_and_bills(tmp_path):
+    tools, _, _ = make_tools(tmp_path)
+    description = spec(tools, "schedule").description
+
+    for guidance in [
+        "weekly (every week on the weekday of `at`)",
+        "monthly (every month on the day of the month of `at`",
+        "on the last day of a month without it",
+        "yearly (every year on the month and day of `at`",
+        "29 February on 28 February in other years",
+        "an `at` that has passed is fine",
+        "a yearly one ignores the year",
+        "('tiap tanggal 31' in November), pass the next month that has it",
+        "never the month's last day",
+        "'ingatkan ulang tahun Ibu tiap 5 Mei'",
+        "at 08:00 unless Master says a time",
+        "'bayar listrik tiap tanggal 20'",
+    ]:
+        assert guidance in description
+
+
 # Written in lowercase, the word still opens the example sentence with a capital.
 @pytest.mark.parametrize("owner_call", ["Sayang", "sayang"])
 def test_the_reminder_example_calls_the_owner_what_she_calls_them(tmp_path, owner_call):
@@ -257,6 +278,8 @@ def test_the_reminder_example_calls_the_owner_what_she_calls_them(tmp_path, owne
 
     assert "('Master, sudah jam tiga, waktunya minum obat!')" in default.description
     assert "('Sayang, sudah jam tiga, waktunya minum obat!')" in sayang.description
+    assert "'Master, hari ini ulang tahun Ibu!'" in default.description
+    assert "'Sayang, hari ini ulang tahun Ibu!'" in sayang.description
     assert "'Master," not in sayang.description
     assert "what you will say to Master" in sayang.description  # her instructions keep Master
 
@@ -298,6 +321,21 @@ def test_list_and_cancel_say_to_check_the_id_first(tmp_path):
     cancel = spec(tools, "cancel_schedule").description
     assert "list_schedules" in cancel
     assert "not sure" in cancel
+
+
+def test_list_schedules_says_to_pick_the_entries_of_a_period_from_the_list(tmp_path):
+    # No filter parameter: the list is short, and she counts the repeating entries herself.
+    tools, _, _ = make_tools(tmp_path)
+    description = spec(tools, "list_schedules").description
+
+    for guidance in [
+        "`day`, the day of the month it repeats on",
+        "'jadwal bulan ini apa?'",
+        "'ulang tahun siapa bulan ini?'",
+        "pick the entries in it yourself, repeating ones included",
+        "a yearly entry comes every year on the month and day of its next time",
+    ]:
+        assert guidance in description
 
 
 def test_run_routine_lists_every_routine_with_its_steps(tmp_path):
@@ -398,6 +436,33 @@ def test_a_repeating_schedule_answers_with_the_first_time_it_fires(tmp_path, rep
         False,
     )
     assert actions(store) == [("j1", first, repeat, Reminder("Bangun!"))]
+
+
+@pytest.mark.parametrize(
+    ("arguments", "result"),
+    [
+        # "Ingatkan ulang tahun Ibu tiap 5 Mei": this year's has passed.
+        (
+            {"at": "2026-05-05 08:00", "repeat": "yearly", "reminder": "Hari ini ulang tahun Ibu!"},
+            '{"ok":true,"id":"j1","at":"2027-05-05 08:00","repeat":"yearly","day":5}',
+        ),
+        (
+            {"at": "2026-10-31 09:00", "repeat": "monthly", "reminder": "Bayar listrik!"},
+            '{"ok":true,"id":"j1","at":"2026-10-31 09:00","repeat":"monthly","day":31}',
+        ),
+        (
+            {"at": "2026-10-12 07:00", "repeat": "weekly", "reminder": "Buang sampah!"},
+            '{"ok":true,"id":"j1","at":"2026-10-19 07:00","repeat":"weekly"}',
+        ),
+    ],
+    ids=["yearly", "monthly", "weekly"],
+)
+def test_a_calendar_schedule_answers_with_its_first_time_and_the_day_it_repeats_on(
+    tmp_path, arguments, result
+):
+    tools, _, _ = make_tools(tmp_path)
+
+    assert tools.run("schedule", arguments) == (result, False)
 
 
 def test_null_optional_arguments_count_as_left_out(tmp_path):
@@ -842,6 +907,46 @@ def test_list_schedules_describes_every_entry_soonest_first_in_indonesian(tmp_pa
                     "action": "perangkat: ac off",
                 },
             ],
+        },
+        False,
+    )
+
+
+def test_list_schedules_gives_the_day_of_monthly_and_yearly_entries_only(tmp_path):
+    tools, _, _ = make_tools(tmp_path)
+    tools.run("schedule", {"at": "2026-10-31 09:00", "repeat": "monthly", "reminder": "Listrik!"})
+    tools.run("schedule", {"at": "2028-02-29 08:00", "repeat": "yearly", "reminder": "Budi!"})
+    tools.run("schedule", {"at": "2026-10-19 07:00", "repeat": "weekly", "routine": "pagi"})
+
+    result, is_error = tools.run("list_schedules", {})
+
+    assert (result, is_error) == (
+        '{"ok":true,"entries":['
+        '{"id":"j3","at":"2026-10-19 07:00","repeat":"weekly","action":"rutinitas: pagi"},'
+        '{"id":"j1","at":"2026-10-31 09:00","repeat":"monthly","day":31,'
+        '"action":"pengingat: Listrik!"},'
+        '{"id":"j2","at":"2027-02-28 08:00","repeat":"yearly","day":29,'
+        '"action":"pengingat: Budi!"}]}',
+        False,
+    )
+
+
+def test_cancelling_a_yearly_entry_answers_with_its_day(tmp_path):
+    tools, _, _ = make_tools(tmp_path)
+    tools.run("schedule", {"at": "2027-05-05 08:00", "repeat": "yearly", "reminder": "Ibu!"})
+
+    data, is_error = run(tools, "cancel_schedule", {"id": "j1"})
+
+    assert (data, is_error) == (
+        {
+            "ok": True,
+            "cancelled": {
+                "id": "j1",
+                "at": "2027-05-05 08:00",
+                "repeat": "yearly",
+                "day": 5,
+                "action": "pengingat: Ibu!",
+            },
         },
         False,
     )
