@@ -19612,18 +19612,56 @@ def test_setup_notify_renews_a_topic_already_on_only_on_yes(home, monkeypatch, c
     assert (config_backups(home) == []) is kept
 
 
-def test_setup_notify_turns_on_a_topic_written_while_notify_was_off(home, monkeypatch):
+def keep_topic_while_off(home: Path) -> None:
+    """The example config with a topic written under `notify.enabled: false`."""
     config = home / "config.yaml"
     text = config.read_text(encoding="utf-8")
     off = "notify:\n  enabled: false\n"
+    assert off in text
     config.write_text(text.replace(off, f"{off}  topic: {NOTIFY_TOPIC}\n", 1), encoding="utf-8")
+
+
+def test_setup_notify_turns_on_a_topic_written_while_notify_was_off(home, monkeypatch, capsys):
+    keep_topic_while_off(home)
     use_notifier(monkeypatch, FakeNotifier())
-    answer(monkeypatch, "", "")  # use it, no test push
+    answer(monkeypatch, "", "", "")  # turn it on, keep the topic, no test push
 
     assert cli.main(["setup", "notify"]) == 0
 
     assert setup_config(home).notify.enabled
     assert topic_in(home) == NOTIFY_TOPIC
+    out = capsys.readouterr().out
+    assert "Pasang aplikasi ntfy" in out
+    assert f"       {NOTIFY_TOPIC}\n" in out  # he may never have subscribed while it was off
+
+
+def test_setup_notify_leaves_notify_off_on_no_when_a_topic_is_there(home, monkeypatch, capsys):
+    keep_topic_while_off(home)
+    original = (home / "config.yaml").read_bytes()
+    notifier = FakeNotifier()
+    use_notifier(monkeypatch, notifier)
+    answer(monkeypatch, "n")
+
+    assert cli.main(["setup", "notify"]) == 0
+
+    assert "Notifikasi HP dilewati." in capsys.readouterr().out
+    assert (home / "config.yaml").read_bytes() == original
+    assert config_backups(home) == []
+    assert notifier.sent == []
+
+
+def test_setup_notify_turns_on_with_a_new_topic_only_on_yes(home, monkeypatch, capsys):
+    keep_topic_while_off(home)
+    use_notifier(monkeypatch, FakeNotifier())
+    answer(monkeypatch, "", "y", "")  # turn it on, a new topic, no test push
+
+    assert cli.main(["setup", "notify"]) == 0
+
+    topic = topic_in(home)
+    assert setup_config(home).notify.enabled
+    assert topic != NOTIFY_TOPIC
+    assert re.fullmatch(r"cyrene-[A-Za-z0-9_-]{16}", topic)
+    assert f"       {topic}\n" in capsys.readouterr().out
 
 
 def test_setup_notify_adds_the_section_a_config_lacks(home, monkeypatch):

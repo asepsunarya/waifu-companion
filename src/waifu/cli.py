@@ -7154,7 +7154,10 @@ def _setup_notify(args: argparse.Namespace) -> StepOutcome:
             topic = _new_ntfy_topic()
     elif current is not None:
         print(f"Ada topik di notify.topic ({current[:4]}…), tapi notifikasi HP masih mati.")
-        if not _ask_yes("Nyalakan dengan topik itu?", default=True):
+        if not _ask_yes("Nyalakan notifikasi HP?", default=True):
+            print("Notifikasi HP dilewati.")
+            return "unchanged"
+        if _ask_yes("Buat topik baru (HP perlu berlangganan topik baru itu)?", default=False):
             topic = _new_ntfy_topic()
     else:
         print(
@@ -7169,6 +7172,8 @@ def _setup_notify(args: argparse.Namespace) -> StepOutcome:
     changes = [] if notify.enabled else [Change(("notify", "enabled"), True)]
     if topic != current:
         changes.append(Change(("notify", "topic"), topic))
+    outcome: StepOutcome = "unchanged"
+    if changes:  # a topic kept while notify was off may never have been subscribed to
         print(
             "Di HP:\n"
             "  1. Pasang aplikasi ntfy (Play Store atau App Store; gratis, tanpa akun).\n"
@@ -7177,8 +7182,6 @@ def _setup_notify(args: argparse.Namespace) -> StepOutcome:
             "  3. Ketuk Subscribe.\n"
             "Topik ini rahasia: siapa pun yang tahu namanya bisa membaca notifikasinya."
         )
-    outcome: StepOutcome = "unchanged"
-    if changes:
         outcome = "written" if _write_config(args.config, changes) else "failed"
     turned_on = NotifyConfig(enabled=True, server=notify.server, topic=SecretStr(topic))
     _offer_test_push(config.assistant.name, turned_on)
