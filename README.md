@@ -54,6 +54,7 @@ Cyrene : "Komputer mau kumatikan sekarang, Master? Jawab iya kalau jadi." (minta
 - [Teman fokus](#teman-fokus)
 - [Mode game](#mode-game)
 - [Jurnal harian](#jurnal-harian)
+- [Rekap hari ini](#rekap-hari-ini)
 - [Pencarian web dan promo gratis](#pencarian-web-dan-promo-gratis)
 - [Keuangan dari tepira](#keuangan-dari-tepira)
 - [Mode tamu](#mode-tamu)
@@ -672,6 +673,7 @@ waifu speaker-test    # skor kecocokan langsung, Ctrl+C untuk berhenti
 | `waifu playtime` / `playtime yesterday` / `week` / `month` | Berapa lama HSR, Genshin, dan ZZZ terbuka hari ini, kemarin, minggu ini, atau bulan ini, dari catatan Cyrene selama `waifu run` menyala (lihat [Jam main](#jam-main)) |
 | `waifu focus` | Waktu fokus hari ini dan minggu ini dari catatan teman fokus (pomodoro) Cyrene selama `waifu run` menyala (lihat [Teman fokus](#teman-fokus)) |
 | `waifu jurnal` / `jurnal show <tanggal>` / `add <teks> [--date YYYY-MM-DD]` / `forget <tanggal> [--yes]` | Lihat hari yang ada catatannya, catatan satu hari, tambah catatan, dan hapus catatan satu hari di jurnal harian (lihat [Jurnal harian](#jurnal-harian)) |
+| `waifu rekap` / `rekap kemarin` / `rekap YYYY-MM-DD` | Rekap hari ini sampai sekarang, kemarin, atau tanggal lain sampai 30 hari ke belakang dari catatan di PC ini (tugas, fokus, jam main, pull, kata Jepang, jumlah catatan jurnal, jadwal), tanpa otak (lihat [Rekap hari ini](#rekap-hari-ini)) |
 | `waifu jepang` / `jepang progres` | Kata Jepang hari ini dengan contoh kalimatnya, atau berapa kata yang sudah dipelajari, dikuasai, dan perlu diulang hari ini, tanpa mencatat apa pun (lihat [Belajar bahasa Jepang](#belajar-bahasa-jepang)) |
 | `waifu youtube <link atau judul lagu>` | Buka video atau playlist YouTube itu, atau halaman pencarian YouTube untuk judulnya, di browser default (lihat [Lagu di YouTube](#lagu-di-youtube)) |
 | `waifu offers` / `offers games` / `offers ai` | Game gratis dan promo AI yang tersimpan, dengan linknya; `waifu offers ai --scan` mencari promo AI sekarang dengan Claude (berbayar) (lihat [Pencarian web dan promo gratis](#pencarian-web-dan-promo-gratis)) |
@@ -4860,7 +4862,8 @@ Jalankan ulang `waifu run` setelah mengubahnya.
 - Dengan engine `edge`, jawaban yang menyebut isi jurnal dikirim ke edge-tts Microsoft untuk
   dijadikan suara, seperti semua jawaban.
 - Jurnal tidak pernah dikirim sebagai notifikasi HP (`ntfy.sh`) dan tidak pernah disebut di
-  sapaan pagi atau laporan mingguan. Tapi kalau Master menulis atau bertanya tentang jurnal lewat
+  sapaan pagi atau laporan mingguan; [rekap hari ini](#rekap-hari-ini) hanya menyebut jumlah
+  catatannya. Tapi kalau Master menulis atau bertanya tentang jurnal lewat
   [Cyrene di HP](#cyrene-di-hp), jawabannya, termasuk isi jurnal yang dia baca, sampai ke HP itu
   lewat Tailscale seperti semua jawaban di HP.
 - Log INFO mencatat panggilan `journal_write` dan `journal_read` tanpa isinya, tapi kalimat
@@ -4869,6 +4872,103 @@ Jalankan ulang `waifu run` setelah mengubahnya.
 
 Untuk mematikannya, tulis `enabled: false` di bagian `journal`; catatan lama hilang kalau
 `data\journal.json` dihapus.
+
+## Rekap hari ini
+
+"Hari ini aku ngapain aja?" dijawab sekali tanya dari catatan Cyrene sendiri di PC ini, tanpa
+internet: tugas yang selesai dan yang masih menunggu, berapa lama Master fokus, berapa lama game
+terbuka, pull gacha hari itu, kata Jepang yang dipelajari, jumlah catatan jurnal, dan jadwal hari
+itu. Tidak ada pengaturan sendiri: tiap bagian ikut sakelar fiturnya, bagian yang fiturnya mati
+dilewati, dan selama salah satunya menyala (daftar tugas, teman fokus, jam main, jurnal, dan
+jadwal sudah menyala dari awal) rekapnya ada di `waifu run` dan `waifu chat`, dengan otak Ollama
+maupun Claude.
+
+```text
+Master : "Cyrene, hari ini aku ngapain aja?"
+Cyrene : "Hari ini kamu menyelesaikan dua tugas, fokus lima puluh menit, dan dapat Acheron di
+          HSR! Main game sekitar dua jam, dan tagihan listriknya masih menunggu ya."
+Master : "Rekap kemarin dong."
+Master : "Tanggal 20 aku ngapain?"
+```
+
+### Yang dia ceritakan
+
+- **Tugas** dari [daftar tugas](#daftar-tugas): yang diselesaikan hari itu, dan yang masih
+  terbuka dengan tenggat hari itu atau sebelumnya. Tugas selesai hanya diingat
+  `todo.keep_done_days` hari (bawaan 7), jadi untuk hari yang lebih lama tugas selesainya tidak
+  ada lagi.
+- **Fokus** dari [teman fokus](#teman-fokus): berapa lama Master fokus, di `waifu run` termasuk
+  blok yang sedang jalan.
+- **Jam main** dari [jam main](#jam-main): berapa lama tiap game terbuka; dua game yang terbuka
+  bersamaan dihitung sekali di totalnya. Seperti biasa, hanya selama `waifu run` menyala, juga
+  saat game-nya diminimalkan. Dia menyebutnya sebagai kabar saja, tidak pernah menilai terlalu
+  lama atau menegur.
+- **Pull gacha** dari riwayat pull yang tersimpan di `data\gacha\` (dengan
+  [teman main gacha](#teman-main-gacha-hoyoverse) menyala): jumlah pull per game hari itu dan
+  bintang 5 (S-rank di ZZZ) yang didapat. Riwayatnya tidak diperbarui di sini: pull sesudah
+  riwayat terakhir dibaca (lewat pertanyaan riwayat gacha, laporan game mingguan, atau
+  `waifu gacha history`) belum terhitung, dan HoYoverse mencatat pull sekitar satu jam kemudian.
+- **Kata Jepang** dari [belajar bahasa Jepang](#belajar-bahasa-jepang), kalau menyala: kata baru
+  hari itu (termasuk kata hari ini yang dia sebut di sapaan pagi) dan berapa kata yang diulang.
+  Yang tersimpan hanya ulangan terakhir tiap kata, jadi untuk hari yang sudah lewat jumlah
+  ulangannya bisa lebih kecil dari yang sebenarnya.
+- **Jurnal** dari [jurnal harian](#jurnal-harian): hanya jumlah catatannya, tidak pernah
+  isinya. Isinya dia baca kalau Master menanyakan jurnalnya.
+- **Jadwal** dari [jadwal](#jadwal-pengingat-dan-rutinitas): pengingat dan rutinitas yang
+  dijadwalkan hari itu, sudah lewat atau masih nanti. Cyrene tidak mencatat pengingat mana yang
+  benar-benar diucapkan (pengingat hanya berbunyi selama `waifu run` dan PC menyala), dan
+  pengingat sekali yang sudah lewat sudah hilang dari jadwal, jadi yang tersisa pengingat
+  berulang dan yang masih nanti. Perintah perangkat terjadwal tidak disebut.
+
+Selain itu:
+
+- **Harinya:** hari ini (sampai sekarang), kemarin, atau tanggal lain sampai 30 hari ke belakang.
+  Untuk hari yang belum terjadi atau lebih jauh dari itu, dia bilang rekapnya tidak ada.
+- **Tidak pernah soal uang:** pengeluaran dan saldo tetap dari
+  [keuangan tepira](#keuangan-dari-tepira), kalau Master menanyakannya.
+- **Hanya kalau Master bertanya:** sapaan pagi, laporan game mingguan, dan pertanyaan jurnal
+  malam tidak memakainya.
+- Kalau satu bagian tidak bisa dibaca (filenya terkunci, misalnya), dia bilang singkat bahwa
+  bagian itu tidak tersedia dan menceritakan sisanya. Hari tanpa catatan apa pun dia sebut
+  dengan hangat.
+- Tugas dan jadwal memakai jam PC, bagian lain WIB; di PC yang jamnya WIB keduanya sama.
+
+### Dari terminal: `waifu rekap`
+
+`waifu rekap` menampilkan hari ini; `waifu rekap kemarin` atau `waifu rekap 2026-10-20` hari
+lain, tanpa otak, dibaca sama seperti yang dia ceritakan:
+
+```text
+> waifu rekap
+Rekap Sabtu 24-10-2026, sampai 21:30, dari catatan Cyrene:
+Tugas: 2 selesai, 1 masih menunggu
+  selesai: kirim laporan
+  selesai: beli susu
+  menunggu: bayar listrik, tenggat Sabtu 24-10-2026
+Fokus: 50 menit
+Main game: 1 jam 54 menit (Honkai: Star Rail 1 jam 9 menit, Genshin Impact 30 menit, Zenless Zone Zero 45 menit)
+Gacha: Honkai: Star Rail 82 pull, 5★ Acheron (74 pull)
+Jurnal: 2 catatan
+Jadwal: 07:00 minum obat; 22:00 telepon Ibu (nanti)
+Hanya dari catatan di PC ini: jam main dan fokus dihitung selama 'waifu run' menyala, dan pull dari riwayat yang terakhir disimpan.
+```
+
+Bagian yang fiturnya mati tidak ditampilkan, dan bagian yang kosong menampilkan `tidak ada`.
+Kalau satu bagian tidak bisa dibaca, baris `✗ ...` menyebutnya, sisanya tetap tampil, dan exit
+code-nya 1. Kalau semua fiturnya mati, `waifu rekap` bilang rekapnya kosong. `waifu check` tidak
+punya baris sendiri untuk rekap: baris tiap fiturnya sudah cukup.
+
+### Privasi rekap
+
+- Rekap ditutup selama [mode tamu](#mode-tamu): isinya tugas, game, pull, dan teks pengingat
+  Master.
+- Rekap hanya membaca file yang sudah ada di PC ini dan tidak menyimpan apa pun; tidak ada yang
+  dikirim ke internet karenanya, juga tidak ke HoYoLAB.
+- Dengan Claude, hasilnya (teks tugas, nama game, pull, kata Jepang, teks pengingat, dan
+  angka-angkanya, tanpa isi jurnal dan tanpa uang) ikut ke API Anthropic seperti obrolan biasa;
+  dengan Ollama tetap di PC. Rekap tidak pernah dikirim sebagai notifikasi HP, tapi kalau Master
+  bertanya lewat [Cyrene di HP](#cyrene-di-hp), jawabannya sampai ke HP itu seperti semua
+  jawaban di HP.
 
 ## Pencarian web dan promo gratis
 
@@ -5297,6 +5397,7 @@ bilang singkat bahwa itu ditutup dulu selama ada tamu:
   catatan Master tidak bisa dihapus;
 - daftar tugas (semuanya);
 - jam main;
+- [rekap hari ini](#rekap-hari-ini);
 - akun game: status, riwayat pull, pendapatan, karakter, endgame, jadwal banner dan event
   (jawabannya memuat progres event dan bintang endgame Master), laporan mingguan, dan kode
   redeem;
@@ -6523,6 +6624,18 @@ halaman tim di game atau sebuah error)
       kosongkan lagi, atau isi dengan jam yang Master suka.
 - [ ] Sapaan pagi berikutnya tidak menyebut isi jurnal.
 
+**Rekap hari ini** (lihat [Rekap hari ini](#rekap-hari-ini))
+
+- [ ] Selesaikan satu tugas, fokus sebentar dengan teman fokus, dan tulis satu catatan jurnal:
+      `waifu rekap` menampilkan ketiganya (dan jam main kalau game sempat terbuka), exit
+      code-nya 0.
+- [ ] "Cyrene, hari ini aku ngapain aja?" dijawab dua-empat kalimat yang hangat, tanpa
+      membacakan isi jurnal dan tanpa menyebut uang; "Cyrene, rekap kemarin dong" menceritakan
+      kemarin.
+- [ ] "Cyrene, rekap tanggal <hari 40 hari yang lalu>": dia bilang rekap hanya sampai 30 hari ke
+      belakang.
+- [ ] Dengan mode tamu menyala, "Cyrene, hari ini aku ngapain aja?" ditolak singkat.
+
 **Pencarian web dan promo gratis** (lihat
 [Pencarian web dan promo gratis](#pencarian-web-dan-promo-gratis))
 
@@ -6723,6 +6836,10 @@ di sampingnya)
   harinya; rahasia seperti kata sandi atau nomor kartu tidak pernah disimpan. Dengan Claude,
   catatan yang ditulis atau dibaca ikut ke API Anthropic; tidak pernah ke `ntfy.sh`, sapaan pagi,
   atau laporan mingguan. Lihat [Privasi jurnal](#privasi-jurnal).
+- **Rekap hari ini:** hanya membaca catatan yang sudah ada di PC ini (tugas, fokus, jam main,
+  riwayat pull tersimpan, kata Jepang, jumlah catatan jurnal, jadwal) dan tidak menyimpan atau
+  mengirim apa pun sendiri. Dengan Claude, hasilnya ke API Anthropic saat Master bertanya, tanpa
+  isi jurnal dan tanpa uang; tidak pernah ke `ntfy.sh`. Lihat [Privasi rekap](#privasi-rekap).
 - **Pencarian web dan promo gratis:** dengan Claude, kata kunci pencarian (ditambah negara,
   zona waktu, dan kota) ke pencarian Anthropic; permintaan daftar game ke Epic dan
   GamerPower.com tanpa data tentang Master; pencarian promo AI mingguan ke API Anthropic

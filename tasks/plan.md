@@ -971,11 +971,11 @@ optional parameters, and 0 of 16 unions stay.
 - [x] Task 246: the `daily_recap` tool, her own turns
 - [x] Task 247: the brain gets it: the sources, guest mode, the strict budget
 - [x] Task 248: `waifu rekap`
-- [ ] Task 249: README, CHANGELOG
+- [x] Task 249: README, CHANGELOG
 
 ### Checkpoint: Rekap hari ini
-- [ ] Python suite and ruff clean; no test read the repository's `data/` or reached the network; the strict-tool budget unchanged (18 of 20 strict tools, 17 of 24 optional parameters, 0 of 16 unions); the weekly report's pulls unchanged
-- [ ] By hand: in a scratch folder with filled stores and a fake clock, the tool answers today, yesterday, a date, a date out of range, and a broken store; `waifu rekap` prints each part
+- [x] Python suite and ruff clean; no test read the repository's `data/` or reached the network; the strict-tool budget unchanged (18 of 20 strict tools, 17 of 24 optional parameters, 0 of 16 unions); the weekly report's pulls unchanged (2026-10-24: 9883 pytest and 528 JS tests, no JS touched; the every-tool Claude request, counted by a scratch wrapper around its own test, held 18 of 20 strict tools, 17 of 24 optional parameters, and 0 of 16 unions, with `daily_recap` non-strict; the weekly report and `pulls_since` tests pass unchanged)
+- [x] By hand: in a scratch folder with filled stores and a fake clock, the tool answers today, yesterday, a date, a date out of range, and a broken store; `waifu rekap` prints each part (2026-10-24, a scratch folder with the example config plus gacha and Japanese on, a fake WIB clock at Saturday 24-10-2026 21:30, deleted afterwards: `_daily_recap` gave all seven parts and a non-strict spec; today held two tasks done and one due, 50 minutes of focus, HSR 1 h and ZZZ 45 min with a 1 h 15 min total, 74 HSR pulls with Acheron won at 74, one word learned and one reviewed, 2 journal notes (their text absent from the result), and 22:00 telepon Ibu and 23:00 rutinitas tidur not passed; yesterday held its done task, its hour of HSR, and the routine passed; 2026-10-20 the routine only; 2026-09-01 "Rekap hanya sampai 30 hari ke belakang, paling jauh Kamis 24-09-2026.", 2026-10-25 the not-yet message, `besok` the argument refusal, the greeting turn the refusal; a folder in place of `focus.json` left out the focus with `problems` and the rest told; `waifu rekap` and `waifu rekap kemarin` printed each part and exited 0, and no file was created)
 - [ ] On the owner's PC: "hari ini aku ngapain aja?" and "rekap kemarin dong" get a short warm recap
 
 ## Risks and Mitigations

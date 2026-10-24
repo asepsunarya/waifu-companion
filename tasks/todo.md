@@ -2366,9 +2366,9 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 245 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** S
 
-## Task 249: Docs
+## Task 249: Docs ✅
 
 **Acceptance criteria:**
-- [ ] README "Rekap hari ini" after "Jurnal harian" with a contents entry, the command row, the "Mode tamu" bullet, a checklist item, and a Privasi bullet; CHANGELOG v1.45; full suite and ruff clean
+- [x] README "Rekap hari ini" after "Jurnal harian" with a contents entry, the command row, the "Mode tamu" bullet, a checklist item, and a Privasi bullet; CHANGELOG v1.45; full suite and ruff clean
 
 **Dependencies:** 247, 248 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S

@@ -4,6 +4,25 @@ Ringkasan per versi, yang terbaru di atas. Rinciannya ada di README (bagian yang
 setiap versi) dan di SPEC.md. Setelah memperbarui, **mulai ulang `waifu run`** supaya semuanya
 aktif, lalu jalankan `waifu check`.
 
+## v1.45: rekap hari ini
+
+- "Cyrene, hari ini aku ngapain aja?", "rekap kemarin dong", atau "tanggal 20 aku ngapain?"
+  dijawab dalam dua sampai empat kalimat hangat dari catatannya sendiri di PC ini: tugas yang
+  selesai dan yang masih menunggu, berapa lama fokus, berapa lama game terbuka, pull gacha hari
+  itu dengan bintang 5-nya, kata Jepang yang dipelajari, berapa catatan jurnal (tidak pernah
+  isinya), dan jadwal hari itu. Bisa hari ini, kemarin, atau tanggal lain sampai 30 hari ke
+  belakang.
+- Tanpa internet dan tanpa pengaturan baru: tiap bagian ikut sakelar fiturnya sendiri. Pull
+  dibaca dari riwayat yang terakhir disimpan, tidak diperbarui. Uang tidak pernah disebut, dan
+  jam main hanya kabar, tidak pernah dinilai.
+- Cyrene tidak mencatat pengingat mana yang sudah diucapkan, jadi bagian jadwal menyebut yang
+  dijadwalkan hari itu; pengingat sekali yang sudah lewat tidak ikut.
+- `waifu rekap`, `waifu rekap kemarin`, atau `waifu rekap 2026-10-20` menampilkan hal yang sama
+  tanpa otak.
+- Ditutup di mode tamu. README: "Rekap hari ini".
+- Juga: `waifu cuaca` dan `waifu briefing` menulis satu suhu (`20°C`) kalau suhu terendah dan
+  tertingginya sama, bukan `20-20°C`, dan Cyrene menyebutnya sekali.
+
 ## v1.44: cuaca beberapa hari
 
 - Cyrene menjawab cuaca hari-hari berikutnya: "Cyrene, besok cuaca gimana?", "nanti sore hujan
