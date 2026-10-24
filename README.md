@@ -416,6 +416,10 @@ Setelah mengubah perangkat, cek dengan `waifu devices` dan `waifu check`.
    tidak membacanya. Wizard menampilkan API Secret dan semua local key di layar, jadi jangan
    merekam atau membagikan layar. Jawab Y untuk "Poll local devices?" supaya IP dan versi tiap
    perangkat ditemukan (wizard memindai jaringan rumahmu); n membiarkan `address: Auto`.
+   Kalau wizard tidak mendapat daftar perangkat dari cloud (pesan Inggris seperti "Error from
+   Tuya server ... Check API Key and Secret"), `devices.json` tidak ditulis ulang dan tidak ada
+   yang diimpor, juga dari `devices.json` lama; Cyrene menjelaskan arti pesannya. Ctrl+C di
+   wizard menghentikan setup.
 4. Cyrene lalu mencocokkan tiap lampu, colokan, dan IR blaster Tuya di `config.yaml` dengan
    perangkat dari wizard menurut namanya. Tekan Enter untuk setuju, ketik nomor lain untuk
    memilih, atau `l` untuk melewati. `device_id`, `local_key`, `address` (kalau IP-nya

@@ -6865,16 +6865,13 @@ def _setup_mic(args: argparse.Namespace) -> StepOutcome:
     return "written"
 
 
-def _run_tuya_wizard(command: Sequence[str], folder: Path) -> int | None:
+def _run_tuya_wizard(command: Sequence[str], folder: Path) -> int:
     """Runs tinytuya's wizard in `folder` with Master's terminal attached, so he types his own
-    cloud keys into it; its exit code, or None after Ctrl+C."""
-    try:
-        return subprocess.run(list(command), cwd=folder, check=False).returncode
-    except KeyboardInterrupt:
-        return None
+    cloud keys into it; its exit code. Ctrl+C reaches both, and raises KeyboardInterrupt."""
+    return subprocess.run(list(command), cwd=folder, check=False).returncode
 
 
-TUYA_WIZARD_RUNNER: Callable[[Sequence[str], Path], int | None] = _run_tuya_wizard
+TUYA_WIZARD_RUNNER: Callable[[Sequence[str], Path], int] = _run_tuya_wizard
 
 
 def _setup_tuya(args: argparse.Namespace) -> StepOutcome:
@@ -6903,15 +6900,54 @@ def _setup_tuya(args: argparse.Namespace) -> StepOutcome:
         if not run_wizard:
             print("Perangkat Tuya dilewati.")
             return "unchanged"
-    if run_wizard:
-        code = TUYA_WIZARD_RUNNER([sys.executable, "-m", "tinytuya", "wizard"], folder)
-        if code is None:
-            print(f"{WARN} Wizard dihentikan.")
-        elif code != 0:
-            print(f"{WARN} Wizard berhenti dengan kode {code}.")
-    outcome = _import_tuya(args.config, targets, folder)
+    try:
+        if run_wizard and not _wizard_wrote_devices(folder):
+            outcome: StepOutcome = "unchanged"
+        else:
+            outcome = _import_tuya(args.config, targets, folder)
+    except KeyboardInterrupt:
+        _say_tuya_credentials_left(folder)
+        raise
     _offer_tuya_cleanup(folder)
     return outcome
+
+
+def _wizard_wrote_devices(folder: Path) -> bool:
+    """Runs tinytuya's wizard; whether it wrote devices.json. After a Tuya cloud error it prints
+    the error, leaves devices.json as it was, and still exits 0, so only a devices.json written
+    now says it got the list: an older one may hold a re-paired device's old local key."""
+    devices = folder / TUYA_DEVICE_FILE
+    before = _file_stamp(devices)
+    try:
+        code = TUYA_WIZARD_RUNNER([sys.executable, "-m", "tinytuya", "wizard"], folder)
+    except KeyboardInterrupt:
+        print(f"\n{WARN} Wizard dihentikan.")
+        raise
+    if code != 0:
+        print(f"{WARN} Wizard berhenti dengan kode {code}.")
+    if _file_stamp(devices) != before:
+        return True
+    print(
+        f"{FAIL} Wizard tidak menulis {TUYA_DEVICE_FILE} baru, jadi tidak ada yang diimpor: "
+        "daftar perangkat tidak didapat dari cloud Tuya. Lihat pesan wizard di atas:\n"
+        '  - "Check API Key and Secret": API Key atau API Secret salah, atau layanan IoT Core '
+        f'project-mu sudah habis ("subscription has expired"): perpanjang di {TUYA_IOT_URL}.\n'
+        '  - "Check DeviceID and Region": Device ID salah, atau region-nya bukan data center '
+        "project-mu.\n"
+        '  - "Scan failed to detect a device": ketik Device ID dari tab Devices project-mu.\n'
+        "Setelah diperbaiki, jalankan lagi 'waifu setup tuya' dan jawab y untuk menjalankan "
+        "wizard."
+    )
+    return False
+
+
+def _file_stamp(path: Path) -> tuple[int, int] | None:
+    """When `path` was last written, and its size; None when it is not there."""
+    try:
+        stat = path.stat()
+    except OSError:
+        return None
+    return stat.st_mtime_ns, stat.st_size
 
 
 def _explain_tuya_wizard(folder: Path) -> None:
@@ -7034,9 +7070,23 @@ def _tuya_summary(target: TuyaTarget, device: CloudDevice) -> str:
     return f"{OK} {target.name}: {', '.join(parts)}"
 
 
+def _tuya_credential_files(folder: Path) -> list[Path]:
+    return [folder / name for name in TUYA_CREDENTIAL_FILES if (folder / name).exists()]
+
+
+def _say_tuya_credentials_left(folder: Path) -> None:
+    """Setup stopped before offering to delete them: says the credential files stay."""
+    if present := _tuya_credential_files(folder):
+        names = " dan ".join(path.name for path in present)
+        print(
+            f"{WARN} {names} tetap ada di {folder}: berisi API Key dan API Secret akun Tuya-mu. "
+            "Hapus sendiri kalau tidak perlu, dan jangan dibagikan."
+        )
+
+
 def _offer_tuya_cleanup(folder: Path) -> None:
     """Offers to delete the wizard's files that hold the Tuya cloud credentials."""
-    present = [folder / name for name in TUYA_CREDENTIAL_FILES if (folder / name).exists()]
+    present = _tuya_credential_files(folder)
     if present:
         names = " dan ".join(path.name for path in present)
         print(

@@ -19159,8 +19159,9 @@ WIZARD_SAYS = "[tinytuya wizard berjalan]"
 class FakeWizard:
     """tinytuya's wizard as `waifu setup tuya` runs it: records each command and folder, says
     it ran, and writes what the real one would there (devices.json, snapshot.json, and the two
-    files with the cloud credentials); `None` as `devices` writes nothing, and `interrupted`
-    stands for Ctrl+C."""
+    files with the cloud credentials); `None` as `devices` writes nothing, as after a Tuya
+    cloud error (the real wizard still exits 0 then), and `interrupted` stands for Ctrl+C, which
+    reaches `waifu` too."""
 
     def __init__(self, devices=(WIZARD_LAMP, WIZARD_PLUG), *, code=0, interrupted=False):
         self.devices = devices
@@ -19177,12 +19178,21 @@ class FakeWizard:
             (folder / "tinytuya.json").write_text(json.dumps(credentials), encoding="utf-8")
             raw = {"result": list(self.devices), "file": {"account": "made-up-api-key"}}
             (folder / "tuya-raw.json").write_text(json.dumps(raw), encoding="utf-8")
-        return None if self.interrupted else self.code
+        if self.interrupted:
+            raise KeyboardInterrupt
+        return self.code
 
 
 def write_wizard_files(folder: Path, devices: list[dict]) -> None:
     (folder / "devices.json").write_text(json.dumps(devices, indent=4), encoding="utf-8")
     (folder / "snapshot.json").write_text(json.dumps(WIZARD_SNAPSHOT), encoding="utf-8")
+
+
+def write_old_wizard_files(folder: Path, devices: list[dict]) -> None:
+    """The files of a wizard run an hour ago."""
+    write_wizard_files(folder, devices)
+    an_hour_ago = datetime.now().timestamp() - 3600
+    os.utime(folder / "devices.json", (an_hour_ago, an_hour_ago))
 
 
 def use_wizard(monkeypatch, wizard: FakeWizard) -> FakeWizard:
@@ -19375,16 +19385,64 @@ def test_setup_tuya_keeps_the_cloud_credentials_on_no(home, monkeypatch, capsys)
     assert "! tinytuya.json dan tuya-raw.json tetap ada" in capsys.readouterr().out
 
 
-def test_setup_tuya_says_when_the_wizard_was_stopped_and_left_no_list(home, monkeypatch, capsys):
-    use_wizard(monkeypatch, FakeWizard(devices=None, interrupted=True))
+def test_setup_tuya_stops_setup_when_the_wizard_is_stopped(home, monkeypatch, capsys):
+    # Ctrl+C after the wizard saved its list (at "Poll local devices?") imports nothing either.
+    use_wizard(monkeypatch, FakeWizard(interrupted=True))
+    answer(monkeypatch, "", "", "")
+
+    assert cli.main(["setup", "tuya"]) == 130
+
+    out = capsys.readouterr().out
+    assert "! Wizard dihentikan." in out
+    assert "! tinytuya.json dan tuya-raw.json tetap ada" in out
+    assert out.endswith("Dihentikan.\n")
+    assert tuya_of(home, "lampu_kamar").device_id == "isi_dari_tinytuya_wizard"
+    assert config_backups(home) == []
+
+
+NO_LIST = "✗ Wizard tidak menulis devices.json baru, jadi tidak ada yang diimpor"
+
+
+def test_setup_tuya_explains_a_wizard_that_got_no_device_list(home, monkeypatch, capsys):
+    # After a Tuya cloud error the real wizard prints it in English and still exits 0.
+    use_wizard(monkeypatch, FakeWizard(devices=None))
     answer(monkeypatch, "")
 
     assert cli.main(["setup", "tuya"]) == 0
 
     out = capsys.readouterr().out
-    assert "! Wizard dihentikan." in out
-    assert "✗ devices.json belum ada" in out
+    assert NO_LIST in out
+    assert '"Check API Key and Secret"' in out
+    assert "IoT Core" in out
+    assert "devices.json belum ada" not in out
     assert config_backups(home) == []
+
+
+def test_setup_tuya_never_imports_the_old_list_a_failed_wizard_left(home, monkeypatch, capsys):
+    # Re-paired lamp, wizard run again, but the cloud refused (an expired IoT Core service):
+    # the old devices.json still has the lamp's old key.
+    fill_lamp(home, WIZARD_LAMP["id"])
+    write_old_wizard_files(home, [{**WIZARD_LAMP, "key": "stale-local-key1"}])
+    use_wizard(monkeypatch, FakeWizard(devices=None))
+    answer(monkeypatch, "y")
+
+    assert cli.main(["setup", "tuya"]) == 0
+
+    out = capsys.readouterr().out
+    assert NO_LIST in out
+    assert "diperbarui" not in out
+    assert tuya_of(home, "lampu_kamar").local_key == "old-local-key-123"
+    assert config_backups(home) == []
+
+
+def test_setup_tuya_imports_the_list_the_wizard_wrote_over_an_old_one(home, monkeypatch):
+    write_old_wizard_files(home, [WIZARD_PORCH])
+    use_wizard(monkeypatch, FakeWizard())
+    answer(monkeypatch, "y", "", "", "n")  # run it again, the lamp, the plug, keep credentials
+
+    assert cli.main(["setup", "tuya"]) == 0
+
+    assert tuya_of(home, "lampu_kamar").local_key == LAMP_LOCAL_KEY
 
 
 def test_setup_tuya_says_when_the_wizard_failed(home, monkeypatch, capsys):
@@ -19393,7 +19451,9 @@ def test_setup_tuya_says_when_the_wizard_failed(home, monkeypatch, capsys):
 
     cli.main(["setup", "tuya"])
 
-    assert "! Wizard berhenti dengan kode 1." in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "! Wizard berhenti dengan kode 1." in out
+    assert NO_LIST in out
 
 
 def test_setup_tuya_hides_every_local_key_when_config_yaml_cannot_be_patched(
