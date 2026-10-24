@@ -166,10 +166,13 @@ function within(text, [low, high], problem) {
   return value >= low && value <= high ? { value } : { problem };
 }
 
+const NOTHING_CHANGED = "Tidak ada setelan yang diubah.";
+
 /**
- * The boxes {speaker, threshold, margin} as POST /voice/set's settings ({tuning}), each checked against the bounds of
- * `status`, or {problem} (Indonesian) for the first out of them. The speaker threshold only while speaker checking is
- * on.
+ * The boxes {speaker, threshold, margin} as POST /voice/set's settings ({tuning}): only those changed from the settings
+ * in use in `status` (each kept on the PC, so an untouched one keeps following config.yaml), each checked against its
+ * bounds, or {problem} (Indonesian) for the first out of them, or for nothing changed. The speaker threshold only while
+ * speaker checking is on.
  */
 export function tuningFrom(values, status) {
   const [speakerLow, speakerHigh] = status.speaker.bounds;
@@ -180,6 +183,7 @@ export function tuningFrom(values, status) {
       "speaker_threshold",
       status.speaker.enabled,
       values.speaker,
+      status.speaker.threshold,
       status.speaker.bounds,
       `Ambang kecocokan suara harus ${decimal(speakerLow, 2)} sampai ${decimal(speakerHigh, 2)}.`,
     ],
@@ -187,6 +191,7 @@ export function tuningFrom(values, status) {
       "vad_threshold_db",
       true,
       values.threshold,
+      status.vad.thresholdDb,
       status.vad.thresholdBounds,
       `Ambang VAD harus ${thresholdLow} sampai ${thresholdHigh} dB.`,
     ],
@@ -194,18 +199,19 @@ export function tuningFrom(values, status) {
       "vad_margin_db",
       true,
       values.margin,
+      status.vad.marginDb,
       status.vad.marginBounds,
       `Margin VAD harus ${marginLow} sampai ${marginHigh} dB.`,
     ],
   ];
   const tuning = {};
-  for (const [name, used, text, bounds, problem] of checks) {
-    if (!used) continue;
+  for (const [name, used, text, inUse, bounds, problem] of checks) {
+    if (!used || typedNumber(text) === inUse) continue;
     const checked = within(text, bounds, problem);
     if (checked.problem) return { problem: checked.problem };
     tuning[name] = checked.value;
   }
-  return { tuning };
+  return Object.keys(tuning).length === 0 ? { problem: NOTHING_CHANGED } : { tuning };
 }
 
 /** POST /voice/set's answer {ok, message, pending} as {ok, text, pending}; null otherwise. */

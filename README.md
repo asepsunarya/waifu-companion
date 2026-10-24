@@ -6182,6 +6182,7 @@ Di **Setelan** bisa diubah, langsung berlaku dan ikut disimpan di file yang sama
 - **Margin VAD** (`audio.vad.margin_db`, 3 sampai 30 dB): seberapa jauh suara harus di atas bising
   mic itu; naikkan kalau kipas atau AC memicu "terlalu pendek" atau "tak ada kata".
 
+**Simpan** hanya menyimpan angka yang kamu ubah; yang tidak diubah tetap mengikuti `config.yaml`.
 **Reset ke default** mengembalikan ketiganya ke `config.yaml` (mic pilihan HP tetap).
 
 ### Beberapa mic berurutan

@@ -182,8 +182,28 @@ describe("tuningFrom", () => {
   it("leaves out the speaker threshold while speaker checking is off", () => {
     const off = { ...status, speaker: { ...status.speaker, enabled: false } };
 
-    assert.deepEqual(tuningFrom({ speaker: "", threshold: "-50", margin: "12" }, off), {
-      tuning: { vad_threshold_db: -50, vad_margin_db: 12 },
+    assert.deepEqual(tuningFrom({ speaker: "", threshold: "-50", margin: "10" }, off), {
+      tuning: { vad_threshold_db: -50, vad_margin_db: 10 },
+    });
+  });
+
+  it("sends only the settings changed from those in use, so the others keep following config.yaml", () => {
+    assert.deepEqual(tuningFrom({ speaker: "0,45", threshold: "-45", margin: "10" }, status), {
+      tuning: { vad_margin_db: 10 },
+    });
+  });
+
+  it("leaves alone an untouched setting the config holds out of the page's bounds", () => {
+    const strict = { ...status, speaker: { ...status.speaker, threshold: 0.75 } };
+
+    assert.deepEqual(tuningFrom({ speaker: "0.75", threshold: "-50", margin: "12" }, strict), {
+      tuning: { vad_threshold_db: -50 },
+    });
+  });
+
+  it("refuses a save that changes nothing, without asking the PC", () => {
+    assert.deepEqual(tuningFrom({ speaker: "0.45", threshold: "-45", margin: "12" }, status), {
+      problem: "Tidak ada setelan yang diubah.",
     });
   });
 
