@@ -29,6 +29,9 @@ tinytuya.json
 devices.json
 snapshot.json
 tuya-raw.json
+# config.yaml's atomic write: a full copy (local keys, ntfy topic) that only a hard kill
+# between writing it and replacing config.yaml leaves behind
+.*.tmp
 
 # Runtime output
 logs/

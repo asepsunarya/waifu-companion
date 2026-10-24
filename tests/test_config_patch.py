@@ -1,6 +1,8 @@
 import logging
 import stat
+import tempfile
 from datetime import datetime
+from fnmatch import fnmatch
 from pathlib import Path
 
 import pytest
@@ -18,7 +20,8 @@ from waifu.config_patch import (
     yaml_value,
 )
 
-EXAMPLE = Path(__file__).resolve().parents[1] / "config.example.yaml"
+ROOT = Path(__file__).resolve().parents[1]
+EXAMPLE = ROOT / "config.example.yaml"
 EXAMPLE_TEXT = EXAMPLE.read_bytes().decode("utf-8")
 SECRET = "a1b2c3d4e5f6g7h8"
 TOPIC = "cyrene-AbCdEf123456_-x"
@@ -712,3 +715,24 @@ def test_apply_leaves_a_file_it_cannot_replace_as_it_was(config):
     assert "tidak bisa ditulis" in outcome.problem
     assert config.read_bytes() == original
     assert [path.name for path in config.parent.iterdir() if path.name.endswith(".tmp")] == []
+
+
+def test_the_repository_ignores_the_temp_copy_a_killed_write_would_leave(config, monkeypatch):
+    # The temp file holds all of config.yaml (local keys, the ntfy topic); a hard kill or a
+    # power cut between writing it and replacing config.yaml leaves it in the project folder.
+    made = []
+    real_mkstemp = tempfile.mkstemp
+
+    def recording_mkstemp(**kwargs):
+        handle, name = real_mkstemp(**kwargs)
+        made.append(Path(name).name)
+        return handle, name
+
+    monkeypatch.setattr(tempfile, "mkstemp", recording_mkstemp)
+
+    assert apply_changes(config, LAMP_CHANGES, now=at_now).written
+
+    lines = (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
+    patterns = [line for line in lines if line and not line.startswith(("#", "!"))]
+    assert made
+    assert all(any(fnmatch(name, pattern) for pattern in patterns) for name in made)
