@@ -112,8 +112,9 @@ class MicStream:
     Use as a context manager; `frames()` ends once the stream is closed and
     raises `MicrophoneError` when PortAudio stops calling back (mic unplugged,
     driver reset after sleep) instead of waiting forever, and `MicrophoneFlat` once it has sent
-    only exact zeros for FLAT_S while not paused. `level` is what it heard over the last second,
-    paused or not, measured on the audio thread without keeping the samples.
+    only exact zeros for FLAT_S while not paused, once per run of zeros: `frames()` called again
+    reads on (zeros, then whatever comes once the mic is unmuted). `level` is what it heard over
+    the last second, paused or not, measured on the audio thread without keeping the samples.
     """
 
     def __init__(
@@ -148,6 +149,7 @@ class MicStream:
         self._loudest = 0.0  # the highest mean square of a block
         self._level: MicLevel | None = None
         self._zeros_since: float | None = None  # when the current run of exact zeros began
+        self._flat_told: float | None = None  # when the run already reported as flat began
         self.name: str | None = None
         self.host_api: str | None = None
 
@@ -267,8 +269,9 @@ class MicStream:
 
     def _check_flat(self) -> None:
         since = self._zeros_since
-        if since is None or self._clock() - since < FLAT_S:
+        if since is None or since == self._flat_told or self._clock() - since < FLAT_S:
             return
+        self._flat_told = since
         logger.error("Microphone sent only exact zeros for %.1f s", self._clock() - since)
         raise MicrophoneFlat("Mikrofon hanya mengirim sunyi total.")
 

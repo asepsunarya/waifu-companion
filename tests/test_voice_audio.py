@@ -660,6 +660,34 @@ def test_a_mic_that_sends_only_exact_zeros_for_eight_seconds_is_flat():
     assert issubclass(MicrophoneFlat, MicrophoneError)
 
 
+def test_a_run_of_zeros_is_reported_once_and_its_mic_can_still_be_read(caplog):
+    # Kept open when every mic is flat: zeros flow on, so an unmuted mic is heard at once.
+    now, mic, sd = flat_clock()
+    with caplog.at_level(logging.ERROR, logger="waifu.voice.audio"), mic:
+        frames = mic.frames()
+        sd.streams[0].push(np.zeros(480))
+        next(frames)
+        now[0] = 8.0
+        sd.streams[0].push(np.zeros(480))
+        with pytest.raises(MicrophoneFlat):
+            next(frames)
+
+        frames = mic.frames()
+        now[0] = 30.0
+        sd.streams[0].push(np.zeros(480))
+        assert np.all(next(frames) == 0.0)
+        sd.streams[0].push(np.full(480, 0.2))  # unmuted: the run ends
+        next(frames)
+        sd.streams[0].push(np.zeros(480))  # muted again: a new run
+        next(frames)
+        now[0] = 38.0
+        sd.streams[0].push(np.zeros(480))
+        with pytest.raises(MicrophoneFlat):
+            next(frames)
+
+    assert caplog.text.count("Microphone sent only exact zeros") == 2
+
+
 def test_a_quiet_mic_with_its_own_noise_is_never_flat():
     now, mic, sd = flat_clock()
     with mic:
