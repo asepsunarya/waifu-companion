@@ -6373,7 +6373,8 @@ halaman tim di game atau sebuah error)
 
 - [ ] `waifu cuaca besok` menampilkan kota dan provinsi yang benar, dan kondisi serta peluang
       hujan tiap bagian hari kira-kira sama dengan prakiraan di aplikasi cuaca HP; exit
-      code-nya 0. `waifu cuaca akhir-pekan` menampilkan Sabtu dan Minggu.
+      code-nya 0. `waifu cuaca akhir-pekan` menampilkan Sabtu dan Minggu berikutnya (pada hari
+      Sabtu: sisa hari ini dan Minggu; pada hari Minggu: sisa hari ini saja).
 - [ ] "Cyrene, besok cuaca gimana?", "Cyrene, nanti sore hujan nggak?", dan "Cyrene, akhir
       pekan hujan nggak?" dijawab singkat untuk kotamu; "Cyrene, cuaca hari ini gimana?" tetap
       dijawab dari ringkasan hari (dengan `briefing.enabled: false`, dari prakiraan sisa hari
