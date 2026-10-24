@@ -2587,6 +2587,7 @@ named `tests/test_<package>_<module>.py`.
 - [x] `virtual_key` maps every key of `KEYS`; `Win32User32` calls user32 with the documented signatures and `use_last_error`
 - [x] `HotkeyThread` registers each hotkey with `MOD_CONTROL | MOD_ALT | MOD_NOREPEAT` on its own thread, logs a taken combo once and keeps the others, calls `on_press` with the action of each `WM_HOTKEY` (an exception logged), ends on `WM_QUIT` or -1, unregisters on the same thread, and stops without hanging, also before it is ready
 - [x] The status file is written atomically and read back, a broken one as None
+- [x] Fix pass: `on_lost()` is called on the thread once it has unregistered combos it let go without being stopped (GetMessageW failed); never on `stop()` or when none was registered
 
 **Dependencies:** 271 · **Files:** `src/waifu/hotkeys.py`, `tests/test_hotkeys.py` · **Scope:** M
 
@@ -2611,6 +2612,7 @@ named `tests/test_<package>_<module>.py`.
 - [x] A start and an end are logged once and shown by the avatar's `hearing` event; an end by itself is said once
 - [x] `repeat_now` repeats like "ulangi" and is ignored while she is busy
 - [x] `AvatarBus.hearing` publishes and replays the event; the page shows "Tidak mendengarkan"
+- [x] Fix pass: every `hello` hides the badge, so a browser tab that outlives a `run` restarted during a pause no longer says she does not listen; a stranger heard after `listen_now` is still refused before Whisper (test)
 
 **Dependencies:** 274 · **Files:** `src/waifu/app.py`, `src/waifu/avatar/bus.py`, `src/waifu/avatar/web/index.html`, `src/waifu/avatar/web/logic.js`, `tests/test_app.py`, `tests/test_avatar_bus.py`, `tests/test_avatar_web.py`, `tests/js/logic.test.mjs` · **Scope:** M
 
@@ -2635,6 +2637,7 @@ named `tests/test_<package>_<module>.py`.
 **Acceptance criteria:**
 - [x] `run` on Windows clears and shares one pause, runs the actions and the hotkey thread while she listens, and records their registrations; `waifu tombol` shows the pause's button; `run`'s tests start a fake hotkey thread
 - [x] `waifu check` lists the combos, trusts the recorded registrations only while `waifu run` runs, names each refused combo with its setting, and tells a pause under way
+- [x] Fix pass: `run` rewrites the record with none held when the thread loses its combos (a locked `_HotkeysRecord`, so a loss never brings back stale combos or a removed file); `check` lists the combos the run holds, warns when it holds none (pointing to the log when it recorded none), and warns that a changed config.yaml is used only after a restart
 
 **Dependencies:** 273, 275, 276, 277 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** M
 
@@ -2642,5 +2645,6 @@ named `tests/test_<package>_<module>.py`.
 
 **Acceptance criteria:**
 - [x] README "Hotkey global" with a contents entry and checklist items; CHANGELOG v1.48; full suite, ruff, and JS tests clean
+- [x] Fix pass: the README, the CHANGELOG, config.example.yaml, and the SPEC say that the combos are taken from every other program while `run` holds them, that a game swallowing every combo is handled by pausing before it and "Dengar lagi" (another key helps only for one clashing combo), and that Ctrl+Alt+Q pressed while she speaks is confirmed after her speech (a second press ends it; Ctrl+Alt+X cuts her first); the SPEC names `Message(message, wparam)` and `hearingBadgeShown`
 
 **Dependencies:** 278 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S

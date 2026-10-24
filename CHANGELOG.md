@@ -15,9 +15,13 @@ aktif, lalu jalankan `waifu check`.
   dia tetap mendengar "aku sudah bangun". Dia bilang sampai jam berapa, avatar menampilkan
   **Tidak mendengarkan**, dan dia mendengarkan lagi dengan Ctrl+Alt+Q, Ctrl+Alt+C, klik dua
   kali, tombol **Dengar lagi** di tombol cepat HP dan `waifu tombol`, atau sendiri sesudah 2 jam.
+  Avatar di tab browser yang tetap terbuka saat `waifu run` dijalankan ulang tidak lagi
+  menampilkan **Tidak mendengarkan** yang sudah lewat.
 - Tiap tombol bisa diganti (A-Z, 0-9, F1-F12) atau dimatikan di bagian baru `hotkeys`; semuanya
   sudah menyala tanpa ditulis. Kombinasi yang sudah dipakai program lain disebut di log dan di
-  baris baru `Hotkey global` di `waifu check`.
+  baris baru `Hotkey global` di `waifu check`. Baris itu menyebut kombinasi yang benar-benar
+  dipegang `waifu run`, memperingatkan kalau tidak ada satu pun, dan mengingatkan bahwa
+  `config.yaml` yang diubah baru dipakai setelah `waifu run` dijalankan ulang.
 - Selama `waifu run` jalan, keempat kombinasi itu tidak sampai ke program lain (misalnya
   Ctrl+Alt+C © dan Ctrl+Alt+R ® di Word, Ctrl+Alt+C di PyCharm); kalau kamu memakainya, ganti
   atau matikan tombolnya. Di keyboard ber-AltGr, Ctrl+Alt sama dengan AltGr: ganti tombol yang
