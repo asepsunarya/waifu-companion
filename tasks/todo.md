@@ -2581,12 +2581,12 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 271a · **Files:** `tests/conftest.py`, `tests/test_safety_guard.py` · **Scope:** S
 
-## Task 272: The hotkey thread
+## Task 272: The hotkey thread ✅
 
 **Acceptance criteria:**
-- [ ] `virtual_key` maps every key of `KEYS`; `Win32User32` calls user32 with the documented signatures and `use_last_error`
-- [ ] `HotkeyThread` registers each hotkey with `MOD_CONTROL | MOD_ALT | MOD_NOREPEAT` on its own thread, logs a taken combo once and keeps the others, calls `on_press` with the action of each `WM_HOTKEY` (an exception logged), ends on `WM_QUIT` or -1, unregisters on the same thread, and stops without hanging, also before it is ready
-- [ ] The status file is written atomically and read back, a broken one as None
+- [x] `virtual_key` maps every key of `KEYS`; `Win32User32` calls user32 with the documented signatures and `use_last_error`
+- [x] `HotkeyThread` registers each hotkey with `MOD_CONTROL | MOD_ALT | MOD_NOREPEAT` on its own thread, logs a taken combo once and keeps the others, calls `on_press` with the action of each `WM_HOTKEY` (an exception logged), ends on `WM_QUIT` or -1, unregisters on the same thread, and stops without hanging, also before it is ready
+- [x] The status file is written atomically and read back, a broken one as None
 
 **Dependencies:** 271 · **Files:** `src/waifu/hotkeys.py`, `tests/test_hotkeys.py` · **Scope:** M
 
