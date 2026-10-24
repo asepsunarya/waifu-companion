@@ -2686,10 +2686,10 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 280a · **Files:** `src/waifu/lexicon.py`, `tests/test_lexicon.py` · **Scope:** M
 
-## Task 284: The speech router
+## Task 284: The speech router ✅
 
 **Acceptance criteria:**
-- [ ] `SpeechRouter(..., lexicon=)` rewrites each Indonesian run before its engine, its fallback, and `fallback_only`, never a Japanese run; without a lexicon only the built-in rules apply; `build_speech_router` passes it through and reads no file
+- [x] `SpeechRouter(..., lexicon=)` rewrites each Indonesian run before its engine, its fallback, and `fallback_only`, never a Japanese run; without a lexicon only the built-in rules apply; `build_speech_router` passes it through and reads no file
 
 **Dependencies:** 283 · **Files:** `src/waifu/voice/tts.py`, `tests/test_voice_tts.py` · **Scope:** S
 

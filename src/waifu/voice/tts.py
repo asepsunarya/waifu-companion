@@ -35,6 +35,7 @@ from waifu.config import (
     TtsConfig,
     at_sentence_start,
 )
+from waifu.lexicon import pronounce
 from waifu.voice.base import TextToSpeech
 from waifu.voice.rvc import RvcError, RvcUnavailableError
 from waifu.voice.windows_voices import (
@@ -51,6 +52,8 @@ from waifu.voice.windows_voices import (
 logger = logging.getLogger(__name__)
 
 JAPANESE = "ja"
+# The only runs her pronunciation rules (`waifu.lexicon`) rewrite.
+INDONESIAN = "id"
 RUN_GAP_S = 0.12
 GPT_SOVITS_TIMEOUT_S = 60.0
 CONVERSION_RETRY_S = 60.0
@@ -301,6 +304,10 @@ class SpeechRouter:
     replies skip it for CONVERSION_RETRY_S before it is tried again: each attempt at
     a dead server costs ~2 s on Windows, and at a stuck one its whole timeout. Runs
     that need another pitch (a fallback voice) are converted apart from the rest.
+
+    Each Indonesian run is read with her pronunciation rules (`waifu.lexicon.pronounce`):
+    the built-in ones, and Master's from `lexicon` (`Lexicon.readings`), read once per clip.
+    A Japanese run is never rewritten.
     """
 
     def __init__(
@@ -313,6 +320,7 @@ class SpeechRouter:
         fallback_only: bool = False,
         converter: VoiceConverter | None = None,
         clock: Callable[[], float] = time.monotonic,
+        lexicon: Callable[[], Mapping[str, str]] | None = None,
     ) -> None:
         if default_language not in engines:
             raise ValueError(f"no TTS engine for the default language '{default_language}'")
@@ -322,6 +330,7 @@ class SpeechRouter:
         self.fallback_only = fallback_only
         self.converter = converter
         self.fallback_retry_s = fallback_retry_s
+        self.lexicon = lexicon
         self._clock = clock
         # A language whose engine is failing -> its last error, until the engine works again.
         self._engine_errors: dict[str, TtsError] = {}
@@ -334,9 +343,12 @@ class SpeechRouter:
         runs = split_by_language(clean_for_speech(text), self.default_language)
         if not runs:
             raise TtsError("Tidak ada teks yang bisa diucapkan.")
+        rules = None if self.lexicon is None else self.lexicon()
         pieces: list[_Piece] = []
         failures: list[TtsError] = []
         for language, run_text in runs:
+            if language == INDONESIAN:
+                run_text = pronounce(run_text, rules)
             try:
                 pieces.append(self._speak_run(language, run_text))
             except TtsError as exc:
@@ -438,9 +450,15 @@ class SpeechRouter:
 
 
 def build_speech_router(
-    config: TtsConfig, *, converter: VoiceConverter | None = None, fallback_only: bool = False
+    config: TtsConfig,
+    *,
+    converter: VoiceConverter | None = None,
+    fallback_only: bool = False,
+    lexicon: Callable[[], Mapping[str, str]] | None = None,
 ) -> SpeechRouter:
-    """The router for `config`; `fallback_only` speaks only through the offline fallback."""
+    """The router for `config`; `fallback_only` speaks only through the offline fallback.
+    `lexicon` gives Master's pronunciation rules; without it, only the built-in ones apply and
+    no file is read (`tts.lexicon_path` is the caller's to open)."""
     engines: dict[str, TextToSpeech] = {
         language: EdgeTts(voice) if isinstance(voice, EdgeVoiceConfig) else GptSovitsTts(voice)
         for language, voice in config.voices.items()
@@ -458,6 +476,7 @@ def build_speech_router(
         fallback_retry_s=fallback.retry_s,
         fallback_only=fallback_only,
         converter=converter,
+        lexicon=lexicon,
     )
 
 

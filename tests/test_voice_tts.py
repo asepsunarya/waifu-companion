@@ -1136,6 +1136,82 @@ def test_fallback_only_has_nothing_for_a_language_without_a_fallback():
         router.synthesize("はい")
 
 
+# --- SpeechRouter pronunciation (kamus cyrene) -------------------------------
+
+
+class CountingLexicon:
+    """Master's rules as `Lexicon.readings` gives them, counting the reads."""
+
+    def __init__(self, rules: dict[str, str]) -> None:
+        self.rules = rules
+        self.reads = 0
+
+    def __call__(self) -> dict[str, str]:
+        self.reads += 1
+        return dict(self.rules)
+
+
+def test_an_indonesian_run_is_read_with_the_built_in_rules_without_a_lexicon():
+    indonesian, japanese = FakeEngine(), FakeEngine()
+    router = SpeechRouter({"id": indonesian, "ja": japanese}, default_language="id")
+
+    router.synthesize("Pity HSR-mu 70, Zzz... HSRX belum. HSRはいいね")
+
+    assert indonesian.calls == [("Pity Ha Es Er-mu 70, Zzz... HSRX belum. Ha Es Er", "id")]
+    assert japanese.calls == [("はいいね", "ja")]
+
+
+def test_masters_rules_reach_the_indonesian_runs_and_are_read_once_per_reply():
+    indonesian = FakeEngine()
+    lexicon = CountingLexicon({"Acheron": "A Ke Ron"})
+    router = SpeechRouter(
+        {"id": indonesian, "ja": FakeEngine()}, default_language="id", lexicon=lexicon
+    )
+
+    router.synthesize("acheron, はい, Acheron lagi")
+
+    assert indonesian.calls == [("A Ke Ron,", "id"), ("A Ke Ron lagi", "id")]
+    assert lexicon.reads == 1
+
+
+def test_a_japanese_run_is_never_rewritten():
+    japanese = FakeEngine()
+    router = SpeechRouter(
+        {"id": FakeEngine(), "ja": japanese},
+        default_language="id",
+        lexicon=lambda: {"おかえり": "okaeri"},
+    )
+
+    router.synthesize("Halo, おかえりなさい")
+
+    assert japanese.calls == [("おかえりなさい", "ja")]
+
+
+def test_the_offline_fallback_speaks_the_rewritten_run():
+    setup = falling_back(lexicon=lambda: {"Kafka": "Kaf Ka"})
+
+    setup.router.synthesize("HSR dan Kafka, はい")
+
+    assert setup.primary.calls == [("Ha Es Er dan Kaf Ka,", "id")]
+    assert setup.fallback.calls == [("Ha Es Er dan Kaf Ka,", "id")]
+
+
+def test_fallback_only_speaks_the_rewritten_run():
+    id_fallback, ja_fallback = FakeFallback(), FakeFallback()
+    router = SpeechRouter(
+        {"id": FakeEngine(), "ja": FakeEngine()},
+        default_language="id",
+        fallbacks={"id": id_fallback, "ja": ja_fallback},
+        fallback_only=True,
+        clock=FakeClock(),
+    )
+
+    router.synthesize("Cek HoYoLAB, はい")
+
+    assert id_fallback.calls == [("Cek Hoyolab,", "id")]
+    assert ja_fallback.calls == [("はい", "ja")]
+
+
 # --- build_speech_router -----------------------------------------------------
 
 
@@ -1166,6 +1242,17 @@ def test_build_speech_router_passes_the_converter_through():
 
 def test_build_speech_router_has_no_converter_by_default():
     assert build_speech_router(TtsConfig()).converter is None
+
+
+def test_build_speech_router_passes_masters_rules_through():
+    def lexicon() -> dict[str, str]:
+        return {"Kafka": "Kaf Ka"}
+
+    assert build_speech_router(TtsConfig(), lexicon=lexicon).lexicon is lexicon
+
+
+def test_build_speech_router_reads_no_rules_file_by_itself():
+    assert build_speech_router(TtsConfig()).lexicon is None
 
 
 def test_build_speech_router_gives_each_configured_language_a_windows_fallback():
