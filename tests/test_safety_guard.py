@@ -273,6 +273,31 @@ def test_reading_the_owner_s_real_input_through_user32_is_refused(refused_system
     refused_system_calls.clear()  # these were on purpose
 
 
+@pytest.mark.parametrize(
+    "function",
+    [
+        "RegisterHotKey",
+        "UnregisterHotKey",
+        "GetMessageW",
+        "PeekMessageW",
+        "PostThreadMessageW",
+    ],
+)
+def test_global_hotkeys_and_message_queues_through_user32_are_refused(
+    function, refused_system_calls
+):
+    if not hasattr(ctypes, "WinDLL"):
+        pytest.skip("user32 only exists on Windows")
+    # Refused as soon as the function is looked up: a forgotten fake would take Ctrl+Alt combos
+    # from the owner's other programs, or wait forever on a real message queue.
+    with pytest.raises(AssertionError, match=function):
+        getattr(ctypes.WinDLL("user32", use_last_error=True), function)
+    with pytest.raises(AssertionError, match=function):
+        getattr(ctypes.windll.user32, function)
+    assert refused_system_calls == [f"user32.{function}"] * 2
+    refused_system_calls.clear()  # these were on purpose
+
+
 def test_listing_the_real_processes_through_kernel32_is_refused(refused_system_calls):
     if not hasattr(ctypes, "WinDLL"):
         pytest.skip("kernel32 only exists on Windows")

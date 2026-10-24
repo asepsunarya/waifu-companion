@@ -1047,7 +1047,7 @@ an alarm is heard; the pause is a small file so `waifu tombol`'s "Dengar lagi" e
 when `run` starts, over after 2 h. No tool: 18 of 20 strict tools, 17 of 24 optional parameters,
 and 0 of 16 unions stay.
 - [x] Task 271a: contract: SPEC, tasks
-- [ ] Task 271: test guards: user32's hotkey and message-queue functions
+- [x] Task 271: test guards: user32's hotkey and message-queue functions
 - [ ] Task 272: the hotkey thread (`hotkeys.py`) over a fake user32, and its status file
 - [ ] Task 273: the `hotkeys` config section
 - [ ] Task 274: the listen pause (`listen_pause.py`)

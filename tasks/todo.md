@@ -2574,10 +2574,10 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** none · **Files:** `SPEC.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
 
-## Task 271: Test guards
+## Task 271: Test guards ✅
 
 **Acceptance criteria:**
-- [ ] A test that looks up user32's `RegisterHotKey`, `UnregisterHotKey`, `GetMessageW`, `PeekMessageW`, or `PostThreadMessageW` fails, also when the code under test catches the refusal; other user32 functions still work
+- [x] A test that looks up user32's `RegisterHotKey`, `UnregisterHotKey`, `GetMessageW`, `PeekMessageW`, or `PostThreadMessageW` fails, also when the code under test catches the refusal; other user32 functions still work
 
 **Dependencies:** 271a · **Files:** `tests/conftest.py`, `tests/test_safety_guard.py` · **Scope:** S
 

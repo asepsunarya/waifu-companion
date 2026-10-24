@@ -16,7 +16,8 @@ mouse input: the break reminder reads it, so a forgotten fake would make a test 
 whether the owner is at the PC. Nor the owner's microphones and speakers: opening a sounddevice
 stream, playing, recording, or restarting PortAudio is refused, also in the test that imports
 sounddevice first, and so is winmm's list of the microphones plugged in, which the mic switch
-reads.
+reads. Nor global hotkeys: registering a Ctrl+Alt combo would take it from the owner's other
+programs while the suite runs, and waiting on a real message queue would hang the test.
 """
 
 import ctypes
@@ -53,6 +54,11 @@ _REFUSED_FUNCTIONS = {
         "keybd_event": "press real keys",
         "printwindow": "capture the real screen",
         "getlastinputinfo": "read the owner's real keyboard and mouse activity",
+        "registerhotkey": "register real global hotkeys",
+        "unregisterhotkey": "unregister real global hotkeys",
+        "getmessagew": "wait on a real Windows message queue",
+        "peekmessagew": "read a real Windows message queue",
+        "postthreadmessagew": "post to a real thread's message queue",
     },
     "gdi32": {"bitblt": "capture the real screen", "stretchblt": "capture the real screen"},
     # Only the process snapshot: pc_health and process_alive need the rest of kernel32.
