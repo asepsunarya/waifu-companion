@@ -99,3 +99,15 @@ def test_what_was_heard_before_guest_mode_switched_is_forgotten():
 
     log.add(record(transcript="halo semuanya"))
     assert [found.transcript for found in log.records()] == ["halo semuanya"]
+
+
+def test_a_record_keeps_the_generation_it_was_heard_in_though_added_after_a_switch():
+    generation = Generation()
+    log = UtteranceLog(marker=generation)
+    heard_in = log.stamp()  # as the utterance is heard
+    generation.value += 1  # its own turn turned guest mode on
+
+    log.add(record(transcript="nyalakan mode tamu"), stamp=heard_in)
+
+    assert log.records() == ()
+    assert log.last_heard() is None

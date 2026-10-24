@@ -6,8 +6,9 @@ threshold, the outcome, and how long Whisper, the brain, and her voice took. The
 records the segments it drops for too little speech. The phone's Suara page shows the records,
 and "tadi kamu denger apa?" tells the last one. They live in memory only, at most RECORDS of
 them; the samples are measured and never kept. Each record carries guest mode's generation as
-it was heard, and only the current generation's are given out, so nothing heard before guest
-mode switched is shown or told after it.
+it was heard (`stamp()`, read as the utterance comes in, since a record is added only once she
+has answered it, and her answer may switch guest mode), and only the current generation's are
+given out, so nothing heard before guest mode switched is shown or told after it.
 """
 
 from __future__ import annotations
@@ -26,6 +27,7 @@ from waifu.voice.base import Utterance
 from waifu.voice.segmenter import frame_db
 
 RECORDS = 50
+_NOW = object()  # `add`'s default stamp: guest mode's generation as the record is added
 
 # What she did with an utterance.
 ACCEPTED = "accepted"  # it was for her and she answered it
@@ -85,8 +87,13 @@ class UtteranceLog:
         self._records: deque[tuple[object, UtteranceRecord]] = deque(maxlen=size)
         self._lock = threading.Lock()
 
-    def add(self, record: UtteranceRecord) -> None:
-        marker = self._marker()
+    def stamp(self) -> object:
+        """Guest mode's generation now: what a record heard now is added with (`add`)."""
+        return self._marker()
+
+    def add(self, record: UtteranceRecord, *, stamp: object = _NOW) -> None:
+        """Keep `record`, with the `stamp` taken as it was heard (by default, now)."""
+        marker = self._marker() if stamp is _NOW else stamp
         with self._lock:
             self._records.append((marker, record))
 

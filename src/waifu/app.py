@@ -429,9 +429,11 @@ class Assistant:
         """Answer one utterance aloud; returns what she said, or None when it was not for her.
 
         With a `diagnosis` log, the utterance is recorded once it is handled, also when its
-        answer failed after what she would do with it was decided."""
+        answer failed after what she would do with it was decided, with guest mode's generation
+        as it was heard: a turn that switches guest mode never shows or tells it afterwards."""
         with self._engaged():
             at = self._now()
+            heard_in = None if self._diagnosis is None else self._diagnosis.stamp()
             hearing = _Hearing()
             try:
                 return self._answer_utterance(utterance, hearing)
@@ -439,7 +441,8 @@ class Assistant:
                 if self._diagnosis is not None and hearing.outcome is not None:
                     fields = dataclasses.asdict(hearing)
                     self._diagnosis.add(
-                        UtteranceRecord.of(utterance, at, fields.pop("outcome"), **fields)
+                        UtteranceRecord.of(utterance, at, fields.pop("outcome"), **fields),
+                        stamp=heard_in,
                     )
 
     def _answer_utterance(self, utterance: Utterance, hearing: _Hearing) -> str | None:

@@ -3989,6 +3989,22 @@ def test_what_she_heard_before_guest_mode_switched_is_never_told():
     assert rig.speech.texts == ["Belum ada yang kudengar, Master."]
 
 
+def test_what_she_heard_in_the_turn_that_switched_guest_mode_is_never_told():
+    marker = GuestMarker()  # the brain turns guest mode on while it answers
+    rig = Rig(
+        "Cyrene, catat pengeluaran dua juta buat obat, terus nyalakan mode tamu",
+        "Cyrene, tadi kamu denger apa?",
+        brain=lambda reply: SwitchingBrain(reply, marker),
+        guest_marker=marker,
+        diagnosis=UtteranceLog(marker=marker),
+    )
+    rig.assistant.handle_utterance(rig.utterance())
+
+    rig.assistant.handle_utterance(rig.utterance())
+
+    assert rig.speech.texts == [REPLY, "Belum ada yang kudengar, Master."]
+
+
 def test_her_answer_never_reaches_the_info_log(caplog):
     rig = Rig("matikan lampu", "Cyrene, tadi kamu denger apa?", diagnosis=UtteranceLog())
     rig.assistant.handle_utterance(rig.utterance())
