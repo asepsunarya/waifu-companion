@@ -294,3 +294,97 @@ def test_other_kernel32_functions_still_work():
     assert kernel32.GetTickCount64() > 0
     assert ctypes.windll.kernel32.GetCurrentProcessId() == os.getpid()
     assert process_alive(os.getpid())  # OpenProcess on this process, as `waifu check` does
+
+
+@pytest.mark.parametrize("function", ["waveInGetNumDevs", "waveInGetDevCapsW"])
+def test_listing_the_owner_s_real_microphones_through_winmm_is_refused(
+    function, refused_system_calls
+):
+    if not hasattr(ctypes, "WinDLL"):
+        pytest.skip("winmm only exists on Windows")
+    # Refused as soon as the function is looked up: the mic tests would otherwise pass or fail
+    # by which microphones the owner has plugged in.
+    with pytest.raises(AssertionError, match=function):
+        getattr(ctypes.WinDLL("winmm"), function)
+    with pytest.raises(AssertionError, match=function):
+        getattr(ctypes.windll.winmm, function)
+    assert refused_system_calls == [f"winmm.{function}"] * 2
+    refused_system_calls.clear()  # these were on purpose
+
+
+@pytest.fixture(scope="module")
+def real_sounddevice():
+    """The installed sounddevice, imported before each test's guards are set up (it loads
+    PortAudio, which lists the devices but opens none)."""
+    try:
+        return pytest.importorskip("sounddevice")
+    except OSError:  # no PortAudio library on this machine
+        pytest.skip("PortAudio is not installed")
+
+
+# A device no PC has: even a broken guard stops at sounddevice's name lookup, before PortAudio.
+NO_SUCH_DEVICE = "a microphone no PC has"
+
+
+@pytest.mark.parametrize(
+    ("call", "function", "purpose"),
+    [
+        (
+            lambda sd: sd.InputStream(device=NO_SUCH_DEVICE),
+            "InputStream",
+            "open a real audio stream",
+        ),
+        (
+            lambda sd: sd.RawInputStream(device=NO_SUCH_DEVICE),
+            "RawInputStream",
+            "open a real audio stream",
+        ),
+        (
+            lambda sd: sd.OutputStream(device=NO_SUCH_DEVICE),
+            "OutputStream",
+            "open a real audio stream",
+        ),
+        (lambda sd: sd.Stream(device=NO_SUCH_DEVICE), "Stream", "open a real audio stream"),
+        (lambda sd: sd.play([0.0], 16000, device=NO_SUCH_DEVICE), "play", "play real audio"),
+        (lambda sd: sd.rec(1, 16000, 1, device=NO_SUCH_DEVICE), "rec", "record real audio"),
+        (
+            lambda sd: sd.playrec([[0.0]], 16000, 1, device=NO_SUCH_DEVICE),
+            "playrec",
+            "play real audio",
+        ),
+    ],
+    ids=["InputStream", "RawInputStream", "OutputStream", "Stream", "play", "rec", "playrec"],
+)
+def test_real_audio_streams_are_refused(
+    call, function, purpose, real_sounddevice, refused_system_calls
+):
+    # Refused before PortAudio is asked: a forgotten fake would open the owner's mic or play
+    # through his speakers.
+    with pytest.raises(AssertionError, match=purpose):
+        call(real_sounddevice)
+    assert refused_system_calls == [f"sounddevice.{function}"]  # also failed at teardown
+    refused_system_calls.clear()  # this one was on purpose
+
+
+def test_restarting_the_real_portaudio_is_refused(real_sounddevice, refused_system_calls):
+    # A broken guard would only count one more start of PortAudio here...
+    with pytest.raises(AssertionError, match="restart the real PortAudio"):
+        real_sounddevice._initialize()
+    try:
+        with pytest.raises(AssertionError, match="restart the real PortAudio"):
+            real_sounddevice._terminate()
+    except pytest.fail.Exception:
+        real_sounddevice._initialize()  # ...and here it stopped PortAudio: start it again
+        raise
+    assert refused_system_calls == ["sounddevice._initialize", "sounddevice._terminate"]
+    refused_system_calls.clear()  # these were on purpose
+
+
+def test_the_real_sounddevice_still_matches_device_names(real_sounddevice, monkeypatch):
+    listing = [{"name": "Headset (Polaris-BT)", "hostapi": 0, "max_input_channels": 1}]
+    monkeypatch.setattr(real_sounddevice, "query_devices", lambda *args: listing)
+    monkeypatch.setattr(real_sounddevice, "query_hostapis", lambda index=None: {"name": "MME"})
+
+    found = real_sounddevice._get_device_id("Headset (Polaris-BT), MME", "input")
+
+    assert found == 0

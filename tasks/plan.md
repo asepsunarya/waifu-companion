@@ -1019,7 +1019,7 @@ sheet; an override file holds the phone's mic and tuning, never `config.yaml`. "
 denger apa?" is a strict local phrase like "ulangi". No tool: 18 of 20 strict tools, 17 of 24
 optional parameters, and 0 of 16 unions stay.
 - [x] Task 260a: contract: SPEC, tasks
-- [ ] Task 260: test guards: sounddevice streams, playback, and restarts; winmm's input listing
+- [x] Task 260: test guards: sounddevice streams, playback, and restarts; winmm's input listing
 - [ ] Task 261: `MicStream`'s level tap, flat run, and name; `restart_portaudio` under the player's lock
 - [ ] Task 262: the segmenter's floor and bar, `set_gate`, `relearn`, and too-short segments
 - [ ] Task 263: the records (`voice/diagnosis.py`) and the voice loop fills them

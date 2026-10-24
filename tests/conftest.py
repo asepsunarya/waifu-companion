@@ -13,7 +13,9 @@ the offline fallback voice speaks through it, so a forgotten fake would use the 
 Windows voices. Nor the real process list: the play time watcher reads it, so a forgotten fake
 would make a test pass or fail by whether the owner is playing. Nor the owner's last keyboard or
 mouse input: the break reminder reads it, so a forgotten fake would make a test pass or fail by
-whether the owner is at the PC.
+whether the owner is at the PC. Nor the owner's microphones and speakers: once sounddevice is
+imported, opening a stream, playing, recording, or restarting PortAudio is refused, and so is
+winmm's list of the microphones plugged in, which the mic switch reads.
 """
 
 import ctypes
@@ -21,6 +23,7 @@ import ipaddress
 import os
 import socket
 import subprocess
+import sys
 import urllib.parse
 import urllib.request
 from pathlib import Path, PurePath
@@ -52,6 +55,25 @@ _REFUSED_FUNCTIONS = {
     "gdi32": {"bitblt": "capture the real screen", "stretchblt": "capture the real screen"},
     # Only the process snapshot: pc_health and process_alive need the rest of kernel32.
     "kernel32": {"createtoolhelp32snapshot": "list the real processes"},
+    "winmm": {
+        "waveingetnumdevs": "list the owner's real microphones",
+        "waveingetdevcapsw": "list the owner's real microphones",
+    },
+}
+# sounddevice's functions that reach the owner's microphone, speakers, or the PortAudio every
+# test shares, each with what a test was trying to do.
+_REFUSED_SOUNDDEVICE = {
+    "InputStream": "open a real audio stream",
+    "RawInputStream": "open a real audio stream",
+    "OutputStream": "open a real audio stream",
+    "RawOutputStream": "open a real audio stream",
+    "Stream": "open a real audio stream",
+    "RawStream": "open a real audio stream",
+    "play": "play real audio",
+    "playrec": "play real audio",
+    "rec": "record real audio",
+    "_initialize": "restart the real PortAudio",
+    "_terminate": "restart the real PortAudio",
 }
 _REG_WRITE_VERBS = {"add", "delete", "import", "restore", "copy", "load", "unload"}
 _REGISTRY_WRITERS = (
@@ -172,6 +194,14 @@ def _refuse_startfile(*args, **kwargs):
     raise AssertionError(f"a test tried to open a real program or URL with os.startfile: {args!r}")
 
 
+def _refusing_sounddevice(name: str, purpose: str):
+    def refuse(*args, **kwargs):
+        _refused_system_calls.append(f"sounddevice.{name}")
+        raise AssertionError(f"a test tried to {purpose} with sounddevice.{name}")
+
+    return refuse
+
+
 def _refuse_registry_write(*args, **kwargs):
     raise AssertionError("a test tried to write the real Windows registry")
 
@@ -243,6 +273,13 @@ def _refuse_real_power_actions(monkeypatch):
         monkeypatch.setattr(ctypes, "windll", ctypes.LibraryLoader(_guarded_windll))
     if hasattr(os, "startfile"):
         monkeypatch.setattr(os, "startfile", _refuse_startfile)
+    # Only once a test has imported it: importing it here would start PortAudio for every run.
+    sounddevice = sys.modules.get("sounddevice")
+    if sounddevice is not None:
+        for name, purpose in _REFUSED_SOUNDDEVICE.items():
+            monkeypatch.setattr(
+                sounddevice, name, _refusing_sounddevice(name, purpose), raising=False
+            )
 
 
 @pytest.fixture(autouse=True)

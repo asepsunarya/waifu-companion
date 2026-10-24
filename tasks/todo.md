@@ -2476,10 +2476,10 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** none · **Files:** `SPEC.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
 
-## Task 260: Test guards
+## Task 260: Test guards ✅
 
 **Acceptance criteria:**
-- [ ] Once sounddevice is imported, a test that opens a real input stream, plays, records, or restarts PortAudio fails, also when the code under test catches the refusal; winmm's `waveInGetNumDevs` and `waveInGetDevCapsW` are refused like the other system calls
+- [x] Once sounddevice is imported, a test that opens a real input stream, plays, records, or restarts PortAudio fails, also when the code under test catches the refusal; winmm's `waveInGetNumDevs` and `waveInGetDevCapsW` are refused like the other system calls
 
 **Dependencies:** 260a · **Files:** `tests/conftest.py`, `tests/test_safety_guard.py` · **Scope:** S
 
