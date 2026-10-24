@@ -99,13 +99,14 @@ class BriefingTools:
                     "commands, routines) with their times, and, when Master keeps a to-do "
                     "list, Master's to-do tasks due today, the overdue ones, and how many tasks "
                     "are open. Use it for greetings and whenever Master asks how the weather "
-                    "is, what is on today, or for a summary of the day. For the games, call "
-                    "game_status too when you have it. Also mention what your memory holds for "
-                    "today (a birthday, an exam). When weather_problem, schedule_problem, or "
-                    "tasks_problem is set, say briefly that this part is unavailable and tell "
-                    "the rest. When word_of_the_day is set (Master is learning Japanese), end "
-                    "with it in one short sentence: the word in kana, then its Indonesian "
-                    "meaning, without romaji or parentheses."
+                    'is or what is on today. For a look back at what Master did ("rekap hari '
+                    'ini", "hari ini aku ngapain aja?", yesterday), use daily_recap instead when '
+                    "you have it. For the games, call game_status too when you have it. Also "
+                    "mention what your memory holds for today (a birthday, an exam). When "
+                    "weather_problem, schedule_problem, or tasks_problem is set, say briefly "
+                    "that this part is unavailable and tell the rest. When word_of_the_day is "
+                    "set (Master is learning Japanese), end with it in one short sentence: the "
+                    "word in kana, then its Indonesian meaning, without romaji or parentheses."
                 ),
                 input_schema={"type": "object", "properties": {}, "additionalProperties": False},
             )

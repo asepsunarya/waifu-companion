@@ -181,6 +181,16 @@ def test_description_says_what_it_holds_and_when_to_use_it(tmp_path):
         assert guidance in spec.description
 
 
+def test_the_description_leaves_a_look_back_at_the_day_to_daily_recap(tmp_path):
+    [spec] = make_tools(tmp_path).specs()
+
+    assert "summary of the day" not in spec.description
+    assert (
+        'For a look back at what Master did ("rekap hari ini", "hari ini aku ngapain aja?", '
+        "yesterday), use daily_recap instead when you have it."
+    ) in spec.description
+
+
 def test_the_description_says_the_tasks_come_too_and_what_a_problem_means(tmp_path):
     [spec] = make_tools(tmp_path).specs()
 
