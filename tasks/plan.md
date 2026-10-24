@@ -947,11 +947,11 @@ mode. 18 of 20 strict tools, 17 of 24 optional parameters, and 0 of 16 unions st
 - [x] Task 240: the `weather_forecast` tool
 - [x] Task 241: the brain gets it: a shared client, the place gate, guest mode, the strict budget
 - [x] Task 242: `waifu cuaca`
-- [ ] Task 243: README, CHANGELOG
+- [x] Task 243: README, CHANGELOG
 
 ### Checkpoint: Cuaca beberapa hari
-- [ ] Python suite and ruff clean; no test reached Open-Meteo; the strict-tool budget unchanged (18 of 20 strict tools, 17 of 24 optional parameters, 0 of 16 unions); `FORECAST_QUERY`, the `daily_briefing` spec, and `waifu briefing`/`waifu rain` unchanged
-- [ ] By hand: with a fake Open-Meteo, the tool answers today, tonight, tomorrow, the weekend, a date, a part, a passed part, and a date out of reach; `waifu cuaca` prints each day with its parts
+- [x] Python suite and ruff clean; no test reached Open-Meteo; the strict-tool budget unchanged (18 of 20 strict tools, 17 of 24 optional parameters, 0 of 16 unions); `FORECAST_QUERY`, the `daily_briefing` spec, and `waifu briefing`/`waifu rain` unchanged (2026-10-24: 9783 pytest, no JS touched; the every-tool Claude request with `briefing.city` set counted 45 tools, 18 of 20 strict, 17 of 24 optional parameters, and 0 of 16 unions; the briefing's and the rain watcher's request tests and the `waifu briefing`/`waifu rain` tests pass unchanged)
+- [x] By hand: with a fake Open-Meteo, the tool answers today, tonight, tomorrow, the weekend, a date, a part, a passed part, and a date out of reach; `waifu cuaca` prints each day with its parts (2026-10-24, a scratch folder with the example config plus `briefing.city: Cianjur` and a fake Open-Meteo for Saturday 24-10-2026, deleted afterwards: at 14:05 the tool gave the rest of today as `sisa hari ini` with siang, sore, and malam, `today`+`evening` the showers of 15:00-19:00 (`hujan lokal`, 70%, 4.4 mm), `tonight` malam, `tomorrow` Minggu with its four parts (siang and sore `hujan`, 85%), `weekend`+`afternoon` Sabtu and Minggu, 2026-10-28 Rabu, 2026-10-31 "Prakiraan cuaca hanya ada untuk hari ini sampai Jumat 30-10-2026.", `today`+`morning` "Pagi ini sudah lewat.", `lusa` the argument refusal, and the greeting turn the refusal; the nine questions made eight forecast requests (the refused argument asked none) and one city lookup; `waifu cuaca`, `cuaca besok`, `cuaca akhir-pekan` at 20:15 (Sabtu with only malam, then Minggu), and `cuaca 2026-10-30` (no chance or amount on the last day) exited 0, `cuaca 2026-11-01` printed the ✗ line and exited 1)
 - [ ] On the owner's PC: "besok cuaca gimana?", "nanti sore hujan nggak?", and "akhir pekan hujan nggak?" get short answers for Cianjur
 
 ## Risks and Mitigations

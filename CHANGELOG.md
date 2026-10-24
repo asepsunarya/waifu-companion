@@ -4,6 +4,20 @@ Ringkasan per versi, yang terbaru di atas. Rinciannya ada di README (bagian yang
 setiap versi) dan di SPEC.md. Setelah memperbarui, **mulai ulang `waifu run`** supaya semuanya
 aktif, lalu jalankan `waifu check`.
 
+## v1.44: cuaca beberapa hari
+
+- Cyrene menjawab cuaca hari-hari berikutnya: "Cyrene, besok cuaca gimana?", "nanti sore hujan
+  nggak?", "nanti malam?", "akhir pekan hujan nggak?", "Jumat cuacanya gimana?". Bisa sisa hari
+  ini, satu bagian hari (pagi, siang, sore, malam), besok, akhir pekan, atau tanggal lain sampai
+  enam hari lagi, dengan kondisi, peluang hujan, dan suhunya. "Cuaca hari ini gimana?" tetap
+  dijawab dari ringkasan hari, dan sapaan paginya tidak berubah.
+- Tempatnya kota yang sama dengan sapaan pagi dan peringatan hujan (`briefing.city`), juga saat
+  sapaan paginya dimatikan; tidak ada pengaturan baru. Setiap pertanyaan butuh internet dan
+  menunggu Open-Meteo sebentar (paling lama 8 detik).
+- `waifu cuaca` menampilkan sisa hari ini per bagian hari; `waifu cuaca besok`,
+  `waifu cuaca akhir-pekan`, atau `waifu cuaca 2026-10-30` hari lain, tanpa otak.
+- Tetap bisa ditanyakan di mode tamu. README: "Cuaca beberapa hari".
+
 ## v1.43: jadwal mingguan, bulanan, tahunan
 
 - Jadwal sekarang bisa berulang tiap minggu, tiap bulan, dan tiap tahun: "Cyrene, tiap Senin

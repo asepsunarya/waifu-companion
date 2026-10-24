@@ -2309,9 +2309,9 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 239 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** S
 
-## Task 243: Docs
+## Task 243: Docs ✅
 
 **Acceptance criteria:**
-- [ ] README "Cuaca beberapa hari" after "Peringatan hujan" with a contents entry, the command row, a mention in "Mode tamu", a checklist item, and a Privasi bullet; CHANGELOG v1.44; full suite and ruff clean
+- [x] README "Cuaca beberapa hari" after "Peringatan hujan" with a contents entry, the command row, a mention in "Mode tamu", a checklist item, and a Privasi bullet; CHANGELOG v1.44; full suite and ruff clean
 
 **Dependencies:** 241, 242 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S

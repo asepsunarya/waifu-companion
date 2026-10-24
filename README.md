@@ -46,6 +46,7 @@ Cyrene : "Komputer mau kumatikan sekarang, Master? Jawab iya kalau jadi." (minta
 - [Melihat layar](#melihat-layar)
 - [Sapaan pagi dan ringkasan harian](#sapaan-pagi-dan-ringkasan-harian)
 - [Peringatan hujan](#peringatan-hujan)
+- [Cuaca beberapa hari](#cuaca-beberapa-hari)
 - [Biaya API Claude](#biaya-api-claude)
 - [Cyrene di HP](#cyrene-di-hp)
 - [Kesehatan PC](#kesehatan-pc)
@@ -664,6 +665,7 @@ waifu speaker-test    # skor kecocokan langsung, Ctrl+C untuk berhenti
 | `waifu todo` / `todo add <teks> [--due YYYY-MM-DD]` / `done <id>` / `remove <id>` / `list --done` | Lihat, tambah, selesaikan, dan hapus tugas di daftar tugas (lihat [Daftar tugas](#daftar-tugas)) |
 | `waifu briefing` | Tampilkan ringkasan hari ini (tanggal, cuaca, jadwal) tanpa otak, untuk mengecek cuaca (lihat [Sapaan pagi dan ringkasan harian](#sapaan-pagi-dan-ringkasan-harian)) |
 | `waifu rain` | Tampilkan kapan hujan berikutnya dalam 24 jam di kota `briefing.city`, dibaca seperti peringatan hujannya, tanpa otak (lihat [Peringatan hujan](#peringatan-hujan)) |
+| `waifu cuaca` / `cuaca besok` / `akhir-pekan` / `YYYY-MM-DD` | Prakiraan cuaca sisa hari ini, besok, akhir pekan, atau tanggal lain sampai enam hari lagi di kota `briefing.city`, per bagian hari, tanpa otak (lihat [Cuaca beberapa hari](#cuaca-beberapa-hari)) |
 | `waifu usage` / `waifu usage --month 2026-09` | Perkiraan biaya API Claude per hari bulan ini atau bulan lain (lihat [Biaya API Claude](#biaya-api-claude)) |
 | `waifu phone setup` / `pair` / `devices` / `forget <id>` | Siapkan Cyrene di HP lewat Tailscale, pasangkan HP dengan kode, lihat dan lupakan HP (lihat [Cyrene di HP](#cyrene-di-hp)) |
 | `waifu pc` | Tampilkan kondisi PC saat ini: beban CPU, RAM, sisa disk, GPU NVIDIA, dan waktu sejak Windows terakhir di-restart (lihat [Kesehatan PC](#kesehatan-pc)) |
@@ -3457,8 +3459,9 @@ Master : "Cyrene, ringkasan hari ini dong."
   sapaan, sesudah ringkasan hari itu terbaca, permintaan maafnya masih terucap dan terkirim.
 
 Isi cuacanya: kondisi dan suhu sekarang, suhu terendah dan tertinggi hari ini, peluang hujan
-tertinggi hari ini, dan kondisi besok jam 07.00. Tidak ada ramalan beberapa hari, berita,
-lalu lintas, atau kalender di luar jadwal Cyrene.
+tertinggi hari ini, dan kondisi besok jam 07.00. Prakiraan hari-hari berikutnya ada di
+[Cuaca beberapa hari](#cuaca-beberapa-hari); berita, lalu lintas, atau kalender di luar jadwal
+Cyrene tidak ada.
 
 ### Mengatur kota
 
@@ -3525,7 +3528,9 @@ briefing:
   enabled: false   # tanpa sapaan pagi dan tanpa ringkasan harian
 ```
 
-Untuk tetap disapa tapi tanpa notifikasi HP, cukup `push: false`.
+Untuk tetap disapa tapi tanpa notifikasi HP, cukup `push: false`. [Peringatan
+hujan](#peringatan-hujan) dan [cuaca beberapa hari](#cuaca-beberapa-hari) tetap jalan selama
+kotanya diisi.
 
 ## Peringatan hujan
 
@@ -3615,6 +3620,81 @@ baris `✗ ...` menyebut sebabnya dan exit code-nya 1. Perintah ini juga jalan w
 `✓ Peringatan hujan: 60 menit sebelumnya, peluang 60% ke atas, jam 06:00-21:00, untuk Cianjur`,
 `! Peringatan hujan: cuaca belum diatur (isi briefing.city)`, atau `! Peringatan hujan mati`,
 tanpa menghubungi Open-Meteo.
+
+## Cuaca beberapa hari
+
+Selain cuaca hari ini, Cyrene menjawab prakiraan untuk sisa hari ini, nanti malam, besok, akhir
+pekan, sampai enam hari lagi, atau satu bagian hari:
+
+```text
+Master : "Cyrene, besok cuaca gimana?"
+Cyrene : "Besok di Cianjur paginya berawan, siangnya kemungkinan hujan sekitar 80 persen,
+          suhunya 19 sampai 28 derajat."
+Master : "Nanti sore hujan nggak?"
+Master : "Akhir pekan hujan nggak?"
+Master : "Jumat cuacanya gimana?"
+```
+
+Tempatnya sama dengan [sapaan pagi](#sapaan-pagi-dan-ringkasan-harian) dan
+[peringatan hujan](#peringatan-hujan) (lihat [Mengatur kota](#mengatur-kota)). Fitur ini ada
+selama `briefing.city` (atau koordinatnya) diisi, juga kalau sapaan paginya dimatikan
+(`briefing.enabled: false`); tidak ada pengaturan sendiri.
+
+### Yang bisa ditanyakan
+
+- **Sisa hari ini:** "nanti hujan nggak?" dibaca dari sekarang sampai tengah malam. Cuaca
+  sekarang dan hari ini secara keseluruhan ("cuaca hari ini gimana?") tetap dari
+  [ringkasan hari](#sapaan-pagi-dan-ringkasan-harian).
+- **Bagian hari:** pagi (04.00-11.00), siang (11.00-15.00), sore (15.00-19.00), dan malam
+  (19.00-24.00), hari ini atau hari lain: "nanti sore hujan?", "besok pagi cerah nggak?",
+  "Jumat malam hujan nggak?". Bagian hari ini yang sudah lewat ("nanti sore" ditanya jam 20.00)
+  dia bilang sudah lewat.
+- **Besok dan tanggal lain:** hari ini dan enam hari sesudahnya. Untuk hari yang lebih jauh dia
+  bilang prakiraannya hanya sampai hari keenam.
+- **Akhir pekan:** Sabtu dan Minggu berikutnya; pada hari Sabtu, sisa hari ini dan Minggu; pada
+  hari Minggu, sisa hari ini.
+
+Untuk satu hari dia membaca kondisi terparahnya, suhu terendah dan tertinggi, peluang hujan
+tertinggi, dan curah hujannya, ditambah kondisi dan peluang hujan tiap bagian hari, jadi "besok
+hujan jam berapa?" terjawab sekali tanya. Angka bagian hari dihitung dari prakiraan per jam,
+yang mencatat hujan untuk satu jam *sebelum* jam yang tertulis, sama seperti peringatan hujan.
+
+- **Setiap pertanyaan menunggu Open-Meteo** (butuh internet, paling lama 8 detik, dia diam
+  sebentar). Kalau gagal, dia bilang singkat bahwa cuacanya tidak bisa dicek.
+- **Tanggalnya tanggal tempat itu:** tepat sesudah tengah malam, "besok" berarti hari sesudah
+  tanggal yang baru.
+- **Hanya kalau Master bertanya.** Sapaan pagi dan hal lain yang dia mulai sendiri tidak
+  memakainya, jadi sapaan paginya tetap seperti sebelumnya.
+- **Nama tempat** yang dia sebut adalah `city` seperti yang kamu tulis ("di Cianjur"); dengan
+  koordinat saja, tanpa `city`, dia tidak menyebut tempat.
+- Prakiraan hari yang jauh lebih kasar daripada besok.
+
+### Mengecek prakiraan: `waifu cuaca`
+
+`waifu cuaca` menampilkan sisa hari ini; `waifu cuaca besok`, `waifu cuaca akhir-pekan`, atau
+`waifu cuaca 2026-10-30` hari lain, tanpa otak, dibaca sama seperti yang dia jawab:
+
+```text
+> waifu cuaca besok
+Prakiraan cuaca di Cianjur, Jawa Barat, per 20:15:
+Minggu 25-10-2026: hujan, 18.9-28.3°C, peluang hujan 80%, curah hujan 7.5 mm
+  pagi: berawan, 19-24.5°C, peluang hujan 10%, curah hujan 0 mm
+  siang: hujan, 25-27.5°C, peluang hujan 80%, curah hujan 7.5 mm
+  sore: berawan, 26-28°C, peluang hujan 20%, curah hujan 0 mm
+  malam: berawan, 20-24°C, peluang hujan 10%, curah hujan 0 mm
+```
+
+Bagian hari ini yang sudah lewat tidak ditampilkan, dan nilai yang tidak diketahui Open-Meteo
+dilewati. Kalau kota belum diisi, cuaca gagal dibaca, atau tanggalnya di luar tujuh hari, baris
+`✗ ...` menyebut sebabnya dan exit code-nya 1. Perintah ini juga jalan walau
+`briefing.enabled: false`.
+
+### Mode tamu dan privasi
+
+Prakiraannya tetap bisa ditanyakan saat [mode tamu](#mode-tamu): cuaca kota yang sudah disebut
+bukan hal pribadi. Setiap pertanyaan mengirim tempatnya (koordinat, atau nama kota yang dicari
+sekali) ke Open-Meteo, seperti untuk sapaan pagi; dengan Claude, hasilnya (nama kota, tanpa
+koordinat) ikut ke API Anthropic seperti obrolan biasa. Tidak ada yang disimpan ke disk.
 
 ## Biaya API Claude
 
@@ -5226,8 +5306,8 @@ bilang singkat bahwa itu ditutup dulu selama ada tamu:
 
 - Perangkat rumah (mematikan PC tetap dengan konfirmasi), rutinitas, menambah jadwal atau
   pengingat, lagu di YouTube, [volume suaranya](#volume-suaraku), kesehatan PC, cuaca dan
-  ringkasan hari (tanpa tugas dan teks pengingat), promo gratis, pencarian web, dan obrolan
-  biasa.
+  ringkasan hari (tanpa tugas dan teks pengingat), [cuaca beberapa hari](#cuaca-beberapa-hari),
+  promo gratis, pencarian web, dan obrolan biasa.
 - [Teman fokus](#teman-fokus): memulai, menghentikan, dan menanyakan sisa waktunya, jadi sesi
   yang jalan sebelum tamu datang tetap bisa dihentikan. Jawabannya bisa menyebut berapa lama
   Master fokus hari itu dan minggu itu.
@@ -6286,6 +6366,18 @@ halaman tim di game atau sebuah error)
 - [ ] Matikan Wi-Fi sebentar: dia tidak mengucapkan apa pun, dan log menampilkan
       `Could not read the rain forecast` sekali saja. Nyalakan lagi Wi-Fi-nya.
 
+**Cuaca beberapa hari** (isi dulu `briefing.city`; lihat
+[Cuaca beberapa hari](#cuaca-beberapa-hari))
+
+- [ ] `waifu cuaca besok` menampilkan kota dan provinsi yang benar, dan kondisi serta peluang
+      hujan tiap bagian hari kira-kira sama dengan prakiraan di aplikasi cuaca HP; exit
+      code-nya 0. `waifu cuaca akhir-pekan` menampilkan Sabtu dan Minggu.
+- [ ] "Cyrene, besok cuaca gimana?", "Cyrene, nanti sore hujan nggak?", dan "Cyrene, akhir
+      pekan hujan nggak?" dijawab singkat untuk kotamu; "Cyrene, cuaca hari ini gimana?" tetap
+      dijawab dari ringkasan hari.
+- [ ] "Cyrene, cuaca sepuluh hari lagi gimana?": dia bilang prakiraannya hanya sampai hari
+      keenam.
+
 **Biaya API** (otak Claude; lihat [Biaya API Claude](#biaya-api-claude))
 
 - [ ] Setelah beberapa kalimat di `waifu run`, "Cyrene, biaya API hari ini berapa?" dijawab
@@ -6571,6 +6663,8 @@ di sampingnya)
     selama `waifu run` menyala, dan kalimat peringatannya (panggilanmu, jam, dan kota) ke
     `ntfy.sh` kalau notifikasi HP dan `rain_alert.push` menyala. Tidak ada yang disimpan ke
     disk.
+  - dengan cuaca beberapa hari, tempat yang sama ke Open-Meteo setiap kali Master
+    menanyakannya (atau `waifu cuaca` dijalankan). Tidak ada yang disimpan ke disk.
   - dengan kabar versi baru, kalimatnya (panggilanmu, nama Cyrene, versi dan judulnya; kalau
     paketnya berubah, juga perintah `pip install`) ke `ntfy.sh` kalau notifikasi HP dan
     `version_notice.push` menyala; tidak ada path folder, commit, atau nama paket yang
