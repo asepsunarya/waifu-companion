@@ -5684,7 +5684,7 @@ Tombol cepat di PC: http://127.0.0.1:53211/t/Gz7mNcckSlaxLMFcD9ptmJzD6qRMkzBA/. 
 
 ### Memakai
 
-- Browser bawaan Windows membuka halaman **Tombol cepat**: satu kartu per perangkat dan satu
+- Browser default PC ini membuka halaman **Tombol cepat**: satu kartu per perangkat dan satu
   kartu **Rutinitas**, dengan tombol yang sama seperti di HP. `phone.quick_actions` memilih dan
   mengurutkannya untuk keduanya (lihat [Tombol cepat di HP](#tombol-cepat-di-hp)), juga kalau
   `phone.enabled: false`. Klik satu tombol: hasilnya muncul 6 detik di bawah jendela ("Lampu
