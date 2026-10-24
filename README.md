@@ -4971,9 +4971,10 @@ punya baris sendiri untuk rekap: baris tiap fiturnya sudah cukup.
   dikirim ke internet karenanya, juga tidak ke HoYoLAB.
 - Dengan Claude, hasilnya (teks tugas, nama game, pull, kata Jepang, teks pengingat, dan
   angka-angkanya, tanpa isi jurnal dan tanpa uang) ikut ke API Anthropic seperti obrolan biasa;
-  dengan Ollama tetap di PC. Rekap tidak pernah dikirim sebagai notifikasi HP, tapi kalau Master
-  bertanya lewat [Cyrene di HP](#cyrene-di-hp), jawabannya sampai ke HP itu seperti semua
-  jawaban di HP.
+  dengan Ollama hasilnya tidak keluar dari PC (jawaban yang menyebutnya tetap dijadikan suara oleh
+  edge-tts kalau engine `edge` dipakai, seperti jawaban lainnya). Rekap tidak pernah dikirim
+  sebagai notifikasi HP, tapi kalau Master bertanya lewat [Cyrene di HP](#cyrene-di-hp),
+  jawabannya sampai ke HP itu seperti semua jawaban di HP.
 
 ## Pencarian web dan promo gratis
 
