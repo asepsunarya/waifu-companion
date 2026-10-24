@@ -618,6 +618,10 @@ NAMES = ("Cyrene", "Hai Cyrene", "Sayang")
         "Hai Cyrene, tolong matikan alarmnya",
         "sayang, aku udah bangun nih",
         "Master, aku sudah bangun",
+        "aku bangun",
+        "iya, aku bangun",
+        "dah bangun",
+        "aku dah bangun",
     ],
 )
 def test_the_stop_phrases_stop_the_alarm(text):
@@ -643,6 +647,10 @@ def test_the_stop_phrases_stop_the_alarm(text):
         ("tiga puluh menit lagi", 30),
         ("tunda 1 menit", 1),
         ("tunda satu menit", 1),
+        ("tunda 5 menit lagi", 5),
+        ("tunda lima menit lagi, Cyrene", 5),
+        ("snooze 10 menit lagi", 10),
+        ("tunda sebentar", None),
     ],
 )
 def test_the_snooze_phrases_snooze_it_for_the_minutes_said(text, minutes):
@@ -673,6 +681,12 @@ def test_the_snooze_phrases_snooze_it_for_the_minutes_said(text, minutes):
         "tunda 05 menit",
         "tunda menit",
         "matikan alarm besok",
+        "tunda menit lagi",
+        "tunda 45 menit lagi",
+        "tunda 5 menit lagi lagi",
+        "lagi",
+        "aku bangun jam 6",
+        "dah",
     ],
 )
 def test_anything_else_is_no_alarm_request(text):

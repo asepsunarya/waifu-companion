@@ -2788,11 +2788,11 @@ Cyrene : "Oke Master, alarmnya kumatikan."
 
 ### Mematikan dan menunda
 
-- **Ucapkan saja, tanpa memanggil namanya:** "aku sudah bangun", "udah bangun", "matikan
-  alarm", "stop alarm", atau "hentikan alarm" mematikannya. "Tunda", "snooze", atau "sebentar
-  lagi" menundanya `alarm.snooze_minutes` menit (bawaan 5); "tunda 10 menit" atau "lima menit
-  lagi" sekian menit (1-30). Dia menjawab langsung tanpa otak: "Oke, kubangunkan lagi jam
-  06.06."
+- **Ucapkan saja, tanpa memanggil namanya:** "aku sudah bangun", "udah bangun", "aku bangun",
+  "dah bangun", "matikan alarm", "stop alarm", atau "hentikan alarm" mematikannya. "Tunda",
+  "tunda sebentar", "snooze", atau "sebentar lagi" menundanya `alarm.snooze_minutes` menit
+  (bawaan 5); "tunda 10 menit", "tunda 5 menit lagi", atau "lima menit lagi" sekian menit
+  (1-30). Dia menjawab langsung tanpa otak: "Oke, kubangunkan lagi jam 06.06."
 - **Hanya kalimat itu persis**, boleh ditambah namanya, "Master", "dong", "iya", atau "oke".
   "Matikan lampu", "stop" saja, atau "aku sudah bangun, nyalakan lampu" dijawab seperti biasa,
   dan alarmnya jalan terus. Kalimat lain soal alarm ("Cyrene, matiin alarmnya ya, aku udah

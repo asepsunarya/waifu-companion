@@ -71,8 +71,11 @@ _STOP_PHRASES = frozenset(
     {
         ("aku", "sudah", "bangun"),
         ("aku", "udah", "bangun"),
+        ("aku", "dah", "bangun"),
+        ("aku", "bangun"),
         ("sudah", "bangun"),
         ("udah", "bangun"),
+        ("dah", "bangun"),
         *(
             (verb, alarm)
             for verb in ("matikan", "matiin", "stop", "hentikan")
@@ -84,6 +87,7 @@ _SNOOZE_PHRASES = frozenset(
     {
         ("tunda",),
         ("tunda", "dulu"),
+        ("tunda", "sebentar"),
         ("tunda", "alarm"),
         ("tunda", "alarmnya"),
         ("snooze",),
@@ -394,8 +398,9 @@ def alarm_request(text: str, names: Iterable[str] = ()) -> AlarmRequest | None:
     if left in _SNOOZE_PHRASES:
         return AlarmRequest("snooze", None)
     minutes = None
-    if len(left) >= 3 and left[0] in ("tunda", "snooze") and left[-1] == "menit":
-        minutes = _minutes(left[1:-1])
+    asked = left[:-1] if left[-1:] == ("lagi",) else left  # "tunda 5 menit lagi"
+    if len(asked) >= 3 and asked[0] in ("tunda", "snooze") and asked[-1] == "menit":
+        minutes = _minutes(asked[1:-1])
     elif len(left) >= 3 and left[-2:] == ("menit", "lagi"):
         minutes = _minutes(left[:-2])
     if minutes is None or not SNOOZE_MINUTES[0] <= minutes <= SNOOZE_MINUTES[1]:
