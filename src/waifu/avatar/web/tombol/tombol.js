@@ -2,9 +2,10 @@
 // http://127.0.0.1:<port>/t/<token>/ and opens it in the PC's browser; every URL here is relative, so it keeps the
 // token's prefix. The page shows the phone's buttons (GET actions), always open: the owner's switches and routines,
 // run on the PC without asking Cyrene. A click sends the button's id to POST action (actions.js) and the PC's answer
-// shows as a toast; one runs at a time. The buttons are read again every REFRESH_MS and when the window gets the focus,
-// since an alarm that rings (SPEC, "alarm bangun (v1.46)") adds its own, first, while it rings.
-import { actionOutcome, actionRequest, parseActionGroups } from "../phone/actions.js";
+// shows as a toast; one runs at a time. The buttons are read again every REFRESH_MS, when the window gets the focus,
+// and after a press of an alarm's button, since an alarm that rings (SPEC, "alarm bangun (v1.46)") adds its own, first,
+// while it rings.
+import { actionOutcome, actionRequest, isAlarmAction, parseActionGroups } from "../phone/actions.js";
 import { deskText, requestDesk } from "./desk.js";
 
 const ACTIONS_URL = "actions";
@@ -105,12 +106,16 @@ function setRunning(pressed, value) {
   for (const button of buttons) button.setAttribute("aria-disabled", String(value));
 }
 
-/** Runs the button `id`, clicked as `button`, on the PC and toasts what it did or why it could not. */
+/**
+ * Runs the button `id`, clicked as `button`, on the PC and toasts what it did or why it could not. An alarm's button
+ * reads the buttons again, as the press may have taken the alarm's away.
+ */
 async function runQuick(button, id) {
   if (running) return;
   setRunning(button, true);
   const result = await requestDesk(fetch, ACTION_URL, actionRequest(id));
   setRunning(button, false);
+  if (isAlarmAction(id)) loadButtons({ first: false });
   if (result.problem) {
     showToast(deskText(result.problem));
     return;

@@ -1409,6 +1409,65 @@ describe("phone quick buttons", () => {
     assert.equal(page.element("notice").textContent, "Alarm dimatikan.");
   });
 
+  it("are read again after the alarm's button, so its group goes once the alarm stopped", async () => {
+    const page = await openPage({ actions: RINGING, actionReply: { ok: true, message: "Alarm dimatikan." } });
+    page.setActions(QUICK);
+
+    await press(page, "Matikan alarm");
+
+    assert.deepEqual(
+      quickGroups(page).map(({ heading }) => heading),
+      ["Lampu kamar", "Rutinitas"],
+    );
+    assert.equal(page.element("notice").textContent, "Alarm dimatikan.");
+  });
+
+  it("are read again every fifteen seconds while the alarm's buttons show, and no longer once they went", async (t) => {
+    t.mock.timers.enable({ apis: ["setInterval"] });
+    const page = await openPage({ actions: RINGING });
+    const listed = () => page.requests.filter(({ route }) => route === "/actions").length;
+    const before = listed();
+    page.setActions(QUICK); // Master stopped it by voice
+
+    t.mock.timers.tick(14_999);
+    await settle();
+    const early = listed();
+    t.mock.timers.tick(1);
+    await settle();
+    const read = listed();
+    t.mock.timers.tick(60_000);
+    await settle();
+
+    assert.equal(early, before);
+    assert.equal(read, before + 1);
+    assert.deepEqual(
+      quickGroups(page).map(({ heading }) => heading),
+      ["Lampu kamar", "Rutinitas"],
+    );
+    assert.equal(listed(), read, "the alarm's buttons went, so the timer stopped");
+  });
+
+  it("are not read on a timer while the page is hidden, and open the panel on the alarm's when it shows", async (t) => {
+    t.mock.timers.enable({ apis: ["setInterval"] });
+    const page = await openPage({ actions: RINGING });
+    const listed = () => page.requests.filter(({ route }) => route === "/actions").length;
+    page.element("quick-toggle").dispatch("click"); // Master closed the panel
+    document.hidden = true;
+    document.dispatch("visibilitychange");
+    const before = listed();
+
+    t.mock.timers.tick(60_000);
+    await settle();
+    const whileHidden = listed();
+    document.hidden = false;
+    document.dispatch("visibilitychange");
+    await settle();
+
+    assert.equal(whileHidden, before);
+    assert.equal(page.element("quick").hidden, false);
+    assert.equal(focused, quickButton(page, "Matikan alarm"));
+  });
+
   it("hide their toggle and close the panel once the PC lists none", async () => {
     const page = await openQuick();
     page.setActions({ groups: [] });

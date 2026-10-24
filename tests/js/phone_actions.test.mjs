@@ -3,7 +3,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { actionOutcome, actionRequest, parseActionGroups } from "../../src/waifu/avatar/web/phone/actions.js";
+import {
+  actionOutcome,
+  actionRequest,
+  isAlarmAction,
+  parseActionGroups,
+} from "../../src/waifu/avatar/web/phone/actions.js";
 
 const LAMP = {
   name: "Lampu kamar",
@@ -59,6 +64,14 @@ describe("parseActionGroups", () => {
     for (const data of [null, "groups", [], {}, { groups: "Lampu" }, { groups: null }]) {
       assert.equal(parseActionGroups(data), null, JSON.stringify(data));
     }
+  });
+});
+
+describe("isAlarmAction", () => {
+  it("tells a ringing alarm's buttons from the devices' and the routines'", () => {
+    assert.equal(isAlarmAction("al.stop"), true);
+    assert.equal(isAlarmAction("al.snooze"), true);
+    for (const id of ["dev.lampu_kamar.on", "rt.tidur", "dev.alarm.on"]) assert.equal(isAlarmAction(id), false, id);
   });
 });
 

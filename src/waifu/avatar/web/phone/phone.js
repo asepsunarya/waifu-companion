@@ -21,7 +21,7 @@
 // sends the button's id to POST /action (actions.js) and the PC's answer shows as a toast; one runs at a time. The
 // buttons are read again whenever the page shows again and the panel opens, since an alarm that rings on the PC (SPEC,
 // "alarm bangun (v1.46)") adds its own, first: the panel then opens on them.
-import { actionOutcome, actionRequest, parseActionGroups } from "./actions.js";
+import { actionOutcome, actionRequest, isAlarmAction, parseActionGroups } from "./actions.js";
 import {
   DEFAULT_OWNER_CALL,
   MAX_TALK_S,
@@ -54,8 +54,8 @@ import {
 const CONFIG_URL = "/config.json";
 const ACTIONS_URL = "/actions";
 const ACTION_URL = "/action";
-// The quick buttons of an alarm that rings on the PC.
-const ALARM_PREFIX = "al.";
+// While the panel lists a ringing alarm's buttons, the list is read again this often, so they go once it stops.
+const ALARM_REFRESH_MS = 15_000;
 const CHAT_URL = "/chat";
 const TALK_URL = "/talk";
 const PAIR_URL = "/pair";
@@ -150,6 +150,9 @@ let quickButtons = [];
 let quickRunning = false;
 // The groups the panel shows, as JSON, so a new listing rebuilds it only when they changed.
 let quickListed = "[]";
+// Whether they hold a ringing alarm's buttons, and the timer that reads them again meanwhile (null when none runs).
+let quickRinging = false;
+let alarmPoll = null;
 
 class CoreMissingError extends Error {}
 
@@ -821,19 +824,32 @@ async function loadQuick() {
 
 /**
  * Builds the panel of `groups` and shows or hides its toggle. An alarm's buttons (ids `al.`) open the panel, so a tap
- * on the alarm's push lands on "Matikan alarm"; an open panel puts the focus on its first button, which it replaced.
+ * on the alarm's push lands on "Matikan alarm", and are read again every ALARM_REFRESH_MS while they show; an open
+ * panel puts the focus on its first button, which it replaced.
  */
 function showQuick(groups) {
   quickButtons = [];
   page.quick.replaceChildren(...groups.map(quickGroup));
   page.quickToggle.hidden = groups.length === 0;
+  quickRinging = groups.some(({ actions }) => actions.some(({ id }) => isAlarmAction(id)));
+  pollWhileRinging();
   if (groups.length === 0) {
     setQuickOpen(false);
     return;
   }
-  const ringing = groups.some(({ actions }) => actions.some(({ id }) => id.startsWith(ALARM_PREFIX)));
-  if (ringing && page.quick.hidden) setQuickOpen(true);
+  if (quickRinging && page.quick.hidden) setQuickOpen(true);
   if (!page.quick.hidden) quickButtons[0]?.focus();
+}
+
+/** Reads the buttons again every ALARM_REFRESH_MS while an alarm's show and the page is visible; else stops. */
+function pollWhileRinging() {
+  stopAlarmPoll();
+  if (quickRinging && !document.hidden) alarmPoll = setInterval(loadQuick, ALARM_REFRESH_MS);
+}
+
+function stopAlarmPoll() {
+  clearInterval(alarmPoll);
+  alarmPoll = null;
 }
 
 /** One group of the panel: its heading, which names the group for a screen reader, over its buttons. */
@@ -898,7 +914,10 @@ function setQuickRunning(pressed, running) {
   for (const button of quickButtons) button.setAttribute("aria-disabled", String(running));
 }
 
-/** Runs the quick button `id`, pressed as `button`, on the PC and toasts what it did or why it could not. */
+/**
+ * Runs the quick button `id`, pressed as `button`, on the PC and toasts what it did or why it could not. An alarm's
+ * button reads the buttons again, as the press may have taken the alarm's away.
+ */
 async function runQuick(button, id) {
   if (quickRunning) return;
   setQuickRunning(button, true);
@@ -908,6 +927,7 @@ async function runQuick(button, id) {
     showPairing();
     return;
   }
+  if (isAlarmAction(id)) loadQuick();
   if (result.problem) {
     showNotice(result.problem);
     return;
@@ -942,15 +962,21 @@ page.talk.addEventListener("keyup", (event) => {
 });
 page.talk.addEventListener("blur", cancelTalk);
 document.addEventListener("visibilitychange", () => {
+  pollWhileRinging();
   if (!document.hidden) {
     loadQuick();
     return;
   }
+  // The alarm may stop and ring again unseen, with the same buttons: the next listing rebuilds the panel, opening it.
+  if (quickRinging) quickListed = "";
   cancelTalk();
   closeViewfinder();
 });
 // Leaving the page fires pagehide; a mobile browser may skip either event, so both turn the camera off.
-window.addEventListener("pagehide", closeViewfinder);
+window.addEventListener("pagehide", () => {
+  closeViewfinder();
+  stopAlarmPoll();
+});
 
 page.camera.addEventListener("click", toggleViewfinder);
 page.cameraFlip.addEventListener("click", flipCamera);

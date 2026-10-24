@@ -377,6 +377,19 @@ describe("PC quick-button page", () => {
     assert.equal(page.element("notice").textContent, "Alarm dimatikan.");
   });
 
+  it("reads the buttons again after the alarm's button, so its group goes once the alarm stopped", async () => {
+    const page = await openPage({ actions: RINGING, actionReply: { ok: true, message: "Alarm dimatikan." } });
+    page.setActions(QUICK);
+
+    await press(page, "Matikan alarm");
+
+    assert.deepEqual(
+      groupsOf(page).map(({ heading }) => heading.textContent),
+      ["Lampu kamar", "Rutinitas"],
+    );
+    assert.equal(page.element("notice").textContent, "Alarm dimatikan.");
+  });
+
   it("says so when the PC lists no buttons any more, and shows them when they come back", async () => {
     const page = await openPage();
     page.setActions({ groups: [] });

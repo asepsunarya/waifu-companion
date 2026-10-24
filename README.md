@@ -4237,7 +4237,9 @@ Rutinitas       [Mode tidur]
 - **Alarm:** selagi [alarm](#alarm-bangun) berbunyi, grup **Alarm** muncul paling atas dengan
   **Matikan alarm** dan **Tunda 5 menit**. Daftar tombolnya dibaca lagi setiap kali panel dibuka
   dan setiap kali halamannya tampil lagi (misalnya dari notifikasi alarm), dan panelnya terbuka
-  sendiri kalau ada tombol alarm.
+  sendiri kalau ada tombol alarm. Selama grup **Alarm** tampil, daftarnya juga dibaca lagi
+  setiap 15 detik dan langsung sesudah tombol alarm ditekan, jadi grupnya hilang begitu alarmnya
+  berhenti, entah lewat tombol, suara, atau karena waktunya habis.
 
 **Memilih dan mengurutkan tombol.** Tanpa pengaturan, semua perangkat dan rutinitas di atas
 muncul dengan urutan di `config.yaml`. Untuk menampilkan sebagian saja, dengan urutanmu sendiri:
@@ -6067,7 +6069,8 @@ Tombol cepat di PC: http://127.0.0.1:53211/t/Gz7mNcckSlaxLMFcD9ptmJzD6qRMkzBA/. 
 - `config.yaml` dibaca sekali, saat `waifu tombol` dijalankan. Setelah mengubah perangkat,
   rutinitas, atau `phone.quick_actions` di `config.yaml`, tutup `waifu tombol` (Ctrl+C) lalu
   jalankan lagi; memuat ulang halaman atau menjalankan ulang `waifu run` saja tidak cukup.
-- Halamannya membaca daftar tombol lagi setiap 15 detik dan saat jendelanya aktif lagi: selagi
+- Halamannya membaca daftar tombol lagi setiap 15 detik, saat jendelanya aktif lagi, dan
+  langsung sesudah tombol alarm ditekan: selagi
   [alarm](#alarm-bangun) `waifu run` berbunyi, grup **Alarm** (**Matikan alarm**, **Tunda 5
   menit**) muncul paling atas. Tanpa tombol perangkat atau rutinitas sama sekali, `waifu tombol`
   tidak membuka halaman, jadi tombol alarmnya pun tidak ada: pakai HP atau suara.

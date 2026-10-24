@@ -16,7 +16,9 @@ aktif, lalu jalankan `waifu check`.
   berhenti sendiri setelah 10 menit.
 - Selagi berbunyi, tombol cepat di HP dan `waifu tombol` punya grup **Alarm** paling atas
   (**Matikan alarm**, **Tunda 5 menit**); keduanya sekarang membaca daftar tombolnya lagi
-  sendiri (HP: saat halaman tampil lagi dan saat panel dibuka; PC: setiap 15 detik).
+  sendiri (HP: saat halaman tampil lagi, saat panel dibuka, dan setiap 15 detik selama grup
+  **Alarm** tampil; PC: setiap 15 detik), dan keduanya langsung sesudah tombol alarm ditekan,
+  jadi grupnya hilang begitu alarmnya berhenti.
 - Dengan notifikasi HP, bunyi pertama juga dikirim ke HP dan membuka halaman Cyrene di HP.
 - **Hanya selama `waifu run` jalan dan PC menyala.** Alarm yang terlewat karena PC mati atau
   sleep tidak dibunyikan terlambat, hanya dikirim ke HP ("Alarm jam 06.00 terlewat.").

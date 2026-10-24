@@ -4,6 +4,8 @@
 // so `node --test` covers them.
 
 const JSON_TYPE = "application/json";
+// The quick buttons of an alarm that rings on the PC (SPEC, "alarm bangun (v1.46)").
+const ALARM_PREFIX = "al.";
 
 const isPlainObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 const isText = (value) => typeof value === "string" && value.trim() !== "";
@@ -26,6 +28,11 @@ export function parseActionGroups(data) {
     const actions = group.actions.map(parseAction).filter(Boolean);
     return actions.length > 0 ? [{ name: group.name, actions }] : [];
   });
+}
+
+/** Whether the button `id` is one of a ringing alarm's: pressing it takes the alarm's buttons away. */
+export function isAlarmAction(id) {
+  return id.startsWith(ALARM_PREFIX);
 }
 
 /** The body of POST /action for the button `id`: {body, contentType}. */
