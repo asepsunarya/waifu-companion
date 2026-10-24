@@ -1,4 +1,5 @@
-"""The planner's pure rules (v1.50): events and endgame seasons ending soon, told in the evening.
+"""The planner's pure rules (v1.50): events and endgame seasons ending soon, told in the evening,
+and a stamina that fills before the morning after a game closed late at night.
 
 The rules get the calendars' own values (`HsrCalendar`, `GameCalendar`); one test reads a
 real-shaped HSR calendar through `starrail.read_calendar` first, as the watcher does.
@@ -6,13 +7,22 @@ real-shaped HSR calendar through `starrail.read_calendar` first, as the watcher 
 
 import copy
 from dataclasses import replace
-from datetime import UTC, date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, time, timedelta, timezone
 
+import pytest
 from genshin.models import HSREventCalendar
 
 from waifu.config import GachaRemindersConfig
 from waifu.gacha.game_data import ChallengeWindow, GameCalendar, GameEvent
-from waifu.gacha.planner import ending_events, ending_seasons, evening_due, evening_notice
+from waifu.gacha.hoyolab import GameStatus, WeeklyTask
+from waifu.gacha.planner import (
+    ending_events,
+    ending_seasons,
+    evening_due,
+    evening_notice,
+    overnight_notice,
+    stamina_held,
+)
 from waifu.gacha.reminders import Notice, ReminderState
 from waifu.gacha.starrail import HsrCalendar, HsrChallengeWindow, HsrEvent, read_calendar
 
@@ -329,3 +339,117 @@ def test_a_real_shaped_hsr_calendar_gives_the_evening_line():
         "Master, Memory of Chaos di HSR berakhir sekitar 55 jam lagi, baru dapat 30 dari 36. "
         "Event Gift of Odyssey berakhir sekitar 7 jam lagi, baru 3 dari 7."
     )
+
+
+# --- the overnight line --------------------------------------------------------------------------
+
+MORNING = time(7, 0)  # briefing.time
+CLOSED = datetime(2026, 10, 17, 23, 40, tzinfo=WIB)
+POLL = datetime(2026, 10, 17, 23, 50, tzinfo=WIB)  # the gacha poll after the game closed
+HSR_STATUS = GameStatus(
+    game="hsr",
+    stamina=208,
+    stamina_max=300,
+    stamina_full_in_s=(4 * 60 + 20) * 60,  # full at 04:10
+    daily_current=500,
+    daily_max=500,
+    daily_done=True,
+    weekly=(WeeklyTask("Echo of War", 3, 3),),
+    expeditions_total=4,
+    expeditions_finished=1,
+    checked_in=True,
+)
+
+
+def overnight(
+    ended_at=CLOSED, status=HSR_STATUS, now=POLL, state=None, game="hsr", **options
+) -> Notice | None:
+    state = ReminderState() if state is None else state
+    return overnight_notice(game, ended_at, status, now, state, MORNING, **options)
+
+
+def test_a_stamina_filling_before_the_morning_after_a_late_game_is_told():
+    assert overnight() == Notice(
+        "hsr",
+        "planner",
+        "Master, Trailblaze Power di HSR penuh jam 04.10, sebelum kamu bangun.",
+        "surprised",
+    )
+
+
+def test_the_line_says_the_minute_it_is_surely_full_and_calls_the_owner_her_way():
+    status = replace(HSR_STATUS, stamina_full_in_s=HSR_STATUS.stamina_full_in_s + 10)
+
+    assert overnight(status=status, owner_call="sayang").text == (
+        "Sayang, Trailblaze Power di HSR penuh jam 04.11, sebelum kamu bangun."
+    )
+
+
+def test_another_game_names_its_own_stamina():
+    status = replace(HSR_STATUS, game="genshin", stamina=100, stamina_max=200)
+
+    assert overnight(status=status, game="genshin").text.startswith(
+        "Master, Original Resin di Genshin penuh jam 04.10"
+    )
+
+
+def at_clock(hour: int, minute: int, day: int = 17) -> datetime:
+    return datetime(2026, 10, day, hour, minute, tzinfo=WIB)
+
+
+@pytest.mark.parametrize(
+    ("ended_at", "now", "late"),
+    [
+        (at_clock(21, 59), at_clock(22, 5), False),
+        (at_clock(22, 0), at_clock(22, 5), True),
+        (at_clock(2, 59, day=18), at_clock(3, 5, day=18), True),
+        (at_clock(3, 0, day=18), at_clock(3, 5, day=18), False),
+    ],
+)
+def test_only_a_game_closed_from_22_00_until_03_00_counts(ended_at, now, late):
+    status = replace(HSR_STATUS, stamina_full_in_s=3 * 3600)
+
+    assert (overnight(ended_at=ended_at, now=now, status=status) is not None) is late
+
+
+def test_a_stamina_full_only_after_the_morning_or_already_full_says_nothing():
+    at_seven = replace(HSR_STATUS, stamina_full_in_s=(7 * 60 + 10) * 60)  # 07:00 itself
+    full = replace(HSR_STATUS, stamina=300, stamina_full_in_s=0)
+
+    assert overnight(status=at_seven) is None
+    assert overnight(status=full) is None  # the stamina reminder says it at once
+
+
+def test_nothing_is_told_once_the_morning_has_come():
+    assert overnight(ended_at=at_clock(1, 0, day=18), now=at_clock(7, 0, day=18)) is None
+
+
+def test_the_overnight_line_is_told_once_a_night():
+    state = ReminderState()
+    overnight(state=state)
+
+    again = overnight(ended_at=at_clock(1, 0, day=18), now=at_clock(1, 5, day=18), state=state)
+    next_night = overnight(ended_at=CLOSED + 24 * HOUR, now=POLL + 24 * HOUR, state=state)
+
+    assert again is None
+    assert next_night is not None
+
+
+def test_the_stamina_line_is_held_until_the_morning_after_the_overnight_line():
+    state = ReminderState()
+    assert not stamina_held("hsr", POLL, state, MORNING)
+    overnight(state=state)
+
+    assert stamina_held("hsr", POLL, state, MORNING)
+    assert stamina_held("hsr", at_clock(6, 59, day=18), state, MORNING)
+    assert not stamina_held("hsr", at_clock(7, 0, day=18), state, MORNING)
+    assert not stamina_held("genshin", POLL, state, MORNING)
+
+
+def test_the_hold_survives_a_restart(tmp_path):
+    path = tmp_path / "reminders.json"
+    state = ReminderState()
+    overnight(state=state)
+    state.save(path, today=date(2026, 10, 17))
+
+    assert stamina_held("hsr", at_clock(3, 10, day=18), ReminderState.load(path), MORNING)

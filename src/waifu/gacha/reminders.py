@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import math
-from collections.abc import Iterable, Mapping
+from collections.abc import Collection, Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -38,7 +38,7 @@ ACCOUNT_WIDE = frozenset({"cookie"})  # one cookie serves every game: tell it on
 @dataclass(frozen=True)
 class Notice:
     game: str | None
-    kind: str  # stamina, daily, weekly, expeditions, checkin, problem
+    kind: str  # stamina, daily, weekly, expeditions, planner, checkin, problem
     text: str  # Indonesian, in her voice, no emoji or markdown
     emotion: str
 
@@ -99,9 +99,11 @@ def due_notices(
     offset: int,
     *,
     owner_call: str = "Master",
+    stamina_held: Collection[str] = frozenset(),
 ) -> list[Notice]:
     """What to tell the owner, called `owner_call`, about these statuses right now; `state`
-    remembers it."""
+    remembers it. The stamina of the games in `stamina_held` waits (the planner's overnight
+    line told it): its occasion stays open for after the hold."""
     day = game_day(now, offset)
     evening = reminder_due(now, rules.daily_time, offset)
     reset = next_daily_reset(now, offset).strftime("%H:%M")
@@ -110,7 +112,7 @@ def due_notices(
     for game_id, status in statuses.items():
         game = GAMES[game_id]
         candidates = [
-            _stamina(game, status, state, rules, owner),
+            _stamina(game, status, state, rules, owner, held=game_id in stamina_held),
             _daily(game, status, state, day, reset, owner) if evening else None,
             _weekly(game, status, state, day, reset, owner) if evening and rules.weekly else None,
             _expeditions(game, status, state, owner) if rules.expeditions else None,
@@ -159,13 +161,15 @@ def _stamina(
     state: ReminderState,
     rules: GachaRemindersConfig,
     owner: str,
+    *,
+    held: bool,
 ) -> Notice | None:
     key = f"stamina:{game.id}"
     full = status.stamina >= status.stamina_max or status.stamina_full_in_s <= 0
     if not full and status.stamina_full_in_s > rules.stamina_minutes * 60:
         state.rearm(key)  # Master spent it: the next fill-up is a new occasion
         return None
-    if not state.occasion(key):
+    if held or not state.occasion(key):
         return None
     amount = f"{status.stamina} dari {status.stamina_max}"
     if full:

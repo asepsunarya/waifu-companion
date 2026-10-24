@@ -78,6 +78,20 @@ def test_stamina_is_mentioned_again_after_master_spent_it():
     assert kinds(evaluate(near, MONDAY_NOON, state)) == ["stamina"]
 
 
+def test_a_held_stamina_waits_and_is_told_once_the_hold_is_over():
+    # The planner's overnight line holds it until the morning (v1.50).
+    state = ReminderState()
+    full = replace(HSR, stamina=300, stamina_full_in_s=0)
+    resin = replace(full, game="genshin", stamina=200, stamina_max=200)
+    statuses = {"hsr": full, "genshin": resin}
+
+    held = due_notices(statuses, MONDAY_NOON, state, RULES, ASIA, stamina_held={"hsr"})
+    after = due_notices(statuses, MONDAY_NOON, state, RULES, ASIA)
+
+    assert [(notice.game, notice.kind) for notice in held] == [("genshin", "stamina")]
+    assert [(notice.game, notice.kind) for notice in after] == [("hsr", "stamina")]
+
+
 def test_full_stamina_says_so():
     full = replace(HSR, stamina=300, stamina_full_in_s=0)
 
