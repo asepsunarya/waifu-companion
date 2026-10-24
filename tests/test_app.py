@@ -4046,7 +4046,7 @@ def test_her_answer_never_reaches_the_info_log(caplog):
 
 # --- "cara baca X itu Y" (kamus cyrene) ---------------------------------------------------------
 
-TAUGHT_ACHERON = "Oke Master. Mulai sekarang kubaca: A Ke Ron."
+TAUGHT_ACHERON = "Oke Master. Acheron mulai sekarang kubaca A Ke Ron."
 
 
 class RecordingVoice(TextToSpeech):
@@ -4060,7 +4060,7 @@ class RecordingVoice(TextToSpeech):
         return np.zeros(240, dtype=np.float32), 24000
 
 
-def test_she_learns_a_reading_without_the_brain_and_says_only_the_reading(tmp_path):
+def test_she_learns_a_reading_without_the_brain_and_says_the_word_and_its_reading(tmp_path):
     lexicon = Lexicon(tmp_path / "tts_lexicon.json")
     rig = Rig("Cyrene, cara baca Acheron itu A Ke Ron.", lexicon=lexicon)
 
@@ -4071,6 +4071,40 @@ def test_she_learns_a_reading_without_the_brain_and_says_only_the_reading(tmp_pa
     assert rig.brain.turns == []
     assert lexicon.read() == {"Acheron": "A Ke Ron"}
     assert rig.gate.check("terus?").accepted is True  # said like a reply: the window opened
+
+
+def test_she_names_the_word_taught_as_she_read_it_until_now_then_reads_it_anew(tmp_path):
+    lexicon = Lexicon(tmp_path / "tts_lexicon.json")
+    voice = RecordingVoice()
+    router = SpeechRouter({"id": voice}, default_language="id", lexicon=lexicon.readings)
+    rig = Rig(
+        "Cyrene, cara baca Acheron itu A Ke Ron.",
+        "Cyrene, build Acheron gimana",
+        reply="Acheron siap, Master.",
+        lexicon=lexicon,
+        speech=router,
+    )
+
+    rig.assistant.handle_utterance(rig.utterance())
+    rig.assistant.handle_utterance(rig.utterance())
+
+    assert voice.texts == [TAUGHT_ACHERON, "A Ke Ron siap, Master."]
+    assert len(rig.player.played) == 2
+
+
+def test_a_reading_is_kept_when_her_voice_fails(tmp_path):
+    lexicon = Lexicon(tmp_path / "tts_lexicon.json")
+    rig = Rig(
+        "Cyrene, cara baca Acheron itu A Ke Ron.",
+        speech_error=TtsError("Suara tidak tersedia."),
+        lexicon=lexicon,
+    )
+
+    said = rig.assistant.handle_utterance(rig.utterance())
+
+    assert said == TAUGHT_ACHERON
+    assert lexicon.read() == {"Acheron": "A Ke Ron"}
+    assert rig.player.played == []
 
 
 def test_she_learns_a_reading_inside_the_follow_up_window_without_her_name(tmp_path):
@@ -4148,7 +4182,8 @@ def test_a_dictionary_that_cannot_be_written_is_said_and_warned_about(tmp_path, 
     with caplog.at_level(logging.WARNING, logger="waifu.app"):
         rig.assistant.handle_utterance(rig.utterance())
 
-    assert rig.speech.texts == ["Maaf Master, kamusku belum bisa disimpan. Coba lagi sebentar."]
+    assert rig.speech.texts[-1] == "Maaf Master, kamusku belum bisa disimpan. Coba lagi sebentar."
+    assert rig.events == ["synthesize", "synthesize", "play"]  # the confirmation is never played
     assert "Could not save a reading" in caplog.text
 
 

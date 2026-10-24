@@ -89,6 +89,7 @@ from waifu.lexicon import (
     TEACH_REFUSED,
     Lexicon,
     LexiconError,
+    checked_rule,
     reading_request,
 )
 from waifu.listen_pause import ListenPause
@@ -688,9 +689,11 @@ class Assistant:
         *,
         followup: bool = True,
         level: int | None = None,
+        clip: tuple[np.ndarray, int] | None = None,
     ) -> float | None:
         """`speak`, telling how long her voice took to synthesise `text` (None when it could
-        not be), on the Assistant's clock."""
+        not be), on the Assistant's clock. A `clip` (audio, sample rate) of `text` already
+        synthesised is played as it is."""
         synthesis_s = None
         with self._engaged(), self._voice:
             mic, segmenter = self._mic, self._segmenter
@@ -698,7 +701,7 @@ class Assistant:
                 mic.pause()
             try:
                 started = self._clock()
-                audio, sample_rate = self._speech.synthesize(text)
+                audio, sample_rate = self._speech.synthesize(text) if clip is None else clip
                 synthesis_s = self._clock() - started
                 self._show(lambda avatar: avatar.state("speaking"))
                 self._show(lambda avatar: avatar.speak(audio, sample_rate, emotion))
@@ -1097,24 +1100,45 @@ class Assistant:
         return text, self._speak(text)
 
     def _teach_reading(self, lexicon: Lexicon, term: str, reading: str) -> tuple[str, float | None]:
-        """Keep Master's reading of `term` and say the reading back like a reply, without the
-        brain; returns what she said and how long its synthesis took.
+        """Keep Master's reading of `term` and say the word and its reading back like a reply,
+        without the brain; returns what she said and how long its synthesis took.
 
-        She never says `term`: the new rule would read it as the reading. Like `_tell_heard`,
-        no turn is taken and it is never remembered for "ulangi". A rule `lexicon` refuses is
-        explained; a file that cannot be written is said. Neither word reaches the log.
+        The confirmation is synthesised before the rule is kept, so she says `term` as she
+        read it until now and Master hears which word she caught (a stray word would make a
+        rule that never matches). Like `_tell_heard`, no turn is taken and it is never
+        remembered for "ulangi". A rule `lexicon` refuses is explained; a file that cannot be
+        written is said, and the confirmation is then never played. Neither word reaches the
+        log.
         """
         try:
-            _, reading = lexicon.add(term, reading)
+            term, reading = checked_rule(term, reading)
         except LexiconError as problem:
-            logger.info("Refused a reading for a word")
-            text = TEACH_REFUSED.format(owner=self._owner_call, problem=problem)
+            return self._refuse_reading(problem)
+        text = TAUGHT.format(owner=self._owner_call, term=term, reading=reading)
+        started = self._clock()
+        try:
+            clip = self._speech.synthesize(text)
+        except Exception:  # `_speak` tries her voice again and logs why it fails
+            clip = None
+        synthesis_s = self._clock() - started
+        try:
+            lexicon.add(term, reading)
+        except LexiconError as problem:
+            return self._refuse_reading(problem)
         except OSError as exc:
             logger.warning("Could not save a reading for a word: %s", exc)
             text = TEACH_FAILED.format(owner=self._owner_call)
-        else:
-            logger.info("Learned a reading for a word")
-            text = TAUGHT.format(owner=self._owner_call, reading=reading)
+            return text, self._speak(text)
+        logger.info("Learned a reading for a word")
+        if clip is None:
+            return text, self._speak(text)
+        self._speak(text, clip=clip)
+        return text, synthesis_s
+
+    def _refuse_reading(self, problem: LexiconError) -> tuple[str, float | None]:
+        """Say why a reading cannot be kept; returns what she said and its synthesis time."""
+        logger.info("Refused a reading for a word")
+        text = TEACH_REFUSED.format(owner=self._owner_call, problem=problem)
         return text, self._speak(text)
 
     def _guest_generation(self) -> object:
