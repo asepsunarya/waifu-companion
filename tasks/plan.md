@@ -1076,7 +1076,7 @@ strict tools, 17 of 24 optional parameters, and 0 of 16 unions stay.
 - [x] Task 280: the hotword builder and `Vocabulary` (`voice/hotwords.py`)
 - [x] Task 281: Whisper passes the hotwords on both decodes
 - [x] Task 282: the roster hook in `GameDataTools`
-- [ ] Task 283: the dictionary: rules, `pronounce`, and the store (`lexicon.py`)
+- [x] Task 283: the dictionary: rules, `pronounce`, and the store (`lexicon.py`)
 - [ ] Task 284: the speech router rewrites the Indonesian runs
 - [ ] Task 285: teaching by voice: the "cara baca X itu Y" gate and `_teach_reading`
 - [ ] Task 286: the CLI: `waifu lafal`, `tts.lexicon_path`, and the wiring of `run`, `chat`, and `say`

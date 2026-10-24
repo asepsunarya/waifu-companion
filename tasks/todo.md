@@ -2678,11 +2678,11 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 280a · **Files:** `src/waifu/gacha/game_data_tools.py`, `tests/test_gacha_game_data_tools.py` · **Scope:** XS
 
-## Task 283: The dictionary
+## Task 283: The dictionary ✅
 
 **Acceptance criteria:**
-- [ ] `pronounce` rewrites the built-in terms case-sensitively and Master's case-insensitively, whole words only, longest first, in one pass; Master's rule replaces a built-in with the same term
-- [ ] `checked_rule` bounds the term and the reading; `Lexicon` adds, replaces, lists, and removes rules, is never created by reading, sets a broken file aside, refuses rule 201, and `readings` never raises
+- [x] `pronounce` rewrites the built-in terms case-sensitively and Master's case-insensitively, whole words only, longest first, in one pass; Master's rule replaces a built-in with the same term
+- [x] `checked_rule` bounds the term and the reading; `Lexicon` adds, replaces, lists, and removes rules, is never created by reading, sets a broken file aside, refuses rule 201, and `readings` never raises
 
 **Dependencies:** 280a · **Files:** `src/waifu/lexicon.py`, `tests/test_lexicon.py` · **Scope:** M
 
