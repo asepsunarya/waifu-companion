@@ -2268,12 +2268,12 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** none · **Files:** `SPEC.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
 
-## Task 238: `WeatherClient.outlook()`
+## Task 238: `WeatherClient.outlook()` ✅
 
 **Acceptance criteria:**
-- [ ] `outlook()` asks once with `OUTLOOK_QUERY` (seven days; daily code, range, rain chance, and amount; hourly code, temperature, rain chance, and amount) and reads `Outlook(place, now, days, hours)`; null daily or hourly values are None
-- [ ] The same city cache, 8 s limit, `failure_level`, and errors as `today()` and `forecast()`; a reply without what it reads is the unreadable `WeatherError`
-- [ ] `FORECAST_QUERY`, `today()`, and `forecast()` unchanged; `Hour.temperature_c` defaults to None; `condition_of` is public
+- [x] `outlook()` asks once with `OUTLOOK_QUERY` (seven days; daily code, range, rain chance, and amount; hourly code, temperature, rain chance, and amount) and reads `Outlook(place, now, days, hours)`; null daily or hourly values are None
+- [x] The same city cache, 8 s limit, `failure_level`, and errors as `today()` and `forecast()`; a reply without what it reads is the unreadable `WeatherError`
+- [x] `FORECAST_QUERY`, `today()`, and `forecast()` unchanged; `Hour.temperature_c` defaults to None; `condition_of` is public
 
 **Dependencies:** 238a · **Files:** `src/waifu/weather.py`, `tests/test_weather.py` · **Scope:** M
 

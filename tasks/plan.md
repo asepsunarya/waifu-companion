@@ -942,7 +942,7 @@ hour-before rule. The tool exists whenever the weather has a place, shares the b
 client, names the place as the rain alert does, refuses in her own turns, and stays open in guest
 mode. 18 of 20 strict tools, 17 of 24 optional parameters, and 0 of 16 unions stay.
 - [x] Task 238a: contract: SPEC, tasks
-- [ ] Task 238: `WeatherClient.outlook()`: seven days with hourly temperatures
+- [x] Task 238: `WeatherClient.outlook()`: seven days with hourly temperatures
 - [ ] Task 239: the days and parts asked (`periods`, pure)
 - [ ] Task 240: the `weather_forecast` tool
 - [ ] Task 241: the brain gets it: a shared client, the place gate, guest mode, the strict budget

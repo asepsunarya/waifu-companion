@@ -4,8 +4,9 @@ A city is geocoded once with Open-Meteo's geocoding API; then one forecast reque
 returns the conditions now, today's range and rain chance, and two days of hourly codes,
 rain chances, and amounts, all in the place's own time zone (`timezone=auto`). `today()`
 reads the briefing's weather from it (the code for tomorrow morning among the hourly
-values), `forecast()` every hour for the rain alerts. Conditions are WMO weather codes,
-said in Indonesian.
+values), `forecast()` every hour for the rain alerts. `outlook()` asks a request of its own
+for seven days of daily and hourly values, so the briefing's and the rain watcher's request
+stay two days. Conditions are WMO weather codes, said in Indonesian (`condition_of`).
 
 She is silent while the weather is fetched, so one call has `TIME_LIMIT_S` for both
 requests together: each request's timeout is the time left, and none starts with less
@@ -41,6 +42,17 @@ FORECAST_QUERY = {
     "hourly": "weather_code,precipitation_probability,precipitation",
     "timezone": "auto",
     "forecast_days": 2,
+}
+# Seven days for the questions about the days ahead; `current` only for its time, the place's now.
+OUTLOOK_QUERY = {
+    "current": "weather_code",
+    "daily": (
+        "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,"
+        "precipitation_sum"
+    ),
+    "hourly": "weather_code,temperature_2m,precipitation_probability,precipitation",
+    "timezone": "auto",
+    "forecast_days": 7,
 }
 TIME_LIMIT_S = 8.0  # for one call: the city lookup and the forecast together
 MIN_REQUEST_S = 1.0
@@ -79,6 +91,7 @@ class Hour:
     code: int | None  # WMO weather code
     rain_chance: int | None  # precipitation probability, %
     precipitation_mm: float | None
+    temperature_c: float | None = None  # only in the outlook, which asks for it
 
 
 @dataclass(frozen=True)
@@ -87,6 +100,26 @@ class Forecast:
     now: datetime  # the reply's current time: the place's local time, in 15-minute steps
     current_code: int  # WMO weather code now
     hours: tuple[Hour, ...]  # every hourly entry of today and tomorrow, in order
+
+
+@dataclass(frozen=True)
+class DayOutlook:
+    """One daily entry; None where Open-Meteo has no value (unknown, never zero)."""
+
+    day: date  # the place's local date
+    code: int | None  # WMO weather code, the day's most severe
+    min_c: float | None
+    max_c: float | None
+    rain_chance: int | None  # the day's highest precipitation probability, %
+    rain_mm: float | None  # the day's summed precipitation
+
+
+@dataclass(frozen=True)
+class Outlook:
+    place: str
+    now: datetime  # the reply's current time: the place's local time, in 15-minute steps
+    days: tuple[DayOutlook, ...]  # today and the next six days, in order
+    hours: tuple[Hour, ...]  # every hourly entry of those days with its temperature, in order
 
 
 class WeatherError(Exception):
@@ -152,12 +185,19 @@ class WeatherClient:
         `TIME_LIMIT_S`; WeatherError when there is none."""
         return self._read_forecast(_forecast)
 
-    def _read_forecast(self, parse: Callable[[str, Any], _Read]) -> _Read:
-        """Asks for the forecast at the place and has `parse` read the reply; a reply without
-        the fields it reads is the unreadable WeatherError."""
+    def outlook(self) -> Outlook:
+        """Seven days from today with every hourly entry and its temperature, asked with a
+        request of its own within `TIME_LIMIT_S`; WeatherError when there is none."""
+        return self._read_forecast(_outlook, OUTLOOK_QUERY)
+
+    def _read_forecast(
+        self, parse: Callable[[str, Any], _Read], variables: Mapping[str, object] = FORECAST_QUERY
+    ) -> _Read:
+        """Asks for the forecast's `variables` at the place and has `parse` read the reply; a
+        reply without the fields it reads is the unreadable WeatherError."""
         deadline = self._clock() + TIME_LIMIT_S
         location = self._locate(deadline)
-        query = {"latitude": location.latitude, "longitude": location.longitude, **FORECAST_QUERY}
+        query = {"latitude": location.latitude, "longitude": location.longitude, **variables}
         data = self._get(FORECAST_URL, query, deadline)
         try:
             return parse(location.place, data)
@@ -265,12 +305,12 @@ def _weather(place: str, data: Any) -> Weather:
         raise TypeError("the hourly times are not a list")
     return Weather(
         place=place,
-        condition=_condition(current["weather_code"]),
+        condition=condition_of(current["weather_code"]),
         temperature_c=_number(current["temperature_2m"]),
         min_c=_number(daily["temperature_2m_min"][0]),
         max_c=_number(daily["temperature_2m_max"][0]),
         rain_chance=round(_number(daily["precipitation_probability_max"][0])),
-        tomorrow_morning=_condition(hourly["weather_code"][hours.index(tomorrow_morning)]),
+        tomorrow_morning=condition_of(hourly["weather_code"][hours.index(tomorrow_morning)]),
     )
 
 
@@ -285,22 +325,65 @@ def _forecast(place: str, data: Any) -> Forecast:
     )
 
 
-def _hours(hourly: Any) -> tuple[Hour, ...]:
-    """The hourly entries in order; a null value is None."""
+def _outlook(place: str, data: Any) -> Outlook:
+    """The seven-day reply's time now and its daily and hourly entries as an Outlook; a null
+    value is None."""
+    daily = data["daily"]
     columns = [
-        hourly[name]
-        for name in ("time", "weather_code", "precipitation_probability", "precipitation")
+        daily[name]
+        for name in (
+            "time",
+            "weather_code",
+            "temperature_2m_min",
+            "temperature_2m_max",
+            "precipitation_probability_max",
+            "precipitation_sum",
+        )
     ]
     if not all(isinstance(column, list) for column in columns):
-        raise TypeError("the hourly values are not lists")
-    return tuple(
-        Hour(
-            at=_local_time(at),
+        raise TypeError("the daily values are not lists")
+    days = tuple(
+        DayOutlook(
+            day=_local_date(day),
             code=_maybe_code(code),
+            min_c=_maybe_number(low),
+            max_c=_maybe_number(high),
             rain_chance=_maybe_percent(chance),
-            precipitation_mm=_maybe_number(amount),
+            rain_mm=_maybe_number(amount),
         )
-        for at, code, chance, amount in zip(*columns, strict=True)
+        for day, code, low, high, chance, amount in zip(*columns, strict=True)
+    )
+    if not days:
+        raise ValueError("the reply has no day")
+    return Outlook(
+        place=place,
+        now=_local_time(data["current"]["time"]),
+        days=days,
+        hours=_hours(data["hourly"], temperatures=True),
+    )
+
+
+def _hours(hourly: Any, *, temperatures: bool = False) -> tuple[Hour, ...]:
+    """The hourly entries in order, with `temperatures` each with its temperature; a null
+    value is None."""
+    names = ["time", "weather_code", "precipitation_probability", "precipitation"]
+    if temperatures:
+        names.append("temperature_2m")
+    columns = [hourly[name] for name in names]
+    if not all(isinstance(column, list) for column in columns):
+        raise TypeError("the hourly values are not lists")
+    return tuple(_hour(*values) for values in zip(*columns, strict=True))
+
+
+def _hour(
+    at: object, code: object, chance: object, amount: object, temperature: object = None
+) -> Hour:
+    return Hour(
+        at=_local_time(at),
+        code=_maybe_code(code),
+        rain_chance=_maybe_percent(chance),
+        precipitation_mm=_maybe_number(amount),
+        temperature_c=_maybe_number(temperature),
     )
 
 
@@ -309,6 +392,13 @@ def _local_time(value: object) -> datetime:
     if not isinstance(value, str):
         raise TypeError(f"the time is not text: {value!r}")
     return datetime.fromisoformat(value)
+
+
+def _local_date(value: object) -> date:
+    """An ISO date as Open-Meteo sends it, e.g. 2026-10-14 (the place's local date)."""
+    if not isinstance(value, str):
+        raise TypeError(f"the date is not text: {value!r}")
+    return date.fromisoformat(value)
 
 
 def _number(value: object) -> float:
@@ -329,7 +419,7 @@ def _maybe_percent(value: object) -> int | None:
     return None if value is None else round(_number(value))
 
 
-def _condition(value: object) -> str:
+def condition_of(value: object) -> str:
     """A WMO weather code (Open-Meteo's `weather_code`) in Indonesian."""
     code = int(_number(value))
     if code == 0:

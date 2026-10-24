@@ -8,17 +8,19 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Callable
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
 import pytest
 
 from waifu.weather import (
     RAIN_CODES,
+    DayOutlook,
     Hour,
     Location,
     Weather,
     WeatherClient,
     WeatherError,
+    condition_of,
     get_json,
 )
 
@@ -116,6 +118,62 @@ def forecast_reply(
     }
 
 
+def outlook_reply(*, today: str = "2026-10-24", now: str = "20:15") -> dict:
+    """An outlook shaped like Open-Meteo's reply to the seven-day request (timezone=auto).
+
+    Rain is likely at today 15:00 (a rain code, 80 %, 1.2 mm); an hour's temperature is
+    19 °C plus a quarter degree per hour of the day; the last day's chance and amount are null,
+    as Open-Meteo leaves them where its models do not reach."""
+    days = [date.fromisoformat(today) + timedelta(days=n) for n in range(7)]
+    codes = [3] * 168
+    codes[15] = 61
+    rain_chances = [10] * 168
+    rain_chances[15] = 80
+    precipitation = [0.0] * 168
+    precipitation[15] = 1.2
+    return {
+        "latitude": -6.9,
+        "longitude": 107.625,
+        "generationtime_ms": 0.21,
+        "utc_offset_seconds": 25200,
+        "timezone": "Asia/Jakarta",
+        "timezone_abbreviation": "GMT+7",
+        "elevation": 768.0,
+        "current_units": {"time": "iso8601", "interval": "seconds", "weather_code": "wmo code"},
+        "current": {"time": f"{today}T{now}", "interval": 900, "weather_code": 3},
+        "hourly_units": {
+            "time": "iso8601",
+            "weather_code": "wmo code",
+            "temperature_2m": "°C",
+            "precipitation_probability": "%",
+            "precipitation": "mm",
+        },
+        "hourly": {
+            "time": [f"{day}T{hour:02d}:00" for day in days for hour in range(24)],
+            "weather_code": codes,
+            "temperature_2m": [19.0 + hour / 4 for _ in days for hour in range(24)],
+            "precipitation_probability": rain_chances,
+            "precipitation": precipitation,
+        },
+        "daily_units": {
+            "time": "iso8601",
+            "weather_code": "wmo code",
+            "temperature_2m_max": "°C",
+            "temperature_2m_min": "°C",
+            "precipitation_probability_max": "%",
+            "precipitation_sum": "mm",
+        },
+        "daily": {
+            "time": [day.isoformat() for day in days],
+            "weather_code": [95, 3, 61, 80, 2, 1, 0],
+            "temperature_2m_max": [27.9, 28.3, 26.1, 27.0, 29.2, 30.1, 30.4],
+            "temperature_2m_min": [18.6, 18.9, 19.4, 19.0, 18.2, 18.0, 17.8],
+            "precipitation_probability_max": [85, 40, 70, 60, 20, 10, None],
+            "precipitation_sum": [12.3, 0.4, 5.6, 3.1, 0.0, 0.0, None],
+        },
+    }
+
+
 class FakeClock:
     def __init__(self, now: float = 100.0) -> None:
         self.now = now
@@ -125,13 +183,15 @@ class FakeClock:
 
 
 class FakeOpenMeteo:
-    """The fetch function: records every URL and timeout and answers by host; never touches
-    the network. With a `clock`, each request takes `took_s` on it."""
+    """The fetch function: records every URL and timeout and answers by host, a seven-day
+    forecast request with `outlook`; never touches the network. With a `clock`, each request
+    takes `took_s` on it."""
 
     def __init__(
         self,
         *,
         forecast: object = None,
+        outlook: object = None,
         geocoding: object = None,
         clock: FakeClock | None = None,
         took_s: float = 0.0,
@@ -140,6 +200,7 @@ class FakeOpenMeteo:
             FORECAST_HOST: forecast if forecast is not None else forecast_reply(),
             GEOCODING_HOST: geocoding if geocoding is not None else geocoding_reply(BANDUNG),
         }
+        self.outlook = outlook if outlook is not None else outlook_reply()
         self.clock = clock
         self.took_s = took_s
         self.urls: list[str] = []
@@ -150,7 +211,10 @@ class FakeOpenMeteo:
         self.timeouts.append(timeout_s)
         if self.clock is not None:
             self.clock.now += self.took_s
-        reply = self.replies[urllib.parse.urlsplit(url).hostname]
+        parts = urllib.parse.urlsplit(url)
+        reply = self.replies[parts.hostname]
+        if urllib.parse.parse_qs(parts.query).get("forecast_days") == ["7"]:
+            reply = self.outlook
         if isinstance(reply, BaseException):
             raise reply
         return reply
@@ -340,6 +404,7 @@ def test_wmo_weather_codes_become_indonesian_conditions(code, condition):
     weather = WeatherClient(latitude=-6.9, longitude=107.6, fetch=fetch).today()
 
     assert (weather.condition, weather.tomorrow_morning) == (condition, condition)
+    assert condition_of(code) == condition  # the same words for the days ahead
 
 
 def test_tomorrow_morning_is_07_00_of_the_day_after_today_across_a_month_end():
@@ -758,6 +823,191 @@ def test_a_client_told_to_log_failures_at_debug_keeps_them_out_of_the_warnings(m
 
     assert failure_records(caplog, logging.WARNING) == []
     assert len(failure_records(caplog, logging.DEBUG)) == 1
+
+
+# --- the seven-day outlook ---------------------------------------------------------------------
+
+
+def test_the_outlook_asks_once_for_seven_days_of_daily_and_hourly_values():
+    fetch = FakeOpenMeteo()
+
+    WeatherClient(latitude=-6.9147, longitude=107.6098, fetch=fetch).outlook()
+
+    [query] = fetch.requests_to(FORECAST_HOST)
+    assert query == {
+        "latitude": ["-6.9147"],
+        "longitude": ["107.6098"],
+        "current": ["weather_code"],
+        "daily": [
+            "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,"
+            "precipitation_sum"
+        ],
+        "hourly": ["weather_code,temperature_2m,precipitation_probability,precipitation"],
+        "timezone": ["auto"],
+        "forecast_days": ["7"],
+    }
+
+
+def test_the_outlook_reads_every_day_and_every_hour_with_its_temperature():
+    fetch = FakeOpenMeteo()
+
+    outlook = WeatherClient(latitude=-6.82, longitude=107.14, city="Cianjur", fetch=fetch).outlook()
+
+    assert (outlook.place, outlook.now) == ("Cianjur", datetime(2026, 10, 24, 20, 15))
+    first = date(2026, 10, 24)
+    assert [day.day for day in outlook.days] == [first + timedelta(n) for n in range(7)]
+    assert outlook.days[0] == DayOutlook(date(2026, 10, 24), 95, 18.6, 27.9, 85, 12.3)
+    assert outlook.days[3] == DayOutlook(date(2026, 10, 27), 80, 19.0, 27.0, 60, 3.1)
+    assert len(outlook.hours) == 168
+    assert outlook.hours[15] == Hour(datetime(2026, 10, 24, 15, 0), 61, 80, 1.2, 22.75)
+    assert outlook.hours[-1] == Hour(datetime(2026, 10, 30, 23, 0), 3, 10, 0.0, 24.75)
+
+
+def test_unknown_daily_and_hourly_values_of_the_outlook_are_none():
+    reply = outlook_reply()
+    for name in ("weather_code", "temperature_2m_max", "temperature_2m_min"):
+        reply["daily"][name][6] = None
+    for name in ("weather_code", "temperature_2m", "precipitation_probability", "precipitation"):
+        reply["hourly"][name][15] = None
+    fetch = FakeOpenMeteo(outlook=reply)
+
+    outlook = WeatherClient(latitude=-6.9, longitude=107.6, fetch=fetch).outlook()
+
+    assert outlook.days[6] == DayOutlook(date(2026, 10, 30), None, None, None, None, None)
+    assert outlook.hours[15] == Hour(datetime(2026, 10, 24, 15, 0), None, None, None, None)
+
+
+def test_the_outlook_reads_whole_numbers_sent_as_floats_as_ints():
+    reply = outlook_reply()
+    reply["daily"]["precipitation_probability_max"][1] = 39.6
+    reply["daily"]["weather_code"][1] = 3.0
+    reply["hourly"]["weather_code"][2] = 3.0
+    fetch = FakeOpenMeteo(outlook=reply)
+
+    outlook = WeatherClient(latitude=-6.9, longitude=107.6, fetch=fetch).outlook()
+
+    assert (outlook.days[1].rain_chance, outlook.days[1].code, outlook.hours[2].code) == (40, 3, 3)
+    assert all(
+        isinstance(value, int)
+        for value in (outlook.days[1].rain_chance, outlook.days[1].code, outlook.hours[2].code)
+    )
+
+
+def test_the_outlook_is_a_request_of_its_own_and_the_briefing_s_stays_two_days():
+    fetch = FakeOpenMeteo()
+    client = WeatherClient(city="Bandung", fetch=fetch)
+
+    client.today()
+    outlook = client.outlook()
+    client.forecast()
+
+    briefing, seven_days, rain = fetch.requests_to(FORECAST_HOST)
+    assert briefing == rain
+    assert (briefing["forecast_days"], seven_days["forecast_days"]) == (["2"], ["7"])
+    assert outlook.place == "Bandung, Jawa Barat"
+    assert len(fetch.requests_to(GEOCODING_HOST)) == 1  # one lookup for the client's life
+
+
+def test_the_forecast_s_hours_have_no_temperature():
+    forecast = WeatherClient(latitude=-6.9, longitude=107.6, fetch=FakeOpenMeteo()).forecast()
+
+    assert {hour.temperature_c for hour in forecast.hours} == {None}
+
+
+def test_the_outlook_shares_one_8_s_limit_with_the_city_lookup():
+    clock = FakeClock()
+    fetch = FakeOpenMeteo(clock=clock, took_s=3.0)
+
+    WeatherClient(city="Bandung", fetch=fetch, clock=clock).outlook()
+
+    assert fetch.timeouts == [8.0, 5.0]
+
+
+def test_the_outlook_without_a_location_says_how_to_set_the_city_and_asks_no_one():
+    fetch = FakeOpenMeteo()
+
+    with pytest.raises(WeatherError, match="briefing.city"):
+        WeatherClient(fetch=fetch).outlook()
+
+    assert fetch.urls == []
+
+
+def _damage_value(block: str, name: str, index: int, value: object) -> Callable[[dict], None]:
+    """Sets entry `index` of the reply's `block` column `name` to `value`."""
+
+    def damage(reply: dict) -> None:
+        reply[block][name][index] = value
+
+    return damage
+
+
+MALFORMED_OUTLOOKS = {
+    "no current block": lambda reply: reply.pop("current"),
+    "no current time": lambda reply: reply["current"].pop("time"),
+    "current time is not a time": lambda reply: reply["current"].update(time="nanti"),
+    "no daily block": lambda reply: reply.pop("daily"),
+    "no day at all": lambda reply: reply["daily"].update({name: [] for name in reply["daily"]}),
+    "a date is not a date": _damage_value("daily", "time", 2, "lusa"),
+    "a date is a number": _damage_value("daily", "time", 2, 20261026),
+    "no rain amounts": lambda reply: reply["daily"].pop("precipitation_sum"),
+    "rain amounts end early": lambda reply: reply["daily"].update(
+        precipitation_sum=reply["daily"]["precipitation_sum"][:3]
+    ),
+    "maxima are not a list": lambda reply: reply["daily"].update(temperature_2m_max={"0": 27}),
+    "a minimum is text": _damage_value("daily", "temperature_2m_min", 2, "19"),
+    "a daily code is a boolean": _damage_value("daily", "weather_code", 1, False),
+    "no hourly block": lambda reply: reply.pop("hourly"),
+    "no hourly temperatures": lambda reply: reply["hourly"].pop("temperature_2m"),
+    "hourly temperatures end early": lambda reply: reply["hourly"].update(
+        temperature_2m=reply["hourly"]["temperature_2m"][:100]
+    ),
+    "an hourly temperature is text": _damage_value("hourly", "temperature_2m", 5, "21"),
+    "an hour is not a time": _damage_value("hourly", "time", 5, "sore"),
+}
+
+
+@pytest.mark.parametrize("damage", MALFORMED_OUTLOOKS.values(), ids=MALFORMED_OUTLOOKS.keys())
+def test_an_outlook_without_what_it_reads_is_a_logged_weather_error(damage, caplog):
+    reply = outlook_reply()
+    damage(reply)
+    client = WeatherClient(latitude=-6.9, longitude=107.6, fetch=FakeOpenMeteo(outlook=reply))
+
+    with (
+        caplog.at_level(logging.WARNING, logger="waifu.weather"),
+        pytest.raises(WeatherError, match="tidak bisa dibaca"),
+    ):
+        client.outlook()
+
+    assert "without the expected fields" in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("failure", "message"),
+    [
+        (TimeoutError("timed out"), "koneksi internet"),
+        (
+            urllib.error.HTTPError(
+                "https://api.open-meteo.com/v1/forecast", 502, "Bad Gateway", None, None
+            ),
+            "HTTP 502",
+        ),
+        (json.JSONDecodeError("Expecting value", "<html>", 0), "tidak bisa dibaca"),
+    ],
+    ids=["unreachable", "http error", "not json"],
+)
+def test_an_outlook_open_meteo_cannot_give_is_a_weather_error_logged_at_the_client_s_level(
+    failure, message, caplog
+):
+    fetch = FakeOpenMeteo(outlook=failure)
+    client = WeatherClient(latitude=-6.9, longitude=107.6, fetch=fetch, failure_level=logging.DEBUG)
+
+    with (
+        caplog.at_level(logging.DEBUG, logger="waifu.weather"),
+        pytest.raises(WeatherError, match=message),
+    ):
+        client.outlook()
+
+    assert [record.levelno for record in caplog.records] == [logging.DEBUG]
 
 
 def test_the_default_fetch_is_a_urllib_get_with_the_time_left_and_our_user_agent(monkeypatch):
