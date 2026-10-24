@@ -2480,6 +2480,7 @@ named `tests/test_<package>_<module>.py`.
 
 **Acceptance criteria:**
 - [x] Once sounddevice is imported, a test that opens a real input stream, plays, records, or restarts PortAudio fails, also when the code under test catches the refusal; winmm's `waveInGetNumDevs` and `waveInGetDevCapsW` are refused like the other system calls
+- [x] Fix pass: the test that imports sounddevice first (a forgotten fake run on its own) is refused too, by an import hook that patches through the running test's monkeypatch, put back after the test
 
 **Dependencies:** 260a · **Files:** `tests/conftest.py`, `tests/test_safety_guard.py` · **Scope:** S
 
@@ -2488,6 +2489,7 @@ named `tests/test_<package>_<module>.py`.
 **Acceptance criteria:**
 - [x] `MicStream.level` gives the RMS and peak of the last second (paused or not) without keeping samples; `frames()` raises `MicrophoneFlat` after 8 s of exact zeros, not for a quiet mic or while paused; `name` and `host_api` name the opened device
 - [x] `restart_portaudio` terminates and initialises PortAudio (only initialises when it is not running) and waits for a clip `Player.play` is playing
+- [x] Fix pass: `MicrophoneFlat` is raised once per run of zeros, and `frames()` called again reads on; `restart_portaudio` leaves its log line to the caller
 
 **Dependencies:** 260 · **Files:** `src/waifu/voice/audio.py`, `tests/test_voice_audio.py` · **Scope:** M
 
@@ -2503,6 +2505,7 @@ named `tests/test_<package>_<module>.py`.
 **Acceptance criteria:**
 - [x] `UtteranceLog` keeps 50 records newest first, filtered by guest mode's marker, `last_heard` skipping too-short and heard-request records; `UtteranceRecord.of` measures a segment
 - [x] `handle_utterance` records not-owner (score, threshold), empty, no-wake, and accepted utterances with Whisper's, the brain's, and the voice's times; nothing changes without a log
+- [x] Fix pass: `UtteranceLog.stamp()` and `add(record, stamp=...)`: a record carries guest mode's generation as it was heard, so a turn that switched guest mode is never shown or told after it
 
 **Dependencies:** 262 · **Files:** `src/waifu/voice/diagnosis.py`, `src/waifu/app.py`, `tests/test_voice_diagnosis.py`, `tests/test_app.py` · **Scope:** M
 
@@ -2528,6 +2531,7 @@ named `tests/test_<package>_<module>.py`.
 - [x] It opens the first preference that opens and says so when it is not the first; a failing or flat mic fails over with one line, the same mic reopened says nothing; with none, silent frames and a retry every 5 s
 - [x] A changed Windows input list restarts PortAudio between frames and switches back to a more preferred mic with one line; no restart with a numbered device
 - [x] The phone's switch runs on `run`'s thread, rolls back when the mic does not open, answers pending when not taken in time, and keeps a paused mic paused
+- [x] Fix pass: flat mics are skipped until the list changes or the phone picks one; with only flat mics she stays on one, says `ALL_FLAT` once, and logs once; `MIC_BACK` only after a list change; a more preferred mic the list gained is retried every `RETRY_S`, at most `RETURN_TRIES` (3), and a phone switch ends the tries; following the config again is kept even when no mic opens; restarts log at DEBUG while no mic opens
 
 **Dependencies:** 261, 262 · **Files:** `src/waifu/voice/mic_source.py`, `tests/test_voice_mic_source.py` · **Scope:** L
 
@@ -2543,6 +2547,7 @@ named `tests/test_<package>_<module>.py`.
 
 **Acceptance criteria:**
 - [x] `voice.js` parses the status, places the level and the gate, names and colours the outcomes, and builds the requests; the sheet polls every 1.5 s only while open and visible, one request at a time, hides itself on 403 or 404, and switches, saves, and resets; `sw.js` keeps `voice.js`
+- [x] Fix pass: `tuningFrom` sends only changed boxes and refuses an empty save; `levelLine` names exact zeros; the sheet reads mic (with `#voice-mic-note`), records (with `#voice-records-empty`), then settings; a pending switch's outcome and a failed read's problem show and go in the picker's note; the picker shows the mic in effect at each opening and after each switch, an unplugged pick as "(tidak tersambung)"; `#voice-toggle` has a 44 px hit area
 
 **Dependencies:** 267 · **Files:** `src/waifu/avatar/web/phone/*`, `tests/js/phone_voice.test.mjs`, `tests/js/phone_ui.test.mjs`, `tests/js/phone_sw.test.mjs`, `tests/js/phone_page.test.mjs` · **Scope:** M
 
@@ -2551,6 +2556,7 @@ named `tests/test_<package>_<module>.py`.
 **Acceptance criteria:**
 - [x] `run` builds the log, the segmenter, the verifier, the `MicSource`, and the panel from the override and the config and hands the panel and guest mode to the phone server; enroll and speaker-test open the same preferences
 - [x] `waifu check` names the phone's pick, the list's order, and the phone's tuning
+- [x] Fix pass: speaker-test applies the override's threshold and VAD gate; enroll and `waifu mic` point to the Suara page while the override holds a threshold or a mic; `waifu mic` falls back to the Windows default as the mic in use; `run`'s mic lines expire after `MIC_NOTICE_S` (60 s)
 
 **Dependencies:** 264, 266, 267 · **Files:** `src/waifu/cli.py`, `config.example.yaml`, `tests/test_cli.py` · **Scope:** M
 

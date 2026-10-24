@@ -14,18 +14,30 @@ aktif, lalu jalankan `waifu check`.
 - Dari halaman itu mic bisa diganti tanpa menjalankan ulang `waifu run` (mic yang tidak bisa
   dibuka tidak pernah dipakai), dan ambang kecocokan suara (0,30 sampai 0,70) serta ambang dan
   margin VAD bisa disetel, dengan **Reset ke default**. Pilihannya disimpan di
-  `data\voice_override.json` (`audio.override_path`), `config.yaml` tidak diubah.
+  `data\voice_override.json` (`audio.override_path`), `config.yaml` tidak diubah. **Simpan**
+  hanya menyimpan angka yang diubah, jadi yang lain tetap mengikuti `config.yaml`. Hasil ganti
+  mic muncul tepat di bawah pilihannya, juga kalau gantinya menunggu dia selesai bicara; daftar
+  **Yang terdengar** ada di atas **Setelan**, dan saat masih kosong menjelaskan yang harus dicoba;
+  mic yang hanya mengirim sunyi total tertulis "Sunyi total" dengan kemungkinan sebabnya.
 - `audio.input_device` boleh berisi beberapa mic berurutan. Kalau mic yang dipakai terputus atau
   hanya mengirim sunyi total, dia pindah ke mic berikutnya (terakhir mic default Windows) dan
   bilang sekali mic mana yang dipakai sekarang; headset yang tersambung lagi dipakai lagi. Mic
   yang gagal tidak lagi menghentikan `waifu run` dengan "Terjadi kesalahan tak terduga": dia
   tetap jalan dan mencoba lagi tiap 5 detik. Mic dengan nomor dari `waifu mics` tidak dipakai
   lagi otomatis sesudah kembali; pakai nama dari `waifu mic`.
+- Mic yang hanya mengirim sunyi total tidak dicoba lagi sampai daftar mic Windows berubah, jadi
+  dia tidak bolak-balik di antara dua mic. Kalau semua mic begitu (di-mute, atau izin mikrofon
+  Windows untuk aplikasi desktop mati), dia tetap di satu mic dan bilang sekali; begitu mic-nya
+  tidak di-mute lagi, dia langsung mendengar. Headset Bluetooth yang muncul di Windows sebelum
+  siap dibuka dicoba lagi beberapa kali. Kalimat ganti mic yang tertahan teman fokus atau mode
+  game dilewati sesudah semenit.
 - "Cyrene, tadi kamu denger apa?" dijawab tanpa otak: ucapan terakhir yang dia dengar dan
   kenapa dia menjawab atau diam.
 - `waifu check`, `waifu mic`, `waifu enroll`, dan `waifu speaker-test` memakai urutan mic yang
   sama (mic pilihan HP dulu); baris `Mikrofon` di `waifu check` menyebut pilihan HP, urutan
-  daftar, dan setelan suara dari HP.
+  daftar, dan setelan suara dari HP. `waifu speaker-test` menilai dengan ambang dan VAD dari HP,
+  dan selama ada pilihan HP, `waifu enroll` dan `waifu mic` menyarankan halaman Suara, bukan
+  `config.yaml`.
 - Rekaman tidak pernah disimpan; catatan ucapan hanya di memori. Tidak ada tool baru.
 - README: "Diagnosa suara", dan "Pemecahan masalah" untuk mic sekarang mulai dari halaman Suara.
 
