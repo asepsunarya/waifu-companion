@@ -39,7 +39,14 @@ from waifu.devices.registry import DeviceRegistry
 from waifu.phone import server as phone_server
 from waifu.phone.actions import QuickActions
 from waifu.phone.auth import CODE_LIFETIME, PhoneAuth
-from waifu.phone.server import PhoneBackend, PhoneError, PhoneReply, PhoneServer
+from waifu.phone.server import (
+    PhoneBackend,
+    PhoneError,
+    PhoneReply,
+    PhoneServer,
+    VoiceAnswer,
+    VoiceBackend,
+)
 from waifu.schedule import AlarmAction, Entry, ScheduleStore
 
 CLIENT_TIMEOUT_S = 5.0
@@ -234,6 +241,8 @@ def serve(web_root: Path, live2d_config: AvatarConfig, auth: PhoneAuth) -> Itera
         clock: Callable[[], float] = time.monotonic,
         camera_max_side: int | None = None,
         actions: QuickActions | None = None,
+        voice: VoiceBackend | None = None,
+        guest_mode: Callable[[], bool] | None = None,
     ) -> PhoneServer:
         server = PhoneServer(
             config or make_phone_config(),
@@ -246,6 +255,8 @@ def serve(web_root: Path, live2d_config: AvatarConfig, auth: PhoneAuth) -> Itera
             clock=clock,
             camera_max_side=camera_max_side,
             actions=actions,
+            voice=voice,
+            guest_mode=guest_mode,
         )
         started.append(server)
         server.start()
@@ -3060,3 +3071,286 @@ def test_the_phone_lists_and_presses_the_alarm_s_buttons_while_it_rings(
     }
     assert (status, json.loads(body)) == (200, {"ok": True, "message": "Alarm dimatikan."})
     assert bell.ringing() is False
+
+
+# --- the Suara page --------------------------------------------------------------------------
+
+VOICE_STATUS = {
+    "mic": {"name": "Headset (Polaris-BT)", "host_api": "MME", "value": None},
+    "level": {"rms_db": -51.2, "peak_db": -40.1},
+    "records": [{"at": "19:30:05", "outcome": "no-wake", "transcript": "matikan lampu"}],
+}
+
+
+class FakeVoice:
+    """Stands in for the VoicePanel: answers VOICE_STATUS and records every change asked for;
+    `refusal` is the ValueError a tuning raises, `error` what every call raises."""
+
+    def __init__(self, *, refusal: str | None = None, error: Exception | None = None) -> None:
+        self.calls: list[tuple] = []
+        self.refusal = refusal
+        self.error = error
+
+    def status(self) -> Mapping[str, Any]:
+        if self.error is not None:
+            raise self.error
+        return VOICE_STATUS
+
+    def switch_mic(self, device: str | None) -> VoiceAnswer:
+        self.calls.append(("mic", device))
+        if self.error is not None:
+            raise self.error
+        return VoiceAnswer(True, "Mic sedang diganti.", pending=True)
+
+    def tune(self, *, speaker_threshold, vad_threshold_db, vad_margin_db) -> VoiceAnswer:
+        self.calls.append(("tune", speaker_threshold, vad_threshold_db, vad_margin_db))
+        if self.refusal is not None:
+            raise ValueError(self.refusal)
+        return VoiceAnswer(True, "Setelan suara dipakai dan disimpan.")
+
+    def reset(self) -> VoiceAnswer:
+        self.calls.append(("reset",))
+        return VoiceAnswer(True, "Setelan suara kembali seperti di config.")
+
+
+def set_voice(server: PhoneServer, token: str | None, payload: Mapping[str, Any] | bytes, **kwargs):
+    return post(server, "/voice/set", payload, token=token, **kwargs)
+
+
+def test_the_suara_page_gets_the_voice_status_never_cached(serve: Serve, auth: PhoneAuth) -> None:
+    server = serve(voice=FakeVoice())
+
+    status, headers, body = request(server, "/voice", token=pair_device(auth))
+
+    assert status == 200
+    assert json.loads(body) == VOICE_STATUS
+    assert headers["Cache-Control"] == "no-store"
+
+
+def test_the_voice_status_needs_a_paired_phone(serve: Serve) -> None:
+    server = serve(voice=FakeVoice())
+
+    status, _, body = request(server, "/voice")
+
+    assert status == 401
+    assert b"matikan lampu" not in body
+
+
+def test_without_a_panel_there_is_no_voice_status(serve: Serve, auth: PhoneAuth) -> None:
+    status, _, body = request(serve(), "/voice", token=pair_device(auth))
+
+    assert status == 404
+    assert error_of(body) == "Diagnosa suara tidak tersedia."
+
+
+def test_guest_mode_hides_the_voice_status_and_refuses_changes(
+    serve: Serve, auth: PhoneAuth
+) -> None:
+    voice = FakeVoice()
+    server = serve(voice=voice, guest_mode=lambda: True)
+    token = pair_device(auth)
+
+    shown = request(server, "/voice", token=token)
+    changed = set_voice(server, token, {"action": "reset"})
+
+    for status, _, body in (shown, changed):
+        assert status == 403
+        assert error_of(body) == "Diagnosa suara disembunyikan selama mode tamu."
+    assert voice.calls == []
+
+
+def test_the_voice_status_through_tailscale_funnel_is_refused(
+    serve: Serve, auth: PhoneAuth
+) -> None:
+    server = serve(voice=FakeVoice())
+
+    status, _, body = request(
+        server, "/voice", token=pair_device(auth), host=TAILNET, headers={FUNNEL_HEADER: "?1"}
+    )
+
+    assert status == 403
+    assert b"matikan lampu" not in body
+
+
+def test_a_voice_status_that_fails_is_a_500_in_indonesian(serve: Serve, auth: PhoneAuth) -> None:
+    server = serve(voice=FakeVoice(error=RuntimeError("broken")))
+
+    status, _, body = request(server, "/voice", token=pair_device(auth))
+
+    assert status == 500
+    assert "Maaf, Master" in error_of(body)
+
+
+@pytest.mark.parametrize(
+    ("payload", "call"),
+    [
+        ({"action": "mic", "device": "Microphone (USB), MME"}, ("mic", "Microphone (USB), MME")),
+        ({"action": "mic", "device": None}, ("mic", None)),
+        (
+            {"action": "tune", "speaker_threshold": 0.5, "vad_threshold_db": -50},
+            ("tune", 0.5, -50, None),
+        ),
+        ({"action": "tune", "vad_margin_db": 10.5}, ("tune", None, None, 10.5)),
+        ({"action": "reset"}, ("reset",)),
+    ],
+    ids=["mic", "follow-config", "tune", "margin", "reset"],
+)
+def test_a_change_on_the_suara_page_reaches_the_panel(
+    serve: Serve, auth: PhoneAuth, payload: dict, call: tuple
+) -> None:
+    voice = FakeVoice()
+    server = serve(voice=voice)
+
+    status, _, body = set_voice(server, pair_device(auth), payload)
+
+    assert status == 200
+    assert voice.calls == [call]
+    assert set(json.loads(body)) == {"ok", "message", "pending"}
+
+
+def test_a_switch_answers_whether_it_still_waits(serve: Serve, auth: PhoneAuth) -> None:
+    server = serve(voice=FakeVoice())
+
+    _, _, body = set_voice(server, pair_device(auth), {"action": "mic", "device": None})
+
+    assert json.loads(body) == {"ok": True, "message": "Mic sedang diganti.", "pending": True}
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        b"{}",
+        b"[]",
+        b"not json",
+        b'{"action": "restart"}',
+        b'{"action": 1}',
+        b'{"action": "mic"}',
+        b'{"action": "mic", "device": ""}',
+        b'{"action": "mic", "device": 3}',
+        b'{"action": "mic", "device": "Headset", "speaker_threshold": 0.5}',
+        b'{"action": "mic", "device": "\\ud800"}',
+        b'{"action": "tune"}',
+        b'{"action": "tune", "speaker_threshold": true}',
+        b'{"action": "tune", "speaker_threshold": "0.5"}',
+        b'{"action": "tune", "speaker_threshold": null}',
+        b'{"action": "tune", "vad_margin_db": NaN}',
+        b'{"action": "tune", "vad_margin_db": Infinity}',
+        b'{"action": "tune", "volume": 3}',
+        b'{"action": "reset", "device": null}',
+    ],
+)
+def test_a_malformed_change_is_400_and_changes_nothing(
+    serve: Serve, auth: PhoneAuth, body: bytes
+) -> None:
+    voice = FakeVoice()
+    server = serve(voice=voice)
+
+    status, _, reply = set_voice(server, pair_device(auth), body)
+
+    assert status == 400
+    assert error_of(reply)
+    assert voice.calls == []
+
+
+def test_a_mic_name_too_long_for_any_device_is_400(serve: Serve, auth: PhoneAuth) -> None:
+    voice = FakeVoice()
+    server = serve(voice=voice)
+
+    status, _, _ = set_voice(server, pair_device(auth), {"action": "mic", "device": "x" * 513})
+
+    assert status == 400
+    assert voice.calls == []
+
+
+def test_a_setting_out_of_its_bounds_is_400_with_the_panel_s_reason(
+    serve: Serve, auth: PhoneAuth
+) -> None:
+    server = serve(voice=FakeVoice(refusal="Margin VAD harus 3 sampai 30 dB."))
+
+    status, _, body = set_voice(server, pair_device(auth), {"action": "tune", "vad_margin_db": 40})
+
+    assert status == 400
+    assert error_of(body) == "Margin VAD harus 3 sampai 30 dB."
+
+
+def test_a_change_needs_the_page_s_origin_and_a_paired_phone(serve: Serve, auth: PhoneAuth) -> None:
+    voice = FakeVoice()
+    server = serve(voice=voice)
+
+    foreign = set_voice(
+        server, pair_device(auth), {"action": "reset"}, headers={"Origin": "http://evil.example"}
+    )
+    unpaired = set_voice(server, None, {"action": "reset"})
+
+    assert (foreign[0], unpaired[0]) == (403, 401)
+    assert voice.calls == []
+
+
+def test_a_change_that_is_not_json_is_415(serve: Serve, auth: PhoneAuth) -> None:
+    voice = FakeVoice()
+    server = serve(voice=voice)
+
+    status, _, _ = set_voice(
+        server, pair_device(auth), {"action": "reset"}, headers={"Content-Type": "text/plain"}
+    )
+
+    assert status == 415
+    assert voice.calls == []
+
+
+def test_changes_count_toward_the_quick_buttons_ten_a_minute(serve: Serve, auth: PhoneAuth) -> None:
+    _, actions = quick_house()
+    server = serve(voice=FakeVoice(), actions=actions, clock=FakeClock())
+    token = pair_device(auth)
+
+    statuses = [set_voice(server, token, {"action": "reset"})[0] for _ in range(9)]
+    pressed = press(server, token)[0]
+    status, headers, body = set_voice(server, token, {"action": "reset"})
+
+    assert statuses == [200] * 9
+    assert pressed == 200
+    assert status == 429
+    assert headers["Retry-After"] == "60"
+    assert "Tunggu sebentar" in error_of(body)
+
+
+def test_without_a_panel_a_change_is_404(serve: Serve, auth: PhoneAuth) -> None:
+    status, _, _ = set_voice(serve(), pair_device(auth), {"action": "reset"})
+
+    assert status == 404
+
+
+def test_a_change_that_fails_is_a_500_in_indonesian(serve: Serve, auth: PhoneAuth) -> None:
+    server = serve(voice=FakeVoice(error=RuntimeError("broken")))
+
+    status, _, body = set_voice(server, pair_device(auth), {"action": "mic", "device": None})
+
+    assert status == 500
+    assert "Maaf, Master" in error_of(body)
+
+
+@pytest.mark.parametrize(("method", "path"), [("GET", "/voice/set"), ("POST", "/voice")])
+def test_the_voice_routes_take_only_their_own_method(
+    serve: Serve, auth: PhoneAuth, method: str, path: str
+) -> None:
+    voice = FakeVoice()
+    server = serve(voice=voice)
+
+    if method == "GET":
+        status = request(server, path, token=pair_device(auth))[0]
+    else:
+        status = post(server, path, {"action": "reset"}, token=pair_device(auth))[0]
+
+    assert status == 405
+    assert voice.calls == []
+
+
+def test_a_number_beyond_any_float_is_400(serve: Serve, auth: PhoneAuth) -> None:
+    voice = FakeVoice()
+    server = serve(voice=voice)
+    body = b'{"action": "tune", "vad_margin_db": 1' + b"0" * 400 + b"}"
+
+    status, _, _ = set_voice(server, pair_device(auth), body)
+
+    assert status == 400
+    assert voice.calls == []

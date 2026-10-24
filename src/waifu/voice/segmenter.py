@@ -75,6 +75,11 @@ class EnergySegmenter:
         """Whether someone may be speaking: an utterance, or its onset, is under way."""
         return bool(self._frames or self._candidate)
 
+    @property
+    def vad(self) -> VadConfig:
+        """The gate in use: as built, with the threshold and margin last set."""
+        return self._vad
+
     def reset(self) -> None:
         self._pre_roll.clear()
         self._candidate: list[np.ndarray] = []

@@ -2531,11 +2531,11 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 261, 262 · **Files:** `src/waifu/voice/mic_source.py`, `tests/test_voice_mic_source.py` · **Scope:** L
 
-## Task 267: The panel and the server
+## Task 267: The panel and the server ✅
 
 **Acceptance criteria:**
-- [ ] `VoicePanel.status` gives the mic, the default, the devices, the level, the gate, the speaker threshold, the switch, and the records; `switch_mic` takes only a listed mic and writes the override after it worked; `tune` and `reset` apply at once within the bounds
-- [ ] GET /voice and POST /voice/set need the cookie (and the POST the page's Origin), count toward the quick buttons' limit, take strict JSON numbers, and refuse guest mode with 403
+- [x] `VoicePanel.status` gives the mic, the default, the devices, the level, the gate, the speaker threshold, the switch, and the records; `switch_mic` takes only a listed mic and writes the override after it worked; `tune` and `reset` apply at once within the bounds
+- [x] GET /voice and POST /voice/set need the cookie (and the POST the page's Origin), count toward the quick buttons' limit, take strict JSON numbers, and refuse guest mode with 403
 
 **Dependencies:** 263, 265, 266 · **Files:** `src/waifu/voice/panel.py`, `src/waifu/phone/server.py`, `tests/test_voice_panel.py`, `tests/test_phone_server.py` · **Scope:** M
 

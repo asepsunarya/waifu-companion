@@ -270,3 +270,13 @@ def test_a_kept_utterance_is_never_too_short():
     feed_all(segmenter, np.concatenate([noise(40, -65), tone(40, -20), noise(50, -65, seed=2)]))
 
     assert dropped == []
+
+
+def test_the_gate_in_use_is_the_one_last_set():
+    segmenter = EnergySegmenter(SAMPLE_RATE, VadConfig(threshold_db=-45, margin_db=12))
+    assert (segmenter.vad.threshold_db, segmenter.vad.margin_db) == (-45, 12)
+
+    segmenter.set_gate(-50.0, 10.0)
+
+    assert (segmenter.vad.threshold_db, segmenter.vad.margin_db) == (-50.0, 10.0)
+    assert segmenter.vad.silence_ms == VadConfig().silence_ms

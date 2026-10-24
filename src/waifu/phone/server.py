@@ -29,6 +29,11 @@ The quick buttons (`actions`, see `actions.py`) run the owner's devices and rout
 brain: GET /actions lists them, and POST /action runs the one whose id it names, looked up in
 the buttons of that moment, so the phone never names a device or a command. A device runs at
 most ACTION_RATE_LIMIT of them in any ACTION_RATE_WINDOW_S, one at a time (apart from its chat).
+
+The Suara page (`voice`, a `VoiceBackend`: the `VoicePanel`) shows what her mic hears and what
+she did with each utterance: GET /voice. POST /voice/set switches the mic or changes the voice
+settings, counted with the quick buttons and one at a time with them. Both are refused while
+guest mode is on (`guest_mode`), since the records hold what was said.
 """
 
 from __future__ import annotations
@@ -39,6 +44,7 @@ import io
 import ipaddress
 import json
 import logging
+import math
 import re
 import sys
 import threading
@@ -96,7 +102,9 @@ PAIR_URL = "/pair"
 CHAT_URL = "/chat"
 TALK_URL = "/talk"
 ACTION_URL = "/action"
-POST_ROUTES = (PAIR_URL, CHAT_URL, TALK_URL, ACTION_URL)
+VOICE_URL = "/voice"
+VOICE_SET_URL = "/voice/set"
+POST_ROUTES = (PAIR_URL, CHAT_URL, TALK_URL, ACTION_URL, VOICE_SET_URL)
 
 # The page shell, served without a cookie: these URLs, and /phone/<file>, name files of the
 # page's own folder under the web root.
@@ -144,6 +152,10 @@ WAV_TYPE = "audio/wav"
 # closed with unread data is reset, and the reset can throw away the refusal before the
 # client has read it. A larger body is left unread.
 REFUSAL_READ_BYTES = 4096
+# What POST /voice/set takes: an action and its fields, each number a finite int or float.
+VOICE_SET_MAX_BYTES = 1024
+VOICE_TUNINGS = ("speaker_threshold", "vad_threshold_db", "vad_margin_db")
+VOICE_DEVICE_MAX_CHARS = 512  # far above any "name, host API"
 # A larger one is drained after the refusal instead, so the client can finish sending and read
 # the refusal whole: at most this much of it, for at most this long.
 DRAIN_MAX_BYTES = 16 * 2**20
@@ -172,6 +184,10 @@ BAD_AUDIO_TEXT = "Rekamannya harus WAV mono 16-bit 16 kHz."
 AUDIO_TOO_LONG_TEXT = f"Rekamannya terlalu panjang. Maksimal {TALK_MAX_S} detik."
 CAMERA_OFF_TEXT = "Kamera HP tidak aktif."
 BAD_PHOTO_TEXT = "Foto tidak valid."
+VOICE_MISSING_TEXT = "Diagnosa suara tidak tersedia."
+VOICE_GUEST_TEXT = "Diagnosa suara disembunyikan selama mode tamu."
+VOICE_LIMIT_TEXT = "Setelan suara terlalu sering diubah. Tunggu sebentar, lalu coba lagi."
+VOICE_BUSY_TEXT = "Perubahan tadi masih jalan. Tunggu sebentar."
 # Said in her voice: `{owner}` is assistant.owner_call, used as written mid-sentence.
 BUSY_TEXT = "Sebentar ya, {owner}, aku masih menjawab yang tadi."
 FAILED_TEXT = "Maaf, {owner}, ada masalah di PC. Coba lagi nanti ya."
@@ -252,6 +268,43 @@ class PhoneBackend(Protocol):
         ...
 
 
+@dataclass(frozen=True)
+class VoiceAnswer:
+    """How a change on the Suara page went."""
+
+    ok: bool
+    message: str  # Indonesian, for the page
+    pending: bool = False  # the mic switch waits for her to finish thinking or speaking
+
+
+class VoiceBackend(Protocol):
+    """What answers the phone's Suara page: in `waifu run`, the `VoicePanel`. Called on the
+    server's request threads."""
+
+    def status(self) -> Mapping[str, Any]:
+        """The mic, its level, the gate, the choices, and the records, as JSON."""
+        ...
+
+    def switch_mic(self, device: str | None) -> VoiceAnswer:
+        """Listen through `device` ("name, host API"), or follow the config again (None)."""
+        ...
+
+    def tune(
+        self,
+        *,
+        speaker_threshold: float | None,
+        vad_threshold_db: float | None,
+        vad_margin_db: float | None,
+    ) -> VoiceAnswer:
+        """Use the settings given (None: unchanged); ValueError (Indonesian) when one is out
+        of its bounds."""
+        ...
+
+    def reset(self) -> VoiceAnswer:
+        """Put the config's settings back."""
+        ...
+
+
 class _BurnedCode:
     """When this server last burned a pairing code; a pairing forgets it.
 
@@ -291,7 +344,8 @@ class PhoneServer(ThreadingHTTPServer):
     `host` must be an IPv4 loopback address: Tailscale, not this server, faces the network.
     `clock` times how long a burned pairing code is remembered, and the quick actions' rate
     limit. `camera_max_side` turns the phone camera on: the longest side, in pixels, of the
-    photos the page sends (None: off). `actions` are the quick buttons (None: none).
+    photos the page sends (None: off). `actions` are the quick buttons (None: none). `voice`
+    answers the Suara page (None: none); `guest_mode` says when it is hidden.
     """
 
     daemon_threads = True
@@ -315,6 +369,8 @@ class PhoneServer(ThreadingHTTPServer):
         clock: Callable[[], float] = time.monotonic,
         camera_max_side: int | None = None,
         actions: QuickActions | None = None,
+        voice: VoiceBackend | None = None,
+        guest_mode: Callable[[], bool] | None = None,
     ) -> None:
         if not is_ipv4_loopback(host):
             raise ValueError(f"The phone server listens only on IPv4 loopback, not {host!r}")
@@ -322,6 +378,8 @@ class PhoneServer(ThreadingHTTPServer):
         self.backend = backend
         self.camera_max_side = camera_max_side
         self.actions = actions
+        self.voice = voice
+        self.guest_mode = guest_mode or (lambda: False)
         self.files = AvatarFiles(avatar, web_root)
         self.page_root = (self.files.web_root / PAGE_FOLDER).resolve()
         settings = viewer_settings(avatar, assistant_name)
@@ -623,6 +681,8 @@ class _PhoneRequestHandler(JsonRequestHandler):
             actions = self.server.actions
             groups = [] if actions is None else actions.groups()
             self._send_json(HTTPStatus.OK, {"groups": [group_json(group) for group in groups]})
+        elif path == VOICE_URL:
+            self._voice_status()
         else:
             self._send_found(self.server.files.find(path))
 
@@ -648,6 +708,8 @@ class _PhoneRequestHandler(JsonRequestHandler):
             self._chat(device)
         elif path == ACTION_URL:
             self._action(device)
+        elif path == VOICE_SET_URL:
+            self._voice_set(device)
         else:
             self._talk(device)
 
@@ -921,6 +983,76 @@ class _PhoneRequestHandler(JsonRequestHandler):
         logger.debug("Quick action %s: %s", action_id, result.message)
         self._send_json(HTTPStatus.OK, {"ok": result.ok, "message": result.message})
 
+    # --- the Suara page -----------------------------------------------------------------------
+
+    def _voice_available(self) -> VoiceBackend | None:
+        """The panel, or None after refusing: hidden in guest mode (the records hold what was
+        said), missing without one."""
+        if self.server.guest_mode():
+            self._send_error(HTTPStatus.FORBIDDEN, VOICE_GUEST_TEXT)
+            return None
+        if self.server.voice is None:
+            self._send_error(HTTPStatus.NOT_FOUND, VOICE_MISSING_TEXT)
+        return self.server.voice
+
+    def _voice_status(self) -> None:
+        voice = self._voice_available()
+        if voice is None:
+            return
+        try:
+            status = voice.status()
+        except Exception:
+            logger.exception("The voice status for the phone failed")
+            self._send_error(HTTPStatus.INTERNAL_SERVER_ERROR, self.server.failed_text)
+            return
+        self._send_json(HTTPStatus.OK, status)
+
+    def _voice_set(self, device: Device) -> None:
+        """`{"action": "mic", "device"}`, `{"action": "tune", ...}`, or `{"action": "reset"}`:
+        answers `{"ok", "message", "pending"}`. Counted with the quick buttons (before the body
+        is read) and one at a time with them; a setting out of its bounds is a 400 with the
+        panel's reason."""
+        voice = self._voice_available()
+        if voice is None:
+            return
+        if not self.server.admit_action(device.id):
+            logger.info("Refused a voice change of phone device %s: too many", device.id)
+            self._send_error(
+                HTTPStatus.TOO_MANY_REQUESTS,
+                VOICE_LIMIT_TEXT,
+                headers={"Retry-After": str(ACTION_RATE_WINDOW_S)},
+            )
+            return
+        body = self._read_body(VOICE_SET_MAX_BYTES)
+        if body is None:
+            return
+        if _content_type(self.headers) not in JSON_TYPES:
+            self._send_error(HTTPStatus.UNSUPPORTED_MEDIA_TYPE, WRONG_TYPE_TEXT)
+            return
+        change = _voice_change(body)
+        if change is None:
+            self._send_error(HTTPStatus.BAD_REQUEST, BAD_REQUEST_TEXT)
+            return
+        if not self.server.claim_action(device.id):
+            self._send_error(HTTPStatus.CONFLICT, VOICE_BUSY_TEXT)
+            return
+        action, fields = change
+        try:
+            answer = _change_voice(voice, action, fields)
+        except ValueError as exc:
+            self._send_error(HTTPStatus.BAD_REQUEST, str(exc))
+            return
+        except Exception:
+            logger.exception("The voice change %s of phone device %s failed", action, device.id)
+            self._send_error(HTTPStatus.INTERNAL_SERVER_ERROR, self.server.failed_text)
+            return
+        finally:
+            self.server.release_action(device.id)
+        logger.info("Phone device %s changed the voice (%s): ok %s", device.id, action, answer.ok)
+        self._send_json(
+            HTTPStatus.OK, {"ok": answer.ok, "message": answer.message, "pending": answer.pending}
+        )
+
     # --- request bodies -----------------------------------------------------------------------
 
     def _body_limit(self, plain: int, with_photo: int) -> int:
@@ -1037,6 +1169,59 @@ def _json_object(body: bytes, key: str, optional: Mapping[str, type]) -> dict[st
     except UnicodeEncodeError:
         return None
     return data
+
+
+def _voice_change(body: bytes) -> tuple[str, dict[str, Any]] | None:
+    """The action and fields of a POST /voice/set body, or None for anything else: `mic` with
+    exactly a `device` (a mic's "name, host API", or null), `tune` with one or more of
+    VOICE_TUNINGS (each an int or a float, finite, never a bool), `reset` alone."""
+    try:
+        data = json.loads(body.decode("utf-8"), parse_constant=_refuse_json_constant)
+    except (ValueError, RecursionError):  # also UnicodeDecodeError, NaN and Infinity
+        return None
+    if not isinstance(data, dict):
+        return None
+    action = data.get("action")
+    fields = {name: value for name, value in data.items() if name != "action"}
+    if action == "mic" and fields.keys() == {"device"}:
+        device = fields["device"]
+        return (action, fields) if device is None or _mic_name(device) else None
+    if action == "tune" and fields and fields.keys() <= set(VOICE_TUNINGS):
+        return (action, fields) if all(map(_finite_number, fields.values())) else None
+    if action == "reset" and not fields:
+        return action, fields
+    return None
+
+
+def _refuse_json_constant(name: str) -> object:
+    raise ValueError(f"{name} is not a number")
+
+
+def _mic_name(value: object) -> bool:
+    if not isinstance(value, str) or not value.strip() or len(value) > VOICE_DEVICE_MAX_CHARS:
+        return False
+    try:
+        value.encode("utf-8")  # a lone surrogate from a \ud800 escape is not text
+    except UnicodeEncodeError:
+        return False
+    return True
+
+
+def _finite_number(value: object) -> bool:
+    if isinstance(value, bool) or not isinstance(value, int | float):  # a bool is no number
+        return False
+    try:
+        return math.isfinite(value)
+    except OverflowError:  # an int beyond any float
+        return False
+
+
+def _change_voice(voice: VoiceBackend, action: str, fields: Mapping[str, Any]) -> VoiceAnswer:
+    if action == "mic":
+        return voice.switch_mic(fields["device"])
+    if action == "tune":
+        return voice.tune(**{name: fields.get(name) for name in VOICE_TUNINGS})
+    return voice.reset()
 
 
 def _camera_photo(image: str, max_side: int) -> tuple[bytes, tuple[int, int]] | None:
