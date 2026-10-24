@@ -56,13 +56,22 @@ _REPEAT_DAYS: dict[Repeat, frozenset[int]] = {
     "weekdays": frozenset(range(5)),
     "weekends": frozenset({5, 6}),
 }
+# The repeats tied to a day of the calendar (a weekday, a day of the month, a date): given a
+# time that has passed ("tiap 5 Mei" said in October), they start at their next one.
+_CALENDAR_REPEATS: frozenset[Repeat] = frozenset({"weekly", "monthly", "yearly"})
+# The repeats that keep their day of the month in `Entry.day`, and in the file's "day".
+_DAY_REPEATS: frozenset[Repeat] = frozenset({"monthly", "yearly"})
+_LEAP_YEAR = 2000  # where every month has its longest length
 _LOCAL_TIME = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}")
 _LOCAL_TIME_FORMAT = "%Y-%m-%d %H:%M"
 _ONE_DAY = timedelta(days=1)
 _ONE_MINUTE = timedelta(minutes=1)
 _ENTRY_ID = re.compile(r"j[1-9][0-9]*")
 _FILE_KEYS = {"version", "next_id", "entries"}
+# A monthly or yearly entry also has "day"; it is written only then, so every other entry
+# reads as it always did.
 _ENTRY_KEYS = {"id", "at", "repeat", "action", "created"}
+_DAY_ENTRY_KEYS = _ENTRY_KEYS | {"day"}
 # The key sets each kind of action may have. A routine's delayed step also names its routine;
 # that key is written only then, so a file without delayed steps reads as it always did.
 _ACTION_KEYS = {
@@ -109,6 +118,9 @@ class Entry:
     repeat: Repeat
     action: Action
     created: datetime
+    # The day of the month (1-31) a monthly or yearly entry repeats on; None for the others.
+    # `at` cannot tell it once clamped: an entry of the 31st is at 30 November.
+    day: int | None = None
 
 
 class ScheduleError(Exception):
@@ -192,20 +204,24 @@ class ScheduleStore:
         """Save an entry that fires at `at`, a local time, and then per `repeat`.
 
         `at` is always the next time an entry fires, so a repeating entry starts on the
-        first of its days: a weekday entry asked for a Saturday starts on Monday. The current
-        minute is still accepted and fires at the next tick: "in one minute" said just before
-        the minute changes reaches the store after it did.
+        first of its days: a weekday entry asked for a Saturday starts on Monday. A weekly,
+        monthly, or yearly entry repeats on the weekday or the day of `at`; given a time that
+        has passed, it starts at its next one, and a yearly one always does, whatever the year
+        of `at`. The current minute is still accepted and fires at the next tick: "in one
+        minute" said just before the minute changes reaches the store after it did.
         """
         checked_repeat = _checked_repeat(repeat)
         action = _checked_action(action)
         at, now = _minute(at), _minute(self._now())
+        day = at.day if checked_repeat in _DAY_REPEATS else None
+        if checked_repeat == "yearly" or (checked_repeat in _CALENDAR_REPEATS and at < now):
+            at = _next_from(now, at, checked_repeat, day)
         if at < now:
             raise ScheduleError("Waktu itu sudah lewat; pilih waktu mulai dari menit sekarang.")
         if at - now > timedelta(days=MAX_DAYS_AHEAD):
             raise ScheduleError(
                 f"Waktu itu terlalu jauh; jadwal paling lama {MAX_DAYS_AHEAD} hari dari sekarang."
             )
-        # A weekly, monthly, or yearly entry repeats on the day it was given, so starts on it.
         if checked_repeat in _REPEAT_DAYS:
             at = _first_on(_REPEAT_DAYS[checked_repeat], at)
         with _LOCK:
@@ -214,7 +230,7 @@ class ScheduleStore:
                 raise ScheduleError(
                     f"Jadwal sudah penuh, {self.max_entries} entri. Batalkan jadwal lama dulu."
                 )
-            entry = Entry(f"j{next_id}", at, checked_repeat, action, now)
+            entry = Entry(f"j{next_id}", at, checked_repeat, action, now, day)
             self._write(next_id + 1, [*entries, entry])
             return entry
 
@@ -256,7 +272,7 @@ class ScheduleStore:
             if entry is None:
                 return None
             rest = [other for other in entries if other is not entry]
-            following = next_occurrence(at, entry.repeat, max(at, after))
+            following = next_occurrence(at, entry.repeat, max(at, after), day=entry.day)
             if following is None:
                 self._write(next_id, rest)
                 return None
@@ -380,6 +396,13 @@ def _first_on(days: frozenset[int], candidate: datetime) -> datetime:
     return candidate
 
 
+def _next_from(now: datetime, at: datetime, repeat: Repeat, day: int | None) -> datetime:
+    """The first time of a weekly, monthly, or yearly entry from the minute `now` on."""
+    following = next_occurrence(at, repeat, now - _ONE_MINUTE, day=day)
+    assert following is not None  # only a one-shot entry has none
+    return following
+
+
 def _on_day(year: int, month: int, day: int, clock: datetime) -> datetime:
     """Day `day` of the month at the clock time of `clock`; its last day when it is shorter."""
     last = calendar.monthrange(year, month)[1]
@@ -402,13 +425,16 @@ def _find(entries: list[Entry], entry_id: str) -> Entry | None:
 
 
 def _dump(entry: Entry) -> dict[str, object]:
-    return {
+    data: dict[str, object] = {
         "id": entry.id,
         "at": entry.at.isoformat(timespec="minutes"),
         "repeat": entry.repeat,
-        "action": _dump_action(entry.action),
-        "created": entry.created.isoformat(timespec="minutes"),
     }
+    if entry.day is not None:
+        data["day"] = entry.day
+    data["action"] = _dump_action(entry.action)
+    data["created"] = entry.created.isoformat(timespec="minutes")
+    return data
 
 
 def _dump_action(action: Action) -> dict[str, object]:
@@ -448,8 +474,11 @@ def _parse(raw: object) -> tuple[int, list[Entry]]:
 
 def _parse_entry(index: int, item: object) -> Entry:
     where = f"entries[{index}]"
-    if not isinstance(item, dict) or item.keys() != _ENTRY_KEYS:
-        raise ValueError(f"{where} must be an object with exactly the keys {sorted(_ENTRY_KEYS)}")
+    if not isinstance(item, dict) or item.keys() not in (_ENTRY_KEYS, _DAY_ENTRY_KEYS):
+        raise ValueError(
+            f"{where} must be an object with exactly the keys {sorted(_ENTRY_KEYS)}, "
+            "and day for a monthly or yearly entry"
+        )
     entry_id = item["id"]
     if not isinstance(entry_id, str) or not _ENTRY_ID.fullmatch(entry_id):
         raise ValueError(f"{where}.id must look like j1")
@@ -457,13 +486,33 @@ def _parse_entry(index: int, item: object) -> Entry:
         repeat = _checked_repeat(item["repeat"])
     except ScheduleError:
         raise ValueError(f"{where}.repeat must be one of {', '.join(REPEATS)}") from None
+    at = _parse_time(item["at"], f"{where}.at")
     return Entry(
         entry_id,
-        _parse_time(item["at"], f"{where}.at"),
+        at,
         repeat,
         _parse_action(item["action"], f"{where}.action"),
         _parse_time(item["created"], f"{where}.created"),
+        _parse_day(item, repeat, at, where),
     )
+
+
+def _parse_day(item: dict[str, object], repeat: Repeat, at: datetime, where: str) -> int | None:
+    """The day a monthly or yearly entry repeats on, which `at` must agree with; None for the
+    other entries, which have no "day"."""
+    if repeat not in _DAY_REPEATS:
+        if "day" in item:
+            raise ValueError(f"{where}.day belongs only to a monthly or yearly entry")
+        return None
+    day = item.get("day")
+    # True is an int to Python, but no day of the month.
+    if type(day) is not int or not 1 <= day <= 31:
+        raise ValueError(f"{where}.day must be a whole number from 1 to 31")
+    # A yearly entry's month is the month of `at`, which must have the day in some year.
+    longest = calendar.monthrange(_LEAP_YEAR, at.month)[1] if repeat == "yearly" else 31
+    if day > longest or at.day != min(day, calendar.monthrange(at.year, at.month)[1]):
+        raise ValueError(f"{where}.day must be the day of {where}.at, or later in a shorter month")
+    return day
 
 
 def _parse_action(raw: object, where: str) -> Action:

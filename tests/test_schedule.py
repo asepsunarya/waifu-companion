@@ -86,6 +86,13 @@ def test_a_device_action_comes_from_no_routine_unless_it_says_so():
     assert DeviceAction("ac", "off", routine="tidur") != DeviceAction("ac", "off")
 
 
+def test_an_entry_has_no_day_of_the_month_unless_it_says_so():
+    at = datetime(2026, 11, 30, 9, 0)
+
+    assert entry("j1", at).day is None
+    assert Entry("j1", at, "monthly", MEDICINE, CREATED, day=31).day == 31
+
+
 def test_schedule_error_is_an_exception_of_its_own():
     assert issubclass(ScheduleError, Exception)
 
@@ -511,6 +518,30 @@ def test_times_written_by_hand_with_seconds_are_read_at_minute_precision(tmp_pat
     assert (read.at, read.created) == (TODAY_15, datetime(2026, 10, 1, 8, 0))
 
 
+def test_monthly_and_yearly_entries_are_read_with_their_day(tmp_path):
+    store = make_store(tmp_path)
+    write_schedule(
+        store.path,
+        [
+            # The 31st on the last day of November; 29 February on 28 February and on itself.
+            raw_entry("j1", "2026-11-30T09:00", "monthly") | {"day": 31},
+            raw_entry("j2", "2027-02-28T08:00", "yearly") | {"day": 29},
+            raw_entry("j3", "2028-02-29T08:00", "yearly") | {"day": 29},
+            raw_entry("j4", "2026-10-20T08:00", "monthly") | {"day": 20},
+            raw_entry("j5", "2026-10-19T07:00", "weekly"),
+        ],
+        next_id=6,
+    )
+
+    assert [(e.id, e.at, e.repeat, e.day) for e in store.entries()] == [
+        ("j5", datetime(2026, 10, 19, 7, 0), "weekly", None),
+        ("j4", datetime(2026, 10, 20, 8, 0), "monthly", 20),
+        ("j1", datetime(2026, 11, 30, 9, 0), "monthly", 31),
+        ("j2", datetime(2027, 2, 28, 8, 0), "yearly", 29),
+        ("j3", datetime(2028, 2, 29, 8, 0), "yearly", 29),
+    ]
+
+
 # --- store: add --------------------------------------------------------------------------------
 
 
@@ -568,6 +599,43 @@ def test_add_writes_the_spec_file_format_in_readable_utf8(tmp_path):
             },
         ],
     }
+
+
+def test_only_a_monthly_or_yearly_entry_is_written_with_its_day(tmp_path):
+    store = make_store(tmp_path)
+    store.add(datetime(2026, 10, 31, 9, 0), "monthly", Reminder("Master, bayar listrik!"))
+    store.add(datetime(2028, 2, 29, 8, 0), "yearly", Reminder("Master, ulang tahun Budi!"))
+    store.add(datetime(2026, 10, 19, 7, 0), "weekly", RoutineAction("pagi"))
+
+    entries = read_json(store.path)["entries"]
+
+    assert entries == [
+        {
+            "id": "j3",
+            "at": "2026-10-19T07:00",
+            "repeat": "weekly",
+            "action": {"type": "routine", "name": "pagi"},
+            "created": "2026-10-13T14:30",
+        },
+        {
+            "id": "j1",
+            "at": "2026-10-31T09:00",
+            "repeat": "monthly",
+            "day": 31,
+            "action": {"type": "reminder", "text": "Master, bayar listrik!"},
+            "created": "2026-10-13T14:30",
+        },
+        {
+            "id": "j2",
+            "at": "2027-02-28T08:00",
+            "repeat": "yearly",
+            "day": 29,
+            "action": {"type": "reminder", "text": "Master, ulang tahun Budi!"},
+            "created": "2026-10-13T14:30",
+        },
+    ]
+    # The day follows the repeat, where the owner reads it when editing by hand.
+    assert list(entries[1]) == ["id", "at", "repeat", "day", "action", "created"]
 
 
 def test_add_creates_the_parent_folder_on_the_first_write(tmp_path):
@@ -633,11 +701,12 @@ def test_a_longer_reminder_is_refused_without_echoing_it(tmp_path):
         datetime(2025, 10, 13, 15, 0),
     ],
 )
-def test_a_time_before_the_current_minute_is_refused(tmp_path, at):
+@pytest.mark.parametrize("repeat", ["none", "daily", "weekdays", "weekends"])
+def test_a_time_before_the_current_minute_is_refused(tmp_path, at, repeat):
     store = make_store(tmp_path)
 
     with pytest.raises(ScheduleError, match="sudah lewat"):
-        store.add(at, "daily", MEDICINE)
+        store.add(at, repeat, MEDICINE)
 
     assert not store.path.exists()
 
@@ -796,6 +865,96 @@ def test_a_repeating_entry_starts_on_the_first_of_its_days(tmp_path, at, repeat,
     assert store.add(at, repeat, MEDICINE).at == expected
 
 
+@pytest.mark.parametrize(
+    ("at", "repeat", "day"),
+    [
+        (datetime(2026, 10, 31, 9, 0), "monthly", 31),
+        (datetime(2027, 5, 5, 8, 0), "yearly", 5),
+        (datetime(2026, 10, 17, 7, 0), "weekly", None),
+        (datetime(2026, 10, 17, 7, 0), "daily", None),
+        (datetime(2026, 10, 17, 7, 0), "none", None),
+    ],
+)
+def test_a_monthly_or_yearly_entry_keeps_the_day_it_was_given(tmp_path, at, repeat, day):
+    store = make_store(tmp_path)
+
+    added = store.add(at, repeat, MEDICINE)
+
+    assert added == Entry("j1", at, repeat, MEDICINE, CREATED, day)
+    assert make_store(tmp_path).entries() == [added]
+
+
+@pytest.mark.parametrize(
+    ("at", "repeat", "expected"),
+    [
+        # Monday 07:00 of yesterday's week, and 09:00 today, a Tuesday: next week's.
+        (datetime(2026, 10, 12, 7, 0), "weekly", datetime(2026, 10, 19, 7, 0)),
+        (datetime(2026, 10, 13, 9, 0), "weekly", datetime(2026, 10, 20, 9, 0)),
+        (datetime(2025, 1, 6, 7, 0), "weekly", datetime(2026, 10, 19, 7, 0)),
+        # "Tiap tanggal 5": this month's has passed, so next month's.
+        (datetime(2026, 10, 5, 8, 0), "monthly", datetime(2026, 11, 5, 8, 0)),
+        (datetime(2026, 8, 31, 8, 0), "monthly", datetime(2026, 10, 31, 8, 0)),
+        (datetime(2026, 9, 30, 8, 0), "monthly", datetime(2026, 10, 30, 8, 0)),
+        (datetime(2026, 10, 13, 14, 29), "monthly", datetime(2026, 11, 13, 14, 29)),
+        # "Tiap 5 Mei": this year's has passed, so next year's.
+        (datetime(2026, 5, 5, 8, 0), "yearly", datetime(2027, 5, 5, 8, 0)),
+        (datetime(2020, 5, 5, 8, 0), "yearly", datetime(2027, 5, 5, 8, 0)),
+        # The current minute is still accepted and fires at the next tick.
+        (datetime(2026, 10, 13, 14, 30), "weekly", datetime(2026, 10, 13, 14, 30)),
+        (datetime(2026, 10, 13, 14, 30), "monthly", datetime(2026, 10, 13, 14, 30)),
+        (datetime(2026, 10, 13, 14, 30), "yearly", datetime(2026, 10, 13, 14, 30)),
+    ],
+)
+def test_a_weekly_monthly_or_yearly_entry_given_a_past_time_starts_at_its_next_one(
+    tmp_path, at, repeat, expected
+):
+    store = make_store(tmp_path)
+
+    added = store.add(at, repeat, MEDICINE)
+
+    assert added.at == expected
+    assert added.day == (at.day if repeat != "weekly" else None)
+
+
+def test_a_yearly_entry_made_on_24_october_for_5_may_this_year_starts_next_year(tmp_path):
+    store = make_store(tmp_path, Clock(datetime(2026, 10, 24, 14, 30)))
+
+    added = store.add(datetime(2026, 5, 5, 8, 0), "yearly", Reminder("Ulang tahun Ibu!"))
+
+    assert (added.at, added.day) == (datetime(2027, 5, 5, 8, 0), 5)
+
+
+@pytest.mark.parametrize(
+    ("at", "expected"),
+    [
+        # This year's date is still to come, next year's means the same day.
+        (datetime(2026, 12, 25, 8, 0), datetime(2026, 12, 25, 8, 0)),
+        (datetime(2027, 12, 25, 8, 0), datetime(2026, 12, 25, 8, 0)),
+        # Next year's date that is still more than 366 days away is never too far.
+        (datetime(2027, 10, 20, 8, 0), datetime(2026, 10, 20, 8, 0)),
+        (datetime(2030, 5, 5, 8, 0), datetime(2027, 5, 5, 8, 0)),
+        # 29 February of a leap year starts on 28 February of the next common year.
+        (datetime(2028, 2, 29, 8, 0), datetime(2027, 2, 28, 8, 0)),
+    ],
+)
+def test_a_yearly_entry_ignores_the_year_it_was_given(tmp_path, at, expected):
+    store = make_store(tmp_path)
+
+    added = store.add(at, "yearly", MEDICINE)
+
+    assert (added.at, added.day) == (expected, at.day)
+
+
+@pytest.mark.parametrize("repeat", ["weekly", "monthly"])
+def test_a_weekly_or_monthly_entry_more_than_366_days_ahead_is_still_refused(tmp_path, repeat):
+    store = make_store(tmp_path)
+
+    with pytest.raises(ScheduleError, match="terlalu jauh"):
+        store.add(datetime(2027, 10, 15, 15, 0), repeat, MEDICINE)
+
+    assert not store.path.exists()
+
+
 def test_an_id_added_by_hand_beyond_next_id_is_never_reused(tmp_path):
     store = make_store(tmp_path)
     write_schedule(
@@ -872,6 +1031,9 @@ def test_a_fired_daily_entry_moves_to_the_same_time_tomorrow(tmp_path):
         (datetime(2026, 10, 16, 7, 0), "weekdays", datetime(2026, 10, 19, 7, 0)),
         (datetime(2026, 10, 18, 9, 0), "weekends", datetime(2026, 10, 24, 9, 0)),
         (datetime(2026, 12, 31, 23, 30), "daily", datetime(2027, 1, 1, 23, 30)),
+        (datetime(2026, 12, 28, 7, 0), "weekly", datetime(2027, 1, 4, 7, 0)),
+        (datetime(2026, 12, 20, 8, 0), "monthly", datetime(2027, 1, 20, 8, 0)),
+        (datetime(2026, 12, 25, 8, 0), "yearly", datetime(2027, 12, 25, 8, 0)),
     ],
 )
 def test_a_fired_repeating_entry_moves_to_its_next_day(tmp_path, at, repeat, expected):
@@ -881,6 +1043,37 @@ def test_a_fired_repeating_entry_moves_to_its_next_day(tmp_path, at, repeat, exp
     clock.current = at
 
     assert store.fired("j1", at).at == expected
+
+
+def test_a_fired_monthly_entry_of_the_31st_comes_back_to_the_31st_after_a_short_month(tmp_path):
+    clock = Clock()
+    store = make_store(tmp_path, clock)
+    store.add(datetime(2026, 10, 31, 9, 0), "monthly", MEDICINE)
+    moved = []
+    for _ in range(5):
+        (current,) = store.entries()  # read back from the file each time
+        clock.current = current.at
+        moved.append(store.fired(current.id, current.at))
+
+    assert [(entry.at, entry.day) for entry in moved] == [
+        (datetime(2026, 11, 30, 9, 0), 31),
+        (datetime(2026, 12, 31, 9, 0), 31),
+        (datetime(2027, 1, 31, 9, 0), 31),
+        (datetime(2027, 2, 28, 9, 0), 31),
+        (datetime(2027, 3, 31, 9, 0), 31),
+    ]
+
+
+def test_a_fired_yearly_entry_of_29_february_comes_back_to_it_in_a_leap_year(tmp_path):
+    clock = Clock()
+    store = make_store(tmp_path, clock)
+    store.add(datetime(2028, 2, 29, 8, 0), "yearly", MEDICINE)  # first on 28 February 2027
+    clock.current = datetime(2027, 2, 28, 8, 0, 10)
+
+    moved = store.fired("j1", datetime(2027, 2, 28, 8, 0))
+
+    assert (moved.at, moved.day) == (datetime(2028, 2, 29, 8, 0), 29)
+    assert store.entries() == [moved]
 
 
 def test_a_late_fire_moves_the_entry_past_now_so_it_never_fires_twice(tmp_path):
@@ -996,6 +1189,43 @@ def test_a_skipped_repeating_entry_moves_to_its_first_time_not_before_earliest(
     moved = store.skipped("j1", datetime.fromisoformat(at), EARLIEST)
 
     assert moved.at == expected
+    assert store.entries() == [moved]
+
+
+@pytest.mark.parametrize(
+    ("raw", "earliest", "expected"),
+    [
+        # Missed last Monday; next Monday is the first one not before earliest.
+        (raw_entry("j1", "2026-10-05T07:00", "weekly"), EARLIEST, datetime(2026, 10, 19, 7, 0)),
+        # The 31st, missed on 30 September: back to the 31st in October, not the 30th.
+        (
+            raw_entry("j1", "2026-09-30T09:00", "monthly") | {"day": 31},
+            EARLIEST,
+            datetime(2026, 10, 31, 9, 0),
+        ),
+        # 29 February, missed on 28 February 2027: the next one is 29 February 2028.
+        (
+            raw_entry("j1", "2027-02-28T08:00", "yearly") | {"day": 29},
+            datetime(2027, 3, 1, 9, 0),
+            datetime(2028, 2, 29, 8, 0),
+        ),
+        # Today's 5 May is still within the grace, so it fires now.
+        (
+            raw_entry("j1", "2025-05-05T08:00", "yearly") | {"day": 5},
+            datetime(2026, 5, 5, 7, 45),
+            datetime(2026, 5, 5, 8, 0),
+        ),
+    ],
+)
+def test_a_skipped_weekly_monthly_or_yearly_entry_moves_on_with_its_day(
+    tmp_path, raw, earliest, expected
+):
+    store = make_store(tmp_path)
+    write_schedule(store.path, [raw], next_id=2)
+
+    moved = store.skipped("j1", datetime.fromisoformat(raw["at"]), earliest)
+
+    assert (moved.at, moved.day) == (expected, raw.get("day"))
     assert store.entries() == [moved]
 
 
@@ -1192,6 +1422,32 @@ CORRUPT_CONTENTS = {
     "created in utc": corrupt_file([VALID | {"created": "2026-10-13T08:00Z"}]),
     "unknown repeat": corrupt_file([VALID | {"repeat": "hourly"}]),
     "null repeat": corrupt_file([VALID | {"repeat": None}]),
+    "day on a one-shot entry": corrupt_file([VALID | {"day": 13}]),
+    "day on a daily entry": corrupt_file([VALID | {"repeat": "daily", "day": 13}]),
+    "day on a weekly entry": corrupt_file([VALID | {"repeat": "weekly", "day": 13}]),
+    "monthly without day": corrupt_file([VALID | {"repeat": "monthly"}]),
+    "yearly without day": corrupt_file([VALID | {"repeat": "yearly"}]),
+    "day null": corrupt_file([VALID | {"repeat": "monthly", "day": None}]),
+    "day text": corrupt_file([VALID | {"repeat": "monthly", "day": "13"}]),
+    "day a float": corrupt_file([VALID | {"repeat": "monthly", "day": 13.0}]),
+    "day true": corrupt_file(
+        [VALID | {"at": "2026-10-01T15:00", "repeat": "monthly", "day": True}]
+    ),
+    "day 0": corrupt_file([VALID | {"repeat": "monthly", "day": 0}]),
+    "day 32": corrupt_file([VALID | {"at": "2026-10-31T15:00", "repeat": "monthly", "day": 32}]),
+    "day other than the day of at": corrupt_file([VALID | {"repeat": "monthly", "day": 14}]),
+    "day 31 on the 30th of a long month": corrupt_file(
+        [VALID | {"at": "2026-10-30T15:00", "repeat": "monthly", "day": 31}]
+    ),
+    "day 29 on 28 february of a leap year": corrupt_file(
+        [VALID | {"at": "2028-02-28T15:00", "repeat": "yearly", "day": 29}]
+    ),
+    "yearly on 31 april": corrupt_file(
+        [VALID | {"at": "2027-04-30T15:00", "repeat": "yearly", "day": 31}]
+    ),
+    "yearly on 30 february": corrupt_file(
+        [VALID | {"at": "2027-02-28T15:00", "repeat": "yearly", "day": 30}]
+    ),
     "action a string": corrupt_file([VALID | {"action": "minum obat"}]),
     "action without type": corrupt_file([VALID | {"action": {"text": "Minum obat."}}]),
     "unknown action type": corrupt_file([VALID | {"action": {"type": "pc", "command": "sleep"}}]),
@@ -1278,6 +1534,25 @@ def test_the_log_of_a_corrupt_file_never_quotes_an_entry(tmp_path, caplog):
     assert "repeat" in caplog.text
     assert secret not in caplog.text
     assert "hourly" not in caplog.text
+
+
+def test_the_log_of_a_wrong_day_names_the_key_and_never_quotes_the_entry(tmp_path, caplog):
+    store = make_store(tmp_path)
+    secret = "Master, bayar cicilan ke Budi"
+    write_schedule(
+        store.path,
+        [
+            raw_entry("j1", "2026-10-13T15:00", "monthly", {"type": "reminder", "text": secret})
+            | {"day": 14}
+        ],
+        next_id=2,
+    )
+
+    with caplog.at_level(logging.ERROR, logger="waifu.schedule"):
+        store.entries()
+
+    assert "entries[0].day" in caplog.text
+    assert secret not in caplog.text
 
 
 def test_a_corrupt_file_is_never_overwritten_by_a_later_entry(tmp_path):
