@@ -2604,13 +2604,13 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 271a · **Files:** `src/waifu/listen_pause.py`, `tests/test_listen_pause.py` · **Scope:** S
 
-## Task 275: The voice loop
+## Task 275: The voice loop ✅
 
 **Acceptance criteria:**
-- [ ] While the pause holds, `run` feeds no frame to the segmenter (reset once) yet says reminders, rings, and announcements; an alarm that rings lets her hear; requests wait; the avatar is not shown listening; `listen_now` ends the pause
-- [ ] A start and an end are logged once and shown by the avatar's `hearing` event; an end by itself is said once
-- [ ] `repeat_now` repeats like "ulangi" and is ignored while she is busy
-- [ ] `AvatarBus.hearing` publishes and replays the event; the page shows "Tidak mendengarkan"
+- [x] While the pause holds, `run` feeds no frame to the segmenter (reset once) yet says reminders, rings, and announcements; an alarm that rings lets her hear; requests wait; the avatar is not shown listening; `listen_now` ends the pause
+- [x] A start and an end are logged once and shown by the avatar's `hearing` event; an end by itself is said once
+- [x] `repeat_now` repeats like "ulangi" and is ignored while she is busy
+- [x] `AvatarBus.hearing` publishes and replays the event; the page shows "Tidak mendengarkan"
 
 **Dependencies:** 274 · **Files:** `src/waifu/app.py`, `src/waifu/avatar/bus.py`, `src/waifu/avatar/web/index.html`, `src/waifu/avatar/web/logic.js`, `tests/test_app.py`, `tests/test_avatar_bus.py`, `tests/test_avatar_web.py`, `tests/js/logic.test.mjs` · **Scope:** M
 

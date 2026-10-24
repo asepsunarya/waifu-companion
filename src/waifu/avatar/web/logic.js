@@ -206,6 +206,14 @@ export function frameDue(lastS, nowS, maxFps) {
   return !(maxFps > 0) || nowS - lastS >= 1 / maxFps - FRAME_TOLERANCE_S;
 }
 
+/**
+ * Whether the badge "Tidak mendengarkan" shows after a `hearing` event: only when it says she stopped hearing Master
+ * (the listen pause of Ctrl+Alt+Q), so a malformed event never claims she does not hear.
+ */
+export function hearingBadgeShown(event) {
+  return event.on === false;
+}
+
 /** The avatar window's title: never just her name, which is the title of Cyrene's console. */
 export function avatarTitle(name) {
   return `Avatar ${name}`;

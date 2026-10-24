@@ -41,6 +41,7 @@ from waifu.gacha.hoyolab import GameStatus
 from waifu.gacha.watcher import GachaWatcher
 from waifu.gate import WakeGate
 from waifu.journal import JOURNAL_PROMPT
+from waifu.listen_pause import ListenPause
 from waifu.pc_health import Drive, GpuStatus, PcSnapshot
 from waifu.pc_watch import PcWatcher
 from waifu.phone.auth import PhoneAuth
@@ -227,6 +228,11 @@ class FakeAvatar:
         self.spoken.append((len(audio), sample_rate, emotion))
         self.peaks.append(float(np.max(np.abs(audio))))
 
+    def hearing(self, on: bool) -> None:
+        self.events.append(f"avatar.hearing {'on' if on else 'off'}")
+        if self.error is not None:
+            raise self.error
+
 
 class Rig:
     """An Assistant wired to fakes that share one event log and one clock."""
@@ -253,6 +259,7 @@ class Rig:
         volume: int | None = None,
         alarm: AlarmBell | None = None,
         diagnosis: UtteranceLog | None = None,
+        listen_pause: ListenPause | None = None,
     ) -> None:
         config = config or AppConfig()
         self.events: list[str] = []
@@ -293,6 +300,7 @@ class Rig:
             alarm=alarm,
             hold_level=None if alarm is None else self.hold.held,
             diagnosis=diagnosis,
+            listen_pause=listen_pause,
         )
 
     def utterance(self) -> Utterance:
@@ -4014,3 +4022,275 @@ def test_her_answer_never_reaches_the_info_log(caplog):
 
     assert "Telling what she heard last" in caplog.text
     assert UNADDRESSED not in caplog.text
+
+
+# --- the listen pause (Ctrl+Alt+Q) -------------------------------------------------------------
+
+PAUSE_ENDED = "Aku mendengarkan lagi sekarang, Master."
+
+
+class PauseRig(AlarmRig):
+    """An AlarmRig whose Assistant has a listen pause on a file under `tmp_path`, on the rig's
+    clocks; its segmenter records each frame it is fed."""
+
+    def __init__(self, tmp_path, *heard: str | Exception, hours: float = 2.0, **kwargs) -> None:
+        self.pause = ListenPause(
+            tmp_path / "listen_pause.json",
+            hours=hours,
+            now=lambda: self.now,
+            clock=lambda: self.clock.now,
+        )
+        super().__init__(tmp_path, *heard, listen_pause=self.pause, **kwargs)
+
+    def listen(self, *outputs: Utterance | None, mic: FakeMic | None = None) -> None:
+        """Run the voice loop over one frame per output, as `listen_once` does."""
+        frames = [SILENT_FRAME] * max(1, len(outputs))
+        self.assistant.run(
+            mic or FakeMic(self.events, frames),
+            FeedingSegmenter(self.events, list(outputs) or [None]),
+        )
+
+
+class FeedingSegmenter(FakeSegmenter):
+    def feed(self, frame: np.ndarray) -> Utterance | None:
+        self.events.append("segmenter.feed")
+        return super().feed(frame)
+
+
+class PausingMic(FakeMic):
+    """Yields one frame, starts the pause, then yields the rest."""
+
+    def __init__(self, events: list[str], pause: ListenPause, count: int) -> None:
+        super().__init__(events, [SILENT_FRAME] * count)
+        self.pause = pause
+
+    def frames(self) -> Iterator[np.ndarray]:
+        yield SILENT_FRAME
+        self.pause.start()
+        yield from self._frames
+        raise KeyboardInterrupt
+
+
+def test_while_the_pause_holds_no_frame_reaches_the_segmenter_or_whisper(tmp_path):
+    rig = PauseRig(tmp_path, "Cyrene, nyalakan lampu kamar")
+    rig.pause.start()
+
+    rig.listen(None, rig.utterance(), None)
+
+    assert "segmenter.feed" not in rig.events
+    assert rig.stt.calls == 0 and rig.brain.turns == []
+
+
+def test_a_pause_that_starts_drops_the_utterance_under_way_once(tmp_path):
+    rig = PauseRig(tmp_path)
+
+    rig.listen(mic=PausingMic(rig.events, rig.pause, 3))
+
+    assert rig.events == ["segmenter.feed", "segmenter.reset"]
+
+
+def test_reminders_and_announcements_are_said_while_the_pause_holds(tmp_path):
+    rig = PauseRig(tmp_path)
+    rig.pause.start()
+    rig.assistant.remind("Master, waktunya minum obat!")
+    rig.assistant.announce(ANNOUNCEMENT)
+
+    rig.listen()
+
+    assert rig.speech.texts == [f"Master, waktunya minum obat! {ANNOUNCEMENT}"]
+
+
+def test_while_an_alarm_rings_she_hears_through_the_pause(tmp_path):
+    rig = PauseRig(tmp_path, "aku sudah bangun")
+    rig.pause.start()
+    rig.start_alarm()
+
+    rig.listen(None, rig.utterance())
+    rig.listen(None)
+
+    assert rig.speech.texts == [
+        "Master, bangun! Sudah jam 19.30.",
+        "Oke Master, alarmnya kumatikan.",
+    ]
+    assert rig.events.count("segmenter.feed") == 2  # while it rang; the pause holds again after
+    assert rig.pause.paused()
+
+
+def test_her_requests_wait_while_the_pause_holds(tmp_path):
+    rig = PauseRig(tmp_path)
+    rig.assistant.ask_aloud(GREETING_PROMPT)
+    rig.pause.start()
+
+    rig.listen()
+    while_paused = asked(rig)
+    rig.pause.end()
+    rig.listen()
+
+    assert while_paused == []
+    assert asked(rig) == [GREETING_PROMPT]
+
+
+def test_she_is_never_shown_listening_while_the_pause_holds(tmp_path):
+    rig = PauseRig(tmp_path, with_avatar=True)
+    rig.pause.start()
+
+    rig.assistant.speak("Master, bangun!")
+
+    assert rig.events[-1] == "avatar.state idle"
+
+
+def test_listen_now_ends_the_pause_and_shows_her_listening(tmp_path, caplog):
+    rig = PauseRig(tmp_path, with_avatar=True)
+    rig.pause.start()
+
+    with caplog.at_level(logging.INFO, logger="waifu.app"):
+        rig.assistant.listen_now()
+
+    assert rig.pause.paused() is False
+    assert rig.events == ["avatar.state listening 8"]
+    assert "The listen pause ended: Master wants to talk" in caplog.text
+
+
+def test_listen_now_keeps_a_pause_whose_file_cannot_be_changed(tmp_path, caplog, monkeypatch):
+    rig = PauseRig(tmp_path, with_avatar=True)
+    rig.pause.start()
+
+    def locked() -> bool:
+        raise PermissionError(32, "The file is used by another process")
+
+    monkeypatch.setattr(rig.pause, "end", locked)
+
+    with caplog.at_level(logging.WARNING, logger="waifu.app"):
+        rig.assistant.listen_now()
+
+    assert rig.pause.paused() is True
+    assert rig.events == ["avatar.state idle"]
+    assert "Could not end the listen pause" in caplog.text
+
+
+def test_a_pause_starting_and_ending_is_logged_once_and_shown_on_the_avatar(tmp_path, caplog):
+    rig = PauseRig(tmp_path, with_avatar=True)
+
+    with caplog.at_level(logging.INFO, logger="waifu.app"):
+        rig.listen()
+        rig.pause.start()
+        rig.listen(None, None)
+        rig.pause.end()
+        rig.listen(None, None)
+
+    assert [event for event in rig.events if event.startswith("avatar.hearing")] == [
+        "avatar.hearing off",
+        "avatar.hearing on",
+    ]
+    assert caplog.text.count("Not listening until 21:30") == 1
+    assert caplog.text.count("Listening again") == 1
+    assert rig.speech.texts == []  # Ctrl+Alt+Q and the button speak for themselves
+
+
+def test_a_pause_that_ends_by_itself_is_said_once(tmp_path):
+    rig = PauseRig(tmp_path, hours=2)
+    rig.pause.start()
+    rig.listen()
+
+    rig.pass_seconds(2 * 3600)
+    rig.listen(None, None)
+    rig.listen()
+
+    assert rig.speech.texts == [PAUSE_ENDED]
+    assert rig.pause.paused() is False
+
+
+def test_a_pause_another_process_deleted_after_its_time_is_still_said_to_have_ended(tmp_path):
+    rig = PauseRig(tmp_path, hours=2)
+    rig.pause.start()
+    rig.listen()
+    rig.pass_seconds(2 * 3600)
+    tombol = ListenPause(rig.pause.path, now=lambda: rig.now, clock=lambda: rig.clock.now)
+
+    assert tombol.paused() is False  # deletes the ended pause's file
+    rig.listen()
+
+    assert rig.speech.texts == [PAUSE_ENDED]
+
+
+def test_the_line_that_the_pause_ended_comes_through_a_focus_block(tmp_path):
+    rig = PauseRig(tmp_path, hours=2, quiet=Quiet(on=True))
+    rig.pause.start()
+    rig.listen()
+
+    rig.pass_seconds(2 * 3600)
+    rig.listen()
+
+    assert rig.speech.texts == [PAUSE_ENDED]
+
+
+def test_once_the_pause_ends_she_hears_again(tmp_path):
+    rig = PauseRig(tmp_path, "Cyrene, nyalakan lampu kamar")
+    rig.pause.start()
+    rig.listen()
+    rig.pause.end()
+
+    rig.listen(rig.utterance())
+
+    assert asked(rig) == ["nyalakan lampu kamar"]
+
+
+# --- repeat_now (Ctrl+Alt+R) -------------------------------------------------------------------
+
+
+def test_repeat_now_says_her_last_words_again_without_the_brain(caplog):
+    rig = Rig("Cyrene, nyalakan lampu kamar", reply=LAMP_ON, with_avatar=True)
+    rig.assistant.handle_utterance(rig.utterance())
+
+    with caplog.at_level(logging.INFO, logger="waifu.app"):
+        rig.assistant.repeat_now()
+
+    said = "Lampu kamar sudah menyala, Master."
+    assert rig.speech.texts == [said, said]
+    assert asked(rig) == ["nyalakan lampu kamar"]
+    assert rig.events.count("avatar.speak happy") == 2
+    assert "Repeating what she said last" in caplog.text
+
+
+def test_repeat_now_with_nothing_said_yet_says_so():
+    rig = Rig()
+
+    rig.assistant.repeat_now()
+
+    assert rig.speech.texts == [NOTHING_TO_REPEAT]
+
+
+def test_repeat_now_while_she_is_busy_is_ignored(caplog):
+    rig = Rig("Cyrene, nyalakan lampu kamar")
+    rig.assistant.handle_utterance(rig.utterance())
+    segmenter = FakeSegmenter(rig.events, [])
+    segmenter.busy = True  # Master is speaking
+    rig.assistant.set_mic(None, segmenter)
+
+    with caplog.at_level(logging.INFO, logger="waifu.app"):
+        rig.assistant.repeat_now()
+
+    assert rig.speech.texts == [REPLY]
+    assert "Not repeating her last words: she is busy" in caplog.text
+
+
+def test_repeat_now_never_repeats_what_she_said_before_guest_mode_switched():
+    marker = GuestMarker()
+    rig = Rig("Cyrene, nyalakan lampu kamar", guest_marker=marker)
+    rig.assistant.handle_utterance(rig.utterance())
+    marker.generation += 1
+
+    rig.assistant.repeat_now()
+
+    assert rig.speech.texts == [REPLY, NOTHING_TO_REPEAT]
+
+
+def test_she_is_busy_while_repeat_now_speaks():
+    rig = Rig("Cyrene, nyalakan lampu kamar")
+    rig.assistant.handle_utterance(rig.utterance())
+    while_playing: list[bool] = []
+    rig.player.on_play = lambda: while_playing.append(rig.assistant.busy)
+
+    rig.assistant.repeat_now()
+
+    assert while_playing == [True]

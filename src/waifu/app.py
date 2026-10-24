@@ -33,6 +33,13 @@ answer to a request) without the brain: no turn, so a question waiting for Maste
 waits for his next words. Once guest mode has switched since she said them, there is nothing to
 repeat.
 
+While the listen pause (`waifu.listen_pause`, Ctrl+Alt+Q) holds, nothing her mic hears reaches
+the segmenter, so voice chat in a game never wakes her; the mic keeps streaming and she still says
+reminders, alarms, and announcements between frames, while her requests wait. While an alarm
+rings she hears through the pause, so a sleepy "aku sudah bangun" still stops it. A double-click
+or Ctrl+Alt+C ends the pause (`listen_now`); one that ends by itself is said once. Ctrl+Alt+R
+repeats her last words (`repeat_now`) from the hotkeys' thread, as "ulangi" does.
+
 With a `diagnosis` log (`waifu.voice.diagnosis`), each utterance is recorded once it is handled:
 its level, the transcript, the wake gate's reason, the speaker score, what she did with it, and
 how long Whisper, the brain, and her voice took, for the phone's Suara page. When Master's whole
@@ -76,6 +83,7 @@ from waifu.brain.tools import logged_arguments
 from waifu.config import AppConfig
 from waifu.gate import WakeGate
 from waifu.heard import heard_answer, is_heard_request
+from waifu.listen_pause import ListenPause
 from waifu.phone.server import PhoneReply
 from waifu.repeat import is_repeat_request
 from waifu.schedule import ScheduleError
@@ -121,6 +129,8 @@ ALARM_NOT_SNOOZED = "Alarmnya tidak bisa ditunda: {problem}"
 ALARM_ENDED = "Alarmnya sudah berhenti, {owner}."
 ALARM_UNCHANGED = "Maaf {owner}, alarmnya belum bisa {done}. Coba lagi sebentar."
 ALARM_EMOTION = "happy"
+# Said once when the listen pause (Ctrl+Alt+Q) has ended by itself.
+PAUSE_ENDED = "Aku mendengarkan lagi sekarang, {owner}."
 # What an utterance's record names as its wake reason: the gate's own, or an alarm phrase,
 # which is heard before the gate. The gate's reason for a transcript without words.
 ALARM_WAKE = "alarm"
@@ -248,6 +258,10 @@ class Avatar(Protocol):
 
     def speak(self, audio: np.ndarray, sample_rate: int, emotion: str) -> None: ...
 
+    def hearing(self, on: bool) -> None:
+        """Whether she hears Master: not while the listen pause holds."""
+        ...
+
 
 # Gets what she said aloud in answer to `ask_aloud` (e.g. to push it to the phone), on a
 # thread of its own.
@@ -325,6 +339,7 @@ class Assistant:
         alarm: AlarmBell | None = None,
         hold_level: Callable[[int], AbstractContextManager[object]] | None = None,
         diagnosis: UtteranceLog | None = None,
+        listen_pause: ListenPause | None = None,
     ) -> None:
         """`quiet` (the focus timer's `in_block`, in game mode also whether a game holds her
         announcements) says when what she would say by herself must wait: only `remind` is
@@ -334,7 +349,7 @@ class Assistant:
         mode's `generation`) moves whenever guest mode switches: her last words said before
         it moved are never repeated. `alarm` is the bell whose rings she says; `hold_level`
         (`LevelHold.held`) plays one clip, a ring, at a level of its own. `diagnosis` records
-        each utterance she handles."""
+        each utterance she handles. While `listen_pause` holds, she does not hear Master."""
         self._name = config.assistant.name
         self._owner_call = config.assistant.owner_call
         # Left out of Master's words when they ask her to repeat (`is_repeat_request`).
@@ -361,6 +376,11 @@ class Assistant:
         self._alarm = alarm
         self._hold_level = hold_level
         self._diagnosis = diagnosis
+        self._pause = listen_pause
+        # When the listen pause ends as `run` last saw it, None while it does not hold; and
+        # whether `run` fed the last frame to the segmenter. Only `run`'s thread uses them.
+        self._pause_until: datetime | None = None
+        self._hearing = True
         self._mic: Microphone | None = None
         self._segmenter: Segmenter | None = None
         self._speaker_error_logged = False
@@ -390,7 +410,8 @@ class Assistant:
         self._engaged_lock = threading.Lock()
         self._engaged_count = 0
         self._speaking = False
-        # Her last words on the PC, for "ulangi"; only `run`'s thread uses it (`_say_remembered`).
+        # Her last words on the PC, for "ulangi": only `run`'s thread writes it (`_say_remembered`);
+        # `repeat_now` reads it from the hotkeys' thread.
         self._last_said: _Said | None = None
 
     @property
@@ -702,22 +723,40 @@ class Assistant:
         in the handler, and the window is open even when that line is skipped. The handler
         ignores a double-click while she is `busy`; a reply or announcement that starts
         between that check and this call is waited for, so the window opens after it.
-        Safe from any thread.
+        The listen pause ends first: Master wants to talk. Safe from any thread.
         """
+        self._end_pause()
         with self._voice:
             self._open_followup()
+
+    def repeat_now(self) -> None:
+        """Say her last words again (Ctrl+Alt+R), as "ulangi" does without the brain.
+
+        Ignored while she is `busy`, like a reaction: cutting a new answer to repeat an older
+        one would lose it. Safe from any thread.
+        """
+        if self.busy:
+            logger.info("Not repeating her last words: she is busy")
+            return
+        with self._engaged():
+            self._repeat()
 
     def run(self, mic: Microphone, segmenter: Segmenter) -> None:
         """Listen until Ctrl+C.
 
         A failure inside one utterance is logged and listening goes on, except a
         missing package or an unusable Whisper: every utterance would fail the same
-        way, so those are raised for the caller to report.
+        way, so those are raised for the caller to report. While she does not hear
+        (`_hearing_now`), a frame only gives her the chance to speak up.
         """
         self.set_mic(mic, segmenter)
         logger.info("%s is listening (Ctrl+C to stop)", self._name)
         try:
             for frame in mic.frames():
+                if not self._hearing_now(segmenter):
+                    if not self._announcements_held():
+                        self._speak_up()
+                    continue
                 utterance = segmenter.feed(frame)
                 if utterance is None:
                     if not segmenter.busy and not self._announcements_held():
@@ -733,6 +772,49 @@ class Assistant:
             logger.info("Stopped listening")
         finally:
             self.set_mic(None)
+
+    def _hearing_now(self, segmenter: Segmenter) -> bool:
+        """Whether this frame goes to the segmenter: not while the listen pause holds, unless an
+        alarm rings (so "aku sudah bangun" still stops it). An utterance under way when she stops
+        hearing is dropped."""
+        self._notice_pause()
+        ringing = self._alarm is not None and self._alarm.ringing()
+        hearing = self._pause_until is None or ringing
+        if self._hearing and not hearing:
+            segmenter.reset()
+        self._hearing = hearing
+        return hearing
+
+    def _notice_pause(self) -> None:
+        """Notice the listen pause starting or ending, wherever it was switched (a hotkey, a
+        double-click, the quick button in another process): logged once and shown on the
+        avatar; one that ended by itself (its time passed) is said once, also while `quiet`
+        holds."""
+        if self._pause is None:
+            return
+        seen, self._pause_until = self._pause_until, self._pause.until()
+        until = self._pause_until
+        if (until is None) == (seen is None):
+            return
+        if until is not None:
+            logger.info("Not listening until %s", f"{until:%H:%M}")
+            self._show(lambda avatar: avatar.hearing(False))
+            return
+        logger.info("Listening again")
+        self._show(lambda avatar: avatar.hearing(True))
+        if seen is not None and self._now() >= seen:
+            self.remind(PAUSE_ENDED.format(owner=self._owner_call))
+
+    def _end_pause(self) -> None:
+        """End the listen pause, if it holds; a pause file that cannot be changed is logged and
+        the pause holds."""
+        if self._pause is None:
+            return
+        try:
+            if self._pause.end():
+                logger.info("The listen pause ended: Master wants to talk")
+        except OSError as exc:
+            logger.warning("Could not end the listen pause: %s", exc)
 
     def _hold_announcements(self) -> None:
         """Keep queued announcements and requests for the follow-up window after a cut.
@@ -767,15 +849,17 @@ class Assistant:
         new session would wipe that conversation, and he would not hear it on the PC, so his
         next phone message would answer a question he never heard. While `quiet` holds, only
         reminders are said: the rest waits in its queue. A due alarm ring comes before all of
-        them, alone in its pass; while an alarm rings, requests wait.
+        them, alone in its pass; while an alarm rings, requests wait, and so they do while the
+        listen pause holds (she could not hear the answer).
         """
         if self._say_ring():
             return
         followup_open = self._followup_open()
         quiet = self._quiet is not None and self._quiet()
         ringing = self._alarm is not None and self._alarm.ringing()
+        paused = self._pause_until is not None
         if not self._say_announcements(followup_open, quiet) and not (
-            followup_open or quiet or ringing or self._phone_chatting()
+            followup_open or quiet or ringing or paused or self._phone_chatting()
         ):
             self._answer_next_request()
 
@@ -974,7 +1058,7 @@ class Assistant:
         """
         said = self._last_said
         if said is not None and said.marker != self._guest_generation():
-            self._last_said = said = None
+            said = None
         if said is None:
             logger.info("Nothing to repeat")
             text = NOTHING_TO_REPEAT.format(owner=self._owner_call)
@@ -1081,10 +1165,12 @@ class Assistant:
                 self._engaged_count -= 1
 
     def _open_followup(self) -> None:
-        """Hear Master without the wake word for `followup_seconds`, and show her listening."""
+        """Hear Master without the wake word for `followup_seconds`, and show her listening,
+        except while the listen pause holds."""
         self._gate.open_followup()
         self._followup_until = self._clock() + self._followup_s
-        if self._followup_s > 0:
+        paused = self._pause is not None and self._pause.paused()
+        if self._followup_s > 0 and not paused:
             self._show(lambda avatar: avatar.state("listening", followup_s=self._followup_s))
         else:  # no follow-up window: only the wake word is heard
             self._show(lambda avatar: avatar.state("idle"))

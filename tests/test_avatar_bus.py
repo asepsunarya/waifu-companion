@@ -185,6 +185,33 @@ def test_a_late_subscriber_gets_the_last_state_but_no_older_events() -> None:
     ]
 
 
+def test_hearing_publishes_whether_she_hears_master() -> None:
+    bus = AvatarBus()
+    viewer = bus.subscribe()
+    drain(viewer)
+
+    bus.hearing(False)
+    bus.hearing(True)
+
+    assert drain(viewer) == [{"type": "hearing", "on": False}, {"type": "hearing", "on": True}]
+
+
+def test_a_late_subscriber_gets_the_last_hearing_after_the_state() -> None:
+    bus = AvatarBus()
+    bus.hearing(False)
+    bus.state("speaking")
+
+    assert drain(bus.subscribe()) == [
+        HELLO,
+        {"type": "state", "state": "speaking"},
+        {"type": "hearing", "on": False},
+    ]
+
+
+def test_a_subscriber_gets_no_hearing_until_it_first_changed() -> None:
+    assert [event["type"] for event in drain(AvatarBus().subscribe())] == ["hello", "state"]
+
+
 def test_a_state_published_directly_also_becomes_the_last_state() -> None:
     bus = AvatarBus()
     bus.publish({"type": "state", "state": "speaking"})

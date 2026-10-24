@@ -171,6 +171,18 @@ def test_the_content_security_policy_comes_before_every_script() -> None:
     assert meta.start() < page.index("<script")
 
 
+def test_the_page_shows_when_she_does_not_hear_master_also_as_a_mascot() -> None:
+    page = page_text()
+
+    assert re.search(r'<p id="hearing"[^>]*\bhidden\b[^>]*>Tidak mendengarkan</p>', page)
+    assert 'case "hearing":' in page
+    assert re.search(r"import \{[^}]*\bhearingBadgeShown\b[^}]*\} from \"\./logic\.js\"", page)
+    # The mascot fades #status and #close out until hovered: a fullscreen game's player must still
+    # see that she does not listen.
+    mascot_selectors = re.findall(r'html\[data-mode="mascot"\][^{]*\{', page)
+    assert not any("#hearing" in selector for selector in mascot_selectors)
+
+
 def test_the_page_has_no_window_drag_region() -> None:
     # The mascot is dragged by interaction.js through Electron; a drag region would
     # swallow the pats, pokes, and double-clicks on her.

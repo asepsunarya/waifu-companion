@@ -17,6 +17,7 @@ import {
   emotionTargets,
   frameDue,
   framingFor,
+  hearingBadgeShown,
   idlePhase,
   idleSway,
   listeningEndS,
@@ -360,6 +361,21 @@ describe("avatarTitle", () => {
   it("names the avatar window apart from the Cyrene console window", () => {
     assert.equal(avatarTitle("Cyrene"), "Avatar Cyrene");
     assert.equal(avatarTitle("Aiko"), "Avatar Aiko");
+  });
+});
+
+describe("hearingBadgeShown", () => {
+  it("shows the badge while she does not hear Master", () => {
+    assert.equal(hearingBadgeShown({ type: "hearing", on: false }), true);
+  });
+
+  it("hides it once she hears him again", () => {
+    assert.equal(hearingBadgeShown({ type: "hearing", on: true }), false);
+  });
+
+  it("never shows it for an event that does not say she stopped hearing", () => {
+    assert.equal(hearingBadgeShown({ type: "hearing" }), false);
+    assert.equal(hearingBadgeShown({ type: "hearing", on: "false" }), false);
   });
 });
 

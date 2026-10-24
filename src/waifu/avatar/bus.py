@@ -4,9 +4,11 @@ Cyrene publishes from her voice loop; each SSE connection holds a `Subscription`
 with a bounded queue of its own. Publishing never blocks: when a viewer falls
 behind, its oldest events are dropped, so a stalled window cannot hold up a reply.
 A new subscriber first gets `hello` and the last `state`, so a viewer that
-(re)connects mid-conversation shows the right pose at once, then the reply she
-is still speaking, if any, with how far into it she is (`elapsed`), so its mouth
-joins in on time instead of staying shut.
+(re)connects mid-conversation shows the right pose at once, then the last
+`hearing` (once it has changed: whether she hears Master, off while the listen
+pause of Ctrl+Alt+Q holds), then the reply she is still speaking, if any, with
+how far into it she is (`elapsed`), so its mouth joins in on time instead of
+staying shut.
 """
 
 from __future__ import annotations
@@ -132,6 +134,7 @@ class AvatarBus:
         self._viewer_joined = threading.Condition(self._lock)
         self._subscriptions: list[Subscription] = []
         self._last_state: Event = {"type": "state", "state": "idle"}
+        self._last_hearing: Event | None = None  # none until it first changed
         # The last speak event and when it was published, while it may still be playing.
         self._last_speak: tuple[Event, float] | None = None
         self._closed = False
@@ -146,7 +149,8 @@ class AvatarBus:
             self._hello = {"type": "hello", **settings}
 
     def subscribe(self) -> Subscription:
-        """A new subscription that starts with hello, the last state, and the speech in progress.
+        """A new subscription that starts with hello, the last state and hearing, and the speech
+        in progress.
 
         After `close()` the subscription comes back already closed.
         """
@@ -157,6 +161,8 @@ class AvatarBus:
                 return subscription
             subscription._put(dict(self._hello))
             subscription._put(dict(self._last_state))
+            if self._last_hearing is not None:
+                subscription._put(dict(self._last_hearing))
             if (speech := self._speech_in_progress()) is not None:
                 subscription._put(speech)
             self._subscriptions.append(subscription)
@@ -185,6 +191,8 @@ class AvatarBus:
                     self._last_speak = None
             elif event.get("type") == "speak":
                 self._last_speak = (event, self._clock())
+            elif event.get("type") == "hearing":
+                self._last_hearing = event
             for subscription in self._subscriptions:
                 subscription._put(event)
 
@@ -198,6 +206,10 @@ class AvatarBus:
                 raise ValueError(f"followup_s is only valid with 'listening', not {name!r}")
             event["followup_s"] = followup_s
         self.publish(event)
+
+    def hearing(self, on: bool) -> None:
+        """Publishes whether she hears Master: not while the listen pause (Ctrl+Alt+Q) holds."""
+        self.publish({"type": "hearing", "on": on})
 
     def emotion(self, name: str, hold_s: float = DEFAULT_HOLD_S) -> None:
         _check_emotion(name)

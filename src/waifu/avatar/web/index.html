@@ -124,6 +124,25 @@
         opacity: 1;
       }
 
+      /* The listen pause (Ctrl+Alt+Q): shown in mascot mode too, unlike #status. */
+      #hearing {
+        position: fixed;
+        top: 6px;
+        left: 6px;
+        margin: 0;
+        padding: 3px 8px;
+        border-radius: 10px;
+        background: rgba(40, 32, 56, 0.78);
+        color: #fff;
+        font-size: 11px;
+        line-height: 1.3;
+        pointer-events: none;
+      }
+
+      #hearing[hidden] {
+        display: none;
+      }
+
       #message {
         position: fixed;
         left: 50%;
@@ -169,6 +188,7 @@
       <span id="status" data-state="disconnected" title="Terputus dari Cyrene"></span>
       <button id="close" type="button" title="Tutup" aria-label="Tutup">×</button>
     </div>
+    <p id="hearing" role="status" hidden>Tidak mendengarkan</p>
     <p id="message" role="alert">Memuat avatar…</p>
     <p id="credit"></p>
     <script>
@@ -196,7 +216,7 @@
       that got no WebGL at all, which its main process answers with a reload or a fresh mascot.
     -->
     <script id="avatar-script" type="module">
-      import { avatarTitle, maxFpsFor } from "./logic.js";
+      import { avatarTitle, hearingBadgeShown, maxFpsFor } from "./logic.js";
       import {
         DIAGNOSTICS,
         reportDiagnostic,
@@ -220,6 +240,7 @@
 
       const messageElement = document.getElementById("message");
       const statusElement = document.getElementById("status");
+      const hearingElement = document.getElementById("hearing");
       const creditElement = document.getElementById("credit");
 
       class CoreMissingError extends Error {}
@@ -310,6 +331,9 @@
             break;
           case "emotion":
             renderer?.setEmotion(event.emotion, event.hold_s ?? DEFAULT_EMOTION_HOLD_S);
+            break;
+          case "hearing":
+            hearingElement.hidden = !hearingBadgeShown(event);
             break;
           default:
             break;
