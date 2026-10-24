@@ -6201,6 +6201,12 @@ tersambung lagi, dia kembali memakainya: "Mic Headset (Polaris-BT) tersambung la
 itu lagi." Kalau tidak ada mic yang bisa dibuka, dia tetap jalan (pengingat dan alarm tetap
 diucapkan) dan mencoba lagi tiap 5 detik. Satu nama seperti sebelumnya tetap bisa dipakai.
 
+Mic yang tadi hanya mengirim sunyi total tidak dicoba lagi sampai daftar mic Windows berubah
+atau kamu memilihnya di HP, jadi dia tidak bolak-balik di antara dua mic. Kalau semua mic yang
+bisa dibuka hanya mengirim sunyi total (mic di-mute, atau izin mikrofon Windows untuk aplikasi
+desktop mati), dia tetap di satu mic dan bilang sekali "Mic-ku cuma mengirim sunyi total, jadi
+aku tidak bisa mendengarmu. ..."; begitu mic-nya tidak di-mute lagi, dia langsung mendengar.
+
 Untuk melihat mic yang datang dan pergi, Cyrene memulai ulang PortAudio sebentar dengan mic
 tertutup (ucapan yang jatuh tepat di saat itu tidak terdengar), hanya saat daftar mic Windows
 berubah, saat mic gagal, atau saat ganti mic dari HP. Kalau `audio.input_device` atau

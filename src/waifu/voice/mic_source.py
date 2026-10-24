@@ -11,6 +11,11 @@ starts, so with `restart` it is restarted before such a reopen, and whenever Win
 inputs (`present`, read from winmm) changes, so a preferred mic that came back is found and
 switched back to.
 
+A mic that went flat (exact zeros) still opens, so it is not tried again until Windows' list
+changes or it is picked on the phone: she never flaps between two flat mics. When every mic that
+opens is flat (muted, or Windows' microphone privacy off), she stays on one, kept open so an
+unmuted mic is heard at once, and says so once.
+
 Every open, close, and restart happens on the thread iterating `frames()`, between two frames,
 never on the phone server's thread: closing a stream under its reader would make a PortAudio call
 on a closed stream. A switch the phone asks for (`request_switch`) is therefore posted and taken
@@ -33,7 +38,7 @@ from typing import Any, Protocol
 
 import numpy as np
 
-from waifu.voice.audio import LISTING, MicLevel
+from waifu.voice.audio import LISTING, MicLevel, MicrophoneFlat
 from waifu.voice.mic_check import InputDevice
 
 logger = logging.getLogger(__name__)
@@ -43,6 +48,10 @@ PROBE_S = 5.0  # how often Windows' list of inputs is read for a mic that came o
 # What she says (through `announce`) when the mic she listens through changed by itself.
 MIC_NOW = "Sekarang aku pakai mic {name}."
 MIC_BACK = "Mic {name} tersambung lagi, aku pakai itu lagi."
+ALL_FLAT = (
+    "Mic-ku cuma mengirim sunyi total, jadi aku tidak bisa mendengarmu. Cek apakah mic-nya "
+    "di-mute, atau izin mikrofon Windows untuk aplikasi desktop mati."
+)
 # The answers to a switch asked for on the phone.
 SWITCHED = "Sekarang memakai {name}."
 FOLLOWING_CONFIG = "Mengikuti urutan mic di config: sekarang memakai {name}."
@@ -161,6 +170,11 @@ class MicSource:
         self._last_name: str | None = None  # the mic she listened through last
         self._last_rank: int | None = None
         self._retry_at: float | None = None  # while no mic opens
+        # The preferences that went flat since Windows' list of inputs last changed, whether she
+        # stays on a flat one since every mic that opens is flat, and whether she said so.
+        self._flat: set[Device] = set()
+        self._staying = False
+        self._told_all_flat = False
         self._known_names: frozenset[str] | None = None  # Windows' inputs at PortAudio's start
         self._next_probe = 0.0
         self._next_page_probe = 0.0
@@ -213,7 +227,13 @@ class MicSource:
                 except StopIteration:  # its stream was closed: so was the source
                     return
                 except Exception as exc:  # MicrophoneError, MicrophoneFlat, or PortAudio's own
+                    flat = isinstance(exc, MicrophoneFlat)
+                    if flat and self._staying:  # every mic is flat: read on through this one
+                        frames = stream.frames()
+                        continue
                     logger.warning("Microphone %s failed: %s", stream.name, exc)
+                    if flat:
+                        self._flat.add(self._value)
                     self._close_current()
                     self._reopen(failed=(self._value,))
                     break
@@ -324,31 +344,64 @@ class MicSource:
             self._reopen_after_change()
 
     def _reopen_after_change(self) -> None:
-        """Close the mic, restart PortAudio, and open the first preference that opens."""
+        """Close the mic, restart PortAudio, and open the first preference that opens, a flat
+        one too: it may have been plugged in again."""
         logger.info("Windows lists other microphones now; listing them again")
+        self._flat.clear()
+        self._told_all_flat = False
         self._close_current()
-        self._reopen()
+        self._reopen(came_back=True)
 
-    def _reopen(self, *, failed: tuple[Device, ...] = (), announce: bool = True) -> None:
+    def _reopen(
+        self, *, failed: tuple[Device, ...] = (), announce: bool = True, came_back: bool = False
+    ) -> None:
         """Restart PortAudio when allowed, then open the first preference that opens, those
-        that just `failed` last; with none, wait and try again every RETRY_S."""
+        that just `failed` last and the flat ones not at all; when only a flat one opens, stay on
+        it (the one that just failed first); with none, wait and try again every RETRY_S.
+        `came_back`: Windows' list changed, so a more preferred mic is one that came back."""
         self._restart_portaudio()
         waiting = self._retry_at is not None
         preferences = self.preferences
         order = [value for value in preferences if value not in failed]
         order += [value for value in preferences if value in failed]
-        for value in order:
+        for value in [value for value in order if value not in self._flat]:
             try:
                 stream = self._opened(value)
             except Exception as exc:
                 log = logger.debug if waiting else logger.warning
                 log("Microphone %s does not open: %s", _label(value), exc)
                 continue
-            self._use(value, stream, announce=announce)
+            self._use(value, stream, announce=announce, came_back=came_back)
+            return
+        flat = [value for value in preferences if value in failed and value in self._flat]
+        flat += [value for value in preferences if value not in failed and value in self._flat]
+        if self._stay_on_flat(flat, announce=announce):
             return
         self._retry_at = self._clock() + RETRY_S
         if not waiting:
             logger.error("No microphone opens; trying again every %g s", RETRY_S)
+
+    def _stay_on_flat(self, flat: list[Device], *, announce: bool) -> bool:
+        """Stay on the first of the `flat` mics that opens, its run of zeros no longer a
+        failure, and say once that every mic is flat; False when none opens."""
+        for value in flat:
+            try:
+                stream = self._opened(value)
+            except Exception as exc:
+                logger.debug("Microphone %s does not open: %s", _label(value), exc)
+                continue
+            self._use(value, stream, announce=False)
+            self._staying = True
+            if not self._told_all_flat:
+                self._told_all_flat = True
+                logger.error(
+                    "Every microphone that opens sends only exact zeros; staying on %s",
+                    stream.name,
+                )
+                if announce and self._announce is not None:
+                    self._announce(ALL_FLAT)
+            return True
+        return False
 
     def _switch(self, request: _Switch) -> None:
         """Take the phone's switch: close the mic, restart PortAudio, open the one asked for;
@@ -387,6 +440,7 @@ class MicSource:
             self._retry_at = self._clock() + RETRY_S
             return SwitchResult("failed", NONE_OPENED.format(device=device, why=exc))
         self._picked = device
+        self._flat.discard(device)
         self._use(device, stream, announce=False)
         logger.info("Switched the microphone to %s, picked on the phone", device)
         return SwitchResult("done", SWITCHED.format(name=stream.name))
@@ -404,14 +458,17 @@ class MicSource:
         stream.__enter__()
         return stream
 
-    def _use(self, value: Device, stream: Stream, *, announce: bool) -> None:
+    def _use(
+        self, value: Device, stream: Stream, *, announce: bool, came_back: bool = False
+    ) -> None:
         """Listen through `stream`, opened as `value`, paused as the source is; say so when it
-        is another mic than before (MIC_BACK when it is a more preferred one)."""
+        is another mic than before (MIC_BACK when it `came_back` and is a more preferred one)."""
         with self._lock:  # a stream opens unpaused: one opened while she speaks is paused now
             if self._paused:
                 stream.pause()
             self._stream, self._value = stream, value
         self._retry_at = None
+        self._staying = False
         name, rank = stream.name, self.preferences.index(value)
         previous_name, previous_rank = self._last_name, self._last_rank
         self._last_name, self._last_rank = name, rank
@@ -422,7 +479,7 @@ class MicSource:
         logger.info("Listening through %s (%s)", name, _label(value))
         if not announce or self._announce is None:
             return
-        back = previous_rank is not None and rank < previous_rank
+        back = came_back and previous_rank is not None and rank < previous_rank
         self._announce((MIC_BACK if back else MIC_NOW).format(name=name))
 
     def _close_current(self) -> None:

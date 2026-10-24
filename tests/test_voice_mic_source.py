@@ -19,6 +19,7 @@ from waifu.voice import audio
 from waifu.voice.audio import MicLevel, MicrophoneError, MicrophoneFlat
 from waifu.voice.mic_check import InputDevice
 from waifu.voice.mic_source import (
+    ALL_FLAT,
     MIC_BACK,
     MIC_NOW,
     PROBE_S,
@@ -56,7 +57,8 @@ class FakeClock:
 
 class FakeStream:
     """A MicStream that yields frames filled with its own `mark` and, after `fail_after` frames,
-    raises `failure`; it tells whether it is open, closed, and paused."""
+    raises `failure`, or MicrophoneFlat once (as a MicStream reports a run of zeros) when its
+    device is `flat`; it tells whether it is open, closed, and paused."""
 
     def __init__(self, mics: FakeMics, device: object, mark: float) -> None:
         self._mics = mics
@@ -67,6 +69,7 @@ class FakeStream:
         self.level: MicLevel | None = None
         self.paused = False
         self.closed = False
+        self.told_flat = False
 
     def __enter__(self) -> FakeStream:
         problem = self._mics.broken.get(self.device)
@@ -87,6 +90,10 @@ class FakeStream:
             if failure is not None and sent >= self._mics.fail_after:
                 del self._mics.failures[self.device]
                 raise failure
+            flat = self.device in self._mics.flat and not self.told_flat
+            if flat and sent >= self._mics.fail_after:
+                self.told_flat = True
+                raise MicrophoneFlat("Mikrofon hanya mengirim sunyi total.")
             sent += 1
             yield np.full(FRAME_LEN, self.mark, dtype=np.float32)
 
@@ -99,12 +106,14 @@ class FakeStream:
 
 class FakeMics:
     """The mics a fake PortAudio opens: `broken[device]` refuses to open, `failures[device]`
-    fails once after `fail_after` frames; each opened stream marks its frames with a number."""
+    fails once after `fail_after` frames, and every stream of a `flat` device sends only zeros
+    (reported once per stream); each opened stream marks its frames with a number."""
 
     def __init__(self) -> None:
         self.events: list[str] = []
         self.broken: dict[object, Exception] = {}
         self.failures: dict[object, Exception] = {}
+        self.flat: set[object] = set()
         self.fail_after = 2
         self.streams: list[FakeStream] = []
         self.names = frozenset({"Headset (Polaris-BT)", "Microphone (Onboard)"})
@@ -253,7 +262,7 @@ def test_a_failing_mic_gives_way_to_the_next_with_one_line(failure, caplog):
 
 def test_the_failed_mic_is_tried_again_last_and_reopened_without_a_word():
     rig = Rig([HEADSET])
-    rig.mics.failures[HEADSET] = MicrophoneFlat("sunyi total")
+    rig.mics.failures[HEADSET] = MicrophoneError("Mikrofon terputus")
     rig.mics.broken[None] = ValueError("no default input")
 
     with rig.source as source:
@@ -261,6 +270,73 @@ def test_the_failed_mic_is_tried_again_last_and_reopened_without_a_word():
 
     assert [stream.device for stream in rig.mics.streams] == [HEADSET, None, HEADSET]
     assert rig.said == []
+
+
+def test_a_mic_that_went_flat_is_not_tried_again_until_windows_lists_other_mics():
+    rig = Rig([HEADSET, USB])
+    rig.mics.failures[HEADSET] = MicrophoneFlat("sunyi total")
+    with rig.source as source:
+        frames = source.frames()
+        assert marks(frames, 4) == [1.0, 1.0, 2.0, 2.0]
+        rig.mics.failures[USB] = MicrophoneFlat("sunyi total")
+
+        assert marks(frames, 2) == [3.0, 3.0]  # neither the headset (flat) nor the USB mic
+        assert rig.mics.streams[-1].device is None
+
+        rig.mics.names = rig.mics.names | {"Headset (Polaris-BT) 2"}  # Windows lists more
+        rig.clock.now += PROBE_S
+        assert marks(frames, 2) == [4.0, 4.0]
+
+    assert rig.mics.streams[-1].device == HEADSET
+    assert rig.said == [
+        MIC_NOW.format(name="Microphone (USB)"),
+        MIC_NOW.format(name="Microphone (Onboard)"),
+        MIC_BACK.format(name="Headset (Polaris-BT)"),  # only once Windows listed a change
+    ]
+
+
+def test_when_every_mic_sends_only_zeros_she_stays_on_one_and_says_so_once(caplog):
+    # Windows' microphone privacy off for desktop apps: every mic opens and sends exact zeros.
+    rig = Rig([HEADSET, USB])
+    rig.mics.flat = {HEADSET, USB, None}
+
+    with caplog.at_level(logging.INFO, logger="waifu.voice.mic_source"), rig.source as source:
+        frames = source.frames()
+        marks(frames, 6)  # the headset, the USB mic, and the default each go flat once
+        assert marks(frames, 40) == [4.0] * 40
+
+    assert [stream.device for stream in rig.mics.streams] == [HEADSET, USB, None, None]
+    assert rig.said == [
+        MIC_NOW.format(name="Microphone (USB)"),
+        MIC_NOW.format(name="Microphone (Onboard)"),
+        ALL_FLAT,
+    ]
+    assert rig.events.count("restart") == 3
+    assert caplog.text.count("Every microphone that opens sends only exact zeros") == 1
+
+
+def test_a_lone_flat_mic_is_reopened_once_then_kept_open():
+    rig = Rig()
+    rig.mics.flat = {None}
+
+    with rig.source as source:
+        assert marks(source.frames(), 30) == [1.0, 1.0] + [2.0] * 28
+
+    assert [stream.device for stream in rig.mics.streams] == [None, None]
+    assert rig.said == [ALL_FLAT]
+
+
+def test_a_mic_picked_on_the_phone_is_tried_though_it_went_flat():
+    rig = Rig([HEADSET, USB])
+    rig.mics.failures[HEADSET] = MicrophoneFlat("sunyi total")
+    with rig.source as source:
+        frames = source.frames()
+        marks(frames, 4)  # on the USB mic now
+
+        answer = switch_from_the_phone(rig, HEADSET, frames)
+
+        assert answer.state == "done"
+        assert source.status().mic.name == "Headset (Polaris-BT)"
 
 
 def test_with_no_mic_left_she_hears_silence_at_the_frames_pace_and_retries_every_five_seconds(
