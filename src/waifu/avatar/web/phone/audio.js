@@ -57,7 +57,14 @@ const PROBLEM_TEXTS = {
   action_unknown: "Tombol itu sudah tidak ada di PC. Muat ulang halaman ini.",
   action_limit: "Tombolnya terlalu sering ditekan. Tunggu sebentar, lalu coba lagi.",
   action_busy: "Perintah tadi masih jalan. Tunggu sebentar.",
+  voice_hidden: "Diagnosa suara disembunyikan selama mode tamu.",
+  voice_missing: "Diagnosa suara tidak tersedia di PC ini.",
+  voice_limit: "Setelan suara terlalu sering diubah. Tunggu sebentar, lalu coba lagi.",
+  voice_busy: "Perubahan tadi masih jalan. Tunggu sebentar.",
 };
+// The Suara sheet's routes (voice.js): its status, and its changes.
+const VOICE_ROUTES = new Set(["/voice", "/voice/set"]);
+const VOICE_PROBLEMS = { 403: "voice_hidden", 404: "voice_missing", 409: "voice_busy", 429: "voice_limit" };
 
 export const PROBLEM_KINDS = Object.freeze(Object.keys(PROBLEM_TEXTS));
 
@@ -245,13 +252,15 @@ export function parsePhoneConfig(data) {
  * The problem an error `status` of `route` means for the owner (a kind of PROBLEM_KINDS). A gateway error comes from
  * tailscale serve in front of the PC, which answers 502 while Cyrene is not running. A quick button (/action) the PC
  * no longer has is a 404, one pressed too often a 429, and one pressed while this phone's last press still runs on the
- * PC (from another tab, or after a reload) a 409.
+ * PC (from another tab, or after a reload) a 409. The Suara sheet is a 403 while guest mode hides it and a 404 on a PC
+ * without it; a change made too often is a 429, and one made while the last still runs a 409.
  */
 export function problemForStatus(route, status) {
   const pairing = route === "/pair";
   if (route === "/action" && status === 404) return "action_unknown";
   if (route === "/action" && status === 429) return "action_limit";
   if (route === "/action" && status === 409) return "action_busy";
+  if (VOICE_ROUTES.has(route) && Object.hasOwn(VOICE_PROBLEMS, status)) return VOICE_PROBLEMS[status];
   switch (status) {
     case 502:
     case 503:

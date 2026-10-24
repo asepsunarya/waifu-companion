@@ -33,6 +33,23 @@ const ELEMENT_IDS = [
   "camera-close",
   "quick",
   "quick-toggle",
+  "voice-toggle",
+  "voice",
+  "voice-close",
+  "voice-mic",
+  "voice-default",
+  "voice-level",
+  "voice-gate",
+  "voice-level-text",
+  "voice-device",
+  "voice-switch",
+  "voice-speaker",
+  "voice-threshold",
+  "voice-margin",
+  "voice-save",
+  "voice-reset",
+  "voice-note",
+  "voice-records",
 ];
 const HIDDEN_AT_START = new Set([
   "retry",
@@ -44,6 +61,8 @@ const HIDDEN_AT_START = new Set([
   "viewfinder",
   "quick",
   "quick-toggle",
+  "voice-toggle",
+  "voice",
 ]);
 // phone.css: #bubbles has 16 px of top padding (its faded edge) and 6 px between bubbles.
 const LIST_PADDING_TOP = 16;
@@ -85,6 +104,47 @@ const QUICK = {
   ],
 };
 const LAMP_ON = { ok: true, message: "Lampu kamar: perintah 'on' berhasil (simulasi)." };
+// What GET /voice answers (the Suara sheet), and POST /voice/set's answer to a switch.
+const VOICE = {
+  mic: { name: "Headset (Polaris-BT)", host_api: "MME", value: "Headset (Polaris-BT), MME" },
+  windows_default: "Microphone (High Definition Aud",
+  preferences: ["Headset (Polaris-BT), MME", null],
+  override_mic: null,
+  devices: [
+    { value: "Headset (Polaris-BT), MME", name: "Headset (Polaris-BT)", host_api: "MME" },
+    { value: "Microphone (High Definition Aud, MME", name: "Microphone (High Definition Aud", host_api: "MME" },
+  ],
+  level: { rms_db: -51.2, peak_db: -30.0, loudest_db: -48.0 },
+  vad: {
+    floor_db: -60.0,
+    bar_db: -40.0,
+    threshold_db: -45.0,
+    margin_db: 12.0,
+    default_threshold_db: -45.0,
+    default_margin_db: 12.0,
+    threshold_bounds: [-70.0, -25.0],
+    margin_bounds: [3.0, 30.0],
+  },
+  speaker: { enabled: true, threshold: 0.45, default: 0.45, bounds: [0.3, 0.7] },
+  switch: { pending: false, last: null },
+  records: [
+    {
+      at: "19:30:07",
+      length_s: 1.2,
+      peak_db: -20.0,
+      rms_db: -26.0,
+      outcome: "no-wake",
+      transcript: "matikan lampu",
+      wake: "no_wake_word",
+      score: 0.71,
+      threshold: 0.45,
+      stt_s: 0.4,
+      brain_s: null,
+      tts_s: null,
+    },
+  ],
+};
+const SWITCHING = { ok: true, message: "Mic sedang diganti. Hasilnya muncul di sini sebentar lagi.", pending: true };
 // The same buttons while an alarm rings on the PC: its group comes first.
 const RINGING = {
   groups: [
@@ -439,6 +499,9 @@ async function openPage({
   actions = null,
   actionReply = LAMP_ON,
   actionStatus = 200,
+  voice = null,
+  voiceStatus = 200,
+  voiceReply = SWITCHING,
 } = {}) {
   const elements = new Map(
     ELEMENT_IDS.map((id) => {
@@ -480,6 +543,8 @@ async function openPage({
       if (route === "/talk") return jsonResponse({ heard: HEARD, ...chatAnswer(replyText) }, talkStatus);
       if (route === "/actions" && actions !== null) return jsonResponse(actions);
       if (route === "/action") return jsonResponse(actionReply, actionStatus);
+      if (route === "/voice" && voice !== null) return jsonResponse(voice, voiceStatus);
+      if (route === "/voice/set") return jsonResponse(voiceReply);
       return jsonResponse({ error: "Tidak ditemukan." }, 404);
     },
   };
@@ -505,7 +570,11 @@ async function openPage({
   const setActions = (listed) => {
     actions = listed;
   };
-  return { element: (id) => elements.get(id), scripts, requests, devices, objectUrls, setActions };
+  const setVoice = (status, code = 200) => {
+    voice = status;
+    voiceStatus = code;
+  };
+  return { element: (id) => elements.get(id), scripts, requests, devices, objectUrls, setActions, setVoice };
 }
 
 async function send(page, text) {
@@ -1535,5 +1604,205 @@ describe("phone quick buttons", () => {
     assert.equal(page.element("viewfinder").hidden, false);
     assert.equal(page.element("quick").hidden, true);
     assert.equal(page.element("quick-toggle").attributes.get("aria-expanded"), "false");
+  });
+});
+
+async function openVoice(options = {}) {
+  const page = await openPage({ voice: VOICE, ...options });
+  page.element("voice-toggle").dispatch("click");
+  await settle();
+  return page;
+}
+
+const voiceReads = (page) => page.requests.filter(({ route }) => route === "/voice").length;
+
+describe("phone Suara sheet", () => {
+  it("shows its button once the PC answers the voice status, with the sheet closed", async () => {
+    const page = await openPage({ voice: VOICE });
+
+    assert.equal(page.element("voice-toggle").hidden, false);
+    assert.equal(page.element("voice").hidden, true);
+  });
+
+  it("stays hidden without a word when the PC has none or guest mode hides it", async () => {
+    for (const [voice, voiceStatus] of [
+      [null, 200],
+      [VOICE, 403],
+      [{ mic: "Headset" }, 200],
+    ]) {
+      const page = await openPage({ voice, voiceStatus });
+
+      assert.equal(page.element("voice-toggle").hidden, true);
+      assert.equal(page.element("notice").hidden, true);
+    }
+  });
+
+  it("opens on its button with the mic, the default, the level against the gate, and the records", async () => {
+    const page = await openVoice();
+
+    assert.equal(page.element("voice").hidden, false);
+    assert.equal(page.element("voice-toggle").attributes.get("aria-expanded"), "true");
+    assert.match(page.element("voice-mic").textContent, /Headset \(Polaris-BT\) · MME/);
+    assert.match(page.element("voice-default").textContent, /Microphone \(High Definition Aud/);
+    assert.equal(page.element("voice-level").style.width, "40.0%"); // the loudest frame, -48 dB
+    assert.equal(page.element("voice-gate").style.left, "50.0%"); // the bar, -40 dB
+    assert.match(page.element("voice-level-text").textContent, /-48 dB.*-40 dB/);
+    const [record] = page.element("voice-records").children;
+    assert.match(record.className, /outcome-no-wake/);
+    const text = record.children.map((line) => line.textContent).join(" ");
+    assert.match(text, /19:30:07 · tanpa nama/);
+    assert.match(text, /“matikan lampu”/);
+  });
+
+  it("lists the PC's mics to switch to, the config's order first, the one in use picked", async () => {
+    const page = await openVoice();
+    const picker = page.element("voice-device");
+
+    assert.deepEqual(
+      picker.children.map((option) => [option.value, option.textContent]),
+      [
+        ["", "Ikuti urutan di config"],
+        ["Headset (Polaris-BT), MME", "Headset (Polaris-BT) · MME"],
+        ["Microphone (High Definition Aud, MME", "Microphone (High Definition Aud · MME"],
+      ],
+    );
+    assert.equal(picker.value, "");
+  });
+
+  it("fills the settings' boxes with the settings in use", async () => {
+    const page = await openVoice();
+
+    assert.equal(page.element("voice-speaker").value, "0.45");
+    assert.equal(page.element("voice-threshold").value, "-45");
+    assert.equal(page.element("voice-margin").value, "12");
+  });
+
+  it("reads the status every 1.5 s while it is open, and no longer once it closed", async (t) => {
+    t.mock.timers.enable({ apis: ["setInterval"] });
+    const page = await openVoice();
+    const opened = voiceReads(page);
+
+    t.mock.timers.tick(1_500);
+    await settle();
+    const polled = voiceReads(page);
+    page.element("voice-close").dispatch("click");
+    t.mock.timers.tick(15_000);
+    await settle();
+
+    assert.equal(polled, opened + 1);
+    assert.equal(voiceReads(page), polled);
+    assert.equal(page.element("voice").hidden, true);
+  });
+
+  it("is not read while the page is hidden, and again once it shows", async (t) => {
+    t.mock.timers.enable({ apis: ["setInterval"] });
+    const page = await openVoice();
+    document.hidden = true;
+    document.dispatch("visibilitychange");
+    const before = voiceReads(page);
+
+    t.mock.timers.tick(15_000);
+    await settle();
+    const whileHidden = voiceReads(page);
+    document.hidden = false;
+    document.dispatch("visibilitychange");
+    t.mock.timers.tick(1_500);
+    await settle();
+
+    assert.equal(whileHidden, before);
+    assert.ok(voiceReads(page) > before);
+  });
+
+  it("never asks twice at once while a reading is slow", async (t) => {
+    t.mock.timers.enable({ apis: ["setInterval"] });
+    const page = await openVoice();
+    const fakeFetch = globalThis.fetch;
+    const held = [];
+    globalThis.fetch = (route, init) => {
+      if (route !== "/voice") return fakeFetch(route, init);
+      page.requests.push({ route, init });
+      return new Promise((resolve) => held.push(() => resolve(jsonResponse(VOICE))));
+    };
+    const before = voiceReads(page);
+
+    t.mock.timers.tick(6_000);
+    await settle();
+
+    assert.equal(voiceReads(page), before + 1);
+    held[0]();
+    await settle();
+  });
+
+  it("switches to the picked mic and shows the PC's answer", async () => {
+    const page = await openVoice();
+    page.element("voice-device").value = "Microphone (High Definition Aud, MME";
+
+    page.element("voice-switch").dispatch("click");
+    await settle();
+
+    assert.deepEqual(sentJson(page, "/voice/set"), {
+      action: "mic",
+      device: "Microphone (High Definition Aud, MME",
+    });
+    assert.equal(page.element("voice-note").textContent, SWITCHING.message);
+  });
+
+  it("saves the settings in the boxes, and refuses one out of its bounds without asking the PC", async () => {
+    const page = await openVoice({ voiceReply: { ok: true, message: "Setelan suara dipakai dan disimpan.", pending: false } });
+    page.element("voice-speaker").value = "0,5";
+    page.element("voice-threshold").value = "-50";
+    page.element("voice-margin").value = "10";
+
+    page.element("voice-save").dispatch("click");
+    await settle();
+
+    assert.deepEqual(sentJson(page, "/voice/set"), {
+      action: "tune",
+      speaker_threshold: 0.5,
+      vad_threshold_db: -50,
+      vad_margin_db: 10,
+    });
+    assert.equal(page.element("voice-note").textContent, "Setelan suara dipakai dan disimpan.");
+
+    const sent = page.requests.filter(({ route }) => route === "/voice/set").length;
+    page.element("voice-margin").value = "40";
+    page.element("voice-save").dispatch("click");
+    await settle();
+
+    assert.equal(page.requests.filter(({ route }) => route === "/voice/set").length, sent);
+    assert.equal(page.element("voice-note").textContent, "Margin VAD harus 3 sampai 30 dB.");
+  });
+
+  it("puts the config's settings back", async () => {
+    const page = await openVoice();
+
+    page.element("voice-reset").dispatch("click");
+    await settle();
+
+    assert.deepEqual(sentJson(page, "/voice/set"), { action: "reset" });
+  });
+
+  it("closes and hides its button once guest mode hides it", async (t) => {
+    t.mock.timers.enable({ apis: ["setInterval"] });
+    const page = await openVoice();
+    page.setVoice(VOICE, 403);
+
+    t.mock.timers.tick(1_500);
+    await settle();
+
+    assert.equal(page.element("voice").hidden, true);
+    assert.equal(page.element("voice-toggle").hidden, true);
+  });
+});
+
+describe("phone Suara button", () => {
+  it("comes back when the page shows again once guest mode ended", async () => {
+    const page = await openPage({ voice: VOICE, voiceStatus: 403 });
+    page.setVoice(VOICE, 200);
+
+    document.dispatch("visibilitychange");
+    await settle();
+
+    assert.equal(page.element("voice-toggle").hidden, false);
   });
 });

@@ -45,6 +45,17 @@
       <div id="title">
         <h1 id="name">Cyrene</h1>
         <span id="status" role="status">Siap</span>
+        <button
+          id="voice-toggle"
+          class="pill"
+          type="button"
+          aria-expanded="false"
+          aria-controls="voice"
+          title="Diagnosa suara: mic, level, dan yang terdengar"
+          hidden
+        >
+          Suara
+        </button>
       </div>
       <p id="credit"></p>
     </header>
@@ -164,5 +175,50 @@
         </button>
       </form>
     </main>
+
+    <!-- What Cyrene's mic on the PC hears and what she did with each utterance (voice.js). -->
+    <section id="voice" aria-labelledby="voice-title" hidden>
+      <div class="voice-head">
+        <h2 id="voice-title">Diagnosa suara</h2>
+        <button id="voice-close" class="round" type="button" aria-label="Tutup diagnosa suara" title="Tutup">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M19 6.4 17.6 5 12 10.6 6.4 5 5 6.4l5.6 5.6L5 17.6 6.4 19l5.6-5.6 5.6 5.6 1.4-1.4-5.6-5.6z" />
+          </svg>
+        </button>
+      </div>
+      <section class="voice-part" aria-labelledby="voice-mic-title">
+        <h3 id="voice-mic-title">Mic yang dipakai</h3>
+        <p id="voice-mic"></p>
+        <p id="voice-default" class="voice-soft"></p>
+        <div class="meter" aria-hidden="true">
+          <div id="voice-level" class="meter-level"></div>
+          <div id="voice-gate" class="meter-gate"></div>
+        </div>
+        <p id="voice-level-text" class="voice-soft"></p>
+        <label class="voice-field" for="voice-device">Ganti mic</label>
+        <div class="voice-row">
+          <select id="voice-device"></select>
+          <button id="voice-switch" class="pill" type="button">Pakai</button>
+        </div>
+      </section>
+      <section class="voice-part" aria-labelledby="voice-settings-title">
+        <h3 id="voice-settings-title">Setelan</h3>
+        <label class="voice-field" for="voice-speaker">Ambang kecocokan suaramu (0,30–0,70)</label>
+        <input id="voice-speaker" type="text" autocomplete="off" />
+        <label class="voice-field" for="voice-threshold">Ambang VAD dalam dB (-70 sampai -25)</label>
+        <input id="voice-threshold" type="text" autocomplete="off" />
+        <label class="voice-field" for="voice-margin">Margin VAD di atas noise, dB (3–30)</label>
+        <input id="voice-margin" type="text" autocomplete="off" />
+        <div class="voice-row">
+          <button id="voice-save" class="pill" type="button">Simpan</button>
+          <button id="voice-reset" class="pill quiet" type="button">Reset ke default</button>
+        </div>
+        <p id="voice-note" role="status"></p>
+      </section>
+      <section class="voice-part" aria-labelledby="voice-records-title">
+        <h3 id="voice-records-title">Yang terdengar</h3>
+        <ol id="voice-records"></ol>
+      </section>
+    </section>
   </body>
 </html>

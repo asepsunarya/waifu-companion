@@ -2539,10 +2539,10 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 263, 265, 266 · **Files:** `src/waifu/voice/panel.py`, `src/waifu/phone/server.py`, `tests/test_voice_panel.py`, `tests/test_phone_server.py` · **Scope:** M
 
-## Task 268: The "Suara" sheet
+## Task 268: The "Suara" sheet ✅
 
 **Acceptance criteria:**
-- [ ] `voice.js` parses the status, places the level and the gate, names and colours the outcomes, and builds the requests; the sheet polls every 1.5 s only while open and visible, one request at a time, hides itself on 403 or 404, and switches, saves, and resets; `sw.js` keeps `voice.js`
+- [x] `voice.js` parses the status, places the level and the gate, names and colours the outcomes, and builds the requests; the sheet polls every 1.5 s only while open and visible, one request at a time, hides itself on 403 or 404, and switches, saves, and resets; `sw.js` keeps `voice.js`
 
 **Dependencies:** 267 · **Files:** `src/waifu/avatar/web/phone/*`, `tests/js/phone_voice.test.mjs`, `tests/js/phone_ui.test.mjs`, `tests/js/phone_sw.test.mjs`, `tests/js/phone_page.test.mjs` · **Scope:** M
 

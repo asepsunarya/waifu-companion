@@ -374,6 +374,17 @@ describe("problemForStatus", () => {
     assert.equal(problemForStatus("/chat", 409), "server");
   });
 
+  it("reads the Suara sheet hidden in guest mode, missing, changed too often, or still changing", () => {
+    for (const route of ["/voice", "/voice/set"]) {
+      assert.equal(problemForStatus(route, 403), "voice_hidden");
+      assert.equal(problemForStatus(route, 404), "voice_missing");
+      assert.equal(problemForStatus(route, 401), "unpaired");
+    }
+    assert.equal(problemForStatus("/voice/set", 429), "voice_limit");
+    assert.equal(problemForStatus("/voice/set", 409), "voice_busy");
+    assert.equal(problemText("voice_hidden"), "Diagnosa suara disembunyikan selama mode tamu.");
+  });
+
   it("reads a gateway error as a PC that cannot be reached", () => {
     // tailscale serve answers 502 for the PC while Cyrene (waifu run) is not running.
     for (const route of ["/config.json", "/chat", "/talk", "/pair"]) {

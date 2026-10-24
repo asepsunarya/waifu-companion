@@ -548,9 +548,222 @@ body[data-state="speaking"] #status::before {
   opacity: 1;
 }
 
+/* --- The Suara sheet: what her mic on the PC hears ------------------------------------------------- */
+
+#voice-toggle {
+  margin-left: auto;
+  padding: 6px 14px;
+  font-size: 13px;
+  pointer-events: auto;
+}
+
+#voice-toggle[aria-expanded="true"] {
+  background: var(--ink);
+}
+
+/* Over the whole page, one column, read top to bottom on a 360-412 px phone. */
+#voice {
+  position: fixed;
+  inset: 0;
+  z-index: 2;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: calc(var(--safe-top) + 12px) 16px calc(var(--safe-bottom) + 16px);
+  background: #f6f1ff;
+}
+
+#voice > * {
+  max-width: 560px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.voice-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.voice-head h2 {
+  margin: 0;
+  font-size: 20px;
+}
+
+#voice-close {
+  width: 44px;
+  height: 44px;
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.voice-part {
+  margin-top: 14px;
+  padding: 12px 14px 14px;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: var(--shadow);
+}
+
+.voice-part h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.voice-part p {
+  margin: 4px 0;
+  font-size: 15px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+#voice .voice-soft {
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+/* The level of the loudest frame of the last second, with the VAD's gate as a line across it. */
+.meter {
+  position: relative;
+  height: 16px;
+  margin: 10px 0 4px;
+  border-radius: 8px;
+  background: #ece7f7;
+  overflow: hidden;
+}
+
+.meter-level {
+  height: 100%;
+  width: 0;
+  background: var(--ink-soft);
+  transition: width 0.3s ease;
+}
+
+.meter-level.above {
+  background: var(--ok);
+}
+
+.meter-gate {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  margin-left: -1px;
+  background: var(--recording);
+}
+
+.voice-field {
+  display: block;
+  margin: 12px 0 4px;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+.voice-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+#voice select,
+#voice input {
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid rgba(59, 51, 80, 0.25);
+  border-radius: 12px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  font-size: 16px;
+}
+
+#voice select {
+  flex: 1;
+  min-width: 0;
+}
+
+#voice input {
+  width: 100%;
+}
+
+#voice input:disabled {
+  opacity: 0.45;
+}
+
+#voice .pill {
+  min-height: 44px;
+}
+
+#voice .pill.quiet {
+  background: var(--paper);
+  color: var(--accent);
+  border: 1px solid rgba(111, 91, 211, 0.3);
+}
+
+#voice-note:empty {
+  display: none;
+}
+
+#voice-records {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Each utterance, its left edge coloured by what she did with it. */
+.voice-record {
+  padding: 8px 10px;
+  border-left: 5px solid var(--ink-soft);
+  border-radius: 8px;
+  background: #faf8ff;
+}
+
+.voice-record p {
+  margin: 2px 0;
+}
+
+.voice-record .voice-title {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.voice-record .voice-soft {
+  font-size: 12px;
+}
+
+.outcome-accepted {
+  border-left-color: var(--ok);
+}
+
+.outcome-not-owner {
+  border-left-color: var(--recording);
+}
+
+.outcome-no-wake {
+  border-left-color: var(--thinking);
+}
+
+.outcome-empty {
+  border-left-color: var(--accent);
+}
+
+.outcome-too-short {
+  border-left-color: #c9c2dc;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .typing span,
   #talk[aria-pressed="true"] {
     animation: none;
+  }
+
+  .meter-level {
+    transition: none;
   }
 }

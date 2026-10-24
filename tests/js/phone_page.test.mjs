@@ -116,6 +116,7 @@ describe("phone page", () => {
     assert.ok(seen.has("/phone/audio.js"));
     assert.ok(seen.has("/phone/camera.js"));
     assert.ok(seen.has("/phone/actions.js"), "the quick buttons");
+    assert.ok(seen.has("/phone/voice.js"), "the Suara sheet");
     assert.ok(seen.has("/live2d.js"), "the Live2D renderer");
     assert.ok(seen.has("/avatar.js"), "the VRM renderer");
   });

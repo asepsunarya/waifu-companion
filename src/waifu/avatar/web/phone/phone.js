@@ -21,6 +21,11 @@
 // sends the button's id to POST /action (actions.js) and the PC's answer shows as a toast; one runs at a time. The
 // buttons are read again whenever the page shows again and the panel opens, since an alarm that rings on the PC (SPEC,
 // "alarm bangun (v1.46)") adds its own, first: the panel then opens on them.
+//
+// The "Suara" button in the top bar (SPEC, "diagnosa suara (v1.47)") opens a sheet over the page that shows what her
+// mic on the PC hears: the mic and its level against the VAD's gate, and her last utterances with what she did with
+// each (voice.js). It reads GET /voice every VOICE_REFRESH_MS while it is open and the page visible, one read at a time,
+// and the owner switches the mic or changes the voice settings there (POST /voice/set). The PC hides it in guest mode.
 import { actionOutcome, actionRequest, isAlarmAction, parseActionGroups } from "./actions.js";
 import {
   DEFAULT_OWNER_CALL,
@@ -50,12 +55,33 @@ import {
   parseCameraConfig,
   talkRequest,
 } from "./camera.js";
+import {
+  levelPercent,
+  micRequest,
+  outcomeClass,
+  parseVoiceStatus,
+  recordLines,
+  resetRequest,
+  tuneRequest,
+  tuningFrom,
+  voiceOutcome,
+} from "./voice.js";
 
 const CONFIG_URL = "/config.json";
 const ACTIONS_URL = "/actions";
 const ACTION_URL = "/action";
 // While the panel lists a ringing alarm's buttons, the list is read again this often, so they go once it stops.
 const ALARM_REFRESH_MS = 15_000;
+const VOICE_URL = "/voice";
+const VOICE_SET_URL = "/voice/set";
+// While the Suara sheet is open and the page visible, the voice status is read this often, each read given this long.
+const VOICE_REFRESH_MS = 1500;
+const VOICE_TIMEOUT_MS = 4000;
+// What the PC answers when it hides the sheet (guest mode) or has none: the sheet closes and its button goes.
+const VOICE_GONE = new Set(["voice_hidden", "voice_missing"]);
+const VOICE_FOLLOW_CONFIG = "Ikuti urutan di config";
+const VOICE_NO_MIC = "Belum ada mic yang terbuka. Cyrene mencoba lagi tiap 5 detik.";
+const VOICE_NO_LEVEL = "Levelnya belum terukur.";
 const CHAT_URL = "/chat";
 const TALK_URL = "/talk";
 const PAIR_URL = "/pair";
@@ -125,6 +151,23 @@ const page = {
   cameraClose: document.getElementById("camera-close"),
   quick: document.getElementById("quick"),
   quickToggle: document.getElementById("quick-toggle"),
+  voiceToggle: document.getElementById("voice-toggle"),
+  voice: document.getElementById("voice"),
+  voiceClose: document.getElementById("voice-close"),
+  voiceMic: document.getElementById("voice-mic"),
+  voiceDefault: document.getElementById("voice-default"),
+  voiceLevel: document.getElementById("voice-level"),
+  voiceGate: document.getElementById("voice-gate"),
+  voiceLevelText: document.getElementById("voice-level-text"),
+  voiceDevice: document.getElementById("voice-device"),
+  voiceSwitch: document.getElementById("voice-switch"),
+  voiceSpeaker: document.getElementById("voice-speaker"),
+  voiceThreshold: document.getElementById("voice-threshold"),
+  voiceMargin: document.getElementById("voice-margin"),
+  voiceSave: document.getElementById("voice-save"),
+  voiceReset: document.getElementById("voice-reset"),
+  voiceNote: document.getElementById("voice-note"),
+  voiceRecords: document.getElementById("voice-records"),
 };
 
 let ownerCall = DEFAULT_OWNER_CALL;
@@ -153,6 +196,15 @@ let quickListed = "[]";
 // Whether they hold a ringing alarm's buttons, and the timer that reads them again meanwhile (null when none runs).
 let quickRinging = false;
 let alarmPoll = null;
+// The Suara sheet: the last status read, the timer reading it again (null when none runs), whether a read or a change
+// runs, the mics its picker lists (as JSON, so it is rebuilt only when they changed), and whether its settings' boxes
+// hold the PC's settings (filled once per opening, so a poll never overwrites what the owner types).
+let voiceStatus = null;
+let voicePoll = null;
+let voiceReading = false;
+let voiceChanging = false;
+let voiceListed = "";
+let voiceBoxesFilled = false;
 
 class CoreMissingError extends Error {}
 
@@ -393,6 +445,7 @@ async function boot() {
   }
   showChat(config, parseCameraConfig(result.data));
   loadQuick();
+  checkVoice();
   if (config.model === null) {
     showMessage(MODEL_MISSING_TEXT);
     return;
@@ -937,6 +990,180 @@ async function runQuick(button, id) {
   else showToast(outcome.text);
 }
 
+// --- The Suara sheet ------------------------------------------------------------------------------
+
+/** Shows the Suara button once the PC answers its voice status; without one, or in guest mode, none. */
+async function checkVoice() {
+  const result = await requestCyrene(fetch, VOICE_URL, { timeoutMs: VOICE_TIMEOUT_MS });
+  page.voiceToggle.hidden = result.problem !== undefined || parseVoiceStatus(result.data) === null;
+}
+
+/** Opens the sheet over the page, its settings' boxes filled afresh, and reads the status on a timer. */
+function openVoice() {
+  cancelTalk();
+  closeViewfinder();
+  voiceBoxesFilled = false;
+  page.voice.hidden = false;
+  page.voiceToggle.setAttribute("aria-expanded", "true");
+  page.voiceClose.focus();
+  readVoice();
+  pollVoice();
+}
+
+function closeVoice() {
+  page.voice.hidden = true;
+  page.voiceToggle.setAttribute("aria-expanded", "false");
+  stopVoicePoll();
+}
+
+/** Escape in the open sheet closes it and leaves the focus on its button. */
+function closeVoiceOnEscape(event) {
+  if (event.key !== "Escape" || page.voice.hidden) return;
+  closeVoice();
+  page.voiceToggle.focus();
+}
+
+/** Reads the status every VOICE_REFRESH_MS while the sheet is open and the page visible; else stops. */
+function pollVoice() {
+  stopVoicePoll();
+  if (!page.voice.hidden && !document.hidden) voicePoll = setInterval(readVoice, VOICE_REFRESH_MS);
+}
+
+function stopVoicePoll() {
+  clearInterval(voicePoll);
+  voicePoll = null;
+}
+
+/** Reads the status and shows it, one read at a time; a PC that hides the sheet closes it and takes its button. */
+async function readVoice() {
+  if (voiceReading) return;
+  voiceReading = true;
+  const result = await requestCyrene(fetch, VOICE_URL, { timeoutMs: VOICE_TIMEOUT_MS });
+  voiceReading = false;
+  if (!voiceAnswered(result)) return;
+  const status = parseVoiceStatus(result.data);
+  if (status === null) page.voiceNote.textContent = problemText("bad_reply", ownerCall);
+  else showVoice(status);
+}
+
+/** Whether `result` of a voice route is an answer to show; otherwise it is dealt with here. */
+function voiceAnswered(result) {
+  if (result.problem === "unpaired") {
+    closeVoice();
+    showPairing();
+    return false;
+  }
+  if (VOICE_GONE.has(result.problem)) {
+    closeVoice();
+    page.voiceToggle.hidden = true;
+    return false;
+  }
+  if (result.problem) {
+    page.voiceNote.textContent = problemText(result.problem, ownerCall);
+    return false;
+  }
+  return true;
+}
+
+function showVoice(status) {
+  voiceStatus = status;
+  const { mic, level, vad } = status;
+  page.voiceMic.textContent = mic === null ? VOICE_NO_MIC : [mic.name, mic.host_api].filter(Boolean).join(" · ");
+  page.voiceDefault.textContent = `Default Windows (saat Cyrene mulai): ${status.windowsDefault ?? "tidak ada"}`;
+  const bar = vad.barDb ?? vad.thresholdDb;
+  page.voiceLevel.style.width = `${levelPercent(level?.loudestDb).toFixed(1)}%`;
+  page.voiceLevel.className = level !== null && level.loudestDb >= bar ? "meter-level above" : "meter-level";
+  page.voiceGate.style.left = `${levelPercent(bar).toFixed(1)}%`;
+  page.voiceLevelText.textContent =
+    level === null
+      ? VOICE_NO_LEVEL
+      : `Paling keras ${Math.round(level.loudestDb)} dB, batas suara ${Math.round(bar)} dB · ` +
+        `RMS ${Math.round(level.rmsDb)} dB`;
+  showVoiceDevices(status);
+  if (!voiceBoxesFilled) fillVoiceBoxes(status);
+  page.voiceRecords.replaceChildren(...status.records.map(voiceRecord));
+}
+
+/** The picker's mics, rebuilt only when the PC lists others, so a pick under way is kept. */
+function showVoiceDevices(status) {
+  const listed = JSON.stringify(status.devices);
+  if (listed === voiceListed) return;
+  voiceListed = listed;
+  const follow = document.createElement("option");
+  follow.value = "";
+  follow.textContent = VOICE_FOLLOW_CONFIG;
+  const options = status.devices.map(({ value, name, host_api }) => {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = [name, host_api].filter(Boolean).join(" · ");
+    return option;
+  });
+  page.voiceDevice.replaceChildren(follow, ...options);
+  page.voiceDevice.value = status.overrideMic ?? "";
+}
+
+function fillVoiceBoxes(status) {
+  voiceBoxesFilled = true;
+  const { speaker, vad } = status;
+  page.voiceSpeaker.value = speaker.threshold === null ? "" : String(speaker.threshold);
+  page.voiceSpeaker.disabled = !speaker.enabled;
+  page.voiceThreshold.value = String(vad.thresholdDb);
+  page.voiceMargin.value = String(vad.marginDb);
+}
+
+/** One utterance: its time and outcome, what was heard, and its level, score, and timings. */
+function voiceRecord(record) {
+  const { title, transcript, detail } = recordLines(record);
+  const item = document.createElement("li");
+  item.className = `voice-record ${outcomeClass(record.outcome)}`;
+  const lines = [
+    ["voice-title", title],
+    ["", transcript],
+    ["voice-soft", detail],
+  ].filter(([, text]) => text !== null);
+  item.append(
+    ...lines.map(([className, text]) => {
+      const line = document.createElement("p");
+      line.className = className;
+      line.textContent = text;
+      return line;
+    }),
+  );
+  return item;
+}
+
+/** Sends a change to POST /voice/set, one at a time, shows the PC's answer, and reads the status again. */
+async function changeVoice(request) {
+  if (voiceChanging) return;
+  voiceChanging = true;
+  const result = await requestCyrene(fetch, VOICE_SET_URL, request);
+  voiceChanging = false;
+  if (!voiceAnswered(result)) return;
+  const outcome = voiceOutcome(result.data);
+  page.voiceNote.textContent = outcome === null ? problemText("bad_reply", ownerCall) : outcome.text;
+  readVoice();
+}
+
+function saveVoice() {
+  if (voiceStatus === null) return;
+  const values = {
+    speaker: page.voiceSpeaker.value,
+    threshold: page.voiceThreshold.value,
+    margin: page.voiceMargin.value,
+  };
+  const checked = tuningFrom(values, voiceStatus);
+  if (checked.problem) {
+    page.voiceNote.textContent = checked.problem;
+    return;
+  }
+  changeVoice(tuneRequest(checked.tuning));
+}
+
+function resetVoice() {
+  voiceBoxesFilled = false; // the next status fills them with the config's settings
+  changeVoice(resetRequest());
+}
+
 const isTalkKey = (event) => event.key === " " || event.key === "Enter";
 
 page.talk.addEventListener("pointerdown", (event) => {
@@ -963,8 +1190,11 @@ page.talk.addEventListener("keyup", (event) => {
 page.talk.addEventListener("blur", cancelTalk);
 document.addEventListener("visibilitychange", () => {
   pollWhileRinging();
+  pollVoice();
   if (!document.hidden) {
     loadQuick();
+    if (page.voice.hidden) checkVoice(); // guest mode may have ended or begun meanwhile
+    else readVoice();
     return;
   }
   // The alarm may stop and ring again unseen, with the same buttons: the next listing rebuilds the panel, opening it.
@@ -976,6 +1206,7 @@ document.addEventListener("visibilitychange", () => {
 window.addEventListener("pagehide", () => {
   closeViewfinder();
   stopAlarmPoll();
+  stopVoicePoll();
 });
 
 page.camera.addEventListener("click", toggleViewfinder);
@@ -999,5 +1230,15 @@ page.retry.addEventListener("click", () => location.reload());
 page.quickToggle.addEventListener("click", toggleQuick);
 page.quickToggle.addEventListener("keydown", closeQuickOnEscape);
 page.quick.addEventListener("keydown", closeQuickOnEscape);
+
+page.voiceToggle.addEventListener("click", () => (page.voice.hidden ? openVoice() : closeVoice()));
+page.voiceClose.addEventListener("click", () => {
+  closeVoice();
+  page.voiceToggle.focus();
+});
+page.voice.addEventListener("keydown", closeVoiceOnEscape);
+page.voiceSwitch.addEventListener("click", () => changeVoice(micRequest(page.voiceDevice.value)));
+page.voiceSave.addEventListener("click", saveVoice);
+page.voiceReset.addEventListener("click", resetVoice);
 
 boot();
