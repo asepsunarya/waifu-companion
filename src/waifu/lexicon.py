@@ -16,7 +16,7 @@ import logging
 import os
 import re
 import threading
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from datetime import datetime
 from pathlib import Path
 
@@ -49,6 +49,39 @@ SAME_PROBLEM = "Bacaannya tidak boleh memuat kata itu sendiri."
 FULL_PROBLEM = (
     f"Kamus sudah berisi {MAX_RULES} aturan; hapus satu dulu dengan 'waifu lafal remove'."
 )
+# What she says to "cara baca X itu Y": never X, which the new rule would rewrite.
+TAUGHT = "Oke {owner}. Mulai sekarang kubaca: {reading}."
+TEACH_REFUSED = "Maaf {owner}, belum bisa kucatat. {problem}"
+TEACH_FAILED = "Maaf {owner}, kamusku belum bisa disimpan. Coba lagi sebentar."
+# Words that make "cara baca X itu Y" a question about the reading, not a rule.
+QUESTION_WORDS = frozenset(
+    {
+        "apa",
+        "apaan",
+        "gimana",
+        "bagaimana",
+        "gmn",
+        "kenapa",
+        "mana",
+        "siapa",
+        "berapa",
+        "nggak",
+        "gak",
+        "ga",
+        "enggak",
+        "engga",
+        "kah",
+        "bukan",
+        "bener",
+        "benar",
+        "betul",
+    }
+)
+# Left out before the request ("Cyrene, tolong cara baca ..."), like `waifu.repeat`'s.
+_LEADING_SKIPPED = frozenset({"master", "dong", "deh", "ya", "coba", "tolong"})
+# Left out after it; never "master", which may end a reading ("Game Master").
+_TRAILING_SKIPPED = frozenset({"dong", "deh", "ya"})
+_EDGE_MARKS = ".,!;:\"'“”‘’…"
 
 # Kana, kanji, and half-width katakana: the Japanese voice is never given a rule.
 _JAPANESE_SCRIPT = re.compile("[぀-ヿ㐀-䶿一-鿿ｦ-ﾟ]")
@@ -78,6 +111,35 @@ def pronounce(text: str, rules: Mapping[str, str] | None = None) -> str:
         return owned.get(_key(found), built_in.get(found, found))
 
     return _pattern(tuple(built_in), tuple(rules)).sub(reading, text)
+
+
+def reading_request(command: str, names: Iterable[str] = ()) -> tuple[str, str] | None:
+    """The (term, reading) of a whole "cara baca <term> itu <reading>" as said, None for
+    anything else. `names` are her name and wake words: their words are left out before and
+    after it, with "master" and softeners before it and "ya", "dong", "deh" after it. A "?"
+    or a question word makes it a question; the term takes 1 to TERM_MAX_WORDS words before
+    the first "itu", the reading 1 to READING_MAX_WORDS after it."""
+    if "?" in command:
+        return None
+    name_words = {word.casefold() for name in names for word in name.split()}
+    words = [stripped for word in command.split() if (stripped := word.strip(_EDGE_MARKS))]
+    start, end = 0, len(words)
+    while start < end and words[start].casefold() in _LEADING_SKIPPED | name_words:
+        start += 1
+    while end > start and words[end - 1].casefold() in _TRAILING_SKIPPED | name_words:
+        end -= 1
+    left = words[start:end]
+    if [word.casefold() for word in left[:2]] != ["cara", "baca"]:
+        return None
+    split = next((index for index in range(3, len(left)) if left[index].casefold() == "itu"), None)
+    if split is None:
+        return None
+    term, reading = left[2:split], left[split + 1 :]
+    if not (1 <= len(term) <= TERM_MAX_WORDS and 1 <= len(reading) <= READING_MAX_WORDS):
+        return None
+    if any(word.casefold() in QUESTION_WORDS for word in term + reading):
+        return None
+    return " ".join(term), " ".join(reading)
 
 
 def checked_rule(term: str, reading: str) -> tuple[str, str]:

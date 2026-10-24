@@ -2693,11 +2693,11 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 283 · **Files:** `src/waifu/voice/tts.py`, `tests/test_voice_tts.py` · **Scope:** S
 
-## Task 285: Teaching by voice
+## Task 285: Teaching by voice ✅
 
 **Acceptance criteria:**
-- [ ] `reading_request` takes "cara baca X itu Y" with its casing, names and softeners left out, and refuses a question ("?" or a question word) and a term over 3 or a reading over 8 words
-- [ ] The Assistant answers it without the brain: the rule saved and the reading said back, a refused rule or a failing file said, never remembered for "ulangi"; the phone's text keeps the reply as written
+- [x] `reading_request` takes "cara baca X itu Y" with its casing, names and softeners left out, and refuses a question ("?" or a question word) and a term over 3 or a reading over 8 words
+- [x] The Assistant answers it without the brain: the rule saved and the reading said back, a refused rule or a failing file said, never remembered for "ulangi"; the phone's text keeps the reply as written
 
 **Dependencies:** 283 · **Files:** `src/waifu/lexicon.py`, `src/waifu/app.py`, `tests/test_lexicon.py`, `tests/test_app.py` · **Scope:** S
 

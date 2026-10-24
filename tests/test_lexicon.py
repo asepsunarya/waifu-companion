@@ -14,6 +14,7 @@ from waifu.lexicon import (
     LexiconError,
     checked_rule,
     pronounce,
+    reading_request,
 )
 
 NOW = datetime(2026, 10, 25, 21, 0, 0)
@@ -281,3 +282,55 @@ def test_readings_never_raise_and_warn_once_while_the_file_cannot_be_read(tmp_pa
     path.rmdir()
     lexicon.add("Kafka", "Kaf Ka")
     assert lexicon.readings() == {"Kafka": "Kaf Ka"}
+
+
+# --- reading_request ------------------------------------------------------------------------
+
+NAMES = ("Cyrene", "cyrene", "hai cyrene")
+
+
+@pytest.mark.parametrize(
+    ("command", "rule"),
+    [
+        ("cara baca HSR itu Ha Es Er", ("HSR", "Ha Es Er")),
+        ("Cara Baca acheron itu A Ke Ron.", ("acheron", "A Ke Ron")),
+        ("Cyrene, tolong cara baca Kafka itu Kaf Ka ya", ("Kafka", "Kaf Ka")),
+        ("Hai Cyrene, cara baca Kafka itu, Kaf Ka!", ("Kafka", "Kaf Ka")),
+        ("cara baca Kafka itu Kaf Ka, Cyrene.", ("Kafka", "Kaf Ka")),
+        ("cara baca GM itu Game Master", ("GM", "Game Master")),
+        ('cara baca "HoYoLAB" itu "Ho Yo Lab".', ("HoYoLAB", "Ho Yo Lab")),
+        ("cara baca Star Rail itu Star Rel", ("Star Rail", "Star Rel")),
+        ("cara baca Dan Heng IL itu Dan Heng I El", ("Dan Heng IL", "Dan Heng I El")),
+        (
+            "cara baca X itu satu dua tiga empat lima enam tujuh delapan",
+            ("X", "satu dua tiga empat lima enam tujuh delapan"),
+        ),
+    ],
+)
+def test_a_reading_request_gives_the_term_and_the_reading_as_said(command, rule):
+    assert reading_request(command, NAMES) == rule
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cara baca HSR itu gimana?",
+        "cara baca HSR itu Ha Es Er?",
+        "cara baca HSR itu gimana",
+        "cara baca HSR itu apa ya",
+        "cara baca HSR itu Ha Es Er bener nggak",
+        "cara baca HSR itu kayak apa",
+        "cara baca siapa itu Kafka",
+        "cara baca satu dua tiga empat itu Sesuatu",
+        "cara baca X itu satu dua tiga empat lima enam tujuh delapan sembilan",
+        "cara baca HSR",
+        "cara baca HSR itu",
+        "cara baca itu Ha Es Er",
+        "gimana cara baca HSR itu Ha Es Er",
+        "cara membaca HSR itu Ha Es Er",
+        "nyalakan lampu kamar",
+        "",
+    ],
+)
+def test_anything_else_is_not_a_reading_request(command):
+    assert reading_request(command, NAMES) is None

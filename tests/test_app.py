@@ -16,7 +16,7 @@ import numpy as np
 import pytest
 
 from waifu.alarm import AlarmBell
-from waifu.app import GAME_HELD, Assistant, PhoneAnswers
+from waifu.app import GAME_HELD, Assistant, PhoneAnswers, Speech
 from waifu.avatar.lipsync import viseme_track
 from waifu.brain.attachments import CameraTurn, TurnImages
 from waifu.brain.base import Brain, BrainReply, ToolCallRecord, ToolImage
@@ -41,6 +41,7 @@ from waifu.gacha.hoyolab import GameStatus
 from waifu.gacha.watcher import GachaWatcher
 from waifu.gate import WakeGate
 from waifu.journal import JOURNAL_PROMPT
+from waifu.lexicon import Lexicon
 from waifu.listen_pause import ListenPause
 from waifu.pc_health import Drive, GpuStatus, PcSnapshot
 from waifu.pc_watch import PcWatcher
@@ -48,7 +49,7 @@ from waifu.phone.auth import PhoneAuth
 from waifu.phone.server import PhoneBackend, PhoneReply, PhoneServer
 from waifu.schedule import AlarmAction, Entry, Reminder, ScheduleStore
 from waifu.screen import ScreenImage, encode_png
-from waifu.voice.base import SpeechToText, Transcript, Utterance
+from waifu.voice.base import SpeechToText, TextToSpeech, Transcript, Utterance
 from waifu.voice.diagnosis import (
     ACCEPTED,
     EMPTY,
@@ -59,7 +60,7 @@ from waifu.voice.diagnosis import (
 )
 from waifu.voice.speaker import SpeakerError
 from waifu.voice.stt import SttError
-from waifu.voice.tts import TtsError
+from waifu.voice.tts import SpeechRouter, TtsError
 from waifu.voice.volume import LevelHold, VolumePlayer
 
 NOW = datetime(2026, 10, 12, 19, 30)
@@ -260,7 +261,10 @@ class Rig:
         alarm: AlarmBell | None = None,
         diagnosis: UtteranceLog | None = None,
         listen_pause: ListenPause | None = None,
+        lexicon: Lexicon | None = None,
+        speech: Speech | None = None,
     ) -> None:
+        """`speech` voices her words in place of the rig's FakeSpeech (`self.speech`)."""
         config = config or AppConfig()
         self.events: list[str] = []
         self.clock = FakeClock()
@@ -281,7 +285,7 @@ class Rig:
             config,
             brain=self.brain,
             stt=self.stt,
-            speech=self.speech,
+            speech=self.speech if speech is None else speech,
             player=VolumePlayer(self.player, self.hold.level_now)
             if played_through
             else self.player,
@@ -301,6 +305,7 @@ class Rig:
             hold_level=None if alarm is None else self.hold.held,
             diagnosis=diagnosis,
             listen_pause=listen_pause,
+            lexicon=lexicon,
         )
 
     def utterance(self) -> Utterance:
@@ -4037,6 +4042,124 @@ def test_her_answer_never_reaches_the_info_log(caplog):
 
     assert "Telling what she heard last" in caplog.text
     assert UNADDRESSED not in caplog.text
+
+
+# --- "cara baca X itu Y" (kamus cyrene) ---------------------------------------------------------
+
+TAUGHT_ACHERON = "Oke Master. Mulai sekarang kubaca: A Ke Ron."
+
+
+class RecordingVoice(TextToSpeech):
+    """An Indonesian voice for a real SpeechRouter: records each text it is given."""
+
+    def __init__(self) -> None:
+        self.texts: list[str] = []
+
+    def synthesize(self, text: str, language: str) -> tuple[np.ndarray, int]:
+        self.texts.append(text)
+        return np.zeros(240, dtype=np.float32), 24000
+
+
+def test_she_learns_a_reading_without_the_brain_and_says_only_the_reading(tmp_path):
+    lexicon = Lexicon(tmp_path / "tts_lexicon.json")
+    rig = Rig("Cyrene, cara baca Acheron itu A Ke Ron.", lexicon=lexicon)
+
+    said = rig.assistant.handle_utterance(rig.utterance())
+
+    assert said == TAUGHT_ACHERON
+    assert rig.speech.texts == [TAUGHT_ACHERON]
+    assert rig.brain.turns == []
+    assert lexicon.read() == {"Acheron": "A Ke Ron"}
+    assert rig.gate.check("terus?").accepted is True  # said like a reply: the window opened
+
+
+def test_she_learns_a_reading_inside_the_follow_up_window_without_her_name(tmp_path):
+    lexicon = Lexicon(tmp_path / "tts_lexicon.json")
+    rig = Rig("Cyrene", "cara baca Kafka itu Kaf Ka", lexicon=lexicon)
+
+    rig.assistant.handle_utterance(rig.utterance())
+    rig.assistant.handle_utterance(rig.utterance())
+
+    assert lexicon.read() == {"Kafka": "Kaf Ka"}
+    assert rig.brain.turns == []
+
+
+def test_a_question_about_a_reading_goes_to_the_brain_and_writes_nothing(tmp_path):
+    path = tmp_path / "tts_lexicon.json"
+    rig = Rig("Cyrene, cara baca HSR itu gimana?", lexicon=Lexicon(path))
+
+    rig.assistant.handle_utterance(rig.utterance())
+
+    assert rig.brain.turns == [("cara baca HSR itu gimana?", NOW)]
+    assert not path.exists()
+
+
+def test_without_a_lexicon_a_reading_request_goes_to_the_brain():
+    rig = Rig("Cyrene, cara baca Acheron itu A Ke Ron")
+
+    rig.assistant.handle_utterance(rig.utterance())
+
+    assert rig.brain.turns == [("cara baca Acheron itu A Ke Ron", NOW)]
+
+
+def test_a_reading_that_holds_its_word_is_refused_aloud(tmp_path):
+    path = tmp_path / "tts_lexicon.json"
+    rig = Rig("Cyrene, cara baca Kafka itu kafka saja", lexicon=Lexicon(path))
+
+    rig.assistant.handle_utterance(rig.utterance())
+
+    assert rig.speech.texts == [
+        "Maaf Master, belum bisa kucatat. Bacaannya tidak boleh memuat kata itu sendiri."
+    ]
+    assert rig.brain.turns == []
+    assert not path.exists()
+
+
+def test_a_dictionary_that_cannot_be_written_is_said_and_warned_about(tmp_path, caplog):
+    blocked = tmp_path / "tts_lexicon.json"
+    blocked.mkdir()  # a folder where the file should be: neither read nor written
+    rig = Rig("Cyrene, cara baca Kafka itu Kaf Ka", lexicon=Lexicon(blocked))
+
+    with caplog.at_level(logging.WARNING, logger="waifu.app"):
+        rig.assistant.handle_utterance(rig.utterance())
+
+    assert rig.speech.texts == ["Maaf Master, kamusku belum bisa disimpan. Coba lagi sebentar."]
+    assert "Could not save a reading" in caplog.text
+
+
+def test_what_she_says_when_taught_is_never_what_ulangi_repeats(tmp_path):
+    rig = Rig(
+        "Cyrene, nyalakan lampu kamar",
+        "Cyrene, cara baca Acheron itu A Ke Ron",
+        "Cyrene, ulangi",
+        lexicon=Lexicon(tmp_path / "tts_lexicon.json"),
+    )
+
+    for _ in range(3):
+        rig.assistant.handle_utterance(rig.utterance())
+
+    assert rig.speech.texts == [REPLY, TAUGHT_ACHERON, REPLY]
+
+
+def test_the_line_logged_for_a_reading_names_neither_word(tmp_path, caplog):
+    rig = Rig("Cyrene, cara baca Acheron itu A Ke Ron", lexicon=Lexicon(tmp_path / "x.json"))
+
+    with caplog.at_level(logging.INFO, logger="waifu.app"):
+        rig.assistant.handle_utterance(rig.utterance())
+
+    told = [record.getMessage() for record in caplog.records if "reading" in record.getMessage()]
+    assert told == ["Learned a reading for a word"]
+
+
+def test_the_phone_shows_her_words_as_written_while_its_voice_reads_them_by_the_rules():
+    voice = RecordingVoice()
+    router = SpeechRouter({"id": voice}, default_language="id", lexicon=lambda: {"Kafka": "Kaf Ka"})
+    rig = Rig(reply="Pity HSR-mu 70, Kafka belum.", speech=router)
+
+    reply = rig.assistant.reply_for_phone(PHONE_TEXT)
+
+    assert reply.text == "Pity HSR-mu 70, Kafka belum."
+    assert voice.texts == ["Pity Ha Es Er-mu 70, Kaf Ka belum."]
 
 
 # --- the listen pause (Ctrl+Alt+Q) -------------------------------------------------------------

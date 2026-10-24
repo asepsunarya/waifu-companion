@@ -83,6 +83,14 @@ from waifu.brain.tools import logged_arguments
 from waifu.config import AppConfig
 from waifu.gate import WakeGate
 from waifu.heard import heard_answer, is_heard_request
+from waifu.lexicon import (
+    TAUGHT,
+    TEACH_FAILED,
+    TEACH_REFUSED,
+    Lexicon,
+    LexiconError,
+    reading_request,
+)
 from waifu.listen_pause import ListenPause
 from waifu.phone.server import PhoneReply
 from waifu.repeat import is_repeat_request
@@ -340,6 +348,7 @@ class Assistant:
         hold_level: Callable[[int], AbstractContextManager[object]] | None = None,
         diagnosis: UtteranceLog | None = None,
         listen_pause: ListenPause | None = None,
+        lexicon: Lexicon | None = None,
     ) -> None:
         """`quiet` (the focus timer's `in_block`, in game mode also whether a game holds her
         announcements) says when what she would say by herself must wait: only `remind` is
@@ -349,11 +358,14 @@ class Assistant:
         mode's `generation`) moves whenever guest mode switches: her last words said before
         it moved are never repeated. `alarm` is the bell whose rings she says; `hold_level`
         (`LevelHold.held`) plays one clip, a ring, at a level of its own. `diagnosis` records
-        each utterance she handles. While `listen_pause` holds, she does not hear Master."""
+        each utterance she handles. While `listen_pause` holds, she does not hear Master.
+        `lexicon` keeps the readings Master teaches with "cara baca X itu Y"."""
         self._name = config.assistant.name
         self._owner_call = config.assistant.owner_call
+        # Left out around Master's "cara baca X itu Y" (`reading_request`).
+        self._her_names = (self._name, *config.assistant.wake_words)
         # Left out of Master's words when they ask her to repeat (`is_repeat_request`).
-        self._names = (self._name, *config.assistant.wake_words, self._owner_call)
+        self._names = (*self._her_names, self._owner_call)
         self._followup_s = config.assistant.followup_seconds
         self._session_idle_s = config.assistant.session_idle_minutes * 60
         self._brain = brain
@@ -377,6 +389,7 @@ class Assistant:
         self._hold_level = hold_level
         self._diagnosis = diagnosis
         self._pause = listen_pause
+        self._lexicon = lexicon
         # When the listen pause ends as `run` last saw it, None while it does not hold; and
         # whether `run` fed the last frame to the segmenter. Only `run`'s thread uses them.
         self._pause_until: datetime | None = None
@@ -506,6 +519,10 @@ class Assistant:
         elif is_heard_request(result.command, self._names):
             hearing.heard_request = True
             reply_text, hearing.tts_s = self._tell_heard()
+        elif self._lexicon is not None and (
+            taught := reading_request(result.command, self._her_names)
+        ):
+            reply_text, hearing.tts_s = self._teach_reading(self._lexicon, *taught)
         else:
             self._show(lambda avatar: avatar.state("thinking"))
             marker = self._guest_generation()
@@ -1077,6 +1094,27 @@ class Assistant:
         heard = None if self._diagnosis is None else self._diagnosis.last_heard()
         logger.info("Telling what she heard last")
         text = heard_answer(heard, self._owner_call)
+        return text, self._speak(text)
+
+    def _teach_reading(self, lexicon: Lexicon, term: str, reading: str) -> tuple[str, float | None]:
+        """Keep Master's reading of `term` and say the reading back like a reply, without the
+        brain; returns what she said and how long its synthesis took.
+
+        She never says `term`: the new rule would read it as the reading. Like `_tell_heard`,
+        no turn is taken and it is never remembered for "ulangi". A rule `lexicon` refuses is
+        explained; a file that cannot be written is said. Neither word reaches the log.
+        """
+        try:
+            _, reading = lexicon.add(term, reading)
+        except LexiconError as problem:
+            logger.info("Refused a reading for a word")
+            text = TEACH_REFUSED.format(owner=self._owner_call, problem=problem)
+        except OSError as exc:
+            logger.warning("Could not save a reading for a word: %s", exc)
+            text = TEACH_FAILED.format(owner=self._owner_call)
+        else:
+            logger.info("Learned a reading for a word")
+            text = TAUGHT.format(owner=self._owner_call, reading=reading)
         return text, self._speak(text)
 
     def _guest_generation(self) -> object:
