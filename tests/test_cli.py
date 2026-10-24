@@ -5850,7 +5850,10 @@ def test_run_gives_the_gacha_watcher_the_planner_s_calendar_guests_morning_and_c
     assert watcher.closed_games.take() == [closed]
     assert watcher.closed_games.playing()
     assert watcher.read_calendar("hsr") is games.hoyolab.hsr_events
-    assert games.hoyolab.hsr_asked == ["calendar"]
+    data_tools = brains[0].providers[3]
+    assert type(data_tools) is GameDataTools
+    data_tools.run("game_events", {"game": "hsr"})  # Master asks right after the evening line
+    assert games.hoyolab.hsr_asked == ["calendar"]  # one read, kept for both
     assert watcher.morning == time(6, 30)
     assert not watcher.guest_mode()
     brains[0].providers[0].run("guest_mode", {"on": True})
@@ -5874,22 +5877,6 @@ def test_run_tells_game_mode_and_the_planner_whether_a_game_is_open(
     assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
 
     assert seen == {"held_by_the_game": True, "planner_heard": True}
-
-
-def test_the_planner_reads_each_game_s_own_calendar():
-    source = types.SimpleNamespace(
-        hsr_calendar=lambda: "HSR calendar",
-        genshin_calendar=lambda: "Genshin calendar",
-        zzz_calendar=lambda: "ZZZ calendar",
-    )
-
-    read = cli._calendar_reader(source)
-
-    assert [read(game) for game in ("hsr", "genshin", "zzz")] == [
-        "HSR calendar",
-        "Genshin calendar",
-        "ZZZ calendar",
-    ]
 
 
 def turn_the_planner_off(home: Path) -> None:

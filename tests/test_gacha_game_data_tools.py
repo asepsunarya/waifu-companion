@@ -3437,6 +3437,40 @@ def test_each_game_keeps_its_own_roster_and_calendar():
     ]
 
 
+@pytest.mark.parametrize("game", ALL_GAMES)
+def test_the_planner_s_calendar_and_game_events_share_one_read_an_hour(game):
+    clock = Clock()
+    source = sample_source()
+    tools = GameDataTools(source, ALL_GAMES, now=clock)
+
+    planned = tools.calendar(game)  # the gacha planner's evening line
+    clock.advance(minutes=59.5)
+    tools.run(GAME_EVENTS, {"game": game})  # Master asks right after it
+    shared = list(source.calls)
+    clock.advance(minutes=0.5)
+    again = tools.calendar(game)
+
+    assert planned is source.calendars[game]
+    assert shared == [f"{game}_calendar"]
+    assert again is source.calendars[game]
+    assert source.calls == [f"{game}_calendar", f"{game}_calendar"]
+
+
+def test_a_failed_calendar_read_for_the_planner_is_raised_and_not_kept():
+    source = sample_source()
+    source.calendars["hsr"] = NETWORK_ERROR
+    tools = make_tools(source)
+
+    with pytest.raises(GachaError) as raised:
+        tools.calendar("hsr")
+    source.calendars["hsr"] = CALENDAR
+    read = tools.calendar("hsr")
+
+    assert raised.value is NETWORK_ERROR
+    assert read is CALENDAR
+    assert source.calls == ["hsr_calendar", "hsr_calendar"]
+
+
 def test_a_clock_set_back_reads_again():
     clock = Clock()
     source = source_with(ROSTER)

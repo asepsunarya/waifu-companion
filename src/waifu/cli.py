@@ -162,7 +162,7 @@ from waifu.gacha.hoyolab import (
 )
 from waifu.gacha.income import GameIncome, income_months, month_text
 from waifu.gacha.income_tools import IncomeTools
-from waifu.gacha.planner import Calendar, CalendarReader
+from waifu.gacha.planner import CalendarReader
 from waifu.gacha.reminders import duration_text
 from waifu.gacha.starrail import (
     ENDGAME_MODES,
@@ -1521,6 +1521,9 @@ def _listen(args: argparse.Namespace) -> int:
     pause = _cleared_listen_pause(config)
     # The words Whisper should expect: the config's, and the roster names the brain reads.
     vocabulary = Vocabulary(config)
+    # The brain's game data tools, built once for this run: each roster they read joins Whisper's
+    # hotwords, and the gacha planner reads the event calendars through their cache.
+    game_data = _game_data_tools(config, gacha, on_roster=vocabulary.set_roster)
     # Master's readings for her Indonesian voices, re-read at every clip, which he teaches her by
     # voice too.
     lexicon = _lexicon(config)
@@ -1554,7 +1557,7 @@ def _listen(args: argparse.Namespace) -> int:
             voice_level=voice_level,
             prayer=prayer,
             alarm=alarm,
-            vocabulary=vocabulary,
+            game_data=game_data,
         )
         stt = WhisperStt(config.stt, name, hotwords=vocabulary.text)
         gate = WakeGate(config.assistant.wake_words, config.assistant.followup_seconds)
@@ -1661,6 +1664,7 @@ def _listen(args: argparse.Namespace) -> int:
                             game_mode,
                             guest_mode=guest_mode.is_on,
                             closed_games=closed_games,
+                            read_calendar=None if game_data is None else game_data.calendar,
                         ),
                         _code_watcher(config, gacha, assistant, notifier, game_mode),
                         _pc_watcher(config, pc, assistant, notifier, game_mode),
@@ -1873,7 +1877,7 @@ def _companion_brain(
     voice_level: VoiceLevel,
     prayer: PrayerPlace | None = None,
     alarm: AlarmBell | None = None,
-    vocabulary: Vocabulary | None = None,
+    game_data: GameDataTools | None = None,
 ) -> Brain:
     """The brain with `guest_mode`'s tool first, her own voice volume (`voice_level`), then the
     game tools when they are on, her long-term memory when it is on, her schedule when it is on
@@ -1887,8 +1891,8 @@ def _companion_brain(
     long Master's games were open when play time is on, the free offers when they are on (their
     links pushed through `notifier`), Master's money from tepira when it is on, songs on YouTube
     when they are on, with Claude her eyes on the screen when vision is on, and with `usage`
-    what her requests cost. With `vocabulary` (only `run` has one), each roster the game tools
-    read joins Whisper's hotwords.
+    what her requests cost. With `game_data` (only `run` has one), the game data tools are that
+    one, whose rosters join Whisper's hotwords and whose calendars the gacha planner shares.
 
     With memory, every new session lists the notes as they are in the file at that moment.
     The to-do list is the real one also in a dry run (it moves no device), and the briefing
@@ -1913,9 +1917,7 @@ def _companion_brain(
     providers: list[ToolProvider] = [
         GuestTools(guest_mode),
         VoiceVolumeTools(voice_level),
-        *_game_tools(
-            config, gacha, on_roster=None if vocabulary is None else vocabulary.set_roster
-        ),
+        *_game_tools(config, gacha, game_data=game_data),
     ]
     if notes is not None:
         providers.append(MemoryTools(notes, owner_call=owner_call))
@@ -2991,12 +2993,9 @@ def build_gacha(config: AppConfig) -> GachaParts:
 
 
 def _game_tools(
-    config: AppConfig,
-    gacha: GachaParts | None,
-    *,
-    on_roster: Callable[[str, list[str]], None] | None = None,
+    config: AppConfig, gacha: GachaParts | None, *, game_data: GameDataTools | None = None
 ) -> list[ToolProvider]:
-    """The game tools while gacha is on; `on_roster` gets each roster the data tools read."""
+    """The game tools while gacha is on, with `game_data` as the data tools when given."""
     if gacha is None:
         return []
     tools: list[ToolProvider] = [
@@ -3006,7 +3005,7 @@ def _game_tools(
             config.gacha.games,
             server_utc_offset=config.gacha.server_utc_offset,
         ),
-        GameDataTools(gacha.hoyolab, config.gacha.games, on_roster=on_roster),
+        game_data if game_data is not None else GameDataTools(gacha.hoyolab, config.gacha.games),
         IncomeTools(
             gacha.hoyolab,
             config.gacha.games,
@@ -3018,6 +3017,19 @@ def _game_tools(
     if config.weekly_report.enabled:
         tools.append(_weekly_report_tools(config, gacha))
     return tools
+
+
+def _game_data_tools(
+    config: AppConfig,
+    gacha: GachaParts | None,
+    *,
+    on_roster: Callable[[str, list[str]], None] | None = None,
+) -> GameDataTools | None:
+    """The data tools over Master's game accounts while gacha is on; `on_roster` gets each
+    roster they read."""
+    if gacha is None:
+        return None
+    return GameDataTools(gacha.hoyolab, config.gacha.games, on_roster=on_roster)
 
 
 def _weekly_report_tools(config: AppConfig, gacha: GachaParts) -> WeeklyReportTools:
@@ -3048,11 +3060,12 @@ def _gacha_watcher(
     *,
     guest_mode: Callable[[], bool],
     closed_games: ClosedGames | None,
+    read_calendar: CalendarReader | None,
 ) -> AbstractContextManager[object]:
     """The reminders and check-in while she listens, also pushed to the phone when
     notifications are on; nothing to watch without the cookie. Its planner reads the event
-    calendars through the run's HoYoLAB client, is silent while `guest_mode` says guests are
-    around, takes the games Master closed from `closed_games`, and counts the morning from the
+    calendars through `read_calendar`, is silent while `guest_mode` says guests are around,
+    takes the games Master closed from `closed_games`, and counts the morning from the
     briefing's time."""
     if gacha is None or config.gacha.cookie is None:
         return nullcontext()
@@ -3064,24 +3077,11 @@ def _gacha_watcher(
         announce=_announcer(assistant, game_mode, pushed=notifier is not None),
         title=config.assistant.name,
         owner_call=config.assistant.owner_call,
-        read_calendar=_calendar_reader(gacha.hoyolab),
+        read_calendar=read_calendar,
         guest_mode=guest_mode,
         closed_games=closed_games,
         morning=config.briefing.time,
     )
-
-
-def _calendar_reader(source: GameDataSource) -> CalendarReader:
-    """Reads one game's event calendar from HoYoLAB."""
-
-    def read(game: str) -> Calendar:
-        if game == "genshin":
-            return source.genshin_calendar()
-        if game == "zzz":
-            return source.zzz_calendar()
-        return source.hsr_calendar()
-
-    return read
 
 
 def _closed_games(config: AppConfig) -> ClosedGames | None:

@@ -2279,8 +2279,10 @@ masalah serta check-in tetap diucapkan.
 
 - Untuk musim dan event, Cyrene membaca kalender event tiap game sekali sehari game, mulai
   `daily_time`, sama seperti `waifu gacha <game> events`: kira-kira 4 permintaan HoYoLAB sehari
-  untuk ketiga game, di samping sekitar 576 untuk stamina dan check-in. Kalau Battle Chronicle
-  game itu tidak publik, dia mencoba lagi besok tanpa bilang apa-apa.
+  untuk ketiga game, di samping sekitar 576 untuk stamina dan check-in. Bacaan itu disimpan
+  sejam bersama jawaban "event apa yang mau habis?", jadi pertanyaanmu sesudahnya tidak membaca
+  HoYoLAB lagi. Kalau Battle Chronicle game itu tidak publik, dia mencoba lagi besok tanpa
+  bilang apa-apa.
 - Hanya yang dicatat HoYoLAB yang disebut: event Genshin, Imaginarium Theater, Stygian
   Onslaught, dan ZZZ tidak punya angka progres di kalender, dan musim yang belum kamu mainkan
   belum punya nilai maksimal, jadi semuanya tidak disebut. "Baru dapat 30 dari 36" di HSR

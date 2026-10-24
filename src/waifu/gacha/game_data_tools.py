@@ -207,10 +207,11 @@ class GameDataTools:
     """A `ToolProvider` for the brain: Master's accounts in the configured HoYoverse games.
 
     Successful reads are kept per process (`characters:<game>`, `detail:<game>:<ref>`,
-    `endgame:<mode>`, `calendar:<game>`) for their TTL. The lock guards only the cache's dict:
-    voice and phone turns run on different threads, and neither waits for the other's
-    HoYoLAB request. Every roster read, also one kept, hands `on_roster` the game and the
-    roster's names in its order (Whisper's hotwords, `Vocabulary.set_roster`).
+    `endgame:<mode>`, `calendar:<game>`) for their TTL; `calendar` hands the gacha planner the
+    same calendar reads. The lock guards only the cache's dict: voice and phone turns and the
+    gacha watcher run on different threads, and none waits for another's HoYoLAB request.
+    Every roster read, also one kept, hands `on_roster` the game and the roster's names in its
+    order (Whisper's hotwords, `Vocabulary.set_roster`).
     """
 
     def __init__(
@@ -232,6 +233,12 @@ class GameDataTools:
 
     def specs(self) -> list[ToolSpec]:
         return list(self._specs)
+
+    def calendar(self, game: str) -> HsrCalendar | GameCalendar:
+        """`game`'s event calendar for the gacha planner, through the cache `game_events` reads;
+        a failed read raises its GachaError and is not kept."""
+        now = self._now()
+        return self._read(f"calendar:{game}", CALENDAR_TTL, now, self._calendar_source(game)).value
 
     def run(self, name: str, arguments: object) -> tuple[str, bool]:
         try:
