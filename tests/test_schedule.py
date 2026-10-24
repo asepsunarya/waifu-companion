@@ -179,6 +179,24 @@ def test_a_one_shot_entry_has_no_next_occurrence():
         ("2026-10-17 09:00", "weekends", "2026-10-17 09:00", "2026-10-18 09:00"),
         ("2026-10-17 09:00", "weekends", "2026-10-14 12:00", "2026-10-17 09:00"),
         ("2026-12-27 09:00", "weekends", "2026-12-27 09:00", "2027-01-02 09:00"),
+        # Weekly: the weekday of `at` (a Monday here), also across the end of a year.
+        ("2026-10-19 07:00", "weekly", "2026-10-19 06:59", "2026-10-19 07:00"),
+        ("2026-10-19 07:00", "weekly", "2026-10-19 07:00", "2026-10-26 07:00"),
+        ("2026-10-19 07:00", "weekly", "2026-10-21 12:00", "2026-10-26 07:00"),
+        ("2026-10-19 07:00", "weekly", "2026-10-25 23:59", "2026-10-26 07:00"),
+        ("2026-12-28 07:00", "weekly", "2026-12-28 07:00", "2027-01-04 07:00"),
+        # Monthly: the day of `at`, later this month or else next month, also across a year.
+        ("2026-10-20 08:00", "monthly", "2026-10-20 07:59", "2026-10-20 08:00"),
+        ("2026-10-20 08:00", "monthly", "2026-10-20 08:00", "2026-11-20 08:00"),
+        ("2026-10-20 08:00", "monthly", "2026-11-05 12:00", "2026-11-20 08:00"),
+        ("2026-12-20 08:00", "monthly", "2026-12-20 08:00", "2027-01-20 08:00"),
+        ("2026-10-01 00:00", "monthly", "2026-10-31 23:59", "2026-11-01 00:00"),
+        # Yearly: the month and day of `at`, later this year or else next year.
+        ("2026-05-05 08:00", "yearly", "2026-05-04 23:00", "2026-05-05 08:00"),
+        ("2026-05-05 08:00", "yearly", "2026-05-05 08:00", "2027-05-05 08:00"),
+        ("2026-05-05 08:00", "yearly", "2026-10-24 14:30", "2027-05-05 08:00"),
+        ("2026-12-31 23:30", "yearly", "2026-12-31 23:30", "2027-12-31 23:30"),
+        ("2026-01-01 00:00", "yearly", "2026-12-31 23:59", "2027-01-01 00:00"),
     ],
 )
 def test_next_occurrence_is_the_first_matching_day_later_than_after(at, repeat, after, expected):
@@ -212,17 +230,121 @@ def test_next_occurrence_is_later_than_after_even_within_the_same_minute():
     )
 
 
-def test_next_occurrence_steps_whole_calendar_days_of_naive_local_time():
-    # Naive local times know no daylight saving: a day later is the same clock time, also on
-    # the night Europe moves its clocks (Indonesia never does).
-    at = datetime(2026, 3, 28, 2, 30)
+@pytest.mark.parametrize(
+    ("at", "repeat", "after"),
+    [
+        (datetime(2026, 3, 28, 2, 30), "daily", datetime(2026, 3, 28, 2, 30)),
+        (datetime(2026, 3, 22, 2, 30), "weekly", datetime(2026, 3, 22, 2, 30)),
+        (datetime(2026, 1, 29, 2, 30), "monthly", datetime(2026, 3, 1, 0, 0)),
+        (datetime(2025, 3, 29, 2, 30), "yearly", datetime(2025, 3, 29, 2, 30)),
+    ],
+)
+def test_next_occurrence_steps_whole_calendar_days_of_naive_local_time(at, repeat, after):
+    # Naive local times know no daylight saving: the next one is the same clock time, also on
+    # the night Europe moves its clocks, when 02:30 does not exist there (WIB never moves).
+    assert next_occurrence(at, repeat, after) == datetime(2026, 3, 29, 2, 30)
 
-    assert next_occurrence(at, "daily", at) == datetime(2026, 3, 29, 2, 30)
+
+def test_a_monthly_entry_of_the_31st_fires_on_the_last_day_of_a_shorter_month_only():
+    at = datetime(2026, 10, 31, 9, 0)
+    walked = []
+    for _ in range(17):
+        at = next_occurrence(at, "monthly", at, day=31)
+        walked.append(f"{at:%Y-%m-%d %H:%M}")
+
+    assert walked == [
+        "2026-11-30 09:00",
+        "2026-12-31 09:00",
+        "2027-01-31 09:00",
+        "2027-02-28 09:00",
+        "2027-03-31 09:00",
+        "2027-04-30 09:00",
+        "2027-05-31 09:00",
+        "2027-06-30 09:00",
+        "2027-07-31 09:00",
+        "2027-08-31 09:00",
+        "2027-09-30 09:00",
+        "2027-10-31 09:00",
+        "2027-11-30 09:00",
+        "2027-12-31 09:00",
+        "2028-01-31 09:00",
+        "2028-02-29 09:00",
+        "2028-03-31 09:00",
+    ]
 
 
-@pytest.mark.parametrize("repeat", ["monthly", "Daily", "", None])
+@pytest.mark.parametrize(
+    ("at", "day", "after", "expected"),
+    [
+        # The 30th and the 29th fall back in February only, and come back in March.
+        ("2027-01-30 09:00", 30, "2027-01-30 09:00", "2027-02-28 09:00"),
+        ("2027-02-28 09:00", 30, "2027-02-28 09:00", "2027-03-30 09:00"),
+        ("2027-01-29 09:00", 29, "2027-01-29 09:00", "2027-02-28 09:00"),
+        ("2028-01-29 09:00", 29, "2028-01-29 09:00", "2028-02-29 09:00"),
+        # The last day of a shorter month is still to come later in that month.
+        ("2026-11-30 09:00", 31, "2026-11-15 12:00", "2026-11-30 09:00"),
+        # After months away: the first one later than `after`, on the day, not on `at`'s.
+        ("2026-08-31 09:00", 31, "2026-11-30 10:00", "2026-12-31 09:00"),
+        ("2027-02-28 09:00", 31, "2027-04-01 08:00", "2027-04-30 09:00"),
+    ],
+)
+def test_a_monthly_entry_fires_on_its_day_or_its_month_s_last_day(at, day, after, expected):
+    assert next_occurrence(
+        parse_local_time(at), "monthly", parse_local_time(after), day=day
+    ) == parse_local_time(expected)
+
+
+def test_a_monthly_entry_without_a_day_repeats_on_the_day_of_at():
+    at = datetime(2026, 11, 30, 9, 0)
+
+    assert next_occurrence(at, "monthly", at) == datetime(2026, 12, 30, 9, 0)
+
+
+def test_a_yearly_entry_of_29_february_fires_on_28_february_in_common_years():
+    at = datetime(2024, 2, 29, 8, 0)
+    walked = []
+    for _ in range(5):
+        at = next_occurrence(at, "yearly", at, day=29)
+        walked.append(f"{at:%Y-%m-%d %H:%M}")
+
+    assert walked == [
+        "2025-02-28 08:00",
+        "2026-02-28 08:00",
+        "2027-02-28 08:00",
+        "2028-02-29 08:00",
+        "2029-02-28 08:00",
+    ]
+
+
+def test_a_yearly_entry_of_29_february_is_still_to_come_on_28_february_of_a_leap_year():
+    at = datetime(2027, 2, 28, 8, 0)
+
+    assert next_occurrence(at, "yearly", datetime(2028, 2, 28, 9, 0), day=29) == datetime(
+        2028, 2, 29, 8, 0
+    )
+
+
+def test_a_yearly_entry_made_for_a_date_that_passed_this_year_comes_next_year():
+    # "Ingatkan ulang tahun Ibu tiap 5 Mei", said on 24 October.
+    birthday = datetime(2026, 5, 5, 8, 0)
+
+    assert next_occurrence(birthday, "yearly", datetime(2026, 10, 24, 14, 30)) == datetime(
+        2027, 5, 5, 8, 0
+    )
+
+
+@pytest.mark.parametrize("repeat", ["daily", "weekdays", "weekends", "weekly"])
+def test_the_day_counts_only_for_monthly_and_yearly_entries(repeat):
+    at = datetime(2026, 10, 19, 7, 0)  # a Monday
+
+    assert next_occurrence(at, repeat, at, day=31) == next_occurrence(at, repeat, at)
+
+
+@pytest.mark.parametrize("repeat", ["hourly", "Daily", "Monthly", "", None])
 def test_next_occurrence_refuses_an_unknown_repeat(repeat):
-    with pytest.raises(ScheduleError, match="none, daily, weekdays, weekends"):
+    with pytest.raises(
+        ScheduleError, match="none, daily, weekdays, weekends, weekly, monthly, yearly"
+    ):
         next_occurrence(datetime(2026, 10, 13, 7, 0), repeat, START)
 
 
@@ -567,11 +689,13 @@ def test_add_is_refused_when_the_store_is_full_and_says_what_to_do(tmp_path):
     assert store.path.read_bytes() == saved
 
 
-@pytest.mark.parametrize("repeat", ["monthly", "tiap bulan", "Daily", "", None])
+@pytest.mark.parametrize("repeat", ["hourly", "tiap bulan", "Daily", "", None])
 def test_an_unknown_repeat_is_refused_without_echoing_it(tmp_path, repeat):
     store = make_store(tmp_path)
 
-    with pytest.raises(ScheduleError, match="none, daily, weekdays, weekends") as caught:
+    with pytest.raises(
+        ScheduleError, match="none, daily, weekdays, weekends, weekly, monthly, yearly"
+    ) as caught:
         store.add(TODAY_15, repeat, MEDICINE)
 
     assert "tiap bulan" not in str(caught.value)
@@ -659,6 +783,10 @@ def test_a_malformed_action_is_refused(tmp_path, action, match):
         (datetime(2026, 10, 18, 9, 0), "weekends", datetime(2026, 10, 18, 9, 0)),
         (datetime(2026, 10, 17, 7, 0), "daily", datetime(2026, 10, 17, 7, 0)),
         (datetime(2026, 10, 17, 7, 0), "none", datetime(2026, 10, 17, 7, 0)),
+        # Weekly, monthly, and yearly entries start on the day they were given.
+        (datetime(2026, 10, 17, 7, 0), "weekly", datetime(2026, 10, 17, 7, 0)),
+        (datetime(2026, 10, 31, 9, 0), "monthly", datetime(2026, 10, 31, 9, 0)),
+        (datetime(2026, 12, 25, 8, 0), "yearly", datetime(2026, 12, 25, 8, 0)),
     ],
 )
 def test_a_repeating_entry_starts_on_the_first_of_its_days(tmp_path, at, repeat, expected):
@@ -1062,7 +1190,7 @@ CORRUPT_CONTENTS = {
     "at a number": corrupt_file([VALID | {"at": 202610131500}]),
     "at with a time zone": corrupt_file([VALID | {"at": "2026-10-13T15:00+07:00"}]),
     "created in utc": corrupt_file([VALID | {"created": "2026-10-13T08:00Z"}]),
-    "unknown repeat": corrupt_file([VALID | {"repeat": "monthly"}]),
+    "unknown repeat": corrupt_file([VALID | {"repeat": "hourly"}]),
     "null repeat": corrupt_file([VALID | {"repeat": None}]),
     "action a string": corrupt_file([VALID | {"action": "minum obat"}]),
     "action without type": corrupt_file([VALID | {"action": {"text": "Minum obat."}}]),
@@ -1140,7 +1268,7 @@ def test_the_log_of_a_corrupt_file_never_quotes_an_entry(tmp_path, caplog):
     secret = "Master, transfer uang ke Budi jam tiga"
     write_schedule(
         store.path,
-        [raw_entry("j1", "2026-10-13T15:00", "monthly", {"type": "reminder", "text": secret})],
+        [raw_entry("j1", "2026-10-13T15:00", "hourly", {"type": "reminder", "text": secret})],
         next_id=2,
     )
 
@@ -1149,7 +1277,7 @@ def test_the_log_of_a_corrupt_file_never_quotes_an_entry(tmp_path, caplog):
 
     assert "repeat" in caplog.text
     assert secret not in caplog.text
-    assert "monthly" not in caplog.text
+    assert "hourly" not in caplog.text
 
 
 def test_a_corrupt_file_is_never_overwritten_by_a_later_entry(tmp_path):

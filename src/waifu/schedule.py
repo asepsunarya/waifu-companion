@@ -7,7 +7,9 @@ one to its next occurrence. The owner can list and cancel entries from the termi
 
 Times are naive local datetimes at minute precision, read from the PC clock like the time
 stamp of every turn. Moving to the next occurrence adds whole calendar days and keeps the
-clock time, so a daylight saving change (Indonesia has none) never shifts an entry.
+clock time, so a daylight saving change (Indonesia has none) never shifts an entry. A
+monthly or yearly entry on a day its month lacks (the 31st, 29 February) fires on the
+month's last day.
 
 The file follows the rules of `memory.py`: every call re-reads it, so a running Cyrene
 sees what `waifu schedule` changed in another process. One lock serialises the calls of
@@ -18,6 +20,7 @@ not a schedule is moved aside before anything is written: it is never overwritte
 
 from __future__ import annotations
 
+import calendar
 import contextlib
 import dataclasses
 import json
@@ -28,7 +31,7 @@ import tempfile
 import threading
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Literal
 
@@ -37,9 +40,17 @@ logger = logging.getLogger(__name__)
 FILE_VERSION = 1
 MAX_REMINDER_CHARS = 200
 MAX_DAYS_AHEAD = 366
-Repeat = Literal["none", "daily", "weekdays", "weekends"]
-REPEATS: tuple[Repeat, ...] = ("none", "daily", "weekdays", "weekends")
-# The days (Monday is 0) a repeating entry fires on.
+Repeat = Literal["none", "daily", "weekdays", "weekends", "weekly", "monthly", "yearly"]
+REPEATS: tuple[Repeat, ...] = (
+    "none",
+    "daily",
+    "weekdays",
+    "weekends",
+    "weekly",
+    "monthly",
+    "yearly",
+)
+# The days (Monday is 0) an entry repeating on fixed weekdays fires on.
 _REPEAT_DAYS: dict[Repeat, frozenset[int]] = {
     "daily": frozenset(range(7)),
     "weekdays": frozenset(range(5)),
@@ -117,18 +128,35 @@ def parse_local_time(text: str) -> datetime:
     )
 
 
-def next_occurrence(at: datetime, repeat: Repeat, after: datetime) -> datetime | None:
+def next_occurrence(
+    at: datetime, repeat: Repeat, after: datetime, *, day: int | None = None
+) -> datetime | None:
     """The first time on the repeat's days, at the clock time of `at`, later than `after`.
 
-    None for a one-shot entry.
+    None for a one-shot entry. A weekly entry repeats on the weekday of `at`; a monthly one
+    on `day` (by default the day of `at`) of every month, and a yearly one on `day` of the
+    month of `at`, each on the month's last day when the month is shorter.
     """
     repeat = _checked_repeat(repeat)
     if repeat == "none":
         return None
+    day = at.day if day is None else day
+    if repeat == "monthly":
+        candidate = _on_day(after.year, after.month, day, at)
+        if candidate <= after:
+            year, month = (after.year, after.month + 1) if after.month < 12 else (after.year + 1, 1)
+            candidate = _on_day(year, month, day, at)
+        return candidate
+    if repeat == "yearly":
+        candidate = _on_day(after.year, at.month, day, at)
+        if candidate <= after:
+            candidate = _on_day(after.year + 1, at.month, day, at)
+        return candidate
     candidate = datetime.combine(after.date(), at.time())
     if candidate <= after:
         candidate += _ONE_DAY
-    return _first_on(_REPEAT_DAYS[repeat], candidate)
+    days = frozenset({at.weekday()}) if repeat == "weekly" else _REPEAT_DAYS[repeat]
+    return _first_on(days, candidate)
 
 
 def due(
@@ -177,7 +205,8 @@ class ScheduleStore:
             raise ScheduleError(
                 f"Waktu itu terlalu jauh; jadwal paling lama {MAX_DAYS_AHEAD} hari dari sekarang."
             )
-        if checked_repeat != "none":
+        # A weekly, monthly, or yearly entry repeats on the day it was given, so starts on it.
+        if checked_repeat in _REPEAT_DAYS:
             at = _first_on(_REPEAT_DAYS[checked_repeat], at)
         with _LOCK:
             next_id, entries = self._read()
@@ -307,7 +336,7 @@ def _checked_repeat(value: object) -> Repeat:
     for repeat in REPEATS:
         if value == repeat:
             return repeat
-    raise ScheduleError("Pengulangannya harus salah satu dari: none, daily, weekdays, weekends.")
+    raise ScheduleError(f"Pengulangannya harus salah satu dari: {', '.join(REPEATS)}.")
 
 
 def _checked_action(action: object) -> Action:
@@ -349,6 +378,12 @@ def _first_on(days: frozenset[int], candidate: datetime) -> datetime:
     while candidate.weekday() not in days:
         candidate += _ONE_DAY
     return candidate
+
+
+def _on_day(year: int, month: int, day: int, clock: datetime) -> datetime:
+    """Day `day` of the month at the clock time of `clock`; its last day when it is shorter."""
+    last = calendar.monthrange(year, month)[1]
+    return datetime.combine(date(year, month, min(day, last)), clock.time())
 
 
 def _minute(moment: datetime) -> datetime:

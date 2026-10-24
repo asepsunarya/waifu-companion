@@ -159,7 +159,10 @@ def test_schedule_schema_offers_repeats_schedulable_devices_and_routines(tmp_pat
         "type": "object",
         "properties": {
             "at": {"type": "string"},
-            "repeat": {"type": "string", "enum": ["none", "daily", "weekdays", "weekends"]},
+            "repeat": {
+                "type": "string",
+                "enum": ["none", "daily", "weekdays", "weekends", "weekly", "monthly", "yearly"],
+            },
             "reminder": {"type": "string"},
             # The PC is never scheduled, so it is not offered.
             "device": {"type": "string", "enum": ["lampu_kamar", "ac"]},
@@ -744,7 +747,7 @@ def test_schedule_needs_exactly_one_action(tmp_path, actions_given):
         ("schedule", {"at": "", "reminder": MEDICINE}),
         ("schedule", {"at": 1500, "reminder": MEDICINE}),
         ("schedule", {"at": "2026-10-13 15:00", "reminder": 42}),
-        ("schedule", {"at": "2026-10-13 15:00", "reminder": MEDICINE, "repeat": "monthly"}),
+        ("schedule", {"at": "2026-10-13 15:00", "reminder": MEDICINE, "repeat": "hourly"}),
         ("schedule", {"at": "2026-10-13 15:00", "reminder": MEDICINE, "repeat": 1}),
         ("schedule", {"at": "2026-10-13 15:00", "reminder": MEDICINE, "note": "obat"}),
         ("schedule", {"at": "2026-10-13 15:00", "device": "ac"}),
