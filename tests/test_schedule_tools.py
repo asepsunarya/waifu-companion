@@ -262,8 +262,9 @@ def test_schedule_explains_weekly_monthly_and_yearly_entries_birthdays_and_bills
         # 2027-02-29 is refused as a date and 2027-02-28 would store the 28th for good.
         "for 29 February pass a leap year's date, such as 2028-02-29 (the year is ignored)",
         "'ingatkan ulang tahun Ibu tiap 5 Mei'",
-        "at 08:00 unless Master says a time",
         "'bayar listrik tiap tanggal 20'",
+        # The 08:00 default covers bills too, as the README and the CHANGELOG promise.
+        "schedule both at 08:00 unless Master says a time",
     ]:
         assert guidance in description
 
@@ -282,6 +283,8 @@ def test_the_reminder_example_calls_the_owner_what_she_calls_them(tmp_path, owne
     assert "('Sayang, sudah jam tiga, waktunya minum obat!')" in sayang.description
     assert "'Master, hari ini ulang tahun Ibu!'" in default.description
     assert "'Sayang, hari ini ulang tahun Ibu!'" in sayang.description
+    assert "'Master, hari ini bayar listrik!'" in default.description
+    assert "'Sayang, hari ini bayar listrik!'" in sayang.description
     assert "'Master," not in sayang.description
     assert "what you will say to Master" in sayang.description  # her instructions keep Master
 
