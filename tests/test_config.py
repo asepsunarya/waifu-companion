@@ -417,6 +417,32 @@ def test_schedule_limits_are_bounded(tmp_path, line):
         load_config(write_yaml(tmp_path, f"schedule:\n  {line}\n"))
 
 
+def test_the_alarm_is_on_by_default_and_rings_every_minute_for_ten_minutes():
+    alarm = AppConfig().alarm
+
+    assert alarm.enabled is True
+    assert (alarm.repeat_seconds, alarm.max_minutes, alarm.snooze_minutes) == (60, 10, 5)
+    assert alarm.push is True
+    assert alarm.state_path == Path("data/alarm.json")
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "repeat_seconds: 29",
+        "repeat_seconds: 301",
+        "max_minutes: 0",
+        "max_minutes: 31",
+        "snooze_minutes: 0",
+        "snooze_minutes: 31",
+        "volume: 150",
+    ],
+)
+def test_alarm_settings_are_bounded_and_known(tmp_path, line):
+    with pytest.raises(ConfigError, match="alarm"):
+        load_config(write_yaml(tmp_path, f"alarm:\n  {line}\n"))
+
+
 ROUTINE_DEVICES = """
 devices:
   - id: lampu_kamar

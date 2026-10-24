@@ -69,6 +69,7 @@ from waifu.brain.voice_volume_tools import VoiceVolumeTools
 from waifu.brain.weather_tools import WeatherForecastTools
 from waifu.briefing import BRIEFING_PROMPT, DAILY_BRIEFING, BriefingTimer, BriefingTools
 from waifu.config import (
+    AlarmConfig,
     AvatarConfig,
     BreaksConfig,
     FreeOffersConfig,
@@ -7291,6 +7292,12 @@ def saved_schedule(path: Path) -> ScheduleStore:
 
 def scheduled_ids(path: Path) -> list[str]:
     return [entry.id for entry in ScheduleStore(path).entries()]
+
+
+def test_the_example_alarm_block_is_valid_once_written_out(home):
+    write_out_example_block(home, "alarm")
+
+    assert cli.load_config(home / "config.yaml").alarm == AlarmConfig()
 
 
 def test_schedule_and_routine_need_an_action():

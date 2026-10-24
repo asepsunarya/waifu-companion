@@ -1085,6 +1085,19 @@ class ScheduleConfig(_Strict):
     late_grace_minutes: int = Field(default=30, ge=0, le=720)
 
 
+class AlarmConfig(_Strict):
+    """Master's wake-up alarms (schedule entries): how a ring repeats, how long it lasts, how
+    long a snooze waits, and whether its first ring goes to the phone too (with `notify`)."""
+
+    enabled: bool = True
+    repeat_seconds: int = Field(default=60, ge=30, le=300)
+    max_minutes: int = Field(default=10, ge=1, le=30)
+    snooze_minutes: int = Field(default=5, ge=1, le=30)
+    push: bool = True
+    # The ring under way, only while one rings.
+    state_path: Path = Path("data/alarm.json")
+
+
 class RoutineStep(_Strict):
     device: str
     command: str
@@ -1249,6 +1262,7 @@ class AppConfig(_Strict):
     usage: UsageConfig = Field(default_factory=UsageConfig)
     phone: PhoneConfig = Field(default_factory=PhoneConfig)
     schedule: ScheduleConfig = Field(default_factory=ScheduleConfig)
+    alarm: AlarmConfig = Field(default_factory=AlarmConfig)
     routines: dict[str, RoutineConfig] = Field(default_factory=dict)
     devices: list[DeviceConfig] = Field(default_factory=list)
 

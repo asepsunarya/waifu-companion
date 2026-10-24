@@ -261,6 +261,21 @@ schedule:
   max_entries: 50          # jumlah jadwal paling banyak (1-200)
   late_grace_minutes: 30   # jadwal yang terlewat (PC atau Cyrene mati) masih jalan kalau telat paling lama N menit (0-720)
 
+# Alarm bangun (README, bagian "Alarm bangun"): "Cyrene, bangunkan aku jam 6" atau "alarm tiap
+# hari kerja jam 6" masuk jadwal sebagai alarm. Pada jamnya dia membangunkan Master, lalu
+# mengulanginya tiap repeat_seconds, makin keras, sampai Master bilang "aku sudah bangun"
+# (atau "tunda"), menekan "Matikan alarm" di HP atau `waifu tombol`, atau max_minutes lewat.
+# Hanya berbunyi selama `waifu run` jalan dan PC menyala (tidak sleep): alarm yang terlewat
+# tidak dibunyikan terlambat, hanya dikirim ke HP kalau notify menyala. Butuh jadwal menyala.
+# Sudah menyala tanpa ditulis; untuk mengubahnya, tulis bagian ini tanpa tanda # di depannya.
+# alarm:
+#   enabled: true          # false: tanpa tool alarm; alarm yang sudah ada diucapkan sekali saja
+#   repeat_seconds: 60     # jarak antar bunyi, dalam detik (30-300)
+#   max_minutes: 10        # berhenti sendiri setelah N menit tanpa dimatikan (1-30)
+#   snooze_minutes: 5      # "tunda" tanpa angka menunda N menit (1-30)
+#   push: true             # bunyi pertama juga dikirim ke HP (hanya kalau notify menyala)
+#   state_path: data/alarm.json  # alarm yang sedang berbunyi, hanya selama berbunyi
+
 # Rutinitas: daftar perintah perangkat yang dijalankan sekaligus, lewat suara ("Cyrene, mode
 # tidur"), terjadwal ("jalankan mode tidur jam 11 malam"), atau `waifu routine run tidur`.
 # Hanya kamu yang menulisnya di sini. Nama rutinitas: huruf kecil, angka, atau garis bawah;
