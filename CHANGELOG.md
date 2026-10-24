@@ -18,9 +18,15 @@ aktif, lalu jalankan `waifu check`.
 - Tiap tombol bisa diganti (A-Z, 0-9, F1-F12) atau dimatikan di bagian baru `hotkeys`; semuanya
   sudah menyala tanpa ditulis. Kombinasi yang sudah dipakai program lain disebut di log dan di
   baris baru `Hotkey global` di `waifu check`.
-- Di keyboard ber-AltGr, Ctrl+Alt sama dengan AltGr: ganti tombol yang kamu pakai untuk huruf
-  khusus. Game dengan anti-cheat atau yang berjalan sebagai administrator bisa menelan
-  kombinasinya; pakai **Dengar lagi** di HP.
+- Selama `waifu run` jalan, keempat kombinasi itu tidak sampai ke program lain (misalnya
+  Ctrl+Alt+C © dan Ctrl+Alt+R ® di Word, Ctrl+Alt+C di PyCharm); kalau kamu memakainya, ganti
+  atau matikan tombolnya. Di keyboard ber-AltGr, Ctrl+Alt sama dengan AltGr: ganti tombol yang
+  kamu pakai untuk huruf khusus.
+- Game dengan anti-cheat atau yang berjalan sebagai administrator bisa menelan semua
+  kombinasinya selama game itu aktif: panggil namanya untuk bicara, dan supaya voice chat tidak
+  membangunkannya, tekan Ctrl+Alt+Q sebelum masuk game lalu akhiri dengan **Dengar lagi** di HP.
+  Ctrl+Alt+Q selagi dia bicara baru dikonfirmasi sesudah ucapannya selesai; Ctrl+Alt+X
+  memotongnya lebih dulu.
 - Tombol lain yang kamu ketik tidak pernah terlihat oleh Cyrene. Tidak ada tool baru.
 - README: "Hotkey global".
 

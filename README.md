@@ -6287,6 +6287,11 @@ mendengarkan lagi dengan:
 Ctrl+Alt+X selama dia tidak mendengarkan hanya memotong ucapannya (misalnya pengingat), tanpa
 membuka mic lagi.
 
+Ctrl+Alt+Q selagi dia bicara langsung menghentikan pendengarannya, tapi kalimat "sampai jam ..."
+dan tulisan **Tidak mendengarkan** di avatar baru muncul sesudah ucapannya selesai. Jangan tekan
+Ctrl+Alt+Q lagi sambil menunggu: tekan kedua membuatnya mendengarkan lagi. Ctrl+Alt+X memotong
+ucapannya, jadi konfirmasinya langsung terdengar.
+
 ### Mengganti atau mematikan tombolnya
 
 ```yaml
@@ -6298,6 +6303,12 @@ hotkeys:
 Tiap tombol satu huruf A-Z, angka 0-9, atau F1-F12 (Ctrl+Alt selalu ditambahkan); `null`
 mematikan satu hotkey, `enabled: false` mematikan semuanya. Semua pengaturannya ada di
 `config.example.yaml`, bagian `hotkeys`. Jalankan ulang `waifu run` sesudah mengubahnya.
+
+Selama `waifu run` jalan, keempat kombinasi ini tidak sampai ke program lain, juga yang sedang
+aktif: misalnya Ctrl+Alt+C (©) dan Ctrl+Alt+R (®) di Word, Ctrl+Alt+C di PyCharm, atau
+Ctrl+Alt+X dan Ctrl+Alt+Q di Visual Studio. `waifu check` tidak menganggapnya masalah, karena
+Cyrene memang memegangnya. Kalau kamu memakai salah satunya, ganti tombolnya (misalnya ke F9)
+atau matikan dengan `null`.
 
 `waifu check` punya baris `Hotkey global`: kombinasi yang sedang aktif di `waifu run` yang jalan
 (tanpa `waifu run`, kombinasi di `config.yaml` yang akan dicoba), dan sampai jam berapa dia tidak
@@ -6313,8 +6324,11 @@ dijalankan ulang.
 ### Kalau tombolnya tidak sampai
 
 - Game yang dijalankan sebagai administrator, game dengan anti-cheat, atau game yang memasang
-  pengait keyboard sendiri bisa menelan kombinasi itu tanpa pesan apa pun. Pakai **Dengar lagi**
-  di HP, atau coba tombol lain.
+  pengait keyboard sendiri bisa menelan semua kombinasi ini selama game itu aktif, tanpa pesan
+  apa pun. Untuk bicara, panggil namanya seperti biasa. Supaya voice chat tidak membangunkannya,
+  tekan Ctrl+Alt+Q sebelum masuk game (atau dari desktop), lalu akhiri dengan **Dengar lagi** di
+  HP atau `waifu tombol` (tombol itu hanya ada selama dia tidak mendengarkan). Mengganti tombol
+  hanya membantu kalau satu kombinasi tertentu bentrok dengan tombol game itu.
 - Keyboard dengan **AltGr** (misalnya tata letak Jerman atau Polandia): bagi Windows, AltGr sama
   dengan Ctrl+Alt, jadi kombinasi ini mengambil huruf khususnya (AltGr+Q di keyboard Jerman
   adalah "@"). Ganti tombolnya atau matikan dengan `null`. Keyboard US biasa tidak terpengaruh.
