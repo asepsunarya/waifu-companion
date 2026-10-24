@@ -280,6 +280,21 @@ schedule:
 #   push: true             # bunyi pertama juga dikirim ke HP (hanya kalau notify menyala)
 #   state_path: data/alarm.json  # alarm yang sedang berbunyi, hanya selama berbunyi
 
+# Hotkey global (README, bagian "Hotkey global"): Ctrl+Alt plus satu tombol, tetap terdengar
+# walau game layar penuh sedang di depan. Hanya di Windows dan selama `waifu run` jalan. Tiap
+# tombol satu huruf A-Z, angka 0-9, atau F1-F12; null mematikan hotkey itu. Kombinasi yang sudah
+# dipakai program lain disebut `waifu check`: ganti tombolnya di sini. Di keyboard ber-AltGr,
+# Ctrl+Alt sama dengan AltGr, jadi ganti tombol yang kamu pakai untuk mengetik huruf khusus.
+# Sudah menyala tanpa ditulis; untuk mengubahnya, tulis bagian ini tanpa tanda # di depannya.
+# hotkeys:
+#   enabled: true          # false: tanpa hotkey global
+#   talk: C                # Ctrl+Alt+C: langsung mendengarkan, seperti klik dua kali avatar
+#   stop: X                # Ctrl+Alt+X: memotong ucapannya
+#   repeat: R              # Ctrl+Alt+R: mengulang ucapan terakhirnya
+#   quiet: Q               # Ctrl+Alt+Q: berhenti mendengarkan; tekan lagi untuk mendengarkan lagi
+#   quiet_hours: 2         # berhenti mendengarkan paling lama N jam (0.25-12)
+#   pause_path: data/listen_pause.json  # hanya selama dia berhenti mendengarkan
+
 # Rutinitas: daftar perintah perangkat yang dijalankan sekaligus, lewat suara ("Cyrene, mode
 # tidur"), terjadwal ("jalankan mode tidur jam 11 malam"), atau `waifu routine run tidur`.
 # Hanya kamu yang menulisnya di sini. Nama rutinitas: huruf kecil, angka, atau garis bawah;

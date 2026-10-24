@@ -68,6 +68,8 @@ NIGHT_ENDS = time(6, 0)
 JOURNAL_QUESTION_EARLIEST = time(12, 0)
 # A routine step may wait up to a day after the routine starts ("mode tidur": the AC off later).
 MAX_STEP_DELAY_MINUTES = 24 * 60
+# One key of a global hotkey (with Ctrl+Alt): a letter, a digit, or F1-F12.
+HOTKEY_KEY_PATTERN = re.compile(r"[A-Z0-9]|F(?:[1-9]|1[0-2])")
 # The media keys that toggle: run later without a word, they could start the music Master
 # paused, or unmute the PC, while he sleeps. Never scheduled and never a delayed routine step.
 MEDIA_TOGGLES = frozenset({"play_pause", "mute"})
@@ -1119,6 +1121,53 @@ class AlarmConfig(_Strict):
     state_path: Path = Path("data/alarm.json")
 
 
+class HotkeysConfig(_Strict):
+    """Global hotkeys, Ctrl+Alt plus one key, that `waifu run` registers on Windows, heard
+    whichever window has the focus: talk now, cut her off, repeat her last words, and stop or
+    start listening (the pause ends by itself after `quiet_hours`). Each is one key, A-Z, 0-9, or
+    F1-F12, in any case; null switches that hotkey off."""
+
+    enabled: bool = True
+    talk: str | None = "C"
+    stop: str | None = "X"
+    repeat: str | None = "R"
+    quiet: str | None = "Q"
+    quiet_hours: float = Field(default=2.0, ge=0.25, le=12)
+    # The pause of the quiet hotkey, only while it holds.
+    pause_path: Path = Path("data/listen_pause.json")
+
+    @field_validator("talk", "stop", "repeat", "quiet", mode="before")
+    @classmethod
+    def _one_key(cls, value: object) -> object:
+        if isinstance(value, bool):
+            raise ValueError("must be one key (A-Z, 0-9, or F1-F12) or null")
+        if isinstance(value, int):  # YAML reads a bare digit as a number
+            value = str(value)
+        if not isinstance(value, str):
+            return value  # None, or a type the field refuses itself
+        key = value.strip().upper()
+        if not HOTKEY_KEY_PATTERN.fullmatch(key):
+            raise ValueError(
+                f"'{value}' is not one key: use A-Z, 0-9, or F1-F12 (Ctrl+Alt is added), or null"
+            )
+        return key
+
+    @model_validator(mode="after")
+    def _one_hotkey_per_key(self) -> HotkeysConfig:
+        seen: dict[str, str] = {}
+        for action, key in self.bindings.items():
+            if key in seen:
+                raise ValueError(f"hotkeys: {seen[key]} and {action} both use {key}")
+            seen[key] = action
+        return self
+
+    @property
+    def bindings(self) -> dict[str, str]:
+        """Each hotkey switched on, by its action (talk, stop, repeat, quiet), with its key."""
+        keys = {"talk": self.talk, "stop": self.stop, "repeat": self.repeat, "quiet": self.quiet}
+        return {action: key for action, key in keys.items() if key is not None}
+
+
 class RoutineStep(_Strict):
     device: str
     command: str
@@ -1284,6 +1333,7 @@ class AppConfig(_Strict):
     phone: PhoneConfig = Field(default_factory=PhoneConfig)
     schedule: ScheduleConfig = Field(default_factory=ScheduleConfig)
     alarm: AlarmConfig = Field(default_factory=AlarmConfig)
+    hotkeys: HotkeysConfig = Field(default_factory=HotkeysConfig)
     routines: dict[str, RoutineConfig] = Field(default_factory=dict)
     devices: list[DeviceConfig] = Field(default_factory=list)
 

@@ -1049,7 +1049,7 @@ and 0 of 16 unions stay.
 - [x] Task 271a: contract: SPEC, tasks
 - [x] Task 271: test guards: user32's hotkey and message-queue functions
 - [x] Task 272: the hotkey thread (`hotkeys.py`) over a fake user32, and its status file
-- [ ] Task 273: the `hotkeys` config section
+- [x] Task 273: the `hotkeys` config section
 - [ ] Task 274: the listen pause (`listen_pause.py`)
 - [ ] Task 275: the voice loop: the pause gates `run`, `repeat_now`, the avatar's `hearing`
 - [ ] Task 276: the actions (`hotkey_actions.py`) and `InteractionHandler.press`

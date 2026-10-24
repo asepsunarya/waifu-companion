@@ -12,6 +12,7 @@ from waifu.config import (
     FocusConfig,
     GameModeConfig,
     GuestModeConfig,
+    HotkeysConfig,
     JapaneseConfig,
     JournalConfig,
     PlayTimeConfig,
@@ -23,6 +24,7 @@ from waifu.config import (
     WeeklyReportConfig,
     load_config,
 )
+from waifu.hotkeys import KEYS, virtual_key
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -441,6 +443,68 @@ def test_the_alarm_is_on_by_default_and_rings_every_minute_for_ten_minutes():
 def test_alarm_settings_are_bounded_and_known(tmp_path, line):
     with pytest.raises(ConfigError, match="alarm"):
         load_config(write_yaml(tmp_path, f"alarm:\n  {line}\n"))
+
+
+def test_the_global_hotkeys_are_on_by_default_with_c_x_r_and_q():
+    hotkeys = AppConfig().hotkeys
+
+    assert hotkeys.enabled is True
+    assert hotkeys.bindings == {"talk": "C", "stop": "X", "repeat": "R", "quiet": "Q"}
+    assert hotkeys.quiet_hours == 2
+    assert hotkeys.pause_path == Path("data/listen_pause.json")
+
+
+def test_a_hotkey_set_to_null_is_switched_off(tmp_path):
+    hotkeys = load_config(write_yaml(tmp_path, "hotkeys:\n  repeat: null\n")).hotkeys
+
+    assert hotkeys.bindings == {"talk": "C", "stop": "X", "quiet": "Q"}
+
+
+@pytest.mark.parametrize(
+    ("value", "key"), [("c", "C"), ("f9", "F9"), ("F12", "F12"), ("'5'", "5"), ("' k '", "K")]
+)
+def test_a_hotkey_takes_one_key_in_any_case(tmp_path, value, key):
+    hotkeys = load_config(write_yaml(tmp_path, f"hotkeys:\n  talk: {value}\n")).hotkeys
+
+    assert hotkeys.talk == key
+
+
+def test_a_bare_digit_in_yaml_is_a_key(tmp_path):
+    # YAML reads `talk: 7` as a number.
+    assert load_config(write_yaml(tmp_path, "hotkeys:\n  talk: 7\n")).hotkeys.talk == "7"
+
+
+def test_every_key_the_config_takes_has_a_virtual_key_code():
+    for key in KEYS:
+        alone = HotkeysConfig(talk=key.lower(), stop=None, repeat=None, quiet=None)
+        assert virtual_key(alone.talk) == virtual_key(key)
+
+
+@pytest.mark.parametrize(
+    "value", ["F13", "F0", "CC", "Ctrl+Alt+C", "''", "10", "true", "'+'", "[C]", "Esc"]
+)
+def test_a_hotkey_that_is_not_one_key_is_refused_naming_it(tmp_path, value):
+    with pytest.raises(ConfigError, match=r"hotkeys\.talk"):
+        load_config(write_yaml(tmp_path, f"hotkeys:\n  talk: {value}\n"))
+
+
+def test_two_hotkeys_on_the_same_key_are_refused(tmp_path):
+    with pytest.raises(ConfigError, match="hotkeys: talk and quiet both use Q"):
+        load_config(write_yaml(tmp_path, "hotkeys:\n  talk: q\n"))
+
+
+@pytest.mark.parametrize("line", ["quiet_hours: 0.2", "quiet_hours: 12.5", "volume: 3"])
+def test_hotkey_settings_are_bounded_and_known(tmp_path, line):
+    with pytest.raises(ConfigError, match="hotkeys"):
+        load_config(write_yaml(tmp_path, f"hotkeys:\n  {line}\n"))
+
+
+def test_the_example_hotkeys_block_written_out_holds_the_defaults(tmp_path):
+    example = (ROOT / "config.example.yaml").read_text(encoding="utf-8")
+    commented = example[example.index("\n# hotkeys:\n") + 1 :].split("\n\n", 1)[0]
+    written_out = "\n".join(line.removeprefix("# ") for line in commented.splitlines())
+
+    assert load_config(write_yaml(tmp_path, written_out)).hotkeys == HotkeysConfig()
 
 
 ROUTINE_DEVICES = """

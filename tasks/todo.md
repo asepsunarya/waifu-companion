@@ -2590,10 +2590,10 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 271 · **Files:** `src/waifu/hotkeys.py`, `tests/test_hotkeys.py` · **Scope:** M
 
-## Task 273: The config
+## Task 273: The config ✅
 
 **Acceptance criteria:**
-- [ ] `hotkeys` takes one key per action (any case) or null, refuses another key and two the same, bounds `quiet_hours`; `hotkeys` lists the ones switched on; the example documents it
+- [x] `hotkeys` takes one key per action (any case) or null, refuses another key and two the same, bounds `quiet_hours`; `bindings` lists the ones switched on; the example documents it
 
 **Dependencies:** 272 · **Files:** `src/waifu/config.py`, `config.example.yaml`, `tests/test_config.py` · **Scope:** S
 
