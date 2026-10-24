@@ -132,7 +132,11 @@ PRONOUNS = frozenset(
 # Left out before the request ("Cyrene, tolong cara baca ..."), like `waifu.repeat`'s.
 _LEADING_SKIPPED = frozenset({"master", "dong", "deh", "ya", "coba", "tolong"})
 # Left out after it; never "master", which may end a reading ("Game Master").
-_TRAILING_SKIPPED = frozenset({"dong", "deh", "ya"})
+_TRAILING_SKIPPED = frozenset({"dong", "deh", "ya", "aja", "saja", "oke", "ok", "nih"})
+# Left out before a term of more words ("cara baca nama Acheron"): what the term is.
+_TERM_LEADS = frozenset({"nama", "kata", "tulisan"})
+# Left out after "itu" ("itu harusnya A Ke Ron"): how Master leads into the reading.
+_READING_LEADS = frozenset({"harusnya", "seharusnya", "sebenarnya", "dibaca", "kayak"})
 _EDGE_MARKS = ".,!;:\"'“”‘’…"
 
 # Kana, kanji, and half-width katakana: the Japanese voice is never given a rule.
@@ -171,10 +175,12 @@ def reading_request(
     """The (term, reading) of a whole "cara baca <term> itu <reading>" as said, None for
     anything else. `names` are her name and wake words: their words are left out before and
     after it, with the words of `leading` (Master's form of address), "master", and softeners
-    before it and "ya", "dong", "deh" after it. The term takes 1 to TERM_MAX_WORDS words
-    before the first "itu", the reading 1 to READING_MAX_WORDS after it. A question or a
-    remark about a reading is not a request (`_remark`), and neither is a term that is a
-    pronoun, one of `names`, or `leading`: "cara baca kamu itu salah" is about her."""
+    before it and fillers ("ya", "aja", "oke", ...) after it. The term takes 1 to
+    TERM_MAX_WORDS words before the first "itu", without a leading "nama", "kata", or
+    "tulisan"; the reading 1 to READING_MAX_WORDS after it, without the "harusnya", "dibaca",
+    ... that lead into it. A question or a remark about a reading is not a request
+    (`_remark`), and neither is a term that is a pronoun, one of `names`, or `leading`:
+    "cara baca kamu itu salah" is about her."""
     if "?" in command:
         return None
     names, leading = tuple(names), tuple(leading)
@@ -193,6 +199,10 @@ def reading_request(
     if split is None:
         return None
     term, reading = left[2:split], left[split + 1 :]
+    if len(term) > 1 and term[0].casefold() in _TERM_LEADS:
+        term = term[1:]
+    while reading and reading[0].casefold() in _READING_LEADS:
+        reading = reading[1:]
     if not (1 <= len(term) <= TERM_MAX_WORDS and 1 <= len(reading) <= READING_MAX_WORDS):
         return None
     if _remark(term, reading) or _key(" ".join(term)) in {_key(name) for name in names + leading}:

@@ -311,6 +311,41 @@ def test_a_reading_request_gives_the_term_and_the_reading_as_said(command, rule)
     assert reading_request(command, NAMES) == rule
 
 
+@pytest.mark.parametrize(
+    "command",
+    [
+        "Cara baca Acheron itu harusnya A Ke Ron.",
+        "cara baca Acheron itu seharusnya A Ke Ron",
+        "cara baca Acheron itu sebenarnya A Ke Ron",
+        "cara baca Acheron itu dibaca A Ke Ron",
+        "cara baca Acheron itu kayak A Ke Ron",
+        "cara baca Acheron itu harusnya dibaca A Ke Ron",
+        "cara baca Acheron itu A Ke Ron aja.",
+        "cara baca Acheron itu A Ke Ron saja",
+        "cara baca Acheron itu A Ke Ron, oke",
+        "cara baca Acheron itu A Ke Ron ok",
+        "cara baca Acheron itu A Ke Ron nih",
+        "cara baca Acheron itu A Ke Ron aja ya",
+    ],
+)
+def test_filler_words_around_the_reading_are_left_out(command):
+    assert reading_request(command, NAMES) == ("Acheron", "A Ke Ron")
+
+
+@pytest.mark.parametrize(
+    ("command", "rule"),
+    [
+        ("Cyrene, cara baca nama Acheron itu A Ke Ron.", ("Acheron", "A Ke Ron")),
+        ("cara baca kata HSR itu Honkai Star Rail", ("HSR", "Honkai Star Rail")),
+        ("cara baca tulisan HoYoLAB itu Ho Yo Lab", ("HoYoLAB", "Ho Yo Lab")),
+        ("cara baca nama Dan Heng IL itu Dan Heng I El", ("Dan Heng IL", "Dan Heng I El")),
+        ("cara baca nama itu Na Ma", ("nama", "Na Ma")),
+    ],
+)
+def test_nama_kata_or_tulisan_before_the_term_is_left_out(command, rule):
+    assert reading_request(command, NAMES) == rule
+
+
 def test_masters_form_of_address_is_left_out_before_the_request_only():
     assert reading_request(
         "Sayang, cara baca Acheron itu A Ke Ron.", NAMES, leading=("Sayang",)
