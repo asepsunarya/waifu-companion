@@ -18,7 +18,9 @@ does, and a routine through `run_routine` as `waifu routine run` does.
 
 While an alarm rings (`waifu.alarm`), a group "Alarm" comes first: "Matikan alarm" and "Tunda N
 menit". Its buttons are found whenever there is a bell, so a tap after the ring ended gets a
-friendly answer, and they run outside the devices' lock, so a slow routine never delays a stop.
+friendly answer, and they run outside the devices' lock, so a routine another phone runs never
+delays a stop. A page still runs one press at a time (the servers' claims, the pages' own guard):
+a stop tapped where a press still runs waits for it; a stop by voice never waits.
 """
 
 from __future__ import annotations
