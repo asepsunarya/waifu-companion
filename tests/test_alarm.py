@@ -12,7 +12,9 @@ import pytest
 from waifu.alarm import (
     REREAD_S,
     AlarmBell,
+    AlarmRequest,
     Ring,
+    alarm_request,
     missed_text,
     wake_text,
 )
@@ -529,3 +531,92 @@ def test_a_missed_alarm_is_named_with_its_date_only_when_it_was_not_today():
     assert missed_text(ALARM_AT, None, date(2026, 10, 26)) == (
         "Alarm 25-10-2026 jam 06.00 terlewat."
     )
+
+
+# --- the words that stop or snooze it ------------------------------------------------------------
+
+NAMES = ("Cyrene", "Hai Cyrene", "Sayang")
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "aku sudah bangun",
+        "Aku udah bangun.",
+        "sudah bangun",
+        "udah bangun kok",
+        "iya iya, udah bangun!",
+        "Oke, aku sudah bangun",
+        "Cyrene, matikan alarm!",
+        "matikan alarmnya dong",
+        "matiin alarm",
+        "Stop alarm.",
+        "stop alarmnya",
+        "hentikan alarm",
+        "Hai Cyrene, tolong matikan alarmnya",
+        "sayang, aku udah bangun nih",
+        "Master, aku sudah bangun",
+    ],
+)
+def test_the_stop_phrases_stop_the_alarm(text):
+    assert alarm_request(text, NAMES) == AlarmRequest("stop", None)
+
+
+@pytest.mark.parametrize(
+    ("text", "minutes"),
+    [
+        ("tunda", None),
+        ("Tunda dulu.", None),
+        ("tunda alarmnya", None),
+        ("snooze", None),
+        ("sebentar lagi", None),
+        ("bentar lagi ya", None),
+        ("Cyrene, tunda 10 menit", 10),
+        ("tunda sepuluh menit", 10),
+        ("5 menit lagi", 5),
+        ("lima menit lagi", 5),
+        ("snooze 15 menit", 15),
+        ("lima belas menit lagi", 15),
+        ("tunda dua puluh menit dong", 20),
+        ("tiga puluh menit lagi", 30),
+        ("tunda 1 menit", 1),
+        ("tunda satu menit", 1),
+    ],
+)
+def test_the_snooze_phrases_snooze_it_for_the_minutes_said(text, minutes):
+    assert alarm_request(text, NAMES) == AlarmRequest("snooze", minutes)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "matikan lampu",
+        "matikan musik",
+        "Cyrene, matikan lampu kamar",
+        "stop",
+        "matikan",
+        "udah",
+        "bangun",
+        "sudah",
+        "alarm",
+        "Cyrene",
+        "",
+        "aku sudah bangun, nyalakan lampu",
+        "matikan alarm terus nyalakan lampu",
+        "matikan alarm matikan alarm",
+        "aku bangun jam berapa",
+        "tunda 45 menit",
+        "tunda 0 menit",
+        "31 menit lagi",
+        "tunda 05 menit",
+        "tunda menit",
+        "matikan alarm besok",
+    ],
+)
+def test_anything_else_is_no_alarm_request(text):
+    assert alarm_request(text, NAMES) is None
+
+
+def test_her_names_count_only_when_given():
+    assert alarm_request("Cyrene, matikan alarm") is None
+    assert alarm_request("Cyrene, matikan alarm", ["Cyrene"]) == AlarmRequest("stop", None)

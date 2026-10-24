@@ -12,6 +12,10 @@ can stop or snooze it. The voice loop asks at every audio frame, so a state read
 `REREAD_S` before the file is read again; a ring about to be said is always read afresh. A file
 that is not a ring is moved aside, never overwritten, and one whose ring has ended is deleted.
 Reading never raises into the voice loop: a file that cannot be read is no ring, warned once.
+
+While it rings, Master's whole utterance may stop or snooze it without the brain
+(`alarm_request`): only a small set of whole phrases counts, as for "ulangi" (`waifu.repeat`),
+so "matikan lampu" or a bare "stop" never touches the alarm.
 """
 
 from __future__ import annotations
@@ -23,10 +27,12 @@ import os
 import re
 import threading
 import time
-from collections.abc import Callable, Sequence
+import unicodedata
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
+from typing import Literal
 
 from waifu.config import at_sentence_start
 from waifu.gacha.files import write_json_atomic
@@ -48,6 +54,51 @@ _RING_LINES = (
     "{Owner}, bangun dong! Sudah jam {time}.",
 )
 _SENTENCE_ENDS = (".", "!", "?")
+
+# Runs of letters and digits in any script, as `waifu.repeat` splits Master's words.
+_WORD = re.compile(r"[^\W_]+")
+# Always left out, like her names: "master", and words that soften without changing the request.
+_SKIPPED = frozenset({"master", "dong", "deh", "ya", "iya", "oke", "ok", "kok", "nih", "tolong"})
+_STOP_PHRASES = frozenset(
+    {
+        ("aku", "sudah", "bangun"),
+        ("aku", "udah", "bangun"),
+        ("sudah", "bangun"),
+        ("udah", "bangun"),
+        *(
+            (verb, alarm)
+            for verb in ("matikan", "matiin", "stop", "hentikan")
+            for alarm in ("alarm", "alarmnya")
+        ),
+    }
+)
+_SNOOZE_PHRASES = frozenset(
+    {
+        ("tunda",),
+        ("tunda", "dulu"),
+        ("tunda", "alarm"),
+        ("tunda", "alarmnya"),
+        ("snooze",),
+        ("sebentar", "lagi"),
+        ("bentar", "lagi"),
+    }
+)
+_NUMBER_WORDS = {
+    ("satu",): 1,
+    ("dua",): 2,
+    ("tiga",): 3,
+    ("empat",): 4,
+    ("lima",): 5,
+    ("enam",): 6,
+    ("tujuh",): 7,
+    ("delapan",): 8,
+    ("sembilan",): 9,
+    ("sepuluh",): 10,
+    ("lima", "belas"): 15,
+    ("dua", "puluh"): 20,
+    ("tiga", "puluh"): 30,
+}
+_DIGITS = re.compile(r"[1-9][0-9]?")
 
 
 @dataclass(frozen=True)
@@ -71,6 +122,15 @@ class RingState:
     def labels(self) -> list[str]:
         """Every label once, in the order the alarms joined."""
         return list(dict.fromkeys(alarm.label for alarm in self.alarms if alarm.label))
+
+
+@dataclass(frozen=True)
+class AlarmRequest:
+    """Master's words to a ringing alarm: stop it, or snooze it (`minutes`, None for the
+    bell's own)."""
+
+    kind: Literal["stop", "snooze"]
+    minutes: int | None
 
 
 @dataclass(frozen=True)
@@ -284,6 +344,42 @@ class AlarmBell:
         logger.error(
             "The alarm file %s is not a ring (%s); moved it to %s", self.path, problem, target
         )
+
+
+def alarm_request(text: str, names: Iterable[str] = ()) -> AlarmRequest | None:
+    """Whether `text` asks a ringing alarm to stop or snooze and nothing else, such as "aku
+    sudah bangun" or "Cyrene, tunda 10 menit".
+
+    `names` are her name, the wake words she answers to, and what she calls the owner; their
+    words are left out with "master" and the softeners ("dong", "iya", "tolong", ...), and the
+    words left must be one of the phrases exactly. Snooze minutes are 1 to 30, in digits or as
+    words ("lima", "lima belas").
+    """
+    skipped = _SKIPPED | {word for name in names for word in _words(name)}
+    left = tuple(word for word in _words(text) if word not in skipped)
+    if left in _STOP_PHRASES:
+        return AlarmRequest("stop", None)
+    if left in _SNOOZE_PHRASES:
+        return AlarmRequest("snooze", None)
+    minutes = None
+    if len(left) >= 3 and left[0] in ("tunda", "snooze") and left[-1] == "menit":
+        minutes = _minutes(left[1:-1])
+    elif len(left) >= 3 and left[-2:] == ("menit", "lagi"):
+        minutes = _minutes(left[:-2])
+    if minutes is None or not SNOOZE_MINUTES[0] <= minutes <= SNOOZE_MINUTES[1]:
+        return None
+    return AlarmRequest("snooze", minutes)
+
+
+def _minutes(words: tuple[str, ...]) -> int | None:
+    """The whole number `words` say ("10", "sepuluh", "lima belas"), or None."""
+    if len(words) == 1 and _DIGITS.fullmatch(words[0]):
+        return int(words[0])
+    return _NUMBER_WORDS.get(words)
+
+
+def _words(text: str) -> list[str]:
+    return _WORD.findall(unicodedata.normalize("NFKC", text).lower())
 
 
 def wake_text(at: datetime, labels: Sequence[str], owner_call: str) -> str:
