@@ -5,11 +5,15 @@ RVC server as 16-bit PCM, which would hard-clip a gain above full scale. It is l
 amplitude (50 halves every sample). Above 100 every sample also goes through a soft limiter, so
 no peak reaches full scale, whatever level the voice came at. The avatar mouths the clip before
 the gain, since `VolumePlayer` applies it inside the player, after the avatar got the clip.
+
+A `LevelHold` gives one clip a level of its own (an alarm's ring, louder each time and never
+whispered) while every other clip keeps the level Master set.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -54,3 +58,25 @@ class VolumePlayer:
 
     def stop(self) -> bool:
         return self._player.stop()
+
+
+class LevelHold:
+    """The level of the next clip: `base()` (her level of now), or inside `held(level)` that
+    level. Only the clip played inside the hold gets it: the Assistant plays one clip at a time,
+    under its voice lock."""
+
+    def __init__(self, base: Callable[[], int]) -> None:
+        self._base = base
+        self._held: int | None = None
+
+    def level_now(self) -> int:
+        held = self._held
+        return self._base() if held is None else held
+
+    @contextmanager
+    def held(self, level: int) -> Iterator[None]:
+        self._held = level
+        try:
+            yield
+        finally:
+            self._held = None

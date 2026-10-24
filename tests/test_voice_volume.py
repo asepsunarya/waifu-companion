@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from waifu.voice.volume import LEVELS, NORMAL, STEP, VolumePlayer, apply_volume
+from waifu.voice.volume import LEVELS, NORMAL, STEP, LevelHold, VolumePlayer, apply_volume
 
 
 def sine(amplitude: float, samples: int = 2400) -> np.ndarray:
@@ -119,3 +119,46 @@ def test_the_volume_player_passes_stop_through(answer):
 
     assert VolumePlayer(inner, lambda: 100).stop() is answer
     assert inner.stops == 1
+
+
+# --- a level held for one clip (an alarm's ring) ---------------------------------------------
+
+
+def test_a_level_hold_gives_its_base_level_outside_a_hold():
+    levels = iter([60, 80])
+    hold = LevelHold(lambda: next(levels))
+
+    assert [hold.level_now(), hold.level_now()] == [60, 80]
+
+
+def test_a_level_hold_gives_the_held_level_inside_the_hold_and_the_base_after_it():
+    hold = LevelHold(lambda: 50)
+
+    with hold.held(140):
+        inside = hold.level_now()
+    after = hold.level_now()
+
+    assert (inside, after) == (140, 50)
+
+
+def test_a_level_hold_ends_also_when_the_clip_fails():
+    hold = LevelHold(lambda: 50)
+
+    with pytest.raises(OSError), hold.held(140):
+        raise OSError("the speaker is gone")
+
+    assert hold.level_now() == 50
+
+
+def test_a_volume_player_on_a_level_hold_plays_a_held_clip_at_the_held_level():
+    inner = RecordingPlayer()
+    hold = LevelHold(lambda: 50)
+    player = VolumePlayer(inner, hold.level_now)
+    clip = sine(0.5)
+
+    with hold.held(150):
+        player.play(clip, 24000)
+    player.play(clip, 24000)
+
+    assert np.allclose(inner.clips[0][0], apply_volume(clip, 150))
+    assert np.allclose(inner.clips[1][0], clip * 0.5)

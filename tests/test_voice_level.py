@@ -354,6 +354,36 @@ def test_the_level_is_read_again_at_every_clip(tmp_path):
     assert level.level_now() == 40
 
 
+# --- her day level (an alarm's first ring) ------------------------------------------------
+
+
+def test_the_day_level_is_her_level_also_while_whisper_mode_holds_her(tmp_path):
+    path = tmp_path / "voice.json"
+    write_state(path, level=120, night=True)
+    level = make_level(path, Clock(NOW))  # 23:00, inside the night window
+
+    assert level.level_now() == 50
+    assert level.day_level() == 120
+
+
+def test_the_day_level_of_a_missing_file_is_the_normal_level(tmp_path):
+    assert make_level(tmp_path / "voice.json").day_level() == 100
+
+
+def test_the_day_level_of_an_unreadable_file_is_the_last_state_read(tmp_path, caplog):
+    path = tmp_path / "voice.json"
+    write_state(path, level=70, night=True)
+    level = make_level(path, Clock(NOW))
+    level.state()
+    make_unreadable(path)
+
+    with caplog.at_level(logging.WARNING, logger="waifu.voice_level"):
+        assert level.day_level() == 70
+        assert level.day_level() == 70
+
+    assert len(caplog.records) == 1
+
+
 # --- a file that cannot be read ------------------------------------------------------------
 
 

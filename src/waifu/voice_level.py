@@ -120,6 +120,16 @@ class VoiceLevel:
     def level_now(self) -> int:
         """The level her next clip is played at. Never raises: when the file cannot be read it
         warns once, until it reads again, and goes on with the state last read."""
+        return self.level_for(self._state_or_last())
+
+    def day_level(self) -> int:
+        """Her level without whisper mode, the first ring of an alarm's; never raises, as
+        `level_now`."""
+        return self._state_or_last().level
+
+    def _state_or_last(self) -> VoiceState:
+        """The file's state, or the state last read when the file cannot be read (warned once
+        until it reads again)."""
         try:
             state = self.state()
         except OSError as exc:
@@ -131,10 +141,9 @@ class VoiceLevel:
                     self._last.level,
                 )
             self._unreadable = True
-            state = self._last
-        else:
-            self._unreadable = False
-        return self.level_for(state)
+            return self._last
+        self._unreadable = False
+        return state
 
     def _update(self, change: Callable[[VoiceState], VoiceState]) -> VoiceChange:
         with _LOCK:
