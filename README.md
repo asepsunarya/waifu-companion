@@ -4918,7 +4918,11 @@ Master : "Tanggal 20 aku ngapain?"
   dijadwalkan hari itu, sudah lewat atau masih nanti. Cyrene tidak mencatat pengingat mana yang
   benar-benar diucapkan (pengingat hanya berbunyi selama `waifu run` dan PC menyala), dan
   pengingat sekali yang sudah lewat sudah hilang dari jadwal, jadi yang tersisa pengingat
-  berulang dan yang masih nanti. Perintah perangkat terjadwal tidak disebut.
+  berulang dan yang masih nanti. Perintah perangkat terjadwal tidak disebut. Jadwal berulang
+  yang diminta mulai belakangan ("tiap hari jam 8 mulai Jumat") tidak disebut sebelum mulainya,
+  tapi hanya sampai waktu terakhir sebelum mulainya lewat: sesudah itu, dan sesudah pertama kali
+  berbunyi, hari-hari sejak jadwal itu dibuat ikut tersebut, karena file jadwal tidak menyimpan
+  tanggal mulainya.
 
 Selain itu:
 

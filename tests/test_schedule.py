@@ -362,9 +362,9 @@ def test_next_occurrence_refuses_an_unknown_repeat(repeat):
 def test_a_one_shot_entry_occurs_on_its_own_date_only():
     medicine = entry("j1", TODAY_15)
 
-    assert occurrence_on(medicine, date(2026, 10, 13)) == TODAY_15
-    assert occurrence_on(medicine, date(2026, 10, 12)) is None
-    assert occurrence_on(medicine, date(2026, 10, 14)) is None
+    assert occurrence_on(medicine, date(2026, 10, 13), now=START) == TODAY_15
+    assert occurrence_on(medicine, date(2026, 10, 12), now=START) is None
+    assert occurrence_on(medicine, date(2026, 10, 14), now=START) is None
 
 
 @pytest.mark.parametrize(
@@ -387,41 +387,79 @@ def test_a_repeating_entry_occurs_at_its_clock_time_on_each_of_its_days(repeat, 
     tuesday = entry("j1", datetime(2026, 10, 13, 7, 0), repeat)
     tuesday = dataclasses.replace(tuesday, day=13 if repeat in ("monthly", "yearly") else None)
 
-    assert occurrence_on(tuesday, day) == expected
+    assert occurrence_on(tuesday, day, now=START) == expected
 
 
 def test_an_occurrence_that_already_fired_still_counts_for_its_day():
     # Fired at 07:00 on the 14th, the daily entry has moved on to the 15th.
     moved_on = entry("j1", datetime(2026, 10, 15, 7, 0), "daily")
+    later = datetime(2026, 10, 14, 9, 0)
 
-    assert occurrence_on(moved_on, date(2026, 10, 14)) == datetime(2026, 10, 14, 7, 0)
+    assert occurrence_on(moved_on, date(2026, 10, 14), now=later) == datetime(2026, 10, 14, 7, 0)
 
 
 def test_no_occurrence_counts_before_the_entry_was_made():
     made_at_14_30 = entry("j1", datetime(2026, 10, 14, 7, 0), "daily")  # CREATED is 14:30
 
-    assert occurrence_on(made_at_14_30, date(2026, 10, 13)) is None
-    assert occurrence_on(made_at_14_30, date(2026, 10, 12)) is None
+    assert occurrence_on(made_at_14_30, date(2026, 10, 13), now=START) is None
+    assert occurrence_on(made_at_14_30, date(2026, 10, 12), now=START) is None
 
 
 def test_an_occurrence_in_the_minute_the_entry_was_made_counts():
+    # Made at 14:30 and fired seconds ago, it has moved on to tomorrow.
     now_or_never = entry("j1", datetime(2026, 10, 14, 14, 30), "daily")
 
-    assert occurrence_on(now_or_never, date(2026, 10, 13)) == CREATED
+    assert occurrence_on(now_or_never, date(2026, 10, 13), now=START) == CREATED
 
 
 def test_a_monthly_entry_of_the_31st_occurs_on_the_last_day_of_a_shorter_month():
     end_of_month = dataclasses.replace(entry("j1", datetime(2026, 11, 30, 8, 0), "monthly"), day=31)
+    november = datetime(2026, 11, 1, 9, 0)  # fired on 31 October
 
-    assert occurrence_on(end_of_month, date(2026, 11, 30)) == datetime(2026, 11, 30, 8, 0)
-    assert occurrence_on(end_of_month, date(2026, 12, 30)) is None
-    assert occurrence_on(end_of_month, date(2026, 12, 31)) == datetime(2026, 12, 31, 8, 0)
+    def on(day: date) -> datetime | None:
+        return occurrence_on(end_of_month, day, now=november)
+
+    assert on(date(2026, 11, 30)) == datetime(2026, 11, 30, 8, 0)
+    assert on(date(2026, 12, 30)) is None
+    assert on(date(2026, 12, 31)) == datetime(2026, 12, 31, 8, 0)
 
 
 def test_an_entry_at_midnight_occurs_on_its_day():
     midnight = entry("j1", datetime(2026, 10, 14, 0, 0), "daily")
 
-    assert occurrence_on(midnight, date(2026, 10, 15)) == datetime(2026, 10, 15, 0, 0)
+    assert occurrence_on(midnight, date(2026, 10, 15), now=START) == datetime(2026, 10, 15, 0, 0)
+
+
+def test_a_repeating_entry_set_to_start_days_later_occurs_from_its_start_only():
+    # Made Tuesday 14:30 to start Friday: "tiap hari jam 8 mulai Jumat".
+    from_friday = entry("j1", datetime(2026, 10, 16, 8, 0), "daily")
+    thursday = datetime(2026, 10, 15, 7, 59)
+
+    for now in (START, thursday):
+        for day in (date(2026, 10, 13), date(2026, 10, 14), date(2026, 10, 15)):
+            assert occurrence_on(from_friday, day, now=now) is None
+        assert occurrence_on(from_friday, date(2026, 10, 16), now=now) == from_friday.at
+
+
+def test_a_repeating_entry_set_to_start_tomorrow_is_not_due_today_before_its_time():
+    # Made at 14:30: "tiap hari jam 3 sore mulai besok".
+    from_tomorrow = entry("j1", datetime(2026, 10, 14, 15, 0), "daily")
+
+    assert occurrence_on(from_tomorrow, date(2026, 10, 13), now=START) is None
+
+
+@pytest.mark.parametrize(
+    ("repeat", "at", "day"),
+    [
+        ("weekdays", datetime(2026, 10, 19, 7, 0), date(2026, 10, 14)),  # from Monday
+        ("weekly", datetime(2026, 10, 27, 7, 0), date(2026, 10, 20)),  # from the next Tuesday
+        ("monthly", datetime(2026, 12, 13, 7, 0), date(2026, 11, 13)),  # from December
+    ],
+)
+def test_a_later_start_holds_for_the_other_repeats_too(repeat, at, day):
+    later = dataclasses.replace(entry("j1", at, repeat), day=13 if repeat == "monthly" else None)
+
+    assert occurrence_on(later, day, now=START) is None
 
 
 # --- due ---------------------------------------------------------------------------------------

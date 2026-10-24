@@ -171,17 +171,31 @@ def next_occurrence(
     return _first_on(days, candidate)
 
 
-def occurrence_on(entry: Entry, day: date) -> datetime | None:
+def occurrence_on(entry: Entry, day: date, *, now: datetime) -> datetime | None:
     """When `entry` is due on `day`, or None: a one-shot entry on its own date, a repeating one
-    at its clock time on each of its days, never before it was made. A repeating entry's `at`
-    is only its next time, so an occurrence that has already fired still counts."""
+    at its clock time on each of its days, never before it was made, nor before a later start
+    Master set that has not come yet (see `_counted_from`). A repeating entry's `at` is only its
+    next time, so an occurrence that has already fired still counts."""
     if entry.repeat == "none":
         return entry.at if entry.at.date() == day else None
     before = datetime.combine(day, time.min) - _ONE_MINUTE
     found = next_occurrence(entry.at, entry.repeat, before, day=entry.day)
-    if found is None or found.date() != day or found < entry.created:
+    if found is None or found.date() != day or found < _counted_from(entry, now):
         return None
     return found
+
+
+def _counted_from(entry: Entry, now: datetime) -> datetime:
+    """The first moment a repeating entry's occurrences count from: when it was made, or its
+    `at` while that is later than its first time after `now` ("tiap hari jam 8 mulai Jumat"
+    said on Monday), since a fired or skipped entry always waits at that first time.
+
+    Once now reaches the last time before such a start, and after it fires, the start is no
+    longer told apart from a moved entry: the file keeps no start of its own."""
+    following = next_occurrence(entry.at, entry.repeat, now, day=entry.day)
+    if following is not None and following < entry.at:
+        return entry.at
+    return entry.created
 
 
 def due(

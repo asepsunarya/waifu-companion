@@ -363,6 +363,16 @@ def test_yesterday_s_schedule_holds_what_was_due_after_the_entries_were_made(sch
     ]
 
 
+def test_a_repeating_reminder_set_to_start_on_a_later_day_is_not_due_before_it(tmp_path):
+    # Made Thursday 09:00: "tiap hari jam 8 mulai Senin".
+    made = at(9, day=-2).replace(tzinfo=None)
+    store = ScheduleStore(tmp_path / "schedule.json", now=lambda: made)
+    store.add(at(8, day=2).replace(tzinfo=None), "daily", Reminder("minum obat"))
+
+    assert recap(schedule=store).gather(YESTERDAY).schedule == ()
+    assert recap(schedule=store).gather(TODAY).schedule == ()
+
+
 # --- one part at a time ------------------------------------------------------------------------
 
 

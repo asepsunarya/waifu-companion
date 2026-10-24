@@ -383,7 +383,7 @@ def _planned(schedule: ScheduleSource, day: date, now: datetime) -> tuple[Planne
         action = entry.action
         if isinstance(action, DeviceAction):
             continue
-        moment = occurrence_on(entry, day)
+        moment = occurrence_on(entry, day, now=local_now)
         if moment is None:
             continue
         what = action.text if isinstance(action, Reminder) else f"rutinitas {action.name}"
