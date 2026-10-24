@@ -541,6 +541,28 @@ def test_a_session_a_crashed_run_left_is_told_only_after_a_quick_restart(tmp_pat
     assert rig.ended == ([Session("hsr", at(20), at(20) + 2 * MINUTE)] if told else [])
 
 
+def test_a_game_still_running_across_a_clock_set_back_is_never_told(tmp_path):
+    rig = Rig(tmp_path)
+    rig.polls(HSR, at(23.5), 10)  # 23:30 until 23:39
+
+    rig.poll(HSR, at(23.5) + 6 * MINUTE)  # the clock went back three minutes
+    rig.poll(HSR, at(23.5) + 7 * MINUTE)
+
+    assert [session.game for session in rig.record().open] == ["hsr"]
+    assert rig.ended == []
+
+
+def test_a_game_running_at_a_restart_too_late_to_resume_is_never_told(tmp_path):
+    rig = Rig(tmp_path, poll_seconds=120)  # three polls are 6 minutes, longer than a resume
+    rig.polls(HSR, at(20), 3)  # the run crashes without stopping: the session stays open
+
+    rig.watcher = rig.new_watcher()
+    rig.poll(HSR, at(20) + (2 + 5.5) * MINUTE)
+
+    assert [session.game for session in rig.record().open] == ["hsr"]
+    assert rig.ended == []
+
+
 def test_a_session_finished_by_a_poll_whose_write_failed_is_told_at_the_next_poll(tmp_path):
     rig = Rig(tmp_path)
     rig.polls(HSR, at(20), 3)

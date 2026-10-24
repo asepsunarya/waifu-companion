@@ -25,9 +25,10 @@ a failed poll, and never from `stop()`.
 
 After each poll that worked it also tells `on_finished` of every session that poll finished
 within `SLEEP_POLLS` polls of its end: a game Master just closed, for the gacha planner's
-overnight line. A session ended by a sleep, or by a restart's first poll after a longer gap, was
-not just closed and is not told; one finished by a poll whose write failed is told at the next
-poll that works. Never from `stop()`.
+overnight line. A session ended by a sleep, by a restart's first poll after a longer gap, or by
+the clock set back, was not just closed and is not told, nor one of a game that poll still sees;
+one finished by a poll whose write failed is told at the next poll that works. Never from
+`stop()`.
 
 A failed listing, read, or write is never said: the first of a run of failures is logged at
 WARNING and the next poll tries again. What she sees is Master's own: sessions are logged only
@@ -253,9 +254,14 @@ class PlayTimeWatcher:
         if finished:
             logger.debug("Play sessions ended: %s", finished)
         self._unwritten += finished
-        # Kept before the write, which may fail: a game just closed, never one a sleep or a
-        # long restart ended late.
-        self._closed += [s for s in finished if now - s.end <= SLEEP_POLLS * self._poll]
+        # Kept before the write, which may fail: a game just closed, never one a sleep, a long
+        # restart, or the clock set back ended, nor one still running.
+        self._closed += [
+            session
+            for session in finished
+            if session.game not in seen
+            and timedelta(0) <= now - session.end <= SLEEP_POLLS * self._poll
+        ]
         if tracking.sessions != self._written or self._unwritten:
             self._store.save(tracking.sessions, self._unwritten)
             self._written, self._unwritten = tracking.sessions, []
