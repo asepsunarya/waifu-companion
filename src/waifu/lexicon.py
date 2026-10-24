@@ -167,6 +167,10 @@ _FORGET_VERBS = frozenset({"lupakan", "hapus"})
 # Words that point at a reading instead of naming its word ("lupakan cara baca itu"): left
 # out after the term ("lupakan cara baca Acheron yang tadi"), never a term themselves.
 _POINTING = frozenset({"itu", "ini", "tadi", "tersebut", "yang"})
+# Left out before the term to forget ("hapus cara baca untuk Acheron"), and after it with the
+# pointing words and the fillers ("lupakan cara baca Acheron aja sekarang").
+_FORGET_LEADS = frozenset({"untuk", "buat", "dari"})
+_FORGET_TRAILING = frozenset({"sekarang", "lagi", "juga"}) | _POINTING | _TRAILING_SKIPPED
 _EDGE_MARKS = ".,!;:\"'“”‘’…"
 
 # Kana, kanji, and half-width katakana: the Japanese voice is never given a rule.
@@ -236,10 +240,11 @@ def forget_request(
 ) -> str | None:
     """The term of a whole "lupakan cara baca <term>" or "hapus cara baca <term>" as said,
     None for anything else. The words left out around it are `reading_request`'s, and so are
-    the term's 1 to TERM_MAX_WORDS words without a leading "nama", "kata", or "tulisan"; words
-    that point at a reading ("itu", "yang tadi") are left out after it. A question, and a term
-    holding a question word or tag, a remark word (`_holds_remark`), a pronoun, or a pointing
-    word, is not a request: "lupakan cara baca itu" names no word."""
+    the term's 1 to TERM_MAX_WORDS words without a leading "nama", "kata", or "tulisan"; a
+    first "untuk", "buat", or "dari" is left out before it, and words that point at a reading
+    ("itu", "yang tadi"), "sekarang", "lagi", "juga", and fillers after it. A question, and a
+    term holding a question word or tag, a remark word (`_holds_remark`), a pronoun, or a
+    pointing word, is not a request: "lupakan cara baca itu" names no word."""
     if "?" in command:
         return None
     left = _request_words(command, tuple(names), tuple(leading))
@@ -248,7 +253,9 @@ def forget_request(
     if [word.casefold() for word in left[1:3]] != ["cara", "baca"]:
         return None
     term = left[3:]
-    while term and term[-1].casefold() in _POINTING:
+    if term and term[0].casefold() in _FORGET_LEADS:
+        term = term[1:]
+    while term and term[-1].casefold() in _FORGET_TRAILING:
         term = term[:-1]
     term = _without_term_lead(term)
     if (

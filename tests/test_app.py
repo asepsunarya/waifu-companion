@@ -4409,6 +4409,17 @@ def test_she_forgets_masters_reading_without_the_brain_and_names_the_word(tmp_pa
     assert rig.gate.check("terus?").accepted is True  # said like a reply: the window opened
 
 
+def test_she_forgets_a_reading_asked_for_with_untuk_and_sekarang(tmp_path):
+    lexicon = Lexicon(tmp_path / "tts_lexicon.json")
+    lexicon.add("Acheron", "A Ke Ron")
+    rig = Rig("Cyrene, hapus cara baca untuk Acheron sekarang", lexicon=lexicon)
+
+    said = rig.assistant.handle_utterance(rig.utterance())
+
+    assert said == "Oke Master. Cara baca Acheron sudah kulupakan."
+    assert lexicon.read() == {}
+
+
 def test_she_says_the_forgotten_word_as_she_reads_it_again(tmp_path):
     lexicon = Lexicon(tmp_path / "tts_lexicon.json")
     lexicon.add("HSR", "Honkai Star Rail")
