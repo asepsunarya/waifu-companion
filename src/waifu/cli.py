@@ -4312,14 +4312,13 @@ def _pulls_lines(pulls: tuple[GamePulls, ...]) -> list[str]:
 
 
 def _game_pulls_text(pulls: GamePulls) -> str:
-    """`Honkai: Star Rail 10 pull, 5★ Acheron (10 pull, menang 50/50)`."""
+    """`Honkai: Star Rail 10 pull, 5★ Acheron (10 pull, menang 50/50)`, in the words of
+    `waifu gacha history` (an S-rank in ZZZ)."""
     game = pulls.game
-    rarity = "S" if game.id == "zzz" else "5★"
     tops = [top for banner in pulls.banners for top in banner.tops]
     texts = [f"{game.name} {pulls.count} pull"]
     for top in sorted(tops, key=lambda top: (top.time, top.id)):
-        fifty = {True: ", menang 50/50", False: ", kalah 50/50", None: ""}[top.won_5050]
-        texts.append(f"{rarity} {top.name} ({top.pulls} pull{fifty})")
+        texts.append(f"{_top_word(game)} {_top_pull_text(top)}")
     return ", ".join(texts)
 
 

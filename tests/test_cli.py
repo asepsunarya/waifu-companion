@@ -9218,6 +9218,24 @@ def test_rekap_names_each_top_pull_the_words_learned_and_what_is_still_to_come(
     assert "Jadwal: 09:00 minum vitamin; 22:00 telepon Ibu (nanti)" in lines
 
 
+def test_rekap_names_a_zzz_top_pull_an_s_rank_as_waifu_gacha_history_does(
+    home, recap_clock, capsys
+):
+    enable_gacha(home)
+    noon = f"{RECAP_NOW.replace(hour=12).astimezone(SERVER_TIME):%Y-%m-%d %H:%M:%S}"
+    GachaStore(home / "data" / "gacha").save(
+        GAMES["zzz"],
+        1300000001,
+        [GachaRecord(1, 1300000001, 2, "Ellen", 4, "Agents", noon)],
+        complete=True,
+    )
+
+    assert cli.main(["rekap"]) == 0
+
+    lines = capsys.readouterr().out.splitlines()
+    assert "Gacha: Zenless Zone Zero 1 pull, S-rank Ellen (1 pull, menang 50/50)" in lines
+
+
 def test_rekap_of_a_day_the_list_no_longer_keeps_says_its_done_tasks_are_not_kept(
     home, recap_clock, capsys
 ):
