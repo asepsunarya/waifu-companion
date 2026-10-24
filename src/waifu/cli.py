@@ -447,6 +447,11 @@ DRY_RUN_DELAYED_STEPS = (
     "Mode simulasi: langkah yang ditunda hanya dicoba di jadwal sementara yang hilang saat "
     "ditutup. Jadwal asli ({path}) tidak disentuh."
 )
+DELAYED_STEPS_WITHOUT_RUN = (
+    "'waifu run' tidak sedang berjalan: langkah rutinitas yang ditunda tetap masuk jadwal, "
+    "tapi hanya dijalankan kalau 'waifu run' menyala pada jamnya. Jalankan 'waifu run' dan "
+    "biarkan menyala sampai saat itu, atau batalkan dengan 'waifu schedule cancel <id>'."
+)
 ROUTINE_DESCRIPTION = (
     "Rutinitas Master: daftar perintah perangkat yang ditulis di bagian routines di "
     "config.yaml dan dijalankan sekaligus; langkah dengan after_minutes masuk jadwal dan jalan "
@@ -2071,8 +2076,9 @@ def _quick_page(args: argparse.Namespace) -> int:
 
     The phone's buttons (`phone.quick_actions`) on the devices (simulated with --dry-run). A
     routine's delayed steps go into her schedule for `waifu run`, as with `waifu routine run`;
-    a dry run's into a schedule of its own that is gone when it ends. A browser that cannot be
-    opened leaves the page served at the printed address.
+    a dry run's into a schedule of its own that is gone when it ends. Unlike the phone's page,
+    this one runs without `waifu run`, so when a button has delayed steps it says who runs
+    them. A browser that cannot be opened leaves the page served at the printed address.
     """
     config = load_config(args.config)
     registry = build_registry(config, dry_run=args.dry_run)
@@ -2084,9 +2090,17 @@ def _quick_page(args: argparse.Namespace) -> int:
             chosen=config.phone.quick_actions,
             where=PC_WHERE,
         )
-        if not actions.groups():
+        groups = actions.groups()
+        if not groups:
             print(f"{WARN} Belum ada tombol cepat: {QUICK_PAGE_HINT}.")
             return 1
+        delayed = any(
+            step.after_minutes is not None
+            for group in groups
+            for action in group.actions
+            if action.routine
+            for step in config.routines[action.routine].steps
+        )
         mode = " (perangkat simulasi)" if args.dry_run else ""
         try:
             with DeskServer(actions, owner_call=config.assistant.owner_call) as server:
@@ -2101,11 +2115,23 @@ def _quick_page(args: argparse.Namespace) -> int:
                     f"Tombol cepat di PC: {server.url}{mode}. Tekan Ctrl+C untuk menutup.",
                     flush=True,
                 )
+                if delayed:
+                    print(_delayed_steps_note(config, dry_run=args.dry_run), flush=True)
                 while True:
                     sleep(AVATAR_WAIT_S)
         except KeyboardInterrupt:
             print("\nSelesai.")
     return 0
+
+
+def _delayed_steps_note(config: AppConfig, *, dry_run: bool) -> str:
+    """Who runs the delayed steps the quick buttons on the PC schedule: a dry run's schedule
+    is gone when it ends, and her schedule runs only while a `waifu run` is on."""
+    if dry_run:
+        return DRY_RUN_DELAYED_STEPS.format(path=config.schedule.path)
+    if _instance_running(RUN_LOCK):
+        return DELAYED_STEPS_IN_RUN
+    return f"{WARN} {DELAYED_STEPS_WITHOUT_RUN}"
 
 
 def _learn_ir(args: argparse.Namespace) -> int:

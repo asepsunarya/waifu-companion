@@ -10,6 +10,8 @@ aktif, lalu jalankan `waifu check`.
   sekali klik, tanpa bicara ke Cyrene dan tanpa biaya API. Tombolnya sama dengan di HP
   (`phone.quick_actions` memilihnya untuk keduanya); tidak perlu `waifu run`, avatar, atau
   Tailscale, dan tidak ada pengaturan baru. `--dry-run` memakai perangkat simulasi.
+- Langkah rutinitas yang ditunda tetap butuh `waifu run` yang menyala pada jamnya; kalau ada
+  tombol seperti itu, `waifu tombol` mengingatkannya saat dibuka.
 - Jendela terminalnya tetap terbuka selama halaman dipakai; Ctrl+C menutupnya. Alamatnya baru
   setiap kali, dengan token acak, dan hanya di `127.0.0.1`: situs lain di browser yang sama dan
   komputer lain tidak bisa menekan tombolnya.

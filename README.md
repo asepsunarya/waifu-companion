@@ -5668,7 +5668,8 @@ hanya dengan `prayer.push` dan notifikasi HP menyala.
 
 [Tombol cepat](#tombol-cepat-di-hp) yang sama dengan di HP juga bisa dipakai di PC, di browser
 PC ini: lampu, AC, colokan, dan rutinitas, sekali klik, tanpa bicara ke Cyrene dan tanpa biaya
-API. Tidak perlu `waifu run`, avatar, atau Tailscale, dan tidak ada pengaturan baru.
+API. Tidak perlu `waifu run` (kecuali untuk langkah rutinitas yang ditunda, lihat di bawah),
+avatar, atau Tailscale, dan tidak ada pengaturan baru.
 
 ```powershell
 .venv\Scripts\waifu tombol             # buka halaman Tombol cepat di browser PC ini
@@ -5699,7 +5700,10 @@ Tombol cepat di PC: http://127.0.0.1:53211/t/Gz7mNcckSlaxLMFcD9ptmJzD6qRMkzBA/. 
   keduanya bisa jalan bersamaan, seperti `waifu device` selagi `waifu run` berjalan.
 - Rutinitas dengan langkah yang ditunda menaruh langkah itu di jadwal Cyrene
   (`data\schedule.json`), yang dijalankan `waifu run` tepat waktunya, sama seperti
-  `waifu routine run`. Dengan `--dry-run` jadwalnya sementara dan hilang saat ditutup.
+  `waifu routine run`: **langkah itu hanya jalan kalau `waifu run` menyala pada jamnya**. Kalau
+  ada tombol seperti itu, terminal mengingatkannya saat `waifu tombol` dibuka, dengan tanda `!`
+  kalau `waifu run` sedang tidak berjalan. Dengan `--dry-run` jadwalnya sementara dan hilang saat
+  ditutup.
 - Tanpa tombol sama sekali, `waifu tombol` hanya bilang `! Belum ada tombol cepat: ...` dan
   tidak membuka apa pun. `waifu check` punya baris `✓ Tombol cepat di PC: 7 tombol, buka dengan
   'waifu tombol'`.

@@ -16751,18 +16751,20 @@ def test_tombol_without_dry_run_presses_the_devices_of_the_config(
     assert first == f"Tombol cepat di PC: {link}. Tekan Ctrl+C untuk menutup."
 
 
+DELAYED_ROUTINE = (
+    "devices:\n"
+    "  - {id: kipas, name: Kipas, type: mock}\n"
+    "routines:\n"
+    "  angin:\n"
+    "    description: Angin sejuk\n"
+    "    steps:\n"
+    "      - {device: kipas, command: on}\n"
+    "      - {device: kipas, command: off, after_minutes: 60}\n"
+)
+
+
 def test_tombol_schedules_a_routine_s_delayed_step_in_her_schedule(home, monkeypatch):
-    write_config(
-        home,
-        "devices:\n"
-        "  - {id: kipas, name: Kipas, type: mock}\n"
-        "routines:\n"
-        "  angin:\n"
-        "    description: Angin sejuk\n"
-        "    steps:\n"
-        "      - {device: kipas, command: on}\n"
-        "      - {device: kipas, command: off, after_minutes: 60}\n",
-    )
+    write_config(home, DELAYED_ROUTINE)
     browser = use_desk_browser(monkeypatch, presses=("rt.angin",))
     monkeypatch.setattr(cli, "sleep", InterruptingSleep(1))
 
@@ -16773,6 +16775,70 @@ def test_tombol_schedules_a_routine_s_delayed_step_in_her_schedule(home, monkeyp
     assert answer["message"].startswith("Angin sejuk: 2 dari 2 langkah berhasil. Dijadwalkan ")
     [entry] = ScheduleStore(schedule_file(home)).entries()
     assert entry.action == DeviceAction("kipas", "off", routine="angin")
+
+
+def tombol_lines(home: Path, capsys, *, dry_run: bool = False, running: bool = False) -> list[str]:
+    """What `waifu tombol` prints until Ctrl+C, while a `waifu run` holds the run lock or not."""
+    argv = ["tombol", "--dry-run"] if dry_run else ["tombol"]
+    if running:
+        with InstanceLock(home / "data" / "run.lock"):
+            assert cli.main(argv) == 0
+    else:
+        assert cli.main(argv) == 0
+    return capsys.readouterr().out.splitlines()
+
+
+def test_tombol_says_a_delayed_step_only_runs_if_waifu_run_is_on_when_it_is_not(
+    home, monkeypatch, capsys
+):
+    # The owner may open the PC's buttons because `waifu run` is off: its step would never run.
+    write_config(home, DELAYED_ROUTINE)
+    browser = use_desk_browser(monkeypatch)
+    monkeypatch.setattr(cli, "sleep", InterruptingSleep(1))
+
+    lines = tombol_lines(home, capsys)
+
+    [link] = browser.links
+    assert lines[:2] == [
+        f"Tombol cepat di PC: {link}. Tekan Ctrl+C untuk menutup.",
+        f"! {cli.DELAYED_STEPS_WITHOUT_RUN}",
+    ]
+    assert "'waifu run' tidak sedang berjalan" in cli.DELAYED_STEPS_WITHOUT_RUN
+
+
+def test_tombol_says_a_delayed_step_needs_waifu_run_kept_on_while_it_runs(
+    home, monkeypatch, capsys
+):
+    write_config(home, DELAYED_ROUTINE)
+    use_desk_browser(monkeypatch)
+    monkeypatch.setattr(cli, "sleep", InterruptingSleep(1))
+
+    lines = tombol_lines(home, capsys, running=True)
+
+    assert lines[1] == cli.DELAYED_STEPS_IN_RUN
+
+
+def test_tombol_with_dry_run_says_a_delayed_step_goes_into_a_schedule_of_its_own(
+    home, monkeypatch, capsys
+):
+    write_config(home, DELAYED_ROUTINE)
+    use_desk_browser(monkeypatch)
+    monkeypatch.setattr(cli, "sleep", InterruptingSleep(1))
+
+    lines = tombol_lines(home, capsys, dry_run=True)
+
+    assert lines[1] == cli.DRY_RUN_DELAYED_STEPS.format(path=Path("data/schedule.json"))
+
+
+def test_tombol_says_nothing_of_delayed_steps_when_no_button_runs_them(home, monkeypatch, capsys):
+    write_config(home, DELAYED_ROUTINE + "phone:\n  quick_actions:\n    routines: []\n")
+    browser = use_desk_browser(monkeypatch)
+    monkeypatch.setattr(cli, "sleep", InterruptingSleep(1))
+
+    lines = tombol_lines(home, capsys)
+
+    [link] = browser.links
+    assert lines == [f"Tombol cepat di PC: {link}. Tekan Ctrl+C untuk menutup.", "", "Selesai."]
 
 
 def test_tombol_shows_the_buttons_phone_quick_actions_picks(home, monkeypatch):
