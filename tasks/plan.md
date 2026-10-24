@@ -966,7 +966,7 @@ fails on its own; no money. Today, yesterday, or a date up to 30 days back. Priv
 mode, refused in her own turns, and printed by `waifu rekap`. 18 of 20 strict tools, 17 of 24
 optional parameters, and 0 of 16 unions stay.
 - [x] Task 244a: contract: SPEC, tasks
-- [ ] Task 244: the day's pulls (`pulls_since(until=)`) and the day's schedule (`occurrence_on`)
+- [x] Task 244: the day's pulls (`pulls_since(until=)`) and the day's schedule (`occurrence_on`)
 - [ ] Task 245: the gatherer (`recap.py`): the parts, per-part isolation, the JSON
 - [ ] Task 246: the `daily_recap` tool, guest mode, her own turns
 - [ ] Task 247: the brain gets it: the sources, the strict budget

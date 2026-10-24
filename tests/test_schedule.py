@@ -2,7 +2,7 @@ import dataclasses
 import json
 import logging
 import threading
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 import pytest
 
@@ -16,6 +16,7 @@ from waifu.schedule import (
     ScheduleStore,
     due,
     next_occurrence,
+    occurrence_on,
     parse_local_time,
 )
 
@@ -353,6 +354,74 @@ def test_next_occurrence_refuses_an_unknown_repeat(repeat):
         ScheduleError, match="none, daily, weekdays, weekends, weekly, monthly, yearly"
     ):
         next_occurrence(datetime(2026, 10, 13, 7, 0), repeat, START)
+
+
+# --- occurrence_on -----------------------------------------------------------------------------
+
+
+def test_a_one_shot_entry_occurs_on_its_own_date_only():
+    medicine = entry("j1", TODAY_15)
+
+    assert occurrence_on(medicine, date(2026, 10, 13)) == TODAY_15
+    assert occurrence_on(medicine, date(2026, 10, 12)) is None
+    assert occurrence_on(medicine, date(2026, 10, 14)) is None
+
+
+@pytest.mark.parametrize(
+    ("repeat", "day", "expected"),
+    [
+        ("daily", date(2026, 10, 14), datetime(2026, 10, 14, 7, 0)),
+        ("weekdays", date(2026, 10, 16), datetime(2026, 10, 16, 7, 0)),  # a Friday
+        ("weekdays", date(2026, 10, 17), None),  # a Saturday
+        ("weekends", date(2026, 10, 18), datetime(2026, 10, 18, 7, 0)),
+        ("weekends", date(2026, 10, 19), None),
+        ("weekly", date(2026, 10, 20), datetime(2026, 10, 20, 7, 0)),  # its Tuesday
+        ("weekly", date(2026, 10, 21), None),
+        ("monthly", date(2026, 11, 13), datetime(2026, 11, 13, 7, 0)),
+        ("monthly", date(2026, 11, 14), None),
+        ("yearly", date(2027, 10, 13), datetime(2027, 10, 13, 7, 0)),
+        ("yearly", date(2027, 11, 13), None),
+    ],
+)
+def test_a_repeating_entry_occurs_at_its_clock_time_on_each_of_its_days(repeat, day, expected):
+    tuesday = entry("j1", datetime(2026, 10, 13, 7, 0), repeat)
+    tuesday = dataclasses.replace(tuesday, day=13 if repeat in ("monthly", "yearly") else None)
+
+    assert occurrence_on(tuesday, day) == expected
+
+
+def test_an_occurrence_that_already_fired_still_counts_for_its_day():
+    # Fired at 07:00 on the 14th, the daily entry has moved on to the 15th.
+    moved_on = entry("j1", datetime(2026, 10, 15, 7, 0), "daily")
+
+    assert occurrence_on(moved_on, date(2026, 10, 14)) == datetime(2026, 10, 14, 7, 0)
+
+
+def test_no_occurrence_counts_before_the_entry_was_made():
+    made_at_14_30 = entry("j1", datetime(2026, 10, 14, 7, 0), "daily")  # CREATED is 14:30
+
+    assert occurrence_on(made_at_14_30, date(2026, 10, 13)) is None
+    assert occurrence_on(made_at_14_30, date(2026, 10, 12)) is None
+
+
+def test_an_occurrence_in_the_minute_the_entry_was_made_counts():
+    now_or_never = entry("j1", datetime(2026, 10, 14, 14, 30), "daily")
+
+    assert occurrence_on(now_or_never, date(2026, 10, 13)) == CREATED
+
+
+def test_a_monthly_entry_of_the_31st_occurs_on_the_last_day_of_a_shorter_month():
+    end_of_month = dataclasses.replace(entry("j1", datetime(2026, 11, 30, 8, 0), "monthly"), day=31)
+
+    assert occurrence_on(end_of_month, date(2026, 11, 30)) == datetime(2026, 11, 30, 8, 0)
+    assert occurrence_on(end_of_month, date(2026, 12, 30)) is None
+    assert occurrence_on(end_of_month, date(2026, 12, 31)) == datetime(2026, 12, 31, 8, 0)
+
+
+def test_an_entry_at_midnight_occurs_on_its_day():
+    midnight = entry("j1", datetime(2026, 10, 14, 0, 0), "daily")
+
+    assert occurrence_on(midnight, date(2026, 10, 15)) == datetime(2026, 10, 15, 0, 0)
 
 
 # --- due ---------------------------------------------------------------------------------------

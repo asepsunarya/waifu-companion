@@ -31,7 +31,7 @@ import tempfile
 import threading
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from typing import Literal
 
@@ -169,6 +169,19 @@ def next_occurrence(
         candidate += _ONE_DAY
     days = frozenset({at.weekday()}) if repeat == "weekly" else _REPEAT_DAYS[repeat]
     return _first_on(days, candidate)
+
+
+def occurrence_on(entry: Entry, day: date) -> datetime | None:
+    """When `entry` is due on `day`, or None: a one-shot entry on its own date, a repeating one
+    at its clock time on each of its days, never before it was made. A repeating entry's `at`
+    is only its next time, so an occurrence that has already fired still counts."""
+    if entry.repeat == "none":
+        return entry.at if entry.at.date() == day else None
+    before = datetime.combine(day, time.min) - _ONE_MINUTE
+    found = next_occurrence(entry.at, entry.repeat, before, day=entry.day)
+    if found is None or found.date() != day or found < entry.created:
+        return None
+    return found
 
 
 def due(

@@ -2326,11 +2326,11 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** none · **Files:** `SPEC.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
 
-## Task 244: The day's pulls and the day's schedule
+## Task 244: The day's pulls and the day's schedule ✅
 
 **Acceptance criteria:**
-- [ ] `pulls_since(..., until=)` counts only `since < moment <= until`; without `until` it counts as before
-- [ ] `occurrence_on(entry, day)`: a one-shot entry on its date; a repeating one (daily, weekdays, weekends, weekly, monthly with the month-end rule, yearly) at its clock time on its days, also when its `at` has moved on, never before it was created
+- [x] `pulls_since(..., until=)` counts only `since < moment <= until`; without `until` it counts as before
+- [x] `occurrence_on(entry, day)`: a one-shot entry on its date; a repeating one (daily, weekdays, weekends, weekly, monthly with the month-end rule, yearly) at its clock time on its days, also when its `at` has moved on, never before it was created
 
 **Dependencies:** 244a · **Files:** `src/waifu/gacha/history.py`, `src/waifu/schedule.py`, `tests/test_gacha_history.py`, `tests/test_schedule.py` · **Scope:** S
 
