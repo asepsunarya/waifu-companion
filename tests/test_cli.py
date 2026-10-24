@@ -2803,9 +2803,10 @@ class FakeHotkeyThread:
 
     taken: set[str] = set()
 
-    def __init__(self, hotkeys, on_press, **kwargs) -> None:
+    def __init__(self, hotkeys, on_press, *, on_lost=None, **kwargs) -> None:
         self.hotkeys = list(hotkeys)
         self.on_press = on_press
+        self.on_lost = on_lost  # what the real thread calls when its message queue fails
         self.running = False
         self.ran = False
 
@@ -18303,6 +18304,61 @@ def test_run_registers_the_global_hotkeys_while_she_listens_and_records_them(
     registered = tuple(Registration(hotkey, 0) for hotkey in DEFAULT_HOTKEYS)
     assert seen == [True, HotkeyStatus(os.getpid(), registered)]
     assert not thread.running
+    assert not hotkeys_file(home).exists()
+
+
+def test_run_records_that_it_holds_no_hotkey_once_the_thread_lost_them(
+    home, run_fakes, hotkey_threads, monkeypatch
+):
+    seen: list[object] = []
+
+    def listen(self, mic, segmenter) -> None:
+        [thread] = hotkey_threads
+        thread.on_lost()
+        seen.append(read_status(hotkeys_file(home)))
+
+    monkeypatch.setattr(RecordingAssistant, "run", listen)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    assert seen == [HotkeyStatus(os.getpid(), ())]
+    assert not hotkeys_file(home).exists()
+
+
+def test_run_never_records_hotkeys_its_thread_lost_before_they_were_recorded(
+    home, run_fakes, hotkey_threads, monkeypatch
+):
+    seen: list[object] = []
+    registered = FakeHotkeyThread.registrations
+
+    def lost_right_after_registering(thread) -> tuple[Registration, ...]:
+        registrations = registered(thread)
+        thread.on_lost()  # on the hotkey thread, as `run` reads what it registered
+        return registrations
+
+    monkeypatch.setattr(FakeHotkeyThread, "registrations", lost_right_after_registering)
+    monkeypatch.setattr(
+        RecordingAssistant,
+        "run",
+        lambda self, mic, segmenter: seen.append(read_status(hotkeys_file(home))),
+    )
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    assert seen == [HotkeyStatus(os.getpid(), ())]
+
+
+def test_run_leaves_no_record_when_its_thread_loses_the_hotkeys_as_she_stops(
+    home, run_fakes, hotkey_threads, monkeypatch
+):
+    def lost_while_stopping(thread, *exc_info) -> None:
+        thread.running = False
+        thread.on_lost()
+
+    monkeypatch.setattr(FakeHotkeyThread, "__exit__", lost_while_stopping)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
     assert not hotkeys_file(home).exists()
 
 

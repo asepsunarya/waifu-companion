@@ -190,7 +190,10 @@ class Win32User32:
 
 class HotkeyThread:
     """Registers `hotkeys` on a thread of its own and calls `on_press(action)` as each is pressed,
-    from `start()` (or entering the block) until `stop()`."""
+    from `start()` (or entering the block) until `stop()`.
+
+    `on_lost()` is called on that thread when it lets its combos go without being stopped (its
+    message queue failed), once they are unregistered."""
 
     def __init__(
         self,
@@ -198,9 +201,11 @@ class HotkeyThread:
         on_press: Callable[[str], None],
         *,
         user32: User32 | None = None,
+        on_lost: Callable[[], None] | None = None,
     ) -> None:
         self._hotkeys = tuple(hotkeys)
         self._on_press = on_press
+        self._on_lost = on_lost
         self._user32: User32 = Win32User32() if user32 is None else user32
         self._ready = threading.Event()
         self._registrations: tuple[Registration, ...] = ()
@@ -250,18 +255,20 @@ class HotkeyThread:
 
     def _run(self) -> None:
         registered: dict[int, Hotkey] = {}
+        stopped = False
         try:
             self._user32.create_queue()
             self._registrations = tuple(self._register(registered))
             self._ready.set()
-            if registered:
-                self._wait(registered)
+            stopped = not registered or self._wait(registered)
         except Exception:
             logger.exception("The global hotkeys could not start")
         finally:
             self._ready.set()  # `stop` never waits for a thread that failed
             for hotkey_id in registered:
                 self._user32.unregister_hotkey(hotkey_id)
+            if registered and not stopped and self._on_lost is not None:
+                self._on_lost()
 
     def _register(self, registered: dict[int, Hotkey]) -> list[Registration]:
         """Register every hotkey, adding each one Windows took to `registered` by its id."""
@@ -282,16 +289,17 @@ class HotkeyThread:
             logger.info("Global hotkeys: %s", combos)
         return registrations
 
-    def _wait(self, registered: Mapping[int, Hotkey]) -> None:
-        """Hand each registered combo pressed to `on_press` until WM_QUIT or a failure."""
+    def _wait(self, registered: Mapping[int, Hotkey]) -> bool:
+        """Hand each registered combo pressed to `on_press` until WM_QUIT (True) or a failure
+        (False)."""
         while True:
             try:
                 message = self._user32.get_message()
             except OSError as exc:
                 logger.error("Waiting for the global hotkeys failed; they stop: %s", exc)
-                return
+                return False
             if message is None:
-                return
+                return True
             hotkey = registered.get(message.wparam) if message.message == WM_HOTKEY else None
             if hotkey is not None:
                 self._press(hotkey)

@@ -2178,26 +2178,49 @@ def _global_hotkeys(
         pause=pause,
         owner_call=config.assistant.owner_call,
     )
-    with actions, HotkeyThread(hotkeys, actions.press) as thread:
-        _record_hotkeys(thread.registrations())
+    record = _HotkeysRecord()
+    with actions, HotkeyThread(hotkeys, actions.press, on_lost=record.lost) as thread:
+        record.registered(thread.registrations())
         try:
             yield
         finally:
-            _forget_hotkeys()
+            record.forget()
 
 
-def _record_hotkeys(registrations: Sequence[Registration]) -> None:
-    try:
-        write_status(HOTKEYS_FILE, os.getpid(), registrations)
-    except OSError as exc:
-        logger.warning("Could not record the global hotkeys in %s: %s", HOTKEYS_FILE, exc)
+class _HotkeysRecord:
+    """HOTKEYS_FILE while `run` holds the global hotkeys: their registrations, then none held once
+    the hotkey thread lost them, then no file once `run` lets them go. A loss comes from that
+    thread, maybe before the registrations are recorded: neither of the later two is undone."""
 
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._let_go = False  # lost or forgotten: nothing may claim them held any more
 
-def _forget_hotkeys() -> None:
-    try:
-        HOTKEYS_FILE.unlink(missing_ok=True)
-    except OSError as exc:
-        logger.warning("Could not remove %s: %s", HOTKEYS_FILE, exc)
+    def registered(self, registrations: Sequence[Registration]) -> None:
+        with self._lock:
+            if not self._let_go:
+                self._write(registrations)
+
+    def lost(self) -> None:
+        with self._lock:
+            if not self._let_go:
+                self._let_go = True
+                self._write(())
+
+    def forget(self) -> None:
+        with self._lock:
+            self._let_go = True
+            try:
+                HOTKEYS_FILE.unlink(missing_ok=True)
+            except OSError as exc:
+                logger.warning("Could not remove %s: %s", HOTKEYS_FILE, exc)
+
+    @staticmethod
+    def _write(registrations: Sequence[Registration]) -> None:
+        try:
+            write_status(HOTKEYS_FILE, os.getpid(), registrations)
+        except OSError as exc:
+            logger.warning("Could not record the global hotkeys in %s: %s", HOTKEYS_FILE, exc)
 
 
 # --- speaker verification --------------------------------------------------------------------

@@ -302,6 +302,55 @@ def test_a_failing_message_queue_ends_the_loop_with_an_error_and_unregisters(cap
     assert user32.called("unregister_hotkey") == [(1,), (2,), (3,), (4,)]
 
 
+class Lost:
+    """The `on_lost` callback: records the combos still registered when it was called."""
+
+    def __init__(self, user32: FakeUser32) -> None:
+        self.user32 = user32
+        self.unregistered_by_then: list[list[tuple[int, ...]]] = []
+        self.called = threading.Event()
+
+    def __call__(self) -> None:
+        self.unregistered_by_then.append(self.user32.called("unregister_hotkey"))
+        self.called.set()
+
+
+def test_a_failing_message_queue_calls_on_lost_once_the_combos_are_unregistered():
+    user32 = FakeUser32()
+    lost = Lost(user32)
+    thread = HotkeyThread(DEFAULT_HOTKEYS, Presses(), user32=user32, on_lost=lost)
+    thread.start()
+    thread.registrations()
+
+    user32.messages.put(OSError("GetMessageW failed (Windows error 1400)"))
+    assert lost.called.wait(WAIT_S)
+    thread.stop()
+
+    assert lost.unregistered_by_then == [[(1,), (2,), (3,), (4,)]]
+
+
+def test_on_lost_is_never_called_when_the_thread_is_stopped():
+    user32 = FakeUser32()
+    lost = Lost(user32)
+
+    with HotkeyThread(DEFAULT_HOTKEYS, Presses(), user32=user32, on_lost=lost) as thread:
+        thread.registrations()
+
+    assert user32.called("unregister_hotkey") == [(1,), (2,), (3,), (4,)]
+    assert not lost.called.is_set()
+
+
+def test_on_lost_is_never_called_when_no_combo_was_registered():
+    # The registrations already say it: every combo refused, or a queue that cannot be made.
+    user32 = FakeUser32(errors={0x43: 1409, 0x58: 1409, 0x52: 1409, 0x51: 1409})
+    lost = Lost(user32)
+
+    with HotkeyThread(DEFAULT_HOTKEYS, Presses(), user32=user32, on_lost=lost) as thread:
+        thread.registrations()
+
+    assert not lost.called.is_set()
+
+
 def test_with_every_combo_refused_the_thread_ends_without_waiting():
     user32 = FakeUser32(errors={0x43: 1409, 0x58: 1409, 0x52: 1409, 0x51: 1409})
 
