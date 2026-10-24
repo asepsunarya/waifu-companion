@@ -6232,6 +6232,9 @@ atau batuk dilewati. Seperti [ulangi](#ulangi), kalimatnya harus hanya pertanyaa
 detik sesudah dia bicara cukup tanpa nama, dan sesudah mode tamu berganti dia menjawab "Belum ada
 yang kudengar." Jawabannya tidak ikut diulang oleh "ulangi".
 
+Pertanyaannya sendiri juga harus terdengar: kalau mic-nya tidak mendengarmu, atau suaramu dianggap
+suara orang lain, pertanyaan itu pun tidak dijawab. Buka halaman Suara atau jalankan `waifu mic`.
+
 ### Privasi diagnosa suara
 
 Rekaman tidak pernah disimpan: level mic dihitung dari sampelnya lalu sampelnya dibuang.
@@ -6275,7 +6278,10 @@ dari torch dan paket `nvidia-*` di venv.
   yang dipakai, bicara, dan perhatikan apakah bar-nya melewati garis merah dan apa yang tertulis
   di **Yang terdengar** ("bukan suaramu", "tanpa nama", "tak ada kata", "terlalu pendek"). Dari
   sana mic bisa langsung diganti, dan ambang suaranya disetel, tanpa menjalankan ulang. Tanpa HP,
-  tanya "Cyrene, tadi kamu denger apa?".
+  tanya "Cyrene, tadi kamu denger apa?", tapi itu hanya membantu kalau dia mendengarmu dan tidak
+  bereaksi (tanpa nama, tak ada kata): pertanyaannya lewat mic yang sama, jadi kalau mic itu tidak
+  mendengarmu, atau suaramu dianggap suara orang lain, pertanyaan itu pun tidak dijawab. Kalau dia
+  diam saja, langsung jalankan `waifu mic`.
 - Jalankan `waifu mic`, lalu sebut "halo Cyrene" beberapa kali dengan suara biasa. Dia
   menampilkan tiap mic sekali, menandai mic yang dipakai Cyrene dan default Windows,
   mendengarkan tiap mic 3 detik (`waifu mic --seconds 5` untuk lebih lama), lalu menulis
