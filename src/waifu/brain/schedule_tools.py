@@ -23,6 +23,7 @@ from datetime import datetime
 
 from waifu.avatar.emotion import split_emotion
 from waifu.brain.base import ToolSpec
+from waifu.brain.persona import WEEKDAYS_ID
 from waifu.config import MEDIA_TOGGLES, RoutineConfig, RoutineStep, at_sentence_start
 from waifu.devices.base import Device, DeviceResult
 from waifu.devices.ir_device import resolve_command
@@ -158,7 +159,8 @@ class ScheduleTools:
                 "Never schedule turning off or toggling a plug that powers the PC (such as a "
                 "'Colokan PC'): it cuts the power while Windows runs, like pulling the cable. "
                 "Never offer it in place of a refused PC command. "
-                "Tell Master the time you scheduled."
+                "Tell Master the time you scheduled; for a weekly entry, say the `weekday` of "
+                "the result."
             ),
             input_schema={
                 "type": "object",
@@ -309,13 +311,15 @@ def _list_schedules_spec() -> ToolSpec:
         name=LIST_SCHEDULES,
         description=(
             "List every scheduled reminder, device command, and routine, soonest first: its "
-            "id (j1, j2, ...), the next local time it fires, its repeat (a monthly or yearly "
-            "one with `day`, the day of the month it repeats on), and what it does. Use it "
-            "when Master asks what is scheduled, and before cancel_schedule when you are not "
-            "sure of the id. For a period ('jadwal bulan ini apa?', 'ulang tahun siapa bulan "
-            "ini?'), pick the entries in it yourself, repeating ones included: a yearly entry "
-            "comes every year on the month and day of its next time, a monthly one every "
-            "month on its `day`. Summarise it for Master instead of reading it out."
+            "id (j1, j2, ...), the next local time it fires, its repeat (a weekly one with "
+            "`weekday`, the weekday it repeats on; a monthly or yearly one with `day`, the day "
+            "of the month it repeats on), and what it does. Use it when Master asks what is "
+            "scheduled, and before cancel_schedule when you are not sure of the id. For a "
+            "period ('jadwal bulan ini apa?', 'ulang tahun siapa bulan ini?'), pick the "
+            "entries in it yourself, repeating ones included: a yearly entry comes every year "
+            "on the month and day of its next time, a monthly one every month on its `day`, "
+            "a weekly one every week on its `weekday`. Summarise it for Master instead of "
+            "reading it out."
         ),
         input_schema={"type": "object", "properties": {}, "additionalProperties": False},
     )
@@ -352,8 +356,14 @@ def _entry_json(entry: Entry) -> dict[str, object]:
 
 
 def _when_json(entry: Entry) -> dict[str, object]:
-    """Its next time and its repeat, with the day a monthly or yearly entry repeats on."""
+    """Its next time and its repeat, with the weekday or the day of the month it repeats on.
+
+    The weekday is named so the model never works it out from the date, and a date that was
+    miscounted for "tiap Senin" shows in her confirmation.
+    """
     when: dict[str, object] = {"at": entry.at.strftime(LOCAL_TIME), "repeat": entry.repeat}
+    if entry.repeat == "weekly":
+        when["weekday"] = WEEKDAYS_ID[entry.at.weekday()]
     if entry.day is not None:
         when["day"] = entry.day
     return when

@@ -265,6 +265,7 @@ def test_schedule_explains_weekly_monthly_and_yearly_entries_birthdays_and_bills
         "'bayar listrik tiap tanggal 20'",
         # The 08:00 default covers bills too, as the README and the CHANGELOG promise.
         "schedule both at 08:00 unless Master says a time",
+        "for a weekly entry, say the `weekday` of the result",
     ]:
         assert guidance in description
 
@@ -334,11 +335,13 @@ def test_list_schedules_says_to_pick_the_entries_of_a_period_from_the_list(tmp_p
     description = spec(tools, "list_schedules").description
 
     for guidance in [
+        "a weekly one with `weekday`, the weekday it repeats on",
         "`day`, the day of the month it repeats on",
         "'jadwal bulan ini apa?'",
         "'ulang tahun siapa bulan ini?'",
         "pick the entries in it yourself, repeating ones included",
         "a yearly entry comes every year on the month and day of its next time",
+        "a weekly one every week on its `weekday`",
     ]:
         assert guidance in description
 
@@ -455,12 +458,18 @@ def test_a_repeating_schedule_answers_with_the_first_time_it_fires(tmp_path, rep
             {"at": "2026-10-31 09:00", "repeat": "monthly", "reminder": "Bayar listrik!"},
             '{"ok":true,"id":"j1","at":"2026-10-31 09:00","repeat":"monthly","day":31}',
         ),
+        # The weekday is named for her, so she never works it out from the date.
         (
             {"at": "2026-10-12 07:00", "repeat": "weekly", "reminder": "Buang sampah!"},
-            '{"ok":true,"id":"j1","at":"2026-10-19 07:00","repeat":"weekly"}',
+            '{"ok":true,"id":"j1","at":"2026-10-19 07:00","repeat":"weekly","weekday":"Senin"}',
+        ),
+        # "Tiap Senin" passed as a Tuesday by a miscounted date: the result shows it.
+        (
+            {"at": "2026-10-20 07:00", "repeat": "weekly", "reminder": "Buang sampah!"},
+            '{"ok":true,"id":"j1","at":"2026-10-20 07:00","repeat":"weekly","weekday":"Selasa"}',
         ),
     ],
-    ids=["yearly", "monthly", "weekly"],
+    ids=["yearly", "monthly", "weekly", "weekly on a miscounted day"],
 )
 def test_a_calendar_schedule_answers_with_its_first_time_and_the_day_it_repeats_on(
     tmp_path, arguments, result
@@ -917,7 +926,9 @@ def test_list_schedules_describes_every_entry_soonest_first_in_indonesian(tmp_pa
     )
 
 
-def test_list_schedules_gives_the_day_of_monthly_and_yearly_entries_only(tmp_path):
+def test_list_schedules_gives_the_weekday_of_weekly_and_the_day_of_monthly_and_yearly_entries(
+    tmp_path,
+):
     tools, _, _ = make_tools(tmp_path)
     tools.run("schedule", {"at": "2026-10-31 09:00", "repeat": "monthly", "reminder": "Listrik!"})
     tools.run("schedule", {"at": "2028-02-29 08:00", "repeat": "yearly", "reminder": "Budi!"})
@@ -927,7 +938,8 @@ def test_list_schedules_gives_the_day_of_monthly_and_yearly_entries_only(tmp_pat
 
     assert (result, is_error) == (
         '{"ok":true,"entries":['
-        '{"id":"j3","at":"2026-10-19 07:00","repeat":"weekly","action":"rutinitas: pagi"},'
+        '{"id":"j3","at":"2026-10-19 07:00","repeat":"weekly","weekday":"Senin",'
+        '"action":"rutinitas: pagi"},'
         '{"id":"j1","at":"2026-10-31 09:00","repeat":"monthly","day":31,'
         '"action":"pengingat: Listrik!"},'
         '{"id":"j2","at":"2027-02-28 08:00","repeat":"yearly","day":29,'
