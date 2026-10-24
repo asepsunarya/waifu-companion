@@ -127,6 +127,7 @@ class Rig:
         self.config = PlayTimeConfig(**config)
         self.said: list[tuple[str, str]] = []
         self.polled: list[tuple[bool, bool]] = []  # each (playing, resumed) told to game mode
+        self.ended: list[Session] = []  # each session told as just finished (on_finished)
         self.owner_call = owner_call
         self.watcher = self.new_watcher()
 
@@ -140,6 +141,7 @@ class Rig:
             owner_call=self.owner_call,
             now=self.clock,
             on_poll=lambda playing, resumed: self.polled.append((playing, resumed)),
+            on_finished=self.ended.append,
         )
 
     def poll(self, names: Iterable[str] | Exception, when: datetime | None = None) -> list[str]:
@@ -501,6 +503,92 @@ def test_a_failing_game_mode_is_logged_and_the_play_time_goes_on(tmp_path, caplo
     assert rig.record().open == (Session("hsr", at(20), at(20) + MINUTE),)
     assert [record.exc_info is not None for record in caplog.records] == [True, True]
     assert "Could not tell game mode whether a game is running" in caplog.text
+
+
+# --- a game just closed (on_finished) ------------------------------------------------------------
+
+
+def test_a_game_closed_is_told_once_at_the_poll_that_finishes_its_session(tmp_path):
+    rig = Rig(tmp_path)
+    rig.polls(HSR, at(23), 3)
+
+    rig.poll(IDLE, at(23) + 3 * MINUTE)  # missed once: maybe an alt-tab
+    told_after_one_miss = list(rig.ended)
+    rig.polls(IDLE, at(23) + 4 * MINUTE, 3)
+
+    assert told_after_one_miss == []
+    assert rig.ended == [Session("hsr", at(23), at(23) + 2 * MINUTE)]
+
+
+def test_a_session_ended_by_a_sleep_is_never_told(tmp_path):
+    rig = Rig(tmp_path)
+    rig.polls(HSR, at(20), 3)
+
+    rig.poll(IDLE, at(23))  # the PC slept with the game open: found hours late
+
+    assert rig.record().sessions == (Session("hsr", at(20), at(20) + 2 * MINUTE),)
+    assert rig.ended == []
+
+
+@pytest.mark.parametrize(("restart", "told"), [(2, True), (30, False)])
+def test_a_session_a_crashed_run_left_is_told_only_after_a_quick_restart(tmp_path, restart, told):
+    rig = Rig(tmp_path)
+    rig.polls(HSR, at(20), 3)  # the run crashes without stopping: the session stays open
+
+    rig.watcher = rig.new_watcher()
+    rig.poll(IDLE, at(20) + (2 + restart) * MINUTE)
+
+    assert rig.ended == ([Session("hsr", at(20), at(20) + 2 * MINUTE)] if told else [])
+
+
+def test_a_session_finished_by_a_poll_whose_write_failed_is_told_at_the_next_poll(tmp_path):
+    rig = Rig(tmp_path)
+    rig.polls(HSR, at(20), 3)
+    rig.poll(IDLE, at(20) + 3 * MINUTE)
+
+    rig.store.failing_saves = 1
+    rig.poll(IDLE, at(20) + 4 * MINUTE)
+    told_after_the_failure = list(rig.ended)
+    rig.poll(IDLE, at(20) + 5 * MINUTE)
+
+    assert told_after_the_failure == []
+    assert rig.ended == [Session("hsr", at(20), at(20) + 2 * MINUTE)]
+
+
+def test_stopping_ends_the_open_sessions_without_telling_them(tmp_path):
+    rig = Rig(tmp_path)
+    rig.polls(HSR, at(20), 3)
+
+    rig.watcher.stop()
+    rig.poll(IDLE, at(20) + 5 * MINUTE)
+
+    assert rig.record().sessions == (Session("hsr", at(20), at(20) + 2 * MINUTE),)
+    assert rig.ended == []
+
+
+def test_a_failing_listener_is_logged_and_the_play_time_goes_on(tmp_path, caplog):
+    rig = Rig(tmp_path)
+
+    def broken(session: Session) -> None:
+        raise RuntimeError("the mailbox is gone")
+
+    rig.watcher = PlayTimeWatcher(
+        rig.listing,
+        rig.store,
+        rig.config,
+        announce=None,
+        owner_call="Master",
+        now=rig.clock,
+        on_finished=broken,
+    )
+    rig.polls(HSR, at(20), 3)
+    with caplog.at_level(logging.ERROR, logger="waifu.play_watch"):
+        rig.polls(IDLE, at(20) + 3 * MINUTE, 2)
+    rig.poll(IDLE | {"GenshinImpact.exe"}, at(20) + 5 * MINUTE)
+
+    assert rig.record().open == (Session("genshin", at(20) + 5 * MINUTE, at(20) + 5 * MINUTE),)
+    assert [record.exc_info is not None for record in caplog.records] == [True]
+    assert "Could not tell that a game was closed" in caplog.text
 
 
 # --- the bedtime nudge ---------------------------------------------------------------------------
