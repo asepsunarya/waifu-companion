@@ -6787,7 +6787,7 @@ def _write_config(config_path: Path, changes: list[Change]) -> bool:
         print(f"{OK} {config_path} diperbarui: {_changed_keys(changes)}.")
         print(f"  Isi sebelumnya tersimpan di {outcome.backup}.")
         return True
-    print(f"{FAIL} {config_path} tidak diubah: {outcome.problem}.")
+    print(f"{FAIL} {config_path} tidak diperbarui: {outcome.problem}.")
     if outcome.backup is not None:
         print(f"  Isi sebelumnya tersimpan di {outcome.backup}.")
     print(f"Ubah sendiri di {config_path}, hanya kunci yang disebut di sini:")

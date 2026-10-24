@@ -19102,7 +19102,7 @@ def test_setup_hands_over_the_line_when_config_yaml_cannot_be_patched(home, monk
     assert cli.main(["setup", "mic"]) == 1
 
     out = capsys.readouterr().out
-    assert "✗ config.yaml tidak diubah: audio tidak ditulis sebagai blok bertingkat." in out
+    assert "✗ config.yaml tidak diperbarui: audio tidak ditulis sebagai blok bertingkat." in out
     assert '    audio:\n      input_device: "Headset (Polaris-BT), MME"\n' in out
     assert setup_config(home).audio.input_device is None
 
