@@ -472,6 +472,11 @@ YES_WORDS = frozenset({"y", "ya", "iya", "yes", "ok", "oke"})
 NO_WORDS = frozenset({"n", "no", "tidak", "ga", "gak", "nggak", "enggak", "t"})
 SKIP_WORD = "l"  # lewati
 StepOutcome = Literal["written", "failed", "unchanged"]
+SETUP_OUTCOME_TEXT: dict[StepOutcome, str] = {
+    "written": "ditulis ke config.yaml",
+    "unchanged": "tidak diubah",
+    "failed": "gagal; ubah sendiri dengan potongan di atas",
+}
 # What tinytuya's wizard writes into the folder it runs in (tinytuya/core/const.py); the first
 # and the last hold the cloud credentials (tuya-raw.json also every local key).
 TUYA_DEVICE_FILE = "devices.json"
@@ -6740,15 +6745,68 @@ def _setup(args: argparse.Namespace) -> int:
             outcomes.append(stop.outcome)
         print("Setup berhenti.")
         stopped = True
-    if "written" in outcomes and _running_status(RUN_LOCK, RUNNING_FILE)[0]:
+    running = _running_status(RUN_LOCK, RUNNING_FILE)[0]
+    if "written" in outcomes and running:
         print(
             f"{WARN} 'waifu run' sedang berjalan: tutup lalu jalankan lagi supaya perubahan ini "
             "dipakai."
         )
-    if args.step == "all" and not stopped:
+    if stopped:
+        return 1 if "failed" in outcomes else 0
+    _setup_recap(args.config, dict(zip(steps, outcomes, strict=True)), running=running)
+    if args.step == "all":
         print("\n== Pemeriksaan (waifu check) ==")
         return _check(args)
     return 1 if "failed" in outcomes else 0
+
+
+def _setup_recap(config_path: Path, outcomes: dict[str, StepOutcome], *, running: bool) -> None:
+    """What each step did and what is left to do, together at the end: the follow-ups said
+    between the steps scroll away behind the later steps and `check`."""
+    if len(outcomes) > 1:
+        print("\nRingkasan setup:")
+        for step, outcome in outcomes.items():
+            print(f"  {SETUP_TITLES[step]}: {SETUP_OUTCOME_TEXT[outcome]}")
+    try:
+        config = load_config(config_path)
+    except ConfigError:
+        return  # `check` says why
+    left = [
+        line for step, outcome in outcomes.items() for line in _left_after(step, outcome, config)
+    ]
+    if "written" in outcomes.values() and not running:
+        left.append("waifu run: jalankan supaya perubahan ini dipakai")
+    if left:
+        print("Langkah berikutnya:")
+        print("".join(f"  - {line}\n" for line in left), end="")
+
+
+def _left_after(step: str, outcome: StepOutcome, config: AppConfig) -> list[str]:
+    """What is still to do for `step`, each line led by its command; nothing after a failed
+    write, whose snippet to paste is the next step."""
+    if outcome == "failed":
+        return []
+    if step == "mic":
+        if outcome == "written":
+            return ["waifu enroll: daftarkan ulang suaramu lewat mic yang baru"]
+        if config.audio.input_device is None:
+            return ["waifu setup mic: mic belum dipilih"]
+        return []
+    if step == "tuya":
+        empty = [target.name for target in tuya_targets(config) if not target.filled]
+        return [f"waifu setup tuya: {', '.join(empty)} belum diisi"] if empty else []
+    if step == "ir":
+        try:
+            missing = [(device, device.missing_commands()) for device in _ir_devices(config)]
+        except IrCodeStoreError:
+            return []  # the step said the codes cannot be read
+        return [
+            f"waifu learn-ir {device.id} --missing: {len(commands)} tombol remote {device.name} "
+            "belum dipelajari"
+            for device, commands in missing
+            if commands
+        ]
+    return [] if config.notify.enabled else ["waifu setup notify: notifikasi HP masih mati"]
 
 
 def _ask_after(outcome: StepOutcome, ask: Callable[[], object]) -> StepOutcome:
@@ -7199,7 +7257,7 @@ def _ask_ipv4(question: str) -> str | None:
 def _learn_ir_hints(config: AppConfig) -> None:
     """Which IR devices still have remote buttons to learn, with the command that learns them.
     Building the registry never connects."""
-    devices = [device for device in build_registry(config).all() if isinstance(device, IrDevice)]
+    devices = _ir_devices(config)
     if devices:
         print("Lalu ajarkan tombol remote-nya (arahkan remote ke blaster):")
     for device in devices:
@@ -7218,6 +7276,10 @@ def _learn_ir_hints(config: AppConfig) -> None:
             print(f"  {OK} {device.name}: semua tombol sudah dipelajari.")
         else:
             print(f"  {device.name}: belum ada tombol; waifu learn-ir {device.id} <perintah>")
+
+
+def _ir_devices(config: AppConfig) -> list[IrDevice]:
+    return [device for device in build_registry(config).all() if isinstance(device, IrDevice)]
 
 
 def _setup_notify(args: argparse.Namespace) -> StepOutcome:

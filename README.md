@@ -310,6 +310,11 @@ waifu setup mic      # atau satu langkah saja: mic, tuya, ir, atau notify
   `tuya: {...}` dalam satu baris, tab, atau anchor YAML), tidak ada yang diubah: setup
   menampilkan potongan YAML untuk kamu tempel sendiri. Local key tidak pernah ditampilkan;
   salin nilai `"key"` dari `devices.json` untuk perangkat dengan `"id"` yang sama.
+- Di akhir, setup merangkum tiap langkah (ditulis, tidak diubah, atau gagal) lalu menulis
+  **Langkah berikutnya**, misalnya `waifu enroll` setelah mic diganti, `waifu setup tuya`
+  untuk perangkat yang belum diisi, `waifu learn-ir ac --missing`, atau `waifu setup notify`
+  kalau notifikasi HP masih mati. Dengan `waifu setup` (semua langkah), rangkuman ini muncul
+  sebelum `waifu check`.
 - Perubahan dipakai setelah `waifu run` dijalankan ulang; setup mengingatkan kalau
   `waifu run` sedang berjalan. Setelah langkah `mic`, daftarkan ulang suaramu dengan
   `waifu enroll` lewat mic itu. Mic yang dipilih di halaman Suara di HP tetap dicoba lebih

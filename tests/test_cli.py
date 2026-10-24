@@ -19105,6 +19105,7 @@ def test_setup_hands_over_the_line_when_config_yaml_cannot_be_patched(home, monk
     assert "✗ config.yaml tidak diperbarui: audio tidak ditulis sebagai blok bertingkat." in out
     assert '    audio:\n      input_device: "Headset (Polaris-BT), MME"\n' in out
     assert setup_config(home).audio.input_device is None
+    assert "Langkah berikutnya" not in out  # the snippet is the next step
 
 
 def test_setup_stops_when_input_ends(home, monkeypatch, capsys):
@@ -19810,6 +19811,54 @@ def test_setup_runs_every_step_in_order_then_check(home, monkeypatch, capsys, no
     assert code == cli.main(["check"])
 
 
+def test_setup_ends_with_what_each_step_did_and_what_is_left(
+    home, monkeypatch, capsys, nothing_installed
+):
+    use_sounddevice(monkeypatch, FakeSoundDevice(heard={HEADSET_MIC: master_speaking()}))
+    use_wizard(monkeypatch, FakeWizard())
+    answer(monkeypatch, "", "", "n", "", "n")  # measure, the mic, no wizard, keep, no notify
+
+    cli.main(["setup"])
+
+    out = capsys.readouterr().out
+    recap = (
+        "\nRingkasan setup:\n"
+        "  Mikrofon: ditulis ke config.yaml\n"
+        "  Perangkat Tuya: tidak diubah\n"
+        "  IR blaster: tidak diubah\n"
+        "  Notifikasi HP: tidak diubah\n"
+        "Langkah berikutnya:\n"
+        "  - waifu enroll: daftarkan ulang suaramu lewat mic yang baru\n"
+        "  - waifu setup tuya: Lampu kamar, Colokan PC belum diisi\n"
+        "  - waifu learn-ir ac --missing: 17 tombol remote AC Samsung belum dipelajari\n"
+        "  - waifu learn-ir proyektor --missing: 6 tombol remote Proyektor Wanbo Dali belum "
+        "dipelajari\n"
+        "  - waifu setup notify: notifikasi HP masih mati\n"
+        "  - waifu run: jalankan supaya perubahan ini dipakai\n"
+        "\n== Pemeriksaan (waifu check) ==\n"
+    )
+    assert recap in out
+
+
+def test_setup_one_step_ends_with_what_is_left_of_it_alone(home, monkeypatch, capsys):
+    answer(monkeypatch, "n")
+
+    assert cli.main(["setup", "notify"]) == 0
+
+    out = capsys.readouterr().out
+    assert out.endswith("Langkah berikutnya:\n  - waifu setup notify: notifikasi HP masih mati\n")
+    assert "Ringkasan setup" not in out
+
+
+def test_setup_names_no_next_step_once_a_step_left_nothing(home, monkeypatch, capsys):
+    enable_notify(home)
+    answer(monkeypatch, "", "")  # keep the topic, no test push
+
+    assert cli.main(["setup", "notify"]) == 0
+
+    assert "Langkah berikutnya" not in capsys.readouterr().out
+
+
 def test_setup_all_is_the_default_step():
     assert cli.build_parser().parse_args(["setup"]).step == "all"
 
@@ -19832,9 +19881,11 @@ def test_setup_asks_for_a_restart_when_it_wrote_while_waifu_run_runs(home, monke
     with InstanceLock(home / "data" / "run.lock"):
         assert cli.main(["setup", "ir"]) == 0
 
+    out = capsys.readouterr().out
     assert (
         "! 'waifu run' sedang berjalan: tutup lalu jalankan lagi supaya perubahan ini dipakai."
-    ) in capsys.readouterr().out
+    ) in out
+    assert "waifu run: jalankan" not in out  # said once
 
 
 def test_setup_still_fails_a_write_when_input_ends_at_a_later_question(home, monkeypatch, capsys):
