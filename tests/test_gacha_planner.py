@@ -60,7 +60,8 @@ CHAOS = window("memory_of_chaos", 50)
 
 
 def told(calendar, now=EVENING, state=None, game="hsr", **options) -> Notice | None:
-    return evening_notice(game, calendar, now, state or ReminderState(), ASIA, **options)
+    state = ReminderState() if state is None else state
+    return evening_notice(game, calendar, now, state, ASIA, **options)
 
 
 # --- which events and seasons ------------------------------------------------------------------
