@@ -204,6 +204,26 @@ def reading_request(
     if "?" in command:
         return None
     names, leading = tuple(names), tuple(leading)
+    left = _request_words(command, names, leading)
+    if [word.casefold() for word in left[:2]] != ["cara", "baca"]:
+        return None
+    split = next((index for index in range(3, len(left)) if left[index].casefold() == "itu"), None)
+    if split is None:
+        return None
+    term, reading = _without_term_lead(left[2:split]), left[split + 1 :]
+    while reading and reading[0].casefold() in _READING_LEADS:
+        reading = reading[1:]
+    if not (1 <= len(term) <= TERM_MAX_WORDS and 1 <= len(reading) <= READING_MAX_WORDS):
+        return None
+    if _remark(term, reading) or _key(" ".join(term)) in {_key(name) for name in names + leading}:
+        return None
+    return " ".join(term), " ".join(reading)
+
+
+def _request_words(command: str, names: tuple[str, ...], leading: tuple[str, ...]) -> list[str]:
+    """The words of a voice request about a reading, split at whitespace with marks stripped
+    from their edges, without the words left out before it (those of `names` and `leading`,
+    "master", softeners) and after it (those of `names`, fillers)."""
     name_words = {word.casefold() for name in names for word in name.split()}
     leading_words = {word.casefold() for call in leading for word in call.split()}
     words = [stripped for word in command.split() if (stripped := word.strip(_EDGE_MARKS))]
@@ -212,22 +232,12 @@ def reading_request(
         start += 1
     while end > start and words[end - 1].casefold() in _TRAILING_SKIPPED | name_words:
         end -= 1
-    left = words[start:end]
-    if [word.casefold() for word in left[:2]] != ["cara", "baca"]:
-        return None
-    split = next((index for index in range(3, len(left)) if left[index].casefold() == "itu"), None)
-    if split is None:
-        return None
-    term, reading = left[2:split], left[split + 1 :]
-    if len(term) > 1 and term[0].casefold() in _TERM_LEADS:
-        term = term[1:]
-    while reading and reading[0].casefold() in _READING_LEADS:
-        reading = reading[1:]
-    if not (1 <= len(term) <= TERM_MAX_WORDS and 1 <= len(reading) <= READING_MAX_WORDS):
-        return None
-    if _remark(term, reading) or _key(" ".join(term)) in {_key(name) for name in names + leading}:
-        return None
-    return " ".join(term), " ".join(reading)
+    return words[start:end]
+
+
+def _without_term_lead(term: list[str]) -> list[str]:
+    """`term` without a first "nama", "kata", or "tulisan" when it has more words."""
+    return term[1:] if len(term) > 1 and term[0].casefold() in _TERM_LEADS else term
 
 
 def _remark(term: list[str], reading: list[str]) -> bool:
