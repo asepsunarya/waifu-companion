@@ -2661,6 +2661,7 @@ named `tests/test_<package>_<module>.py`.
 **Acceptance criteria:**
 - [x] `build_hotwords` lists the name, wake words, device names, aliases, routines, app keys, the games when gacha is on, then the roster names (10 per game), skipping blanks and repeats (casefolded), within 40 terms and 400 characters, so the roster is dropped first
 - [x] `Vocabulary` builds them at start and again on `set_roster`, safe across threads
+- [x] Fix pass: the order is her names, device names, app keys, the games, the roster names (5 per game, taking turns, the roster read last first), routines, then aliases, so a full list drops the aliases first and every game read keeps names
 
 **Dependencies:** 280a · **Files:** `src/waifu/voice/hotwords.py`, `tests/test_voice_hotwords.py` · **Scope:** S
 
@@ -2683,6 +2684,7 @@ named `tests/test_<package>_<module>.py`.
 **Acceptance criteria:**
 - [x] `pronounce` rewrites the built-in terms case-sensitively and Master's case-insensitively, whole words only, longest first, in one pass; Master's rule replaces a built-in with the same term
 - [x] `checked_rule` bounds the term and the reading; `Lexicon` adds, replaces, lists, and removes rules, is never created by reading, sets a broken file aside, refuses rule 201, and `readings` never raises
+- [x] Fix pass: a broken file is reported without naming its words
 
 **Dependencies:** 280a · **Files:** `src/waifu/lexicon.py`, `tests/test_lexicon.py` · **Scope:** M
 
@@ -2698,6 +2700,7 @@ named `tests/test_<package>_<module>.py`.
 **Acceptance criteria:**
 - [x] `reading_request` takes "cara baca X itu Y" with its casing, names and softeners left out, and refuses a question ("?" or a question word) and a term over 3 or a reading over 8 words
 - [x] The Assistant answers it without the brain: the rule saved and the reading said back, a refused rule or a failing file said, never remembered for "ulangi"; the phone's text keeps the reply as written
+- [x] Fix pass: remarks (`REMARK_WORDS`), pronouns, her names, and the owner call as the term are refused; `QUESTION_TAGS` count only as the reading's last word; leading "harusnya", "dibaca", ... and trailing "aja", "oke", "nih", and a first "nama"/"kata"/"tulisan" of a longer term are left out; the owner call is left out before the request (`leading`); the confirmation "Oke {owner}. {term} mulai sekarang kubaca {reading}." is synthesised before `add` and played after it, never when the file cannot be written; only the "Heard" line names the words (test over every record)
 
 **Dependencies:** 283 · **Files:** `src/waifu/lexicon.py`, `src/waifu/app.py`, `tests/test_lexicon.py`, `tests/test_app.py` · **Scope:** S
 
@@ -2713,5 +2716,6 @@ named `tests/test_<package>_<module>.py`.
 
 **Acceptance criteria:**
 - [x] README "Kamus Cyrene" with a contents entry and checklist items; CHANGELOG v1.49; full suite, ruff, and JS tests clean
+- [x] Fix pass: the README lists what goes to the brain and is not saved (questions, remarks, pronouns and her names, near misses, the phone's chat and voice notes) and says the "Heard" line logs the request; the vocabulary's new order; the CHANGELOG and the SPEC follow
 
 **Dependencies:** 286 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
