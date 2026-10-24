@@ -6,11 +6,13 @@ only a failure is spoken and pushed. Each occurrence is then marked fired, which
 one-shot entry and moves a repeating one on. An occurrence missed by more than the grace
 (the PC or Cyrene was off) is marked without running: a one-shot entry is removed, and a
 repeating one moves to its first occurrence still within the grace, so after days away
-today's still fires. A missed reminder is pushed; a missed one-shot reminder is also told,
-all of a tick's together in one announcement, so it is never lost when the phone gets no
-push (a repeating one comes again anyway). The PC itself never runs from a schedule. A
-routine's delayed steps ("mode tidur": the AC off three hours later) go into this schedule
-when the routine runs, counted from then, and fire later like any device command.
+today's still fires. A missed reminder is pushed; a missed one-shot, monthly, or yearly
+reminder is also told, all of a tick's together in one announcement, so it is never lost
+when the phone gets no push (one that repeats within a week comes again soon anyway; a bill
+or a birthday would come back only a month or a year later). The PC itself never runs from
+a schedule. A routine's delayed steps ("mode tidur": the AC off three hours later) go into
+this schedule when the routine runs, counted from then, and fire later like any device
+command.
 
 It runs in a daemon thread. A failing entry is logged and the other entries go on; an
 occurrence that ran but could not be marked is marked again at the next tick, never run
@@ -34,6 +36,9 @@ from waifu.schedule import DeviceAction, Entry, Reminder, ScheduleStore, due
 logger = logging.getLogger(__name__)
 
 SCHEDULE_TAG = "alarm_clock"  # ntfy shows it as an alarm clock emoji
+# The repeats of a missed reminder that is told as well as pushed: it never comes again, or
+# only a month or a year later. One that comes again within a week is only pushed.
+_TOLD_WHEN_MISSED = frozenset({"none", "monthly", "yearly"})
 # Indexed by month - 1; spelled out so the OS locale never leaks in.
 MONTHS_ID = (
     "Januari",
@@ -155,7 +160,8 @@ class Scheduler:
         Failures are logged, never raised. A failed occurrence is marked too: retrying it
         every tick would repeat it until the grace ran out. A skipped repeating entry moves
         to its first time not older than `earliest`, which fires next when it is due. A
-        skipped one-shot reminder is added to `missed` (its time and text) for the tick to tell.
+        skipped one-shot, monthly, or yearly reminder is added to `missed` (its time and text)
+        for the tick to tell.
         """
         late = entry.at < earliest
         occurrence = (entry.id, entry.at)
@@ -206,7 +212,8 @@ class Scheduler:
         self._push(text)
 
     def _skip(self, entry: Entry, missed: list[tuple[datetime, str]]) -> None:
-        """Push a missed reminder, and keep a one-shot one in `missed` to tell; nothing runs.
+        """Push a missed reminder, and keep it in `missed` to tell when it repeats only monthly
+        or yearly or never (`_TOLD_WHEN_MISSED`); nothing runs.
 
         The push names the day too when the missed one was not today's, so it never reads as
         if today's had been missed.
@@ -223,7 +230,7 @@ class Scheduler:
             if entry.at.date() != self._now().date():
                 when = f"{entry.at:%d-%m-%Y} {when}"
             # Kept to tell before the push, which may raise when the phone is unreachable.
-            if entry.repeat == "none":
+            if entry.repeat in _TOLD_WHEN_MISSED:
                 missed.append((entry.at, entry.action.text))
             self._push(f"Terlewat ({when}): {entry.action.text}")
 

@@ -213,16 +213,76 @@ def test_missed_reminders_are_told_with_what_she_calls_the_owner(
     assert house.announced == [(expected, "sad")]
 
 
-def test_a_missed_repeating_reminder_is_pushed_but_not_told(tmp_path):
+@pytest.mark.parametrize(
+    ("repeat", "at"),
+    [
+        ("daily", TODAY_15),
+        ("weekdays", TODAY_15),
+        ("weekends", datetime(2026, 10, 17, 15, 0)),
+        ("weekly", TODAY_15),
+    ],
+)
+def test_a_missed_reminder_that_comes_again_within_a_week_is_pushed_but_not_told(
+    tmp_path, repeat, at
+):
     house = House(tmp_path)
-    house.add(MEDICINE, repeat="daily")
+    house.add(MEDICINE, at=at, repeat=repeat)
 
-    house.tick_at(datetime(2026, 10, 13, 15, 31))
+    house.tick_at(at + timedelta(minutes=31))
 
     assert house.told == (
         [],
         [("Cyrene", f"Terlewat (15.00): {MEDICINE.text}", ("alarm_clock",))],
     )
+
+
+@pytest.mark.parametrize(
+    ("repeat", "following"),
+    [("monthly", datetime(2026, 11, 13, 15, 0)), ("yearly", datetime(2027, 10, 13, 15, 0))],
+)
+def test_a_missed_monthly_or_yearly_reminder_is_told_and_pushed_and_moves_on(
+    tmp_path, repeat, following
+):
+    # A bill comes back only next month and a birthday next year: a push alone may reach
+    # nobody (notifications are off by default).
+    house = House(tmp_path)
+    house.add(MEDICINE, repeat=repeat)
+
+    house.tick_at(datetime(2026, 10, 13, 15, 31))
+
+    assert house.told == (
+        [(f"Master, ada pengingat yang terlewat jam 15.00: {MEDICINE.text}", "sad")],
+        [("Cyrene", f"Terlewat (15.00): {MEDICINE.text}", ("alarm_clock",))],
+    )
+    assert [entry.at for entry in house.store.entries()] == [following]
+
+
+BIRTHDAY = Reminder("Master, hari ini ulang tahun Ibu!")
+
+
+def test_a_birthday_missed_while_the_pc_was_off_is_told_with_its_date_when_she_is_back(
+    tmp_path,
+):
+    house = House(tmp_path)
+    house.clock.current = datetime(2027, 5, 4, 21, 0)
+    house.add(BIRTHDAY, at=datetime(2026, 5, 5, 8, 0), repeat="yearly")  # 5 May 2027
+    house.add(LAUNDRY, at=datetime(2027, 5, 6, 16, 0))
+
+    house.tick_at(datetime(2027, 5, 7, 9, 0))  # the PC was off for two days
+
+    assert house.announced == [
+        (
+            f"Master, ada 2 pengingat yang terlewat. Tanggal 5 jam 08.00: {BIRTHDAY.text} "
+            f"Tanggal 6 jam 16.00: {LAUNDRY.text}",
+            "sad",
+        )
+    ]
+    assert house.notifier.sent[0] == (
+        "Cyrene",
+        f"Terlewat (05-05-2027 08.00): {BIRTHDAY.text}",
+        ("alarm_clock",),
+    )
+    assert [entry.at for entry in house.store.entries()] == [datetime(2028, 5, 5, 8, 0)]
 
 
 # --- device actions ------------------------------------------------------------------------------
