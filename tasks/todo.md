@@ -2566,3 +2566,81 @@ named `tests/test_<package>_<module>.py`.
 - [x] README "Diagnosa suara" with a contents entry and checklist items, the troubleshooting mic entry led by the Suara page, the list form of `input_device`; CHANGELOG v1.47; full suite, ruff, and JS tests clean
 
 **Dependencies:** 269 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
+
+## Task 271a: Hotkey global contract ✅
+
+**Acceptance criteria:**
+- [x] SPEC "hotkey global (v1.48)" (stories, non-goals, the hotkey thread, the actions, the listen pause, the voice loop, the avatar, the quick buttons, config, CLI, decisions, known limits, privacy, safety); tasks 271a-279 in the plan and here
+
+**Dependencies:** none · **Files:** `SPEC.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
+
+## Task 271: Test guards
+
+**Acceptance criteria:**
+- [ ] A test that looks up user32's `RegisterHotKey`, `UnregisterHotKey`, `GetMessageW`, `PeekMessageW`, or `PostThreadMessageW` fails, also when the code under test catches the refusal; other user32 functions still work
+
+**Dependencies:** 271a · **Files:** `tests/conftest.py`, `tests/test_safety_guard.py` · **Scope:** S
+
+## Task 272: The hotkey thread
+
+**Acceptance criteria:**
+- [ ] `virtual_key` maps every key of `KEYS`; `Win32User32` calls user32 with the documented signatures and `use_last_error`
+- [ ] `HotkeyThread` registers each hotkey with `MOD_CONTROL | MOD_ALT | MOD_NOREPEAT` on its own thread, logs a taken combo once and keeps the others, calls `on_press` with the action of each `WM_HOTKEY` (an exception logged), ends on `WM_QUIT` or -1, unregisters on the same thread, and stops without hanging, also before it is ready
+- [ ] The status file is written atomically and read back, a broken one as None
+
+**Dependencies:** 271 · **Files:** `src/waifu/hotkeys.py`, `tests/test_hotkeys.py` · **Scope:** M
+
+## Task 273: The config
+
+**Acceptance criteria:**
+- [ ] `hotkeys` takes one key per action (any case) or null, refuses another key and two the same, bounds `quiet_hours`; `hotkeys` lists the ones switched on; the example documents it
+
+**Dependencies:** 272 · **Files:** `src/waifu/config.py`, `config.example.yaml`, `tests/test_config.py` · **Scope:** S
+
+## Task 274: The listen pause
+
+**Acceptance criteria:**
+- [ ] `ListenPause` starts for `hours`, ends, keeps a read for a second, ends by itself (file deleted), sets a broken file aside, and never raises from `until`
+
+**Dependencies:** 271a · **Files:** `src/waifu/listen_pause.py`, `tests/test_listen_pause.py` · **Scope:** S
+
+## Task 275: The voice loop
+
+**Acceptance criteria:**
+- [ ] While the pause holds, `run` feeds no frame to the segmenter (reset once) yet says reminders, rings, and announcements; an alarm that rings lets her hear; requests wait; the avatar is not shown listening; `listen_now` ends the pause
+- [ ] A start and an end are logged once and shown by the avatar's `hearing` event; an end by itself is said once
+- [ ] `repeat_now` repeats like "ulangi" and is ignored while she is busy
+- [ ] `AvatarBus.hearing` publishes and replays the event; the page shows "Tidak mendengarkan"
+
+**Dependencies:** 274 · **Files:** `src/waifu/app.py`, `src/waifu/avatar/bus.py`, `src/waifu/avatar/web/index.html`, `src/waifu/avatar/web/logic.js`, `tests/test_app.py`, `tests/test_avatar_bus.py`, `tests/test_avatar_web.py`, `tests/js/logic.test.mjs` · **Scope:** M
+
+## Task 276: The actions
+
+**Acceptance criteria:**
+- [ ] `InteractionHandler.press` takes a double-click or a listen after a cut whatever the avatar's switches say
+- [ ] `HotkeyActions.press` never blocks: talk as a double-click, stop cuts at once and listens unless paused, repeat and quiet on its worker; quiet switches the pause and says so, also when its file fails
+
+**Dependencies:** 272, 274, 275 · **Files:** `src/waifu/hotkey_actions.py`, `src/waifu/avatar/interactions.py`, `tests/test_hotkey_actions.py`, `tests/test_avatar_interactions.py` · **Scope:** M
+
+## Task 277: "Dengar lagi"
+
+**Acceptance criteria:**
+- [ ] While the pause holds, the quick buttons list "Dengar lagi" (`mic.listen`) after the alarm's; it is found whenever there is a pause and ends it outside the devices' lock
+- [ ] `isPassingAction`; the phone page and the PC page read the list again after pressing it, and the phone page every 15 s while it shows
+
+**Dependencies:** 274 · **Files:** `src/waifu/phone/actions.py`, `src/waifu/avatar/web/phone/actions.js`, `src/waifu/avatar/web/phone/phone.js`, `src/waifu/avatar/web/tombol/tombol.js`, `tests/test_phone_actions.py`, `tests/js/*.test.mjs` · **Scope:** S
+
+## Task 278: Wiring and the check line
+
+**Acceptance criteria:**
+- [ ] `run` on Windows clears and shares one pause, runs the actions and the hotkey thread while she listens, and records their registrations; `waifu tombol` shows the pause's button; `run`'s tests start a fake hotkey thread
+- [ ] `waifu check` lists the combos, trusts the recorded registrations only while `waifu run` runs, names each refused combo with its setting, and tells a pause under way
+
+**Dependencies:** 273, 275, 276, 277 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** M
+
+## Task 279: Docs
+
+**Acceptance criteria:**
+- [ ] README "Hotkey global" with a contents entry and checklist items; CHANGELOG v1.48; full suite, ruff, and JS tests clean
+
+**Dependencies:** 278 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S

@@ -2356,6 +2356,79 @@ Privacy: nothing is written but the override file (a device name and three numbe
 
 Safety: tests use fake sounddevice modules, fake winmm, fake clocks and sleeps, and stores under tmp_path; `tests/conftest.py` now refuses real `sounddevice` streams, playback, and PortAudio restarts once sounddevice is imported, and winmm's input listing; nothing is recorded or played.
 
+### hotkey global (v1.48)
+
+In a fullscreen game the avatar is hidden and Master's hands are on the keyboard: calling her by name over the game's sound is unreliable, a double-click on her cannot be reached, and when friends talk in voice chat she may hear her name. Inspired by Live2DViewerEX's KeyTrigger and OpenVoiceOS's naptime, four global hotkeys, Ctrl+Alt plus one key, work while any window, a fullscreen game too, has the focus.
+
+User stories:
+
+1. Mid-game, Master presses Ctrl+Alt+C: she says her `listen` line ("はい, Master?") and listens without her name for the follow-up window, exactly as a double-click on the avatar does (while she speaks, she is cut off and only listens). Speaker verification still applies to what she then hears.
+2. Ctrl+Alt+X cuts her off at once, also in the middle of a long answer, and she listens next, as a double-click that cuts her does; while she says nothing, it does nothing.
+3. Ctrl+Alt+R says her last words again, like "ulangi" (v1.38) without the brain; while she is busy (hearing Master, thinking, or speaking) it is ignored, like a pat.
+4. Ctrl+Alt+Q: "Oke Master, aku tidak mendengarkan dulu sampai jam 16.30. Tekan tombol yang sama kalau mau ngobrol lagi." From then nothing her mic hears reaches Whisper, so voice chat never wakes her; reminders, alarms, and announcements are still said, and while an alarm rings she hears "aku sudah bangun". The avatar shows "Tidak mendengarkan". Ctrl+Alt+Q again: "Oke Master, aku dengar lagi."; Ctrl+Alt+C or a double-click also ends it. After `hotkeys.quiet_hours` (2) it ends by itself: "Aku mendengarkan lagi sekarang, Master." While it holds, the phone's quick buttons and `waifu tombol` show "Dengar lagi".
+5. Each key can be changed or switched off in `hotkeys:`; a combo another program has taken already is logged and shown in `waifu check` with the setting to change.
+
+Non-goals (v1.48): modifiers other than Ctrl+Alt (fixed) or a key that is not one letter, digit, or F1-F12; push-to-talk (holding a key while speaking); a low-level keyboard hook (it would see every key Master types, the kind of hook anti-cheat flags); detecting a game that swallows the keys; hotkeys in `waifu chat`, `waifu tombol`, or `waifu say`, or outside Windows; asking her by voice to stop listening (she could not hear "dengar lagi"); the Suara page showing the pause (its records simply stop, and the quick buttons show "Dengar lagi"); a brain tool, a persona line, or a dependency (18 of 20 strict tools, 17 of 24 optional parameters, and 0 of 16 unions stay).
+
+The hotkey thread (`hotkeys.py`), the Win32 boundary:
+- `Hotkey(action, key)` (frozen): `action` one of `ACTIONS` (`talk`, `stop`, `repeat`, `quiet`), `key` one of `KEYS` (`A`-`Z`, `0`-`9`, `F1`-`F12`); `combo` "Ctrl+Alt+C"; `virtual_key(key)` its Windows virtual-key code (the letter's or digit's code, `0x70` + n - 1 for Fn).
+- `Win32User32`: `RegisterHotKey`, `UnregisterHotKey`, `GetMessageW`, `PeekMessageW`, and `PostThreadMessageW` through ctypes with Microsoft's documented signatures (winuser.h), user32 loaded with `use_last_error=True` and looked up at each call, never at import, so the test suite's guard always applies (the `input_idle.py` pattern). `register_hotkey(id, modifiers, vk) -> int` gives 0 or Windows' error code; `get_message() -> Message(result, message, wparam)`.
+- `HotkeyThread(hotkeys, on_press, *, user32=None)`, a context manager: its thread ("global-hotkeys", a daemon) creates its message queue (`PeekMessageW` with `PM_NOREMOVE`), registers each hotkey (`RegisterHotKey(NULL, index + 1, MOD_CONTROL | MOD_ALT | MOD_NOREPEAT, vk)`), logging each refusal once (WARNING: "Ctrl+Alt+Q is taken by another program" for `ERROR_HOTKEY_ALREADY_REGISTERED` (1409), else the error), sets `ready`, and waits in `GetMessageW`: a `WM_HOTKEY` calls `on_press(action)` (INFO "Hotkey Ctrl+Alt+Q (quiet)"; an exception is logged, never raised), `WM_QUIT` ends the loop, -1 logs an ERROR and ends it. The hotkeys are unregistered on the same thread as it ends (Windows refuses it from another). `stop()` waits up to `READY_TIMEOUT_S` (2 s) for `ready`, posts `WM_QUIT` to the thread (`PostThreadMessageW` fails while a thread has no queue yet, hence the queue first), and joins it for at most `STOP_TIMEOUT_S` (2 s), with a WARNING when it is still alive. `registrations()`: each hotkey with its error (0: registered), once `ready`.
+- `on_press` must never block: Ctrl+Alt+X has to reach her while she speaks.
+- The status file: `write_status(path, pid, registrations)` writes `{"version": 1, "pid": 4242, "hotkeys": [{"action": "quiet", "key": "Q", "error": 1409}]}` atomically; `read_status(path) -> HotkeyStatus | None` (None for a missing file or one that is not such a status, never raising).
+
+The actions (`hotkey_actions.py`), `HotkeyActions(*, reactions, interrupt, repeat, speak, pause=None, owner_call="Master")`, a context manager with one worker thread:
+- `press(action)`, the hotkey thread's `on_press`, never blocks: `talk` → `reactions.press("double_click")`; `stop` → `interrupt()` right there, and when it cut her and her hearing is not paused, `reactions.press(LISTEN_AFTER_CUT)` (a cut while paused is only a cut, so the pause holds); `repeat` and `quiet` go to the worker's queue (8; one more is dropped with a WARNING).
+- `repeat` → `Assistant.repeat_now()`. `quiet` → when paused, `pause.end()` and `QUIET_OFF` "Oke {owner}, aku dengar lagi." (a reply: the follow-up window opens); else `pause.start()` and `QUIET_ON` "Oke {owner}, aku tidak mendengarkan dulu sampai jam {HH.MM}. Tekan tombol yang sama kalau mau ngobrol lagi." (`followup=False`). An `OSError` of the pause file: WARNING and `QUIET_FAILED` "Maaf {owner}, aku belum bisa berhenti mendengarkan. Coba lagi sebentar." (`mendengarkan lagi` when ending).
+- `InteractionHandler.press(kind)` (`double_click` or `LISTEN_AFTER_CUT`): `handle` without the avatar's switches, so `interactions.enabled: false` or `double_click_listen: false` never silences a hotkey; the same queue, worker, busy check, line, and cooldown.
+
+The listen pause (`listen_pause.py`), `ListenPause(path, *, hours=2.0, now=datetime.now, clock=time.monotonic)`, the state of Ctrl+Alt+Q, one per process (the voice loop, the hotkeys, the quick buttons):
+- The file `hotkeys.pause_path` (`data/listen_pause.json`), written atomically only while the pause holds: `{"version": 1, "since": "2026-10-24T14:30:00", "until": "2026-10-24T16:30:00"}` (naive local times); ending it deletes the file. So `waifu tombol`, another process, shows and presses "Dengar lagi".
+- `until() -> datetime | None`: when it ends, None when it does not hold; a read is kept `REREAD_S` (1 s), as the alarm's, since the voice loop asks at every frame. A file that is not a pause is moved aside as `<name>.corrupt-<stamp>[-n]` (ERROR) and read as no pause; one whose `until` has passed is deleted at the read (INFO "The listen pause ended by itself"; an `OSError` deleting it is logged once and tried again); an `OSError` reading is logged once (WARNING) and read as no pause. Never raises. `paused()`: `until() is not None`.
+- `start() -> datetime`: holds from now for `hours`, written; `end() -> bool`: deleted, False when none held. Both raise `OSError`.
+
+The voice loop (`app.py`), `Assistant(..., listen_pause: ListenPause | None = None)`:
+- `run`: while the pause holds and no alarm rings, a frame skips the segmenter (reset once as hearing stops, so an utterance under way is dropped) and `_speak_up` still runs between frames as for silence: reminders, rings, and announcements are said. The mic keeps streaming, so v1.47's level, flat mic, and failover go on; nothing reaches Whisper, so no utterance is recorded. While an alarm rings, she hears as always.
+- She notices the pause start and end wherever it was switched (a hotkey, a double-click, the button in another process, its end by itself): INFO once ("Not listening until 16:30", "Listening again"), the avatar's `hearing` event; one that ended by itself (its `until` passed) is said once through `remind` (`PAUSE_ENDED` "Aku mendengarkan lagi sekarang, {owner}."), so also while a focus block or a game holds her announcements.
+- `_speak_up`: `ask_aloud` requests wait while the pause holds (she would ask what she cannot hear answered); announcements and reminders do not.
+- `_open_followup` shows her idle, not listening, while the pause holds.
+- `listen_now` (a double-click, Ctrl+Alt+C) ends the pause first: Master wants to talk. An `OSError` is logged (WARNING) and the pause holds.
+- `repeat_now()`: Ctrl+Alt+R from the hotkeys' worker: ignored while `busy` (INFO), else `_repeat` (counted as busy): her last words, or `NOTHING_TO_REPEAT`; `_repeat` no longer writes `_last_said`, which only `run`'s thread writes.
+
+The avatar: `Avatar.hearing(on)`; `AvatarBus.hearing(on)` publishes `{"type": "hearing", "on": false}`, remembered and replayed to a new subscriber after the state (none until the first change). `index.html` shows `#hearing` "Tidak mendengarkan" over the stage while `hearingShown(event)` (`logic.js`) is true, visible in mascot mode too (unlike `#status`).
+
+The quick buttons (`phone/actions.py`), `QuickActions(..., listen_pause: ListenPause | None = None)`:
+- `ACTION_ID` also takes `mic.listen`; `QuickAction.listen` is true for it. While the pause holds, a group `Mikrofon` with "Dengar lagi" comes after the alarm's group and before the devices. `find` finds it whenever there is a pause; it runs outside the devices' lock: "Mendengarkan lagi." or "Sudah mendengarkan." (both ok); an `OSError` "Belum bisa mendengarkan lagi. Coba lagi sebentar." (not ok).
+- `actions.js` `isPassingAction(id)`: an alarm's (`al.`) or the pause's (`mic.`) button, there only for a while. `phone.js` reads the list again right after pressing one and every `ALARM_REFRESH_MS` (15 s) while one shows (only an alarm's opens the panel by itself); `tombol.js` reads it again right after pressing one.
+
+Config `hotkeys` (`HotkeysConfig`): `enabled` (true), `talk` ("C"), `stop` ("X"), `repeat` ("R"), `quiet` ("Q") (each one key of `KEYS`, any case, with Ctrl+Alt; null switches that hotkey off; two the same are refused), `quiet_hours` (2, 0.25-12), `pause_path` (`data/listen_pause.json`). `hotkeys` gives the `Hotkey`s switched on.
+
+CLI:
+- `run` on Windows with `hotkeys.enabled`: one `ListenPause` when `quiet` is set (cleared at start, INFO when one was left: a pause never outlives a restart), given to the Assistant, the phone's `QuickActions`, and a `HotkeyActions` (with the handler of the avatar's interactions); a `HotkeyThread` runs in the watchers' block, from when she can answer until she stops; its registrations go to `data/hotkeys.json` (`HOTKEYS_FILE`) with the pid, removed when she stops.
+- `waifu tombol` passes the pause to its `QuickActions` (another process: the file shows the pause of the run's).
+- `check`, right after the mic line: `✓ Hotkey global: Ctrl+Alt+C bicara, Ctrl+Alt+X potong, Ctrl+Alt+R ulangi, Ctrl+Alt+Q berhenti mendengarkan; aktif di 'waifu run'` while the run lock is held and the file's process is alive, else `; dicoba saat 'waifu run' jalan`; `; sedang tidak mendengarkan sampai 16:30` while the pause holds; then for each refused combo `! Hotkey Ctrl+Alt+Q (berhenti mendengarkan) sudah dipakai program lain; ganti hotkeys.quiet di config.yaml` (`tidak bisa didaftarkan (Windows error 5)` for another error); `! Hotkey global mati (hotkeys.enabled: false)`; `! Hotkey global mati (semua tombolnya null)`; `! Hotkey global hanya ada di Windows`. `check` makes no Win32 call.
+- `config.example.yaml` documents `hotkeys` after `alarm`.
+
+Docs: README section "Hotkey global" (the four keys, the pause and its button, changing or switching off a key, AltGr, a game that swallows keys, the check line) with a contents entry and checklist items; CHANGELOG v1.48.
+
+Decisions:
+- `RegisterHotKey`, not a low-level keyboard hook: Windows hands over only the registered combos, it needs no admin rights, and it works while a fullscreen game has the focus.
+- Ctrl+Alt with `MOD_NOREPEAT`: a held combo fires once; Ctrl+Alt rarely clashes with game binds.
+- One thread registers, waits, and unregisters: Windows posts `WM_HOTKEY` to the registering thread's queue and refuses `UnregisterHotKey` from another.
+- The message loop never waits for her voice: `interrupt` is the only call made on it; the rest is queued.
+- The pause gates `run`, never `mic.pause()`: a paused stream yields no frames, so `_speak_up` (reminders, alarms) would stop, and `speak` would resume it.
+- While an alarm rings she hears, so a sleepy "aku sudah bangun" still stops it.
+- The pause is a file, so `waifu tombol` can end it; `run` clears it at start.
+- A double-click and Ctrl+Alt+C end the pause (Master wants to talk); Ctrl+Alt+X while paused only cuts, so cutting a reminder never quietly opens her mic again.
+- Ctrl+Alt+R while she is busy is ignored, like a reaction: cutting a new answer to repeat an older one would lose it.
+- Only `ask_aloud` requests wait while paused: a question asked there could not be answered by voice.
+
+Known limits: a game run as administrator, with an anti-cheat driver, or with a keyboard hook of its own may swallow a combo without any error (the phone's button, or another key); a combo another program registered first stays its (logged, in `waifu check`); AltGr is Ctrl+Alt to Windows, so on an AltGr layout a combo takes that character (German AltGr+Q is "@"): change or switch off the key; a fullscreen game hides the avatar, so the pause is confirmed aloud; a change made in another process is noticed within a second; the pause lasts `quiet_hours` at most; a Ctrl+Alt+C while she thinks is ignored, as a double-click is; Windows only.
+
+Privacy: Windows tells only that a registered combo was pressed; no other key is seen. The log names the combo and the action. The pause file holds two times and is deleted when the pause ends; the status file holds the keys, their errors, and the process id.
+
+Safety: tests use a fake user32 (a queue for the messages), fake clocks, and files under tmp_path; `tests/conftest.py` refuses `RegisterHotKey`, `UnregisterHotKey`, `GetMessageW`, `PeekMessageW`, and `PostThreadMessageW`, and `run`'s tests start a fake hotkey thread.
+
 ## Code Style
 
 See `CLAUDE.md` → Code Conventions and Patterns. Dataclasses for value

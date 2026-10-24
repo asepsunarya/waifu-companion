@@ -1037,6 +1037,31 @@ optional parameters, and 0 of 16 unions stay.
 - [x] Fix pass (2026-10-24): a mic that went flat is skipped until Windows' input list changes or the phone picks it, so she never flaps between flat mics, and when only flat mics open she stays on one, kept open (`MicStream` reports a run of zeros once and reads on), with one ERROR line and one spoken `ALL_FLAT`; `MIC_BACK` only after the list changed; a more preferred mic the list gained but that did not open yet is tried again every 5 s, at most 3 times; "Ikuti urutan di config" is written to the override file even when no mic opens; PortAudio restarts while no mic opens log at DEBUG; mic lines expire after 60 s unsaid; a record carries guest mode's generation as it was heard (`UtteranceLog.stamp`), so the turn that switched guest mode is never told after it; tests/conftest.py also refuses sounddevice's real audio in the test that imports it first (an import hook through the test's monkeypatch); speaker-test applies the override, enroll and `waifu mic` point to the Suara page while it holds a threshold or a mic, and `waifu mic` falls back to the Windows default like `run`; the Suara sheet saves only changed boxes, refuses an empty save, shows a pending switch's outcome beside the picker, clears a failed read's problem, reads mic, records, then settings, explains an empty record list and a level of exact zeros, keeps the picker on the mic in effect (an unplugged pick as "(tidak tersambung)"), and gives "Suara" a 44 px hit area; the README says when "tadi kamu denger apa?" cannot help. By hand, a scratch script (deleted afterwards) over the real `MicStream`, `MicSource`, and `restart_portaudio` with a fake sounddevice and clock: two minutes of zeros on the headset, the USB mic, and the default opened 4 streams with 3 PortAudio restarts, said "Sekarang aku pakai mic Microphone (USB).", "Sekarang aku pakai mic Microphone (Onboard).", and the `ALL_FLAT` line once, logged 5 ERROR and 3 WARNING lines in all, and the first unmuted block was heard at once; a static copy of the sheet at 360x640 in the browser pane on loopback put "Pakai" at 276-320 px with its note at 324-387 px, the records from 431 px (above the fold), the settings at 817 px, no sideways scroll, and the 60x29 px "Suara" pill answered taps 7 px above and below it. 10421 pytest and 592 JS tests, ruff clean; no tool changed, so 18 of 20 strict tools, 17 of 24 optional parameters, and 0 of 16 unions stay
 - [ ] On the owner's PC: the Suara page shows the headset's level moving while he speaks, and "tadi kamu denger apa?" tells what she heard
 
+### Phase 52: Hotkey global (v1.48, see SPEC → hotkey global)
+Decision: four Ctrl+Alt combos through `RegisterHotKey` on a thread of their own, which registers,
+waits in `GetMessageW`, and unregisters, never a keyboard hook. The message loop never waits for
+her voice: talk and stop go to the avatar's interaction handler as a double-click does (without
+its switches), repeat and the pause to a worker. Ctrl+Alt+Q pauses her hearing in `run` (frames
+skip the segmenter, `_speak_up` still runs), never `mic.pause()`, so reminders and alarms speak and
+an alarm is heard; the pause is a small file so `waifu tombol`'s "Dengar lagi" ends it, cleared
+when `run` starts, over after 2 h. No tool: 18 of 20 strict tools, 17 of 24 optional parameters,
+and 0 of 16 unions stay.
+- [x] Task 271a: contract: SPEC, tasks
+- [ ] Task 271: test guards: user32's hotkey and message-queue functions
+- [ ] Task 272: the hotkey thread (`hotkeys.py`) over a fake user32, and its status file
+- [ ] Task 273: the `hotkeys` config section
+- [ ] Task 274: the listen pause (`listen_pause.py`)
+- [ ] Task 275: the voice loop: the pause gates `run`, `repeat_now`, the avatar's `hearing`
+- [ ] Task 276: the actions (`hotkey_actions.py`) and `InteractionHandler.press`
+- [ ] Task 277: the quick button "Dengar lagi" on the phone and the PC page
+- [ ] Task 278: the CLI wiring and the check line
+- [ ] Task 279: README, CHANGELOG
+
+### Checkpoint: Hotkey global
+- [ ] Python suite, ruff, and JS tests clean; no test registered a real hotkey or waited on a real message queue; the strict-tool budget unchanged (18 of 20 strict tools, 17 of 24 optional parameters, 0 of 16 unions)
+- [ ] By hand: in a scratch folder with a fake user32 and fake speech, the four hotkeys reach her through the real thread, the pause gates the voice loop while a reminder and a ring are still said, and "Dengar lagi" ends it
+- [ ] On the owner's PC: Ctrl+Alt+C and Ctrl+Alt+Q work while a fullscreen game has the focus
+
 ## Risks and Mitigations
 
 | Risk | Impact | Mitigation |
@@ -1060,6 +1085,7 @@ optional parameters, and 0 of 16 unions stay.
 | The break watcher misreads activity (a tick wrap after 49.7 days, a sleep, controller play) | A nudge to an empty chair, a nudge right after waking the PC, or none while playing | The idle time is the masked 32-bit difference, read input first; a poll gap longer than a break by the tick count or the wall clock starts the count again; a line needs input at its due point and expires after a break's length; gamepad input is a documented limit |
 | An alarm that never wakes Master, or a device command that stops it | Master oversleeps, or "matikan lampu" ends the alarm | It rings louder each minute, never whispered, until a whole stop phrase, a button, the brain, or 10 minutes; the first ring and a missed alarm are pushed; while it rings only whole phrases stop it, tested against device commands; the tool, the README, and `waifu check` say it rings only while `waifu run` runs on an awake PC |
 | A mic switch or a PortAudio restart while audio runs | A crash inside PortAudio, a cut clip, or a deaf Cyrene | Every open, close, and restart on `run`'s thread between frames, a restart only with the mic closed, the player's lock and the listing's lock held, and never with a numbered device; a mic that does not open is rolled back; with none, silent frames keep rings and reminders going while she retries every 5 s |
+| A global hotkey that blocks or leaks keys, or a pause that leaves her deaf | Ctrl+Alt+X never reaches her while she speaks, Master's typing is seen, or she seems broken | `RegisterHotKey` sees only its combos; the message loop calls only `interrupt` and queues the rest; the pause is said aloud, shown on the avatar and in `waifu check`, and ends by Ctrl+Alt+Q, a double-click, Ctrl+Alt+C, the "Dengar lagi" button, a restart, or after 2 h; tests refuse the real user32 functions |
 
 ## Open Questions
 
