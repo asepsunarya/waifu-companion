@@ -104,6 +104,7 @@ ALARM_STOPPED = "Oke {owner}, alarmnya kumatikan."
 ALARM_SNOOZED = "Oke, kubangunkan lagi jam {time}."
 ALARM_NOT_SNOOZED = "Alarmnya tidak bisa ditunda: {problem}"
 ALARM_ENDED = "Alarmnya sudah berhenti, {owner}."
+ALARM_UNCHANGED = "Maaf {owner}, alarmnya belum bisa {done}. Coba lagi sebentar."
 ALARM_EMOTION = "happy"
 
 
@@ -705,27 +706,37 @@ class Assistant:
 
     def _answer_alarm(self, request: AlarmRequest) -> str:
         """Stop or snooze the ringing alarm without the brain and say so like a reply; returns
-        what she said. No turn is taken, so a question waiting for Master's yes still waits."""
+        what she said. No turn is taken, so a question waiting for Master's yes still waits.
+        When the ring's file cannot be changed, she says so and the ring goes on."""
+        try:
+            text = self._change_alarm(request)
+        except OSError as exc:
+            logger.warning(
+                "Could not change the ringing alarm by voice (%s): %s", request.kind, exc
+            )
+            done = "kumatikan" if request.kind == "stop" else "kutunda"
+            text = ALARM_UNCHANGED.format(owner=self._owner_call, done=done)
+        self.speak(text, ALARM_EMOTION)
+        return text
+
+    def _change_alarm(self, request: AlarmRequest) -> str:
+        """Stop or snooze the ringing alarm; what to say. OSError when its file cannot be
+        changed."""
         assert self._alarm is not None  # only asked while a bell rings
         owner = self._owner_call
         if request.kind == "stop":
             self._alarm.stop()
             logger.info("Alarm stopped by voice")
-            text = ALARM_STOPPED.format(owner=owner)
-        else:
-            try:
-                entry = self._alarm.snooze(request.minutes)
-            except ScheduleError as exc:
-                logger.info("Could not snooze the alarm by voice: %s", exc)
-                text = ALARM_NOT_SNOOZED.format(problem=exc)
-            else:
-                if entry is None:  # it rang out meanwhile
-                    text = ALARM_ENDED.format(owner=owner)
-                else:
-                    logger.info("Alarm snoozed by voice")
-                    text = ALARM_SNOOZED.format(time=f"{entry.at:%H.%M}")
-        self.speak(text, ALARM_EMOTION)
-        return text
+            return ALARM_STOPPED.format(owner=owner)
+        try:
+            entry = self._alarm.snooze(request.minutes)
+        except ScheduleError as exc:
+            logger.info("Could not snooze the alarm by voice: %s", exc)
+            return ALARM_NOT_SNOOZED.format(problem=exc)
+        if entry is None:  # it rang out meanwhile
+            return ALARM_ENDED.format(owner=owner)
+        logger.info("Alarm snoozed by voice")
+        return ALARM_SNOOZED.format(time=f"{entry.at:%H.%M}")
 
     def _held_level(self, level: int | None) -> AbstractContextManager[object]:
         if level is None or self._hold_level is None:

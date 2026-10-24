@@ -3669,6 +3669,38 @@ def test_a_snooze_the_schedule_refuses_is_said_and_the_ring_goes_on(tmp_path):
     assert rig.bell.ringing() is True
 
 
+@pytest.mark.parametrize(
+    ("phrase", "said"),
+    [
+        ("aku sudah bangun", "Maaf Master, alarmnya belum bisa kumatikan. Coba lagi sebentar."),
+        ("tunda", "Maaf Master, alarmnya belum bisa kutunda. Coba lagi sebentar."),
+    ],
+)
+def test_a_ring_whose_file_cannot_be_changed_says_so_and_goes_on(
+    tmp_path, monkeypatch, caplog, phrase, said
+):
+    rig = AlarmRig(tmp_path, phrase)
+    rig.start_alarm()
+    listen_once(rig)
+    unlink = Path.unlink
+
+    def locked(path, missing_ok=False):
+        if path == rig.bell.path:
+            raise PermissionError(32, "The file is used by another process")
+        unlink(path, missing_ok=missing_ok)
+
+    monkeypatch.setattr(Path, "unlink", locked)
+
+    with caplog.at_level(logging.WARNING, logger="waifu.app"):
+        answer = rig.assistant.handle_utterance(rig.utterance())
+
+    assert answer == said
+    assert rig.speech.texts[-1] == said
+    assert rig.bell.ringing() is True
+    assert rig.store.entries() == []
+    assert "Could not change the ringing alarm by voice" in caplog.text
+
+
 @pytest.mark.parametrize("command", ["Cyrene, matikan lampu", "matikan musik", "stop"])
 def test_a_command_that_only_looks_like_a_stop_goes_on_as_before(tmp_path, command):
     rig = AlarmRig(tmp_path, command)
