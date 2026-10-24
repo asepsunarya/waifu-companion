@@ -13,13 +13,18 @@ aktif, lalu jalankan `waifu check`.
   belum penuh: "Master, Memory of Chaos di HSR berakhir sekitar 50 jam lagi, baru dapat 30 dari
   36. Event Gift of Odyssey berakhir sekitar 20 jam lagi, baru 3 dari 7."
 - Kalau kamu menutup game antara jam 22.00 dan 03.00 dan staminanya akan penuh sebelum pagi
-  (`briefing.time`, bawaan 07.00), dia bilang sekali: "Master, Trailblaze Power di HSR penuh jam
-  04.10, sebelum kamu bangun." Pengingat "sudah penuh" game itu lalu menunggu sampai pagi, tidak
-  lagi berbunyi tengah malam di kamar kosong. Butuh jam main menyala (bawaan).
+  (`briefing.time`, bawaan 07.00), dia bilang sekali, setelah semua game tertutup: "Master,
+  Trailblaze Power di HSR penuh jam 04.10, sebelum kamu bangun." Pengingat "sudah penuh" game itu
+  lalu menunggu sampai pagi, tidak lagi berbunyi tengah malam di kamar kosong; selama kamu
+  membuka game lagi, pengingatnya berbunyi seperti biasa. Stamina yang penuh dalam
+  `stamina_minutes` (bawaan 60 menit) tetap disebut pengingat stamina biasa. Butuh jam main
+  menyala (bawaan).
 - Untuk itu kalender event tiap game dibaca sekali sehari, kira-kira 4 permintaan HoYoLAB
-  tambahan sehari. Yang tidak dicatat HoYoLAB tidak disebut: event Genshin, Imaginarium Theater,
-  Stygian Onslaught, ZZZ endgame, dan musim yang belum kamu mainkan.
-- Selama mode tamu menyala ketiganya diam. Mode game menahannya seperti pengingat daily.
+  tambahan sehari, disimpan sejam bersama jawaban "event apa yang mau habis?". Yang tidak
+  dicatat HoYoLAB tidak disebut: event Genshin, Imaginarium Theater, Stygian Onslaught, ZZZ
+  endgame, dan musim yang belum kamu mainkan.
+- Selama mode tamu menyala ketiganya diam. Mode game menahan baris musim dan event seperti
+  pengingat daily.
 - Bisa dimatikan dengan `gacha.reminders.planner: false`. Tidak ada tool baru.
 - README: "Pengingat" di bagian teman main gacha.
 

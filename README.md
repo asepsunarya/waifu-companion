@@ -2284,10 +2284,10 @@ masalah serta check-in tetap diucapkan.
   HoYoLAB lagi. Kalau Battle Chronicle game itu tidak publik, dia mencoba lagi besok tanpa
   bilang apa-apa.
 - Hanya yang dicatat HoYoLAB yang disebut: event Genshin, Imaginarium Theater, Stygian
-  Onslaught, dan ZZZ tidak punya angka progres di kalender, dan musim yang belum kamu mainkan
-  belum punya nilai maksimal, jadi semuanya tidak disebut. "Baru dapat 30 dari 36" di HSR
-  adalah angka progres HoYoLAB; cocokkan sekali dengan bintang di game (checklist di bawah).
-  Event ZZZ menyebut Polychrome-nya.
+  Onslaught, dan endgame ZZZ (Shiyu Defense, Deadly Assault) tidak punya angka progres di
+  kalender, dan musim yang belum kamu mainkan belum punya nilai maksimal, jadi semuanya tidak
+  disebut. "Baru dapat 30 dari 36" di HSR adalah angka progres HoYoLAB; cocokkan sekali dengan
+  bintang di game (checklist di bawah). Event ZZZ menyebut Polychrome-nya.
 - Stamina penuh sebelum bangun butuh [Jam main](#jam-main) menyala (bawaan), supaya dia tahu
   kapan kamu menutup game. Dia bilang di pengecekan HoYoLAB berikutnya (paling lama
   `poll_minutes`) setelah semua game tertutup: game yang kamu tutup selagi game lain masih
