@@ -2799,6 +2799,7 @@ named `tests/test_<package>_<module>.py`.
 **Acceptance criteria:**
 - [x] "cara baca jam itu begini", "cara baca buku itu penting", "... itu dengan tartil", "... itu pakai kompas", and the other added words (in the term or the reading) are no reading request
 - [x] Every reading request kept by the earlier tests still is one
+- [x] Fix pass: a question word or a remark word also counts as a part of a word written with hyphens ("cara baca buku itu pelan-pelan", "... itu biasa-biasa saja"), in a reading request and in a forget request's term; "Ha-Es-Er" and "Al-Quran" stay a reading and a term
 
 **Dependencies:** 295a · **Files:** `src/waifu/lexicon.py`, `tests/test_lexicon.py` · **Scope:** XS
 
@@ -2809,6 +2810,9 @@ named `tests/test_<package>_<module>.py`.
 - [x] Master's next accepted voice turn keeps the rule when it is a plain yes ("iya", "Iya, Master.", "oke, catat aja", "iya bener") within 60 s, with v1.49's answer; anything else (another command, "bukan", "iya?", a yes after 61 s) keeps nothing, is answered as usual, and leaves no question for a later yes
 - [x] An utterance the gate does not accept leaves the question waiting; a phone message (a brain turn) drops it
 - [x] The logs never name the word or the reading; guest mode as before
+- [x] Fix pass: a bare wake word leaves the question waiting, so "Cyrene" → "はい、Master?" → "iya" keeps the reading and never reaches a shutdown question the brain asked before (the PC turned off); the window still counts from her question
+- [x] Fix pass: a reminder or announcement she says drops the question (a yes to the code watcher's "Mau kutukarkan?" kept the reading); one still waiting for the follow-up window leaves it
+- [x] Fix pass: "Bener.", "bener, Cyrene", "iya bener banget", and "iya, betul sekali" are a yes (`is_yes` takes the affirmative words; the PC's and the expense's yes stay without "bener")
 
 **Dependencies:** 295a · **Files:** `src/waifu/lexicon.py`, `src/waifu/app.py`, `tests/test_app.py` · **Scope:** S
 
@@ -2817,6 +2821,7 @@ named `tests/test_<package>_<module>.py`.
 **Acceptance criteria:**
 - [x] `forget_request` takes "lupakan cara baca X" and "hapus cara baca X" with names, softeners, and fillers left out; a question, a demonstrative ("itu"), a pronoun, a remark, or a term over 3 words is none
 - [x] The Assistant forgets Master's rule without the brain and names the word; a built-in is refused aloud and kept; no rule is said; a file that cannot be written is said and warned about; the logs never name the word
+- [x] Fix pass: a first "untuk", "buat", or "dari" and a last "sekarang", "lagi", "juga", pointing word, or filler are left out of the term ("hapus cara baca untuk Acheron sekarang" forgets Acheron; she said "... untuk untuk Acheron" and kept the rule)
 
 **Dependencies:** 296 · **Files:** `src/waifu/lexicon.py`, `src/waifu/app.py`, `tests/test_lexicon.py`, `tests/test_app.py` · **Scope:** S
 
@@ -2824,5 +2829,6 @@ named `tests/test_<package>_<module>.py`.
 
 **Acceptance criteria:**
 - [x] README "Kamus Cyrene" (the question and the yes, forgetting by voice, the remark words, privacy, checklist) and its example line; CHANGELOG v1.49.1 between v1.50 and v1.49; full suite, ruff, and JS tests clean
+- [x] Fix pass: README and CHANGELOG v1.49.1 name "bener", the bare name, the announcements, the forget phrasings, and "pelan-pelan"; one more checklist line
 
 **Dependencies:** 297 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S

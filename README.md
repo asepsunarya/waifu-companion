@@ -6447,12 +6447,14 @@ Cara bacanya langsung dipakai mulai kalimat berikutnya, tanpa otak (seketika, ta
 Di pertanyaan dan jawabannya, katanya masih dibaca dengan cara lama, jadi kamu mendengar kata
 mana yang dia tangkap; kalau salah kata, jangan bilang iya.
 
-Jawabanmu harus kalimat berikutnya yang dia dengar, dalam satu menit, dan hanya berisi iya
-("iya", "ya", "oke", "boleh", "iya bener", "oke, catat aja", boleh dengan namanya atau
-panggilanmu). Jawaban lain apa pun ("bukan", "iya, tapi nanti", "iya?", perintah lain, atau
-"ulangi") membatalkannya tanpa dibahas, lalu dijawab seperti biasa; kalimat yang tidak untuknya
-(tanpa namanya setelah 8 detik) tidak membatalkan. Pesan lewat HP dan sapaan yang dia mulai
-sendiri juga membatalkannya, supaya "iya" untuk pertanyaan lain tidak pernah mencatat cara
+Jawabanmu harus kalimat berikutnya yang dia dengar, dalam satu menit sejak dia bertanya, dan
+hanya berisi iya ("iya", "ya", "oke", "boleh", "bener", "iya bener banget", "oke, catat aja",
+boleh dengan namanya atau panggilanmu). Jawaban lain apa pun ("bukan", "iya, tapi nanti",
+"iya?", perintah lain, atau "ulangi") membatalkannya tanpa dibahas, lalu dijawab seperti biasa.
+Kalimat yang tidak untuknya (tanpa namanya setelah 8 detik) dan namanya saja ("Cyrene", dijawab
+"はい、Master?", lalu "iya") tidak membatalkan. Pesan lewat HP, sapaan yang dia mulai sendiri,
+dan pengingat atau pengumuman yang dia ucapkan juga membatalkannya, supaya "iya" untuk
+pertanyaan lain (misalnya "Mau kutukarkan?" dari pengumuman kode) tidak pernah mencatat cara
 baca.
 
 Kalimatnya harus persis "cara baca <kata> itu <bacaan>": katanya 1 sampai 3 kata, bacaannya 1
@@ -6468,7 +6470,9 @@ Lupakan cara baca lewat suara:
 >
 > "Oke Master. Cara baca Acheron sudah kulupakan."
 
-Katanya diucapkan dengan cara baca biasa lagi. Kalau kamu belum punya aturan untuk kata itu, dia
+Katanya diucapkan dengan cara baca biasa lagi. "untuk", "buat", atau "dari" sebelum katanya dan
+"sekarang", "lagi", "juga", "itu", "yang tadi", "aja", atau "ya" sesudahnya tidak ikut dihitung
+("hapus cara baca untuk Acheron sekarang"). Kalau kamu belum punya aturan untuk kata itu, dia
 bilang "Aku belum punya cara baca khusus untuk Acheron, Master."; aturan bawaan (HSR, ZZZ, ...)
 tidak bisa dilupakan, hanya diganti. Katanya harus disebut: "lupakan cara baca itu" diteruskan
 ke otak.
@@ -6480,8 +6484,9 @@ Yang diteruskan ke otak seperti biasa, **tidak ditanyakan, dan tidak dicatat**:
   kan"). Suku kata di tengah bacaan tetap boleh: "cara baca Gallagher itu Ga Le Ger" ditanyakan;
 - komentar tentang cara baca: kalimat yang memuat kata seperti salah, keliru, aneh, jelek,
   bagus, lucu, beda, gitu, begini, kok, sih, atau, harus, bisa, susah, gampang, banget, dari,
-  dengan, pakai, penting, dulu, biasa, sama, lain, pelan, cepat, ribet, atau nanti ("cara baca
-  HSR itu salah", "cara baca jam itu begini", "cara baca manga itu dari kanan ke kiri");
+  dengan, pakai, penting, dulu, biasa, sama, lain, pelan, cepat, ribet, atau nanti, juga yang
+  diulang dengan tanda hubung seperti "pelan-pelan" ("cara baca HSR itu salah", "cara baca jam
+  itu begini", "cara baca buku itu pelan-pelan", "cara baca manga itu dari kanan ke kiri");
 - kata ganti (kamu, aku, dia, ...), namanya sendiri, kata panggilannya, dan panggilanmu: "cara
   baca kamu itu salah" berarti cara dia membaca yang salah. Aturan untuk namanya sendiri atau
   panggilanmu hanya bisa lewat `waifu lafal add`;
@@ -7336,6 +7341,9 @@ di sampingnya)
       dan `waifu lafal list` menampilkan `Acheron: A Ke Ron`.
 - [ ] "Cyrene, cara baca Kafka itu Kaf Ka", lalu "nyalakan lampu kamar": lampunya menyala,
       dia tidak membahas pertanyaannya, dan `waifu lafal list` tidak menampilkan Kafka.
+- [ ] "Cyrene, cara baca Kafka itu Kaf Ka", tunggu 10 detik, "Cyrene" (dia menjawab
+      "はい、Master?"), lalu "bener": dia bilang "Oke Master. Kafka mulai sekarang kubaca Kaf
+      Ka." dan `waifu lafal list` menampilkannya.
 - [ ] "Cyrene, cara baca HSR itu salah" dan "Cyrene, cara baca jam itu begini" diteruskan ke
       otak tanpa ditanyakan, dan `waifu lafal list` tidak menampilkan aturan baru.
 - [ ] "Cyrene, lupakan cara baca Acheron": dia bilang "Oke Master. Cara baca Acheron sudah

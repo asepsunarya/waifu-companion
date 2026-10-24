@@ -32,14 +32,18 @@ aktif, lalu jalankan `waifu check`.
 
 - Mengajari cara baca lewat suara sekarang ditanyakan dulu: "Cyrene, cara baca Acheron itu A Ke
   Ron" dijawab "Jadi Acheron kubaca A Ke Ron? Bilang iya kalau benar.", dan baru dicatat kalau
-  kalimatmu berikutnya, dalam satu menit, hanya berisi iya ("iya", "oke, catat aja", "iya
-  bener"). Jawaban lain apa pun membatalkannya tanpa dibahas dan dijawab seperti biasa.
-  Sebelumnya kalimat biasa seperti "cara baca jam itu begini" langsung tercatat, lalu setiap
-  "jam" yang dia ucapkan (misalnya "penuh jam 04.10") terdengar "begini".
+  kalimatmu berikutnya, dalam satu menit, hanya berisi iya ("iya", "bener", "oke, catat aja",
+  "iya bener banget"). Jawaban lain apa pun membatalkannya tanpa dibahas dan dijawab seperti
+  biasa, dan begitu juga pengingat atau pengumuman yang dia ucapkan sebelum kamu menjawab;
+  namanya saja ("Cyrene", lalu "iya") tidak membatalkan. Sebelumnya kalimat biasa seperti
+  "cara baca jam itu begini" langsung tercatat, lalu setiap "jam" yang dia ucapkan (misalnya
+  "penuh jam 04.10") terdengar "begini".
 - Lupakan cara baca lewat suara, tanpa otak: "Cyrene, lupakan cara baca Acheron" (atau "hapus
-  cara baca Acheron"). Aturan bawaan (HSR, ZZZ, ...) tidak bisa dilupakan, hanya diganti.
+  cara baca untuk Acheron sekarang"). Aturan bawaan (HSR, ZZZ, ...) tidak bisa dilupakan, hanya
+  diganti.
 - Lebih banyak kalimat komentar diteruskan ke otak tanpa ditanyakan: yang memuat begini, dengan,
-  pakai, penting, dulu, biasa, sama, lain, pelan, cepat, ribet, nanti, dan sejenisnya.
+  pakai, penting, dulu, biasa, sama, lain, pelan, cepat, ribet, nanti, dan sejenisnya, juga
+  yang diulang dengan tanda hubung ("pelan-pelan").
 - Kalau sudah ada aturan yang tidak sengaja tercatat, cek dengan `waifu lafal list` lalu hapus
   dengan "lupakan cara baca ..." atau `waifu lafal remove`.
 - Tidak ada tool baru.
