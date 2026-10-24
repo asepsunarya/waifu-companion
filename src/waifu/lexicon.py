@@ -62,21 +62,20 @@ QUESTION_WORDS = frozenset(
         "bagaimana",
         "gmn",
         "kenapa",
-        "mana",
         "siapa",
         "berapa",
         "nggak",
-        "gak",
-        "ga",
         "enggak",
         "engga",
-        "kah",
         "bukan",
         "bener",
         "benar",
         "betul",
     }
 )
+# Question tags that are also syllables ("Ga Le Ger"): a question only as the reading's last
+# word ("itu Ha Es Er ga"), anywhere in the term.
+QUESTION_TAGS = frozenset({"ga", "gak", "kah", "kan", "mana"})
 # Left out before the request ("Cyrene, tolong cara baca ..."), like `waifu.repeat`'s.
 _LEADING_SKIPPED = frozenset({"master", "dong", "deh", "ya", "coba", "tolong"})
 # Left out after it; never "master", which may end a reading ("Game Master").
@@ -116,9 +115,10 @@ def pronounce(text: str, rules: Mapping[str, str] | None = None) -> str:
 def reading_request(command: str, names: Iterable[str] = ()) -> tuple[str, str] | None:
     """The (term, reading) of a whole "cara baca <term> itu <reading>" as said, None for
     anything else. `names` are her name and wake words: their words are left out before and
-    after it, with "master" and softeners before it and "ya", "dong", "deh" after it. A "?"
-    or a question word makes it a question; the term takes 1 to TERM_MAX_WORDS words before
-    the first "itu", the reading 1 to READING_MAX_WORDS after it."""
+    after it, with "master" and softeners before it and "ya", "dong", "deh" after it. A "?",
+    a question word, or a question tag ending the reading makes it a question; the term takes
+    1 to TERM_MAX_WORDS words before the first "itu", the reading 1 to READING_MAX_WORDS after
+    it."""
     if "?" in command:
         return None
     name_words = {word.casefold() for name in names for word in name.split()}
@@ -137,7 +137,11 @@ def reading_request(command: str, names: Iterable[str] = ()) -> tuple[str, str] 
     term, reading = left[2:split], left[split + 1 :]
     if not (1 <= len(term) <= TERM_MAX_WORDS and 1 <= len(reading) <= READING_MAX_WORDS):
         return None
-    if any(word.casefold() in QUESTION_WORDS for word in term + reading):
+    if (
+        any(word.casefold() in QUESTION_WORDS | QUESTION_TAGS for word in term)
+        or any(word.casefold() in QUESTION_WORDS for word in reading)
+        or reading[-1].casefold() in QUESTION_TAGS
+    ):
         return None
     return " ".join(term), " ".join(reading)
 

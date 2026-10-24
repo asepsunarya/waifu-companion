@@ -312,6 +312,34 @@ def test_a_reading_request_gives_the_term_and_the_reading_as_said(command, rule)
 
 
 @pytest.mark.parametrize(
+    ("command", "rule"),
+    [
+        ("cara baca Gallagher itu Ga Le Ger", ("Gallagher", "Ga Le Ger")),
+        ("Cara baca Ganyu itu Ga Nyu.", ("Ganyu", "Ga Nyu")),
+        ("cara baca Kanzaki itu Kan Za Ki", ("Kanzaki", "Kan Za Ki")),
+        ("cara baca Manami itu Ma Na Mi", ("Manami", "Ma Na Mi")),
+    ],
+)
+def test_a_syllable_that_doubles_as_a_question_tag_is_kept_inside_a_reading(command, rule):
+    assert reading_request(command, NAMES) == rule
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cara baca HSR itu Ha Es Er ga",
+        "cara baca HSR itu Ha Es Er gak ya",
+        "cara baca HSR itu Ha Es Er kan",
+        "cara baca HSR itu Ha Es Er kah",
+        "cara baca HSR itu yang mana",
+        "cara baca HSR itu ga",
+    ],
+)
+def test_a_question_tag_ending_the_reading_makes_it_a_question(command):
+    assert reading_request(command, NAMES) is None
+
+
+@pytest.mark.parametrize(
     "command",
     [
         "cara baca HSR itu gimana?",
