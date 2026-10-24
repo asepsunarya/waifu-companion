@@ -4395,6 +4395,102 @@ def test_a_dropped_reading_is_logged_without_its_words(tmp_path, caplog):
     assert "Dropped the reading she asked about: no yes from Master in time" in messages
 
 
+def test_she_forgets_masters_reading_without_the_brain_and_names_the_word(tmp_path):
+    lexicon = Lexicon(tmp_path / "tts_lexicon.json")
+    lexicon.add("Acheron", "A Ke Ron")
+    lexicon.add("Kafka", "Kaf Ka")
+    rig = Rig("Cyrene, lupakan cara baca acheron", lexicon=lexicon)
+
+    said = rig.assistant.handle_utterance(rig.utterance())
+
+    assert said == "Oke Master. Cara baca Acheron sudah kulupakan."  # the word as it was kept
+    assert lexicon.read() == {"Kafka": "Kaf Ka"}
+    assert rig.brain.turns == []
+    assert rig.gate.check("terus?").accepted is True  # said like a reply: the window opened
+
+
+def test_she_says_the_forgotten_word_as_she_reads_it_again(tmp_path):
+    lexicon = Lexicon(tmp_path / "tts_lexicon.json")
+    lexicon.add("HSR", "Honkai Star Rail")
+    voice = RecordingVoice()
+    router = SpeechRouter({"id": voice}, default_language="id", lexicon=lexicon.readings)
+    rig = Rig("Cyrene, hapus cara baca HSR", lexicon=lexicon, speech=router)
+
+    rig.assistant.handle_utterance(rig.utterance())
+
+    assert voice.texts == ["Oke Master. Cara baca Ha Es Er sudah kulupakan."]  # the built-in
+
+
+def test_a_built_in_reading_is_never_forgotten(tmp_path):
+    path = tmp_path / "tts_lexicon.json"
+    rig = Rig("Cyrene, lupakan cara baca hsr", lexicon=Lexicon(path))
+
+    said = rig.assistant.handle_utterance(rig.utterance())
+
+    assert said == "Maaf Master, cara baca HSR itu bawaan, jadi tidak bisa kulupakan."
+    assert rig.brain.turns == []
+    assert not path.exists()
+
+
+def test_she_says_when_there_is_no_reading_to_forget(tmp_path):
+    lexicon = Lexicon(tmp_path / "tts_lexicon.json")
+    lexicon.add("Acheron", "A Ke Ron")
+    rig = Rig("Cyrene", "Sayang, lupakan cara baca Kafka ya", config=CALLED_SAYANG, lexicon=lexicon)
+
+    said = handle_all(rig)
+
+    assert said[1] == "Aku belum punya cara baca khusus untuk Kafka, Sayang."
+    assert lexicon.read() == {"Acheron": "A Ke Ron"}
+    assert rig.brain.turns == []
+
+
+def test_a_dictionary_that_cannot_be_written_when_forgetting_is_said_and_warned_about(
+    tmp_path, caplog
+):
+    blocked = tmp_path / "tts_lexicon.json"
+    blocked.mkdir()  # a folder where the file should be: neither read nor written
+    rig = Rig("Cyrene, lupakan cara baca Kafka", lexicon=Lexicon(blocked))
+
+    with caplog.at_level(logging.WARNING, logger="waifu.app"):
+        said = rig.assistant.handle_utterance(rig.utterance())
+
+    assert said == "Maaf Master, kamusku belum bisa disimpan. Coba lagi sebentar."
+    assert "Could not forget a reading" in caplog.text
+
+
+def test_without_a_lexicon_a_forget_request_goes_to_the_brain():
+    rig = Rig("Cyrene, lupakan cara baca Acheron")
+
+    rig.assistant.handle_utterance(rig.utterance())
+
+    assert rig.brain.turns == [("lupakan cara baca Acheron", NOW)]
+
+
+def test_forgetting_drops_the_reading_she_asked_about(tmp_path):
+    lexicon = Lexicon(tmp_path / "tts_lexicon.json")
+    rig = Rig(TEACH_ACHERON, "lupakan cara baca Acheron", "iya", lexicon=lexicon)
+
+    said = handle_all(rig)
+
+    assert said[1] == "Aku belum punya cara baca khusus untuk Acheron, Master."
+    assert said[2] == REPLY
+    assert lexicon.read() == {}
+
+
+def test_only_the_heard_line_names_the_word_forgotten(tmp_path, caplog):
+    lexicon = Lexicon(tmp_path / "x.json")
+    lexicon.add("Acheron", "A Ke Ron")
+    rig = Rig("Cyrene, lupakan cara baca Acheron", lexicon=lexicon)
+
+    with caplog.at_level(logging.DEBUG):
+        rig.assistant.handle_utterance(rig.utterance())
+
+    messages = [record.getMessage() for record in caplog.records]
+    naming = [message for message in messages if "Acheron" in message]
+    assert naming == ["Heard (id): Cyrene, lupakan cara baca Acheron"]
+    assert "Forgot a reading for a word" in messages
+
+
 def test_the_phone_shows_her_words_as_written_while_its_voice_reads_them_by_the_rules():
     voice = RecordingVoice()
     router = SpeechRouter({"id": voice}, default_language="id", lexicon=lambda: {"Kafka": "Kaf Ka"})

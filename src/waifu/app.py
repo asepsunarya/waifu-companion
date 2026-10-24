@@ -85,13 +85,18 @@ from waifu.config import AppConfig
 from waifu.gate import WakeGate
 from waifu.heard import heard_answer, is_heard_request
 from waifu.lexicon import (
+    FORGET_BUILT_IN,
+    FORGOTTEN,
+    NOTHING_TO_FORGET,
     READING_QUESTION,
     TAUGHT,
     TEACH_FAILED,
     TEACH_REFUSED,
     Lexicon,
     LexiconError,
+    built_in_term,
     checked_rule,
+    forget_request,
     reading_request,
 )
 from waifu.listen_pause import ListenPause
@@ -551,6 +556,10 @@ class Assistant:
             taught := reading_request(result.command, self._her_names, (self._owner_call,))
         ):
             reply_text, hearing.tts_s = self._ask_reading(*taught)
+        elif self._lexicon is not None and (
+            forgotten := forget_request(result.command, self._her_names, (self._owner_call,))
+        ):
+            reply_text, hearing.tts_s = self._forget_reading(self._lexicon, forgotten)
         else:
             self._show(lambda avatar: avatar.state("thinking"))
             marker = self._guest_generation()
@@ -1189,6 +1198,34 @@ class Assistant:
             return text, self._speak(text)
         self._speak(text, clip=clip)
         return text, synthesis_s
+
+    def _forget_reading(self, lexicon: Lexicon, term: str) -> tuple[str, float | None]:
+        """Drop Master's reading of `term` and say so like a reply, without the brain; returns
+        what she said and how long its synthesis took.
+
+        She names the word as it was kept, now read without his rule; a built-in rule cannot be
+        forgotten, and a word without a rule of his is said to have none. A file that cannot be
+        written is said. Like `_tell_heard`, no turn is taken and it is never remembered for
+        "ulangi"; the log names no word.
+        """
+        owner = self._owner_call
+        try:
+            removed = lexicon.remove(term)
+        except OSError as exc:
+            logger.warning("Could not forget a reading for a word: %s", exc)
+            text = TEACH_FAILED.format(owner=owner)
+            return text, self._speak(text)
+        built_in = built_in_term(term)
+        if removed is not None:
+            logger.info("Forgot a reading for a word")
+            text = FORGOTTEN.format(owner=owner, term=removed)
+        elif built_in is not None:
+            logger.info("Kept a built-in reading Master asked her to forget")
+            text = FORGET_BUILT_IN.format(owner=owner, term=built_in)
+        else:
+            logger.info("No reading to forget for a word")
+            text = NOTHING_TO_FORGET.format(owner=owner, term=term)
+        return text, self._speak(text)
 
     def _refuse_reading(self, problem: LexiconError) -> tuple[str, float | None]:
         """Say why a reading cannot be kept; returns what she said and its synthesis time."""

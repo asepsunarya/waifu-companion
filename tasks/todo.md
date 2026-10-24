@@ -2812,11 +2812,11 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 295a · **Files:** `src/waifu/lexicon.py`, `src/waifu/app.py`, `tests/test_app.py` · **Scope:** S
 
-## Task 297: Forgetting a reading by voice
+## Task 297: Forgetting a reading by voice ✅
 
 **Acceptance criteria:**
-- [ ] `forget_request` takes "lupakan cara baca X" and "hapus cara baca X" with names, softeners, and fillers left out; a question, a demonstrative ("itu"), a pronoun, a remark, or a term over 3 words is none
-- [ ] The Assistant forgets Master's rule without the brain and names the word; a built-in is refused aloud and kept; no rule is said; a file that cannot be written is said and warned about; the logs never name the word
+- [x] `forget_request` takes "lupakan cara baca X" and "hapus cara baca X" with names, softeners, and fillers left out; a question, a demonstrative ("itu"), a pronoun, a remark, or a term over 3 words is none
+- [x] The Assistant forgets Master's rule without the brain and names the word; a built-in is refused aloud and kept; no rule is said; a file that cannot be written is said and warned about; the logs never name the word
 
 **Dependencies:** 296 · **Files:** `src/waifu/lexicon.py`, `src/waifu/app.py`, `tests/test_lexicon.py`, `tests/test_app.py` · **Scope:** S
 

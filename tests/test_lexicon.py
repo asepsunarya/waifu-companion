@@ -13,6 +13,7 @@ from waifu.lexicon import (
     Lexicon,
     LexiconError,
     checked_rule,
+    forget_request,
     pronounce,
     reading_request,
 )
@@ -488,3 +489,51 @@ def test_a_sentence_with_a_common_remark_word_is_not_a_reading_request(command):
 )
 def test_a_pronoun_her_names_or_masters_form_of_address_is_never_taught_by_voice(command):
     assert reading_request(command, NAMES, leading=("Sayang",)) is None
+
+
+# --- forget_request ------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("command", "term"),
+    [
+        ("lupakan cara baca Acheron", "Acheron"),
+        ("Hapus cara baca HSR.", "HSR"),
+        ("Cyrene, tolong lupakan cara baca Kafka ya", "Kafka"),
+        ("Sayang, hapus cara baca Kafka dong, Cyrene.", "Kafka"),
+        ("lupakan cara baca Star Rail", "Star Rail"),
+        ("lupakan cara baca nama Dan Heng IL", "Dan Heng IL"),
+        ('hapus cara baca "HoYoLAB"', "HoYoLAB"),
+        ("lupakan cara baca Acheron itu", "Acheron"),
+        ("hapus cara baca Acheron yang tadi", "Acheron"),
+        ("lupakan cara baca nama", "nama"),
+    ],
+)
+def test_a_forget_request_gives_the_term_as_said(command, term):
+    assert forget_request(command, NAMES, leading=("Sayang",)) == term
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "lupakan cara baca Acheron?",
+        "lupakan cara baca",
+        "lupakan cara baca itu",
+        "hapus cara baca yang tadi",
+        "lupakan cara baca ini",
+        "lupakan cara baca tersebut",
+        "hapus cara baca kamu",
+        "lupakan cara baca apa",
+        "lupakan cara baca yang salah",
+        "lupakan cara baca satu dua tiga empat",
+        "lupakan cara bacanya Acheron",
+        "lupakan Acheron",
+        "jangan lupakan cara baca Acheron",
+        "hapus semua cara baca",
+        "cara baca Acheron itu A Ke Ron",
+        "nyalakan lampu kamar",
+        "",
+    ],
+)
+def test_anything_else_is_not_a_forget_request(command):
+    assert forget_request(command, NAMES) is None

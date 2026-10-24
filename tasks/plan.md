@@ -1100,7 +1100,7 @@ parameters, and 0 of 16 unions stay.
 - [x] Task 295a: contract: SPEC, tasks
 - [x] Task 295: the remark words
 - [x] Task 296: the yes before a reading is kept (`_ask_reading`, the yes, the window, brain turns)
-- [ ] Task 297: forgetting a reading by voice (`forget_request`, `_forget_reading`)
+- [x] Task 297: forgetting a reading by voice (`forget_request`, `_forget_reading`)
 - [ ] Task 298: README, CHANGELOG
 
 ### Checkpoint: konfirmasi kamus

@@ -55,6 +55,10 @@ READING_QUESTION = "Jadi {term} kubaca {reading}? Bilang iya kalau benar."
 TAUGHT = "Oke {owner}. {term} mulai sekarang kubaca {reading}."
 TEACH_REFUSED = "Maaf {owner}, belum bisa kucatat. {problem}"
 TEACH_FAILED = "Maaf {owner}, kamusku belum bisa disimpan. Coba lagi sebentar."
+# What she says to "lupakan cara baca X": X as she reads it from then on.
+FORGOTTEN = "Oke {owner}. Cara baca {term} sudah kulupakan."
+FORGET_BUILT_IN = "Maaf {owner}, cara baca {term} itu bawaan, jadi tidak bisa kulupakan."
+NOTHING_TO_FORGET = "Aku belum punya cara baca khusus untuk {term}, {owner}."
 # Words that make "cara baca X itu Y" a question about the reading, not a rule.
 QUESTION_WORDS = frozenset(
     {
@@ -157,6 +161,11 @@ _TRAILING_SKIPPED = frozenset({"dong", "deh", "ya", "aja", "saja", "oke", "ok", 
 _TERM_LEADS = frozenset({"nama", "kata", "tulisan"})
 # Left out after "itu" ("itu harusnya A Ke Ron"): how Master leads into the reading.
 _READING_LEADS = frozenset({"harusnya", "seharusnya", "sebenarnya", "dibaca", "kayak"})
+# What starts "lupakan cara baca X" and "hapus cara baca X" (`forget_request`).
+_FORGET_VERBS = frozenset({"lupakan", "hapus"})
+# Words that point at a reading instead of naming its word ("lupakan cara baca itu"): left
+# out after the term ("lupakan cara baca Acheron yang tadi"), never a term themselves.
+_POINTING = frozenset({"itu", "ini", "tadi", "tersebut", "yang"})
 _EDGE_MARKS = ".,!;:\"'“”‘’…"
 
 # Kana, kanji, and half-width katakana: the Japanese voice is never given a rule.
@@ -220,6 +229,32 @@ def reading_request(
     return " ".join(term), " ".join(reading)
 
 
+def forget_request(
+    command: str, names: Iterable[str] = (), leading: Iterable[str] = ()
+) -> str | None:
+    """The term of a whole "lupakan cara baca <term>" or "hapus cara baca <term>" as said,
+    None for anything else. The words left out around it are `reading_request`'s, and so are
+    the term's 1 to TERM_MAX_WORDS words without a leading "nama", "kata", or "tulisan"; words
+    that point at a reading ("itu", "yang tadi") are left out after it. A question, and a term
+    holding a question word or tag, a remark word, a pronoun, or a pointing word, is not a
+    request: "lupakan cara baca itu" names no word."""
+    if "?" in command:
+        return None
+    left = _request_words(command, tuple(names), tuple(leading))
+    if not left or left[0].casefold() not in _FORGET_VERBS:
+        return None
+    if [word.casefold() for word in left[1:3]] != ["cara", "baca"]:
+        return None
+    term = left[3:]
+    while term and term[-1].casefold() in _POINTING:
+        term = term[:-1]
+    term = _without_term_lead(term)
+    refused = QUESTION_WORDS | QUESTION_TAGS | REMARK_WORDS | PRONOUNS | _POINTING
+    if not 1 <= len(term) <= TERM_MAX_WORDS or {word.casefold() for word in term} & refused:
+        return None
+    return " ".join(term)
+
+
 def _request_words(command: str, names: tuple[str, ...], leading: tuple[str, ...]) -> list[str]:
     """The words of a voice request about a reading, split at whitespace with marks stripped
     from their edges, without the words left out before it (those of `names` and `leading`,
@@ -251,6 +286,11 @@ def _remark(term: list[str], reading: list[str]) -> bool:
         or set(reading_words) & (QUESTION_WORDS | REMARK_WORDS)
         or reading_words[-1] in QUESTION_TAGS
     )
+
+
+def built_in_term(term: str) -> str | None:
+    """The built-in rule's term that `term` names in any case, None when it names none."""
+    return next((kept for kept in BUILT_IN_READINGS if _key(kept) == _key(term)), None)
 
 
 def checked_rule(term: str, reading: str) -> tuple[str, str]:
