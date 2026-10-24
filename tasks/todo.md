@@ -2794,21 +2794,21 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** none · **Files:** `SPEC.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
 
-## Task 295: The remark words
+## Task 295: The remark words ✅
 
 **Acceptance criteria:**
-- [ ] "cara baca jam itu begini", "cara baca buku itu penting", "... itu dengan tartil", "... itu pakai kompas", and the other added words (in the term or the reading) are no reading request
-- [ ] Every reading request kept by the earlier tests still is one
+- [x] "cara baca jam itu begini", "cara baca buku itu penting", "... itu dengan tartil", "... itu pakai kompas", and the other added words (in the term or the reading) are no reading request
+- [x] Every reading request kept by the earlier tests still is one
 
 **Dependencies:** 295a · **Files:** `src/waifu/lexicon.py`, `tests/test_lexicon.py` · **Scope:** XS
 
-## Task 296: The yes before a reading is kept
+## Task 296: The yes before a reading is kept ✅
 
 **Acceptance criteria:**
-- [ ] "cara baca X itu Y" is answered "Jadi X kubaca Y? Bilang iya kalau benar." without the brain and keeps nothing; a refused rule is still said at once
-- [ ] Master's next accepted voice turn keeps the rule when it is a plain yes ("iya", "Iya, Master.", "oke, catat aja", "iya bener") within 60 s, with v1.49's answer; anything else (another command, "bukan", "iya?", a yes after 61 s) keeps nothing, is answered as usual, and leaves no question for a later yes
-- [ ] An utterance the gate does not accept leaves the question waiting; a phone message (a brain turn) drops it
-- [ ] The logs never name the word or the reading; guest mode as before
+- [x] "cara baca X itu Y" is answered "Jadi X kubaca Y? Bilang iya kalau benar." without the brain and keeps nothing; a refused rule is still said at once
+- [x] Master's next accepted voice turn keeps the rule when it is a plain yes ("iya", "Iya, Master.", "oke, catat aja", "iya bener") within 60 s, with v1.49's answer; anything else (another command, "bukan", "iya?", a yes after 61 s) keeps nothing, is answered as usual, and leaves no question for a later yes
+- [x] An utterance the gate does not accept leaves the question waiting; a phone message (a brain turn) drops it
+- [x] The logs never name the word or the reading; guest mode as before
 
 **Dependencies:** 295a · **Files:** `src/waifu/lexicon.py`, `src/waifu/app.py`, `tests/test_app.py` · **Scope:** S
 

@@ -1098,8 +1098,8 @@ forgotten), and more remark words (begini, dengan, pakai, penting, dulu, ...) se
 the brain. No tool, config key, or dependency: 18 of 20 strict tools, 17 of 24 optional
 parameters, and 0 of 16 unions stay.
 - [x] Task 295a: contract: SPEC, tasks
-- [ ] Task 295: the remark words
-- [ ] Task 296: the yes before a reading is kept (`_ask_reading`, the yes, the window, brain turns)
+- [x] Task 295: the remark words
+- [x] Task 296: the yes before a reading is kept (`_ask_reading`, the yes, the window, brain turns)
 - [ ] Task 297: forgetting a reading by voice (`forget_request`, `_forget_reading`)
 - [ ] Task 298: README, CHANGELOG
 

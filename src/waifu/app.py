@@ -79,11 +79,13 @@ from waifu.avatar.emotion import NEUTRAL, split_emotion
 from waifu.avatar.lipsync import viseme_track
 from waifu.brain.attachments import CameraTurn, TurnImages
 from waifu.brain.base import Brain, BrainReply, ToolCallRecord, ToolImage
+from waifu.brain.confirm import RECORD_ORDER_WORDS, is_yes
 from waifu.brain.tools import logged_arguments
 from waifu.config import AppConfig
 from waifu.gate import WakeGate
 from waifu.heard import heard_answer, is_heard_request
 from waifu.lexicon import (
+    READING_QUESTION,
     TAUGHT,
     TEACH_FAILED,
     TEACH_REFUSED,
@@ -144,6 +146,10 @@ PAUSE_ENDED = "Aku mendengarkan lagi sekarang, {owner}."
 # which is heard before the gate. The gate's reason for a transcript without words.
 ALARM_WAKE = "alarm"
 EMPTY_REASON = "empty"
+# How long after she asks about a reading Master's yes still keeps it, as for the
+# ConfirmationGate's questions; and what may follow that yes ("iya, bener", "oke, catat aja").
+READING_YES_WINDOW_S = 60
+READING_ORDER_WORDS = RECORD_ORDER_WORDS | {"bener"}
 
 
 def split_reply(reply: BrainReply, *, owner_call: str = "Master") -> tuple[str, BrainReply]:
@@ -297,6 +303,15 @@ class _Said:
     marker: object  # `guest_marker` before the turn that thought it up (None without one)
 
 
+@dataclasses.dataclass(frozen=True)
+class _AskedReading:
+    """A reading she asked Master about (`Assistant._ask_reading`), kept only after his yes."""
+
+    term: str
+    reading: str
+    at: float  # when she asked, on the Assistant's clock
+
+
 @dataclasses.dataclass
 class _Hearing:
     """What `handle_utterance` found out about one utterance so far, for its record."""
@@ -360,7 +375,7 @@ class Assistant:
         it moved are never repeated. `alarm` is the bell whose rings she says; `hold_level`
         (`LevelHold.held`) plays one clip, a ring, at a level of its own. `diagnosis` records
         each utterance she handles. While `listen_pause` holds, she does not hear Master.
-        `lexicon` keeps the readings Master teaches with "cara baca X itu Y"."""
+        `lexicon` keeps the readings Master teaches with "cara baca X itu Y" and confirms."""
         self._name = config.assistant.name
         self._owner_call = config.assistant.owner_call
         # Left out around Master's "cara baca X itu Y" (`reading_request`).
@@ -391,6 +406,9 @@ class Assistant:
         self._diagnosis = diagnosis
         self._pause = listen_pause
         self._lexicon = lexicon
+        # The reading she last asked Master about, until his next turn takes it (`_ask_reading`).
+        # Set and taken on the voice thread; any brain turn, also the phone's, drops it.
+        self._reading_asked: _AskedReading | None = None
         # When the listen pause ends as `run` last saw it, None while it does not hold; and
         # whether `run` fed the last frame to the segmenter. Only `run`'s thread uses them.
         self._pause_until: datetime | None = None
@@ -511,7 +529,16 @@ class Assistant:
             return None
         hearing.outcome = ACCEPTED
         self._announcements_held_until = None  # Master has been heard after a cut
-        if not result.command:
+        asked, self._reading_asked = self._reading_asked, None
+        if (
+            asked is not None
+            and self._lexicon is not None
+            and self._reading_confirmed(asked, result.command)
+        ):
+            reply_text, hearing.tts_s = self._teach_reading(
+                self._lexicon, asked.term, asked.reading
+            )
+        elif not result.command:
             # A bare wake word ("Cyrene?") gets a quick answer without a round trip to the LLM.
             reply_text = ACKNOWLEDGEMENT.format(owner=self._owner_call)
             hearing.tts_s = self._speak(reply_text, ACKNOWLEDGEMENT_EMOTION)
@@ -523,7 +550,7 @@ class Assistant:
         elif self._lexicon is not None and (
             taught := reading_request(result.command, self._her_names, (self._owner_call,))
         ):
-            reply_text, hearing.tts_s = self._teach_reading(self._lexicon, *taught)
+            reply_text, hearing.tts_s = self._ask_reading(*taught)
         else:
             self._show(lambda avatar: avatar.state("thinking"))
             marker = self._guest_generation()
@@ -1099,16 +1126,44 @@ class Assistant:
         text = heard_answer(heard, self._owner_call)
         return text, self._speak(text)
 
-    def _teach_reading(self, lexicon: Lexicon, term: str, reading: str) -> tuple[str, float | None]:
-        """Keep Master's reading of `term` and say the word and its reading back like a reply,
+    def _ask_reading(self, term: str, reading: str) -> tuple[str, float | None]:
+        """Ask Master whether `term` is to be read as `reading`, naming both like a reply,
         without the brain; returns what she said and how long its synthesis took.
+
+        Nothing is kept yet: the reading is held until Master's next turn, which keeps it only
+        when it is his yes (`_reading_confirmed`). A rule `checked_rule` refuses is explained at
+        once instead, and nothing is held. Like `_tell_heard`, no turn is taken and it is never
+        remembered for "ulangi". The log names neither word.
+        """
+        try:
+            term, reading = checked_rule(term, reading)
+        except LexiconError as problem:
+            return self._refuse_reading(problem)
+        logger.info("Asking Master to confirm a reading for a word")
+        self._reading_asked = _AskedReading(term, reading, self._clock())
+        text = READING_QUESTION.format(term=term, reading=reading)
+        return text, self._speak(text)
+
+    def _reading_confirmed(self, asked: _AskedReading, command: str) -> bool:
+        """Whether Master's `command` is a plain yes (`is_yes`) to the reading she asked about,
+        said at most READING_YES_WINDOW_S after she asked. Anything else drops the reading,
+        logged without its words and never said: the command is then handled as usual."""
+        in_time = self._clock() - asked.at <= READING_YES_WINDOW_S
+        if in_time and is_yes(command, self._names, READING_ORDER_WORDS):
+            return True
+        logger.info("Dropped the reading she asked about: no yes from Master in time")
+        return False
+
+    def _teach_reading(self, lexicon: Lexicon, term: str, reading: str) -> tuple[str, float | None]:
+        """Keep the reading of `term` Master confirmed and say the word and its reading back
+        like a reply, without the brain; returns what she said and how long its synthesis took.
 
         The confirmation is synthesised before the rule is kept, so she says `term` as she
         read it until now and Master hears which word she caught (a stray word would make a
         rule that never matches). Like `_tell_heard`, no turn is taken and it is never
         remembered for "ulangi". A rule `lexicon` refuses is explained; a file that cannot be
         written is said, and the confirmation is then never played. These lines log neither
-        word; the "Heard" line before them holds the whole request, as for any command.
+        word; the "Heard" line of the request holds both, as for any command.
         """
         try:
             term, reading = checked_rule(term, reading)
@@ -1157,8 +1212,10 @@ class Assistant:
         Waits while another thread's turn is thought up: the history takes one turn at a time.
         `photo` (a JPEG from the phone camera) goes with this turn only (`_showing`), and with
         `camera` only this turn is a camera turn (`_through_camera`). With `new_session` the
-        brain forgets the conversation first, under the same lock.
+        brain forgets the conversation first, under the same lock. Any brain turn drops the
+        reading she asked about: a later yes may answer the brain instead.
         """
+        self._reading_asked = None
         with self._turn, self._through_camera(camera), self._showing(photo):
             if new_session:
                 logger.info("Starting a new conversation for a request she answers by herself")

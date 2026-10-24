@@ -49,7 +49,9 @@ SAME_PROBLEM = "Bacaannya tidak boleh memuat kata itu sendiri."
 FULL_PROBLEM = (
     f"Kamus sudah berisi {MAX_RULES} aturan; hapus satu dulu dengan 'waifu lafal remove'."
 )
-# What she says to "cara baca X itu Y", synthesised before the rule is kept: X as she read it.
+# What she asks on "cara baca X itu Y": the rule is kept only after Master's yes to it.
+READING_QUESTION = "Jadi {term} kubaca {reading}? Bilang iya kalau benar."
+# What she says to that yes, synthesised before the rule is kept: X as she read it.
 TAUGHT = "Oke {owner}. {term} mulai sekarang kubaca {reading}."
 TEACH_REFUSED = "Maaf {owner}, belum bisa kucatat. {problem}"
 TEACH_FAILED = "Maaf {owner}, kamusku belum bisa disimpan. Coba lagi sebentar."

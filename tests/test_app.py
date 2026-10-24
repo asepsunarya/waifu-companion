@@ -4047,6 +4047,8 @@ def test_her_answer_never_reaches_the_info_log(caplog):
 # --- "cara baca X itu Y" (kamus cyrene) ---------------------------------------------------------
 
 TAUGHT_ACHERON = "Oke Master. Acheron mulai sekarang kubaca A Ke Ron."
+ASKED_ACHERON = "Jadi Acheron kubaca A Ke Ron? Bilang iya kalau benar."
+TEACH_ACHERON = "Cyrene, cara baca Acheron itu A Ke Ron."
 
 
 class RecordingVoice(TextToSpeech):
@@ -4060,17 +4062,178 @@ class RecordingVoice(TextToSpeech):
         return np.zeros(240, dtype=np.float32), 24000
 
 
-def test_she_learns_a_reading_without_the_brain_and_says_the_word_and_its_reading(tmp_path):
-    lexicon = Lexicon(tmp_path / "tts_lexicon.json")
-    rig = Rig("Cyrene, cara baca Acheron itu A Ke Ron.", lexicon=lexicon)
+def handle_all(rig: Rig) -> list[str | None]:
+    """Hand the rig every utterance it still hears, in order; what she said to each."""
+    return [rig.assistant.handle_utterance(rig.utterance()) for _ in list(rig.stt.heard)]
+
+
+def test_she_asks_before_keeping_a_reading_and_keeps_nothing_yet(tmp_path):
+    path = tmp_path / "tts_lexicon.json"
+    rig = Rig(TEACH_ACHERON, lexicon=Lexicon(path))
 
     said = rig.assistant.handle_utterance(rig.utterance())
 
-    assert said == TAUGHT_ACHERON
-    assert rig.speech.texts == [TAUGHT_ACHERON]
+    assert said == ASKED_ACHERON
+    assert rig.speech.texts == [ASKED_ACHERON]
+    assert rig.brain.turns == []
+    assert not path.exists()
+    assert rig.gate.check("iya").accepted is True  # asked like a reply: the window opened
+
+
+def test_masters_yes_keeps_the_reading_and_she_says_the_word_and_its_reading(tmp_path):
+    lexicon = Lexicon(tmp_path / "tts_lexicon.json")
+    rig = Rig(TEACH_ACHERON, "iya", lexicon=lexicon)
+
+    said = handle_all(rig)
+
+    assert said == [ASKED_ACHERON, TAUGHT_ACHERON]
+    assert rig.speech.texts == [ASKED_ACHERON, TAUGHT_ACHERON]
     assert rig.brain.turns == []
     assert lexicon.read() == {"Acheron": "A Ke Ron"}
     assert rig.gate.check("terus?").accepted is True  # said like a reply: the window opened
+
+
+@pytest.mark.parametrize(
+    "answer", ["Iya, Master.", "ya", "oke, catat aja", "iya bener", "Cyrene, boleh", "IYA!"]
+)
+def test_a_plain_yes_in_other_words_keeps_the_reading(tmp_path, answer):
+    lexicon = Lexicon(tmp_path / "tts_lexicon.json")
+    rig = Rig(TEACH_ACHERON, answer, lexicon=lexicon)
+
+    handle_all(rig)
+
+    assert lexicon.read() == {"Acheron": "A Ke Ron"}
+    assert rig.brain.turns == []
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        "nyalakan lampu kamar",
+        "bukan",
+        "nggak",
+        "iya?",
+        "iya, tapi nanti",
+        "ya kali",
+        "iya, matikan",
+        "cara baca HSR itu gimana",
+    ],
+)
+def test_anything_but_a_yes_keeps_nothing_and_is_answered_as_usual(tmp_path, answer):
+    path = tmp_path / "tts_lexicon.json"
+    rig = Rig(TEACH_ACHERON, answer, "iya", lexicon=Lexicon(path))
+
+    said = handle_all(rig)
+
+    assert said == [ASKED_ACHERON, REPLY, REPLY]
+    assert rig.brain.turns == [(answer, NOW), ("iya", NOW)]  # her question is gone
+    assert not path.exists()
+
+
+def test_ulangi_after_her_question_drops_it(tmp_path):
+    path = tmp_path / "tts_lexicon.json"
+    rig = Rig(TEACH_ACHERON, "ulangi", "iya", lexicon=Lexicon(path))
+
+    said = handle_all(rig)
+
+    assert said == [ASKED_ACHERON, "Belum ada yang bisa kuulangi, Master.", REPLY]
+    assert rig.brain.turns == [("iya", NOW)]
+    assert not path.exists()
+
+
+def test_a_new_reading_request_asks_anew_and_a_yes_keeps_only_that_one(tmp_path):
+    lexicon = Lexicon(tmp_path / "tts_lexicon.json")
+    rig = Rig(TEACH_ACHERON, "cara baca Acheron itu A Ke Ron Ron", "iya", lexicon=lexicon)
+
+    said = handle_all(rig)
+
+    assert said[1] == "Jadi Acheron kubaca A Ke Ron Ron? Bilang iya kalau benar."
+    assert lexicon.read() == {"Acheron": "A Ke Ron Ron"}
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cara baca buku itu penting",
+        "cara baca jam itu begini",
+        "cara baca peta itu pakai kompas",
+        "cara baca buku itu pelan-pelan",
+    ],
+)
+def test_a_sentence_about_reading_never_keeps_a_rule_without_a_yes(tmp_path, command):
+    path = tmp_path / "tts_lexicon.json"
+    rig = Rig(f"Cyrene, {command}", "nyalakan lampu kamar", lexicon=Lexicon(path))
+
+    handle_all(rig)
+
+    assert not path.exists()
+    assert rig.brain.turns[-1] == ("nyalakan lampu kamar", NOW)
+
+
+def test_a_yes_60_seconds_after_her_question_still_keeps_the_reading(tmp_path):
+    lexicon = Lexicon(tmp_path / "tts_lexicon.json")
+    rig = Rig(TEACH_ACHERON, "Cyrene, iya", lexicon=lexicon)
+
+    rig.assistant.handle_utterance(rig.utterance())
+    rig.clock.now += 60
+    said = rig.assistant.handle_utterance(rig.utterance())
+
+    assert said == TAUGHT_ACHERON
+    assert lexicon.read() == {"Acheron": "A Ke Ron"}
+
+
+def test_a_yes_after_60_seconds_keeps_nothing_and_goes_to_the_brain(tmp_path, caplog):
+    path = tmp_path / "tts_lexicon.json"
+    rig = Rig(TEACH_ACHERON, "Cyrene, iya", lexicon=Lexicon(path))
+
+    rig.assistant.handle_utterance(rig.utterance())
+    rig.clock.now += 61
+    with caplog.at_level(logging.INFO, logger="waifu.app"):
+        said = rig.assistant.handle_utterance(rig.utterance())
+
+    assert said == REPLY
+    assert rig.brain.turns == [("iya", NOW)]
+    assert not path.exists()
+    assert "Dropped the reading she asked about" in caplog.text
+
+
+def test_words_not_addressed_to_her_leave_her_question_waiting(tmp_path):
+    lexicon = Lexicon(tmp_path / "tts_lexicon.json")
+    rig = Rig(TEACH_ACHERON, "eh, lampunya", "Cyrene, iya", lexicon=lexicon)
+
+    rig.assistant.handle_utterance(rig.utterance())
+    rig.clock.now += 30  # the follow-up window has closed
+    ignored = rig.assistant.handle_utterance(rig.utterance())
+    said = rig.assistant.handle_utterance(rig.utterance())
+
+    assert ignored is None
+    assert said == TAUGHT_ACHERON
+    assert lexicon.read() == {"Acheron": "A Ke Ron"}
+
+
+def test_a_phone_message_after_her_question_drops_it(tmp_path):
+    path = tmp_path / "tts_lexicon.json"
+    rig = Rig(TEACH_ACHERON, "iya", lexicon=Lexicon(path))
+
+    rig.assistant.handle_utterance(rig.utterance())
+    rig.assistant.reply_for_phone(PHONE_TEXT)
+    said = rig.assistant.handle_utterance(rig.utterance())
+
+    assert said == REPLY
+    assert rig.brain.turns == [(PHONE_TEXT, NOW), ("iya", NOW)]
+    assert not path.exists()
+
+
+def test_she_asks_and_keeps_a_reading_in_guest_mode_too(tmp_path):
+    lexicon = Lexicon(tmp_path / "tts_lexicon.json")
+    rig = Rig(
+        TEACH_ACHERON, "iya", guest_mode=lambda: True, guest_marker=lambda: 1, lexicon=lexicon
+    )
+
+    said = handle_all(rig)
+
+    assert said == [ASKED_ACHERON, TAUGHT_ACHERON]
+    assert lexicon.read() == {"Acheron": "A Ke Ron"}
 
 
 def test_she_names_the_word_taught_as_she_read_it_until_now_then_reads_it_anew(tmp_path):
@@ -4078,41 +4241,41 @@ def test_she_names_the_word_taught_as_she_read_it_until_now_then_reads_it_anew(t
     voice = RecordingVoice()
     router = SpeechRouter({"id": voice}, default_language="id", lexicon=lexicon.readings)
     rig = Rig(
-        "Cyrene, cara baca Acheron itu A Ke Ron.",
+        TEACH_ACHERON,
+        "iya",
         "Cyrene, build Acheron gimana",
         reply="Acheron siap, Master.",
         lexicon=lexicon,
         speech=router,
     )
 
-    rig.assistant.handle_utterance(rig.utterance())
-    rig.assistant.handle_utterance(rig.utterance())
+    handle_all(rig)
 
-    assert voice.texts == [TAUGHT_ACHERON, "A Ke Ron siap, Master."]
-    assert len(rig.player.played) == 2
+    assert voice.texts == [ASKED_ACHERON, TAUGHT_ACHERON, "A Ke Ron siap, Master."]
+    assert len(rig.player.played) == 3
 
 
 def test_a_reading_is_kept_when_her_voice_fails(tmp_path):
     lexicon = Lexicon(tmp_path / "tts_lexicon.json")
     rig = Rig(
-        "Cyrene, cara baca Acheron itu A Ke Ron.",
+        TEACH_ACHERON,
+        "iya",
         speech_error=TtsError("Suara tidak tersedia."),
         lexicon=lexicon,
     )
 
-    said = rig.assistant.handle_utterance(rig.utterance())
+    said = handle_all(rig)
 
-    assert said == TAUGHT_ACHERON
+    assert said == [ASKED_ACHERON, TAUGHT_ACHERON]
     assert lexicon.read() == {"Acheron": "A Ke Ron"}
     assert rig.player.played == []
 
 
 def test_she_learns_a_reading_inside_the_follow_up_window_without_her_name(tmp_path):
     lexicon = Lexicon(tmp_path / "tts_lexicon.json")
-    rig = Rig("Cyrene", "cara baca Kafka itu Kaf Ka", lexicon=lexicon)
+    rig = Rig("Cyrene", "cara baca Kafka itu Kaf Ka", "iya", lexicon=lexicon)
 
-    rig.assistant.handle_utterance(rig.utterance())
-    rig.assistant.handle_utterance(rig.utterance())
+    handle_all(rig)
 
     assert lexicon.read() == {"Kafka": "Kaf Ka"}
     assert rig.brain.turns == []
@@ -4121,12 +4284,16 @@ def test_she_learns_a_reading_inside_the_follow_up_window_without_her_name(tmp_p
 def test_she_learns_a_reading_said_after_masters_form_of_address(tmp_path):
     lexicon = Lexicon(tmp_path / "tts_lexicon.json")
     rig = Rig(
-        "Cyrene", "Sayang, cara baca Kafka itu Kaf Ka.", config=CALLED_SAYANG, lexicon=lexicon
+        "Cyrene",
+        "Sayang, cara baca Kafka itu Kaf Ka.",
+        "Iya, Sayang.",
+        config=CALLED_SAYANG,
+        lexicon=lexicon,
     )
 
-    rig.assistant.handle_utterance(rig.utterance())
-    rig.assistant.handle_utterance(rig.utterance())
+    said = handle_all(rig)
 
+    assert said[1] == "Jadi Kafka kubaca Kaf Ka? Bilang iya kalau benar."
     assert lexicon.read() == {"Kafka": "Kaf Ka"}
     assert rig.brain.turns == []
 
@@ -4161,29 +4328,31 @@ def test_without_a_lexicon_a_reading_request_goes_to_the_brain():
     assert rig.brain.turns == [("cara baca Acheron itu A Ke Ron", NOW)]
 
 
-def test_a_reading_that_holds_its_word_is_refused_aloud(tmp_path):
+def test_a_reading_that_holds_its_word_is_refused_aloud_without_a_question(tmp_path):
     path = tmp_path / "tts_lexicon.json"
-    rig = Rig("Cyrene, cara baca Kafka itu kafka saja", lexicon=Lexicon(path))
+    rig = Rig("Cyrene, cara baca Kafka itu kafka saja", "iya", lexicon=Lexicon(path))
 
-    rig.assistant.handle_utterance(rig.utterance())
+    handle_all(rig)
 
     assert rig.speech.texts == [
-        "Maaf Master, belum bisa kucatat. Bacaannya tidak boleh memuat kata itu sendiri."
+        "Maaf Master, belum bisa kucatat. Bacaannya tidak boleh memuat kata itu sendiri.",
+        REPLY,
     ]
-    assert rig.brain.turns == []
+    assert rig.brain.turns == [("iya", NOW)]
     assert not path.exists()
 
 
 def test_a_dictionary_that_cannot_be_written_is_said_and_warned_about(tmp_path, caplog):
     blocked = tmp_path / "tts_lexicon.json"
     blocked.mkdir()  # a folder where the file should be: neither read nor written
-    rig = Rig("Cyrene, cara baca Kafka itu Kaf Ka", lexicon=Lexicon(blocked))
+    rig = Rig("Cyrene, cara baca Kafka itu Kaf Ka", "iya", lexicon=Lexicon(blocked))
 
     with caplog.at_level(logging.WARNING, logger="waifu.app"):
-        rig.assistant.handle_utterance(rig.utterance())
+        handle_all(rig)
 
     assert rig.speech.texts[-1] == "Maaf Master, kamusku belum bisa disimpan. Coba lagi sebentar."
-    assert rig.events == ["synthesize", "synthesize", "play"]  # the confirmation is never played
+    # The question, then the confirmation synthesised but never played, then the failure.
+    assert rig.events == ["synthesize", "play", "synthesize", "synthesize", "play"]
     assert "Could not save a reading" in caplog.text
 
 
@@ -4191,26 +4360,39 @@ def test_what_she_says_when_taught_is_never_what_ulangi_repeats(tmp_path):
     rig = Rig(
         "Cyrene, nyalakan lampu kamar",
         "Cyrene, cara baca Acheron itu A Ke Ron",
+        "Cyrene, iya",
         "Cyrene, ulangi",
         lexicon=Lexicon(tmp_path / "tts_lexicon.json"),
     )
 
-    for _ in range(3):
-        rig.assistant.handle_utterance(rig.utterance())
+    handle_all(rig)
 
-    assert rig.speech.texts == [REPLY, TAUGHT_ACHERON, REPLY]
+    assert rig.speech.texts == [REPLY, ASKED_ACHERON, TAUGHT_ACHERON, REPLY]
 
 
 def test_only_the_heard_line_names_the_word_and_the_reading_taught(tmp_path, caplog):
-    rig = Rig("Cyrene, cara baca Acheron itu A Ke Ron", lexicon=Lexicon(tmp_path / "x.json"))
+    rig = Rig("Cyrene, cara baca Acheron itu A Ke Ron", "iya", lexicon=Lexicon(tmp_path / "x.json"))
 
     with caplog.at_level(logging.DEBUG):
-        rig.assistant.handle_utterance(rig.utterance())
+        handle_all(rig)
 
     messages = [record.getMessage() for record in caplog.records]
     naming = [message for message in messages if "Acheron" in message or "Ke Ron" in message]
     assert naming == ["Heard (id): Cyrene, cara baca Acheron itu A Ke Ron"]
+    assert "Asking Master to confirm a reading for a word" in messages
     assert "Learned a reading for a word" in messages
+
+
+def test_a_dropped_reading_is_logged_without_its_words(tmp_path, caplog):
+    rig = Rig(TEACH_ACHERON, "nyalakan lampu kamar", lexicon=Lexicon(tmp_path / "x.json"))
+
+    with caplog.at_level(logging.DEBUG):
+        handle_all(rig)
+
+    messages = [record.getMessage() for record in caplog.records]
+    naming = [message for message in messages if "Acheron" in message or "Ke Ron" in message]
+    assert naming == [f"Heard (id): {TEACH_ACHERON}"]
+    assert "Dropped the reading she asked about: no yes from Master in time" in messages
 
 
 def test_the_phone_shows_her_words_as_written_while_its_voice_reads_them_by_the_rules():
