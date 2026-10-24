@@ -1073,7 +1073,7 @@ words as written. Master's own rules live in `data/tts_lexicon.json`, written by
 by a strict voice phrase, "cara baca X itu Y", answered without the brain. No tool: 18 of 20
 strict tools, 17 of 24 optional parameters, and 0 of 16 unions stay.
 - [x] Task 280a: contract: SPEC, tasks
-- [ ] Task 280: the hotword builder and `Vocabulary` (`voice/hotwords.py`)
+- [x] Task 280: the hotword builder and `Vocabulary` (`voice/hotwords.py`)
 - [ ] Task 281: Whisper passes the hotwords on both decodes
 - [ ] Task 282: the roster hook in `GameDataTools`
 - [ ] Task 283: the dictionary: rules, `pronounce`, and the store (`lexicon.py`)

@@ -2656,11 +2656,11 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** none · **Files:** `SPEC.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
 
-## Task 280: The hotword builder
+## Task 280: The hotword builder ✅
 
 **Acceptance criteria:**
-- [ ] `build_hotwords` lists the name, wake words, device names, aliases, routines, app keys, the games when gacha is on, then the roster names (10 per game), skipping blanks and repeats (casefolded), within 40 terms and 400 characters, so the roster is dropped first
-- [ ] `Vocabulary` builds them at start and again on `set_roster`, safe across threads
+- [x] `build_hotwords` lists the name, wake words, device names, aliases, routines, app keys, the games when gacha is on, then the roster names (10 per game), skipping blanks and repeats (casefolded), within 40 terms and 400 characters, so the roster is dropped first
+- [x] `Vocabulary` builds them at start and again on `set_roster`, safe across threads
 
 **Dependencies:** 280a · **Files:** `src/waifu/voice/hotwords.py`, `tests/test_voice_hotwords.py` · **Scope:** S
 
