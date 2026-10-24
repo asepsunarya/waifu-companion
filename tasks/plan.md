@@ -908,6 +908,29 @@ or dependency, so 18 of 20 strict tools and 17 of 24 optional parameters stay.
 - [x] Fix pass (2026-10-24): `requestDesk` uses `mode: "cors"` and `referrerPolicy: "same-origin"`, so a press keeps the page's Origin in Firefox too (mode "same-origin" under the server's `no-referrer` makes the Fetch spec send `Origin: null`, a 403); `waifu tombol` says who runs a routine button's delayed steps (a `!` warning while `waifu run` is off); README command-table rows for `waifu sholat` and `waifu tombol`, "browser default", and a restart after a config change. By hand (scratch folder, no network): a `DeskServer` with the example config's mocks in the browser pane (Chromium) loaded the new `desk.js` and ran the lamp's "Nyala" (POST 200, `PC page ran quick action dev.lampu_kamar.on: ok`); `cli.main(["tombol"])` with a fake opener and a routine with `after_minutes` printed the address and `! 'waifu run' tidak sedang berjalan: ...`, with `--dry-run` the dry-run note, and created no file. 9553 pytest, 528 JS, ruff clean; no tool, schema, or config file changed, so 18 of 20 strict tools and 17 of 24 optional parameters stay
 - [ ] On the owner's PC: `waifu tombol` opens the page in his browser, the lamp turns on and off from it with a toast, "Mode tidur" runs, and Ctrl+C closes it (and a press works in Firefox, if it is ever installed)
 
+### Phase 47: Jadwal mingguan, bulanan, tahunan (v1.43, see SPEC → jadwal mingguan, bulanan, tahunan)
+Decision: three more repeats in the existing schedule, `weekly`, `monthly`, and `yearly`, and no
+new tool or parameter: the strict `schedule` tool's `repeat` enum gains the values, and
+`list_schedules` stays without a filter (the model picks "this month" from at most 50 entries).
+The next occurrence stays one pure function. A monthly or yearly entry keeps the day it repeats
+on in a `day` key of its own, written only for those entries so `FILE_VERSION` stays 1, since a
+clamped `at` (30 November for the 31st) loses it. The three accept a past `at` and start at
+their next time, and a yearly one ignores the year. A missed monthly or yearly reminder is told
+like a one-shot one, since a birthday comes back only a year later. 18 of 20 strict tools, 17 of
+24 optional parameters, and 0 of 16 unions stay.
+- [ ] Task 232a: contract: SPEC, tasks
+- [ ] Task 232: `next_occurrence` for weekly, monthly, and yearly (pure)
+- [ ] Task 233: the anchor day: `Entry.day`, `add`, `fired`/`skipped`, and the file
+- [ ] Task 234: the `schedule` and `list_schedules` tools (enum, descriptions, `day`)
+- [ ] Task 235: `waifu schedule list` and `cancel` say how an entry repeats
+- [ ] Task 236: a missed monthly or yearly reminder is told
+- [ ] Task 237: README, CHANGELOG
+
+### Checkpoint: Jadwal mingguan, bulanan, tahunan
+- [ ] Python suite and ruff clean; no test touched `data/schedule.json`, spoke, or pushed; the strict-tool budget unchanged (18 of 20 strict tools, 17 of 24 optional parameters, 0 of 16 unions)
+- [ ] By hand: in a scratch folder, the tools add a yearly birthday, a monthly entry of the 31st, and a weekly one; `waifu schedule list` shows `tiap 5 Mei`, `tiap tanggal 31`, and `tiap Senin`; firing them on a fake clock walks the months' last days and 29 February
+- [ ] On the owner's PC: "ingatkan ulang tahun Ibu tiap 5 Mei" makes a yearly entry at 08:00, "tiap tanggal 20 ingatkan bayar listrik" a monthly one, and "jadwal bulan ini apa?" names them
+
 ## Risks and Mitigations
 
 | Risk | Impact | Mitigation |
