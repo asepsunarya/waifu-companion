@@ -1,4 +1,5 @@
 import base64
+import contextlib
 import http.client
 import io
 import json
@@ -47,6 +48,14 @@ from waifu.phone.server import PhoneBackend, PhoneReply, PhoneServer
 from waifu.schedule import AlarmAction, Entry, Reminder, ScheduleStore
 from waifu.screen import ScreenImage, encode_png
 from waifu.voice.base import SpeechToText, Transcript, Utterance
+from waifu.voice.diagnosis import (
+    ACCEPTED,
+    EMPTY,
+    NO_WAKE,
+    NOT_OWNER,
+    UtteranceLog,
+    UtteranceRecord,
+)
 from waifu.voice.speaker import SpeakerError
 from waifu.voice.stt import SttError
 from waifu.voice.tts import TtsError
@@ -102,6 +111,7 @@ class FakeVerifier:
     def __init__(self, result: tuple[bool, float] | Exception) -> None:
         self.result = result
         self.calls = 0
+        self.threshold = 0.45
 
     def verify(self, audio: np.ndarray, sample_rate: int) -> tuple[bool, float]:
         self.calls += 1
@@ -242,6 +252,7 @@ class Rig:
         guest_marker: Callable[[], object] | None = None,
         volume: int | None = None,
         alarm: AlarmBell | None = None,
+        diagnosis: UtteranceLog | None = None,
     ) -> None:
         config = config or AppConfig()
         self.events: list[str] = []
@@ -281,6 +292,7 @@ class Rig:
             guest_marker=guest_marker,
             alarm=alarm,
             hold_level=None if alarm is None else self.hold.held,
+            diagnosis=diagnosis,
         )
 
     def utterance(self) -> Utterance:
@@ -3746,3 +3758,138 @@ def test_a_stop_leaves_a_question_waiting_for_master_s_yes(tmp_path):
     assert ran_after_the_stop == 0
     assert asked(rig) == ["matikan PC", "iya"]
     assert rig.brain.ran == 1
+
+
+# --- the voice diagnosis -----------------------------------------------------------------------
+
+
+def takes(rig: Rig, *, stt: float = 0.0, brain: float = 0.0, tts: float = 0.0) -> None:
+    """Make Whisper, the brain, and her voice take these seconds on the rig's clock."""
+
+    def slow(method: Callable, seconds: float) -> Callable:
+        def run(*args, **kwargs):
+            rig.clock.now += seconds
+            return method(*args, **kwargs)
+
+        return run
+
+    rig.stt.transcribe = slow(rig.stt.transcribe, stt)
+    rig.brain.respond = slow(rig.brain.respond, brain)
+    rig.speech.synthesize = slow(rig.speech.synthesize, tts)
+
+
+class FailingBrain(FakeBrain):
+    def respond(self, user_text: str, *, now: datetime | None = None) -> BrainReply:
+        raise RuntimeError("the brain broke")
+
+
+def heard_once(*heard: str | Exception, **kwargs) -> UtteranceRecord:
+    """The one record of handling one utterance that hears `heard`."""
+    log = UtteranceLog(now=lambda: NOW)
+    rig = Rig(*heard, diagnosis=log, **kwargs)
+    with contextlib.suppress(Exception):
+        rig.assistant.handle_utterance(rig.utterance())
+    (record,) = log.records()
+    return record
+
+
+def test_an_answered_utterance_is_recorded_with_what_was_heard_and_how_long_each_step_took():
+    log = UtteranceLog(now=lambda: NOW)
+    rig = Rig("Cyrene, nyalakan lampu kamar.", diagnosis=log)
+    takes(rig, stt=0.5, brain=2.0, tts=0.75)
+
+    rig.assistant.handle_utterance(rig.utterance())
+
+    (record,) = log.records()
+    assert record == UtteranceRecord.of(
+        rig.utterance(),
+        NOW,
+        ACCEPTED,
+        transcript="Cyrene, nyalakan lampu kamar.",
+        wake="wake_word",
+        score=0.71,
+        threshold=0.45,
+        stt_s=0.5,
+        brain_s=2.0,
+        tts_s=0.75,
+    )
+
+
+def test_another_speaker_is_recorded_with_the_score_and_no_transcript():
+    record = heard_once("Cyrene, matikan lampu.", owner=(False, 0.12))
+
+    assert (record.outcome, record.score, record.threshold) == (NOT_OWNER, 0.12, 0.45)
+    assert (record.transcript, record.stt_s) == (None, None)
+
+
+def test_an_unusable_verifier_is_recorded_as_not_the_owner_without_a_score():
+    record = heard_once("Cyrene, matikan lampu.", owner=SpeakerError("no voiceprint"))
+
+    assert (record.outcome, record.score, record.threshold) == (NOT_OWNER, None, 0.45)
+
+
+def test_without_speaker_verification_a_record_has_no_score():
+    record = heard_once("Cyrene, matikan lampu.", speaker_check=False)
+
+    assert (record.outcome, record.score, record.threshold) == (ACCEPTED, None, None)
+
+
+def test_a_transcript_without_words_is_recorded_as_empty():
+    assert heard_once("").outcome == EMPTY
+    assert heard_once("...").outcome == EMPTY
+
+
+def test_words_without_her_name_are_recorded_with_the_gate_s_reason():
+    record = heard_once("nyalakan lampu kamar")
+
+    assert (record.outcome, record.wake, record.transcript) == (
+        NO_WAKE,
+        "no_wake_word",
+        "nyalakan lampu kamar",
+    )
+    assert record.brain_s is None
+
+
+@pytest.mark.parametrize("heard", ["Cyrene?", "Cyrene, ulangi"])
+def test_what_she_answers_without_the_brain_is_recorded_as_answered(heard):
+    log = UtteranceLog(now=lambda: NOW)
+    rig = Rig(heard, diagnosis=log)
+    takes(rig, tts=0.25)
+
+    rig.assistant.handle_utterance(rig.utterance())
+
+    (record,) = log.records()
+    assert (record.outcome, record.brain_s, record.tts_s) == (ACCEPTED, None, 0.25)
+
+
+def test_a_stop_of_a_ringing_alarm_is_recorded_as_answered(tmp_path):
+    log = UtteranceLog(now=lambda: NOW)
+    rig = AlarmRig(tmp_path, "aku sudah bangun", diagnosis=log)
+    rig.start_alarm()
+
+    rig.assistant.handle_utterance(rig.utterance())
+
+    (record,) = log.records()
+    assert (record.outcome, record.wake) == (ACCEPTED, "alarm")
+
+
+def test_an_utterance_whose_answer_failed_is_still_recorded():
+    record = heard_once("Cyrene, nyalakan lampu kamar.", brain=FailingBrain)
+
+    assert (record.outcome, record.brain_s) == (ACCEPTED, None)
+
+
+def test_follow_up_words_are_recorded_with_the_follow_up_as_the_reason():
+    log = UtteranceLog(now=lambda: NOW)
+    rig = Rig("Cyrene, nyalakan lampu kamar.", "terus matikan TV", diagnosis=log)
+
+    rig.assistant.handle_utterance(rig.utterance())
+    rig.assistant.handle_utterance(rig.utterance())
+
+    assert [record.wake for record in log.records()] == ["followup", "wake_word"]
+
+
+def test_speak_still_answers_nothing():
+    rig = Rig()
+
+    assert rig.assistant.speak("Halo, Master.") is None

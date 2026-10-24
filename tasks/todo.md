@@ -2498,11 +2498,11 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 260a · **Files:** `src/waifu/voice/segmenter.py`, `tests/test_voice_segmenter.py` · **Scope:** S
 
-## Task 263: The records
+## Task 263: The records ✅
 
 **Acceptance criteria:**
-- [ ] `UtteranceLog` keeps 50 records newest first, filtered by guest mode's marker, `last_heard` skipping too-short and heard-request records; `UtteranceRecord.of` measures a segment
-- [ ] `handle_utterance` records not-owner (score, threshold), empty, no-wake, and accepted utterances with Whisper's, the brain's, and the voice's times; nothing changes without a log
+- [x] `UtteranceLog` keeps 50 records newest first, filtered by guest mode's marker, `last_heard` skipping too-short and heard-request records; `UtteranceRecord.of` measures a segment
+- [x] `handle_utterance` records not-owner (score, threshold), empty, no-wake, and accepted utterances with Whisper's, the brain's, and the voice's times; nothing changes without a log
 
 **Dependencies:** 262 · **Files:** `src/waifu/voice/diagnosis.py`, `src/waifu/app.py`, `tests/test_voice_diagnosis.py`, `tests/test_app.py` · **Scope:** M
 

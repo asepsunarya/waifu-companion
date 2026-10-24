@@ -33,6 +33,10 @@ answer to a request) without the brain: no turn, so a question waiting for Maste
 waits for his next words. Once guest mode has switched since she said them, there is nothing to
 repeat.
 
+With a `diagnosis` log (`waifu.voice.diagnosis`), each utterance is recorded once it is handled:
+its level, the transcript, the wake gate's reason, the speaker score, what she did with it, and
+how long Whisper, the brain, and her voice took, for the phone's Suara page.
+
 The owner's paired phone (`waifu.phone`) talks to her from the phone server's threads:
 `reply_for_phone` and `transcribe_for_phone`, handed to the server as `PhoneAnswers`. Brain
 turns, the voice loop's and the phone's, are taken one at a time (the history is
@@ -74,6 +78,14 @@ from waifu.repeat import is_repeat_request
 from waifu.schedule import ScheduleError
 from waifu.voice.audio import resample
 from waifu.voice.base import SpeechToText, Utterance
+from waifu.voice.diagnosis import (
+    ACCEPTED,
+    EMPTY,
+    NO_WAKE,
+    NOT_OWNER,
+    UtteranceLog,
+    UtteranceRecord,
+)
 from waifu.voice.speaker import SpeakerError
 from waifu.voice.stt import SttError
 from waifu.voice.tts import TtsError
@@ -106,6 +118,10 @@ ALARM_NOT_SNOOZED = "Alarmnya tidak bisa ditunda: {problem}"
 ALARM_ENDED = "Alarmnya sudah berhenti, {owner}."
 ALARM_UNCHANGED = "Maaf {owner}, alarmnya belum bisa {done}. Coba lagi sebentar."
 ALARM_EMOTION = "happy"
+# What an utterance's record names as its wake reason: the gate's own, or an alarm phrase,
+# which is heard before the gate. The gate's reason for a transcript without words.
+ALARM_WAKE = "alarm"
+EMPTY_REASON = "empty"
 
 
 def split_reply(reply: BrainReply, *, owner_call: str = "Master") -> tuple[str, BrainReply]:
@@ -198,6 +214,8 @@ class AudioPlayer(Protocol):
 
 
 class OwnerVerifier(Protocol):
+    threshold: float  # the score `verify` accepts from
+
     def verify(self, audio: np.ndarray, sample_rate: int) -> tuple[bool, float]: ...
 
 
@@ -253,6 +271,21 @@ class _Said:
     marker: object  # `guest_marker` before the turn that thought it up (None without one)
 
 
+@dataclasses.dataclass
+class _Hearing:
+    """What `handle_utterance` found out about one utterance so far, for its record."""
+
+    outcome: str | None = None  # None until it is decided: then nothing is recorded
+    transcript: str | None = None
+    wake: str | None = None
+    score: float | None = None
+    threshold: float | None = None
+    stt_s: float | None = None
+    brain_s: float | None = None
+    tts_s: float | None = None
+    heard_request: bool = False
+
+
 @dataclasses.dataclass(frozen=True)
 class _Request:
     """A prompt queued by `ask_aloud`."""
@@ -288,6 +321,7 @@ class Assistant:
         guest_marker: Callable[[], object] | None = None,
         alarm: AlarmBell | None = None,
         hold_level: Callable[[int], AbstractContextManager[object]] | None = None,
+        diagnosis: UtteranceLog | None = None,
     ) -> None:
         """`quiet` (the focus timer's `in_block`, in game mode also whether a game holds her
         announcements) says when what she would say by herself must wait: only `remind` is
@@ -296,7 +330,8 @@ class Assistant:
         mode's `is_on`) says when her private requests are dropped. `guest_marker` (guest
         mode's `generation`) moves whenever guest mode switches: her last words said before
         it moved are never repeated. `alarm` is the bell whose rings she says; `hold_level`
-        (`LevelHold.held`) plays one clip, a ring, at a level of its own."""
+        (`LevelHold.held`) plays one clip, a ring, at a level of its own. `diagnosis` records
+        each utterance she handles."""
         self._name = config.assistant.name
         self._owner_call = config.assistant.owner_call
         # Left out of Master's words when they ask her to repeat (`is_repeat_request`).
@@ -322,6 +357,7 @@ class Assistant:
         self._guest_marker = guest_marker
         self._alarm = alarm
         self._hold_level = hold_level
+        self._diagnosis = diagnosis
         self._mic: Microphone | None = None
         self._segmenter: Segmenter | None = None
         self._speaker_error_logged = False
@@ -387,38 +423,68 @@ class Assistant:
         self._segmenter = segmenter
 
     def handle_utterance(self, utterance: Utterance) -> str | None:
-        """Answer one utterance aloud; returns what she said, or None when it was not for her."""
+        """Answer one utterance aloud; returns what she said, or None when it was not for her.
+
+        With a `diagnosis` log, the utterance is recorded once it is handled, also when its
+        answer failed after what she would do with it was decided."""
         with self._engaged():
-            if not self._is_owner(utterance):
-                return None
-            transcript = self._stt.transcribe(utterance.audio, utterance.sample_rate)
-            text = transcript.text.strip()
-            if not text:
-                logger.debug("Nothing usable was transcribed")
-                return None
-            logger.info("Heard (%s): %s", transcript.language, text)
-            request = self._alarm_request(text)
-            if request is not None:
-                self._announcements_held_until = None  # Master has been heard after a cut
-                return self._answer_alarm(request)
-            result = self._gate.check(text, heard_at=utterance.started_at)
-            if not result.accepted:
-                logger.info("Not addressed to %s (%s); ignoring", self._name, result.reason)
-                return None
+            at = self._now()
+            hearing = _Hearing()
+            try:
+                return self._answer_utterance(utterance, hearing)
+            finally:
+                if self._diagnosis is not None and hearing.outcome is not None:
+                    fields = dataclasses.asdict(hearing)
+                    self._diagnosis.add(
+                        UtteranceRecord.of(utterance, at, fields.pop("outcome"), **fields)
+                    )
+
+    def _answer_utterance(self, utterance: Utterance, hearing: _Hearing) -> str | None:
+        """`handle_utterance`, noting in `hearing` what it finds out on the way."""
+        accepted, hearing.score = self._check_owner(utterance)
+        hearing.threshold = None if self._verifier is None else self._verifier.threshold
+        if not accepted:
+            hearing.outcome = NOT_OWNER
+            return None
+        started = self._clock()
+        transcript = self._stt.transcribe(utterance.audio, utterance.sample_rate)
+        hearing.stt_s = self._clock() - started
+        text = transcript.text.strip()
+        if not text:
+            hearing.outcome = EMPTY
+            logger.debug("Nothing usable was transcribed")
+            return None
+        hearing.transcript = text
+        logger.info("Heard (%s): %s", transcript.language, text)
+        request = self._alarm_request(text)
+        if request is not None:
+            hearing.outcome, hearing.wake = ACCEPTED, ALARM_WAKE
             self._announcements_held_until = None  # Master has been heard after a cut
-            if not result.command:
-                # A bare wake word ("Cyrene?") gets a quick answer without a round trip to the LLM.
-                reply_text = ACKNOWLEDGEMENT.format(owner=self._owner_call)
-                self.speak(reply_text, ACKNOWLEDGEMENT_EMOTION)
-            elif is_repeat_request(result.command, self._names):
-                reply_text = self._repeat()
-            else:
-                self._show(lambda avatar: avatar.state("thinking"))
-                marker = self._guest_generation()
-                emotion, reply = self._think(result.command)
-                reply_text = reply.text
-                self._say_remembered(reply_text, emotion, marker)
+            reply_text, hearing.tts_s = self._answer_alarm(request)
             return reply_text
+        result = self._gate.check(text, heard_at=utterance.started_at)
+        hearing.wake = result.reason
+        if not result.accepted:
+            hearing.outcome = EMPTY if result.reason == EMPTY_REASON else NO_WAKE
+            logger.info("Not addressed to %s (%s); ignoring", self._name, result.reason)
+            return None
+        hearing.outcome = ACCEPTED
+        self._announcements_held_until = None  # Master has been heard after a cut
+        if not result.command:
+            # A bare wake word ("Cyrene?") gets a quick answer without a round trip to the LLM.
+            reply_text = ACKNOWLEDGEMENT.format(owner=self._owner_call)
+            hearing.tts_s = self._speak(reply_text, ACKNOWLEDGEMENT_EMOTION)
+        elif is_repeat_request(result.command, self._names):
+            reply_text, hearing.tts_s = self._repeat()
+        else:
+            self._show(lambda avatar: avatar.state("thinking"))
+            marker = self._guest_generation()
+            started = self._clock()
+            emotion, reply = self._think(result.command)
+            hearing.brain_s = self._clock() - started
+            reply_text = reply.text
+            hearing.tts_s = self._say_remembered(reply_text, emotion, marker)
+        return reply_text
 
     def handle_text(self, text: str) -> BrainReply:
         """Ask the brain directly: no wake word, no voice (text chat); the reply has no tag."""
@@ -566,12 +632,27 @@ class Assistant:
         Failures are logged, never raised. Safe from any thread: she says one thing at a
         time, so this waits for whatever she is saying first.
         """
+        self._speak(text, emotion, followup=followup, level=level)
+
+    def _speak(
+        self,
+        text: str,
+        emotion: str = NEUTRAL,
+        *,
+        followup: bool = True,
+        level: int | None = None,
+    ) -> float | None:
+        """`speak`, telling how long her voice took to synthesise `text` (None when it could
+        not be), on the Assistant's clock."""
+        synthesis_s = None
         with self._engaged(), self._voice:
             mic, segmenter = self._mic, self._segmenter
             if mic is not None:
                 mic.pause()
             try:
+                started = self._clock()
                 audio, sample_rate = self._speech.synthesize(text)
+                synthesis_s = self._clock() - started
                 self._show(lambda avatar: avatar.state("speaking"))
                 self._show(lambda avatar: avatar.speak(audio, sample_rate, emotion))
                 self._speaking = True
@@ -594,6 +675,7 @@ class Assistant:
                     self._open_followup()
                 else:  # an announcement: only the wake word is heard
                     self._show(lambda avatar: avatar.state("idle"))
+        return synthesis_s
 
     def speak_reaction(self, text: str, emotion: str) -> None:
         """Answer a touch on the avatar aloud, exactly like a reply (`speak`).
@@ -704,10 +786,11 @@ class Assistant:
             return None
         return alarm_request(text, self._names)
 
-    def _answer_alarm(self, request: AlarmRequest) -> str:
+    def _answer_alarm(self, request: AlarmRequest) -> tuple[str, float | None]:
         """Stop or snooze the ringing alarm without the brain and say so like a reply; returns
-        what she said. No turn is taken, so a question waiting for Master's yes still waits.
-        When the ring's file cannot be changed, she says so and the ring goes on."""
+        what she said and how long its synthesis took. No turn is taken, so a question waiting
+        for Master's yes still waits. When the ring's file cannot be changed, she says so and
+        the ring goes on."""
         try:
             text = self._change_alarm(request)
         except OSError as exc:
@@ -716,8 +799,7 @@ class Assistant:
             )
             done = "kumatikan" if request.kind == "stop" else "kutunda"
             text = ALARM_UNCHANGED.format(owner=self._owner_call, done=done)
-        self.speak(text, ALARM_EMOTION)
-        return text
+        return text, self._speak(text, ALARM_EMOTION)
 
     def _change_alarm(self, request: AlarmRequest) -> str:
         """Stop or snooze the ringing alarm; what to say. OSError when its file cannot be
@@ -857,8 +939,8 @@ class Assistant:
 
     def _say_remembered(
         self, text: str, emotion: str, marker: object, *, followup: bool = True
-    ) -> None:
-        """Say `text` like `speak`, remembered first as her last words for "ulangi" (`_repeat`),
+    ) -> float | None:
+        """Say `text` like `_speak`, remembered first as her last words for "ulangi" (`_repeat`),
         so a reply that was cut off or could not be voiced can still be asked for again.
 
         Only `run`'s thread calls it, for what she says as her own: a reply to Master's
@@ -870,10 +952,11 @@ class Assistant:
         session.
         """
         self._last_said = _Said(text, emotion, marker)
-        self.speak(text, emotion, followup=followup)
+        return self._speak(text, emotion, followup=followup)
 
-    def _repeat(self) -> str:
-        """Say her last words again like a reply, without the brain; returns what she said.
+    def _repeat(self) -> tuple[str, float | None]:
+        """Say her last words again like a reply, without the brain; returns what she said and
+        how long its synthesis took.
 
         No turn is taken, so the brain, its history, and its gates (a question waiting for
         Master's yes) never see it. With nothing to repeat, also once guest mode has switched
@@ -886,11 +969,9 @@ class Assistant:
         if said is None:
             logger.info("Nothing to repeat")
             text = NOTHING_TO_REPEAT.format(owner=self._owner_call)
-            self.speak(text)
-            return text
+            return text, self._speak(text)
         logger.info("Repeating what she said last")
-        self.speak(said.text, said.emotion)
-        return said.text
+        return said.text, self._speak(said.text, said.emotion)
 
     def _guest_generation(self) -> object:
         return None if self._guest_marker is None else self._guest_marker()
@@ -999,19 +1080,20 @@ class Assistant:
         else:
             self._avatar_failing = False
 
-    def _is_owner(self, utterance: Utterance) -> bool:
+    def _check_owner(self, utterance: Utterance) -> tuple[bool, float | None]:
+        """Whether the owner said `utterance`, and the speaker score (None without one)."""
         if self._verifier is None:
-            return True
+            return True, None
         try:
             accepted, score = self._verifier.verify(utterance.audio, utterance.sample_rate)
         except SpeakerError as exc:
             if not self._speaker_error_logged:
                 logger.error("Speaker verification unavailable, ignoring all speech: %s", exc)
                 self._speaker_error_logged = True
-            return False
+            return False, None
         if not accepted:
             logger.info("Ignoring another speaker (similarity %.2f)", score)
-        return accepted
+        return accepted, score
 
 
 class PhoneAnswers:
