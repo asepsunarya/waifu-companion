@@ -92,6 +92,7 @@ from waifu.config import (
     APP_URL_SCHEMES,
     TAILSCALE_HOST_PATTERN,
     AppConfig,
+    AudioConfig,
     AvatarConfig,
     BriefingConfig,
     ConfigError,
@@ -102,6 +103,7 @@ from waifu.config import (
     PhoneConfig,
     RoutineStep,
     RvcConfig,
+    VadConfig,
     VersionNoticeConfig,
     Weekday,
     cookie_names,
@@ -268,7 +270,14 @@ from waifu.version import (
     write_running,
 )
 from waifu.version_watch import VersionWatcher
-from waifu.voice.audio import MicrophoneError, MicStream, Player, list_devices
+from waifu.voice.audio import (
+    MicrophoneError,
+    MicStream,
+    Player,
+    list_devices,
+    restart_portaudio,
+)
+from waifu.voice.diagnosis import UtteranceLog
 from waifu.voice.mic_check import (
     InputDevice,
     Levels,
@@ -278,6 +287,8 @@ from waifu.voice.mic_check import (
     same_device_name,
     windows_default_input,
 )
+from waifu.voice.mic_source import DeviceList, MicSource, windows_input_names
+from waifu.voice.panel import VoicePanel
 from waifu.voice.rvc import (
     SERVER_SCRIPT,
     RvcClient,
@@ -300,6 +311,7 @@ from waifu.voice.windows_voices import (
     missing_voice_hint,
 )
 from waifu.voice_level import VoiceLevel
+from waifu.voice_override import VoiceOverride, VoiceOverrideStore
 from waifu.weather import Location, WeatherClient, WeatherError
 
 if TYPE_CHECKING:
@@ -1419,6 +1431,11 @@ def _listen(args: argparse.Namespace) -> int:
         logger.error("No voiceprint at %s; not listening", config.speaker.voiceprint_path)
         print(f"{NOT_ENROLLED} Atau pakai 'waifu run --no-speaker-check' untuk semua suara.")
         return 2
+    # What Master picked on the phone's Suara page: a mic that goes first, and the speaker
+    # threshold and the VAD's gate in place of the config's (never written to config.yaml).
+    override = _voice_override(config)
+    if verifier is not None and override.speaker_threshold is not None:
+        verifier.threshold = override.speaker_threshold
     registry = build_registry(config, dry_run=args.dry_run)
     gacha = build_gacha(config) if config.gacha.enabled else None
     usage = _usage_recorder(config)
@@ -1441,6 +1458,9 @@ def _listen(args: argparse.Namespace) -> int:
     # afresh as it switches, the briefing leaves Master's tasks out, and the Assistant skips her
     # private turns while it is on and forgets her last words (for "ulangi") as it switches.
     guest_mode = GuestMode(max_hours=config.guest_mode.max_hours)
+    # What she heard lately and what she did with it, in memory only, for the phone's Suara page
+    # and "tadi kamu denger apa?"; forgotten as guest mode switches.
+    heard = UtteranceLog(marker=guest_mode.generation)
     # Her own voice level: her tool sets it, and the player reads it at every clip she says, except
     # an alarm's ring, which holds a level of its own for its clip.
     voice_level = _voice_level(config)
@@ -1471,7 +1491,11 @@ def _listen(args: argparse.Namespace) -> int:
         )
         stt = WhisperStt(config.stt, name)
         gate = WakeGate(config.assistant.wake_words, config.assistant.followup_seconds)
-        segmenter = EnergySegmenter(config.audio.sample_rate, config.audio.vad)
+        segmenter = EnergySegmenter(
+            config.audio.sample_rate,
+            _vad_with(config.audio.vad, override),
+            on_too_short=heard.add_too_short,
+        )
         print(f"Memuat model suara {name}, tunggu sebentar...", flush=True)
         try:
             # The speaker model first: it reads the voiceprint, so a broken one fails fast.
@@ -1509,6 +1533,7 @@ def _listen(args: argparse.Namespace) -> int:
                 guest_marker=guest_mode.generation,
                 alarm=alarm,
                 hold_level=hold.held,
+                diagnosis=heard,
             )
             reactions = InteractionHandler(
                 config.avatar.interactions,
@@ -1519,7 +1544,21 @@ def _listen(args: argparse.Namespace) -> int:
                 quiet=quiet,
                 owner_call=config.assistant.owner_call,
             )
-            with _open_mic(config) as mic, touches.answered_by(reactions):
+            # Through a failing mic she goes on with the next one, says which, and switches back
+            # when a preferred one returns; the phone's Suara page shows and switches it.
+            mic = _mic_source(
+                config, override, announce=assistant.announce, on_swap=segmenter.relearn, live=True
+            )
+            voice = VoicePanel(
+                mic,
+                segmenter,
+                heard,
+                VoiceOverrideStore(config.audio.override_path),
+                vad=config.audio.vad,
+                verifier=verifier,
+                speaker_threshold=config.speaker.threshold,
+            )
+            with mic, touches.answered_by(reactions):
                 mode = " (perangkat simulasi)" if args.dry_run else ""
                 print(
                     f"{name} siap mendengarkan{mode}. "
@@ -1568,6 +1607,8 @@ def _listen(args: argparse.Namespace) -> int:
                                 chosen=config.phone.quick_actions,
                                 alarm=alarm,
                             ),
+                            voice=voice,
+                            guest_mode=guest_mode.is_on,
                         ),
                     ):
                         assistant.run(mic, segmenter)
@@ -2049,9 +2090,73 @@ def _speaker_verifier(config: AppConfig) -> SpeakerVerifier:
     return SpeakerVerifier(embedder, speaker.voiceprint_path, speaker.threshold)
 
 
-def _open_mic(config: AppConfig) -> MicStream:
+def _open_mic(config: AppConfig) -> MicSource:
+    """The mic `waifu run` listens through first (for enroll and speaker-test): the phone's pick,
+    then `audio.input_device`'s list, then the Windows default, the first that opens."""
+    return _mic_source(config, _voice_override(config))
+
+
+def _mic_source(
+    config: AppConfig,
+    override: VoiceOverride,
+    *,
+    announce: Callable[[str], None] | None = None,
+    on_swap: Callable[[], None] | None = None,
+    live: bool = False,
+) -> MicSource:
+    """The mics in order of preference. `live` (`waifu run`) restarts PortAudio to find a mic
+    that came back, unless a device is numbered, reads Windows' list of inputs as they come
+    and go, and lists them for the Suara page."""
     audio = config.audio
-    return MicStream(audio.sample_rate, audio.vad.frame_ms, audio.input_device)
+    return MicSource(
+        audio.input_preferences,
+        open_stream=lambda device: MicStream(audio.sample_rate, audio.vad.frame_ms, device),
+        sample_rate=audio.sample_rate,
+        frame_ms=audio.vad.frame_ms,
+        picked=override.input_device,
+        announce=announce,
+        on_swap=on_swap,
+        restart=_portaudio_restart(audio) if live else None,
+        present=windows_input_names if live and sys.platform == "win32" else None,
+        listing=_input_listing if live else None,
+    )
+
+
+def _portaudio_restart(audio: AudioConfig) -> Callable[[], None] | None:
+    """`restart_portaudio`, or None when a device is configured by number: a number names a place
+    in PortAudio's list, which a restart would move."""
+    if isinstance(audio.output_device, int) or any(
+        isinstance(device, int) for device in audio.input_preferences
+    ):
+        logger.info(
+            "An audio device is configured by number, so PortAudio is never restarted: a mic "
+            "that comes back is used again after waifu run restarts"
+        )
+        return None
+    return restart_portaudio
+
+
+def _input_listing() -> DeviceList:
+    """The inputs and the Windows default for the Suara page (PortAudio's list)."""
+    import sounddevice
+
+    return input_devices(sounddevice), windows_default_input(sounddevice)
+
+
+def _voice_override(config: AppConfig) -> VoiceOverride:
+    """What Master picked on the phone's Suara page; nothing when its file cannot be read."""
+    store = VoiceOverrideStore(config.audio.override_path)
+    try:
+        return store.read()
+    except OSError as exc:
+        logger.warning("Could not read the voice settings picked on the phone: %s", exc)
+        return VoiceOverride()
+
+
+def _vad_with(vad: VadConfig, override: VoiceOverride) -> VadConfig:
+    """The config's VAD with the threshold and margin picked on the phone, if any."""
+    picked = {"threshold_db": override.vad_threshold_db, "margin_db": override.vad_margin_db}
+    return vad.model_copy(update={key: value for key, value in picked.items() if value is not None})
 
 
 def _enroll(args: argparse.Namespace) -> int:
@@ -2372,7 +2477,8 @@ def _mic(args: argparse.Namespace) -> int:
         print(f"{FAIL} {NO_MIC_FOUND}")
         return 0
     default = windows_default_input(sounddevice)
-    used = _mic_in_use(sounddevice, config.audio.input_device, default)
+    picked = _voice_override(config).input_device
+    used = _mic_in_use(sounddevice, picked, config.audio.input_preferences, default)
     print("Mikrofon di PC ini:")
     for number, device in enumerate(devices, start=1):
         marks = [
@@ -2404,9 +2510,13 @@ def _mic(args: argparse.Namespace) -> int:
     return 0
 
 
-def _mic_in_use(sd: Any, input_device: int | str | None, default: str | None) -> str | None:
-    """The name of the input Cyrene opens, said; None (after saying why) when none opens."""
-    if input_device is None:
+def _mic_in_use(
+    sd: Any, picked: str | None, listed: list[int | str], default: str | None
+) -> str | None:
+    """The name of the input Cyrene opens first, said: the mic `picked` on the phone, then the
+    first of `listed` (`audio.input_device`) that resolves; None (after saying why) when none
+    does."""
+    if picked is None and not listed:
         if default is None:
             print(f"{FAIL} audio.input_device kosong, dan Windows tidak punya mic default.")
         else:
@@ -2415,13 +2525,16 @@ def _mic_in_use(sd: Any, input_device: int | str | None, default: str | None) ->
                 "kosong). Default yang berubah baru dipakai setelah 'waifu run' dijalankan ulang."
             )
         return default
-    try:
-        name = sd.query_devices(input_device, "input")["name"]
-    except Exception as exc:  # a name that matches no input, or several
-        print(f"{FAIL} audio.input_device {input_device!r} tidak bisa dipakai: {exc}")
-        return None
-    print(f"Cyrene memakai audio.input_device {input_device!r}: {name}.")
-    return name
+    sources = [("mic yang dipilih di HP", picked)] if picked is not None else []
+    for source, value in [*sources, *(("audio.input_device", value) for value in listed)]:
+        try:
+            name = sd.query_devices(value, "input")["name"]
+        except Exception as exc:  # a name that matches no input, or several
+            print(f"{FAIL} {source} {value!r} tidak bisa dipakai: {exc}")
+            continue
+        print(f"Cyrene memakai {source} {value!r}: {name}.")
+        return name
+    return None
 
 
 def _mic_levels(found: Levels) -> str:
@@ -4767,14 +4880,21 @@ def _camera_offered(config: AppConfig) -> bool:
 
 @contextmanager
 def _phone_server(
-    config: AppConfig, assistant: Assistant, *, camera: bool, actions: QuickActions
+    config: AppConfig,
+    assistant: Assistant,
+    *,
+    camera: bool,
+    actions: QuickActions,
+    voice: VoicePanel,
+    guest_mode: Callable[[], bool],
 ) -> Iterator[None]:
     """Serve her to the paired phone for the block, when `phone.enabled`.
 
     The server listens on 127.0.0.1 only; `tailscale serve` shares it with the owner's tailnet.
     With `camera`, a message may carry a photo whose longer side is at most `vision.max_side`;
     otherwise the server refuses photos. `actions` are the page's quick buttons, on the run's
-    own devices. One that cannot start (its port is taken) only costs the phone, never her voice.
+    own devices; `voice` answers the Suara page, hidden while `guest_mode` holds. One that cannot
+    start (its port is taken) only costs the phone, never her voice.
     """
     phone = config.phone
     if not phone.enabled:
@@ -4791,6 +4911,8 @@ def _phone_server(
             assistant_name=name,
             camera_max_side=config.vision.max_side if camera else None,
             actions=actions,
+            voice=voice,
+            guest_mode=guest_mode,
         )
     except PhoneError as exc:
         logger.warning("Phone server unavailable, going on without it: %s", exc)
@@ -6856,20 +6978,72 @@ def _cuda_check(config: AppConfig) -> Check:
 
 
 def _microphone_check(config: AppConfig) -> Check:
-    """The input Cyrene opens and whether it is the Windows default; nothing is recorded."""
+    """The input Cyrene opens first (the mic picked on the phone, then `audio.input_device`'s
+    list in order, then the Windows default), whether it is the Windows default, and the voice
+    settings changed on the phone; nothing is recorded."""
+    override = _voice_override(config)
+    picked = [] if override.input_device is None else [override.input_device]
+    listed = config.audio.input_preferences
     try:
         import sounddevice
 
-        name = sounddevice.query_devices(config.audio.input_device, "input")["name"]
         default = windows_default_input(sounddevice)
-    except Exception as exc:  # missing package or PortAudio, no input device, bad device name
+    except Exception as exc:  # missing package or PortAudio
         return FAIL, f"Mikrofon tidak ditemukan: {exc}"
-    if config.audio.input_device is None:
+    problem: Exception | None = None
+    for value in [*picked, *listed, None]:
+        try:
+            name = sounddevice.query_devices(value, "input")["name"]
+        except Exception as exc:  # no input device, a device name that matches none
+            problem = problem or exc
+            continue
+        mark, line = _microphone_in_use(config, value, name, picked, listed, default)
+        return mark, line + _phone_voice_settings(override)
+    return FAIL, f"Mikrofon tidak ditemukan: {problem}"
+
+
+def _microphone_in_use(
+    config: AppConfig,
+    value: int | str | None,
+    name: str,
+    picked: list[str],
+    listed: list[int | str],
+    default: str | None,
+) -> Check:
+    """The mic line for `name`, opened as `value`, one of `picked` (the phone's) or `listed`
+    (`audio.input_device`'s), or the Windows default (None)."""
+    if value is None:
+        if listed:
+            return WARN, (
+                f"Mikrofon: {name}, default Windows, karena mic di audio.input_device tidak "
+                "ditemukan"
+            )
+        if picked:
+            return WARN, f"Mikrofon: {name}, default Windows, karena mic yang dipilih di HP hilang"
         return OK, f"Mikrofon: {name}, default Windows (audio.input_device kosong)"
+    if value in picked:
+        source = f", dipilih di HP ({config.audio.override_path})"
+    else:
+        rank = listed.index(value) + 1
+        source = " dari audio.input_device" + (
+            f", pilihan {rank} dari {len(listed)}" if rank > 1 else ""
+        )
     if default is not None and same_device_name(name, default):
-        return OK, f"Mikrofon: {name} dari audio.input_device, sama dengan default Windows"
+        return OK, f"Mikrofon: {name}{source}, sama dengan default Windows"
     other = f"default Windows: {default}" if default is not None else "Windows tanpa mic default"
-    return OK, f"Mikrofon: {name} dari audio.input_device ({other})"
+    return OK, f"Mikrofon: {name}{source} ({other})"
+
+
+def _phone_voice_settings(override: VoiceOverride) -> str:
+    """What the mic line adds for the voice settings changed on the phone's Suara page."""
+    settings = []
+    if override.speaker_threshold is not None:
+        settings.append(f"ambang suara {override.speaker_threshold:.2f}")
+    if override.vad_threshold_db is not None:
+        settings.append(f"VAD {override.vad_threshold_db:g} dB")
+    if override.vad_margin_db is not None:
+        settings.append(f"margin {override.vad_margin_db:g} dB")
+    return f"; setelan suara dari HP: {', '.join(settings)}" if settings else ""
 
 
 def _fallback_voice_checks(config: AppConfig) -> Iterator[Check]:

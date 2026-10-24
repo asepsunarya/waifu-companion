@@ -2546,11 +2546,11 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 267 · **Files:** `src/waifu/avatar/web/phone/*`, `tests/js/phone_voice.test.mjs`, `tests/js/phone_ui.test.mjs`, `tests/js/phone_sw.test.mjs`, `tests/js/phone_page.test.mjs` · **Scope:** M
 
-## Task 269: Wiring and the check line
+## Task 269: Wiring and the check line ✅
 
 **Acceptance criteria:**
-- [ ] `run` builds the log, the segmenter, the verifier, the `MicSource`, and the panel from the override and the config and hands the panel and guest mode to the phone server; enroll and speaker-test open the same preferences
-- [ ] `waifu check` names the phone's pick, the list's order, and the phone's tuning
+- [x] `run` builds the log, the segmenter, the verifier, the `MicSource`, and the panel from the override and the config and hands the panel and guest mode to the phone server; enroll and speaker-test open the same preferences
+- [x] `waifu check` names the phone's pick, the list's order, and the phone's tuning
 
 **Dependencies:** 264, 266, 267 · **Files:** `src/waifu/cli.py`, `config.example.yaml`, `tests/test_cli.py` · **Scope:** M
 

@@ -18,9 +18,13 @@ assistant:
   max_session_turns: 40
 
 audio:
-  input_device: null    # null = mic default; atau nomor/nama dari `waifu mics`
+  # Satu mic, atau beberapa berurutan: ["Headset (Polaris-BT), MME", "Microphone (USB), MME"].
+  # Kalau mic yang dipakai terputus, Cyrene pindah ke berikutnya, terakhir ke default Windows.
+  input_device: null    # null = mic default; atau nama dari `waifu mic` (nomor dari `waifu mics`)
   output_device: null
   sample_rate: 16000
+  # Mic dan setelan suara yang dipilih di halaman Suara di HP (config.yaml tidak diubah).
+  override_path: data/voice_override.json
   vad:
     threshold_db: -45   # suara di bawah ini dianggap hening
     margin_db: 12       # harus lebih keras N dB dari noise ruangan

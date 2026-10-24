@@ -188,7 +188,11 @@ from waifu.single_instance import InstanceLock
 from waifu.todo import TodoStore
 from waifu.usage import TokenUsage, UsageLedger, UsageSummary
 from waifu.version import CodeVersion, Release, RunningVersion, read_running, write_running
+from waifu.voice.audio import MicrophoneError
 from waifu.voice.base import SpeakerEmbedder, SpeechToText, Transcript
+from waifu.voice.diagnosis import UtteranceLog
+from waifu.voice.mic_source import MicSource
+from waifu.voice.panel import VoicePanel
 from waifu.voice.rvc import RvcError
 from waifu.voice.speaker import SpeakerVerifier
 from waifu.voice.stt import SttError, WhisperStt
@@ -1032,6 +1036,13 @@ def restore_library_log_levels():
         logger.setLevel(level)
 
 
+@pytest.fixture(autouse=True)
+def _no_real_windows_inputs(monkeypatch) -> None:
+    """Windows' list of microphones, which `waifu run` reads as mics come and go, is empty:
+    the real one is refused (tests/conftest.py)."""
+    monkeypatch.setattr(cli, "windows_input_names", lambda: frozenset())
+
+
 @pytest.fixture
 def home(tmp_path, monkeypatch) -> Path:
     """Working directory with config.yaml copied from config.example.yaml (paths stay inside)."""
@@ -1121,6 +1132,10 @@ def player(monkeypatch) -> type[FakePlayer]:
 
 class FakeMic:
     """Stands in for MicStream: yields its frames, then ends or raises (e.g. Ctrl+C)."""
+
+    name = "Fake mic"
+    host_api = "MME"
+    level = None
 
     def __init__(self, frames: list[np.ndarray], end_with: BaseException | None = None) -> None:
         self._frames = frames
@@ -2807,9 +2822,7 @@ def test_run_with_a_voiceprint_listens_with_speaker_verification(home, run_fakes
     assistant = RecordingAssistant.instances[0]
     assert isinstance(assistant.collaborators["verifier"], SpeakerVerifier)
     assert assistant.collaborators["speaker_check"] is True
-    mic, segmenter = assistant.ran_with
-    assert mic is run_fakes.mics[0] and mic.entered and mic.exited
-    assert isinstance(segmenter, cli.EnergySegmenter)
+    assert run_fakes.mics[0].entered and run_fakes.mics[0].exited
     out = capsys.readouterr().out
     assert "Cyrene siap mendengarkan" in out and "sairin" in out
 
@@ -10789,6 +10802,8 @@ class FakePhoneServer:
         assistant_name,
         camera_max_side=None,
         actions=None,
+        voice=None,
+        guest_mode=None,
     ) -> None:
         self.config = config
         self.avatar = avatar
@@ -10798,6 +10813,8 @@ class FakePhoneServer:
         self.assistant_name = assistant_name
         self.camera_max_side = camera_max_side
         self.actions = actions
+        self.voice = voice
+        self.guest_mode = guest_mode
         self.url = f"http://127.0.0.1:{config.port}/"
         self.listening: list[bool] = []
 
@@ -17852,3 +17869,247 @@ def test_check_warns_that_the_pc_page_has_no_buttons(home, nothing_installed, ca
         "! Tombol cepat di PC: belum ada tombol (tambahkan lampu, colokan, perangkat IR, atau "
         "rutinitas di config.yaml, atau periksa phone.quick_actions)"
     )
+
+
+# --- diagnosa suara: the mic preferences, the phone's picks, the records ----------------------
+
+USB_MIC = "Microphone (USB), MME"
+HEADSET = "Headset (Polaris-BT), MME"
+
+
+def write_override(home: Path, **settings) -> None:
+    path = home / "data" / "voice_override.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"version": 1, **settings}), encoding="utf-8")
+
+
+def use_input_devices(home: Path, *values: str) -> None:
+    """The example config with `audio.input_device` set to a list of `values`."""
+    config = home / "config.yaml"
+    text = config.read_text(encoding="utf-8")
+    listed = json.dumps(list(values))
+    chosen = re.sub(r"(?m)^  input_device: null.*$", f"  input_device: {listed}", text, count=1)
+    assert chosen != text
+    config.write_text(chosen, encoding="utf-8")
+
+
+class GoneMic(FakeMic):
+    """A mic that is not plugged in: it does not open."""
+
+    def __enter__(self) -> "GoneMic":
+        raise ValueError("No input device matching")
+
+
+def test_run_listens_through_the_mic_source_and_closes_it(home, run_fakes):
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    mic, segmenter = RecordingAssistant.instances[0].ran_with
+    assert isinstance(mic, MicSource)
+    assert run_fakes.mics[0].entered and run_fakes.mics[0].exited
+    assert isinstance(segmenter, cli.EnergySegmenter)
+
+
+def test_run_tries_the_listed_mics_in_order_and_says_which_one_it_uses(
+    home, run_fakes, monkeypatch
+):
+    use_input_devices(home, HEADSET, USB_MIC)
+    tried: list[object] = []
+
+    def open_mic(sample_rate, frame_ms, device=None):
+        tried.append(device)
+        return GoneMic([]) if device == HEADSET else FakeMic([])
+
+    monkeypatch.setattr(cli, "MicStream", open_mic)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    assert tried == [HEADSET, USB_MIC]
+    announced = [text for text, _ in RecordingAssistant.instances[0].announced]
+    assert announced == ["Sekarang aku pakai mic Fake mic."]
+
+
+def test_run_puts_the_phone_s_mic_first_and_uses_its_settings(home, run_fakes, monkeypatch):
+    SpeakerVerifier(FixedEmbedder(), home / "data" / "voiceprint.npy", 0.3).enroll(
+        [LOUD_FRAME] * 3, SAMPLE_RATE
+    )
+    write_override(
+        home, input_device=USB_MIC, speaker_threshold=0.6, vad_threshold_db=-50, vad_margin_db=10
+    )
+    tried: list[object] = []
+
+    def open_mic(sample_rate, frame_ms, device=None):
+        tried.append(device)
+        return FakeMic([])
+
+    monkeypatch.setattr(cli, "MicStream", open_mic)
+
+    assert cli.main(["run", "--dry-run"]) == 0
+
+    assistant = RecordingAssistant.instances[0]
+    _, segmenter = assistant.ran_with
+    assert tried == [USB_MIC]
+    assert assistant.collaborators["verifier"].threshold == 0.6
+    assert (segmenter.vad.threshold_db, segmenter.vad.margin_db) == (-50.0, 10.0)
+
+
+def test_run_records_her_utterances_and_shows_them_on_the_phone_outside_guest_mode(
+    home, run_fakes, phone_servers
+):
+    append_config(home, PHONE_ON)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    assistant = RecordingAssistant.instances[0]
+    [server] = phone_servers
+    assert isinstance(assistant.collaborators["diagnosis"], UtteranceLog)
+    assert isinstance(server.voice, VoicePanel)
+    assert server.guest_mode() is False
+
+
+def failing_once(opened: list[object]):
+    """MicStreams whose first one fails after a frame; the next ones hear a frame and end."""
+
+    def open_mic(sample_rate, frame_ms, device=None):
+        opened.append(device)
+        failure = MicrophoneError("Mikrofon terputus") if len(opened) == 1 else None
+        return FakeMic([SILENT_FRAME], end_with=failure)
+
+    return open_mic
+
+
+def test_run_restarts_portaudio_to_find_a_mic_once_one_failed(home, run_fakes, monkeypatch):
+    restarts: list[str] = []
+    opened: list[object] = []
+    monkeypatch.setattr(cli, "restart_portaudio", lambda: restarts.append("restart"))
+    monkeypatch.setattr(cli, "MicStream", failing_once(opened))
+    monkeypatch.setattr(RecordingAssistant, "run", lambda self, mic, seg: list(mic.frames()))
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    assert restarts == ["restart"]
+    assert opened == [None, None]
+
+
+def test_run_never_restarts_portaudio_with_a_numbered_device(home, run_fakes, monkeypatch):
+    write_config(home, "audio:\n  input_device: 2\n")
+    restarts: list[str] = []
+    opened: list[object] = []
+    monkeypatch.setattr(cli, "restart_portaudio", lambda: restarts.append("restart"))
+    monkeypatch.setattr(cli, "MicStream", failing_once(opened))
+    monkeypatch.setattr(RecordingAssistant, "run", lambda self, mic, seg: list(mic.frames()))
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    assert restarts == []
+    assert opened == [2, None]
+
+
+def test_enroll_records_through_the_mic_picked_on_the_phone(home, monkeypatch):
+    write_override(home, input_device=USB_MIC)
+    tried: list[object] = []
+
+    def open_mic(sample_rate, frame_ms, device=None):
+        tried.append(device)
+        return FakeMic([LOUD_FRAME] * 100)
+
+    monkeypatch.setattr(cli, "MicStream", open_mic)
+    monkeypatch.setattr(cli, "EcapaEmbedder", lambda *args, **kwargs: FixedEmbedder())
+    monkeypatch.setattr(cli, "sleep", lambda seconds: None)
+
+    assert cli.main(["enroll", "--samples", "3", "--seconds", "0.5"]) == 0
+
+    assert tried == [USB_MIC] * 3
+
+
+def test_check_names_the_mic_picked_on_the_phone(home, nothing_installed, monkeypatch, capsys):
+    write_override(home, input_device="Headset (Polaris-BT), MME")
+    use_sounddevice(monkeypatch, FakeSoundDevice())
+
+    cli.main(["check"])
+
+    assert (
+        f"✓ Mikrofon: Headset (Polaris-BT), dipilih di HP ({Path('data/voice_override.json')}) "
+        "(default Windows: Microphone (High Definition Aud)"
+    ) in capsys.readouterr().out.splitlines()
+
+
+def test_check_names_the_listed_mic_cyrene_falls_back_to(
+    home, nothing_installed, monkeypatch, capsys
+):
+    use_input_devices(home, "Mic lama", "Headset (Polaris-BT), MME")
+    use_sounddevice(monkeypatch, FakeSoundDevice())
+
+    cli.main(["check"])
+
+    assert (
+        "✓ Mikrofon: Headset (Polaris-BT) dari audio.input_device, pilihan 2 dari 2 "
+        "(default Windows: Microphone (High Definition Aud)"
+    ) in capsys.readouterr().out.splitlines()
+
+
+def test_check_tells_the_voice_settings_changed_on_the_phone(
+    home, nothing_installed, monkeypatch, capsys
+):
+    write_override(home, speaker_threshold=0.5, vad_threshold_db=-50, vad_margin_db=10)
+    use_sounddevice(monkeypatch, FakeSoundDevice())
+
+    cli.main(["check"])
+
+    assert (
+        "✓ Mikrofon: Microphone (High Definition Aud, default Windows (audio.input_device "
+        "kosong); setelan suara dari HP: ambang suara 0.50, VAD -50 dB, margin 10 dB"
+    ) in capsys.readouterr().out.splitlines()
+
+
+def test_check_says_no_listed_mic_is_found(home, nothing_installed, monkeypatch, capsys):
+    use_input_devices(home, "Mic lama", "Mic tua")
+    use_sounddevice(monkeypatch, FakeSoundDevice([], default_input=-1))  # no input at all
+
+    cli.main(["check"])
+
+    lines = capsys.readouterr().out.splitlines()
+    assert any(line.startswith("✗ Mikrofon tidak ditemukan: ") for line in lines)
+
+
+def test_check_warns_when_no_listed_mic_is_found_and_the_default_is_used(
+    home, nothing_installed, monkeypatch, capsys
+):
+    use_input_devices(home, "Mic lama")
+    use_sounddevice(monkeypatch, FakeSoundDevice())
+
+    cli.main(["check"])
+
+    assert (
+        "! Mikrofon: Microphone (High Definition Aud, default Windows, karena mic di "
+        "audio.input_device tidak ditemukan"
+    ) in capsys.readouterr().out.splitlines()
+
+
+def test_mic_names_the_first_listed_mic_that_resolves(home, monkeypatch, capsys):
+    use_input_devices(home, "Mic lama", "Headset (Polaris-BT), MME")
+    use_sounddevice(monkeypatch, FakeSoundDevice(heard={HEADSET_MIC: master_speaking()}))
+
+    assert cli.main(["mic", "--seconds", "1"]) == 0
+
+    out = capsys.readouterr().out
+    assert "✗ audio.input_device 'Mic lama' tidak bisa dipakai: No input device matching" in out
+    assert (
+        "Cyrene memakai audio.input_device 'Headset (Polaris-BT), MME': Headset (Polaris-BT)."
+        in out
+    )
+    assert "  1. Headset (Polaris-BT), MME  <- dipakai Cyrene\n" in out
+
+
+def test_mic_names_the_mic_picked_on_the_phone(home, monkeypatch, capsys):
+    use_input_device(home, "Microphone (High Definition Aud, MME")
+    write_override(home, input_device="Headset (Polaris-BT), MME")
+    use_sounddevice(monkeypatch, FakeSoundDevice(heard={HEADSET_MIC: master_speaking()}))
+
+    assert cli.main(["mic", "--seconds", "1"]) == 0
+
+    out = capsys.readouterr().out
+    assert (
+        "Cyrene memakai mic yang dipilih di HP 'Headset (Polaris-BT), MME': Headset (Polaris-BT)."
+        in out
+    )
+    assert "  1. Headset (Polaris-BT), MME  <- dipakai Cyrene\n" in out

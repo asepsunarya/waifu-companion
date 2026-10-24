@@ -1028,7 +1028,7 @@ optional parameters, and 0 of 16 unions stay.
 - [x] Task 266: `MicSource`: preferences, failover, coming back, the phone's switch, retrying
 - [x] Task 267: the panel (`voice/panel.py`) and GET /voice, POST /voice/set
 - [ ] Task 268: the phone page's "Suara" sheet (`voice.js`)
-- [ ] Task 269: the CLI wiring, `_open_mic`, the check line
+- [x] Task 269: the CLI wiring, `_open_mic`, the check line
 - [ ] Task 270: README, CHANGELOG
 
 ### Checkpoint: Diagnosa suara
