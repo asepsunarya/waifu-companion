@@ -4064,6 +4064,52 @@ def test_speaker_test_prints_each_utterance_score_until_ctrl_c(home, monkeypatch
     assert mic.exited
 
 
+def test_enroll_points_to_the_phone_while_the_phone_set_the_threshold(home, recording_mics, capsys):
+    write_override(home, speaker_threshold=0.6)
+
+    assert cli.main(["enroll", "--samples", "3", "--seconds", "0.5"]) == 0
+
+    out = capsys.readouterr().out
+    assert "(sekarang 0.60, disetel di halaman Suara di HP)" in out
+    assert "ubah speaker.threshold di config.yaml" not in out
+    assert "Reset ke default" in out
+
+
+QUIET_FRAME = np.full(FRAME, 0.03, dtype=np.float32)  # about -30 dB
+
+
+def speaking_quietly(monkeypatch) -> None:
+    """speaker-test hears one quiet utterance, then Ctrl+C."""
+    frames = [SILENT_FRAME] * 10 + [QUIET_FRAME] * 40 + [SILENT_FRAME] * 40
+    mic = FakeMic(frames, end_with=KeyboardInterrupt())
+    monkeypatch.setattr(cli, "MicStream", lambda *args, **kwargs: mic)
+    monkeypatch.setattr(cli, "EcapaEmbedder", lambda *args, **kwargs: FixedEmbedder())
+
+
+def test_speaker_test_judges_against_the_threshold_set_on_the_phone(
+    enrolled, home, monkeypatch, capsys
+):
+    write_override(home, speaker_threshold=0.6)
+    speaking_quietly(monkeypatch)
+
+    assert cli.main(["speaker-test"]) == 0
+
+    out = capsys.readouterr().out
+    assert "Threshold sekarang 0.60 (disetel di HP)." in out
+    assert "✓ skor 1.00" in out  # the config's VAD gate hears the quiet utterance
+
+
+def test_speaker_test_hears_through_the_vad_gate_set_on_the_phone(
+    enrolled, home, monkeypatch, capsys
+):
+    write_override(home, vad_threshold_db=-25)  # above the quiet utterance
+    speaking_quietly(monkeypatch)
+
+    assert cli.main(["speaker-test"]) == 0
+
+    assert "skor" not in capsys.readouterr().out
+
+
 def test_speaker_test_without_a_voiceprint_explains_enroll(home, monkeypatch, capsys):
     monkeypatch.setattr(cli, "EcapaEmbedder", lambda *args, **kwargs: FixedEmbedder())
 
@@ -4472,8 +4518,11 @@ def test_mic_with_a_configured_name_that_opens_nothing_says_why_and_still_measur
 
     out = capsys.readouterr().out
     assert "✗ audio.input_device 'Mic lama' tidak bisa dipakai: No input device matching" in out
-    assert "dipakai Cyrene" not in out
-    assert '    input_device: "Microphone (High Definition Aud, MME"' in out
+    # As `waifu run` does, she falls back to the Windows default.
+    assert (
+        "Jadi Cyrene memakai mic default Windows, sekarang Microphone (High Definition Aud." in out
+    )
+    assert "  2. Microphone (High Definition Aud, MME  <- dipakai Cyrene, default Windows" in out
     assert len(sd.opened) == 2
 
 
@@ -18123,6 +18172,23 @@ def test_mic_names_the_first_listed_mic_that_resolves(home, monkeypatch, capsys)
         in out
     )
     assert "  1. Headset (Polaris-BT), MME  <- dipakai Cyrene\n" in out
+
+
+def test_mic_tells_to_pick_the_best_mic_on_the_phone_while_a_phone_pick_leads(
+    home, monkeypatch, capsys
+):
+    # The phone's pick is tried before audio.input_device: an edit there would change nothing.
+    write_override(home, input_device="Microphone (High Definition Aud, MME")
+    use_sounddevice(monkeypatch, FakeSoundDevice(heard={HEADSET_MIC: master_speaking()}))
+
+    assert cli.main(["mic", "--seconds", "1"]) == 0
+
+    out = capsys.readouterr().out
+    assert (
+        "✓ Suaramu paling jelas di Headset (Polaris-BT). Mic yang dipilih di HP selalu dicoba "
+        "duluan, jadi pilih mic itu di halaman Suara di HP (Ganti mic, lalu Pakai)."
+    ) in out
+    assert "isi audio.input_device" not in out
 
 
 def test_mic_names_the_mic_picked_on_the_phone(home, monkeypatch, capsys):

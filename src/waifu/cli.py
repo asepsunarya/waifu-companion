@@ -2189,6 +2189,7 @@ def _enroll(args: argparse.Namespace) -> int:
 def _record_voiceprint(args: argparse.Namespace) -> int:
     config = load_config(args.config)
     verifier = _speaker_verifier(config)
+    phone_threshold = _voice_override(config).speaker_threshold
     sample_rate = config.audio.sample_rate
     print(
         f"Pendaftaran suara: bacakan {args.samples} kalimat dengan suara biasa, "
@@ -2214,11 +2215,19 @@ def _record_voiceprint(args: argparse.Namespace) -> int:
     print("Kecocokan tiap rekaman dengan voiceprint:")
     for index, score in enumerate(scores, start=1):
         print(f"  Rekaman {index}: {score:.2f}")
-    print(
-        f"Saran threshold: {_suggested_threshold(scores):.2f} "
-        f"(sekarang {config.speaker.threshold:.2f}). Cek dulu dengan 'waifu speaker-test', "
-        "lalu ubah speaker.threshold di config.yaml."
-    )
+    suggested = _suggested_threshold(scores)
+    if phone_threshold is None:
+        print(
+            f"Saran threshold: {suggested:.2f} (sekarang {config.speaker.threshold:.2f}). Cek "
+            "dulu dengan 'waifu speaker-test', lalu ubah speaker.threshold di config.yaml."
+        )
+    else:
+        print(
+            f"Saran threshold: {suggested:.2f} (sekarang {phone_threshold:.2f}, disetel di "
+            "halaman Suara di HP). Cek dulu dengan 'waifu speaker-test', lalu ubah ambangnya di "
+            "halaman Suara; speaker.threshold di config.yaml baru dipakai lagi sesudah 'Reset "
+            "ke default' di sana."
+        )
     return 0
 
 
@@ -2256,8 +2265,16 @@ def _score_live_speech(args: argparse.Namespace) -> int:
     if not verifier.enrolled:
         print(NOT_ENROLLED)
         return 2
-    segmenter = EnergySegmenter(config.audio.sample_rate, config.audio.vad)
-    print(f"Silakan bicara (Ctrl+C untuk berhenti). Threshold sekarang {verifier.threshold:.2f}.")
+    # Judged as `waifu run` judges: with the threshold and the VAD gate set on the phone, if any.
+    override = _voice_override(config)
+    if override.speaker_threshold is not None:
+        verifier.threshold = override.speaker_threshold
+    segmenter = EnergySegmenter(config.audio.sample_rate, _vad_with(config.audio.vad, override))
+    source = "" if override.speaker_threshold is None else " (disetel di HP)"
+    print(
+        "Silakan bicara (Ctrl+C untuk berhenti). "
+        f"Threshold sekarang {verifier.threshold:.2f}{source}."
+    )
     try:
         with _open_mic(config) as mic:
             for frame in mic.frames():
@@ -2523,7 +2540,7 @@ def _mic(args: argparse.Namespace) -> int:
         if found.heard_speech:
             heard.append((device, found))
     print()
-    _suggest_mic(heard, used)
+    _suggest_mic(heard, used, picked)
     return 0
 
 
@@ -2531,8 +2548,8 @@ def _mic_in_use(
     sd: Any, picked: str | None, listed: list[int | str], default: str | None
 ) -> str | None:
     """The name of the input Cyrene opens first, said: the mic `picked` on the phone, then the
-    first of `listed` (`audio.input_device`) that resolves; None (after saying why) when none
-    does."""
+    first of `listed` (`audio.input_device`) that resolves, then the Windows `default`, as
+    `waifu run` falls back to it; None (after saying why) when there is none."""
     if picked is None and not listed:
         if default is None:
             print(f"{FAIL} audio.input_device kosong, dan Windows tidak punya mic default.")
@@ -2551,7 +2568,11 @@ def _mic_in_use(
             continue
         print(f"Cyrene memakai {source} {value!r}: {name}.")
         return name
-    return None
+    if default is None:
+        print(f"{FAIL} Windows juga tidak punya mic default.")
+    else:
+        print(f"Jadi Cyrene memakai mic default Windows, sekarang {default}.")
+    return default
 
 
 def _mic_levels(found: Levels) -> str:
@@ -2569,8 +2590,11 @@ def _mic_levels(found: Levels) -> str:
     return f"{loudness} {level_bar(found)} {verdict}"
 
 
-def _suggest_mic(heard: list[tuple[InputDevice, Levels]], used: str | None) -> None:
-    """Which mic to use: the one whose speech level stood furthest above the VAD's bar."""
+def _suggest_mic(
+    heard: list[tuple[InputDevice, Levels]], used: str | None, picked: str | None
+) -> None:
+    """Which mic to use: the one whose speech level stood furthest above the VAD's bar, picked
+    on the phone while a phone's pick leads (`picked`), else in audio.input_device."""
     if not heard:
         print(
             f"{FAIL} Tidak ada mic yang mendengar suara sekeras yang dibutuhkan Cyrene. Dekatkan "
@@ -2581,6 +2605,13 @@ def _suggest_mic(heard: list[tuple[InputDevice, Levels]], used: str | None) -> N
     best, _ = max(heard, key=lambda pair: pair[1].speech_db - pair[1].speech_bar_db)
     if used is not None and same_device_name(best.name, used):
         print(f"{OK} Suaramu paling jelas di mic yang dipakai Cyrene: {best.name}.")
+        return
+    if picked is not None:
+        print(
+            f"{OK} Suaramu paling jelas di {best.name}. Mic yang dipilih di HP selalu dicoba "
+            "duluan, jadi pilih mic itu di halaman Suara di HP (Ganti mic, lalu Pakai). Lalu "
+            "daftarkan ulang suaramu dengan 'waifu enroll' lewat mic itu."
+        )
         return
     print(
         f"{OK} Suaramu paling jelas di {best.name}. Supaya Cyrene memakainya, isi "
