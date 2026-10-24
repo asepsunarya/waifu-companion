@@ -7328,6 +7328,28 @@ def test_schedule_list_and_cancel_name_the_routine_of_a_delayed_step(home, capsy
     ]
 
 
+def test_schedule_list_and_cancel_say_the_weekday_or_the_day_a_calendar_entry_repeats_on(
+    home, capsys
+):
+    store = ScheduleStore(schedule_file(home), now=lambda: SAVED_ON)
+    store.add(datetime(2026, 10, 19, 7, 0), "weekly", Reminder("Master, buang sampah!"))
+    store.add(datetime(2026, 10, 31, 9, 0), "monthly", Reminder("Master, bayar listrik!"))
+    store.add(datetime(2026, 5, 5, 8, 0), "yearly", Reminder("Master, ulang tahun Ibu!"))
+    store.add(datetime(2028, 2, 29, 8, 0), "yearly", DeviceAction("lampu_kamar", "on"))
+
+    assert cli.main(["schedule", "list"]) == 0
+    assert cli.main(["schedule", "cancel", "j4"]) == 0
+
+    assert capsys.readouterr().out.splitlines() == [
+        "ID  BERIKUTNYA               ULANG             ISI",
+        'j1  Senin 19-10-2026 07:00   tiap Senin        pengingat "Master, buang sampah!"',
+        'j2  Sabtu 31-10-2026 09:00   tiap tanggal 31   pengingat "Master, bayar listrik!"',
+        "j4  Minggu 28-02-2027 08:00  tiap 29 Februari  perangkat lampu_kamar on",
+        'j3  Rabu 05-05-2027 08:00    tiap 5 Mei        pengingat "Master, ulang tahun Ibu!"',
+        "✓ Dibatalkan j4: perangkat lampu_kamar on, Minggu 28-02-2027 08:00, tiap 29 Februari",
+    ]
+
+
 def test_schedule_cancel_of_an_unknown_id_fails_with_the_reason(home, capsys):
     assert cli.main(["schedule", "cancel", "j9"]) == 1
 

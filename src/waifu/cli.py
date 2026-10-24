@@ -219,6 +219,7 @@ from waifu.routines import describe_routine, describe_step, routine_problems, ru
 from waifu.schedule import (
     Action,
     DeviceAction,
+    Entry,
     Reminder,
     Repeat,
     ScheduleError,
@@ -551,6 +552,7 @@ MUSIC_SERVICE_NAMES: dict[MusicService, str] = {
 }
 # Organization-level API keys must name a workspace on every request (see brain.claude).
 CLAUDE_WORKSPACE_HEADER = "anthropic-workspace-id"
+# Weekly, monthly, and yearly entries also name their day (`_repeat_text`).
 REPEAT_TEXT: dict[Repeat, str] = {
     "none": "sekali",
     "daily": "tiap hari",
@@ -3424,7 +3426,7 @@ def _schedule_list(args: argparse.Namespace) -> int:
         print("Belum ada jadwal.")
         return 0
     rows = [
-        (entry.id, _schedule_time(entry.at), REPEAT_TEXT[entry.repeat], _action_text(entry.action))
+        (entry.id, _schedule_time(entry.at), _repeat_text(entry), _action_text(entry.action))
         for entry in entries
     ]
     print(_format_table(("ID", "BERIKUTNYA", "ULANG", "ISI"), rows))
@@ -3439,7 +3441,7 @@ def _schedule_cancel(args: argparse.Namespace) -> int:
         return 1
     print(
         f"{OK} Dibatalkan {entry.id}: {_action_text(entry.action)}, "
-        f"{_schedule_time(entry.at)}, {REPEAT_TEXT[entry.repeat]}"
+        f"{_schedule_time(entry.at)}, {_repeat_text(entry)}"
     )
     return 0
 
@@ -3521,6 +3523,20 @@ def _step_outcome(step: RoutineStep, result: DeviceResult, started: datetime) ->
 def _schedule_time(moment: datetime) -> str:
     """`Selasa 13-10-2026 15:00`: a local time of the schedule as the owner reads it."""
     return f"{WEEKDAYS_ID[moment.weekday()]} {moment:%d-%m-%Y %H:%M}"
+
+
+def _repeat_text(entry: Entry) -> str:
+    """`tiap hari kerja`, `tiap Senin`, `tiap tanggal 31`, `tiap 5 Mei`: how an entry repeats.
+
+    A monthly or yearly entry names its own day, also while it sits on a shorter month's last.
+    """
+    if entry.repeat == "weekly":
+        return f"tiap {WEEKDAYS_ID[entry.at.weekday()]}"
+    if entry.repeat == "monthly":
+        return f"tiap tanggal {entry.day}"
+    if entry.repeat == "yearly":
+        return f"tiap {entry.day} {MONTHS_ID[entry.at.month - 1]}"
+    return REPEAT_TEXT[entry.repeat]
 
 
 def _action_text(action: Action) -> str:
