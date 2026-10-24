@@ -884,6 +884,29 @@ optional parameters stay.
 - [x] Fix pass (2026-10-24): `prayer` coordinates are named by `briefing.city` as the weather's are, and a place without a city gets a null `place` in the tool (its coordinates never reach the model or her voice; `waifu sholat` and `waifu check` still show them, the check as `Bandung (-6.9175, 107.6191)`); the description gives the five prayers for the schedule, imsak or terbit only when asked; the SPEC says Subuh goes from about 46.6°N and Isya from 48.6°N, pinned by a test. By hand in a scratch folder (no network): with `briefing.city: Bandung` the tool said `"place":"Bandung"` and `waifu sholat` `Waktu sholat di Bandung, Sabtu 24-10-2026 (WIB):`, without it `"place":null`; 9413 pytest and ruff clean, no JS touched; `prayer_times` stays non-strict with the same schema, so 18 of 20 strict tools and 17 of 24 optional parameters stay
 - [ ] On the owner's PC: with `prayer.enabled` and his city, `waifu sholat` matches the Kemenag schedule within a minute or two, "jadwal sholat besok" reads tomorrow's times, and Dzuhur is said once at its time
 
+### Phase 46: Tombol cepat di PC (v1.42, see SPEC → tombol cepat di PC)
+Decision: `waifu tombol` serves the phone's quick buttons to the PC's own browser from a small
+server of its own in the foreground (`DeskServer`, 127.0.0.1 port 0), not from `waifu run`'s
+avatar server, which runs only with the avatar on: no new port or setting, and the token is made
+by the process that opens the browser. The token is a path prefix (`/t/<token>/`), since
+cookies are shared by every port of 127.0.0.1; with the Host allowlist, the page's own Origin,
+JSON only, and no CORS header, another website in the browser can neither press nor read.
+The phone's `QuickActions` (with `where="tombol cepat PC"`), its limits, and its request handling
+(`JsonRequestHandler`, extracted first without a behaviour change) are reused, and the page
+reuses `actions.js`; the opener is `open_in_browser`, injected in tests. No brain tool, setting,
+or dependency, so 18 of 20 strict tools and 17 of 24 optional parameters stay.
+- [x] Task 227a: contract: SPEC, tasks
+- [ ] Task 227: share the quick buttons' limits and the phone server's JSON handling (refactor)
+- [ ] Task 228: `QuickActions(where=...)` and `DeskServer`
+- [ ] Task 229: the page (`web/tombol/`: `desk.js`, `tombol.js`, HTML, CSS)
+- [ ] Task 230: `waifu tombol` and the check line
+- [ ] Task 231: README, CHANGELOG
+
+### Checkpoint: Tombol cepat di PC
+- [ ] Python suite, JS tests, and ruff clean; no test opened a browser, ran a real device, or sent a PC power command; the strict-tool budget unchanged
+- [ ] By hand: a `DeskServer` on a free port with a mock registry answers the page, `actions`, and `action` with curl, and refuses a foreign Host, a foreign Origin, a wrong token, the PC's buttons, and the eleventh press in a minute
+- [ ] On the owner's PC: `waifu tombol` opens the page in his browser, the lamp turns on and off from it with a toast, "Mode tidur" runs, and Ctrl+C closes it
+
 ## Risks and Mitigations
 
 | Risk | Impact | Mitigation |

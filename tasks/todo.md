@@ -2152,3 +2152,51 @@ named `tests/test_<package>_<module>.py`.
 - [x] README "Waktu sholat" with a contents entry, mentions in "Teman fokus", "Mode game", and "Mode tamu", checklist items, and a Privasi bullet; CHANGELOG v1.41; full suite and ruff clean
 
 **Dependencies:** 225 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
+
+## Task 227a: Tombol cepat di PC contract ✅
+
+**Acceptance criteria:**
+- [x] SPEC "tombol cepat di PC (v1.42)" (stories, non-goals, the shared parts, the server and its checks, the page, the CLI, guest mode, decisions with the threat model, known limits, privacy, safety); tasks 227a-231 in the plan and here
+
+**Dependencies:** none · **Files:** `SPEC.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
+
+## Task 227: Share the quick buttons' limits and the JSON handling
+
+**Acceptance criteria:**
+- [ ] `ACTION_MAX_BYTES`, `ACTION_RATE_LIMIT`, `ACTION_RATE_WINDOW_S`, `ACTION_UNKNOWN_TEXT`, `ACTION_LIMIT_TEXT`, `ACTION_BUSY_TEXT`, and `group_json` live in `phone/actions.py`; the phone server imports them
+- [ ] The phone handler's body reading, strict JSON fields, refusal draining, and replies are `JsonRequestHandler`, which `_PhoneRequestHandler` extends; the whole phone server suite passes unchanged
+
+**Dependencies:** 227a · **Files:** `src/waifu/phone/actions.py`, `src/waifu/phone/server.py` · **Scope:** S
+
+## Task 228: `DeskServer`
+
+**Acceptance criteria:**
+- [ ] `QuickActions(where=...)` names that place in the PC refusal ("tombol cepat PC")
+- [ ] The page, its files, `actions`, and `action` only under `/t/<token>/` (a wrong or missing token 404, each server its own token); a foreign Host 403 even with the token; a POST from any Origin but the page's own 403; OPTIONS and GET `action` 405 without CORS headers; `PROTECTING_HEADERS` and `Referrer-Policy: no-referrer` on every response
+- [ ] A press runs its button and answers `{"ok", "message"}`; the PC and its plug 404 with nothing run; ten presses a minute, refused ones counted; 409 while one runs; 400, 411, 413, 415; 500 with `FAILED_TEXT`; the token never logged; a host that is not loopback is a `ValueError`
+
+**Dependencies:** 227 · **Files:** `src/waifu/phone/actions.py`, `src/waifu/phone/desk.py`, `tests/test_phone_actions.py`, `tests/test_phone_desk.py` · **Scope:** M
+
+## Task 229: The page
+
+**Acceptance criteria:**
+- [ ] `desk.js`: the problem of each status, a request that resolves to data or a problem and never rejects (offline, timeout, bad reply), the PC page's texts
+- [ ] `tombol.js` shows the groups or why not, posts only the clicked id, marks it busy and the rest unavailable until the answer, ignores clicks meanwhile, and toasts the answer or the problem for 6 s
+- [ ] `index.html` sets its CSP before any script, runs no inline script or style, and loads only relative files that exist; `tombol.css` has the desktop grid
+
+**Dependencies:** 228 · **Files:** `src/waifu/avatar/web/tombol/*`, `tests/js/tombol.test.mjs` · **Scope:** M
+
+## Task 230: `waifu tombol` and the check line
+
+**Acceptance criteria:**
+- [ ] `waifu tombol` serves the page, opens exactly its `http://127.0.0.1:` address once, says the address and Ctrl+C, and ends with "Selesai." and the server stopped; `--dry-run` presses the mocks; no buttons is a warning and exit 1 with nothing opened; a browser that cannot be opened still serves the page
+- [ ] `waifu check` counts the page's buttons right after the routine lines
+
+**Dependencies:** 228, 229 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** M
+
+## Task 231: Docs
+
+**Acceptance criteria:**
+- [ ] README "Tombol cepat di PC" with a contents entry, a checklist item, and a Privasi bullet; CHANGELOG v1.42; full suite, JS tests, and ruff clean
+
+**Dependencies:** 230 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
