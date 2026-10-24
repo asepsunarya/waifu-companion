@@ -2291,6 +2291,7 @@ named `tests/test_<package>_<module>.py`.
 - [x] Non-strict `weather_forecast {day?, part?}` with a static English description (routing against `daily_briefing`, one call per question, the parts, null place, never in her own turns)
 - [x] The result names the place as written (null with coordinates), the days in Indonesian, whole degrees, and a whole day's parts; unknown values left out
 - [x] Bad arguments, Open-Meteo failures, out-of-reach questions, and anything unexpected are error results; her own turns get a refusal
+- [x] Fix pass: the description sends the weather now and today as a whole to `daily_briefing` only when she has it, and to this tool with `day` today without it (the tool is given with `briefing.enabled: false` too); still one static string
 
 **Dependencies:** 239 · **Files:** `src/waifu/brain/weather_tools.py`, `tests/test_weather_tools.py` · **Scope:** M
 
@@ -2313,5 +2314,6 @@ named `tests/test_<package>_<module>.py`.
 
 **Acceptance criteria:**
 - [x] README "Cuaca beberapa hari" after "Peringatan hujan" with a contents entry, the command row, a mention in "Mode tamu", a checklist item, and a Privasi bullet; CHANGELOG v1.44; full suite and ruff clean
+- [x] Fix pass: the README, its checklist, and the CHANGELOG say "cuaca hari ini" comes from the rest of today's forecast with the briefing off; the checklist's `waifu cuaca akhir-pekan` names what a Saturday and a Sunday show
 
 **Dependencies:** 241, 242 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
