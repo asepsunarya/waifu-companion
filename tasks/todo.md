@@ -2491,10 +2491,10 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 260 · **Files:** `src/waifu/voice/audio.py`, `tests/test_voice_audio.py` · **Scope:** M
 
-## Task 262: The segmenter
+## Task 262: The segmenter ✅
 
 **Acceptance criteria:**
-- [ ] `floor_db` and `bar_db` follow the last frame; `set_gate` changes the bar at the next frame; `relearn` forgets the floor; a segment dropped for too little speech reaches `on_too_short`
+- [x] `floor_db` and `bar_db` follow the last frame; `set_gate` changes the bar at the next frame; `relearn` forgets the floor; a segment dropped for too little speech reaches `on_too_short`
 
 **Dependencies:** 260a · **Files:** `src/waifu/voice/segmenter.py`, `tests/test_voice_segmenter.py` · **Scope:** S
 

@@ -1021,7 +1021,7 @@ optional parameters, and 0 of 16 unions stay.
 - [x] Task 260a: contract: SPEC, tasks
 - [x] Task 260: test guards: sounddevice streams, playback, and restarts; winmm's input listing
 - [x] Task 261: `MicStream`'s level tap, flat run, and name; `restart_portaudio` under the player's lock
-- [ ] Task 262: the segmenter's floor and bar, `set_gate`, `relearn`, and too-short segments
+- [x] Task 262: the segmenter's floor and bar, `set_gate`, `relearn`, and too-short segments
 - [ ] Task 263: the records (`voice/diagnosis.py`) and the voice loop fills them
 - [ ] Task 264: "tadi kamu denger apa?" (`heard.py`) and her answer
 - [ ] Task 265: the preference list in the config and the override file (`voice_override.py`)

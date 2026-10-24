@@ -199,3 +199,74 @@ def test_a_reset_segmenter_is_not_busy():
     segmenter.reset()
 
     assert segmenter.busy is False
+
+
+# --- what the Suara page shows, and a switch of mic ----------------------------------------
+
+
+def test_the_floor_and_the_bar_are_unknown_before_the_first_frame():
+    segmenter = EnergySegmenter(SAMPLE_RATE, VadConfig())
+
+    assert (segmenter.floor_db, segmenter.bar_db) == (None, None)
+
+
+def test_the_floor_and_the_bar_follow_the_room():
+    segmenter = EnergySegmenter(SAMPLE_RATE, VadConfig(threshold_db=-45, margin_db=12))
+
+    feed_all(segmenter, noise(200, -65))
+    assert segmenter.floor_db == pytest.approx(-65, abs=1)
+    assert segmenter.bar_db == -45  # the threshold: the room is quiet
+
+    feed_all(segmenter, noise(400, -50, seed=2))
+    assert segmenter.floor_db == pytest.approx(-50, abs=1)
+    assert segmenter.bar_db == pytest.approx(-38, abs=1)  # the margin above the room
+
+
+def test_a_new_gate_counts_from_the_next_frame():
+    segmenter = EnergySegmenter(SAMPLE_RATE, VadConfig(threshold_db=-45, margin_db=12))
+    feed_all(segmenter, noise(200, -70))
+    soft_voice = np.concatenate([speech_in_room(30, -50, -70, 3), noise(40, -70, seed=4)])
+    assert feed_all(segmenter, soft_voice) == []
+
+    segmenter.set_gate(-55.0, 6.0)
+
+    assert len(feed_all(segmenter, soft_voice)) == 1
+    assert segmenter.bar_db == -55
+
+
+def test_relearning_forgets_the_old_mic_s_room():
+    segmenter = EnergySegmenter(SAMPLE_RATE, VadConfig())
+    feed_all(segmenter, np.concatenate([noise(400, -50), tone(10, -20)]))  # a loud mic, mid-word
+    assert segmenter.busy
+
+    segmenter.relearn()
+
+    assert not segmenter.busy
+    assert (segmenter.floor_db, segmenter.bar_db) == (None, None)
+    feed_all(segmenter, noise(1, -70, seed=2))
+    assert segmenter.floor_db == pytest.approx(-70, abs=1)  # the new mic's own noise at once
+
+
+def test_a_segment_with_too_little_speech_is_handed_on_as_too_short():
+    dropped = []
+    segmenter = EnergySegmenter(
+        SAMPLE_RATE, VadConfig(min_speech_ms=300), on_too_short=dropped.append
+    )
+    burst = tone(6, -20)
+
+    assert (
+        feed_all(segmenter, np.concatenate([noise(30, -65), burst, noise(60, -65, seed=2)])) == []
+    )
+
+    (segment,) = dropped
+    assert segment.sample_rate == SAMPLE_RATE
+    assert len(burst) <= len(segment.audio) < len(burst) + SAMPLE_RATE  # with its pre-roll
+
+
+def test_a_kept_utterance_is_never_too_short():
+    dropped = []
+    segmenter = EnergySegmenter(SAMPLE_RATE, VadConfig(), on_too_short=dropped.append)
+
+    feed_all(segmenter, np.concatenate([noise(40, -65), tone(40, -20), noise(50, -65, seed=2)]))
+
+    assert dropped == []

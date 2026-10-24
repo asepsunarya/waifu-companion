@@ -38,7 +38,10 @@ class EnergySegmenter:
     """Turns fixed-size frames into `Utterance`s, one `feed` call per frame.
 
     `reset()` drops any partial utterance; the learned noise floor is kept
-    because it describes the room, not the utterance.
+    because it describes the room, not the utterance. `relearn()` forgets it too, for a new mic.
+    `floor_db` and `bar_db` are the last frame's, for other threads to read; `set_gate` changes
+    the threshold and margin from any thread, counted from the next frame. A segment dropped for
+    too little speech goes to `on_too_short`, on the feeding thread.
     """
 
     def __init__(
@@ -46,10 +49,15 @@ class EnergySegmenter:
         sample_rate: int,
         vad: VadConfig,
         clock: Callable[[], float] = time.monotonic,
+        *,
+        on_too_short: Callable[[Utterance], None] | None = None,
     ) -> None:
         self._sample_rate = sample_rate
         self._vad = vad
         self._clock = clock
+        self._on_too_short = on_too_short
+        self.floor_db: float | None = None
+        self.bar_db: float | None = None
         self._onset_frames = max(1, math.ceil(ONSET_MS / vad.frame_ms))
         self._end_frames = math.ceil(vad.silence_ms / vad.frame_ms)
         self._trailing_frames = min(self._end_frames, math.ceil(TRAILING_SILENCE_MS / vad.frame_ms))
@@ -76,6 +84,19 @@ class EnergySegmenter:
         self._silent_run = 0
         self._started_at = 0.0
 
+    def relearn(self) -> None:
+        """`reset()`, and forget the noise floor: after a switch it describes the old mic."""
+        self.reset()
+        self._floor_db = None
+        self._recent_db.clear()
+        self.floor_db = self.bar_db = None
+
+    def set_gate(self, threshold_db: float, margin_db: float) -> None:
+        """Use this threshold and margin from the next frame; the timings stay as built."""
+        self._vad = self._vad.model_copy(
+            update={"threshold_db": threshold_db, "margin_db": margin_db}
+        )
+
     def feed(self, frame: np.ndarray) -> Utterance | None:
         frame = np.asarray(frame, dtype=np.float32)
         is_speech = self._classify(frame)
@@ -85,6 +106,7 @@ class EnergySegmenter:
         return None
 
     def _classify(self, frame: np.ndarray) -> bool:
+        vad = self._vad  # once per frame: `set_gate` may swap it from another thread
         db = frame_db(frame)
         self._recent_db.append(db)
         if self._floor_db is None:
@@ -92,15 +114,13 @@ class EnergySegmenter:
         floor = self._floor_db
         if len(self._recent_db) == self._recent_db.maxlen:
             floor = max(floor, min(self._recent_db))
-        is_speech = db >= self._speech_bar(floor)
+        bar = _speech_bar(vad, floor)
+        self.floor_db, self.bar_db = floor, bar
         # Only frames quiet by the slow floor's own measure teach it, so the dips
         # of a long sentence never drag the floor up into the voice.
-        if db < self._speech_bar(self._floor_db):
+        if db < _speech_bar(vad, self._floor_db):
             self._floor_db += FLOOR_ALPHA * (db - self._floor_db)
-        return is_speech
-
-    def _speech_bar(self, floor_db: float) -> float:
-        return max(self._vad.threshold_db, floor_db + self._vad.margin_db)
+        return db >= bar
 
     def _listen(self, frame: np.ndarray, is_speech: bool) -> None:
         if not is_speech:
@@ -138,8 +158,17 @@ class EnergySegmenter:
     def _finish(self) -> Utterance | None:
         frames, voiced, started_at = self._frames, self._voiced_frames, self._started_at
         self._frames, self._samples, self._voiced_frames, self._silent_run = [], 0, 0, 0
-        if voiced < self._min_voiced_frames:
-            return None
+        if voiced >= self._min_voiced_frames:
+            return self._segment(frames, started_at)
+        if self._on_too_short is not None:
+            self._on_too_short(self._segment(frames, started_at))
+        return None
+
+    def _segment(self, frames: list[np.ndarray], started_at: float) -> Utterance:
         return Utterance(
             audio=np.concatenate(frames), sample_rate=self._sample_rate, started_at=started_at
         )
+
+
+def _speech_bar(vad: VadConfig, floor_db: float) -> float:
+    return max(vad.threshold_db, floor_db + vad.margin_db)
