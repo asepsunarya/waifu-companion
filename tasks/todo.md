@@ -2331,6 +2331,7 @@ named `tests/test_<package>_<module>.py`.
 **Acceptance criteria:**
 - [x] `pulls_since(..., until=)` counts only `since < moment <= until`; without `until` it counts as before
 - [x] `occurrence_on(entry, day)`: a one-shot entry on its date; a repeating one (daily, weekdays, weekends, weekly, monthly with the month-end rule, yearly) at its clock time on its days, also when its `at` has moved on, never before it was created
+- [x] Fix pass: `occurrence_on(entry, day, *, now)` counts nothing before a later start not yet come (an `at` later than the entry's first time after now); the window from the last time before the start, and the days before it after the first fire, are SPEC known limits
 
 **Dependencies:** 244a · **Files:** `src/waifu/gacha/history.py`, `src/waifu/schedule.py`, `tests/test_gacha_history.py`, `tests/test_schedule.py` · **Scope:** S
 
@@ -2340,6 +2341,7 @@ named `tests/test_<package>_<module>.py`.
 - [x] `DailyRecap.gather(day)`: the tasks done in the WIB day and still due, the focus seconds, the play time per game and its union total, the day's pulls per game with their tops, the words learned and last reviewed, the journal's note count, and the reminders and routines due that day with `passed`; the window ends now for today
 - [x] A part that is off is absent, one that fails is logged and gets its Indonesian problem while the rest is read; `recap_day` takes today, yesterday, or a date up to 30 days back
 - [x] `recap_json`: compact, the parts with something only, lists of at most 10 with whole counts, `as_of` today only, `problems` when any; never a journal text
+- [x] Fix pass: play is there only when a game was open a whole minute (`PlayDay.played`); a day that began more than `todo.keep_done_days` before now has its done tasks unknown (`done` None, `"done_known": false` in the JSON), never none
 
 **Dependencies:** 244 · **Files:** `src/waifu/recap.py`, `tests/test_recap.py` · **Scope:** M
 
@@ -2348,6 +2350,7 @@ named `tests/test_<package>_<module>.py`.
 **Acceptance criteria:**
 - [x] Non-strict `daily_recap {date?}` with a static English description (looking back vs `daily_briefing`, the parts, the journal counted only, no money, highlights first, play time never judged, never in her own turns)
 - [x] Bad arguments, a date out of range, every part failing, and anything unexpected are error results; her own turns get a refusal
+- [x] Fix pass: the description says `done_known` false is never "none were finished"; the `daily_briefing` description (`src/waifu/briefing.py`) no longer offers itself "for a summary of the day" and sends a look back to `daily_recap` when she has it
 
 **Dependencies:** 245 · **Files:** `src/waifu/brain/recap_tools.py`, `tests/test_recap_tools.py` · **Scope:** M
 
@@ -2363,6 +2366,7 @@ named `tests/test_<package>_<module>.py`.
 
 **Acceptance criteria:**
 - [x] `waifu rekap [hari-ini|kemarin|YYYY-MM-DD]` prints the day, a line per part that is on, and a `✗` line and exit 1 for a part that failed; every part off is a `!` line; a bad word, date, or a date out of range is an argparse error
+- [x] Fix pass: `Main game: tidak ada` when no game was open a whole minute (never `()`); `Tugas: yang selesai tidak tersimpan lagi (todo.keep_done_days: N), ...` for unknown done tasks; a ZZZ top pull is an `S-rank`, worded by `_top_word` and `_top_pull_text` as in `waifu gacha history`
 
 **Dependencies:** 245 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** S
 
@@ -2370,5 +2374,6 @@ named `tests/test_<package>_<module>.py`.
 
 **Acceptance criteria:**
 - [x] README "Rekap hari ini" after "Jurnal harian" with a contents entry, the command row, the "Mode tamu" bullet, a checklist item, and a Privasi bullet; CHANGELOG v1.45; full suite and ruff clean
+- [x] Fix pass: "Privasi rekap" and the SPEC's privacy line say the spoken answer goes to edge-tts with the `edge` engine, as the other privacy sections do; the README names the later-start limit and the unknown done tasks
 
 **Dependencies:** 247, 248 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
