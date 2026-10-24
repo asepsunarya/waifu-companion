@@ -979,6 +979,33 @@ optional parameters, and 0 of 16 unions stay.
 - [x] Fix pass (2026-10-24): a repeating entry set to start later ("tiap hari jam 8 mulai Senin") is not due before its start while its `at` is later than its first time after now (`occurrence_on(..., now=)`; the window from its last time before the start, and the days before the start after its first fire, are SPEC known limits, since the schedule file keeps no start); play is told only when a game was open a whole minute, so a 1-minute total never stands beside no game; a day the to-do list no longer keeps whole has its done tasks unknown (`done_known: false`, `yang selesai tidak tersimpan lagi`), never none; the `daily_briefing` description leaves a look back to `daily_recap`; `waifu rekap` names a ZZZ top pull `S-rank`; "Privasi rekap" says the spoken answer goes to edge-tts with the `edge` engine. By hand, a scratch folder with the example config plus gacha on (deleted afterwards) at Saturday 24-10-2026 19:22: a daily "minum obat" made Thursday 09:00 to start Monday 08:00 gave `Jadwal: tidak ada` today and yesterday; two 25-second sessions of HSR and Genshin yesterday gave `Main game: tidak ada`; a ZZZ Ellen yesterday gave `Gacha: Zenless Zone Zero 1 pull, S-rank Ellen (1 pull, menang 50/50)`; `waifu rekap 2026-10-17` gave `Tugas: yang selesai tidak tersimpan lagi (todo.keep_done_days: 7), 1 masih menunggu`; all exited 0. 9896 pytest and ruff clean, no JS touched; only descriptions changed, no parameter, so 18 of 20 strict tools, 17 of 24 optional parameters, and 0 of 16 unions stay
 - [ ] On the owner's PC: "hari ini aku ngapain aja?" and "rekap kemarin dong" get a short warm recap
 
+### Phase 50: Alarm bangun (v1.46, see SPEC → alarm bangun)
+Decision: an alarm is a fourth kind of schedule action (`AlarmAction(label)`), so it keeps every
+repeat, the listing, and cancelling, and the file stays at version 1. A new non-strict `alarm`
+tool sets, lists, cancels, stops, and snoozes them (the strict `schedule` tool cannot take a
+`kind` without an 18th optional parameter); only its description points `schedule` at it. The
+scheduler starts a passive `AlarmBell` (a ring file, so a restart and `waifu tombol` see it) and
+marks the entry fired; the voice loop says each due ring between utterances, louder each time,
+never whispered, until a strict local phrase ("aku sudah bangun", "tunda"), a quick button on
+the phone or the PC, the brain, or ten minutes stop it. A missed alarm is only pushed. 18 of 20
+strict tools, 17 of 24 optional parameters, and 0 of 16 unions stay.
+- [x] Task 250a: contract: SPEC, tasks
+- [ ] Task 250: the alarm entry (`AlarmAction`) and every place that names an entry
+- [ ] Task 251: the bell (`alarm.py`): the ring file, start and merge, the rings and their levels, stop, snooze, restart
+- [ ] Task 252: the phrases (`alarm_request`)
+- [ ] Task 253: the scheduler rings, pushes, and misses alarms
+- [ ] Task 254: the volume: `LevelHold`, `VoiceLevel.day_level`
+- [ ] Task 255: the voice loop rings and hears the phrases
+- [ ] Task 256: the `alarm` tool and the `schedule` description
+- [ ] Task 257: the quick buttons on the phone and the PC
+- [ ] Task 258: config, the CLI wiring, the check line
+- [ ] Task 259: README, CHANGELOG
+
+### Checkpoint: Alarm bangun
+- [ ] Python suite, ruff, and JS tests clean; no test played audio, pushed, or read the repository's `data/`; the strict-tool budget unchanged (18 of 20 strict tools, 17 of 24 optional parameters, 0 of 16 unions) with `alarm` non-strict and open in guest mode
+- [ ] By hand: in a scratch folder with a fake clock, an alarm set by the tool rings in the voice loop louder each time, stops by "aku sudah bangun", snoozes by "tunda", never stops on "matikan lampu", shows and runs its quick buttons, ends after its minutes, and a missed one is pushed
+- [ ] On the owner's PC: "bangunkan aku jam 6" rings at six and "aku sudah bangun" stops it
+
 ## Risks and Mitigations
 
 | Risk | Impact | Mitigation |
