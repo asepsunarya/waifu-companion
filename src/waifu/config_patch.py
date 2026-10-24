@@ -7,15 +7,35 @@ indentation and replaces only its value, or inserts it beside its siblings, keep
 other byte, comment, and line ending. What it cannot read for sure (tabs, flow mappings, block
 scalars, anchors, duplicated keys) it refuses with `PatchError` rather than guess.
 
+`apply_changes` writes config.yaml only after a backup to `data/`, atomically, and then reloads
+it with the real loader and compares the whole config with the one intended; any difference
+(an anchor or a duplicate key that changed something else) or a load error puts the original
+bytes back.
+
 No value is ever put in an error or a log: a local key or the ntfy topic is a secret. Errors
 name keys only, and the snippet for pasting by hand hides every secret value.
 """
 
 from __future__ import annotations
 
+import copy
 import json
+import logging
+import os
 import re
+import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import datetime
+from itertools import count
+from pathlib import Path
+
+import yaml
+from pydantic import ValidationError
+
+from waifu.config import AppConfig, ConfigError, load_config
+
+logger = logging.getLogger(__name__)
 
 ConfigValue = str | int | float | bool | list[str | int] | None
 
@@ -25,11 +45,14 @@ _KEY = re.compile(r"""(?P<key>[A-Za-z_][A-Za-z0-9_-]*|"[^"]*"|'[^']*')[ \t]*:(?=
 # A block sequence entry: the dash, then (unless the entry starts on the next line) its content.
 _DASH = re.compile(r"(?P<indent> *)-(?:(?P<gap>[ \t]+)(?P<rest>.*))?$")
 # What PyYAML would read as a line break or refuse inside a double-quoted scalar, escaped instead.
-_UNSAFE_IN_QUOTES = re.compile("[\x7f-\x9f  \ud800-\udfff﻿￾￿]")
+_UNSAFE_IN_QUOTES = re.compile("[\x7f-\x9f\u2028\u2029\ud800-\udfff\ufeff\ufffe\uffff]")
 # A value written like this cannot be replaced on its line: a flow mapping, a block scalar, an
 # anchor, an alias, a tag, or a reserved indicator.
 _UNPATCHABLE_STARTS = frozenset("{|>&*!%@`")
 SNIPPET_INDENT = 2
+
+
+UTF8_BOM = b"\xef\xbb\xbf"
 
 
 class PatchError(Exception):
@@ -470,3 +493,149 @@ def _append_section(lines: list[_Line], key: str) -> None:
     if lines and lines[-1].body.strip():
         lines.append(_Line("", ending))
     lines.append(_Line(f"{key}:", ending))
+
+
+# --- writing config.yaml ---------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class PatchOutcome:
+    """Whether config.yaml now holds the changes; the copy of the original made before writing
+    (None when nothing was written); why it was not written, in Indonesian, without a value."""
+
+    written: bool
+    backup: Path | None
+    problem: str | None = None
+
+
+def apply_changes(
+    path: Path,
+    changes: list[Change],
+    *,
+    backup_dir: Path = Path("data"),
+    now: Callable[[], datetime] = datetime.now,
+) -> PatchOutcome:
+    """Write `changes` into the config at `path`, keeping it as it was on any doubt.
+
+    The config must load first. The original bytes are copied to `backup_dir` before the file
+    is replaced atomically, and the file is then loaded again and compared, as a whole, with the
+    config intended; a difference or a load error puts the original bytes back.
+    """
+    paths = ", ".join(change.path for change in changes)
+    try:
+        original = path.read_bytes()
+    except OSError as exc:
+        return PatchOutcome(False, None, f"{path} tidak bisa dibaca ({exc.strerror or exc})")
+    bom = UTF8_BOM if original.startswith(UTF8_BOM) else b""
+    try:
+        text = original[len(bom) :].decode("utf-8")
+    except UnicodeDecodeError:
+        return PatchOutcome(False, None, f"{path} bukan teks UTF-8")
+    try:
+        load_config(path)
+    except ConfigError:
+        # The loader's text is left out: a YAML error quotes the line, which can hold a key.
+        return PatchOutcome(False, None, f"{path} belum valid; perbaiki dulu (cek: waifu check)")
+    try:
+        patched = patch_text(text, changes)
+        intended = AppConfig.model_validate(_with_changes(yaml.safe_load(text) or {}, changes))
+    except PatchError as exc:
+        return PatchOutcome(False, None, str(exc))
+    except ValidationError as exc:
+        problems = "; ".join(
+            f"{'.'.join(str(part) for part in error['loc'])}: {error['msg']}"
+            for error in exc.errors(include_url=False, include_input=False)
+        )
+        return PatchOutcome(False, None, f"nilai baru tidak valid: {problems}")
+    try:
+        backup = _backup(path, original, backup_dir, now())
+    except OSError as exc:
+        reason = exc.strerror or exc
+        return PatchOutcome(False, None, f"cadangan tidak bisa dibuat di {backup_dir} ({reason})")
+    try:
+        _write_atomic(path, bom + patched.encode("utf-8"))
+    except OSError as exc:
+        logger.warning("Could not write %s: %s", path, exc.strerror or type(exc).__name__)
+        return PatchOutcome(False, backup, f"{path} tidak bisa ditulis ({exc.strerror or exc})")
+    try:
+        same = load_config(path) == intended
+    except (ConfigError, UnicodeDecodeError, OSError):
+        same = False
+    if same:
+        logger.info("Wrote %s to %s (backup %s)", paths, path, backup)
+        return PatchOutcome(True, backup)
+    logger.warning("%s did not load back as intended after writing %s; restoring it", path, paths)
+    try:
+        _write_atomic(path, original)
+    except OSError as exc:
+        logger.error("Could not restore %s: %s", path, exc.strerror or type(exc).__name__)
+        return PatchOutcome(
+            False,
+            backup,
+            f"setelah diubah, {path} tidak terbaca seperti yang dimaksud, dan tidak bisa "
+            f"dikembalikan: salin {backup} ke {path}",
+        )
+    return PatchOutcome(
+        False,
+        backup,
+        f"setelah diubah, {path} tidak terbaca seperti yang dimaksud, jadi dikembalikan seperti "
+        "semula",
+    )
+
+
+def _with_changes(raw: dict[str, object], changes: list[Change]) -> dict[str, object]:
+    """The loaded YAML with each change set, a missing section made."""
+    data = copy.deepcopy(raw)
+    for change in changes:
+        node: dict[str, object] = data
+        keys = change.keys
+        if keys[0] == DEVICES:
+            devices = data.get(DEVICES)
+            found = [
+                device
+                for device in (devices if isinstance(devices, list) else [])
+                if isinstance(device, dict) and device.get("id") == keys[1]
+            ]
+            if len(found) != 1:  # the patch found it by its text: YAML must agree
+                raise PatchError(f"perangkat {keys[1]} tidak terbaca di bawah {DEVICES}")
+            node = found[0]
+            keys = keys[2:]
+        for key in keys[:-1]:
+            child = node.get(key)
+            if not isinstance(child, dict):
+                child = node[key] = {}
+            node = child
+        node[keys[-1]] = copy.deepcopy(change.value)
+    return data
+
+
+def _backup(path: Path, data: bytes, folder: Path, at: datetime) -> Path:
+    """Copy `data` to a new file in `folder`, never over an older backup."""
+    folder.mkdir(parents=True, exist_ok=True)
+    name = f"{path.name}.bak-{at:%Y%m%d-%H%M%S}"
+    for number in count(1):
+        backup = folder / (name if number == 1 else f"{name}-{number}")
+        try:
+            with backup.open("xb") as file:
+                file.write(data)
+                file.flush()
+                os.fsync(file.fileno())
+        except FileExistsError:
+            continue
+        return backup
+    raise AssertionError("unreachable")
+
+
+def _write_atomic(path: Path, data: bytes) -> None:
+    """Write `data` to a temp file next to `path`, flush it to disk, then replace `path`."""
+    fd, temp_name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "wb") as temp_file:
+            temp_file.write(data)
+            # NTFS can commit the rename before the data; push the data to disk first.
+            temp_file.flush()
+            os.fsync(temp_file.fileno())
+        os.replace(temp_name, path)
+    except BaseException:
+        Path(temp_name).unlink(missing_ok=True)
+        raise

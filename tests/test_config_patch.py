@@ -1,10 +1,22 @@
+import logging
+import stat
+from datetime import datetime
 from pathlib import Path
 
 import pytest
 import yaml
 
-from waifu.config import AppConfig
-from waifu.config_patch import Change, PatchError, masked, patch_text, snippet, yaml_value
+from waifu.config import AppConfig, load_config
+from waifu.config_patch import (
+    UTF8_BOM,
+    Change,
+    PatchError,
+    apply_changes,
+    masked,
+    patch_text,
+    snippet,
+    yaml_value,
+)
 
 EXAMPLE = Path(__file__).resolve().parents[1] / "config.example.yaml"
 EXAMPLE_TEXT = EXAMPLE.read_bytes().decode("utf-8")
@@ -339,7 +351,7 @@ devices:
         "|x",
         ">x",
         "Headset (Polaris-BT), MME",
-        "line separator",
+        "line\u2028separator",
         "del\x7fchar",
     ],
 )
@@ -544,3 +556,159 @@ def test_snippet_groups_the_changes_as_yaml_with_secrets_hidden():
 
 def test_masking_shows_only_the_length():
     assert masked(SECRET) == "disembunyikan, 16 karakter"
+
+
+# --- writing config.yaml ---------------------------------------------------------------------
+
+NOW = datetime(2026, 10, 25, 14, 30, 5)
+BACKUP = Path("data") / "config.yaml.bak-20261025-143005"
+LAMP_CHANGES = [
+    tuya("lampu_kamar", "device_id", "bf1234567890abcdef"),
+    tuya("lampu_kamar", "local_key", SECRET, secret=True),
+]
+
+
+def at_now() -> datetime:
+    return NOW
+
+
+@pytest.fixture
+def config(tmp_path, monkeypatch) -> Path:
+    """config.yaml copied byte for byte from config.example.yaml, in the working folder."""
+    monkeypatch.chdir(tmp_path)
+    path = tmp_path / "config.yaml"
+    path.write_bytes(EXAMPLE.read_bytes())
+    return path
+
+
+def test_apply_backs_the_original_up_then_writes_the_changes(config):
+    original = config.read_bytes()
+
+    outcome = apply_changes(config, LAMP_CHANGES, now=at_now)
+
+    assert (outcome.written, outcome.backup, outcome.problem) == (True, BACKUP, None)
+    assert BACKUP.read_bytes() == original
+    assert config.read_bytes() == patch_text(EXAMPLE_TEXT, LAMP_CHANGES).encode("utf-8")
+    lamp = load_config(config).devices[0].tuya
+    assert (lamp.device_id, lamp.local_key) == ("bf1234567890abcdef", SECRET)
+
+
+def test_apply_numbers_a_second_backup_in_the_same_second(config):
+    apply_changes(config, LAMP_CHANGES[:1], now=at_now)
+
+    outcome = apply_changes(config, LAMP_CHANGES[1:], now=at_now)
+
+    assert outcome.backup == Path("data") / "config.yaml.bak-20261025-143005-2"
+    assert outcome.backup.read_bytes() == BACKUP.read_bytes().replace(
+        b'device_id: "isi_dari_tinytuya_wizard"', b'device_id: "bf1234567890abcdef"', 1
+    )
+
+
+def test_apply_keeps_a_byte_order_mark_and_crlf_endings(config):
+    crlf = EXAMPLE_TEXT.replace("\n", "\r\n")
+    config.write_bytes(UTF8_BOM + crlf.encode("utf-8"))
+
+    assert apply_changes(config, LAMP_CHANGES, now=at_now).written
+
+    assert config.read_bytes() == UTF8_BOM + patch_text(crlf, LAMP_CHANGES).encode("utf-8")
+
+
+def test_apply_logs_the_changed_keys_never_their_values(config, caplog):
+    with caplog.at_level(logging.DEBUG):
+        apply_changes(config, LAMP_CHANGES, now=at_now)
+
+    assert "devices[lampu_kamar].tuya.local_key" in caplog.text
+    assert SECRET not in caplog.text
+    assert "bf1234567890abcdef" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("content", "changes", "problem"),
+    [
+        pytest.param(
+            b"brain:\n  backend: gpt\n",
+            LAMP_CHANGES,
+            "belum valid",
+            id="a config that does not load",
+        ),
+        pytest.param(
+            b'assistant:\n  name: "' + SECRET.encode() + b"\n",
+            LAMP_CHANGES,
+            "belum valid",
+            id="a YAML error quoting a line",
+        ),
+        pytest.param(
+            "assistant:\n  name: Cyrène\n".encode("cp1252"),
+            LAMP_CHANGES,
+            "UTF-8",
+            id="not UTF-8",
+        ),
+        pytest.param(
+            EXAMPLE.read_bytes(),
+            [Change(("notify", "enabled"), True), Change(("notify", "topic"), "short")],
+            "notify.topic",
+            id="an invalid new value",
+        ),
+        pytest.param(
+            EXAMPLE.read_bytes(),
+            [tuya("lampu", "local_key", SECRET, secret=True)],
+            "perangkat lampu tidak ditemukan",
+            id="a layout the patcher refuses",
+        ),
+    ],
+)
+def test_apply_writes_nothing_and_makes_no_backup_when_it_cannot_patch(
+    config, content, changes, problem
+):
+    config.write_bytes(content)
+
+    outcome = apply_changes(config, changes, now=at_now)
+
+    assert (outcome.written, outcome.backup) == (False, None)
+    assert problem in outcome.problem
+    assert SECRET not in outcome.problem
+    assert config.read_bytes() == content
+    assert not Path("data").exists()
+
+
+def test_apply_restores_the_original_when_the_written_file_loads_differently(config):
+    # A complex key holds the section, so the patcher appends a second one, which YAML takes
+    # instead of the first: the server set in the first is lost.
+    content = b'? notify\n: {enabled: false, server: "https://ntfy.example.org"}\n'
+    config.write_bytes(content)
+    changes = [Change(("notify", "enabled"), True), Change(("notify", "topic"), TOPIC)]
+
+    outcome = apply_changes(config, changes, now=at_now)
+
+    assert (outcome.written, outcome.backup) == (False, BACKUP)
+    assert "dikembalikan" in outcome.problem
+    assert TOPIC not in outcome.problem
+    assert config.read_bytes() == content
+    assert BACKUP.read_bytes() == content
+
+
+def test_apply_restores_the_original_when_the_written_file_no_longer_loads(config):
+    # After a document end marker, the appended section starts a second document.
+    content = b"assistant:\n  name: Cyrene\n...\n"
+    config.write_bytes(content)
+
+    outcome = apply_changes(config, [Change(("audio", "input_device"), SECRET)], now=at_now)
+
+    assert (outcome.written, outcome.backup) == (False, BACKUP)
+    assert "dikembalikan" in outcome.problem
+    assert SECRET not in outcome.problem
+    assert config.read_bytes() == content
+
+
+def test_apply_leaves_a_file_it_cannot_replace_as_it_was(config):
+    original = config.read_bytes()
+    config.chmod(stat.S_IREAD)
+    try:
+        outcome = apply_changes(config, LAMP_CHANGES, now=at_now)
+    finally:
+        config.chmod(stat.S_IREAD | stat.S_IWRITE)
+
+    assert (outcome.written, outcome.backup) == (False, BACKUP)
+    assert "tidak bisa ditulis" in outcome.problem
+    assert config.read_bytes() == original
+    assert [path.name for path in config.parent.iterdir() if path.name.endswith(".tmp")] == []
