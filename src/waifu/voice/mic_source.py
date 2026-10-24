@@ -44,6 +44,7 @@ from waifu.voice.mic_check import InputDevice
 logger = logging.getLogger(__name__)
 
 RETRY_S = 5.0  # how often a mic is tried again while none opens
+RETURN_TRIES = 3  # how often a more preferred mic Windows listed anew is tried again
 PROBE_S = 5.0  # how often Windows' list of inputs is read for a mic that came or went
 # What she says (through `announce`) when the mic she listens through changed by itself.
 MIC_NOW = "Sekarang aku pakai mic {name}."
@@ -175,6 +176,9 @@ class MicSource:
         self._flat: set[Device] = set()
         self._staying = False
         self._told_all_flat = False
+        # A more preferred mic Windows listed anew is tried again then, this many times more.
+        self._return_at: float | None = None
+        self._return_tries = 0
         self._known_names: frozenset[str] | None = None  # Windows' inputs at PortAudio's start
         self._next_probe = 0.0
         self._next_page_probe = 0.0
@@ -336,6 +340,12 @@ class MicSource:
             self._relist = False
             self._reopen_after_change()
             return
+        if self._return_at is not None and now >= self._return_at:
+            logger.info("Trying the more preferred microphones again")
+            self._close_current()
+            self._reopen(came_back=True)
+            self._await_return()
+            return
         if self._restart is None or len(self.preferences) < 2 or now < self._next_probe:
             return
         self._next_probe = now + PROBE_S
@@ -345,12 +355,27 @@ class MicSource:
 
     def _reopen_after_change(self) -> None:
         """Close the mic, restart PortAudio, and open the first preference that opens, a flat
-        one too: it may have been plugged in again."""
+        one too: it may have been plugged in again. When Windows listed a new mic and a more
+        preferred one than the mic opened did not open, it is tried again (`_await_return`)."""
         logger.info("Windows lists other microphones now; listing them again")
+        before = self._known_names
         self._flat.clear()
         self._told_all_flat = False
         self._close_current()
         self._reopen(came_back=True)
+        added = before is not None and bool((self._known_names or before) - before)
+        self._return_tries = RETURN_TRIES if added else 0
+        self._await_return()
+
+    def _await_return(self) -> None:
+        """Try the preferences again in RETRY_S while a more preferred mic than the one in use
+        did not open since Windows listed a new one, at most RETURN_TRIES times: a Bluetooth
+        headset's input may be listed a moment before it opens."""
+        self._return_at = None
+        if self._stream is None or not self._last_rank or self._return_tries <= 0:
+            return
+        self._return_tries -= 1
+        self._return_at = self._clock() + RETRY_S
 
     def _reopen(
         self, *, failed: tuple[Device, ...] = (), announce: bool = True, came_back: bool = False
@@ -407,6 +432,7 @@ class MicSource:
         """Take the phone's switch: close the mic, restart PortAudio, open the one asked for;
         when it does not open, the one in use before (or the first that opens)."""
         previous = self._value
+        self._return_at = None  # he chose
         self._close_current()
         if request.device is None:
             self._picked = None

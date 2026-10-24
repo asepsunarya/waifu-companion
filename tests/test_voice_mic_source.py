@@ -24,6 +24,7 @@ from waifu.voice.mic_source import (
     MIC_NOW,
     PROBE_S,
     RETRY_S,
+    RETURN_TRIES,
     MicSource,
     windows_input_names,
 )
@@ -443,6 +444,74 @@ def test_with_one_preference_windows_list_is_never_read_between_frames():
         marks(source.frames(), 3)
 
     assert rig.mics.probes == probes
+
+
+def test_a_preferred_mic_listed_before_it_opens_is_tried_again_until_it_does():
+    # A Bluetooth headset's hands-free input may be listed a moment before it can be opened.
+    rig = Rig([HEADSET, USB])
+    with on_the_usb_mic(rig) as source:
+        frames = source.frames()
+        rig.mics.broken[HEADSET] = OSError("Unanticipated host error")
+        rig.mics.names = rig.mics.names | {"Headset (Polaris-BT) 2"}
+        rig.clock.now += PROBE_S
+        marks(frames, 2)
+        assert source.status().mic.name == "Microphone (USB)"
+
+        del rig.mics.broken[HEADSET]  # ready now
+        rig.clock.now += RETRY_S
+        marks(frames, 2)
+
+    assert rig.mics.streams[-1].device == HEADSET
+    assert rig.said[-1] == MIC_BACK.format(name="Headset (Polaris-BT)")
+
+
+def test_a_preferred_mic_that_never_opens_is_tried_again_a_few_times_only():
+    rig = Rig([HEADSET, USB])
+    with on_the_usb_mic(rig) as source:
+        frames = source.frames()
+        rig.mics.broken[HEADSET] = OSError("Unanticipated host error")
+        rig.mics.names = rig.mics.names | {"Headset (Polaris-BT) 2"}
+        rig.clock.now += PROBE_S
+        marks(frames, 1)
+        for _ in range(10):
+            rig.clock.now += RETRY_S
+            marks(frames, 1)
+
+    assert rig.events.count("restart") == 1 + RETURN_TRIES
+    assert rig.mics.streams[-1].device == USB
+
+
+def test_a_mic_picked_on_the_phone_ends_the_tries_of_a_more_preferred_one():
+    rig = Rig([HEADSET, USB])
+    with on_the_usb_mic(rig) as source:
+        frames = source.frames()
+        rig.mics.broken[HEADSET] = OSError("Unanticipated host error")
+        rig.mics.names = rig.mics.names | {"Headset (Polaris-BT) 2"}
+        rig.clock.now += PROBE_S
+        marks(frames, 2)  # the headset did not open: it is to be tried again
+        switch_from_the_phone(rig, USB, frames)
+        restarts = rig.events.count("restart")
+
+        for _ in range(5):
+            rig.clock.now += RETRY_S
+            marks(frames, 1)
+
+    assert rig.events.count("restart") == restarts
+
+
+def test_a_mic_that_went_from_windows_list_is_not_tried_again():
+    rig = Rig([HEADSET, USB])
+    with on_the_usb_mic(rig) as source:
+        frames = source.frames()
+        rig.mics.broken[HEADSET] = ValueError("gone")
+        rig.mics.names = frozenset({"Microphone (Onboard)"})  # one went, none came
+        rig.clock.now += PROBE_S
+        marks(frames, 1)
+        for _ in range(5):
+            rig.clock.now += RETRY_S
+            marks(frames, 1)
+
+    assert rig.events.count("restart") == 1
 
 
 def test_without_a_restart_she_never_switches_back_by_herself():
