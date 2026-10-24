@@ -354,6 +354,9 @@ COMMAND_NAME_RULE = "pakai huruf kecil, angka, atau garis bawah (misalnya temp_2
 THRESHOLD_SHARE_OF_WEAKEST = 0.5
 MIN_SUGGESTED_THRESHOLD = 0.25
 MIC_CHECK_SECONDS = 3.0  # how long `waifu mic` listens to each microphone
+# How long a line about the mic she switched to may wait while a focus block or a game holds
+# what she says by herself: later the mic may have changed again, and the Suara page tells.
+MIC_NOTICE_S = 60
 NO_MIC_FOUND = (
     "Windows tidak menemukan mikrofon. Sambungkan mic atau headset, lalu cek Windows Settings, "
     "Privacy & security, Microphone."
@@ -1547,7 +1550,11 @@ def _listen(args: argparse.Namespace) -> int:
             # Through a failing mic she goes on with the next one, says which, and switches back
             # when a preferred one returns; the phone's Suara page shows and switches it.
             mic = _mic_source(
-                config, override, announce=assistant.announce, on_swap=segmenter.relearn, live=True
+                config,
+                override,
+                announce=_mic_notice(assistant),
+                on_swap=segmenter.relearn,
+                live=True,
             )
             voice = VoicePanel(
                 mic,
@@ -2120,6 +2127,16 @@ def _mic_source(
         present=windows_input_names if live and sys.platform == "win32" else None,
         listing=_input_listing if live else None,
     )
+
+
+def _mic_notice(assistant: Assistant) -> Callable[[str], None]:
+    """How she says by herself which mic she listens through now: queued like any notice, and
+    dropped once MIC_NOTICE_S has passed unsaid."""
+
+    def announce(text: str) -> None:
+        assistant.announce(text, expires_at=datetime.now() + timedelta(seconds=MIC_NOTICE_S))
+
+    return announce
 
 
 def _portaudio_restart(audio: AudioConfig) -> Callable[[], None] | None:

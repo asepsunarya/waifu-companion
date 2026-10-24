@@ -18004,6 +18004,31 @@ def test_run_never_restarts_portaudio_with_a_numbered_device(home, run_fakes, mo
     assert opened == [2, None]
 
 
+def test_run_says_a_mic_change_only_while_it_is_news(home, run_fakes, monkeypatch):
+    # A focus block or a game holds what she says by herself: by then the mic may have changed
+    # again, and the line would name the wrong one.
+    use_input_devices(home, USB_MIC)
+
+    def open_mic(sample_rate, frame_ms, device=None):
+        failure = MicrophoneError("Mikrofon terputus") if device == USB_MIC else None
+        mic = FakeMic([SILENT_FRAME], end_with=failure)
+        mic.name = "Microphone (USB)" if device == USB_MIC else "Microphone (Onboard)"
+        return mic
+
+    monkeypatch.setattr(cli, "MicStream", open_mic)
+    monkeypatch.setattr(cli, "restart_portaudio", lambda: None)
+    monkeypatch.setattr(RecordingAssistant, "run", lambda self, mic, seg: list(mic.frames()))
+    before = datetime.now()
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    assistant = RecordingAssistant.instances[0]
+    assert assistant.announced == [("Sekarang aku pakai mic Microphone (Onboard).", "neutral")]
+    [until] = assistant.announced_until
+    news_for = timedelta(seconds=cli.MIC_NOTICE_S)
+    assert before + news_for <= until <= datetime.now() + news_for
+
+
 def test_enroll_records_through_the_mic_picked_on_the_phone(home, monkeypatch):
     write_override(home, input_device=USB_MIC)
     tried: list[object] = []
