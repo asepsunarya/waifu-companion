@@ -430,7 +430,9 @@ class MicSource:
 
     def _switch(self, request: _Switch) -> None:
         """Take the phone's switch: close the mic, restart PortAudio, open the one asked for;
-        when it does not open, the one in use before (or the first that opens)."""
+        when it does not open, the one in use before (or the first that opens). A mic is kept
+        (`on_switched`) once it opened; following the config again is kept whatever opens, as
+        the pick is dropped either way."""
         previous = self._value
         self._return_at = None  # he chose
         self._close_current()
@@ -441,7 +443,8 @@ class MicSource:
         else:
             self._restart_portaudio()
             result = self._switch_to(request.device, previous)
-        if result.state == "done" and request.on_switched is not None:
+        kept = result.state == "done" or request.device is None
+        if kept and request.on_switched is not None:
             try:
                 request.on_switched(request.device)
             except Exception:

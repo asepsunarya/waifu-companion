@@ -618,6 +618,21 @@ def test_following_the_config_again_drops_the_phone_s_pick():
     assert switched == [None]
 
 
+def test_following_the_config_again_drops_the_kept_pick_even_when_no_mic_opens():
+    rig = Rig([HEADSET], picked=USB)
+    switched = []
+    with rig.source as source:
+        frames = source.frames()
+        for device in (HEADSET, USB, None):
+            rig.mics.broken[device] = ValueError("gone")
+
+        answer = switch_from_the_phone(rig, None, frames, on_switched=switched.append)
+
+        assert answer.state == "failed"
+        assert source.status().picked is None
+    assert switched == [None]  # what he asked for, kept as the page now shows it
+
+
 # --- what the Suara page shows ----------------------------------------------------------------
 
 
