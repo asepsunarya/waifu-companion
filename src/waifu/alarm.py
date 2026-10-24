@@ -168,6 +168,8 @@ class AlarmBell:
         first ring's; `now` is the PC's local time (naive), as the schedule's; `clock` times how
         long a state read is kept."""
         self.path = Path(path)
+        self.repeat_seconds = repeat_seconds
+        self.max_minutes = max_minutes
         self.snooze_minutes = snooze_minutes
         self._schedule = schedule
         self._repeat = timedelta(seconds=repeat_seconds)

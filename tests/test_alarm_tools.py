@@ -38,7 +38,7 @@ class Switch:
 
 
 class Rig:
-    def __init__(self, tmp_path, *, max_entries: int = 50, snooze_minutes: int = 5) -> None:
+    def __init__(self, tmp_path, *, max_entries: int = 50, **bell_kwargs) -> None:
         self.clock = Clock(NIGHT)
         self.guests = Switch()
         self.store = ScheduleStore(
@@ -47,9 +47,9 @@ class Rig:
         self.bell = AlarmBell(
             tmp_path / "alarm.json",
             self.store,
-            snooze_minutes=snooze_minutes,
             now=self.clock,
             clock=lambda: 0.0,
+            **bell_kwargs,
         )
         self.tools = AlarmTools(self.store, self.bell, guest_mode=self.guests)
 
@@ -116,6 +116,26 @@ def test_the_description_says_what_an_alarm_is_for_and_when_it_rings(rig):
         "do not call again in this turn",
     ]:
         assert guidance in spec.description
+
+
+@pytest.mark.parametrize(
+    ("repeat_seconds", "max_minutes", "cadence"),
+    [
+        (60, 10, "again every minute, a little louder each time,"),
+        (120, 20, "again every 2 minutes, a little louder each time,"),
+        (45, 1, "again every 45 seconds, a little louder each time,"),
+    ],
+)
+def test_the_description_tells_the_ring_s_configured_cadence_and_length(
+    tmp_path, repeat_seconds, max_minutes, cadence
+):
+    rig = Rig(tmp_path, repeat_seconds=repeat_seconds, max_minutes=max_minutes)
+
+    [spec] = rig.tools.specs()
+
+    assert cadence in spec.description
+    length = "1 minute passes" if max_minutes == 1 else f"{max_minutes} minutes pass"
+    assert f"or {length}." in spec.description
 
 
 def test_the_spec_is_the_same_at_every_call_for_prompt_caching(rig):

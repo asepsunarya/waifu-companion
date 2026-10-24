@@ -8,10 +8,11 @@ phone's chat.
 
 Every argument may be left out (they are checked here), so it takes no strict slot: the strict
 `schedule` tool could take a kind only as one more optional parameter of the strict budget. The
-spec is static English built once, so it stays byte-identical for the brain's lifetime and keeps
-the prompt cache warm. Guest mode leaves it open, an alarm being a control, but closes the list
-and cancelling (the labels, and Master's entries), as `list_schedules` and `cancel_schedule`.
-In the turns she starts herself it refuses. `run` never raises.
+spec is static English built once, with the bell's configured cadence, so it stays byte-identical
+for the brain's lifetime and keeps the prompt cache warm. Guest mode leaves it open, an alarm
+being a control, but closes the list and cancelling (the labels, and Master's entries), as
+`list_schedules` and `cancel_schedule`. In the turns she starts herself it refuses. `run` never
+raises.
 """
 
 from __future__ import annotations
@@ -65,11 +66,12 @@ _NOTHING_RINGS = "Tidak ada alarm yang sedang berbunyi."
 _NOTHING_TO_SNOOZE = "Tidak ada alarm yang sedang berbunyi untuk ditunda."
 _SNOOZED = "Alarm ditunda sampai jam {time}."
 _FAILED = "Alarm tidak bisa diproses saat ini."
+# {every} and {length} are the bell's, told once per brain so the spec stays byte-identical.
 _DESCRIPTION = (
     "Master's wake-up alarms. Use it to wake Master ('bangunkan aku jam 6', 'alarm jam 5.30 "
     "besok', 'alarm tiap hari kerja jam 6'), not a reminder with schedule: at its time you say "
-    "it aloud on the PC, then again every minute, a little louder each time, until Master says "
-    "he is awake, taps 'Matikan alarm' on his phone or PC, or ten minutes pass. `action`: set "
+    "it aloud on the PC, then again every {every}, a little louder each time, until Master says "
+    "he is awake, taps 'Matikan alarm' on his phone or PC, or {length}. `action`: set "
     "(the default) with `at` as YYYY-MM-DD HH:MM, local, 24-hour, from the time stamp of the "
     "turn (a clock time that has already passed today usually means tomorrow), `repeat` as for "
     "schedule (daily, weekdays (Monday-Friday), weekends (Saturday-Sunday), weekly, monthly, "
@@ -109,7 +111,9 @@ class AlarmTools:
         self._guest_mode = guest_mode
         self._spec = ToolSpec(
             name=ALARM,
-            description=_DESCRIPTION,
+            description=_DESCRIPTION.format(
+                every=_every(bell.repeat_seconds), length=_length(bell.max_minutes)
+            ),
             input_schema={
                 "type": "object",
                 "properties": {
@@ -212,6 +216,18 @@ class AlarmTools:
                 "message": _SNOOZED.format(time=f"{entry.at:%H.%M}"),
             }
         ), False
+
+
+def _every(seconds: int) -> str:
+    """How often a ring comes: `minute`, `2 minutes`, or `45 seconds`."""
+    if seconds == 60:
+        return "minute"
+    return f"{seconds // 60} minutes" if seconds % 60 == 0 else f"{seconds} seconds"
+
+
+def _length(minutes: int) -> str:
+    """When a ring ends by itself: `10 minutes pass`, or `1 minute passes`."""
+    return "1 minute passes" if minutes == 1 else f"{minutes} minutes pass"
 
 
 def _alarm_json(entry: Entry) -> dict[str, object]:
