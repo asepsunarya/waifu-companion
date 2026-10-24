@@ -2235,6 +2235,7 @@ named `tests/test_<package>_<module>.py`.
 - [x] The `schedule` description explains weekly, monthly, and yearly, a past `at` for them, the next month that has the day, birthdays (yearly, 08:00 unless Master says a time, a reminder in the owner's call word) and bills (monthly), and keeps its earlier guidance
 - [x] The `schedule` result and `list_schedules` give `day` for a monthly or yearly entry only; the description of `list_schedules` tells her to pick "this month" from the list herself
 - [x] No schema changes but the enum; the strict-tool budget stays
+- [x] Fix pass: the `schedule` description says to pass a leap year's date such as 2028-02-29 for 29 February (2027-02-29 is refused as a date and 2027-02-28 would store the 28th for good); bills get the 08:00 default and a reminder text as birthdays do, as the README and CHANGELOG promise; a weekly entry's `schedule` and `list_schedules` results name its `weekday` (`WEEKDAYS_ID`), and the descriptions say to use it, so "tiap Senin" never rests on her counting from the date
 
 **Dependencies:** 233 · **Files:** `src/waifu/brain/schedule_tools.py`, `tests/test_schedule_tools.py` · **Scope:** S
 
@@ -2249,6 +2250,7 @@ named `tests/test_<package>_<module>.py`.
 
 **Acceptance criteria:**
 - [x] A monthly or yearly reminder missed beyond the grace is told in the tick's one announcement (with its date when not today's) and pushed; a missed daily, weekdays, weekends, or weekly one is still only pushed; the entry moves to its next time
+- [x] Fix pass: `_missed_text`'s docstring says it announces missed one-shot, monthly, and yearly reminders, as the module docstring, `_settle`, and `_skip` do
 
 **Dependencies:** 233 · **Files:** `src/waifu/scheduler.py`, `tests/test_scheduler.py` · **Scope:** S
 
