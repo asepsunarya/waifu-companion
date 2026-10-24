@@ -4223,6 +4223,43 @@ def test_words_not_addressed_to_her_leave_her_question_waiting(tmp_path):
     assert lexicon.read() == {"Acheron": "A Ke Ron"}
 
 
+def test_a_bare_wake_word_leaves_her_question_waiting_and_never_answers_the_brains(tmp_path):
+    # Two yes-questions at once: the brain's shutdown, then her reading. "Cyrene" answers
+    # neither, so the "iya" after her acknowledgement is for the question she asked last.
+    lexicon = Lexicon(tmp_path / "tts_lexicon.json")
+    rig = Rig(
+        "Cyrene, matikan PC", TEACH_ACHERON, "Cyrene", "iya", brain=AskingBrain, lexicon=lexicon
+    )
+
+    rig.assistant.handle_utterance(rig.utterance())
+    asked_reading = rig.assistant.handle_utterance(rig.utterance())
+    rig.clock.now += 15  # the follow-up window has closed
+    acknowledged = rig.assistant.handle_utterance(rig.utterance())
+    taught = rig.assistant.handle_utterance(rig.utterance())
+
+    assert asked_reading == ASKED_ACHERON
+    assert acknowledged == "はい、Master?"
+    assert taught == TAUGHT_ACHERON
+    assert lexicon.read() == {"Acheron": "A Ke Ron"}
+    assert asked(rig) == ["matikan PC"]
+    assert rig.brain.ran == 0
+
+
+def test_a_yes_after_a_bare_wake_word_still_comes_within_60_seconds_of_her_question(tmp_path):
+    path = tmp_path / "tts_lexicon.json"
+    rig = Rig(TEACH_ACHERON, "Cyrene", "iya", lexicon=Lexicon(path))
+
+    rig.assistant.handle_utterance(rig.utterance())
+    rig.clock.now += 55
+    rig.assistant.handle_utterance(rig.utterance())
+    rig.clock.now += 6  # inside the window her acknowledgement opened, 61 s after her question
+    said = rig.assistant.handle_utterance(rig.utterance())
+
+    assert said == REPLY
+    assert asked(rig) == ["iya"]
+    assert not path.exists()
+
+
 def test_a_phone_message_after_her_question_drops_it(tmp_path):
     path = tmp_path / "tts_lexicon.json"
     rig = Rig(TEACH_ACHERON, "iya", lexicon=Lexicon(path))

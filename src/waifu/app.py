@@ -537,7 +537,9 @@ class Assistant:
             return None
         hearing.outcome = ACCEPTED
         self._announcements_held_until = None  # Master has been heard after a cut
-        asked, self._reading_asked = self._reading_asked, None
+        asked = None
+        if result.command:  # a bare wake word answers nothing: her question waits on
+            asked, self._reading_asked = self._reading_asked, None
         if (
             asked is not None
             and self._lexicon is not None
@@ -1142,8 +1144,9 @@ class Assistant:
         """Ask Master whether `term` is to be read as `reading`, naming both like a reply,
         without the brain; returns what she said and how long its synthesis took.
 
-        Nothing is kept yet: the reading is held until Master's next turn, which keeps it only
-        when it is his yes (`_reading_confirmed`). A rule `checked_rule` refuses is explained at
+        Nothing is kept yet: the reading is held until Master's next words after the wake word
+        (a bare one answers nothing), which keep it only when they are his yes
+        (`_reading_confirmed`). A rule `checked_rule` refuses is explained at
         once instead, and nothing is held. Like `_tell_heard`, no turn is taken and it is never
         remembered for "ulangi". The log names neither word.
         """
