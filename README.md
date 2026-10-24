@@ -2255,16 +2255,46 @@ keluaran terminal tidak memuat UID, nickname, atau avatar.
 | Ekspedisi | semua ekspedisi HSR / Genshin selesai | sekali per gelombang (atau setelah Cyrene dijalankan ulang) | `expeditions: false` |
 | Check-in | diambil sendiri; dia bilang hadiahnya | sekali per hari (berganti jam 23.00 WIB) | `checkin: false` |
 | Masalah | cookie tidak berlaku, captcha, Real-Time Notes mati | sekali per hari | — |
+| Musim endgame mau habis | mulai `daily_time`, musim Memory of Chaos, Pure Fiction, Apocalyptic Shadow, Anomaly Arbitration (HSR), atau Spiral Abyss (Genshin) yang berakhir dalam 72 jam dan belum maksimal | sekali per musim | `planner: false` |
+| Event mau habis | mulai `daily_time`, event HSR atau ZZZ yang berakhir dalam 48 jam dan progresnya belum penuh (paling banyak 2, yang paling cepat habis dulu) | sekali per hari game, satu kalimat per game bersama musim endgame | `planner: false` |
+| Stamina penuh sebelum bangun | kamu menutup game antara 22.00 dan 03.00, dan staminanya penuh sebelum pagi (`briefing.time`, bawaan 07.00) | sekali per malam | `planner: false` |
 
 HoYoLAB dicek tiap `poll_minutes` (bawaan 15). Pengingat daily, mingguan, masalah, dan
 check-in disimpan di `data\gacha\reminders.json`, jadi Cyrene yang di-restart tidak
 mengulangnya. Stamina dan ekspedisi yang masih penuh disampaikan sekali lagi setelah
 restart, karena selama PC mati dia tidak tahu apakah sempat kamu pakai. Tidak ada jam
 tenang: dia juga bicara di malam hari selama `waifu run` jalan. Pengingat stamina, daily,
-mingguan, dan ekspedisi yang ditahan [Mode game](#mode-game) sampai pengecekan berikutnya tidak
-diucapkan lagi, karena game yang dimainkan mungkin sudah mengubah isinya (resin sudah dipakai,
-daily sudah selesai); notifikasi HP-nya, kalau menyala, sudah terkirim. Blok fokus tanpa main
-game menahannya sampai istirahat seperti biasa, dan masalah serta check-in tetap diucapkan.
+mingguan, ekspedisi, dan tiga pengingat "sebelum reset" yang ditahan [Mode game](#mode-game)
+sampai pengecekan berikutnya tidak diucapkan lagi, karena game yang dimainkan mungkin sudah
+mengubah isinya (resin sudah dipakai, daily sudah selesai); notifikasi HP-nya, kalau menyala,
+sudah terkirim. Blok fokus tanpa main game menahannya sampai istirahat seperti biasa, dan
+masalah serta check-in tetap diucapkan.
+
+**Sebelum reset.** Tiga baris terakhir tabel di atas menyala tanpa diatur (`planner: true`):
+
+> "Master, Memory of Chaos di HSR berakhir sekitar 50 jam lagi, baru dapat 30 dari 36. Event
+> Gift of Odyssey berakhir sekitar 20 jam lagi, baru 3 dari 7."
+>
+> "Master, Trailblaze Power di HSR penuh jam 04.10, sebelum kamu bangun."
+
+- Untuk musim dan event, Cyrene membaca kalender event tiap game sekali sehari game, mulai
+  `daily_time`, sama seperti `waifu gacha <game> events`: kira-kira 4 permintaan HoYoLAB sehari
+  untuk ketiga game, di samping sekitar 576 untuk stamina dan check-in. Kalau Battle Chronicle
+  game itu tidak publik, dia mencoba lagi besok tanpa bilang apa-apa.
+- Hanya yang dicatat HoYoLAB yang disebut: event Genshin, Imaginarium Theater, Stygian
+  Onslaught, dan ZZZ tidak punya angka progres di kalender, dan musim yang belum kamu mainkan
+  belum punya nilai maksimal, jadi semuanya tidak disebut. "Baru dapat 30 dari 36" di HSR
+  adalah angka progres HoYoLAB; cocokkan sekali dengan bintang di game (checklist di bawah).
+  Event ZZZ menyebut Polychrome-nya.
+- Stamina penuh sebelum bangun butuh [Jam main](#jam-main) menyala (bawaan), supaya dia tahu
+  kapan kamu menutup game. Dia bilang di pengecekan HoYoLAB berikutnya (paling lama
+  `poll_minutes`), lalu pengingat stamina game itu menunggu sampai pagi, supaya tidak berbunyi
+  jam 04.10 di kamar kosong. Sesudah jam pagi, kalau staminanya masih penuh, dia bilang sekali
+  seperti biasa. Jam pagi adalah `briefing.time`, juga saat sapaan pagi dimatikan. Game yang
+  tertutup karena PC tidur atau `waifu run` mati lama tidak dihitung.
+- Selama [mode tamu](#mode-tamu) menyala, ketiganya diam dan tidak membaca HoYoLAB; game yang
+  kamu tutup malam itu menunggu sampai tamunya pergi (sebelum pagi). Pengingat lain di tabel
+  ini tetap berbunyi seperti dulu.
 
 ### Ketentuan dan risiko
 
@@ -6733,6 +6763,14 @@ mendengarkan"; jawaban pertama bisa lebih lama karena model Ollama baru dimuat)
       sama dengan di game.
 - [ ] Turunkan sementara `stamina_minutes` sampai di atas sisa waktu penuh: dalam 15
       menit dia mengingatkan lewat suara dan HP, sekali saja.
+- [ ] Sebelum reset: pada malam ketika event HSR atau ZZZ yang belum selesai berakhir dalam 2
+      hari, atau musim endgame HSR / Spiral Abyss yang belum maksimal berakhir dalam 3 hari,
+      mulai `daily_time` dia menyebutnya sekali dengan angka yang sama dengan
+      `waifu gacha <game> events`. Untuk musim HSR, catat apakah "baru dapat X dari Y" sama
+      dengan bintang di game.
+- [ ] Tutup HSR sesudah jam 22.00 dengan Trailblaze Power yang penuh sebelum jam 07.00: dalam 15
+      menit dia bilang jam penuhnya; malam itu tidak ada "sudah penuh", dan sesudah jam 07.00
+      ada, sekali, kalau belum kamu pakai.
 - [ ] `waifu gacha codes`: tiap game tanpa `!`, dan kode yang belum ditukarkan sama dengan kode
       yang masih berlaku menurut pengumuman resmi game.
 - [ ] Di `waifu run`: sekitar semenit setelah siap, kode baru (pertama kali: semua yang masih

@@ -1098,17 +1098,17 @@ morning (`briefing.time`) gets its own once-a-night line, and the stamina line w
 morning. The play watcher tells the sessions it just finished through a queue; guest mode silences
 the planner. No tool: 18 of 20 strict tools, 17 of 24 optional parameters, and 0 of 16 unions stay.
 - [x] Task 288a: contract: SPEC, tasks
-- [ ] Task 288: `gacha.reminders.planner`
-- [ ] Task 289: the evening rules: ending events and seasons (`gacha/planner.py`)
-- [ ] Task 290: the overnight rule and the stamina hold
-- [ ] Task 291: the play watcher tells the sessions it just finished
-- [ ] Task 292: the watcher: the calendar once a game day, the queue, guest mode, the `planner` kind
-- [ ] Task 293: the CLI wiring
-- [ ] Task 294: README, CHANGELOG
+- [x] Task 288: `gacha.reminders.planner`
+- [x] Task 289: the evening rules: ending events and seasons (`gacha/planner.py`)
+- [x] Task 290: the overnight rule and the stamina hold
+- [x] Task 291: the play watcher tells the sessions it just finished
+- [x] Task 292: the watcher: the calendar once a game day, the queue, guest mode, the `planner` kind
+- [x] Task 293: the CLI wiring
+- [x] Task 294: README, CHANGELOG
 
 ### Checkpoint: Sebelum reset
-- [ ] Python suite, ruff, and JS tests clean; no test made a request or read the repository's `data/`; the strict-tool budget unchanged (18 of 20 strict tools, 17 of 24 optional parameters, 0 of 16 unions)
-- [ ] By hand: in a scratch folder with a fake HoYoLAB and real-shaped calendars, the evening line, the overnight line, and the held stamina line come as the SPEC says
+- [x] Python suite, ruff, and JS tests clean; no test made a request or read the repository's `data/`; the strict-tool budget unchanged (18 of 20 strict tools, 17 of 24 optional parameters, 0 of 16 unions) (2026-10-25: 10865 pytest and 601 JS tests, ruff clean; the calendars, HoYoLAB, the clocks, and the process listing are fakes, and every state file is under tmp_path; nothing under src/waifu/brain or in a tool spec changed, so no tool schema moved)
+- [x] By hand: in a scratch folder with a fake HoYoLAB and real-shaped calendars, the evening line, the overnight line, and the held stamina line come as the SPEC says (2026-10-25, a scratch script, deleted afterwards, over the real GachaWatcher, PlayTimeWatcher with a real store, planner, and `HoyolabClient.hsr_calendar` with a fake genshin.py client answering a real-shaped `HSREventCalendar`: Saturday 20:00 said "Master, Memory of Chaos di HSR berakhir sekitar 55 jam lagi, baru dapat 30 dari 36. Event Gift of Odyssey berakhir sekitar 7 jam lagi, baru 3 dari 7." with one calendar read over two polls; HSR open 22:30 to 23:40 put one closed session in the queue, and the 23:50 poll said "Master, Trailblaze Power di HSR penuh jam 04.10, sebelum kamu bangun."; the 03:10 poll (60 minutes left) and the 04:15 poll (full) said nothing; 07:00 said "Master, Trailblaze Power di HSR sudah penuh, 300 dari 300. Jangan sampai terbuang ya."; each line was held by a game only until the next poll)
 - [ ] On the owner's PC: an evening line names a real event or season, and HSR's window progress matches the stars in the game
 
 ## Risks and Mitigations

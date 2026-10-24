@@ -4,6 +4,25 @@ Ringkasan per versi, yang terbaru di atas. Rinciannya ada di README (bagian yang
 setiap versi) dan di SPEC.md. Setelah memperbarui, **mulai ulang `waifu run`** supaya semuanya
 aktif, lalu jalankan `waifu check`.
 
+## v1.50: sebelum reset
+
+- Mulai `daily_time` (bawaan 20:00), Cyrene menyebut sekali sehari per game apa yang mau habis
+  sebelum kamu sempat: musim endgame HSR (Memory of Chaos, Pure Fiction, Apocalyptic Shadow,
+  Anomaly Arbitration) dan Spiral Abyss yang berakhir dalam 3 hari dan belum maksimal (sekali per
+  musim), lalu paling banyak 2 event HSR atau ZZZ yang berakhir dalam 2 hari dan progresnya
+  belum penuh: "Master, Memory of Chaos di HSR berakhir sekitar 50 jam lagi, baru dapat 30 dari
+  36. Event Gift of Odyssey berakhir sekitar 20 jam lagi, baru 3 dari 7."
+- Kalau kamu menutup game antara jam 22.00 dan 03.00 dan staminanya akan penuh sebelum pagi
+  (`briefing.time`, bawaan 07.00), dia bilang sekali: "Master, Trailblaze Power di HSR penuh jam
+  04.10, sebelum kamu bangun." Pengingat "sudah penuh" game itu lalu menunggu sampai pagi, tidak
+  lagi berbunyi tengah malam di kamar kosong. Butuh jam main menyala (bawaan).
+- Untuk itu kalender event tiap game dibaca sekali sehari, kira-kira 4 permintaan HoYoLAB
+  tambahan sehari. Yang tidak dicatat HoYoLAB tidak disebut: event Genshin, Imaginarium Theater,
+  Stygian Onslaught, ZZZ endgame, dan musim yang belum kamu mainkan.
+- Selama mode tamu menyala ketiganya diam. Mode game menahannya seperti pengingat daily.
+- Bisa dimatikan dengan `gacha.reminders.planner: false`. Tidak ada tool baru.
+- README: "Pengingat" di bagian teman main gacha.
+
 ## v1.49: kamus cyrene
 
 - Whisper sekarang menunggu kata-kata duniamu sendiri: namanya dan kata panggilannya, nama dan
