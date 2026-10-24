@@ -2260,3 +2260,58 @@ named `tests/test_<package>_<module>.py`.
 - [x] README "Jadwal, pengingat, dan rutinitas": weekly, monthly, and yearly examples (birthdays, bills), the month-end and 29 February rules, the missed rule, the list example; CHANGELOG v1.43 with the downgrade note; full suite and ruff clean
 
 **Dependencies:** 234, 235, 236 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
+
+## Task 238a: Cuaca beberapa hari contract ✅
+
+**Acceptance criteria:**
+- [x] SPEC "cuaca beberapa hari (v1.44)" (stories, non-goals, the client, the days and parts, the tool, the CLI, guest mode, decisions, known limits, privacy, safety) and pointers from the v1.12 briefing and v1.25 rain sections; tasks 238a-243 in the plan and here
+
+**Dependencies:** none · **Files:** `SPEC.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
+
+## Task 238: `WeatherClient.outlook()`
+
+**Acceptance criteria:**
+- [ ] `outlook()` asks once with `OUTLOOK_QUERY` (seven days; daily code, range, rain chance, and amount; hourly code, temperature, rain chance, and amount) and reads `Outlook(place, now, days, hours)`; null daily or hourly values are None
+- [ ] The same city cache, 8 s limit, `failure_level`, and errors as `today()` and `forecast()`; a reply without what it reads is the unreadable `WeatherError`
+- [ ] `FORECAST_QUERY`, `today()`, and `forecast()` unchanged; `Hour.temperature_c` defaults to None; `condition_of` is public
+
+**Dependencies:** 238a · **Files:** `src/waifu/weather.py`, `tests/test_weather.py` · **Scope:** M
+
+## Task 239: The days and parts asked
+
+**Acceptance criteria:**
+- [ ] `period_of`: a later day's daily values; the rest of today and any part from the hourly entries after now (highest code, highest chance, summed amount, lowest and highest temperature, known values only); a part from a to b reads the entries after a up to b (night with the next day's 00:00); None when a part of today has passed
+- [ ] `periods`: today, tomorrow, the weekend (Monday-Friday, Saturday, Sunday), a date of the reply; a date out of reach and a passed part are a `ForecastError`; after midnight today is the new date
+
+**Dependencies:** 238 · **Files:** `src/waifu/brain/weather_tools.py`, `tests/test_weather_tools.py` · **Scope:** M
+
+## Task 240: The `weather_forecast` tool
+
+**Acceptance criteria:**
+- [ ] Non-strict `weather_forecast {day?, part?}` with a static English description (routing against `daily_briefing`, one call per question, the parts, null place, never in her own turns)
+- [ ] The result names the place as written (null with coordinates), the days in Indonesian, whole degrees, and a whole day's parts; unknown values left out
+- [ ] Bad arguments, Open-Meteo failures, out-of-reach questions, and anything unexpected are error results; her own turns get a refusal
+
+**Dependencies:** 239 · **Files:** `src/waifu/brain/weather_tools.py`, `tests/test_weather_tools.py` · **Scope:** M
+
+## Task 241: The brain gets it
+
+**Acceptance criteria:**
+- [ ] `run` and `chat` add the tool right after the briefing tool whenever `briefing` names a place, also with the briefing off; the briefing tool and it share one client (one city lookup); nothing is asked at startup
+- [ ] Guest mode leaves it open; the every-tool request keeps 18 of 20 strict tools, 17 of 24 optional parameters, and 0 of 16 unions
+
+**Dependencies:** 240 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** S
+
+## Task 242: `waifu cuaca`
+
+**Acceptance criteria:**
+- [ ] `waifu cuaca [hari-ini|besok|akhir-pekan|YYYY-MM-DD]` prints the place, the time, each day, and its parts not passed; no place, an Open-Meteo failure, or a day out of reach is a `✗` line and exit 1; a bad word or date is an argparse error
+
+**Dependencies:** 239 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** S
+
+## Task 243: Docs
+
+**Acceptance criteria:**
+- [ ] README "Cuaca beberapa hari" after "Peringatan hujan" with a contents entry, the command row, a mention in "Mode tamu", a checklist item, and a Privasi bullet; CHANGELOG v1.44; full suite and ruff clean
+
+**Dependencies:** 241, 242 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S

@@ -495,7 +495,7 @@ User stories:
 2. "Cyrene, cuaca hari ini gimana?" / "ringkasan hari ini?" / "hari ini ada jadwal apa?" → the same data on request, any time of day.
 3. A restart, or a second PC start the same morning, never repeats the greeting.
 
-Non-goals: news, traffic, calendars outside Cyrene, holidays, multi-day forecasts beyond today and tomorrow morning, a greeting without `waifu run` running.
+Non-goals: news, traffic, calendars outside Cyrene, holidays, multi-day forecasts beyond today and tomorrow morning (since v1.44 the separate `weather_forecast` tool answers for the coming seven days: see cuaca beberapa hari), a greeting without `waifu run` running.
 
 Weather: Open-Meteo (free, no account or key; `https://api.open-meteo.com/v1/forecast` and `https://geocoding-api.open-meteo.com/v1/search`), reached only from `waifu run`/`chat`/`briefing`, never from tests (the conftest internet guard).
 
@@ -504,7 +504,7 @@ Config `briefing` (committed with its tests before the parallel tasks): `enabled
 `weather.py`:
 - `Weather` (frozen dataclass): `place: str`, `condition: str` (Indonesian, from the WMO weather code: 0 cerah, 1 cerah berawan, 2 berawan, 3 mendung, 45/48 berkabut, 51-57 gerimis, 61-67 hujan (65/67 deras), 80-82 hujan lokal (82 deras), 95-99 badai petir, 71-77/85-86 salju; anything else "tidak diketahui"), `temperature_c: float` (now), `min_c`/`max_c: float` (today), `rain_chance: int` (today's maximum precipitation probability, %), `tomorrow_morning: str` (condition at 07:00 tomorrow).
 - `WeatherError(Exception)`: Indonesian, speakable.
-- `WeatherClient(*, latitude=None, longitude=None, city=None, fetch=<urllib JSON GET with a User-Agent, called as fetch(url, timeout_s)>, clock=time.monotonic)`: `today() -> Weather`. With coordinates the place is the city when one is set (what she says), else `"<lat>, <lon>"`; no geocoding. With only a city it geocodes it once (`name=<city>&count=1&language=id`), caching the result for the client's life; no result → `WeatherError("Kota <city> tidak ditemukan ...")`. She is silent while it runs, so one `today()` call has 8 s for the city lookup and the forecast together: each request's timeout is the time left (urllib's socket timeout: per connection and per read, not the name lookup), and a request with less than 1 s left is not made (`WeatherError`, the unreachable message). The forecast request uses `current=temperature_2m,weather_code`, `daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max`, `hourly=weather_code` (since v1.25 `hourly=weather_code,precipitation_probability,precipitation`, for the rain alerts; `today()` still reads only the code), `timezone=auto`, `forecast_days=2`. Network or format problems → `WeatherError`. No location configured → `WeatherError` saying how to set `briefing.city`.
+- `WeatherClient(*, latitude=None, longitude=None, city=None, fetch=<urllib JSON GET with a User-Agent, called as fetch(url, timeout_s)>, clock=time.monotonic)`: `today() -> Weather`. With coordinates the place is the city when one is set (what she says), else `"<lat>, <lon>"`; no geocoding. With only a city it geocodes it once (`name=<city>&count=1&language=id`), caching the result for the client's life; no result → `WeatherError("Kota <city> tidak ditemukan ...")`. She is silent while it runs, so one `today()` call has 8 s for the city lookup and the forecast together: each request's timeout is the time left (urllib's socket timeout: per connection and per read, not the name lookup), and a request with less than 1 s left is not made (`WeatherError`, the unreachable message). The forecast request uses `current=temperature_2m,weather_code`, `daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max`, `hourly=weather_code` (since v1.25 `hourly=weather_code,precipitation_probability,precipitation`, for the rain alerts; `today()` still reads only the code), `timezone=auto`, `forecast_days=2`. Network or format problems → `WeatherError`. No location configured → `WeatherError` saying how to set `briefing.city`. (Since v1.44 also `outlook()`, seven days with a request of its own: see cuaca beberapa hari.)
 
 `briefing.py`:
 - `BriefingTools(*, weather: WeatherClient | None, schedule: ScheduleStore | None, now=datetime.now)`, a `ToolProvider` with one strict tool `daily_briefing {}` (English description: today's date and weekday, the weather where Master lives, and today's schedule entries; use it for greetings, "how's the weather", "what's on today"; for games call game_status too when it exists; mention what memory holds for today). Result JSON: `{"date": "Selasa, 13-10-2026", "weather": {...} | null, "weather_problem": str | null, "schedule_today": [{"time": "15:00", "what": "<Indonesian>"}...]}`; a weather or schedule failure fills its `*_problem` field instead of failing the tool. `run` never raises.
@@ -1062,7 +1062,7 @@ User stories (the owner lives in Cianjur, calls her owner word "Sayang", and dri
 3. At night she stays quiet; she never interrupts a conversation or her own reply to say it.
 4. `waifu rain` prints when the next rain is expected, or that none is expected in the next 24 hours.
 
-Non-goals (v1.25): radar or minute-by-minute nowcasts (the forecast is hourly, so she names whole hours only); alerts for other weather (heat, wind, haze); a place other than the briefing's; telling when the rain ends; a new voice question ("nanti hujan nggak?" stays the briefing tool's today and tomorrow-morning weather); remembering a told rain across restarts (a restart may tell it once more); alerts while `waifu run` is off; a new dependency.
+Non-goals (v1.25): radar or minute-by-minute nowcasts (the forecast is hourly, so she names whole hours only); alerts for other weather (heat, wind, haze); a place other than the briefing's; telling when the rain ends; a new voice question ("nanti hujan nggak?" stays the briefing tool's today and tomorrow-morning weather; since v1.44 the `weather_forecast` tool answers it for the rest of today: see cuaca beberapa hari); remembering a told rain across restarts (a restart may tell it once more); alerts while `waifu run` is off; a new dependency.
 
 Privacy: the place `briefing` configures (its coordinates, or the city name, geocoded once per run) goes to Open-Meteo every 15 minutes during the active hours while `waifu run` runs, besides the briefing's own requests; the alert sentence (owner word, hour, city) goes to ntfy when `rain_alert.push` and `notify` are on. Nothing is written to disk.
 
@@ -2041,6 +2041,67 @@ Decisions:
 Known limits: "tiap tanggal 31" said in a month without a 31st relies on the model passing the next month that has one; given the month's last day (2026-11-30), the entry repeats on the 30th (cancel it and ask again). A yearly entry cannot start in a later year. Birthdays and bills count toward `schedule.max_entries` (50 by default, up to 200). An older version sets the file aside (above). A reminder still fires only while `waifu run` is on and the PC awake; a missed one is told once, when she is back.
 
 Safety: tests use stores under tmp_path and fake clocks, never the repository's `data/schedule.json`, never a real device or an LLM; nothing is spoken or pushed.
+
+### cuaca beberapa hari (v1.44)
+
+Master asks about the weather ahead: "besok cuaca gimana?", "akhir pekan hujan nggak?", "nanti sore hujan?", "Jumat cuacanya gimana?". Until now she knew the weather now, today's range, and tomorrow at 07:00 (the briefing), and the rain alerts warn only shortly before a rain.
+
+User stories:
+
+1. "Cyrene, besok cuaca gimana?" → from her `weather_forecast` tool, in a sentence or two: "Besok di Cianjur pagi cerah, sorenya kemungkinan hujan, 19 sampai 28 derajat."
+2. "Nanti sore hujan nggak?" → today's evening (sore, 15:00-19:00): its condition, rain chance, amount, and temperatures; "nanti malam?" → tonight (19:00-24:00); "nanti hujan nggak?" → the rest of today. A part of today that has passed ("nanti sore" asked at 20:00) is said to have passed.
+3. "Akhir pekan hujan nggak?" → the coming Saturday and Sunday (on a Saturday the rest of today and Sunday, on a Sunday the rest of today).
+4. "Jumat cuacanya gimana?" → any day from today to six days on; a later day is out of reach, and she says how far the forecast goes.
+5. `waifu cuaca [hari-ini|besok|akhir-pekan|YYYY-MM-DD]` prints the same per day, with its parts.
+6. Guest mode leaves it open: the weather of the city she already names holds nothing private.
+
+Non-goals (v1.44): more than seven days; the exact hour of a rain (the parts and the rain alerts tell it; `waifu rain` prints it); a place other than the briefing's ("cuaca di Jakarta besok?"); wind, humidity, UV, sunrise and sunset; a change to the morning greeting, `daily_briefing`, `FORECAST_QUERY`, `waifu briefing`, or `waifu rain`; a cache between questions; the forecast in a turn she starts herself; a config switch of its own; a strict tool or a new strict parameter (18 of 20 strict tools, 17 of 24 optional parameters, and 0 of 16 unions stay); a dependency.
+
+`weather.py` (extended minimally):
+- `OUTLOOK_QUERY`: `current=weather_code` (asked only for the reply's `current.time`, the place's local time now), `daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum`, `hourly=weather_code,temperature_2m,precipitation_probability,precipitation`, `timezone=auto`, `forecast_days=7` (today and six more days). `FORECAST_QUERY` stays as it is, so the briefing and the rain watcher (every 15 minutes) ask exactly what they asked before.
+- `Hour` gains `temperature_c: float | None = None`, its last field (None in `forecast()`, which does not ask for it).
+- Values (frozen dataclasses): `DayOutlook(day: date, code: int | None, min_c: float | None, max_c: float | None, rain_chance: int | None, rain_mm: float | None)` and `Outlook(place: str, now: datetime, days: tuple[DayOutlook, ...], hours: tuple[Hour, ...])`: `now` is the reply's `current.time`, `days` every daily entry in order, `hours` every hourly entry with its temperature. A null value is None (Open-Meteo may leave a later day's probability null): unknown, never zero.
+- `WeatherClient.outlook() -> Outlook`: one forecast request with `OUTLOOK_QUERY` (and the city lookup the first time per client, kept for the client's life), the same 8 s limit, `failure_level`, and errors as `today()` and `forecast()`. A reply without what it reads (a missing block or column, columns of different lengths, a date or time that is not ISO, a value that is neither a number nor null, no daily entry, no current time) is the unreadable `WeatherError`.
+- `condition_of(code) -> str` (was `_condition`): a WMO code in Indonesian, the words the briefing uses.
+
+The days and parts (`brain/weather_tools.py`, pure):
+- Parts, with the hours `spoken_hour` gives their words: `morning` pagi 04:00-11:00, `afternoon` siang 11:00-15:00, `evening` sore 15:00-19:00, `night` malam 19:00-24:00 (dini hari, 00:00-04:00, is no part; the whole day covers it). Open-Meteo's hourly entry at T holds the hour before T, so the part from a to b reads the entries after a up to b, and night reads the next day's 00:00 entry.
+- `Period(day: date, part: str | None, condition: str | None, min_c: float | None, max_c: float | None, rain_chance: int | None, rain_mm: float | None)` (frozen): `part` is the part's Indonesian word, `REST_OF_TODAY` ("sisa hari ini"), or None for a whole day.
+- `period_of(outlook, day, part) -> Period | None`: the dates are the reply's, and `outlook.now`'s date is today (a place in WITA or WIT keeps its own). A day after today without a part: its daily values. Today without a part is the rest of today: the entries after now up to 24:00. A part, on any of the seven days, and the rest of today come from the hourly entries: the highest weather code (Open-Meteo's daily code is the day's most severe too), the highest rain chance, the summed amount (one decimal), and the lowest and highest temperature, each from the known values only (None when none is known); on today only the entries after `outlook.now` count (the hour running now included). None when no entry is left (a part of today that has passed).
+- `periods(outlook, day, part) -> list[Period]`: `day` is `"today"`, `"tomorrow"`, `"weekend"`, or a date. The weekend is the Saturday and Sunday from today on (Monday to Friday the coming ones, Saturday today and tomorrow, Sunday today). A date that is not one of the reply's days → `ForecastError("Prakiraan cuaca hanya ada untuk hari ini sampai <Hari DD-MM-YYYY>.")` (the reply's last day). Periods with no entry left are left out; when none is left → `ForecastError("<Pagi|Siang|Sore|Malam> ini sudah lewat.")` for a part of today, else `ForecastError("Prakiraan cuaca untuk waktu itu tidak ada.")`.
+- `ForecastError(Exception)`: Indonesian, safe to speak.
+
+The tool (`brain/weather_tools.py`):
+- `WeatherForecastTools(weather: WeatherClient, *, place: str | None)`, a `ToolProvider` with `weather_forecast {day?: string, part?: "morning"|"afternoon"|"evening"|"night"}`, non-strict (no required argument), its spec static English, built once. `day` is `today` (the default; null counts as left out), `tonight` (today with part `night`; any other part is invalid), `tomorrow`, `weekend`, or `YYYY-MM-DD`. Arguments are checked before Open-Meteo is asked.
+- The result: `{"place": <place> | null, "forecast": [{"date": "YYYY-MM-DD", "day": <WEEKDAYS_ID>, "part"?, "condition"?, "min_c"?, "max_c"? (whole degrees), "rain_chance"? (%), "rain_mm"? (one decimal), "parts"?}]}`, unknown values left out. A whole day (no part asked) carries `parts`: `[{"part": "pagi", "condition"?, "rain_chance"?}, ...]` for its parts not passed, so "besok hujan jam berapa?" or "pagi dan sore" needs no second call. `place` is `briefing.city` as written, null with coordinates only: as the rain alert names it, never the geocoded name or coordinates.
+- Failures, as `prayer_times`: bad arguments → `Argumen weather_forecast tidak valid: <why>`; a `WeatherError` → its message (logged at WARNING); a `ForecastError` → its message (logged at INFO: a question out of reach, not a failure); anything else → logged with its traceback, "Prakiraan cuaca tidak bisa dibaca saat ini."; `run` never raises.
+- In her own turns (the morning greeting, the weekly game report, the nightly journal question) it refuses: "Prakiraan cuaca hanya untuk pertanyaan Master, bukan untuk sapaan pagi." (`... laporan game mingguan.`, `... pertanyaan jurnal malam.`), so the greeting stays as it was.
+- The description: the weather now and today as a whole come from `daily_briefing`; later today, tonight, tomorrow, the weekend, a date, or a part of a day from this tool; never both for one question, and one call per question (each waits for Open-Meteo, up to 8 s of silence): for several parts of a day, ask for the whole day; the parts in Indonesian (pagi, siang, sore, malam) with their hours; "nanti sore" is today with `evening`, "nanti malam" `tonight`, "nanti" without a part today; a date from the date in Master's message, today to six days on; a null `place` means she names no place; say it briefly (the condition, the rain chance, the temperatures), never read the numbers out one by one; never in a greeting or anything she starts herself; after an error, say its message briefly and do not call again in this turn.
+
+CLI:
+- `run` and `chat` give the brain the tool right after the briefing tool whenever `briefing` names a place (`city` or `latitude`/`longitude`), whatever `briefing.enabled` says, as the rain alerts and `waifu rain` do; the briefing tool and it share one client, so the city is geocoded once per brain. Nothing is asked at startup. `place` is `briefing.city`.
+- `waifu cuaca [hari-ini|besok|akhir-pekan|YYYY-MM-DD]` (default `hari-ini`; no brain): no place → `✗ Cuaca belum diatur (isi briefing.city di config.yaml)`, exit 1; a `WeatherError` or `ForecastError` → `✗ <message>`, exit 1; otherwise `Prakiraan cuaca di <outlook.place>, per <now HH:MM>:` (the geocoded name or the coordinates, as `waifu rain` prints them), then per day `<Hari DD-MM-YYYY>: <summary>` (`<Hari DD-MM-YYYY>, sisa hari ini: ...` for today) and its parts not passed, `  pagi: <summary>`; a summary is `hujan, 18.9-28.3°C, peluang hujan 40%, curah hujan 3.5 mm` with unknown values left out (`tidak ada data` when none is known). Another word than the four or a date that is not `YYYY-MM-DD` is an argparse error.
+- `check` gets no line: the tool has no switch, and the briefing's line already says where the weather is for.
+
+Guest mode: open (`weather_forecast` is not in `PRIVATE_TOOLS`).
+
+Docs: README (Indonesian) section "Cuaca beberapa hari" after "Peringatan hujan" (asking, the parts, how far, `waifu cuaca`, guest mode, privacy) with a contents entry, the command row, a mention in "Mode tamu", a checklist item, and a Privasi bullet; CHANGELOG v1.44.
+
+Decisions:
+- A request of its own (`OUTLOOK_QUERY`) instead of widening the briefing's: the rain watcher asks every 15 minutes and needs two days, not seven; the briefing's request and its tests stay as they are.
+- No cache: a question about the days ahead is rare, and each asks Open-Meteo once (the city lookup is kept per client).
+- Today without a part is the rest of today: `daily_briefing` already tells the whole day, and "nanti hujan nggak?" asks about the hours ahead.
+- A whole day carries its parts' condition and rain chance, so one call answers "besok hujan nggak, jam berapa?".
+- Parts work on any of the seven days: the hourly values cover them all (the farther the day, the rougher the forecast, as for the whole day).
+- The tool exists whenever the weather has a place, not only with the briefing on, as the rain alerts; a place is all it needs.
+- It refuses in her own turns, so the morning greeting stays as it was.
+- Seven days (`forecast_days=7`, Open-Meteo's default): today and six more, so every weekday ahead is in reach ("Jumat" asked on a Saturday is six days on).
+
+Known limits: the dates are the place's: asked right after midnight, "besok" is the day after the new date (the date in Master's message is the same); a part's numbers come from hourly values, so they can differ a little from the day's; a far day is rougher; each question waits for Open-Meteo (up to 8 s of silence); the parts' borders are fixed.
+
+Privacy: each question asks Open-Meteo with the place's coordinates (the city geocoded once per brain), as the briefing does; with Claude the result (the city as written, never coordinates, and the forecast) goes to Anthropic like any turn. Nothing is written to disk.
+
+Safety: tests never reach Open-Meteo (fake fetches; `tests/conftest.py` and `test_cli.py`'s `no_real_weather`); nothing is spoken or pushed.
 
 ## Code Style
 

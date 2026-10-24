@@ -932,6 +932,28 @@ like a one-shot one, since a birthday comes back only a year later. 18 of 20 str
 - [x] Fix pass (2026-10-24): the `schedule` description says to pass a leap year's date such as 2028-02-29 for a 29 February yearly entry, never 28 February; bills get the 08:00 default and a reminder text as birthdays do, matching the README and CHANGELOG, and the SPEC says the same; a weekly entry's `schedule` and `list_schedules` results carry `weekday` (`WEEKDAYS_ID`) and the descriptions say to use it; `_missed_text`'s docstring names monthly and yearly reminders. By hand in a scratch folder (fake clock at 24-10-2026 14:30, deleted afterwards): weekly 2026-10-26 answered `"weekday":"Senin"` and 2026-10-27 `"weekday":"Selasa"`, 2028-02-29 yearly `"at":"2027-02-28 08:00",...,"day":29`, 2027-02-29 the date refusal, and `list_schedules` carried both weekdays. 9672 pytest and ruff clean, no JS touched; only descriptions and a result field changed, no parameter, so 18 of 20 strict tools, 17 of 24 optional parameters, and 0 of 16 unions stay
 - [ ] On the owner's PC: "ingatkan ulang tahun Ibu tiap 5 Mei" makes a yearly entry at 08:00, "tiap tanggal 20 ingatkan bayar listrik" a monthly one, and "jadwal bulan ini apa?" names them
 
+### Phase 48: Cuaca beberapa hari (v1.44, see SPEC → cuaca beberapa hari)
+Decision: a non-strict `weather_forecast {day?, part?}` tool beside `daily_briefing`, fed by a
+request of its own (`OUTLOOK_QUERY`, seven days of daily and hourly values) so the briefing's and
+the rain watcher's request stay as they are. The days and parts are pure functions of the reply:
+today without a part is the rest of today, a whole day carries its parts' condition and rain
+chance so one call answers, and a part follows `spoken_hour`'s words and Open-Meteo's
+hour-before rule. The tool exists whenever the weather has a place, shares the briefing tool's
+client, names the place as the rain alert does, refuses in her own turns, and stays open in guest
+mode. 18 of 20 strict tools, 17 of 24 optional parameters, and 0 of 16 unions stay.
+- [x] Task 238a: contract: SPEC, tasks
+- [ ] Task 238: `WeatherClient.outlook()`: seven days with hourly temperatures
+- [ ] Task 239: the days and parts asked (`periods`, pure)
+- [ ] Task 240: the `weather_forecast` tool
+- [ ] Task 241: the brain gets it: a shared client, the place gate, guest mode, the strict budget
+- [ ] Task 242: `waifu cuaca`
+- [ ] Task 243: README, CHANGELOG
+
+### Checkpoint: Cuaca beberapa hari
+- [ ] Python suite and ruff clean; no test reached Open-Meteo; the strict-tool budget unchanged (18 of 20 strict tools, 17 of 24 optional parameters, 0 of 16 unions); `FORECAST_QUERY`, the `daily_briefing` spec, and `waifu briefing`/`waifu rain` unchanged
+- [ ] By hand: with a fake Open-Meteo, the tool answers today, tonight, tomorrow, the weekend, a date, a part, a passed part, and a date out of reach; `waifu cuaca` prints each day with its parts
+- [ ] On the owner's PC: "besok cuaca gimana?", "nanti sore hujan nggak?", and "akhir pekan hujan nggak?" get short answers for Cianjur
+
 ## Risks and Mitigations
 
 | Risk | Impact | Mitigation |
