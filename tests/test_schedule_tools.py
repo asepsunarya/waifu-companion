@@ -259,6 +259,8 @@ def test_schedule_explains_weekly_monthly_and_yearly_entries_birthdays_and_bills
         "a yearly one ignores the year",
         "('tiap tanggal 31' in November), pass the next month that has it",
         "never the month's last day",
+        # 2027-02-29 is refused as a date and 2027-02-28 would store the 28th for good.
+        "for 29 February pass a leap year's date, such as 2028-02-29 (the year is ignored)",
         "'ingatkan ulang tahun Ibu tiap 5 Mei'",
         "at 08:00 unless Master says a time",
         "'bayar listrik tiap tanggal 20'",
