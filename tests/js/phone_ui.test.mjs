@@ -51,6 +51,7 @@ const ELEMENT_IDS = [
   "voice-mic-note",
   "voice-note",
   "voice-records",
+  "voice-records-empty",
 ];
 const HIDDEN_AT_START = new Set([
   "retry",
@@ -64,6 +65,7 @@ const HIDDEN_AT_START = new Set([
   "quick-toggle",
   "voice-toggle",
   "voice",
+  "voice-records-empty",
 ]);
 // phone.css: #bubbles has 16 px of top padding (its faded edge) and 6 px between bubbles.
 const LIST_PADDING_TOP = 16;
@@ -1653,6 +1655,21 @@ describe("phone Suara sheet", () => {
     const text = record.children.map((line) => line.textContent).join(" ");
     assert.match(text, /19:30:07 · tanpa nama/);
     assert.match(text, /“matikan lampu”/);
+  });
+
+  it("says what to try while nothing went past the gate yet, and not once something did", async (t) => {
+    // The owner's case: with the wrong mic the VAD never opens, so there is no record at all.
+    t.mock.timers.enable({ apis: ["setInterval"] });
+    const page = await openVoice({ voice: { ...VOICE, records: [] } });
+
+    assert.equal(page.element("voice-records").children.length, 0);
+    assert.equal(page.element("voice-records-empty").hidden, false);
+
+    page.setVoice(VOICE);
+    t.mock.timers.tick(1_500);
+    await settle();
+
+    assert.equal(page.element("voice-records-empty").hidden, true);
   });
 
   it("lists the PC's mics to switch to, the config's order first, the one in use picked", async () => {

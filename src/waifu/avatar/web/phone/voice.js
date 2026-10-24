@@ -6,6 +6,8 @@
 const JSON_TYPE = "application/json";
 // The bar: empty at BAR_FLOOR_DB, full at 0 dB (full scale), as `waifu mic` draws it.
 const BAR_FLOOR_DB = -80;
+// At or below this the mic sent only exact zeros (the PC writes digital silence as -200 dB): muted, or blocked.
+const SILENT_DB = -120;
 const OUTCOME_LABELS = Object.freeze({
   accepted: "dijawab",
   "not-owner": "bukan suaramu",
@@ -106,6 +108,16 @@ export function parseVoiceStatus(data) {
 export function levelPercent(db) {
   if (!isNumber(db)) return 0;
   return Math.min(100, Math.max(0, ((db - BAR_FLOOR_DB) / -BAR_FLOOR_DB) * 100));
+}
+
+/** The line under the bar: the loudest frame against the VAD's `barDb`, or why there is nothing to measure. */
+export function levelLine(level, barDb) {
+  if (level === null) return "Levelnya belum terukur.";
+  if (level.loudestDb <= SILENT_DB) {
+    return "Sunyi total: mic di-mute, atau izin mikrofon Windows untuk aplikasi desktop mati.";
+  }
+  const loudest = Math.round(level.loudestDb);
+  return `Paling keras ${loudest} dB, batas suara ${Math.round(barDb)} dB · RMS ${Math.round(level.rmsDb)} dB`;
 }
 
 /** What she did with an utterance, in Indonesian (an unknown outcome as the PC named it). */

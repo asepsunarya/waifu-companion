@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  levelLine,
   levelPercent,
   micRequest,
   outcomeClass,
@@ -114,6 +115,26 @@ describe("levelPercent", () => {
     assert.equal(levelPercent(6), 100);
     assert.equal(levelPercent(null), 0);
     assert.equal(levelPercent(Number.NaN), 0);
+  });
+});
+
+describe("levelLine", () => {
+  it("tells the loudest frame against the bar, and the second's RMS", () => {
+    assert.equal(
+      levelLine({ rmsDb: -51.2, peakDb: -30, loudestDb: -48.4 }, -40.2),
+      "Paling keras -48 dB, batas suara -40 dB · RMS -51 dB",
+    );
+  });
+
+  it("names the likely cause of a mic that sends only zeros instead of -200 dB", () => {
+    assert.equal(
+      levelLine({ rmsDb: -200, peakDb: -200, loudestDb: -200 }, -45),
+      "Sunyi total: mic di-mute, atau izin mikrofon Windows untuk aplikasi desktop mati.",
+    );
+  });
+
+  it("says so before a second was measured", () => {
+    assert.equal(levelLine(null, -45), "Levelnya belum terukur.");
   });
 });
 

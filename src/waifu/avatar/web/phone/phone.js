@@ -56,6 +56,7 @@ import {
   talkRequest,
 } from "./camera.js";
 import {
+  levelLine,
   levelPercent,
   micRequest,
   outcomeClass,
@@ -81,7 +82,6 @@ const VOICE_TIMEOUT_MS = 4000;
 const VOICE_GONE = new Set(["voice_hidden", "voice_missing"]);
 const VOICE_FOLLOW_CONFIG = "Ikuti urutan di config";
 const VOICE_NO_MIC = "Belum ada mic yang terbuka. Cyrene mencoba lagi tiap 5 detik.";
-const VOICE_NO_LEVEL = "Levelnya belum terukur.";
 const CHAT_URL = "/chat";
 const TALK_URL = "/talk";
 const PAIR_URL = "/pair";
@@ -169,6 +169,7 @@ const page = {
   voiceReset: document.getElementById("voice-reset"),
   voiceNote: document.getElementById("voice-note"),
   voiceRecords: document.getElementById("voice-records"),
+  voiceRecordsEmpty: document.getElementById("voice-records-empty"),
 };
 
 let ownerCall = DEFAULT_OWNER_CALL;
@@ -1095,14 +1096,11 @@ function showVoice(status) {
   page.voiceLevel.style.width = `${levelPercent(level?.loudestDb).toFixed(1)}%`;
   page.voiceLevel.className = level !== null && level.loudestDb >= bar ? "meter-level above" : "meter-level";
   page.voiceGate.style.left = `${levelPercent(bar).toFixed(1)}%`;
-  page.voiceLevelText.textContent =
-    level === null
-      ? VOICE_NO_LEVEL
-      : `Paling keras ${Math.round(level.loudestDb)} dB, batas suara ${Math.round(bar)} dB · ` +
-        `RMS ${Math.round(level.rmsDb)} dB`;
+  page.voiceLevelText.textContent = levelLine(level, bar);
   showVoiceDevices(status);
   if (!voiceBoxesFilled) fillVoiceBoxes(status);
   page.voiceRecords.replaceChildren(...status.records.map(voiceRecord));
+  page.voiceRecordsEmpty.hidden = status.records.length > 0;
 }
 
 /** How a switch the PC answered "pending" came out (it waited for her to finish thinking or speaking), once it has. */
