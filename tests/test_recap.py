@@ -159,6 +159,27 @@ def test_yesterday_s_tasks_are_the_ones_done_yesterday_and_due_by_yesterday(todo
     assert [task.text for task in tasks.still_due] == ["servis motor"]
 
 
+def test_the_done_tasks_of_a_day_the_list_no_longer_keeps_whole_are_unknown_not_none(tmp_path):
+    clock = Clock()
+    store = todo_store(tmp_path, clock)  # keeps a done task 7 days
+    done_at(store, clock, "cuci mobil", at(22, day=-7))  # still kept: 6 days 23:30 ago
+    done_at(store, clock, "ganti oli", at(0, day=-6))
+    clock.moment = NOW
+    store.add("bayar listrik", date(2026, 10, 16))
+
+    seven_back = recap(todo=store).gather(date(2026, 10, 17))
+    six_back = recap(todo=store).gather(date(2026, 10, 18))
+
+    assert seven_back.tasks.done is None  # its morning is forgotten already
+    assert [task.text for task in seven_back.tasks.still_due] == ["bayar listrik"]
+    assert recap_json(seven_back)["tasks"] == {
+        "done_known": False,
+        "still_due_count": 1,
+        "still_due": [{"text": "bayar listrik", "due": "2026-10-16"}],
+    }
+    assert [task.text for task in six_back.tasks.done] == ["ganti oli"]
+
+
 # --- focus -------------------------------------------------------------------------------------
 
 

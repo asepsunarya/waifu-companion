@@ -99,6 +99,15 @@ def test_the_description_looks_back_tells_highlights_first_and_never_judges(tmp_
         assert guidance in spec.description
 
 
+def test_the_description_says_forgotten_done_tasks_are_unknown_never_none(tmp_path):
+    [spec] = tool(tmp_path).specs()
+
+    assert (
+        "`done_known` false in place of them when the to-do list no longer keeps that day's "
+        "finished tasks: then never say none were finished"
+    ) in spec.description
+
+
 def test_the_spec_is_the_same_at_every_call_for_prompt_caching(tmp_path):
     provider = tool(tmp_path)
     before = provider.specs()

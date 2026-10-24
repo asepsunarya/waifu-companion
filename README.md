@@ -4895,8 +4895,9 @@ Master : "Tanggal 20 aku ngapain?"
 
 - **Tugas** dari [daftar tugas](#daftar-tugas): yang diselesaikan hari itu, dan yang masih
   terbuka dengan tenggat hari itu atau sebelumnya. Tugas selesai hanya diingat
-  `todo.keep_done_days` hari (bawaan 7), jadi untuk hari yang lebih lama tugas selesainya tidak
-  ada lagi.
+  `todo.keep_done_days` hari (bawaan 7), jadi untuk hari yang lebih lama dia bilang tugas
+  selesainya sudah tidak tersimpan, bukan nol, dan `waifu rekap` menulis
+  `Tugas: yang selesai tidak tersimpan lagi (todo.keep_done_days: 7), ...`.
 - **Fokus** dari [teman fokus](#teman-fokus): berapa lama Master fokus, di `waifu run` termasuk
   blok yang sedang jalan.
 - **Jam main** dari [jam main](#jam-main): berapa lama tiap game terbuka; dua game yang terbuka

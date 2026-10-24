@@ -9218,6 +9218,26 @@ def test_rekap_names_each_top_pull_the_words_learned_and_what_is_still_to_come(
     assert "Jadwal: 09:00 minum vitamin; 22:00 telepon Ibu (nanti)" in lines
 
 
+def test_rekap_of_a_day_the_list_no_longer_keeps_says_its_done_tasks_are_not_kept(
+    home, recap_clock, capsys
+):
+    TodoStore(
+        home / "data" / "todo.json",
+        max_tasks=100,
+        max_chars=200,
+        keep_done_days=7,
+        now=recap_clock,
+    ).add("bayar listrik", date(2026, 10, 16))
+
+    assert cli.main(["rekap", "2026-10-17"]) == 0
+
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[1:3] == [
+        "Tugas: yang selesai tidak tersimpan lagi (todo.keep_done_days: 7), 1 masih menunggu",
+        "  menunggu: bayar listrik, tenggat Jumat 16-10-2026",
+    ]
+
+
 def test_rekap_says_no_play_when_no_game_was_open_a_whole_minute(home, recap_clock, capsys):
     eight = RECAP_NOW.replace(hour=20, minute=0)
     seconds_25 = timedelta(seconds=25)

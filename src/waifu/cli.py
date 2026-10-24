@@ -4273,11 +4273,17 @@ def _recap(args: argparse.Namespace) -> int:
 
 
 def _tasks_lines(tasks: TasksDay) -> list[str]:
-    if not (tasks.done or tasks.still_due):
+    done = tasks.done
+    if done is not None and not (done or tasks.still_due):
         return ["Tugas: tidak ada"]
+    finished = (
+        f"yang selesai tidak tersimpan lagi (todo.keep_done_days: {tasks.keep_done_days})"
+        if done is None
+        else f"{len(done)} selesai"
+    )
     return [
-        f"Tugas: {len(tasks.done)} selesai, {len(tasks.still_due)} masih menunggu",
-        *(f"  selesai: {task.text}" for task in tasks.done),
+        f"Tugas: {finished}, {len(tasks.still_due)} masih menunggu",
+        *(f"  selesai: {task.text}" for task in done or ()),
         *(
             f"  menunggu: {task.text}, tenggat {_day_text(task.due)}"
             for task in tasks.still_due

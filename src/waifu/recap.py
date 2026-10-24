@@ -66,6 +66,8 @@ class RecapError(Exception):
 class TodoSource(Protocol):
     """The part of `TodoStore` the recap reads."""
 
+    keep_done_days: int  # how long a done task is kept, then forgotten
+
     def done_tasks(self) -> list[Task]: ...
 
     def due_or_overdue(self, today: date) -> list[Task]: ...
@@ -122,8 +124,11 @@ class StoredPulls:
 
 @dataclass(frozen=True)
 class TasksDay:
-    done: tuple[Task, ...]  # finished that day, the most recent first
+    # Finished that day, the most recent first; None when the list no longer keeps all of that
+    # day's (a done task is kept `keep_done_days` days): unknown, never none.
+    done: tuple[Task, ...] | None
     still_due: tuple[Task, ...]  # open and due that day or before, the overdue first
+    keep_done_days: int
 
 
 @dataclass(frozen=True)
@@ -279,7 +284,7 @@ class DailyRecap:
         return Recap(
             day,
             now,
-            tasks=None if todo is None else read("tasks", lambda: _tasks(todo, day, since)),
+            tasks=None if todo is None else read("tasks", lambda: _tasks(todo, day, since, now)),
             focus=None if focus is None else read("focus", lambda: focus(since, until)),
             play_time=(
                 None if play is None else read("play_time", lambda: _play(play, since, until))
@@ -343,13 +348,19 @@ def _pulls(
     return tuple(found)
 
 
-def _tasks(todo: TodoSource, day: date, since: datetime) -> TasksDay:
+def _tasks(todo: TodoSource, day: date, since: datetime, now: datetime) -> TasksDay:
+    """The day from `since`: its done tasks are unknown once a moment of it is more than
+    `keep_done_days` before `now`, since the list has forgotten what was finished then."""
+    keep = todo.keep_done_days
+    still_due = tuple(todo.due_or_overdue(day))
+    if since < now - timedelta(days=keep):
+        return TasksDay(None, still_due, keep)
     done = tuple(
         task
         for task in todo.done_tasks()
         if task.done is not None and since <= task.done < since + _ONE_DAY
     )
-    return TasksDay(done, tuple(todo.due_or_overdue(day)))
+    return TasksDay(done, still_due, keep)
 
 
 def _play(play: PlaySource, since: datetime, until: datetime) -> PlayDay:
@@ -407,10 +418,9 @@ def recap_json(recap: Recap) -> dict[str, Any]:
     if recap.is_today:
         data["as_of"] = f"{recap.now:%H:%M}"
     tasks = recap.tasks
-    if tasks is not None and (tasks.done or tasks.still_due):
+    if tasks is not None and (tasks.done is None or tasks.done or tasks.still_due):
         data["tasks"] = {
-            "done_count": len(tasks.done),
-            "done": [task.text for task in tasks.done[:LIST_MAX]],
+            **_done_json(tasks.done),
             "still_due_count": len(tasks.still_due),
             "still_due": [
                 {"text": task.text, "due": f"{task.due:%Y-%m-%d}"}
@@ -450,6 +460,13 @@ def recap_json(recap: Recap) -> dict[str, Any]:
     if recap.problems:
         data["problems"] = list(recap.problems.values())
     return data
+
+
+def _done_json(done: tuple[Task, ...] | None) -> dict[str, Any]:
+    """The tasks finished that day, or that the list no longer knows them."""
+    if done is None:
+        return {"done_known": False}
+    return {"done_count": len(done), "done": [task.text for task in done[:LIST_MAX]]}
 
 
 def _hours_minutes(seconds: int) -> dict[str, int]:
