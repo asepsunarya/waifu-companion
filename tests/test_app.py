@@ -4094,7 +4094,19 @@ def test_masters_yes_keeps_the_reading_and_she_says_the_word_and_its_reading(tmp
 
 
 @pytest.mark.parametrize(
-    "answer", ["Iya, Master.", "ya", "oke, catat aja", "iya bener", "Cyrene, boleh", "IYA!"]
+    "answer",
+    [
+        "Iya, Master.",
+        "ya",
+        "oke, catat aja",
+        "iya bener",
+        "Cyrene, boleh",
+        "IYA!",
+        "Bener.",
+        "bener, Cyrene",
+        "iya bener banget",
+        "iya, betul sekali",
+    ],
 )
 def test_a_plain_yes_in_other_words_keeps_the_reading(tmp_path, answer):
     lexicon = Lexicon(tmp_path / "tts_lexicon.json")

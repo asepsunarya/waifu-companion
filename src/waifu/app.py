@@ -79,7 +79,7 @@ from waifu.avatar.emotion import NEUTRAL, split_emotion
 from waifu.avatar.lipsync import viseme_track
 from waifu.brain.attachments import CameraTurn, TurnImages
 from waifu.brain.base import Brain, BrainReply, ToolCallRecord, ToolImage
-from waifu.brain.confirm import RECORD_ORDER_WORDS, is_yes
+from waifu.brain.confirm import AFFIRMATIVE_WORDS, RECORD_ORDER_WORDS, is_yes
 from waifu.brain.tools import logged_arguments
 from waifu.config import AppConfig
 from waifu.gate import WakeGate
@@ -152,9 +152,12 @@ PAUSE_ENDED = "Aku mendengarkan lagi sekarang, {owner}."
 ALARM_WAKE = "alarm"
 EMPTY_REASON = "empty"
 # How long after she asks about a reading Master's yes still keeps it, as for the
-# ConfirmationGate's questions; and what may follow that yes ("iya, bener", "oke, catat aja").
+# ConfirmationGate's questions; what that yes may start with: her question ends "kalau benar",
+# so also its spoken "bener" (the PC's yes stays without it); and what may follow ("iya, bener
+# banget", "oke, catat aja").
 READING_YES_WINDOW_S = 60
-READING_ORDER_WORDS = RECORD_ORDER_WORDS | {"bener"}
+READING_AFFIRMATIVE_WORDS = AFFIRMATIVE_WORDS | {"bener"}
+READING_ORDER_WORDS = RECORD_ORDER_WORDS | {"banget", "sekali"}
 
 
 def split_reply(reply: BrainReply, *, owner_call: str = "Master") -> tuple[str, BrainReply]:
@@ -1158,7 +1161,7 @@ class Assistant:
         said at most READING_YES_WINDOW_S after she asked. Anything else drops the reading,
         logged without its words and never said: the command is then handled as usual."""
         in_time = self._clock() - asked.at <= READING_YES_WINDOW_S
-        if in_time and is_yes(command, self._names, READING_ORDER_WORDS):
+        if in_time and is_yes(command, self._names, READING_ORDER_WORDS, READING_AFFIRMATIVE_WORDS):
             return True
         logger.info("Dropped the reading she asked about: no yes from Master in time")
         return False

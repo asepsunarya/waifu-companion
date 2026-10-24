@@ -4,6 +4,7 @@ import time
 import pytest
 
 from waifu.brain.confirm import (
+    AFFIRMATIVE_WORDS,
     ORDER_WORDS,
     RECORD_ORDER_WORDS,
     ConfirmationGate,
@@ -102,6 +103,15 @@ def test_is_yes_without_her_names_counts_a_name_as_another_word():
 def test_is_yes_skips_what_she_calls_the_owner_when_given_with_her_names():
     assert is_yes("iya sayang", (*NAMES, "Sayang"))
     assert not is_yes("iya sayang", NAMES)
+
+
+def test_is_yes_starts_with_the_affirmative_words_it_is_given():
+    spoken = AFFIRMATIVE_WORDS | {"bener"}
+
+    assert is_yes("Bener.", NAMES, affirmative_words=spoken)
+    assert is_yes("iya bener", NAMES, RECORD_ORDER_WORDS, spoken)
+    assert not is_yes("bener", NAMES)  # the PC's yes is unchanged
+    assert not is_yes("bener nggak", NAMES, affirmative_words=spoken)
 
 
 @pytest.mark.parametrize(

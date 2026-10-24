@@ -143,12 +143,18 @@ class _Request:
     order_words: frozenset[str]
 
 
-def is_yes(text: str, names: Iterable[str] = (), order_words: frozenset[str] = ORDER_WORDS) -> bool:
+def is_yes(
+    text: str,
+    names: Iterable[str] = (),
+    order_words: frozenset[str] = ORDER_WORDS,
+    affirmative_words: frozenset[str] = AFFIRMATIVE_WORDS,
+) -> bool:
     """Whether Master's words are a plain yes, such as "Iya, matikan." or "Cyrene, boleh".
 
     Leaving out "Master" and the `names` (her name and wake words she answers to, and what she
-    calls the owner), the words must start with an affirmative word and hold only affirmative
-    words and `order_words` (the PC's by default). A question ("iya?") is never a yes.
+    calls the owner), the words must start with one of `affirmative_words` (AFFIRMATIVE_WORDS,
+    which every gated action uses, by default) and hold only those and `order_words` (the PC's
+    by default). A question ("iya?") is never a yes.
     """
     text = unicodedata.normalize("NFKC", text).lower()
     if "?" in text:
@@ -157,8 +163,8 @@ def is_yes(text: str, names: Iterable[str] = (), order_words: frozenset[str] = O
     words = [word for word in _WORD.findall(text) if word not in skipped]
     return (
         bool(words)
-        and words[0] in AFFIRMATIVE_WORDS
-        and all(word in AFFIRMATIVE_WORDS or word in order_words for word in words)
+        and words[0] in affirmative_words
+        and all(word in affirmative_words or word in order_words for word in words)
     )
 
 
