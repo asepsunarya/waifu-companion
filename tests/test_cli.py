@@ -19814,6 +19814,56 @@ def test_setup_asks_for_a_restart_when_it_wrote_while_waifu_run_runs(home, monke
     ) in capsys.readouterr().out
 
 
+def test_setup_still_fails_a_write_when_input_ends_at_a_later_question(home, monkeypatch, capsys):
+    write_config(home, "notify: {enabled: false}\n")  # a flow mapping is not patched
+    answer(monkeypatch, "y")  # then the input ends at "Kirim notifikasi tes sekarang?"
+
+    assert cli.main(["setup", "notify"]) == 1
+
+    out = capsys.readouterr().out
+    assert "✗ config.yaml tidak diperbarui" in out
+    assert out.endswith("Setup berhenti.\n")
+
+
+def test_setup_asks_for_a_restart_when_input_ends_after_a_write(home, monkeypatch, capsys):
+    answer(monkeypatch, "")  # notify on, then the input ends at the test push question
+
+    with InstanceLock(home / "data" / "run.lock"):
+        assert cli.main(["setup", "notify"]) == 0
+
+    out = capsys.readouterr().out
+    assert "Setup berhenti." in out
+    assert "! 'waifu run' sedang berjalan: tutup lalu jalankan lagi" in out
+
+
+def test_setup_tuya_says_the_credentials_stay_when_input_ends_while_matching(
+    home, monkeypatch, capsys
+):
+    use_wizard(monkeypatch, FakeWizard())
+    answer(monkeypatch, "")  # run it, then the input ends at the lamp
+
+    assert cli.main(["setup", "tuya"]) == 0
+
+    out = capsys.readouterr().out
+    assert "! tinytuya.json dan tuya-raw.json tetap ada" in out
+    assert out.endswith("Setup berhenti.\n")
+
+
+def test_setup_tuya_says_the_credentials_stay_when_input_ends_at_their_question(
+    home, monkeypatch, capsys
+):
+    use_wizard(monkeypatch, FakeWizard())
+    answer(monkeypatch, "", "", "")  # run it, the lamp, the plug, then the input ends
+
+    with InstanceLock(home / "data" / "run.lock"):
+        assert cli.main(["setup", "tuya"]) == 0
+
+    out = capsys.readouterr().out
+    assert "! tinytuya.json dan tuya-raw.json tetap ada" in out
+    assert "! 'waifu run' sedang berjalan: tutup lalu jalankan lagi" in out
+    assert tuya_of(home, "lampu_kamar").local_key == LAMP_LOCAL_KEY
+
+
 def test_setup_asks_for_no_restart_when_it_wrote_nothing(home, monkeypatch, capsys):
     answer(monkeypatch, "")
 

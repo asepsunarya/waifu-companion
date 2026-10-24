@@ -6714,7 +6714,12 @@ def _youtube(args: argparse.Namespace) -> int:
 
 
 class _SetupStopped(Exception):
-    """Master's input ended: setup stops where it is."""
+    """Master's input ended: setup stops where it is. `outcome` is what the step it stopped in
+    had already done to config.yaml before a later question (None: nothing yet)."""
+
+    def __init__(self, outcome: StepOutcome | None = None) -> None:
+        super().__init__(outcome)
+        self.outcome = outcome
 
 
 def _setup(args: argparse.Namespace) -> int:
@@ -6727,7 +6732,9 @@ def _setup(args: argparse.Namespace) -> int:
             if len(steps) > 1:
                 print(f"\n== {number}/{len(steps)} {SETUP_TITLES[step]} ==")
             outcomes.append(_SETUP_HANDLERS[step](args))
-    except _SetupStopped:
+    except _SetupStopped as stop:
+        if stop.outcome is not None:
+            outcomes.append(stop.outcome)
         print("Setup berhenti.")
         stopped = True
     if "written" in outcomes and _running_status(RUN_LOCK, RUNNING_FILE)[0]:
@@ -6739,6 +6746,16 @@ def _setup(args: argparse.Namespace) -> int:
         print("\n== Pemeriksaan (waifu check) ==")
         return _check(args)
     return 1 if "failed" in outcomes else 0
+
+
+def _ask_after(outcome: StepOutcome, ask: Callable[[], object]) -> StepOutcome:
+    """Asks a question after a step wrote (or failed to write) config.yaml; when Master's input
+    ends there, setup still learns what the step did."""
+    try:
+        ask()
+    except _SetupStopped:
+        raise _SetupStopped(outcome) from None
+    return outcome
 
 
 def _ask(question: str) -> str:
@@ -6905,11 +6922,10 @@ def _setup_tuya(args: argparse.Namespace) -> StepOutcome:
             outcome: StepOutcome = "unchanged"
         else:
             outcome = _import_tuya(args.config, targets, folder)
-    except KeyboardInterrupt:
+        return _ask_after(outcome, lambda: _offer_tuya_cleanup(folder))
+    except (_SetupStopped, KeyboardInterrupt):
         _say_tuya_credentials_left(folder)
         raise
-    _offer_tuya_cleanup(folder)
-    return outcome
 
 
 def _wizard_wrote_devices(folder: Path) -> bool:
@@ -7237,8 +7253,7 @@ def _setup_notify(args: argparse.Namespace) -> StepOutcome:
         )
         outcome = "written" if _write_config(args.config, changes) else "failed"
     turned_on = NotifyConfig(enabled=True, server=notify.server, topic=SecretStr(topic))
-    _offer_test_push(config.assistant.name, turned_on)
-    return outcome
+    return _ask_after(outcome, lambda: _offer_test_push(config.assistant.name, turned_on))
 
 
 def _new_ntfy_topic() -> str:
