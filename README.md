@@ -5689,6 +5689,9 @@ Tombol cepat di PC: http://127.0.0.1:53211/t/Gz7mNcckSlaxLMFcD9ptmJzD6qRMkzBA/. 
   mengurutkannya untuk keduanya (lihat [Tombol cepat di HP](#tombol-cepat-di-hp)), juga kalau
   `phone.enabled: false`. Klik satu tombol: hasilnya muncul 6 detik di bawah jendela ("Lampu
   kamar dinyalakan.", atau alasan perangkatnya gagal).
+- Tombolnya dibaca sekali, saat `waifu tombol` dijalankan. Setelah mengubah perangkat,
+  rutinitas, atau `phone.quick_actions` di `config.yaml`, tutup `waifu tombol` (Ctrl+C) lalu
+  jalankan lagi; memuat ulang halaman atau menjalankan ulang `waifu run` saja tidak cukup.
 - **Jendela terminalnya harus tetap terbuka** selama halaman dipakai; Ctrl+C menutupnya
   ("Selesai."). Halaman yang masih terbuka sesudahnya bilang "Tombol cepat di PC sudah ditutup.
   ...". Alamatnya baru setiap kali `waifu tombol` dijalankan (port dan token baru), jadi tidak
