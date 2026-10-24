@@ -407,11 +407,9 @@ class MicSource:
     def _use(self, value: Device, stream: Stream, *, announce: bool) -> None:
         """Listen through `stream`, opened as `value`, paused as the source is; say so when it
         is another mic than before (MIC_BACK when it is a more preferred one)."""
-        with self._lock:
+        with self._lock:  # a stream opens unpaused: one opened while she speaks is paused now
             if self._paused:
                 stream.pause()
-            else:
-                stream.resume()
             self._stream, self._value = stream, value
         self._retry_at = None
         name, rank = stream.name, self.preferences.index(value)
