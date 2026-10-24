@@ -15,18 +15,21 @@ import socket
 import threading
 import time
 from collections.abc import Callable, Iterator, Mapping
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
 import pytest
 
+from waifu.alarm import AlarmBell
 from waifu.config import RoutineConfig, RoutineStep
 from waifu.devices.base import DeviceError, DeviceResult
 from waifu.devices.mock import MockDevice
 from waifu.devices.registry import DeviceRegistry
 from waifu.phone.actions import QuickActions
 from waifu.phone.desk import PC_WHERE, DeskServer
+from waifu.schedule import AlarmAction, Entry, ScheduleStore
 
 CLIENT_TIMEOUT_S = 5.0
 SECRET = "the private corpus"
@@ -876,3 +879,38 @@ def test_presses_are_logged_by_button_and_the_token_never(
     logged = "\n".join(record.getMessage() for record in caplog.records) + caplog.text
     assert token not in logged
     assert token not in capsys.readouterr().err
+
+
+# --- the alarm's buttons -------------------------------------------------------------------------
+
+
+def ringing_actions(tmp_path: Path) -> tuple[AlarmBell, QuickActions]:
+    """Quick buttons with an alarm bell under tmp_path that rings."""
+    moment = datetime(2026, 10, 25, 6, 0)
+    bell = AlarmBell(
+        tmp_path / "alarm.json",
+        ScheduleStore(tmp_path / "schedule.json", now=lambda: moment),
+        now=lambda: moment,
+        clock=lambda: 0.0,
+    )
+    bell.start(Entry("j1", moment, "none", AlarmAction(), moment))
+    devices, _ = quick_house()
+    registry = DeviceRegistry(list(devices.values()), pc_power_ids=["colokan_pc"])
+    return bell, QuickActions(registry, {}, alarm=bell, where=PC_WHERE)
+
+
+def test_the_pc_page_lists_and_presses_the_alarm_s_buttons_while_it_rings(
+    serve: Serve, tmp_path: Path
+) -> None:
+    bell, actions = ringing_actions(tmp_path)
+    server = serve(actions)
+
+    groups = json.loads(request(server, f"{prefix(server)}actions")[2])["groups"]
+    status, _, body = press(server, "al.snooze")
+
+    assert groups[0]["name"] == "Alarm"
+    assert (status, json.loads(body)) == (
+        200,
+        {"ok": True, "message": "Alarm ditunda sampai jam 06.05."},
+    )
+    assert bell.ringing() is False

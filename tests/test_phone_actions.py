@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pytest
 
+from waifu.alarm import AlarmBell
 from waifu.config import QuickActionsConfig, RoutineConfig, RoutineStep
 from waifu.devices.base import DeviceError, DeviceResult
 from waifu.devices.ir_codes import IrCodeStore
@@ -21,7 +22,7 @@ from waifu.devices.ir_device import IrDevice
 from waifu.devices.mock import MockDevice
 from waifu.devices.registry import DeviceRegistry
 from waifu.phone.actions import ACTION_ID, QuickAction, QuickActions
-from waifu.schedule import DeviceAction, ScheduleStore
+from waifu.schedule import AlarmAction, DeviceAction, Entry, ScheduleStore
 
 AC_COMMANDS = ["on", "off", *(f"temp_{degrees}" for degrees in range(16, 31))]
 BEDTIME = datetime(2026, 10, 17, 22, 0, 40)
@@ -426,3 +427,133 @@ def test_actions_run_one_at_a_time() -> None:
     assert waiting
     assert slow.most_at_once == 1
     assert slow.calls == [("on", None), ("off", None)]
+
+
+# --- the alarm ---------------------------------------------------------------------------------
+
+WAKE_AT = datetime(2026, 10, 17, 22, 0)
+
+
+def bell(tmp_path: Path, *, max_entries: int = 50, snooze_minutes: int = 5) -> AlarmBell:
+    schedule = ScheduleStore(
+        tmp_path / "schedule.json", max_entries=max_entries, now=lambda: BEDTIME
+    )
+    return AlarmBell(
+        tmp_path / "alarm.json",
+        schedule,
+        snooze_minutes=snooze_minutes,
+        now=lambda: BEDTIME,
+        clock=lambda: 0.0,
+    )
+
+
+def ring(alarm: AlarmBell) -> None:
+    alarm.start(Entry("j9", WAKE_AT, "none", AlarmAction("berangkat kerja"), WAKE_AT))
+
+
+def test_while_an_alarm_rings_its_buttons_come_first(tmp_path: Path) -> None:
+    alarm = bell(tmp_path, snooze_minutes=10)
+    ring(alarm)
+
+    groups = buttons(quick(routines={"tidur": tidur()}, alarm=alarm))
+
+    assert list(groups)[0] == "Alarm"
+    assert groups["Alarm"] == [("al.stop", "Matikan alarm"), ("al.snooze", "Tunda 10 menit")]
+    assert "Rutinitas" in groups
+
+
+def test_without_a_ring_there_is_no_alarm_group(tmp_path: Path) -> None:
+    assert "Alarm" not in buttons(quick(alarm=bell(tmp_path)))
+    assert "Alarm" not in buttons(quick())
+
+
+def test_the_alarm_ids_are_plain_slugs(tmp_path: Path) -> None:
+    alarm = bell(tmp_path)
+    ring(alarm)
+
+    ids = [action.id for action in quick(alarm=alarm).groups()[0].actions]
+
+    assert all(ACTION_ID.fullmatch(action_id) for action_id in ids)
+
+
+def test_matikan_alarm_stops_the_ring(tmp_path: Path) -> None:
+    alarm = bell(tmp_path)
+    ring(alarm)
+
+    result = run(quick(alarm=alarm), "al.stop")
+
+    assert (result.ok, result.message) == (True, "Alarm dimatikan.")
+    assert alarm.ringing() is False
+
+
+def test_tunda_snoozes_the_ring(tmp_path: Path) -> None:
+    alarm = bell(tmp_path)
+    ring(alarm)
+
+    result = run(quick(alarm=alarm), "al.snooze")
+
+    assert (result.ok, result.message) == (True, "Alarm ditunda sampai jam 22.06.")
+    assert alarm.ringing() is False
+
+
+def test_a_tap_after_the_ring_ended_gets_a_friendly_answer(tmp_path: Path) -> None:
+    actions = quick(alarm=bell(tmp_path))
+
+    stopped = run(actions, "al.stop")
+    snoozed = run(actions, "al.snooze")
+
+    assert (stopped.ok, stopped.message) == (True, "Alarm sudah tidak berbunyi.")
+    assert (snoozed.ok, snoozed.message) == (
+        False,
+        "Alarm sudah tidak berbunyi, jadi tidak ada yang ditunda.",
+    )
+
+
+def test_a_snooze_the_schedule_refuses_says_why_and_the_ring_goes_on(tmp_path: Path) -> None:
+    alarm = bell(tmp_path, max_entries=1)
+    full = ScheduleStore(tmp_path / "schedule.json", now=lambda: BEDTIME)
+    full.add(WAKE_AT.replace(hour=23), "none", DeviceAction("ac", "off"))
+    ring(alarm)
+
+    result = run(quick(alarm=alarm), "al.snooze")
+
+    assert (result.ok, result.message) == (
+        False,
+        "Alarm tidak bisa ditunda: Jadwal sudah penuh, 1 entri. Batalkan jadwal lama dulu.",
+    )
+    assert alarm.ringing() is True
+
+
+@pytest.mark.parametrize("action_id", ["al.stop", "al.snooze"])
+def test_without_a_bell_the_alarm_buttons_are_unknown(action_id: str) -> None:
+    assert quick().find(action_id) is None
+
+
+def test_a_stop_never_waits_for_a_slow_device(tmp_path: Path) -> None:
+    class Slow(MockDevice):
+        def __init__(self, *args, **kwargs) -> None:
+            super().__init__(*args, **kwargs)
+            self.entered = threading.Event()
+            self.release = threading.Event()
+
+        def execute(self, command: str, value: int | None = None) -> DeviceResult:
+            self.entered.set()
+            assert self.release.wait(WAIT_S)
+            return super().execute(command, value)
+
+    alarm = bell(tmp_path)
+    ring(alarm)
+    slow = Slow("kipas", "Kipas", kind="plug")
+    actions = quick({"kipas": slow}, alarm=alarm)
+    pressing = threading.Thread(target=run, args=(actions, "dev.kipas.on"))
+    pressing.start()
+    assert slow.entered.wait(WAIT_S)
+
+    try:
+        stopped = run(actions, "al.stop")
+    finally:
+        slow.release.set()
+        pressing.join(WAIT_S)
+
+    assert stopped.ok is True
+    assert alarm.ringing() is False

@@ -31,6 +31,7 @@ from urllib.parse import urlsplit
 import numpy as np
 import pytest
 
+from waifu.alarm import AlarmBell
 from waifu.config import AvatarConfig, PhoneConfig, RoutineConfig, RoutineStep
 from waifu.devices.base import DeviceError, DeviceResult
 from waifu.devices.mock import MockDevice
@@ -39,6 +40,7 @@ from waifu.phone import server as phone_server
 from waifu.phone.actions import QuickActions
 from waifu.phone.auth import CODE_LIFETIME, PhoneAuth
 from waifu.phone.server import PhoneBackend, PhoneError, PhoneReply, PhoneServer
+from waifu.schedule import AlarmAction, Entry, ScheduleStore
 
 CLIENT_TIMEOUT_S = 5.0
 TAILNET = "cyrene-pc.tail1234.ts.net"
@@ -3019,3 +3021,42 @@ def test_tokens_codes_and_words_are_never_logged(
     for secret in (token, code, wrong(code), "kata sandiku rahasia", HEARD):
         assert secret not in logged
         assert secret not in err
+
+
+# --- the alarm's buttons -------------------------------------------------------------------------
+
+
+def ringing_actions(tmp_path: Path) -> tuple[AlarmBell, QuickActions]:
+    """Quick buttons with an alarm bell under tmp_path that rings."""
+    moment = datetime(2026, 10, 25, 6, 0)
+    bell = AlarmBell(
+        tmp_path / "alarm.json",
+        ScheduleStore(tmp_path / "schedule.json", now=lambda: moment),
+        now=lambda: moment,
+        clock=lambda: 0.0,
+    )
+    bell.start(Entry("j1", moment, "none", AlarmAction(), moment))
+    devices, _ = quick_house()
+    registry = DeviceRegistry(list(devices.values()), pc_power_ids=["colokan_pc"])
+    return bell, QuickActions(registry, {}, alarm=bell)
+
+
+def test_the_phone_lists_and_presses_the_alarm_s_buttons_while_it_rings(
+    serve: Serve, auth: PhoneAuth, tmp_path: Path
+) -> None:
+    bell, actions = ringing_actions(tmp_path)
+    server = serve(actions=actions)
+    token = pair_device(auth)
+
+    groups = json.loads(request(server, "/actions", token=token)[2])["groups"]
+    status, _, body = press(server, token, "al.stop")
+
+    assert groups[0] == {
+        "name": "Alarm",
+        "actions": [
+            {"id": "al.stop", "label": "Matikan alarm"},
+            {"id": "al.snooze", "label": "Tunda 5 menit"},
+        ],
+    }
+    assert (status, json.loads(body)) == (200, {"ok": True, "message": "Alarm dimatikan."})
+    assert bell.ringing() is False
