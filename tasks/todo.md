@@ -2597,10 +2597,10 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 272 · **Files:** `src/waifu/config.py`, `config.example.yaml`, `tests/test_config.py` · **Scope:** S
 
-## Task 274: The listen pause
+## Task 274: The listen pause ✅
 
 **Acceptance criteria:**
-- [ ] `ListenPause` starts for `hours`, ends, keeps a read for a second, ends by itself (file deleted), sets a broken file aside, and never raises from `until`
+- [x] `ListenPause` starts for `hours`, ends, keeps a read for a second, ends by itself (file deleted), sets a broken file aside, and never raises from `until`
 
 **Dependencies:** 271a · **Files:** `src/waifu/listen_pause.py`, `tests/test_listen_pause.py` · **Scope:** S
 
