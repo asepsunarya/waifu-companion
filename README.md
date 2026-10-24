@@ -3644,7 +3644,9 @@ selama `briefing.city` (atau koordinatnya) diisi, juga kalau sapaan paginya dima
 
 - **Sisa hari ini:** "nanti hujan nggak?" dibaca dari sekarang sampai tengah malam. Cuaca
   sekarang dan hari ini secara keseluruhan ("cuaca hari ini gimana?") tetap dari
-  [ringkasan hari](#sapaan-pagi-dan-ringkasan-harian).
+  [ringkasan hari](#sapaan-pagi-dan-ringkasan-harian). Kalau sapaan paginya dimatikan
+  (`briefing.enabled: false`), ringkasan hari tidak ada, jadi pertanyaan itu dijawab dari
+  prakiraan sisa hari ini.
 - **Bagian hari:** pagi (04.00-11.00), siang (11.00-15.00), sore (15.00-19.00), dan malam
   (19.00-24.00), hari ini atau hari lain: "nanti sore hujan?", "besok pagi cerah nggak?",
   "Jumat malam hujan nggak?". Bagian hari ini yang sudah lewat ("nanti sore" ditanya jam 20.00)
@@ -6374,7 +6376,8 @@ halaman tim di game atau sebuah error)
       code-nya 0. `waifu cuaca akhir-pekan` menampilkan Sabtu dan Minggu.
 - [ ] "Cyrene, besok cuaca gimana?", "Cyrene, nanti sore hujan nggak?", dan "Cyrene, akhir
       pekan hujan nggak?" dijawab singkat untuk kotamu; "Cyrene, cuaca hari ini gimana?" tetap
-      dijawab dari ringkasan hari.
+      dijawab dari ringkasan hari (dengan `briefing.enabled: false`, dari prakiraan sisa hari
+      ini).
 - [ ] "Cyrene, cuaca sepuluh hari lagi gimana?": dia bilang prakiraannya hanya sampai hari
       keenam.
 

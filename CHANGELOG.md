@@ -10,7 +10,8 @@ aktif, lalu jalankan `waifu check`.
   nggak?", "nanti malam?", "akhir pekan hujan nggak?", "Jumat cuacanya gimana?". Bisa sisa hari
   ini, satu bagian hari (pagi, siang, sore, malam), besok, akhir pekan, atau tanggal lain sampai
   enam hari lagi, dengan kondisi, peluang hujan, dan suhunya. "Cuaca hari ini gimana?" tetap
-  dijawab dari ringkasan hari, dan sapaan paginya tidak berubah.
+  dijawab dari ringkasan hari (dari prakiraan sisa hari ini kalau sapaan paginya dimatikan), dan
+  sapaan paginya tidak berubah.
 - Tempatnya kota yang sama dengan sapaan pagi dan peringatan hujan (`briefing.city`), juga saat
   sapaan paginya dimatikan; tidak ada pengaturan baru. Setiap pertanyaan butuh internet dan
   menunggu Open-Meteo sebentar (paling lama 8 detik).

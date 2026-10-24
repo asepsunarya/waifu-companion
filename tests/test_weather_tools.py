@@ -398,7 +398,7 @@ def test_the_description_routes_the_weather_now_to_the_briefing_and_asks_for_one
     [spec] = tool()[0].specs()
 
     for guidance in [
-        "for the weather now or today as a whole use daily_briefing instead",
+        "for the weather now or today as a whole use daily_briefing when you have it",
         "never both for one question",
         "Call it once per question",
         "for several parts of a day ask for the whole day",
@@ -416,6 +416,14 @@ def test_the_description_routes_the_weather_now_to_the_briefing_and_asks_for_one
         "do not call again in this turn",
     ]:
         assert guidance in spec.description
+
+
+def test_the_description_sends_the_weather_of_today_here_when_there_is_no_briefing():
+    # She has this tool with the briefing off too, and then no daily_briefing to send it to.
+    [spec] = tool()[0].specs()
+
+    assert "use daily_briefing when you have it" in spec.description
+    assert "without daily_briefing, use this tool with day today" in spec.description
 
 
 def test_the_spec_is_the_same_at_every_call_for_prompt_caching():

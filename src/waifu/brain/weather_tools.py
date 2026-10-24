@@ -148,7 +148,8 @@ def _spec() -> ToolSpec:
             "Open-Meteo. Use it for later today, tonight, tomorrow, the weekend, a date, or a "
             'part of a day ("besok cuaca gimana?", "nanti sore hujan nggak?", "akhir pekan '
             'hujan nggak?", "Jumat cuacanya gimana?"); for the weather now or today as a whole '
-            "use daily_briefing instead, and never both for one question. `day`: today (the "
+            "use daily_briefing when you have it, and never both for one question; without "
+            "daily_briefing, use this tool with day today for those too. `day`: today (the "
             "default: the rest of today from now), tonight, tomorrow, weekend (the Saturday "
             "and Sunday from today on), or a date as YYYY-MM-DD from the date in Master's "
             "message, today to six days on. `part`: morning (pagi, 04:00-11:00), afternoon "
