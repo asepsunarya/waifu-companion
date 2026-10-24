@@ -272,8 +272,8 @@ from waifu.scheduler import MONTHS_ID, Scheduler
 from waifu.screen import capture_screen
 from waifu.single_instance import InstanceLock
 from waifu.todo import Task, TodoError, TodoStore
-from waifu.tuya_import import PLACEHOLDER as TUYA_PLACEHOLDER
 from waifu.tuya_import import (
+    CATEGORY_KINDS,
     CloudDevice,
     TuyaImportError,
     TuyaTarget,
@@ -282,6 +282,7 @@ from waifu.tuya_import import (
     tuya_changes,
     tuya_targets,
 )
+from waifu.tuya_import import PLACEHOLDER as TUYA_PLACEHOLDER
 from waifu.usage import DayUsage, TokenUsage, UsageLedger, UsageSummary, cost_usd
 from waifu.version import (
     INSTALL_COMMAND,
@@ -478,6 +479,8 @@ TUYA_SNAPSHOT_FILE = "snapshot.json"
 TUYA_CREDENTIAL_FILES = ("tinytuya.json", "tuya-raw.json")
 TUYA_WIZARD_FILES = ("tinytuya.json", TUYA_DEVICE_FILE, TUYA_SNAPSHOT_FILE, "tuya-raw.json")
 TUYA_IOT_URL = "https://iot.tuya.com"
+# The kind of a wizard device's Tuya category, as Master reads it in the list.
+TUYA_KIND_NAMES = {"light": "lampu", "plug": "colokan", "ir": "IR blaster"}
 TUYA_GUIDE_URL = "https://github.com/jasonacox/tinytuya#get-the-tuya-device-local-key"
 # The Broadlink address config.example.yaml ships with.
 EXAMPLE_BLASTER_HOST = "192.168.1.50"
@@ -7043,9 +7046,10 @@ def _import_tuya(config_path: Path, targets: list[TuyaTarget], folder: Path) -> 
 
 
 def _cloud_device_text(device: CloudDevice) -> str:
+    kind = TUYA_KIND_NAMES.get(CATEGORY_KINDS.get(device.category, ""), "lainnya")
     where = device.ip or "IP belum diketahui"
     version = f", versi {device.version:g}" if device.version is not None else ""
-    return f"{device.name or '(tanpa nama)'} ({device.category or 'kategori ?'}, {where}{version})"
+    return f"{device.name or '(tanpa nama)'} ({kind}, {where}{version})"
 
 
 def _pick_cloud_device(

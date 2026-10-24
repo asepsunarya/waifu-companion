@@ -19290,7 +19290,10 @@ def test_setup_tuya_reads_the_device_list_already_there_without_running_the_wiza
 
 
 def test_setup_tuya_takes_another_number_or_skips_a_device(home, monkeypatch, capsys):
-    use_wizard(monkeypatch, FakeWizard(devices=(WIZARD_LAMP, WIZARD_PLUG, WIZARD_PORCH)))
+    camera = {"name": "Kamera Teras", "id": "bf6666", "key": "CamKey1234567890", "category": "sp"}
+    remote = {"name": "Remote IR", "id": "bf7777", "key": "IrKey12345678901", "category": "wnykq"}
+    devices = (WIZARD_LAMP, WIZARD_PLUG, WIZARD_PORCH, camera, remote)
+    use_wizard(monkeypatch, FakeWizard(devices=devices))
     answer(monkeypatch, "", "3", "l", "n")
 
     assert cli.main(["setup", "tuya"]) == 0
@@ -19303,9 +19306,11 @@ def test_setup_tuya_takes_another_number_or_skips_a_device(home, monkeypatch, ca
     )
     assert tuya_of(home, "colokan_pc").device_id == "isi_dari_tinytuya_wizard"
     out = capsys.readouterr().out
-    assert "  1. Lampu Kamar (dj, 192.168.1.60, versi 3.3)" in out
-    assert "  2. Smart Plug (cz, 192.168.1.61, versi 3.4)" in out
-    assert "  3. Lampu Teras (dj, IP belum diketahui)" in out
+    assert "  1. Lampu Kamar (lampu, 192.168.1.60, versi 3.3)" in out
+    assert "  2. Smart Plug (colokan, 192.168.1.61, versi 3.4)" in out
+    assert "  3. Lampu Teras (lampu, IP belum diketahui)" in out
+    assert "  4. Kamera Teras (lainnya, IP belum diketahui)" in out
+    assert "  5. Remote IR (IR blaster, IP belum diketahui)" in out
     assert "Colokan PC dilewati." in out
 
 
