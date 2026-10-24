@@ -2468,3 +2468,95 @@ named `tests/test_<package>_<module>.py`.
 - [x] README "Alarm bangun" after "Jadwal, pengingat, dan rutinitas" with a contents entry, checklist items, and a line in "Volume suaraku"; CHANGELOG v1.46 with the downgrade note; full suite, ruff, and JS tests clean
 
 **Dependencies:** 258 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
+
+## Task 260a: Diagnosa suara contract ✅
+
+**Acceptance criteria:**
+- [x] SPEC "diagnosa suara (v1.47)" (stories, non-goals, the level tap, the segmenter, the records, the heard request, the preferences and the switch, the override file, the panel, the phone server, the page, CLI, decisions with the PortAudio restart, known limits, privacy, safety); tasks 260a-270 in the plan and here
+
+**Dependencies:** none · **Files:** `SPEC.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
+
+## Task 260: Test guards
+
+**Acceptance criteria:**
+- [ ] Once sounddevice is imported, a test that opens a real input stream, plays, records, or restarts PortAudio fails, also when the code under test catches the refusal; winmm's `waveInGetNumDevs` and `waveInGetDevCapsW` are refused like the other system calls
+
+**Dependencies:** 260a · **Files:** `tests/conftest.py`, `tests/test_safety_guard.py` · **Scope:** S
+
+## Task 261: The level tap
+
+**Acceptance criteria:**
+- [ ] `MicStream.level` gives the RMS and peak of the last second (paused or not) without keeping samples; `frames()` raises `MicrophoneFlat` after 8 s of exact zeros, not for a quiet mic or while paused; `name` and `host_api` name the opened device
+- [ ] `restart_portaudio` terminates and initialises PortAudio (only initialises when it is not running) and waits for a clip `Player.play` is playing
+
+**Dependencies:** 260 · **Files:** `src/waifu/voice/audio.py`, `tests/test_voice_audio.py` · **Scope:** M
+
+## Task 262: The segmenter
+
+**Acceptance criteria:**
+- [ ] `floor_db` and `bar_db` follow the last frame; `set_gate` changes the bar at the next frame; `relearn` forgets the floor; a segment dropped for too little speech reaches `on_too_short`
+
+**Dependencies:** 260a · **Files:** `src/waifu/voice/segmenter.py`, `tests/test_voice_segmenter.py` · **Scope:** S
+
+## Task 263: The records
+
+**Acceptance criteria:**
+- [ ] `UtteranceLog` keeps 50 records newest first, filtered by guest mode's marker, `last_heard` skipping too-short and heard-request records; `UtteranceRecord.of` measures a segment
+- [ ] `handle_utterance` records not-owner (score, threshold), empty, no-wake, and accepted utterances with Whisper's, the brain's, and the voice's times; nothing changes without a log
+
+**Dependencies:** 262 · **Files:** `src/waifu/voice/diagnosis.py`, `src/waifu/app.py`, `tests/test_voice_diagnosis.py`, `tests/test_app.py` · **Scope:** M
+
+## Task 264: "Tadi kamu denger apa?"
+
+**Acceptance criteria:**
+- [ ] `is_heard_request` takes the heard phrases with her names and the softeners left out and nothing else; no heard phrase is a repeat phrase and no repeat phrase a heard one
+- [ ] She tells the last utterance and its outcome without the brain, not remembered for "ulangi", forgotten when guest mode switches
+
+**Dependencies:** 263 · **Files:** `src/waifu/heard.py`, `src/waifu/app.py`, `tests/test_heard.py`, `tests/test_app.py` · **Scope:** S
+
+## Task 265: Preferences and the override file
+
+**Acceptance criteria:**
+- [ ] `audio.input_device` takes a number, a name, a non-empty list of them, or null; `input_preferences` lists them; `audio.override_path`
+- [ ] `VoiceOverrideStore` reads, writes atomically, sets a broken file aside, and keeps every value within its bounds
+
+**Dependencies:** 260a · **Files:** `src/waifu/config.py`, `src/waifu/voice_override.py`, `tests/test_config.py`, `tests/test_voice_override.py` · **Scope:** S
+
+## Task 266: `MicSource`
+
+**Acceptance criteria:**
+- [ ] It opens the first preference that opens and says so when it is not the first; a failing or flat mic fails over with one line, the same mic reopened says nothing; with none, silent frames and a retry every 5 s
+- [ ] A changed Windows input list restarts PortAudio between frames and switches back to a more preferred mic with one line; no restart with a numbered device
+- [ ] The phone's switch runs on `run`'s thread, rolls back when the mic does not open, answers pending when not taken in time, and keeps a paused mic paused
+
+**Dependencies:** 261, 262 · **Files:** `src/waifu/voice/mic_source.py`, `tests/test_voice_mic_source.py` · **Scope:** L
+
+## Task 267: The panel and the server
+
+**Acceptance criteria:**
+- [ ] `VoicePanel.status` gives the mic, the default, the devices, the level, the gate, the speaker threshold, the switch, and the records; `switch_mic` takes only a listed mic and writes the override after it worked; `tune` and `reset` apply at once within the bounds
+- [ ] GET /voice and POST /voice/set need the cookie (and the POST the page's Origin), count toward the quick buttons' limit, take strict JSON numbers, and refuse guest mode with 403
+
+**Dependencies:** 263, 265, 266 · **Files:** `src/waifu/voice/panel.py`, `src/waifu/phone/server.py`, `tests/test_voice_panel.py`, `tests/test_phone_server.py` · **Scope:** M
+
+## Task 268: The "Suara" sheet
+
+**Acceptance criteria:**
+- [ ] `voice.js` parses the status, places the level and the gate, names and colours the outcomes, and builds the requests; the sheet polls every 1.5 s only while open and visible, one request at a time, hides itself on 403 or 404, and switches, saves, and resets; `sw.js` keeps `voice.js`
+
+**Dependencies:** 267 · **Files:** `src/waifu/avatar/web/phone/*`, `tests/js/phone_voice.test.mjs`, `tests/js/phone_ui.test.mjs`, `tests/js/phone_sw.test.mjs`, `tests/js/phone_page.test.mjs` · **Scope:** M
+
+## Task 269: Wiring and the check line
+
+**Acceptance criteria:**
+- [ ] `run` builds the log, the segmenter, the verifier, the `MicSource`, and the panel from the override and the config and hands the panel and guest mode to the phone server; enroll and speaker-test open the same preferences
+- [ ] `waifu check` names the phone's pick, the list's order, and the phone's tuning
+
+**Dependencies:** 264, 266, 267 · **Files:** `src/waifu/cli.py`, `config.example.yaml`, `tests/test_cli.py` · **Scope:** M
+
+## Task 270: Docs
+
+**Acceptance criteria:**
+- [ ] README "Diagnosa suara" with a contents entry and checklist items, the troubleshooting mic entry led by the Suara page, the list form of `input_device`; CHANGELOG v1.47; full suite, ruff, and JS tests clean
+
+**Dependencies:** 269 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S

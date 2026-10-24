@@ -1007,6 +1007,35 @@ strict tools, 17 of 24 optional parameters, and 0 of 16 unions stay.
 - [x] Fix pass (2026-10-24): an ended ring kept from an earlier read is read afresh before its file is deleted, so `waifu tombol` or `waifu chat` never deletes a ring `waifu run` has just started; an ended ring's file that cannot be deleted is logged once and tried again at each read; a snooze whose ring file cannot be deleted cancels the alarm it just added and raises, and the voice loop says "Maaf Master, alarmnya belum bisa kumatikan/kutunda. Coba lagi sebentar." instead of nothing; the `alarm` description tells `alarm.repeat_seconds` and `alarm.max_minutes` as configured, built once per brain; the phrase gate hears "tunda/snooze N menit lagi", "tunda sebentar", "aku bangun", "dah bangun", and "aku dah bangun"; the phone page reads the buttons again after an alarm button and every 15 s while the alarm group shows, and the PC page after an alarm button, so the group goes once the alarm stops; the docs no longer promise that a stop never waits for a press its own page still runs (known limit). By hand, a scratch folder (deleted afterwards) over the real store, bells, and tool, with a ring file held open by a real second handle (WinError 32): two bells on one file kept the 06:10 alarm ringing after the 06:00 ring ended and `due_ring` gave its first ring; four reads of an ended, held file logged one INFO and one WARNING, and the file went once released; a snooze on a held file raised PermissionError with no entry left and the ring going on, and the next snooze left one entry; repeat 120 s and 20 minutes read "every 2 minutes ... or 20 minutes pass". 10165 pytest, 547 JS tests, ruff clean; only a description changed, no parameter, so 18 of 20 strict tools, 17 of 24 optional parameters, and 0 of 16 unions stay
 - [ ] On the owner's PC: "bangunkan aku jam 6" rings at six and "aku sudah bangun" stops it
 
+### Phase 51: Diagnosa suara (v1.47, see SPEC → diagnosa suara)
+Decision: the mic shows itself. `MicStream` taps a 1 s level on the audio thread (arithmetic
+only, samples never kept) and raises `MicrophoneFlat` after 8 s of exact zeros; the voice loop
+fills a 50-record ring (memory only) at the points where it already decides; a `MicSource`
+keeps her listening through a failing mic over a preference list (the phone's pick, then
+`audio.input_device`'s list, then the Windows default), restarting PortAudio only with the mic
+closed and the player idle when Windows' list of inputs changes, never with a numbered device.
+The paired phone gets GET /voice and POST /voice/set (refused in guest mode) and a "Suara"
+sheet; an override file holds the phone's mic and tuning, never `config.yaml`. "Tadi kamu
+denger apa?" is a strict local phrase like "ulangi". No tool: 18 of 20 strict tools, 17 of 24
+optional parameters, and 0 of 16 unions stay.
+- [x] Task 260a: contract: SPEC, tasks
+- [ ] Task 260: test guards: sounddevice streams, playback, and restarts; winmm's input listing
+- [ ] Task 261: `MicStream`'s level tap, flat run, and name; `restart_portaudio` under the player's lock
+- [ ] Task 262: the segmenter's floor and bar, `set_gate`, `relearn`, and too-short segments
+- [ ] Task 263: the records (`voice/diagnosis.py`) and the voice loop fills them
+- [ ] Task 264: "tadi kamu denger apa?" (`heard.py`) and her answer
+- [ ] Task 265: the preference list in the config and the override file (`voice_override.py`)
+- [ ] Task 266: `MicSource`: preferences, failover, coming back, the phone's switch, retrying
+- [ ] Task 267: the panel (`voice/panel.py`) and GET /voice, POST /voice/set
+- [ ] Task 268: the phone page's "Suara" sheet (`voice.js`)
+- [ ] Task 269: the CLI wiring, `_open_mic`, the check line
+- [ ] Task 270: README, CHANGELOG
+
+### Checkpoint: Diagnosa suara
+- [ ] Python suite, ruff, and JS tests clean; no test opened a stream, played audio, restarted PortAudio, listed the real inputs, or read the repository's `data/`; the strict-tool budget unchanged (18 of 20 strict tools, 17 of 24 optional parameters, 0 of 16 unions)
+- [ ] By hand: in a scratch folder with fake streams and clocks, the voice loop records each outcome, a flat and a failing mic fail over and come back with one line each, the phone switches and rolls back, and "tadi kamu denger apa?" tells the last utterance
+- [ ] On the owner's PC: the Suara page shows the headset's level moving while he speaks, and "tadi kamu denger apa?" tells what she heard
+
 ## Risks and Mitigations
 
 | Risk | Impact | Mitigation |
@@ -1029,6 +1058,7 @@ strict tools, 17 of 24 optional parameters, and 0 of 16 unions stay.
 | A repeat request answers a confirmation question or repeats private words to guests | The PC turned off on "ulangi", or what Master heard before guests came said in front of them | The repeat never reaches the brain, so the gate never sees it and a pending question waits for Master's next real turn; only whole repeat phrases count; the remembered words carry guest mode's generation and are forgotten once it has moved |
 | The break watcher misreads activity (a tick wrap after 49.7 days, a sleep, controller play) | A nudge to an empty chair, a nudge right after waking the PC, or none while playing | The idle time is the masked 32-bit difference, read input first; a poll gap longer than a break by the tick count or the wall clock starts the count again; a line needs input at its due point and expires after a break's length; gamepad input is a documented limit |
 | An alarm that never wakes Master, or a device command that stops it | Master oversleeps, or "matikan lampu" ends the alarm | It rings louder each minute, never whispered, until a whole stop phrase, a button, the brain, or 10 minutes; the first ring and a missed alarm are pushed; while it rings only whole phrases stop it, tested against device commands; the tool, the README, and `waifu check` say it rings only while `waifu run` runs on an awake PC |
+| A mic switch or a PortAudio restart while audio runs | A crash inside PortAudio, a cut clip, or a deaf Cyrene | Every open, close, and restart on `run`'s thread between frames, a restart only with the mic closed, the player's lock and the listing's lock held, and never with a numbered device; a mic that does not open is rolled back; with none, silent frames keep rings and reminders going while she retries every 5 s |
 
 ## Open Questions
 
