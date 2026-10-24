@@ -59,6 +59,7 @@ from waifu.brain.pc_tools import PcTools
 from waifu.brain.persona import WEEKDAYS_ID
 from waifu.brain.play_time_tools import PlayTimeTools
 from waifu.brain.prayer_tools import PrayerTools
+from waifu.brain.recap_tools import DailyRecapTools
 from waifu.brain.schedule_tools import ScheduleTools
 from waifu.brain.screen_tools import ScreenTools
 from waifu.brain.todo_tools import TodoTools
@@ -5559,6 +5560,7 @@ def test_run_with_the_games_on_gives_the_brain_the_game_tools_and_watches_while_
         todo,
         journal,
         focus,
+        recap,
         briefing,
         pc,
         play_time,
@@ -5574,6 +5576,7 @@ def test_run_with_the_games_on_gives_the_brain_the_game_tools_and_watches_while_
         type(todo),
         type(journal),
         type(focus),
+        type(recap),
         type(briefing),
         type(pc),
         type(play_time),
@@ -5588,6 +5591,7 @@ def test_run_with_the_games_on_gives_the_brain_the_game_tools_and_watches_while_
         TodoTools,
         JournalTools,
         FocusTools,
+        DailyRecapTools,
         BriefingTools,
         PcTools,
         PlayTimeTools,
@@ -5654,6 +5658,7 @@ def test_run_without_a_cookie_has_the_game_tools_but_no_watcher(
         TodoTools,
         JournalTools,
         FocusTools,
+        DailyRecapTools,
         BriefingTools,
         PcTools,
         PlayTimeTools,
@@ -5675,6 +5680,7 @@ def test_run_with_the_games_off_builds_none_of_it(home, run_fakes, brains, games
         TodoTools,
         JournalTools,
         FocusTools,
+        DailyRecapTools,
         BriefingTools,
         PcTools,
         PlayTimeTools,
@@ -5701,6 +5707,7 @@ def test_chat_with_the_games_on_gives_the_brain_the_game_tools(home, brains, gam
         ScheduleTools,
         TodoTools,
         JournalTools,
+        DailyRecapTools,
         BriefingTools,
         PcTools,
         PlayTimeTools,
@@ -6712,8 +6719,8 @@ def test_run_gives_the_brain_her_memory_tools_and_the_notes_at_each_session_star
 
     brain = brains[0]
     # After guest mode's and the voice volume's tools, then the schedule, to-do, journal,
-    # focus, briefing, PC, play time, offers, and music.
-    [_, _, tools, _, _, _, _, _, _, _, _, _] = brain.providers
+    # focus, recap, briefing, PC, play time, offers, and music.
+    [_, _, tools, _, _, _, _, _, _, _, _, _, _] = brain.providers
     assert isinstance(tools, MemoryTools)
     assert brain.memory_section() == memory_prompt_section([])
     assert tools.run("remember", {"text": "Master alergi udang."})[1] is False
@@ -6737,6 +6744,7 @@ def test_chat_gives_the_brain_the_notes_saved_in_data_memory_json(home, brains, 
         ScheduleTools,
         TodoTools,
         JournalTools,
+        DailyRecapTools,
         BriefingTools,
         PcTools,
         PlayTimeTools,
@@ -6762,6 +6770,7 @@ def test_with_the_memory_off_the_brain_gets_neither_the_tools_nor_the_notes(
         TodoTools,
         JournalTools,
         *([FocusTools] if argv[0] == "run" else []),
+        DailyRecapTools,
         BriefingTools,
         PcTools,
         PlayTimeTools,
@@ -7082,6 +7091,7 @@ def test_run_gives_the_brain_the_schedule_tools_and_fires_her_schedule_while_she
         TodoTools,
         JournalTools,
         FocusTools,
+        DailyRecapTools,
         BriefingTools,
         PcTools,
         PlayTimeTools,
@@ -7247,6 +7257,7 @@ def test_with_the_schedule_off_she_gets_neither_the_tools_nor_a_scheduler(
         TodoTools,
         JournalTools,
         *([FocusTools] if argv[0] == "run" else []),
+        DailyRecapTools,
         BriefingTools,
         PcTools,
         PlayTimeTools,
@@ -7820,6 +7831,7 @@ def test_with_claude_she_may_look_at_the_screen_at_the_configured_size(
         TodoTools,
         JournalTools,
         *([FocusTools] if argv[0] == "run" else []),
+        DailyRecapTools,
         BriefingTools,
         PcTools,
         PlayTimeTools,
@@ -7974,6 +7986,7 @@ def test_without_claude_or_with_vision_off_the_brain_gets_no_screen_tool(
         ScheduleTools,
         TodoTools,
         JournalTools,
+        DailyRecapTools,
         BriefingTools,
         PcTools,
         PlayTimeTools,
@@ -8268,6 +8281,7 @@ def test_with_the_briefing_off_she_gets_neither_the_tool_nor_the_greeting(
         TodoTools,
         JournalTools,
         *([FocusTools] if argv[0] == "run" else []),
+        DailyRecapTools,
         WeatherForecastTools,  # the days ahead need only the place, as the rain alerts
         PcTools,
         PlayTimeTools,
@@ -8995,6 +9009,134 @@ def test_cuaca_refuses_another_word_or_a_date_not_written_yyyy_mm_dd(day, home, 
 
     assert exited.value.code == 2
     assert "tulis hari-ini, besok, akhir-pekan, atau tanggal YYYY-MM-DD" in capsys.readouterr().err
+
+
+# --- rekap hari ini ----------------------------------------------------------------------------
+
+
+def recap_tools(brain: HouseBrain) -> DailyRecapTools:
+    [tools] = [provider for provider in brain.providers if isinstance(provider, DailyRecapTools)]
+    return tools
+
+
+def daily_recap(brain: HouseBrain, arguments: dict | None = None) -> dict:
+    result, is_error = recap_tools(brain).run("daily_recap", arguments or {})
+    assert is_error is False, result
+    return json.loads(result)
+
+
+def fill_yesterday(home: Path) -> date:
+    """The example config's stores, each with something yesterday (WIB): a task done at 12:00
+    and one due and still open, a 50-minute focus block, an hour of HSR, two HSR pulls, a journal
+    note, and the sleep routine every day at 23:00, made the day before."""
+    yesterday = datetime.now(WIB).date() - timedelta(days=1)
+    noon = datetime.combine(yesterday, time(12, 0), WIB)
+    todo = TodoStore(
+        home / "data" / "todo.json",
+        max_tasks=100,
+        max_chars=200,
+        keep_done_days=7,
+        now=lambda: noon,
+    )
+    todo.complete(todo.add("kirim laporan").id)
+    todo.add("bayar listrik", yesterday)
+    FocusStore(home / "data" / "focus.json", keep_days=90, now=lambda: noon).add(
+        FocusBlock(noon - timedelta(hours=3), noon - timedelta(hours=2, minutes=10))
+    )
+    PlayTimeStore(
+        home / "data" / "playtime.json", games=["hsr"], keep_days=90, now=lambda: noon
+    ).save([], [Session("hsr", noon + timedelta(hours=8), noon + timedelta(hours=9))])
+    server_noon = noon.astimezone(SERVER_TIME)
+    GachaStore(home / "data" / "gacha").save(
+        GAMES["hsr"],
+        800000001,
+        [
+            GachaRecord(
+                i, 800000001, 11, "Arrows", 3, "Light Cone", f"{server_noon:%Y-%m-%d %H:%M:%S}"
+            )
+            for i in (1, 2)
+        ],
+        complete=True,
+    )
+    JournalStore(
+        home / "data" / "journal.json", max_chars=500, max_notes_per_day=10, now=lambda: noon
+    ).add("hari yang panjang", yesterday)
+    made = datetime.combine(yesterday - timedelta(days=1), time(0, 0))
+    ScheduleStore(schedule_file(home), now=lambda: made).add(
+        made.replace(hour=23), "daily", RoutineAction("tidur")
+    )
+    return yesterday
+
+
+def test_run_gives_the_brain_the_recap_after_the_focus_timer_counting_the_block_under_way(
+    home, run_fakes, brains, focus_timers, focus_clock, monkeypatch
+):
+    seen: dict[str, object] = {}
+
+    def listen(self, mic, segmenter) -> None:
+        start_focus(brains[0])
+        focus_clock.now += timedelta(minutes=10)
+        seen["recap"] = daily_recap(brains[0])
+
+    monkeypatch.setattr(RecordingAssistant, "run", listen)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    kinds = [type(tools) for tools in brains[0].providers]
+    assert kinds.index(DailyRecapTools) == kinds.index(FocusTools) + 1
+    assert seen["recap"]["focus"] == {"hours": 0, "minutes": 10}
+    assert to_anthropic(recap_tools(brains[0]).specs()[0])["strict"] is False
+
+
+def test_chat_s_recap_reads_the_stores_of_the_features_that_are_on(
+    home, brains, games, schedulers, monkeypatch
+):
+    enable_gacha(home)
+    yesterday = fill_yesterday(home)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main(["chat"]) == 0
+
+    assert daily_recap(brains[0], {"date": "yesterday"}) == {
+        "date": yesterday.isoformat(),
+        "day": WEEKDAYS_ID[yesterday.weekday()],
+        "tasks": {
+            "done_count": 1,
+            "done": ["kirim laporan"],
+            "still_due_count": 1,
+            "still_due": [{"text": "bayar listrik", "due": yesterday.isoformat()}],
+        },
+        "focus": {"hours": 0, "minutes": 50},
+        "play_time": {
+            "games": [{"name": "Honkai: Star Rail", "hours": 1, "minutes": 0, "sessions": 1}],
+            "total": {"hours": 1, "minutes": 0},
+        },
+        "gacha": [{"name": "Honkai: Star Rail", "pulls": 2, "top_pulls": []}],
+        "journal": {"notes": 1},
+        "schedule": {
+            "count": 1,
+            "entries": [{"time": "23:00", "what": "rutinitas tidur", "passed": True}],
+        },
+    }
+
+
+def test_a_dry_run_s_recap_reads_its_own_empty_schedule(home, brains, monkeypatch):
+    fill_yesterday(home)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main(["chat", "--dry-run"]) == 0
+
+    assert "schedule" not in daily_recap(brains[0], {"date": "yesterday"})
+
+
+def test_with_every_part_off_she_gets_no_recap(home, brains, monkeypatch):
+    for section in ("todo", "focus", "play_time", "journal", "schedule"):
+        append_config(home, f"{section}:\n  enabled: false\n")
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main(["chat", "--dry-run"]) == 0
+
+    assert not any(isinstance(tools, DailyRecapTools) for tools in brains[0].providers)
 
 
 # --- versi baru --------------------------------------------------------------------------------
@@ -12441,6 +12583,7 @@ def test_run_gives_the_brain_the_prayer_tool_right_after_the_briefing(
         TodoTools,
         JournalTools,
         FocusTools,
+        DailyRecapTools,
         BriefingTools,
         PrayerTools,
         PcTools,
@@ -14816,6 +14959,7 @@ def test_run_gives_the_brain_her_to_do_tools_and_the_tasks_due_today_in_the_brie
         TodoTools,
         JournalTools,
         FocusTools,
+        DailyRecapTools,
         BriefingTools,
         PcTools,
         PlayTimeTools,
@@ -14854,6 +14998,7 @@ def test_chat_gives_the_brain_the_tasks_saved_in_data_todo_json_with_either_back
         ScheduleTools,
         TodoTools,
         JournalTools,
+        DailyRecapTools,
         BriefingTools,
         PcTools,
         PlayTimeTools,
@@ -14886,6 +15031,7 @@ def test_with_the_todo_list_off_the_brain_gets_neither_the_tools_nor_the_tasks(
         ScheduleTools,
         JournalTools,
         *([FocusTools] if argv[0] == "run" else []),
+        DailyRecapTools,
         BriefingTools,
         PcTools,
         PlayTimeTools,
@@ -15170,6 +15316,7 @@ def test_run_gives_the_brain_her_journal_tools_right_after_the_to_do_tools(
         TodoTools,
         JournalTools,
         FocusTools,
+        DailyRecapTools,
         BriefingTools,
         PcTools,
         PlayTimeTools,
@@ -15580,6 +15727,7 @@ def test_run_gives_the_brain_the_lesson_tool_right_after_the_focus_timer(
         JournalTools,
         FocusTools,
         JapaneseTools,
+        DailyRecapTools,
         BriefingTools,
         PcTools,
         PlayTimeTools,
@@ -15923,6 +16071,7 @@ def test_the_claude_request_with_every_tool_on_stays_within_the_strict_tool_limi
         "japanese_lesson",
         "prayer_times",
         "weather_forecast",
+        "daily_recap",
         *FINANCE_TOOLS,
     } <= names
     # Every tool is either closed in guest mode or still open: a new one must be sorted.
@@ -15960,6 +16109,7 @@ def test_the_claude_request_with_every_tool_on_stays_within_the_strict_tool_limi
         "japanese_lesson",
         "prayer_times",
         "weather_forecast",
+        "daily_recap",
     }
     assert not not_strict & {tool["name"] for tool in strict}
 
@@ -16026,6 +16176,7 @@ def test_run_and_chat_give_the_brain_the_music_tool_with_either_backend(
         TodoTools,
         JournalTools,
         *([FocusTools] if argv[0] == "run" else []),
+        DailyRecapTools,
         BriefingTools,
         PcTools,
         PlayTimeTools,
@@ -16125,6 +16276,7 @@ def test_with_music_off_the_brain_gets_no_music_tool(
         TodoTools,
         JournalTools,
         *([FocusTools] if argv[0] == "run" else []),
+        DailyRecapTools,
         BriefingTools,
         PcTools,
         PlayTimeTools,

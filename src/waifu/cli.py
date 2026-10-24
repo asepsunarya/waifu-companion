@@ -69,6 +69,7 @@ from waifu.brain.pc_tools import PcTools
 from waifu.brain.persona import WEEKDAYS_ID
 from waifu.brain.play_time_tools import PlayTimeTools
 from waifu.brain.prayer_tools import PrayerTools
+from waifu.brain.recap_tools import DailyRecapTools
 from waifu.brain.schedule_tools import ScheduleTools
 from waifu.brain.screen_tools import ScreenTools
 from waifu.brain.todo_tools import TodoTools
@@ -223,6 +224,7 @@ from waifu.prayer_times import PRAYERS, prayer_times
 from waifu.prayer_watch import PrayerWatcher
 from waifu.processes import running_executables
 from waifu.rain_watch import RainWatcher, RainWindow, rain_window, raining_now, spoken_hour
+from waifu.recap import DailyRecap, FocusSeconds, StoredPulls
 from waifu.routines import describe_routine, describe_step, routine_problems, run_routine
 from waifu.schedule import (
     Action,
@@ -1682,9 +1684,10 @@ def _companion_brain(
     """The brain with `guest_mode`'s tool first, her own voice volume (`voice_level`), then the
     game tools when they are on, her long-term memory when it is on, her schedule when it is on,
     Master's to-do list when it is on, Master's journal when it is on, with `focus` (only `run`
-    has one) Master's focus timer, Master's Japanese lessons when they are on, the day's
-    briefing when it is on, the weather of the days ahead whenever the weather has a place (with
-    the briefing's client), the prayer times when they are on (at `prayer`, the place `run`
+    has one) Master's focus timer, Master's Japanese lessons when they are on, a look back at
+    Master's day when any of the records it reads is on, the day's briefing when it is on, the
+    weather of the days ahead whenever the weather has a place (with the briefing's client), the
+    prayer times when they are on (at `prayer`, the place `run`
     shares with the reminders, else a place of their own), with `pc` how the PC is doing, how
     long Master's games were open when play time is on, the free offers when they are on (their
     links pushed through `notifier`), Master's money from tepira when it is on, songs on YouTube
@@ -1734,6 +1737,9 @@ def _companion_brain(
         providers.append(FocusTools(focus, now=wib_now))
     if japanese is not None:
         providers.append(JapaneseTools(words, japanese, now=wib_now))
+    recap = _daily_recap(config, schedule, focus)
+    if recap.parts:
+        providers.append(DailyRecapTools(recap))
     # One client for the briefing and the days ahead, so the city is looked up once.
     weather = _weather_client(config.briefing)
     if config.briefing.enabled:
@@ -4139,6 +4145,51 @@ def _temperature_text(min_c: float, max_c: float) -> str:
     """`18.9-28.3°C`, or one value (`20°C`) when the lowest and the highest read the same."""
     lowest, highest = f"{min_c:g}", f"{max_c:g}"
     return f"{highest}°C" if lowest == highest else f"{lowest}-{highest}°C"
+
+
+# --- rekap hari ini --------------------------------------------------------------------------
+
+
+def _daily_recap(
+    config: AppConfig, schedule: ScheduleStore | None, focus: FocusTimer | None = None
+) -> DailyRecap:
+    """Master's day from the records of the features that are on: `schedule` is the session's
+    (a dry run's own) or None with the schedule off; with `focus` (only `run` has one) the focus
+    timer, so the block under way counts, else the focus log; the pull history as stored in
+    `gacha.data_dir`, never refreshed."""
+    gacha = config.gacha
+    japanese = config.japanese.enabled
+    return DailyRecap(
+        todo=_todo_store(config) if config.todo.enabled else None,
+        focus=_focus_seconds(config, focus),
+        play_time=_play_time_store(config) if config.play_time.enabled else None,
+        gacha=(
+            StoredPulls(
+                GachaStore(gacha.data_dir),
+                gacha.games,
+                server_utc_offset=gacha.server_utc_offset,
+                extra_standard=gacha.off_banner,
+            )
+            if gacha.enabled
+            else None
+        ),
+        japanese=_japanese_store(config) if japanese else None,
+        words=load_words() if japanese else (),
+        journal=_journal_store(config) if config.journal.enabled else None,
+        schedule=schedule,
+        now=wib_now,
+    )
+
+
+def _focus_seconds(config: AppConfig, timer: FocusTimer | None) -> FocusSeconds | None:
+    """How long Master focused in a span: the timer's count with the block under way, else the
+    focus log's while the focus companion is on."""
+    if timer is not None:
+        return timer.focused_seconds
+    if not config.focus.enabled:
+        return None
+    store = _focus_store(config)
+    return lambda since, until: store.totals(since, until).seconds
 
 
 # --- the running version -----------------------------------------------------------------------

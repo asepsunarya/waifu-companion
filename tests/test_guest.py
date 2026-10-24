@@ -7,6 +7,7 @@ from waifu.brain.focus_tools import FOCUS_TIMER
 from waifu.brain.japanese_tools import JAPANESE_LESSON
 from waifu.brain.memory_tools import FORGET, REMEMBER
 from waifu.brain.play_time_tools import PLAY_TIME
+from waifu.brain.recap_tools import DAILY_RECAP
 from waifu.brain.schedule_tools import CANCEL_SCHEDULE, LIST_SCHEDULES, RUN_ROUTINE, SCHEDULE
 from waifu.brain.screen_tools import LOOK_AT_SCREEN
 from waifu.brain.todo_tools import (
@@ -231,6 +232,7 @@ def test_the_private_tools_are_master_s_own_records_and_accounts():
         REMOVE_TASK,
         EDIT_TASK,
         PLAY_TIME,
+        DAILY_RECAP,
         GAME_STATUS,
         GACHA_HISTORY,
         GACHA_INCOME,

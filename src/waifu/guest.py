@@ -52,6 +52,8 @@ PRIVATE_TOOLS = frozenset(
         # Play time. Not focus_timer: it is a control, and a block started before the guests
         # came must still stop on Master's word.
         "play_time",
+        # Daily recap: Master's day from the private stores (tasks, games, pulls, reminders)
+        "daily_recap",
         # Game accounts
         "game_status",
         "gacha_history",

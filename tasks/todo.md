@@ -2351,11 +2351,11 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 245 · **Files:** `src/waifu/brain/recap_tools.py`, `tests/test_recap_tools.py` · **Scope:** M
 
-## Task 247: The brain gets it
+## Task 247: The brain gets it ✅
 
 **Acceptance criteria:**
-- [ ] `run` and `chat` add the tool after the Japanese lessons whenever any of its sources is on, with `run`'s focus timer (elsewhere the focus log), the run's schedule, and the local pull store; none with every source off
-- [ ] `daily_recap` is in `PRIVATE_TOOLS` (a full request carries every private tool, so it lands with the wiring); the every-tool request keeps 18 of 20 strict tools, 17 of 24 optional parameters, and 0 of 16 unions
+- [x] `run` and `chat` add the tool after the Japanese lessons whenever any of its sources is on, with `run`'s focus timer (elsewhere the focus log), the run's schedule, and the local pull store; none with every source off
+- [x] `daily_recap` is in `PRIVATE_TOOLS` (a full request carries every private tool, so it lands with the wiring); the every-tool request keeps 18 of 20 strict tools, 17 of 24 optional parameters, and 0 of 16 unions
 
 **Dependencies:** 246 · **Files:** `src/waifu/cli.py`, `src/waifu/guest.py`, `tests/test_cli.py`, `tests/test_guest.py` · **Scope:** S
 
