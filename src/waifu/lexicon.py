@@ -77,7 +77,8 @@ QUESTION_WORDS = frozenset(
 # word ("itu Ha Es Er ga"), anywhere in the term.
 QUESTION_TAGS = frozenset({"ga", "gak", "kah", "kan", "mana"})
 # Words that judge or describe how a word is read ("cara baca HSR itu salah", "... itu susah
-# banget", "... itu dari kanan ke kiri"): a remark, never a reading to keep.
+# banget", "... itu dari kanan ke kiri", "cara baca jam itu begini", "cara baca buku itu
+# penting"): a remark, never a reading to keep.
 REMARK_WORDS = frozenset(
     {
         "salah",
@@ -89,6 +90,8 @@ REMARK_WORDS = frozenset(
         "beda",
         "begitu",
         "gitu",
+        "begini",
+        "gini",
         "kok",
         "sih",
         "lho",
@@ -102,6 +105,21 @@ REMARK_WORDS = frozenset(
         "mudah",
         "banget",
         "dari",
+        "dengan",
+        "pakai",
+        "pake",
+        "penting",
+        "dulu",
+        "biasa",
+        "biasanya",
+        "sama",
+        "lain",
+        "pelan",
+        "cepat",
+        "cepet",
+        "ribet",
+        "repot",
+        "nanti",
     }
 )
 # Never a term taught by voice: "cara baca kamu itu ..." is about how she reads.

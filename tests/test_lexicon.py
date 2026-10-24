@@ -449,6 +449,34 @@ def test_a_remark_about_how_a_word_is_read_is_not_a_reading_request(command):
 @pytest.mark.parametrize(
     "command",
     [
+        "cara baca buku itu penting",
+        "cara baca jam itu begini",
+        "Cyrene, cara baca Al-Quran itu dengan tartil",
+        "cara baca peta itu pakai kompas",
+        "cara baca jam itu gini aja",
+        "cara baca koran itu pake kacamata",
+        "cara baca soal itu dulu",
+        "cara baca resep itu biasa",
+        "cara baca resep itu biasanya urut",
+        "cara baca Acheron itu kayak biasa",
+        "cara baca Acheron itu sama aja",
+        "cara baca HSR itu lain",
+        "cara baca puisi itu pelan pelan",
+        "cara baca berita itu cepat",
+        "cara baca berita itu cepet",
+        "cara baca kontrak itu ribet",
+        "cara baca kontrak itu repot",
+        "cara baca HSR itu nanti aja",
+        "cara baca dulu itu Du Lu",
+    ],
+)
+def test_a_sentence_with_a_common_remark_word_is_not_a_reading_request(command):
+    assert reading_request(command, NAMES) is None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
         "cara baca kamu itu salah",
         "cara baca kamu itu Ka Mu",
         "cara baca aku itu A Ku",
