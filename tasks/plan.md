@@ -896,7 +896,7 @@ The phone's `QuickActions` (with `where="tombol cepat PC"`), its limits, and its
 reuses `actions.js`; the opener is `open_in_browser`, injected in tests. No brain tool, setting,
 or dependency, so 18 of 20 strict tools and 17 of 24 optional parameters stay.
 - [x] Task 227a: contract: SPEC, tasks
-- [ ] Task 227: share the quick buttons' limits and the phone server's JSON handling (refactor)
+- [x] Task 227: share the quick buttons' limits and the phone server's JSON handling (refactor)
 - [ ] Task 228: `QuickActions(where=...)` and `DeskServer`
 - [ ] Task 229: the page (`web/tombol/`: `desk.js`, `tombol.js`, HTML, CSS)
 - [ ] Task 230: `waifu tombol` and the check line

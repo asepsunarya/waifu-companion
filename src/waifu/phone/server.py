@@ -72,7 +72,17 @@ from waifu.avatar.server import (
     web_file,
 )
 from waifu.config import AvatarConfig, PhoneConfig
-from waifu.phone.actions import ACTION_ID, QuickActions, QuickGroup
+from waifu.phone.actions import (
+    ACTION_BUSY_TEXT,
+    ACTION_ID,
+    ACTION_LIMIT_TEXT,
+    ACTION_MAX_BYTES,
+    ACTION_RATE_LIMIT,
+    ACTION_RATE_WINDOW_S,
+    ACTION_UNKNOWN_TEXT,
+    QuickActions,
+    group_json,
+)
 from waifu.phone.auth import CODE_LIFETIME, Device, PhoneAuth, Refusal
 from waifu.phone.jpeg import jpeg_size
 from waifu.screen import encode_png
@@ -113,11 +123,6 @@ MAX_CHAT_CHARS = 2000
 # JSON may escape every character of a 2000-character text, as \uXXXX or a surrogate pair.
 CHAT_MAX_BYTES = 32 * 1024
 PAIR_MAX_BYTES = 1024
-ACTION_MAX_BYTES = 1024
-# Quick actions per device in any window: counted from 127.0.0.1 as everything is (tailscale
-# serve), so by the paired device.
-ACTION_RATE_LIMIT = 10
-ACTION_RATE_WINDOW_S = 60
 TALK_MAX_BYTES = 2 * 1024 * 1024
 TALK_RATE = 16000
 TALK_SAMPLE_BYTES = 2
@@ -170,9 +175,6 @@ BAD_PHOTO_TEXT = "Foto tidak valid."
 # Said in her voice: `{owner}` is assistant.owner_call, used as written mid-sentence.
 BUSY_TEXT = "Sebentar ya, {owner}, aku masih menjawab yang tadi."
 FAILED_TEXT = "Maaf, {owner}, ada masalah di PC. Coba lagi nanti ya."
-ACTION_UNKNOWN_TEXT = "Tombol itu sudah tidak ada. Muat ulang halaman."
-ACTION_LIMIT_TEXT = "Tombolnya terlalu sering ditekan. Tunggu sebentar, lalu coba lagi."
-ACTION_BUSY_TEXT = "Perintah tadi masih jalan. Tunggu sebentar."
 
 # The icon: her initial in white on a pink disc, on the page's background colour.
 ICON_BACKGROUND = np.array((0xE9, 0xE4, 0xF7), dtype=float)
@@ -378,7 +380,10 @@ class PhoneServer(ThreadingHTTPServer):
             self._answering.discard(device_id)
 
     def admit_action(self, device_id: str) -> bool:
-        """Counts a quick action of `device_id`; False past ACTION_RATE_LIMIT in the window."""
+        """Counts a quick action of `device_id`; False past ACTION_RATE_LIMIT in the window.
+
+        Counted by the paired device: every request comes from 127.0.0.1 (tailscale serve).
+        """
         with self._acting_lock:
             limit = self._action_limits.get(device_id)
             if limit is None:
@@ -439,8 +444,12 @@ class PhoneServer(ThreadingHTTPServer):
             logger.exception("Phone request from %s failed", client_address[0])
 
 
-class _PhoneRequestHandler(BaseHTTPRequestHandler):
-    server: PhoneServer
+class JsonRequestHandler(BaseHTTPRequestHandler):
+    """What a loopback server of strict JSON requests shares: a body read only within a limit,
+    strict JSON fields, refusals as `{"error": text}` that read (or drain) a refused body first,
+    JSON and file replies, and PROTECTING_HEADERS on every response. The phone server's handler
+    and the PC page's (`desk.py`) extend it."""
+
     timeout = SOCKET_TIMEOUT_S
     # Whether this request's body has been read (a refusal then reads nothing more).
     _body_read = False
@@ -470,6 +479,100 @@ class _PhoneRequestHandler(BaseHTTPRequestHandler):
                 left -= len(chunk)
         except OSError:  # a timeout, or the client went away
             return
+
+    # --- request bodies -----------------------------------------------------------------------
+
+    def _read_body(self, limit: int) -> bytes | None:
+        """The body, read only when its Content-Length allows `limit`; None once refused."""
+        length = _body_length(self.headers, limit)
+        if length is HTTPStatus.LENGTH_REQUIRED:
+            self._send_error(length, LENGTH_REQUIRED_TEXT)
+            return None
+        if length is HTTPStatus.REQUEST_ENTITY_TOO_LARGE:
+            self._send_error(length, TOO_LARGE_TEXT)
+            return None
+        if isinstance(length, HTTPStatus):
+            self._send_error(length, BAD_REQUEST_TEXT)
+            return None
+        body = self.rfile.read(length)
+        self._body_read = True
+        if len(body) != length:
+            self._send_error(HTTPStatus.BAD_REQUEST, BAD_REQUEST_TEXT)
+            return None
+        return body
+
+    def _json_fields(
+        self, body: bytes, key: str, optional: Mapping[str, type] | None = None
+    ) -> dict[str, Any] | None:
+        """The fields of a JSON body `{key: "..."}`, which may also hold the `optional` fields,
+        each of its type; None after refusing anything else."""
+        if _content_type(self.headers) not in JSON_TYPES:
+            self._send_error(HTTPStatus.UNSUPPORTED_MEDIA_TYPE, WRONG_TYPE_TEXT)
+            return None
+        fields = _json_object(body, key, optional or {})
+        if fields is None:
+            self._send_error(HTTPStatus.BAD_REQUEST, BAD_REQUEST_TEXT)
+        return fields
+
+    def _discard_small_body(self) -> None:
+        """Reads a refused request's unread body when it is at most REFUSAL_READ_BYTES, and
+        marks a larger one to be drained once the refusal has been sent."""
+        if self._body_read:
+            return
+        length = _body_length(self.headers, REFUSAL_READ_BYTES)
+        if not isinstance(length, HTTPStatus):  # an IntEnum: test it before int
+            self.rfile.read(length)
+            self._body_read = True
+        elif length is HTTPStatus.REQUEST_ENTITY_TOO_LARGE:
+            declared = _body_length(self.headers, DRAIN_MAX_BYTES)
+            self._drain_bytes = DRAIN_MAX_BYTES if isinstance(declared, HTTPStatus) else declared
+
+    # --- replies ------------------------------------------------------------------------------
+
+    def end_headers(self) -> None:
+        """Ends every response's headers, refusals and errors included, with PROTECTING_HEADERS."""
+        for name, value in PROTECTING_HEADERS.items():
+            self.send_header(name, value)
+        super().end_headers()
+
+    def _send_found(self, found: ServedFile | str | None) -> None:
+        """Sends a file the browser may keep (the page itself is never kept), or a 404 with the
+        reason `AvatarFiles.find` gave, if any."""
+        if isinstance(found, ServedFile):
+            send_file(self, found, revalidate=True)
+        else:
+            self._send_error(HTTPStatus.NOT_FOUND, found or NOT_FOUND_TEXT)
+
+    def _send_json(self, status: HTTPStatus, payload: Mapping[str, Any]) -> None:
+        self._send_body(status, _json_bytes(payload))
+
+    def _send_error(
+        self, status: HTTPStatus, text: str, *, headers: Mapping[str, str] | None = None
+    ) -> None:
+        """Refuses the request with `{"error": text}`, reading a small unread body first."""
+        self._discard_small_body()
+        self._send_body(status, _json_bytes({"error": text}), headers=headers)
+
+    def _send_body(
+        self, status: HTTPStatus, body: bytes, *, headers: Mapping[str, str] | None = None
+    ) -> None:
+        """Sends a JSON body, never cached, and never with a HEAD answer."""
+        self.send_response(status)
+        self.send_header("Content-Type", CONTENT_TYPES[".json"])
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        for name, value in (headers or {}).items():
+            self.send_header(name, value)
+        self.end_headers()
+        if self.command != "HEAD":
+            self.wfile.write(body)
+
+    def log_message(self, format: str, *args: Any) -> None:
+        logger.debug("%s %s", self.address_string(), format % args)
+
+
+class _PhoneRequestHandler(JsonRequestHandler):
+    server: PhoneServer
 
     def parse_request(self) -> bool:
         """Parses the request and refuses (403) any Host but this server's own names, and any
@@ -519,7 +622,7 @@ class _PhoneRequestHandler(BaseHTTPRequestHandler):
         elif path == ACTIONS_URL:
             actions = self.server.actions
             groups = [] if actions is None else actions.groups()
-            self._send_json(HTTPStatus.OK, {"groups": [_group_json(group) for group in groups]})
+            self._send_json(HTTPStatus.OK, {"groups": [group_json(group) for group in groups]})
         else:
             self._send_found(self.server.files.find(path))
 
@@ -827,66 +930,7 @@ class _PhoneRequestHandler(BaseHTTPRequestHandler):
             return with_photo
         return plain
 
-    def _read_body(self, limit: int) -> bytes | None:
-        """The body, read only when its Content-Length allows `limit`; None once refused."""
-        length = _body_length(self.headers, limit)
-        if length is HTTPStatus.LENGTH_REQUIRED:
-            self._send_error(length, LENGTH_REQUIRED_TEXT)
-            return None
-        if length is HTTPStatus.REQUEST_ENTITY_TOO_LARGE:
-            self._send_error(length, TOO_LARGE_TEXT)
-            return None
-        if isinstance(length, HTTPStatus):
-            self._send_error(length, BAD_REQUEST_TEXT)
-            return None
-        body = self.rfile.read(length)
-        self._body_read = True
-        if len(body) != length:
-            self._send_error(HTTPStatus.BAD_REQUEST, BAD_REQUEST_TEXT)
-            return None
-        return body
-
-    def _json_fields(
-        self, body: bytes, key: str, optional: Mapping[str, type] | None = None
-    ) -> dict[str, Any] | None:
-        """The fields of a JSON body `{key: "..."}`, which may also hold the `optional` fields,
-        each of its type; None after refusing anything else."""
-        if _content_type(self.headers) not in JSON_TYPES:
-            self._send_error(HTTPStatus.UNSUPPORTED_MEDIA_TYPE, WRONG_TYPE_TEXT)
-            return None
-        fields = _json_object(body, key, optional or {})
-        if fields is None:
-            self._send_error(HTTPStatus.BAD_REQUEST, BAD_REQUEST_TEXT)
-        return fields
-
-    def _discard_small_body(self) -> None:
-        """Reads a refused request's unread body when it is at most REFUSAL_READ_BYTES, and
-        marks a larger one to be drained once the refusal has been sent."""
-        if self._body_read:
-            return
-        length = _body_length(self.headers, REFUSAL_READ_BYTES)
-        if not isinstance(length, HTTPStatus):  # an IntEnum: test it before int
-            self.rfile.read(length)
-            self._body_read = True
-        elif length is HTTPStatus.REQUEST_ENTITY_TOO_LARGE:
-            declared = _body_length(self.headers, DRAIN_MAX_BYTES)
-            self._drain_bytes = DRAIN_MAX_BYTES if isinstance(declared, HTTPStatus) else declared
-
     # --- replies ------------------------------------------------------------------------------
-
-    def end_headers(self) -> None:
-        """Ends every response's headers, refusals and errors included, with PROTECTING_HEADERS."""
-        for name, value in PROTECTING_HEADERS.items():
-            self.send_header(name, value)
-        super().end_headers()
-
-    def _send_found(self, found: ServedFile | str | None) -> None:
-        """Sends a file the phone may keep (the page itself is never kept), or a 404 with the
-        reason `AvatarFiles.find` gave, if any."""
-        if isinstance(found, ServedFile):
-            send_file(self, found, revalidate=True)
-        else:
-            self._send_error(HTTPStatus.NOT_FOUND, found or NOT_FOUND_TEXT)
 
     def _send_bytes(self, body: bytes, content_type: str) -> None:
         self.send_response(HTTPStatus.OK)
@@ -894,33 +938,6 @@ class _PhoneRequestHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
-
-    def _send_json(self, status: HTTPStatus, payload: Mapping[str, Any]) -> None:
-        self._send_body(status, _json_bytes(payload))
-
-    def _send_error(
-        self, status: HTTPStatus, text: str, *, headers: Mapping[str, str] | None = None
-    ) -> None:
-        """Refuses the request with `{"error": text}`, reading a small unread body first."""
-        self._discard_small_body()
-        self._send_body(status, _json_bytes({"error": text}), headers=headers)
-
-    def _send_body(
-        self, status: HTTPStatus, body: bytes, *, headers: Mapping[str, str] | None = None
-    ) -> None:
-        """Sends a JSON body, never cached, and never with a HEAD answer."""
-        self.send_response(status)
-        self.send_header("Content-Type", CONTENT_TYPES[".json"])
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
-        for name, value in (headers or {}).items():
-            self.send_header(name, value)
-        self.end_headers()
-        if self.command != "HEAD":
-            self.wfile.write(body)
-
-    def log_message(self, format: str, *args: Any) -> None:
-        logger.debug("%s %s", self.address_string(), format % args)
 
 
 @functools.cache
@@ -1101,14 +1118,6 @@ def _reply_fields(reply: PhoneReply) -> dict[str, Any]:
         "fps": reply.fps,
         "visemes": [[round(float(weight), 2) for weight in frame] for frame in reply.visemes],
         "duration": round(float(reply.duration), 3),
-    }
-
-
-def _group_json(group: QuickGroup) -> dict[str, Any]:
-    """A group of quick buttons for GET /actions: its name, and each button's id and label."""
-    return {
-        "name": group.name,
-        "actions": [{"id": action.id, "label": action.label} for action in group.actions],
     }
 
 

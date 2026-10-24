@@ -2160,11 +2160,11 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** none · **Files:** `SPEC.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
 
-## Task 227: Share the quick buttons' limits and the JSON handling
+## Task 227: Share the quick buttons' limits and the JSON handling ✅
 
 **Acceptance criteria:**
-- [ ] `ACTION_MAX_BYTES`, `ACTION_RATE_LIMIT`, `ACTION_RATE_WINDOW_S`, `ACTION_UNKNOWN_TEXT`, `ACTION_LIMIT_TEXT`, `ACTION_BUSY_TEXT`, and `group_json` live in `phone/actions.py`; the phone server imports them
-- [ ] The phone handler's body reading, strict JSON fields, refusal draining, and replies are `JsonRequestHandler`, which `_PhoneRequestHandler` extends; the whole phone server suite passes unchanged
+- [x] `ACTION_MAX_BYTES`, `ACTION_RATE_LIMIT`, `ACTION_RATE_WINDOW_S`, `ACTION_UNKNOWN_TEXT`, `ACTION_LIMIT_TEXT`, `ACTION_BUSY_TEXT`, and `group_json` live in `phone/actions.py`; the phone server imports them
+- [x] The phone handler's body reading, strict JSON fields, refusal draining, and replies are `JsonRequestHandler`, which `_PhoneRequestHandler` extends; the whole phone server suite passes unchanged
 
 **Dependencies:** 227a · **Files:** `src/waifu/phone/actions.py`, `src/waifu/phone/server.py` · **Scope:** S
 

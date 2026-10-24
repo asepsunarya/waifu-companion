@@ -25,6 +25,7 @@ import threading
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 
 from waifu.config import QuickActionsConfig, RoutineConfig
 from waifu.devices.base import Device, DeviceResult
@@ -45,6 +46,15 @@ QUICK_KINDS = frozenset({"light", "plug", "ir", "mock"})
 SWITCH_LABELS = {"on": "Nyala", "off": "Mati", "toggle": "Nyala/mati", "power": "Tombol power"}
 BRIGHTNESS_PRESETS = (10, 30, 60, 100)
 TEMPERATURE_PRESETS = (18, 20, 22, 24, 26, 28)
+
+# What a server that runs the buttons takes: a body of at most ACTION_MAX_BYTES, and at most
+# ACTION_RATE_LIMIT presses in any ACTION_RATE_WINDOW_S seconds.
+ACTION_MAX_BYTES = 1024
+ACTION_RATE_LIMIT = 10
+ACTION_RATE_WINDOW_S = 60
+ACTION_UNKNOWN_TEXT = "Tombol itu sudah tidak ada. Muat ulang halaman."
+ACTION_LIMIT_TEXT = "Tombolnya terlalu sering ditekan. Tunggu sebentar, lalu coba lagi."
+ACTION_BUSY_TEXT = "Perintah tadi masih jalan. Tunggu sebentar."
 
 
 @dataclass(frozen=True)
@@ -152,6 +162,14 @@ class QuickActions:
             self._registry, routine, name=name, schedule=self._schedule, now=self._now
         )
         return _routine_outcome(_routine_label(name, routine), routine, results)
+
+
+def group_json(group: QuickGroup) -> dict[str, Any]:
+    """A group of quick buttons for GET /actions: its name, and each button's id and label."""
+    return {
+        "name": group.name,
+        "actions": [{"id": action.id, "label": action.label} for action in group.actions],
+    }
 
 
 def _device_group(device: Device) -> QuickGroup | None:
