@@ -22,6 +22,11 @@ date), which a focus block alone keeps however long it lasts. A text queued more
 said once. A private request (her nightly journal question, the weekly game report) that comes
 to be answered while guest mode is on is dropped too.
 
+While an alarm rings (`waifu.alarm`), its rings come first, each its own clip at the ring's
+level, also while `quiet` holds, and her requests wait until it stops. Master's whole utterance
+"aku sudah bangun" or "tunda" (`alarm_request`) stops or snoozes it without the brain or her
+name, like "ulangi": no turn.
+
 When Master's whole utterance asks her to repeat ("ulangi", "tadi bilang apa?": `waifu.repeat`),
 she says her last words on the PC again (her reply, the announcements said together, or her
 answer to a request) without the brain: no turn, so a question waiting for Master's yes still
@@ -49,11 +54,13 @@ import threading
 import time
 import wave
 from collections.abc import Callable, Iterator
+from contextlib import AbstractContextManager, nullcontext
 from datetime import datetime
 from typing import Protocol
 
 import numpy as np
 
+from waifu.alarm import AlarmBell, AlarmRequest, alarm_request
 from waifu.avatar.bus import SPEAK_FPS
 from waifu.avatar.emotion import NEUTRAL, split_emotion
 from waifu.avatar.lipsync import viseme_track
@@ -64,6 +71,7 @@ from waifu.config import AppConfig
 from waifu.gate import WakeGate
 from waifu.phone.server import PhoneReply
 from waifu.repeat import is_repeat_request
+from waifu.schedule import ScheduleError
 from waifu.voice.audio import resample
 from waifu.voice.base import SpeechToText, Utterance
 from waifu.voice.speaker import SpeakerError
@@ -90,6 +98,13 @@ GAME_HELD = "Tadi selama main ada kabar."
 # Her answer to "ulangi" when she has said nothing she remembers, or guest mode has switched
 # since (`Assistant._repeat`).
 NOTHING_TO_REPEAT = "Belum ada yang bisa kuulangi, {owner}."
+# Her answers to Master's words to a ringing alarm (`Assistant._answer_alarm`), and the emotion
+# she rings and answers with.
+ALARM_STOPPED = "Oke {owner}, alarmnya kumatikan."
+ALARM_SNOOZED = "Oke, kubangunkan lagi jam {time}."
+ALARM_NOT_SNOOZED = "Alarmnya tidak bisa ditunda: {problem}"
+ALARM_ENDED = "Alarmnya sudah berhenti, {owner}."
+ALARM_EMOTION = "happy"
 
 
 def split_reply(reply: BrainReply, *, owner_call: str = "Master") -> tuple[str, BrainReply]:
@@ -270,6 +285,8 @@ class Assistant:
         game_holding: Callable[[], bool] | None = None,
         guest_mode: Callable[[], bool] | None = None,
         guest_marker: Callable[[], object] | None = None,
+        alarm: AlarmBell | None = None,
+        hold_level: Callable[[int], AbstractContextManager[object]] | None = None,
     ) -> None:
         """`quiet` (the focus timer's `in_block`, in game mode also whether a game holds her
         announcements) says when what she would say by herself must wait: only `remind` is
@@ -277,7 +294,8 @@ class Assistant:
         game made: the announcements it held come out after GAME_HELD. `guest_mode` (guest
         mode's `is_on`) says when her private requests are dropped. `guest_marker` (guest
         mode's `generation`) moves whenever guest mode switches: her last words said before
-        it moved are never repeated."""
+        it moved are never repeated. `alarm` is the bell whose rings she says; `hold_level`
+        (`LevelHold.held`) plays one clip, a ring, at a level of its own."""
         self._name = config.assistant.name
         self._owner_call = config.assistant.owner_call
         # Left out of Master's words when they ask her to repeat (`is_repeat_request`).
@@ -301,6 +319,8 @@ class Assistant:
         self._game_holding = game_holding
         self._guest_mode = guest_mode
         self._guest_marker = guest_marker
+        self._alarm = alarm
+        self._hold_level = hold_level
         self._mic: Microphone | None = None
         self._segmenter: Segmenter | None = None
         self._speaker_error_logged = False
@@ -376,6 +396,10 @@ class Assistant:
                 logger.debug("Nothing usable was transcribed")
                 return None
             logger.info("Heard (%s): %s", transcript.language, text)
+            request = self._alarm_request(text)
+            if request is not None:
+                self._announcements_held_until = None  # Master has been heard after a cut
+                return self._answer_alarm(request)
             result = self._gate.check(text, heard_at=utterance.started_at)
             if not result.accepted:
                 logger.info("Not addressed to %s (%s); ignoring", self._name, result.reason)
@@ -524,11 +548,19 @@ class Assistant:
             _Request(prompt, on_reply, required_tool, new_session, expires_at, private)
         )
 
-    def speak(self, text: str, emotion: str = NEUTRAL, *, followup: bool = True) -> None:
+    def speak(
+        self,
+        text: str,
+        emotion: str = NEUTRAL,
+        *,
+        followup: bool = True,
+        level: int | None = None,
+    ) -> None:
         """Say `text` with the microphone paused and the avatar mouthing it with `emotion`.
 
         A reply opens the follow-up window afterwards, also when `interrupt()` cuts it
-        short; with `followup=False` (an announcement, not a reply) it stays as it was.
+        short; with `followup=False` (an announcement, not a reply) it stays as it was. With
+        `level` (an alarm's ring) the clip is played at that level through `hold_level`.
         Speech that was cut holds queued announcements back (`_hold_announcements`).
         Failures are logged, never raised. Safe from any thread: she says one thing at a
         time, so this waits for whatever she is saying first.
@@ -542,7 +574,9 @@ class Assistant:
                 self._show(lambda avatar: avatar.state("speaking"))
                 self._show(lambda avatar: avatar.speak(audio, sample_rate, emotion))
                 self._speaking = True
-                if not self._player.play(audio, sample_rate):
+                with self._held_level(level):
+                    played = self._player.play(audio, sample_rate)
+                if not played:
                     logger.info("Speech was cut off before its end")
                     self._hold_announcements()
             except TtsError as exc:
@@ -640,14 +674,63 @@ class Assistant:
         chats on the phone (until `session_idle_minutes` after his last phone message): its
         new session would wipe that conversation, and he would not hear it on the PC, so his
         next phone message would answer a question he never heard. While `quiet` holds, only
-        reminders are said: the rest waits in its queue.
+        reminders are said: the rest waits in its queue. A due alarm ring comes before all of
+        them, alone in its pass; while an alarm rings, requests wait.
         """
+        if self._say_ring():
+            return
         followup_open = self._followup_open()
         quiet = self._quiet is not None and self._quiet()
+        ringing = self._alarm is not None and self._alarm.ringing()
         if not self._say_announcements(followup_open, quiet) and not (
-            followup_open or quiet or self._phone_chatting()
+            followup_open or quiet or ringing or self._phone_chatting()
         ):
             self._answer_next_request()
+
+    def _say_ring(self) -> bool:
+        """Say the alarm's due ring, if any, as its own clip at its level, like a reply (so
+        "aku sudah bangun" needs no name); never remembered for "ulangi". True when it rang."""
+        ring = None if self._alarm is None else self._alarm.due_ring()
+        if ring is None:
+            return False
+        logger.info("Ringing the alarm (ring %d, %d percent)", ring.index + 1, ring.level)
+        self.speak(ring.text, ALARM_EMOTION, level=ring.level)
+        return True
+
+    def _alarm_request(self, text: str) -> AlarmRequest | None:
+        """What Master's whole utterance asks of the alarm while it rings, or None."""
+        if self._alarm is None or not self._alarm.ringing():
+            return None
+        return alarm_request(text, self._names)
+
+    def _answer_alarm(self, request: AlarmRequest) -> str:
+        """Stop or snooze the ringing alarm without the brain and say so like a reply; returns
+        what she said. No turn is taken, so a question waiting for Master's yes still waits."""
+        assert self._alarm is not None  # only asked while a bell rings
+        owner = self._owner_call
+        if request.kind == "stop":
+            self._alarm.stop()
+            logger.info("Alarm stopped by voice")
+            text = ALARM_STOPPED.format(owner=owner)
+        else:
+            try:
+                entry = self._alarm.snooze(request.minutes)
+            except ScheduleError as exc:
+                logger.info("Could not snooze the alarm by voice: %s", exc)
+                text = ALARM_NOT_SNOOZED.format(problem=exc)
+            else:
+                if entry is None:  # it rang out meanwhile
+                    text = ALARM_ENDED.format(owner=owner)
+                else:
+                    logger.info("Alarm snoozed by voice")
+                    text = ALARM_SNOOZED.format(time=f"{entry.at:%H.%M}")
+        self.speak(text, ALARM_EMOTION)
+        return text
+
+    def _held_level(self, level: int | None) -> AbstractContextManager[object]:
+        if level is None or self._hold_level is None:
+            return nullcontext()
+        return self._hold_level(level)
 
     def _say_announcements(self, followup_open: bool, quiet: bool) -> bool:
         """Say every queued reminder and announcement in one go, reminders first, with the

@@ -14,6 +14,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+from waifu.alarm import AlarmBell
 from waifu.app import GAME_HELD, Assistant, PhoneAnswers
 from waifu.avatar.lipsync import viseme_track
 from waifu.brain.attachments import CameraTurn, TurnImages
@@ -43,12 +44,13 @@ from waifu.pc_health import Drive, GpuStatus, PcSnapshot
 from waifu.pc_watch import PcWatcher
 from waifu.phone.auth import PhoneAuth
 from waifu.phone.server import PhoneBackend, PhoneReply, PhoneServer
+from waifu.schedule import AlarmAction, Entry, Reminder, ScheduleStore
 from waifu.screen import ScreenImage, encode_png
 from waifu.voice.base import SpeechToText, Transcript, Utterance
 from waifu.voice.speaker import SpeakerError
 from waifu.voice.stt import SttError
 from waifu.voice.tts import TtsError
-from waifu.voice.volume import VolumePlayer
+from waifu.voice.volume import LevelHold, VolumePlayer
 
 NOW = datetime(2026, 10, 12, 19, 30)
 SAMPLE_RATE = 16000
@@ -239,6 +241,7 @@ class Rig:
         guest_mode: Callable[[], bool] | None = None,
         guest_marker: Callable[[], object] | None = None,
         volume: int | None = None,
+        alarm: AlarmBell | None = None,
     ) -> None:
         config = config or AppConfig()
         self.events: list[str] = []
@@ -253,12 +256,17 @@ class Rig:
         self.gate = WakeGate(
             config.assistant.wake_words, config.assistant.followup_seconds, clock=self.clock
         )
+        # Her level of now (`volume`, else 100), which a ring of `alarm` holds for its clip.
+        self.hold = LevelHold(lambda: 100 if volume is None else volume)
+        played_through = volume is not None or alarm is not None
         self.assistant = Assistant(
             config,
             brain=self.brain,
             stt=self.stt,
             speech=self.speech,
-            player=self.player if volume is None else VolumePlayer(self.player, lambda: volume),
+            player=VolumePlayer(self.player, self.hold.level_now)
+            if played_through
+            else self.player,
             gate=self.gate,
             verifier=self.verifier if with_verifier else None,
             speaker_check=speaker_check,
@@ -271,6 +279,8 @@ class Rig:
             game_holding=game_holding,
             guest_mode=guest_mode,
             guest_marker=guest_marker,
+            alarm=alarm,
+            hold_level=None if alarm is None else self.hold.held,
         )
 
     def utterance(self) -> Utterance:
@@ -3456,3 +3466,251 @@ def test_a_reply_in_a_turn_after_guest_mode_switched_is_repeated():
 
     assert rig.assistant.handle_utterance(rig.utterance()) == REPLY
     assert asked(rig) == ["nyalakan lampu kamar"]
+
+
+# --- the alarm ---------------------------------------------------------------------------------
+
+HALF_SCALE = (np.full(2400, 0.5, dtype=np.float32), 24000)  # peaks at half the level played
+
+
+class AlarmRig(Rig):
+    """A Rig with an alarm bell on files under `tmp_path`, on the rig's clocks; every clip peaks
+    at half its level, so `player.peaks` tells the level of each."""
+
+    def __init__(
+        self, tmp_path, *heard: str | Exception, day_level: int = 100, max_entries=50, **kwargs
+    ) -> None:
+        self.store = ScheduleStore(
+            tmp_path / "schedule.json", max_entries=max_entries, now=lambda: self.now
+        )
+        self.bell = AlarmBell(
+            tmp_path / "alarm.json",
+            self.store,
+            repeat_seconds=60,
+            day_level=lambda: day_level,
+            now=lambda: self.now,
+            clock=lambda: self.clock.now,
+        )
+        super().__init__(*heard, alarm=self.bell, **kwargs)
+        self.speech.voice = HALF_SCALE
+
+    def start_alarm(self, label: str | None = None) -> None:
+        self.bell.start(Entry("j1", self.now, "none", AlarmAction(label), self.now))
+
+    def pass_seconds(self, seconds: float) -> None:
+        self.now += timedelta(seconds=seconds)
+        self.clock.now += seconds
+
+
+def test_a_due_ring_is_said_by_itself_at_its_level_as_a_reply(tmp_path):
+    rig = AlarmRig(tmp_path, with_avatar=True)
+    rig.start_alarm()
+
+    listen_once(rig)
+
+    assert rig.speech.texts == ["Master, bangun! Sudah jam 19.30."]
+    assert rig.player.peaks == [pytest.approx(0.5)]
+    assert "avatar.speak happy" in rig.events
+    assert rig.gate.check("aku masih ngantuk").accepted is True  # the follow-up window opened
+
+
+def test_each_next_ring_comes_after_its_minute_louder(tmp_path):
+    rig = AlarmRig(tmp_path)
+    rig.start_alarm("berangkat kerja")
+
+    for _ in range(3):
+        listen_once(rig, None, None)  # one ring per minute, however often she asks
+        rig.pass_seconds(60)
+
+    assert rig.speech.texts == [
+        "Master, bangun! Sudah jam 19.30. Berangkat kerja.",
+        "Ayo bangun, Master! Sudah jam 19.31. Berangkat kerja.",
+        "Master, bangun dong! Sudah jam 19.32. Berangkat kerja.",
+    ]
+    assert rig.player.peaks == [pytest.approx(0.5), pytest.approx(0.6), pytest.approx(0.7)]
+
+
+def test_a_ring_is_never_whispered_and_her_next_reply_is_at_her_level_again(tmp_path):
+    rig = AlarmRig(tmp_path, "Cyrene, nyalakan lampu kamar", volume=30, day_level=100)
+    rig.start_alarm()
+
+    listen_once(rig, None, rig.utterance())
+
+    assert rig.speech.texts == ["Master, bangun! Sudah jam 19.30.", REPLY]
+    assert rig.player.peaks == [pytest.approx(0.5), pytest.approx(0.15)]
+
+
+def test_a_ring_comes_first_on_its_own_and_the_announcements_after_it(tmp_path):
+    rig = AlarmRig(tmp_path)
+    rig.assistant.remind("Master, waktunya minum obat!")
+    rig.assistant.announce(ANNOUNCEMENT)
+    rig.start_alarm()
+
+    listen_once(rig)
+    first = list(rig.speech.texts)
+    listen_once(rig)
+
+    assert first == ["Master, bangun! Sudah jam 19.30."]
+    assert rig.speech.texts == [
+        "Master, bangun! Sudah jam 19.30.",
+        f"Master, waktunya minum obat! {ANNOUNCEMENT}",
+    ]
+
+
+def test_a_ring_is_said_while_quiet_holds_her_announcements(tmp_path):
+    rig = AlarmRig(tmp_path, quiet=Quiet(on=True))
+    rig.assistant.announce(ANNOUNCEMENT)
+    rig.start_alarm()
+
+    listen_once(rig, None, None)
+
+    assert rig.speech.texts == ["Master, bangun! Sudah jam 19.30."]
+
+
+def test_a_ring_waits_while_master_speaks(tmp_path):
+    rig = AlarmRig(tmp_path)
+    rig.start_alarm()
+
+    rig.assistant.run(
+        FakeMic(rig.events, [SILENT_FRAME]), FakeSegmenter(rig.events, [None], busy=[True])
+    )
+    while_he_spoke = list(rig.speech.texts)
+    listen_once(rig)
+
+    assert while_he_spoke == []
+    assert rig.speech.texts == ["Master, bangun! Sudah jam 19.30."]
+
+
+def test_her_requests_wait_while_it_rings_and_come_after_the_stop(tmp_path):
+    rig = AlarmRig(tmp_path)
+    rig.assistant.ask_aloud(GREETING_PROMPT)
+    rig.start_alarm()
+
+    listen_once(rig)
+    rig.pass_seconds(10)  # past the follow-up window, before the next ring
+    listen_once(rig)
+    while_ringing = asked(rig)
+    rig.bell.stop()
+    listen_once(rig)
+
+    assert while_ringing == []
+    assert asked(rig) == [GREETING_PROMPT]
+
+
+def test_a_ring_is_never_what_ulangi_repeats(tmp_path):
+    rig = AlarmRig(tmp_path, "Cyrene, nyalakan lampu kamar", "ulangi")
+    rig.assistant.handle_utterance(rig.utterance())
+    rig.start_alarm()
+    listen_once(rig)
+
+    repeated = rig.assistant.handle_utterance(rig.utterance())
+
+    assert repeated == REPLY
+
+
+@pytest.mark.parametrize("phrase", ["aku sudah bangun", "Cyrene, matikan alarm", "udah bangun"])
+def test_a_stop_phrase_stops_the_ring_without_the_brain(tmp_path, phrase):
+    rig = AlarmRig(tmp_path, phrase)
+    rig.start_alarm()
+    listen_once(rig)
+
+    answer = rig.assistant.handle_utterance(rig.utterance())
+    rig.pass_seconds(60)
+    listen_once(rig)
+
+    assert answer == "Oke Master, alarmnya kumatikan."
+    assert rig.speech.texts == ["Master, bangun! Sudah jam 19.30.", answer]
+    assert asked(rig) == []
+    assert rig.bell.ringing() is False
+
+
+def test_a_stop_phrase_needs_no_name_also_after_the_follow_up_window(tmp_path, caplog):
+    rig = AlarmRig(tmp_path, "udah bangun")
+    rig.start_alarm()
+    listen_once(rig)
+    rig.pass_seconds(30)  # the ring's window has closed
+
+    with caplog.at_level(logging.INFO, logger="waifu.app"):
+        answer = rig.assistant.handle_utterance(rig.utterance())
+
+    assert answer == "Oke Master, alarmnya kumatikan."
+    assert rig.bell.ringing() is False
+    assert "Alarm stopped by voice" in caplog.text
+
+
+def test_a_snooze_phrase_snoozes_it_without_the_brain(tmp_path, caplog):
+    rig = AlarmRig(tmp_path, "tunda 10 menit")
+    rig.start_alarm("berangkat kerja")
+    listen_once(rig)
+
+    with caplog.at_level(logging.INFO, logger="waifu.app"):
+        answer = rig.assistant.handle_utterance(rig.utterance())
+
+    assert answer == "Oke, kubangunkan lagi jam 19.40."
+    assert [(e.at, e.action) for e in rig.store.entries()] == [
+        (datetime(2026, 10, 12, 19, 40), AlarmAction("berangkat kerja"))
+    ]
+    assert rig.bell.ringing() is False
+    assert asked(rig) == []
+    assert "Alarm snoozed by voice" in caplog.text
+
+
+def test_a_snooze_the_schedule_refuses_is_said_and_the_ring_goes_on(tmp_path):
+    rig = AlarmRig(tmp_path, "tunda", max_entries=1)
+    rig.store.add(datetime(2026, 10, 12, 21, 0), "none", Reminder("Master, telepon Ibu!"))
+    rig.start_alarm()
+    listen_once(rig)
+
+    answer = rig.assistant.handle_utterance(rig.utterance())
+
+    assert answer == (
+        "Alarmnya tidak bisa ditunda: Jadwal sudah penuh, 1 entri. Batalkan jadwal lama dulu."
+    )
+    assert rig.bell.ringing() is True
+
+
+@pytest.mark.parametrize("command", ["Cyrene, matikan lampu", "matikan musik", "stop"])
+def test_a_command_that_only_looks_like_a_stop_goes_on_as_before(tmp_path, command):
+    rig = AlarmRig(tmp_path, command)
+    rig.start_alarm()
+    listen_once(rig)  # the ring opens the follow-up window
+
+    answer = rig.assistant.handle_utterance(rig.utterance())
+
+    assert answer == REPLY
+    assert asked(rig) == [command]  # in the follow-up window the gate keeps her name
+    assert rig.bell.ringing() is True
+
+
+def test_without_a_ring_the_stop_phrase_is_an_utterance_like_any_other(tmp_path):
+    rig = AlarmRig(tmp_path, "aku sudah bangun", "Cyrene, matikan alarm")
+
+    unaddressed = rig.assistant.handle_utterance(rig.utterance())
+    addressed = rig.assistant.handle_utterance(rig.utterance())
+
+    assert unaddressed is None
+    assert addressed == REPLY
+    assert asked(rig) == ["matikan alarm"]
+
+
+def test_a_stop_by_another_voice_is_ignored(tmp_path):
+    rig = AlarmRig(tmp_path, "aku sudah bangun", owner=(False, 0.2))
+    rig.start_alarm()
+
+    assert rig.assistant.handle_utterance(rig.utterance()) is None
+    assert rig.bell.ringing() is True
+
+
+def test_a_stop_leaves_a_question_waiting_for_master_s_yes(tmp_path):
+    rig = AlarmRig(tmp_path, "Cyrene, matikan PC", "aku sudah bangun", "iya", brain=AskingBrain)
+    rig.assistant.handle_utterance(rig.utterance())
+    rig.start_alarm()
+    listen_once(rig)
+
+    rig.assistant.handle_utterance(rig.utterance())
+    ran_after_the_stop = rig.brain.ran
+    rig.assistant.handle_utterance(rig.utterance())  # inside the window the stop line opened
+
+    assert ran_after_the_stop == 0
+    assert asked(rig) == ["matikan PC", "iya"]
+    assert rig.brain.ran == 1
