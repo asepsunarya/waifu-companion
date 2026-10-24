@@ -364,6 +364,23 @@ def test_with_no_mic_left_she_hears_silence_at_the_frames_pace_and_retries_every
     assert caplog.text.count("No microphone opens") == 1
 
 
+def test_while_no_mic_opens_her_restarts_stay_out_of_the_info_log(caplog):
+    rig = Rig([HEADSET])
+    rig.mics.failures[HEADSET] = MicrophoneError("Mikrofon terputus")
+    rig.mics.broken[None] = ValueError("no default input")
+
+    with caplog.at_level(logging.INFO, logger="waifu.voice.mic_source"), rig.source as source:
+        frames = source.frames()
+        marks(frames, 2)
+        rig.mics.broken[HEADSET] = ValueError("gone")
+        for _ in range(12):  # a minute without a mic
+            marks(frames, 1)
+            rig.clock.now += RETRY_S
+
+    assert rig.events.count("restart") > 10
+    assert caplog.text.count("Restarted PortAudio") == 1  # as the mic failed, not each retry
+
+
 def test_a_failover_while_she_speaks_opens_the_next_mic_paused():
     rig = Rig([HEADSET, USB])
     rig.mics.failures[HEADSET] = MicrophoneError("Mikrofon terputus")

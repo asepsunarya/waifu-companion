@@ -743,6 +743,14 @@ def test_restarting_portaudio_stops_and_starts_it_so_it_lists_the_devices_of_now
     assert sd._initialized == 1
 
 
+def test_a_restart_leaves_its_log_line_to_the_caller(caplog):
+    # MicSource retries every 5 s while no mic opens: an INFO line each time would flood the log.
+    with caplog.at_level(logging.DEBUG, logger="waifu.voice.audio"):
+        restart_portaudio(sd_module=FakeSounddevice())
+
+    assert caplog.records == []
+
+
 def test_restarting_a_portaudio_that_failed_to_start_only_starts_it():
     sd = FakeSounddevice()
     sd._initialized = 0

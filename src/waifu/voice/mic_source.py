@@ -522,12 +522,17 @@ class MicSource:
             logger.warning("Could not close microphone %s cleanly: %s", stream.name, exc)
 
     def _restart_portaudio(self) -> None:
+        """Restart PortAudio when allowed: logged at INFO, but only at DEBUG while no mic opens
+        and she retries every RETRY_S."""
         if self._restart is None:
             return
         try:
             self._restart()
         except Exception:
             logger.exception("Could not restart PortAudio")
+        else:
+            log = logger.debug if self._retry_at is not None else logger.info
+            log("Restarted PortAudio to list the audio devices of now")
         self._devices = None
         self._known_names = self._read_present()
 

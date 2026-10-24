@@ -380,14 +380,14 @@ def restart_portaudio(sd_module: Any = None) -> None:
     Its stop closes every stream: call it only with the microphone closed. It waits for a clip
     being played (`PLAYBACK`) and a listing under way (`LISTING`). sounddevice 0.5.6 has no
     public restart: its private `_terminate` and `_initialize` keep a count of starts, which a
-    start that failed leaves at 0 (then it is only started).
+    start that failed leaves at 0 (then it is only started). Logging it is left to the caller,
+    which restarts it every few seconds while it waits for a mic.
     """
     sd = _sounddevice(sd_module)
     with PLAYBACK, LISTING:
         while sd._initialized:
             sd._terminate()
         sd._initialize()
-    logger.info("Restarted PortAudio to list the audio devices of now")
 
 
 def list_devices(sd_module: Any = None) -> str:
