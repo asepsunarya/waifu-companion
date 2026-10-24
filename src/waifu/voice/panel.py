@@ -18,6 +18,7 @@ from typing import Any, Protocol
 
 from waifu.config import VadConfig
 from waifu.phone.server import VoiceAnswer
+from waifu.voice.audio import MicLevel
 from waifu.voice.diagnosis import UtteranceLog, UtteranceRecord
 from waifu.voice.mic_source import MicSource
 from waifu.voice.segmenter import EnergySegmenter
@@ -90,9 +91,7 @@ class VoicePanel:
                 {"value": device.config_value, "name": device.name, "host_api": device.host_api}
                 for device in devices
             ],
-            "level": None
-            if mic.level is None
-            else {"rms_db": _round(mic.level.rms_db, 1), "peak_db": _round(mic.level.peak_db, 1)},
+            "level": None if mic.level is None else _level_json(mic.level),
             "vad": {
                 "floor_db": _round(self._segmenter.floor_db, 1),
                 "bar_db": _round(self._segmenter.bar_db, 1),
@@ -196,6 +195,14 @@ class VoicePanel:
 
 def _round(value: float | None, places: int) -> float | None:
     return None if value is None else round(float(value), places)
+
+
+def _level_json(level: MicLevel) -> dict[str, float | None]:
+    return {
+        "rms_db": _round(level.rms_db, 1),
+        "peak_db": _round(level.peak_db, 1),
+        "loudest_db": _round(level.loudest_db, 1),
+    }
 
 
 def _record_json(record: UtteranceRecord) -> dict[str, Any]:

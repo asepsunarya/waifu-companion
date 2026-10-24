@@ -39,7 +39,7 @@ class FakeStream:
         self.device = device
         self.name: str | None = None
         self.host_api: str | None = None
-        self.level: MicLevel | None = MicLevel(-51.24, -40.06, 1.0)
+        self.level: MicLevel | None = MicLevel(-51.24, -40.06, -45.54, 1.0)
         self.closed = False
 
     def __enter__(self) -> FakeStream:
@@ -129,7 +129,7 @@ def test_the_status_shows_the_mic_its_level_the_gate_and_the_choices(rig):
         {"value": HEADSET, "name": "Headset (Polaris-BT)", "host_api": "MME"},
         {"value": USB, "name": "Microphone (USB)", "host_api": "MME"},
     ]
-    assert status["level"] == {"rms_db": -51.2, "peak_db": -40.1}
+    assert status["level"] == {"rms_db": -51.2, "peak_db": -40.1, "loudest_db": -45.5}
     assert status["vad"] == {
         "floor_db": -60.0,
         "bar_db": -45.0,

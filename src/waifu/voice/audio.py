@@ -54,8 +54,10 @@ class MicrophoneFlat(MicrophoneError):
 class MicLevel:
     """What the microphone heard over the last LEVEL_WINDOW_S, in dBFS."""
 
-    rms_db: float
-    peak_db: float
+    rms_db: float  # the whole window
+    peak_db: float  # the loudest sample
+    # The loudest block, each about one VAD frame long: what the VAD holds against its bar.
+    loudest_db: float
     at: float  # when the window ended, on the stream's clock
 
 
@@ -143,6 +145,7 @@ class MicStream:
         self._level_samples = 0
         self._sum_squares = 0.0
         self._peak = 0.0
+        self._loudest = 0.0  # the highest mean square of a block
         self._level: MicLevel | None = None
         self._zeros_since: float | None = None  # when the current run of exact zeros began
         self.name: str | None = None
@@ -251,14 +254,16 @@ class MicStream:
     def _measure(self, samples: np.ndarray, now: float) -> None:
         """Add `samples` to the level window and publish the window once it spans LEVEL_WINDOW_S.
         Arithmetic only, on the audio thread: the samples are never kept."""
-        self._sum_squares += float(np.dot(samples, samples))
+        squares = float(np.dot(samples, samples))
+        self._sum_squares += squares
+        self._loudest = max(self._loudest, squares / samples.size)
         self._peak = max(self._peak, float(samples.max()), -float(samples.min()))
         self._level_samples += samples.size
         if self._level_samples < self._device_rate * LEVEL_WINDOW_S:
             return
         rms = math.sqrt(self._sum_squares / self._level_samples)
-        self._level = MicLevel(_db(rms), _db(self._peak), now)
-        self._level_samples, self._sum_squares, self._peak = 0, 0.0, 0.0
+        self._level = MicLevel(_db(rms), _db(self._peak), _db(math.sqrt(self._loudest)), now)
+        self._level_samples, self._sum_squares, self._peak, self._loudest = 0, 0.0, 0.0, 0.0
 
     def _check_flat(self) -> None:
         since = self._zeros_since

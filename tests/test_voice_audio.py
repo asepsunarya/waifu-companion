@@ -604,6 +604,18 @@ def test_the_level_is_the_rms_and_peak_of_the_last_second_on_the_mic_s_clock():
     assert level.at == 6.0
 
 
+def test_the_loudest_block_of_the_second_is_what_the_vad_s_bar_is_held_against():
+    sd = FakeSounddevice()
+    with MicStream(16000, 30, sd_module=sd) as mic:
+        for index in range(34):  # one 30 ms word at -14 dB in a second of -40 dB room
+            sd.streams[0].push(np.full(480, 0.2 if index == 10 else 0.01))
+
+        level = mic.level
+
+    assert level.loudest_db == pytest.approx(-13.98, abs=0.01)
+    assert level.rms_db < -25  # the second as a whole is far quieter than the word
+
+
 def test_the_level_s_peak_is_the_loudest_sample_either_way():
     sd = FakeSounddevice()
     with MicStream(16000, 30, sd_module=sd) as mic:

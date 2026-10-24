@@ -479,7 +479,7 @@ def test_following_the_config_again_drops_the_phone_s_pick():
 def test_the_status_names_the_mic_its_host_api_and_its_level():
     rig = Rig([HEADSET])
     with rig.source as source:
-        rig.mics.streams[0].level = MicLevel(-51.0, -40.0, 3.0)
+        rig.mics.streams[0].level = MicLevel(-51.0, -40.0, -44.0, 3.0)
 
         status = source.status()
 
@@ -488,7 +488,7 @@ def test_the_status_names_the_mic_its_host_api_and_its_level():
         "MME",
         HEADSET,
     )
-    assert status.level == MicLevel(-51.0, -40.0, 3.0)
+    assert status.level == MicLevel(-51.0, -40.0, -44.0, 3.0)
     assert status.preferences == [HEADSET, None]
 
 
