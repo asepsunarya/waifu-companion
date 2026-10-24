@@ -1101,11 +1101,11 @@ parameters, and 0 of 16 unions stay.
 - [x] Task 295: the remark words
 - [x] Task 296: the yes before a reading is kept (`_ask_reading`, the yes, the window, brain turns)
 - [x] Task 297: forgetting a reading by voice (`forget_request`, `_forget_reading`)
-- [ ] Task 298: README, CHANGELOG
+- [x] Task 298: README, CHANGELOG
 
 ### Checkpoint: konfirmasi kamus
-- [ ] Python suite and ruff clean; no test spoke, played audio, or read the repository's `data/`; the strict-tool budget unchanged
-- [ ] By hand: in a scratch folder with fake voices and a fake brain over the real Assistant and Lexicon, the four sentences keep nothing, a yes keeps the reading, a non-yes drops it, and "lupakan cara baca X" forgets it
+- [x] Python suite and ruff clean; no test spoke, played audio, or read the repository's `data/`; the strict-tool budget unchanged (2026-10-25: 10960 pytest and 601 JS tests, ruff clean; nothing under src/waifu/brain or config/ changed, so 18 of 20 strict tools, 17 of 24 optional parameters, and 0 of 16 unions stay)
+- [x] By hand: in a scratch folder with fake voices and a fake brain over the real Assistant and Lexicon, the four sentences keep nothing, a yes keeps the reading, a non-yes drops it, and "lupakan cara baca X" forgets it (2026-10-25, a scratch script in a mktemp folder, deleted afterwards, over the real Assistant, WakeGate, Lexicon, and SpeechRouter with a recording voice, a fake brain, and a fake Whisper: "cara baca buku itu penting", "... jam itu begini", and "... peta itu pakai kompas" went to the brain without a question, "cara baca buku itu pelan-pelan" was asked and then dropped by "nyalakan lampu kamar", and the file stayed missing; the brain's "Penuh jam 04.10." reached the voice unchanged; "cara baca Acheron itu A Ke Ron." then "iya" kept `{"Acheron": "A Ke Ron"}`; "bukan" and a yes after 61 s kept nothing and went to the brain; "lupakan cara baca acheron" answered "Oke Master. Cara baca Acheron sudah kulupakan.", "hapus cara baca HSR" was refused as built-in (voiced "Ha Es Er"), "lupakan cara baca Kafka" had none, and "lupakan cara baca itu" went to the brain; the log named no word outside the "Heard" lines)
 - [ ] On the owner's PC: "Cyrene, cara baca Acheron itu A Ke Ron", then "iya": `waifu lafal list` shows it; "Cyrene, lupakan cara baca Acheron" removes it
 
 ### Phase 54: Sebelum reset (v1.50, see SPEC → sebelum reset)

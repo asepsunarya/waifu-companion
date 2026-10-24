@@ -1,5 +1,6 @@
-"""How her Indonesian voices read a word (SPEC, kamus cyrene (v1.49)): built-in rules for the
-game abbreviations, and Master's own rules in a small file of their own.
+"""How her Indonesian voices read a word (SPEC, kamus cyrene (v1.49) and konfirmasi kamus
+(v1.49.1)): built-in rules for the game abbreviations, and Master's own rules in a small file of
+their own, taught by voice only after his yes and forgotten by voice too.
 
 The speech router passes every Indonesian run through `pronounce` right before a voice speaks
 it, so the reply's text stays as written everywhere else (the phone, the history, the logs).

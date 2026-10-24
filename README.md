@@ -714,8 +714,9 @@ Contoh kalimat saat `waifu run`:
 - Ctrl+Alt+C, juga di tengah game layar penuh: dia langsung mendengarkan tanpa dipanggil
   namanya; Ctrl+Alt+Q: dia berhenti mendengarkan sampai ditekan lagi (lihat
   [Hotkey global](#hotkey-global)).
-- "Cyrene, cara baca Acheron itu A Ke Ron.": mulai kalimat berikutnya dia membacanya begitu
-  (lihat [Kamus Cyrene](#kamus-cyrene)).
+- "Cyrene, cara baca Acheron itu A Ke Ron.", lalu "iya" saat dia bertanya: mulai kalimat
+  berikutnya dia membacanya begitu; "Cyrene, lupakan cara baca Acheron" menghapusnya (lihat
+  [Kamus Cyrene](#kamus-cyrene)).
 
 Obrolan dilupakan setelah 10 menit tanpa percakapan atau 40 giliran
 (`assistant.session_idle_minutes`, `assistant.max_session_turns`). Hal penting tentang
@@ -6432,15 +6433,27 @@ Aturan bawaan hanya cocok dengan huruf besar-kecil persis seperti itu, jadi "Zzz
 tidurnya) tetap. Kata hanya diganti kalau berdiri sendiri: "HSR-ku" dibaca "Ha Es Er-ku", tapi
 "HSRX" tidak.
 
-Ajari kata lain lewat suara:
+Ajari kata lain lewat suara. Dia bertanya dulu, dan baru mencatat setelah kamu bilang iya:
 
 > "Cyrene, cara baca Acheron itu A Ke Ron."
+>
+> "Jadi Acheron kubaca A Ke Ron? Bilang iya kalau benar."
+>
+> "Iya."
 >
 > "Oke Master. Acheron mulai sekarang kubaca A Ke Ron."
 
 Cara bacanya langsung dipakai mulai kalimat berikutnya, tanpa otak (seketika, tanpa biaya).
-Di jawabannya, katanya masih dibaca dengan cara lama, jadi kamu mendengar kata mana yang dia
-tangkap; kalau yang terdengar salah kata, hapus dengan `waifu lafal remove` dan ulangi.
+Di pertanyaan dan jawabannya, katanya masih dibaca dengan cara lama, jadi kamu mendengar kata
+mana yang dia tangkap; kalau salah kata, jangan bilang iya.
+
+Jawabanmu harus kalimat berikutnya yang dia dengar, dalam satu menit, dan hanya berisi iya
+("iya", "ya", "oke", "boleh", "iya bener", "oke, catat aja", boleh dengan namanya atau
+panggilanmu). Jawaban lain apa pun ("bukan", "iya, tapi nanti", "iya?", perintah lain, atau
+"ulangi") membatalkannya tanpa dibahas, lalu dijawab seperti biasa; kalimat yang tidak untuknya
+(tanpa namanya setelah 8 detik) tidak membatalkan. Pesan lewat HP dan sapaan yang dia mulai
+sendiri juga membatalkannya, supaya "iya" untuk pertanyaan lain tidak pernah mencatat cara
+baca.
 
 Kalimatnya harus persis "cara baca <kata> itu <bacaan>": katanya 1 sampai 3 kata, bacaannya 1
 sampai 8 kata. Boleh diawali namanya atau panggilanmu (`assistant.owner_call`), dan
@@ -6449,14 +6462,26 @@ sampai 8 kata. Boleh diawali namanya atau panggilanmu (`assistant.owner_call`), 
 di akhir tidak ikut dicatat. Kalimat ini juga jalan dalam 8 detik sesudah dia menjawab tanpa
 memanggil namanya, dan saat mode tamu.
 
-Yang diteruskan ke otak seperti biasa dan **tidak dicatat**:
+Lupakan cara baca lewat suara:
+
+> "Cyrene, lupakan cara baca Acheron." (atau "hapus cara baca Acheron")
+>
+> "Oke Master. Cara baca Acheron sudah kulupakan."
+
+Katanya diucapkan dengan cara baca biasa lagi. Kalau kamu belum punya aturan untuk kata itu, dia
+bilang "Aku belum punya cara baca khusus untuk Acheron, Master."; aturan bawaan (HSR, ZZZ, ...)
+tidak bisa dilupakan, hanya diganti. Katanya harus disebut: "lupakan cara baca itu" diteruskan
+ke otak.
+
+Yang diteruskan ke otak seperti biasa, **tidak ditanyakan, dan tidak dicatat**:
 
 - kalimat tanya: ada "?", kata tanya seperti apa, gimana, siapa, berapa, bener, nggak, atau
   bukan, atau diakhiri "ga", "gak", "kah", "kan", atau "mana" ("cara baca HSR itu Ha Es Er
-  kan"). Suku kata di tengah bacaan tetap boleh: "cara baca Gallagher itu Ga Le Ger" dicatat;
+  kan"). Suku kata di tengah bacaan tetap boleh: "cara baca Gallagher itu Ga Le Ger" ditanyakan;
 - komentar tentang cara baca: kalimat yang memuat kata seperti salah, keliru, aneh, jelek,
-  bagus, lucu, beda, gitu, kok, sih, atau, harus, bisa, susah, gampang, banget, atau dari ("cara
-  baca HSR itu salah", "cara baca manga itu dari kanan ke kiri");
+  bagus, lucu, beda, gitu, begini, kok, sih, atau, harus, bisa, susah, gampang, banget, dari,
+  dengan, pakai, penting, dulu, biasa, sama, lain, pelan, cepat, ribet, atau nanti ("cara baca
+  HSR itu salah", "cara baca jam itu begini", "cara baca manga itu dari kanan ke kiri");
 - kata ganti (kamu, aku, dia, ...), namanya sendiri, kata panggilannya, dan panggilanmu: "cara
   baca kamu itu salah" berarti cara dia membaca yang salah. Aturan untuk namanya sendiri atau
   panggilanmu hanya bisa lewat `waifu lafal add`;
@@ -6464,8 +6489,9 @@ Yang diteruskan ke otak seperti biasa dan **tidak dicatat**:
   ...");
 - semua yang kamu ketik atau kirim sebagai pesan suara lewat HP: obrolan HP selalu ke otak.
 
-Otak tidak bisa menyimpan cara baca, jadi kalau dia menjawab seolah sudah mencatat, cek dengan
-`waifu lafal list`, dan pakai `waifu lafal add` kalau belum ada.
+Otak tidak bisa menyimpan atau menghapus cara baca, jadi kalau dia menjawab seolah sudah
+mencatat atau melupakan, cek dengan `waifu lafal list`, lalu pakai `waifu lafal add` atau
+`waifu lafal remove`.
 
 Atau lewat terminal:
 
@@ -6494,9 +6520,10 @@ dia memakai aturan bawaan saja sampai ada aturan baru.
 
 Kamus hanya berisi kata dan cara bacanya, di PC ini, dan tidak dikirim ke mana pun. Nama
 karakter untuk Whisper hanya ada di memori selama `waifu run` jalan. Seperti setiap perintah,
-kalimat "cara baca ..." tertulis utuh di baris `Heard (id): ...` log. Selain baris itu, log
-hanya menyebut jumlah kata yang ditunggu dan bahwa ada cara baca yang dicatat atau ditolak,
-tidak pernah katanya; kamus rusak yang dipindah juga disebut tanpa isinya.
+kalimat "cara baca ..." dan "lupakan cara baca ..." tertulis utuh di baris `Heard (id): ...`
+log. Selain baris itu, log hanya menyebut jumlah kata yang ditunggu dan bahwa ada cara baca
+yang ditanyakan, dicatat, dibatalkan, ditolak, atau dilupakan, tidak pernah katanya; kamus rusak
+yang dipindah juga disebut tanpa isinya.
 
 ## Pemecahan masalah
 
@@ -7303,11 +7330,17 @@ di sampingnya)
 
 - [ ] `waifu say "Pity HSR-ku 70, cek di HoYoLAB"` terdengar "Ha Es Er" dan "Hoyolab".
 - [ ] `waifu say --fallback "Main ZZZ dulu"` terdengar "Zet Zet Zet" dengan suara Windows.
-- [ ] "Cyrene, cara baca Acheron itu A Ke Ron": dia bilang "Oke Master. Acheron mulai sekarang
-      kubaca A Ke Ron." (Acheron masih dengan cara lama), dan `waifu lafal list` menampilkan
-      `Acheron: A Ke Ron`.
-- [ ] "Cyrene, cara baca HSR itu salah" diteruskan ke otak, dan `waifu lafal list` tidak
-      menampilkan aturan baru.
+- [ ] "Cyrene, cara baca Acheron itu A Ke Ron": dia bertanya "Jadi Acheron kubaca A Ke Ron?
+      Bilang iya kalau benar." dan `waifu lafal list` belum menampilkannya; "iya": dia bilang
+      "Oke Master. Acheron mulai sekarang kubaca A Ke Ron." (Acheron masih dengan cara lama),
+      dan `waifu lafal list` menampilkan `Acheron: A Ke Ron`.
+- [ ] "Cyrene, cara baca Kafka itu Kaf Ka", lalu "nyalakan lampu kamar": lampunya menyala,
+      dia tidak membahas pertanyaannya, dan `waifu lafal list` tidak menampilkan Kafka.
+- [ ] "Cyrene, cara baca HSR itu salah" dan "Cyrene, cara baca jam itu begini" diteruskan ke
+      otak tanpa ditanyakan, dan `waifu lafal list` tidak menampilkan aturan baru.
+- [ ] "Cyrene, lupakan cara baca Acheron": dia bilang "Oke Master. Cara baca Acheron sudah
+      kulupakan." dengan Acheron dibaca biasa lagi, dan `waifu lafal list` tidak menampilkannya;
+      "Cyrene, lupakan cara baca HSR": dia bilang itu bawaan.
 - [ ] Dengan TV menyala, "Cyrene, nyalakan" dengan alias lampumu lebih sering tertulis benar di
       log `Heard (id): ...`.
 

@@ -2820,9 +2820,9 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 296 · **Files:** `src/waifu/lexicon.py`, `src/waifu/app.py`, `tests/test_lexicon.py`, `tests/test_app.py` · **Scope:** S
 
-## Task 298: Docs
+## Task 298: Docs ✅
 
 **Acceptance criteria:**
-- [ ] README "Kamus Cyrene" (the question and the yes, forgetting by voice, the remark words, privacy, checklist) and its example line; CHANGELOG v1.49.1 between v1.50 and v1.49; full suite, ruff, and JS tests clean
+- [x] README "Kamus Cyrene" (the question and the yes, forgetting by voice, the remark words, privacy, checklist) and its example line; CHANGELOG v1.49.1 between v1.50 and v1.49; full suite, ruff, and JS tests clean
 
 **Dependencies:** 297 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
