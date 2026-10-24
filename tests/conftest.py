@@ -17,7 +17,9 @@ whether the owner is at the PC. Nor the owner's microphones and speakers: openin
 stream, playing, recording, or restarting PortAudio is refused, also in the test that imports
 sounddevice first, and so is winmm's list of the microphones plugged in, which the mic switch
 reads. Nor global hotkeys: registering a Ctrl+Alt combo would take it from the owner's other
-programs while the suite runs, and waiting on a real message queue would hang the test.
+programs while the suite runs, and waiting on a real message queue would hang the test. Nor
+tinytuya: `waifu setup tuya` runs its wizard, which asks for the owner's Tuya cloud keys, reaches
+the cloud, and scans the LAN.
 """
 
 import ctypes
@@ -135,6 +137,8 @@ def _is_system_change_command(args: object) -> bool:
         return True
     if _is_powershell_command(args):  # would speak with Windows' voices
         return True
+    if _is_tinytuya_command(args):  # would ask for Tuya cloud keys, reach the cloud, scan the LAN
+        return True
     if "reg" in programs:
         verb_index = programs.index("reg") + 1
         return verb_index < len(words) and words[verb_index].lower() in _REG_WRITE_VERBS
@@ -144,6 +148,10 @@ def _is_system_change_command(args: object) -> bool:
 def _is_powershell_command(args: object) -> bool:
     words = _words(args)
     return bool(words) and _program(words[0]) in {"powershell", "pwsh"}
+
+
+def _is_tinytuya_command(args: object) -> bool:
+    return "tinytuya" in [_program(word) for word in _words(args)]
 
 
 def _is_git_command(args: object) -> bool:
@@ -160,6 +168,8 @@ class _GuardedPopen(_REAL_POPEN):  # type: ignore[misc, valid-type]
         if _is_system_change_command(args):
             if _is_powershell_command(args):  # the fallback voice's callers catch everything
                 _refused_system_calls.append("powershell")
+            if _is_tinytuya_command(args):  # waifu commands catch everything
+                _refused_system_calls.append("tinytuya")
             raise AssertionError(f"a test tried to run a real system-change command: {args!r}")
         super().__init__(args, *pargs, **kwargs)
 

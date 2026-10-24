@@ -120,6 +120,19 @@ def test_running_powershell_is_refused(program, refused_system_calls):
     refused_system_calls.clear()  # this one was on purpose
 
 
+# `waifu setup tuya` runs tinytuya's wizard, which asks for the owner's Tuya cloud keys, reaches
+# the cloud, and scans the LAN. "--help" only prints, so a broken guard does no harm.
+@pytest.mark.parametrize(
+    "args",
+    [[sys.executable, "-m", "tinytuya", "--help"], f'"{sys.executable}" -m tinytuya --help'],
+)
+def test_running_tinytuya_is_refused(args, refused_system_calls):
+    with pytest.raises(AssertionError, match="system-change command"):
+        subprocess.run(args, capture_output=True, check=False)
+    assert refused_system_calls == ["tinytuya"]  # also failed at teardown
+    refused_system_calls.clear()  # this one was on purpose
+
+
 def test_a_powershell_refusal_the_fallback_voice_s_callers_swallow_is_still_recorded(
     refused_system_calls,
 ):

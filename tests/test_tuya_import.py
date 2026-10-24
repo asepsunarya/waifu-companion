@@ -340,3 +340,13 @@ def test_changes_leave_an_unknown_address_and_version_as_they_are():
 
     assert [change.keys[-1] for change in changes] == ["device_id", "local_key"]
     assert changes[0].keys == ("devices", "tv", "ir", "tuya", "device_id")
+
+
+def test_the_repository_ignores_every_file_the_wizard_writes():
+    # `waifu setup tuya` runs the wizard in the project folder: its files hold the cloud
+    # credentials and every local key.
+    ignored = (Path(__file__).resolve().parents[1] / ".gitignore").read_text(encoding="utf-8")
+
+    assert {"tinytuya.json", "devices.json", "snapshot.json", "tuya-raw.json"} <= set(
+        ignored.splitlines()
+    )
