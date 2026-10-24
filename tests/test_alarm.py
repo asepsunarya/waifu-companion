@@ -348,6 +348,25 @@ def test_a_snooze_the_schedule_refuses_raises_and_the_ring_goes_on(tmp_path):
     assert room.bell.due_ring() is not None
 
 
+def test_a_snooze_whose_ring_cannot_be_ended_takes_its_alarm_back_and_raises(tmp_path, monkeypatch):
+    room = Bedroom(tmp_path)
+    room.bell.start(alarm_entry())
+    unlink = Path.unlink
+
+    def locked(path, missing_ok=False):
+        if path == room.path:
+            raise PermissionError(32, "The file is used by another process")
+        unlink(path, missing_ok=missing_ok)
+
+    monkeypatch.setattr(Path, "unlink", locked)
+
+    with pytest.raises(PermissionError):
+        room.bell.snooze()
+
+    assert room.store.entries() == []
+    assert room.bell.ringing() is True
+
+
 @pytest.mark.parametrize("minutes", [0, 31, -5])
 def test_snooze_takes_1_to_30_minutes(tmp_path, minutes):
     room = Bedroom(tmp_path)

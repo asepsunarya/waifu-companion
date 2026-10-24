@@ -38,7 +38,13 @@ from typing import Literal
 
 from waifu.config import at_sentence_start
 from waifu.gacha.files import write_json_atomic
-from waifu.schedule import MAX_ALARM_LABEL_CHARS, AlarmAction, Entry, ScheduleStore
+from waifu.schedule import (
+    MAX_ALARM_LABEL_CHARS,
+    AlarmAction,
+    Entry,
+    ScheduleError,
+    ScheduleStore,
+)
 from waifu.voice.volume import LEVELS, NORMAL, STEP
 
 logger = logging.getLogger(__name__)
@@ -234,7 +240,9 @@ class AlarmBell:
     def snooze(self, minutes: int | None = None) -> Entry | None:
         """End the ring and schedule it again as one alarm after `minutes` (the bell's snooze
         minutes when None), rounded up to a whole minute; None when none rang. A refusal of the
-        schedule (ScheduleError, a full schedule) is raised, and the ring goes on."""
+        schedule (ScheduleError, a full schedule) is raised, and the ring goes on; so is an
+        OSError of the ring's file, with the alarm just added taken back, so a snooze tried
+        again never leaves two."""
         minutes = self.snooze_minutes if minutes is None else minutes
         low, high = SNOOZE_MINUTES
         if not low <= minutes <= high:
@@ -245,9 +253,19 @@ class AlarmBell:
                 return None
             at = _minute_up(self._now() + timedelta(minutes=minutes))
             entry = self._schedule.add(at, "none", AlarmAction(_snoozed_label(state.labels)))
-            self._remove()
+            try:
+                self._remove()
+            except OSError:
+                self._take_back(entry)
+                raise
         logger.info("Alarm snoozed until %s as %s", f"{entry.at:%H:%M}", entry.id)
         return entry
+
+    def _take_back(self, entry: Entry) -> None:
+        try:
+            self._schedule.cancel(entry.id)
+        except (ScheduleError, OSError) as exc:
+            logger.warning("Could not take back the snoozed alarm %s: %s", entry.id, exc)
 
     def _due_index(self, state: RingState | None) -> int | None:
         """The ring of now when it has not been said yet, else None."""
