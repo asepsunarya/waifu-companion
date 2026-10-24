@@ -430,6 +430,22 @@ def test_an_expired_ring_left_by_a_stopped_run_is_deleted_at_the_next_read(tmp_p
     assert "The alarm rang until 06:10 without being stopped" in caplog.text
 
 
+def test_a_kept_ring_that_has_ended_is_read_again_before_its_file_is_deleted(tmp_path):
+    room = Bedroom(tmp_path, max_minutes=10)
+    run, tombol = room.bell, room.another_bell()
+    run.start(alarm_entry("j7"))
+    room.advance(599.6)  # 06:10:03.6, the ring of j7 ends at 06:10:04
+    assert tombol.ringing() is True
+
+    room.advance(0.5)
+    run.start(alarm_entry("j8", datetime(2026, 10, 25, 6, 10), label=None))
+    room.advance(0.2)  # within the time tombol keeps its read of j7's ring
+
+    assert tombol.ringing() is True
+    assert [alarm["id"] for alarm in room.file()["alarms"]] == ["j8"]
+    assert run.due_ring() is not None
+
+
 def test_ring_state_reads_the_ring_under_way(tmp_path):
     room = Bedroom(tmp_path, max_minutes=10)
     room.bell.start(alarm_entry())

@@ -10,7 +10,8 @@ The ring lives in a small file while it rings, written atomically and deleted wh
 a restart of `waifu run` mid-ring goes on and another process (`waifu tombol`, `waifu chat`)
 can stop or snooze it. The voice loop asks at every audio frame, so a state read is kept for
 `REREAD_S` before the file is read again; a ring about to be said is always read afresh. A file
-that is not a ring is moved aside, never overwritten, and one whose ring has ended is deleted.
+that is not a ring is moved aside, never overwritten, and one whose ring has ended is deleted,
+read afresh first, so a ring another process has just started is never taken for it.
 Reading never raises into the voice loop: a file that cannot be read is no ring, warned once.
 
 While it rings, Master's whole utterance may stop or snooze it without the brain
@@ -265,10 +266,13 @@ class AlarmBell:
         return _with_labels(line, labels)
 
     def _state(self, *, fresh: bool) -> RingState | None:
-        """The ring under way, read again when `fresh` or kept longer than REREAD_S; a file that
-        cannot be read is no ring, warned once until it reads again."""
+        """The ring under way, read again when `fresh`, kept longer than REREAD_S, or ended (the
+        file is deleted only as read just now: another process may have started a new ring); a
+        file that cannot be read is no ring, warned once until it reads again."""
         kept_for = None if self._read_at is None else self._clock() - self._read_at
-        if fresh or kept_for is None or kept_for >= REREAD_S:
+        kept = self._kept
+        ended = kept is not None and self._now() >= kept.until
+        if fresh or ended or kept_for is None or kept_for >= REREAD_S:
             self._kept, self._read_at = self._read_or_none(), self._clock()
         return self._unless_ended(self._kept)
 
