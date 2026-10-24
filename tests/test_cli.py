@@ -19240,9 +19240,9 @@ def test_setup_tuya_runs_the_wizard_in_the_config_folder_and_writes_each_confirm
         "address 192.168.1.60, version 3.3"
     ) in out
     assert (
-        "✓ config.yaml diperbarui: devices[lampu_kamar].tuya (device_id, local_key, address, "
-        "version), devices[colokan_pc].tuya (device_id, local_key, address, version)."
-    ) in out
+        "✓ config.yaml diperbarui: devices[lampu_kamar].tuya (device_id, local_key, address), "
+        "devices[colokan_pc].tuya (device_id, local_key, address, version)."
+    ) in out  # the lamp's version 3.3 was there already
     text = (home / "config.yaml").read_text(encoding="utf-8")
     assert "# Colokan yang mengalirkan listrik ke PC (README" in text
     assert len(config_backups(home)) == 1
@@ -19358,6 +19358,27 @@ def test_setup_tuya_refreshes_the_key_of_the_same_device_without_asking(home, mo
     assert cli.main(["setup", "tuya"]) == 0
 
     assert tuya_of(home, "lampu_kamar").local_key == LAMP_LOCAL_KEY
+
+
+def test_setup_tuya_run_again_over_the_same_list_writes_nothing(home, monkeypatch, capsys):
+    use_wizard(monkeypatch, FakeWizard())
+    answer(monkeypatch, "", "", "", "n")
+    assert cli.main(["setup", "tuya"]) == 0
+    written = (home / "config.yaml").read_bytes()
+    capsys.readouterr()
+    answer(monkeypatch, "", "", "", "n")  # not again, the lamp, the plug, keep the credentials
+
+    with InstanceLock(home / "data" / "run.lock"):
+        assert cli.main(["setup", "tuya"]) == 0
+
+    out = capsys.readouterr().out
+    assert "✓ Lampu kamar sudah sama dengan devices.json." in out
+    assert "✓ Colokan PC sudah sama dengan devices.json." in out
+    assert "Tidak ada yang diubah." in out
+    assert "diperbarui" not in out
+    assert "sedang berjalan" not in out
+    assert (home / "config.yaml").read_bytes() == written
+    assert len(config_backups(home)) == 1
 
 
 def test_setup_tuya_deletes_the_cloud_credentials_on_yes(home, monkeypatch, capsys):

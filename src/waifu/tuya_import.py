@@ -19,7 +19,7 @@ from ipaddress import IPv4Address, IPv4Network
 from pathlib import Path
 from typing import Literal
 
-from waifu.config import AppConfig
+from waifu.config import AppConfig, TuyaConnection
 from waifu.config_patch import DEVICES, Change
 
 # What config.example.yaml has in place of the wizard's values.
@@ -73,7 +73,7 @@ class TuyaTarget:
     aliases: tuple[str, ...]
     kind: TargetKind
     keys: tuple[str, ...]
-    current_id: str  # the device_id config.yaml has now
+    current: TuyaConnection  # what config.yaml has now
     filled: bool  # neither device_id nor local_key is the placeholder
 
 
@@ -171,7 +171,7 @@ def tuya_targets(config: AppConfig) -> list[TuyaTarget]:
                 tuple(device.aliases),
                 kind,
                 keys,
-                connection.device_id,
+                connection,
                 filled=PLACEHOLDER not in (connection.device_id, connection.local_key),
             )
         )
@@ -228,7 +228,9 @@ def suggest(targets: list[TuyaTarget], devices: list[CloudDevice]) -> dict[str, 
 
 def tuya_changes(target: TuyaTarget, device: CloudDevice) -> list[Change]:
     """What to write for `target` from `device`: the id and the local key (secret), and the
-    address and version when the scan found them; otherwise those stay as they are."""
+    address and version when the scan found them (otherwise those stay as they are), each only
+    when config.yaml has another value."""
+    current = target.current
     changes = [
         Change((*target.keys, "device_id"), device.id),
         Change((*target.keys, "local_key"), device.key, secret=True),
@@ -237,4 +239,4 @@ def tuya_changes(target: TuyaTarget, device: CloudDevice) -> list[Change]:
         changes.append(Change((*target.keys, "address"), device.ip))
     if device.version is not None:
         changes.append(Change((*target.keys, "version"), device.version))
-    return changes
+    return [change for change in changes if getattr(current, change.keys[-1]) != change.value]

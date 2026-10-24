@@ -7003,7 +7003,7 @@ def _import_tuya(config_path: Path, targets: list[TuyaTarget], folder: Path) -> 
             print(f"  {target.name} dilewati.")
             continue
         device = devices[index]
-        if target.filled and target.current_id != device.id:
+        if target.filled and target.current.device_id != device.id:
             replace = _ask_yes(
                 f"  {target.name} sudah terisi dengan perangkat lain. Ganti?", default=False
             )
@@ -7012,7 +7012,10 @@ def _import_tuya(config_path: Path, targets: list[TuyaTarget], folder: Path) -> 
                 continue
         if target.kind != "ir":
             taken[index] = target.name
-        changes.extend(tuya_changes(target, device))
+        if not (target_changes := tuya_changes(target, device)):
+            print(f"  {OK} {target.name} sudah sama dengan {TUYA_DEVICE_FILE}.")
+            continue
+        changes.extend(target_changes)
         summary.append(_tuya_summary(target, device))
     if not changes:
         print("Tidak ada yang diubah.")

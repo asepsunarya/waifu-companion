@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from waifu.config import AppConfig
+from waifu.config import AppConfig, TuyaConnection
 from waifu.config_patch import Change
 from waifu.tuya_import import (
     PLACEHOLDER,
@@ -245,11 +245,17 @@ def test_lists_lights_plugs_and_tuya_ir_blasters_in_config_order():
             ("lampu", "lampu utama"),
             "light",
             ("devices", "lampu_kamar", "tuya"),
-            PLACEHOLDER,
+            TuyaConnection(device_id=PLACEHOLDER, local_key=PLACEHOLDER),
             filled=False,
         ),
         TuyaTarget(
-            "tv", "TV", (), "ir", ("devices", "tv", "ir", "tuya"), PLACEHOLDER, filled=False
+            "tv",
+            "TV",
+            (),
+            "ir",
+            ("devices", "tv", "ir", "tuya"),
+            TuyaConnection(device_id=PLACEHOLDER, local_key=PLACEHOLDER),
+            filled=False,
         ),
         TuyaTarget(
             "colokan_pc",
@@ -257,7 +263,7 @@ def test_lists_lights_plugs_and_tuya_ir_blasters_in_config_order():
             (),
             "plug",
             ("devices", "colokan_pc", "tuya"),
-            "bf2222222222222222bbbb",
+            TuyaConnection(device_id="bf2222222222222222bbbb", local_key="real-key-12345678"),
             filled=True,
         ),
     ]
@@ -322,14 +328,14 @@ def test_offers_the_blaster_to_every_tuya_ir_device_whatever_its_name():
 def test_changes_set_the_id_the_hidden_key_and_the_address_and_version_found():
     [lamp] = targets(LAMPU_KAMAR)
 
-    changes = tuya_changes(lamp, cloud(LAMP, ip="192.168.1.60", version=3.3))
+    changes = tuya_changes(lamp, cloud(LAMP, ip="192.168.1.60", version=3.4))
 
     keys = ("devices", "lampu_kamar", "tuya")
     assert changes == [
         Change((*keys, "device_id"), LAMP["id"]),
         Change((*keys, "local_key"), LAMP_KEY, secret=True),
         Change((*keys, "address"), "192.168.1.60"),
-        Change((*keys, "version"), 3.3),
+        Change((*keys, "version"), 3.4),
     ]
 
 
@@ -340,6 +346,24 @@ def test_changes_leave_an_unknown_address_and_version_as_they_are():
 
     assert [change.keys[-1] for change in changes] == ["device_id", "local_key"]
     assert changes[0].keys == ("devices", "tv", "ir", "tuya", "device_id")
+
+
+def test_changes_leave_out_what_config_yaml_already_has():
+    # A second `waifu setup tuya` over the same devices.json writes nothing.
+    block = {**tuya_block(LAMP["id"], LAMP_KEY), "address": "192.168.1.60", "version": 3.3}
+    [lamp] = targets({**LAMPU_KAMAR, "tuya": block})
+
+    assert tuya_changes(lamp, cloud(LAMP, ip="192.168.1.60", version=3.3)) == []
+
+
+def test_changes_hold_only_the_values_that_differ():
+    # Re-paired: a new local key, the same id, address, and version.
+    block = {**tuya_block(LAMP["id"], "old-local-key-12"), "address": "192.168.1.60"}
+    [lamp] = targets({**LAMPU_KAMAR, "tuya": block})
+
+    changes = tuya_changes(lamp, cloud(LAMP, ip="192.168.1.60", version=3.3))
+
+    assert changes == [Change(("devices", "lampu_kamar", "tuya", "local_key"), LAMP_KEY, True)]
 
 
 def test_the_repository_ignores_every_file_the_wizard_writes():
