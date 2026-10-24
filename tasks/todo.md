@@ -2749,6 +2749,7 @@ named `tests/test_<package>_<module>.py`.
 **Acceptance criteria:**
 - [x] `overnight_notice` tells once a night a game closed from 22:00 until 03:00 whose stamina fills before the morning, never one already full, closed earlier, or after the morning has come
 - [x] `stamina_held` holds that game's stamina line until the morning, and `due_notices(..., stamina_held=)` leaves its occasion for after it
+- [x] Fix pass: a stamina full within `reminders.stamina_minutes` at that poll gets no overnight line and no hold (the stamina reminder tells it)
 
 **Dependencies:** 289 · **Files:** `src/waifu/gacha/planner.py`, `src/waifu/gacha/reminders.py`, `tests/test_gacha_planner.py`, `tests/test_gacha_reminders.py` · **Scope:** S
 
@@ -2756,6 +2757,7 @@ named `tests/test_<package>_<module>.py`.
 
 **Acceptance criteria:**
 - [x] `on_finished` hears each session a poll finished within `SLEEP_POLLS` polls of its end, outside the lock, after a poll that worked (kept through a failing write), never one ended by a sleep, never from `stop()`, and a failing callback is logged
+- [x] Fix pass: never a session ended after the poll (the clock set back) or of a game the poll still sees (a restart too late to resume); `ClosedGames` carries the sessions (`put`) and whether a tracked game is open (`observe`) to the gacha watcher's thread
 
 **Dependencies:** 288a · **Files:** `src/waifu/play_watch.py`, `tests/test_play_watch.py` · **Scope:** S
 
@@ -2765,6 +2767,7 @@ named `tests/test_<package>_<module>.py`.
 - [x] The calendar is read once per game per game day, only at the evening with the planner on, guests away, and no line yet; a network or rate-limit error is read again at the next poll, any other gives up that day
 - [x] Session ends from the queue give the overnight line at the first poll with that game's status and hold its stamina line until the morning
 - [x] Guest mode spends no key or read and the ends wait; `planner` lines are held by a game only until the next poll
+- [x] Fix pass: while `ClosedGames.playing()`, a closed game waits (a game closed again replaces its close) and no stamina is held
 
 **Dependencies:** 290, 291 · **Files:** `src/waifu/gacha/watcher.py`, `tests/test_gacha_watcher.py` · **Scope:** M
 
@@ -2772,6 +2775,7 @@ named `tests/test_<package>_<module>.py`.
 
 **Acceptance criteria:**
 - [x] `run` gives the gacha watcher the calendar reader, guest mode, the morning, and the queue the play watcher fills, only while the planner and play time are on
+- [x] Fix pass: `ClosedGames` replaces the queue and hears `on_poll` before game mode; `run` builds the brain's `GameDataTools` once and the planner reads through its `calendar` (the 60-minute cache `game_events` uses)
 
 **Dependencies:** 292 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** S
 
@@ -2779,5 +2783,6 @@ named `tests/test_<package>_<module>.py`.
 
 **Acceptance criteria:**
 - [x] README "Pengingat" with the planner rows; CHANGELOG v1.50; full suite, ruff, and JS tests clean
+- [x] Fix pass: the README names ZZZ's endgame (not its events) among what has no progress; the overnight line's wait and the stamina reminder's minutes, and the shared calendar read, in the README, the CHANGELOG, and the SPEC
 
 **Dependencies:** 293 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
