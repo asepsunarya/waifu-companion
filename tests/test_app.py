@@ -958,6 +958,21 @@ def test_listen_now_opens_the_follow_up_window_and_shows_her_listening():
     assert rig.speech.texts == [REPLY]  # listen_now itself says nothing
 
 
+def test_after_listen_now_a_stranger_is_still_ignored_before_transcription():
+    # Ctrl+Alt+C and a double-click open the window without her name; never without Master's voice.
+    rig = Rig("nyalakan lampu kamar", owner=(False, 0.05), with_avatar=True)
+
+    rig.assistant.listen_now()
+    rig.clock.now += 3
+    reply = rig.assistant.handle_utterance(rig.utterance())
+
+    assert reply is None
+    assert rig.stt.calls == 0
+    assert rig.brain.turns == []
+    assert rig.speech.texts == []
+    assert rig.events == ["avatar.state listening 8"]
+
+
 def test_listen_now_without_a_follow_up_window_leaves_her_idle():
     config = AppConfig.model_validate({"assistant": {"followup_seconds": 0}})
     rig = Rig(config=config, with_avatar=True)
