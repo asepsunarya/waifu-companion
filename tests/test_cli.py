@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import hashlib
+import http.client
 import inspect
 import io
 import json
@@ -161,7 +162,7 @@ from waifu.offers.errors import OffersError
 from waifu.offers.store import OffersStore
 from waifu.offers.values import AiOffer, GameGiveaway
 from waifu.pc_health import Drive, GpuStatus, PcSnapshot
-from waifu.phone.actions import QuickResult
+from waifu.phone.actions import QuickAction, QuickResult
 from waifu.phone.auth import CODE_LIFETIME, PhoneAuth, Refusal
 from waifu.phone.server import PhoneError, PhoneReply
 from waifu.play_time import PlayTimeStore, Session
@@ -16635,3 +16636,238 @@ def test_check_reports_master_s_money_from_tepira_offline_without_the_token(
     assert "tpcy_" not in out
     assert "SECRETTEPIRA" not in out
     assert tepira.built == []  # offline: no client, no request
+
+
+# --- quick buttons on the PC ---------------------------------------------------------------------
+
+DESK_URL = re.compile(r"http://127\.0\.0\.1:([0-9]+)/t/[A-Za-z0-9_-]{32,}/")
+NO_QUICK_BUTTONS = "phone:\n  quick_actions:\n    devices: []\n    routines: []\n"
+
+
+def desk_request(link: str, route: str, payload: dict | None = None) -> tuple[int, bytes]:
+    """GETs `route` of the page at `link`, or POSTs `payload` to it as the page does (its own
+    Origin, JSON); straight to 127.0.0.1, never through a proxy."""
+    url = urllib.parse.urlsplit(link)
+    connection = http.client.HTTPConnection(url.hostname, url.port, timeout=5)
+    try:
+        if payload is None:
+            connection.request("GET", f"{url.path}{route}")
+        else:
+            headers = {"Origin": f"http://{url.netloc}", "Content-Type": "application/json"}
+            connection.request("POST", f"{url.path}{route}", json.dumps(payload), headers)
+        response = connection.getresponse()
+        return response.status, response.read()
+    finally:
+        connection.close()
+
+
+class DeskBrowser:
+    """Stands in for music.open_in_browser as `waifu tombol` uses it: records each link and, as
+    the browser would while the page is served, reads the page and its buttons and presses
+    `presses`. With `error`, raises it afterwards, as Windows does when it cannot open a link
+    (tests/conftest.py also refuses the real os.startfile)."""
+
+    def __init__(self, presses: tuple[str, ...] = (), error: OSError | None = None) -> None:
+        self.presses = presses
+        self.error = error
+        self.links: list[str] = []
+        self.page = b""
+        self.groups: list[dict] = []
+        self.answers: list[dict] = []
+
+    def __call__(self, link: str) -> None:
+        self.links.append(link)
+        status, self.page = desk_request(link, "")
+        assert status == 200
+        self.groups = json.loads(desk_request(link, "actions")[1])["groups"]
+        for action_id in self.presses:
+            status, body = desk_request(link, "action", {"id": action_id})
+            assert status == 200, body
+            self.answers.append(json.loads(body))
+        if self.error is not None:
+            raise self.error
+
+    @property
+    def group_names(self) -> list[str]:
+        return [group["name"] for group in self.groups]
+
+
+def use_desk_browser(monkeypatch, **kwargs) -> DeskBrowser:
+    browser = DeskBrowser(**kwargs)
+    monkeypatch.setattr(cli, "open_in_browser", browser)
+    return browser
+
+
+def test_tombol_serves_the_page_opens_it_once_and_closes_it_on_ctrl_c(home, monkeypatch, capsys):
+    browser = use_desk_browser(monkeypatch)
+    sleep = InterruptingSleep(1)
+    monkeypatch.setattr(cli, "sleep", sleep)
+
+    assert cli.main(["tombol", "--dry-run"]) == 0
+
+    [link] = browser.links
+    match = DESK_URL.fullmatch(link)
+    assert match, link
+    assert b"<title>Tombol cepat</title>" in browser.page
+    assert browser.group_names == ["Lampu kamar", "AC Samsung", "Proyektor Wanbo Dali"]
+    assert capsys.readouterr().out.splitlines() == [
+        f"Tombol cepat di PC: {link} (perangkat simulasi). Tekan Ctrl+C untuk menutup.",
+        "",
+        "Selesai.",
+    ]
+    assert sleep.seconds == [cli.AVATAR_WAIT_S]
+    with pytest.raises(OSError):
+        socket.create_connection(("127.0.0.1", int(match.group(1))), timeout=0.5).close()
+
+
+def test_tombol_with_dry_run_presses_the_simulated_devices(home, registries, monkeypatch):
+    browser = use_desk_browser(monkeypatch, presses=("dev.lampu_kamar.on",))
+    monkeypatch.setattr(cli, "sleep", InterruptingSleep(1))
+
+    assert cli.main(["tombol", "--dry-run"]) == 0
+
+    [(registry, dry_run)] = registries
+    assert dry_run is True
+    assert registry.get("lampu_kamar").calls == [("on", None)]
+    assert browser.answers == [
+        {"ok": True, "message": "Lampu kamar: perintah 'on' berhasil (simulasi)."}
+    ]
+
+
+def test_tombol_without_dry_run_presses_the_devices_of_the_config(
+    home, registries, monkeypatch, capsys
+):
+    write_config(home, "devices:\n  - {id: kipas, name: Kipas, type: mock}\n")
+    browser = use_desk_browser(monkeypatch, presses=("dev.kipas.on",))
+    monkeypatch.setattr(cli, "sleep", InterruptingSleep(1))
+
+    assert cli.main(["tombol"]) == 0
+
+    [(registry, dry_run)] = registries
+    assert dry_run is False
+    assert registry.get("kipas").calls == [("on", None)]
+    [link] = browser.links
+    first = capsys.readouterr().out.splitlines()[0]
+    assert first == f"Tombol cepat di PC: {link}. Tekan Ctrl+C untuk menutup."
+
+
+def test_tombol_schedules_a_routine_s_delayed_step_in_her_schedule(home, monkeypatch):
+    write_config(
+        home,
+        "devices:\n"
+        "  - {id: kipas, name: Kipas, type: mock}\n"
+        "routines:\n"
+        "  angin:\n"
+        "    description: Angin sejuk\n"
+        "    steps:\n"
+        "      - {device: kipas, command: on}\n"
+        "      - {device: kipas, command: off, after_minutes: 60}\n",
+    )
+    browser = use_desk_browser(monkeypatch, presses=("rt.angin",))
+    monkeypatch.setattr(cli, "sleep", InterruptingSleep(1))
+
+    assert cli.main(["tombol"]) == 0
+
+    [answer] = browser.answers
+    assert answer["ok"] is True
+    assert answer["message"].startswith("Angin sejuk: 2 dari 2 langkah berhasil. Dijadwalkan ")
+    [entry] = ScheduleStore(schedule_file(home)).entries()
+    assert entry.action == DeviceAction("kipas", "off", routine="angin")
+
+
+def test_tombol_shows_the_buttons_phone_quick_actions_picks(home, monkeypatch):
+    append_config(home, "phone:\n  quick_actions:\n    devices: [ac]\n    routines: []\n")
+    browser = use_desk_browser(monkeypatch)
+    monkeypatch.setattr(cli, "sleep", InterruptingSleep(1))
+
+    assert cli.main(["tombol", "--dry-run"]) == 0
+
+    assert browser.group_names == ["AC Samsung"]
+
+
+def test_tombol_s_buttons_refuse_the_pc_in_the_pc_page_s_words(home, monkeypatch):
+    built: list[cli.QuickActions] = []
+
+    class RecordingQuickActions(cli.QuickActions):
+        def __init__(self, *args, **kwargs) -> None:
+            super().__init__(*args, **kwargs)
+            built.append(self)
+
+    monkeypatch.setattr(cli, "QuickActions", RecordingQuickActions)
+    use_desk_browser(monkeypatch)
+    monkeypatch.setattr(cli, "sleep", InterruptingSleep(1))
+
+    assert cli.main(["tombol", "--dry-run"]) == 0
+
+    [actions] = built
+    shutdown = QuickAction("dev.komputer.shutdown", "Mati", device="komputer", command="shutdown")
+    assert actions.run(shutdown).message == (
+        "Komputer adalah PC, dan PC tidak pernah dijalankan dari tombol cepat PC."
+    )
+
+
+def test_tombol_without_buttons_warns_and_opens_nothing(home, monkeypatch, capsys):
+    append_config(home, NO_QUICK_BUTTONS)
+    browser = use_desk_browser(monkeypatch)
+    sleep = InterruptingSleep(1)
+    monkeypatch.setattr(cli, "sleep", sleep)
+
+    assert cli.main(["tombol", "--dry-run"]) == 1
+
+    assert browser.links == []
+    assert sleep.seconds == []
+    assert capsys.readouterr().out == (
+        "! Belum ada tombol cepat: tambahkan lampu, colokan, perangkat IR, atau rutinitas di "
+        "config.yaml, atau periksa phone.quick_actions.\n"
+    )
+
+
+def test_tombol_still_serves_the_page_when_the_browser_cannot_be_opened(home, monkeypatch, capsys):
+    browser = use_desk_browser(monkeypatch, error=OSError("[WinError 1155] Tidak ada aplikasi"))
+    served_meanwhile: list[int] = []
+
+    def sleep(seconds: float) -> None:
+        served_meanwhile.append(desk_request(browser.links[0], "")[0])
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(cli, "sleep", sleep)
+
+    assert cli.main(["tombol", "--dry-run"]) == 0
+
+    [link] = browser.links
+    assert served_meanwhile == [200]
+    assert capsys.readouterr().out.splitlines()[:2] == [
+        "! Browser tidak bisa dibuka otomatis ([WinError 1155] Tidak ada aplikasi). Buka alamat "
+        "di bawah ini di browser.",
+        f"Tombol cepat di PC: {link} (perangkat simulasi). Tekan Ctrl+C untuk menutup.",
+    ]
+
+
+def desk_line(lines: list[str]) -> str:
+    [line] = [line for line in lines if "Tombol cepat di PC" in line]
+    return line
+
+
+def test_check_counts_the_pc_page_s_buttons_right_after_the_routines(
+    home, nothing_installed, capsys
+):
+    enable_example_routines(home)  # the AC has learned no IR code yet: only the lamp and tidur
+
+    cli.main(["check"])
+
+    lines = capsys.readouterr().out.splitlines()
+    line = desk_line(lines)
+    assert line == "✓ Tombol cepat di PC: 8 tombol, buka dengan 'waifu tombol'"
+    assert lines[lines.index(line) - 1].startswith("✗ Rutinitas tidur: ")
+    assert "Voiceprint" in lines[lines.index(line) + 1]
+
+
+def test_check_warns_that_the_pc_page_has_no_buttons(home, nothing_installed, capsys):
+    append_config(home, NO_QUICK_BUTTONS)
+
+    cli.main(["check"])
+
+    assert desk_line(capsys.readouterr().out.splitlines()) == (
+        "! Tombol cepat di PC: belum ada tombol (tambahkan lampu, colokan, perangkat IR, atau "
+        "rutinitas di config.yaml, atau periksa phone.quick_actions)"
+    )

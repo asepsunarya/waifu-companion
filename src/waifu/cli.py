@@ -195,6 +195,7 @@ from waifu.pc_health import CpuLoad, Drive, GpuStatus, PcSnapshot, gpu_status, r
 from waifu.pc_watch import PcWatcher
 from waifu.phone.actions import QuickActions
 from waifu.phone.auth import CODE_LIFETIME, MAX_TRIES, PhoneAuth
+from waifu.phone.desk import PC_WHERE, DeskServer
 from waifu.phone.server import LOOPBACK, PhoneError, PhoneServer
 from waifu.play_time import (
     PERIODS,
@@ -360,7 +361,13 @@ DEMO_SAMPLE_RATE = 24000
 DEMO_SYLLABLE_S = 0.25
 DEMO_PAUSE_S = 0.1
 DEMO_VOLUME = 0.3
-AVATAR_WAIT_S = 60.0  # `waifu avatar` without --demo only waits; Ctrl+C ends a sleep at once
+# `waifu avatar` without --demo and `waifu tombol` only wait; Ctrl+C ends a sleep at once.
+AVATAR_WAIT_S = 60.0
+# What gives `waifu tombol` its buttons.
+QUICK_PAGE_HINT = (
+    "tambahkan lampu, colokan, perangkat IR, atau rutinitas di config.yaml, atau periksa "
+    "phone.quick_actions"
+)
 # `say` and the login greeting speak right after opening the window; a speak event only
 # reaches pages already connected, so they give the loading page this long to connect.
 AVATAR_VIEWER_WAIT_S = 5.0
@@ -647,6 +654,12 @@ def build_parser() -> argparse.ArgumentParser:
     device.add_argument("device_id", metavar="id")
     device.add_argument("device_command", metavar="command")
     device.add_argument("value", type=int, nargs="?", help="angka, misalnya suhu atau kecerahan")
+    command(
+        "tombol",
+        _quick_page,
+        "Buka tombol cepat (lampu, AC, colokan, rutinitas) di browser PC ini, tanpa otak; tutup "
+        "dengan Ctrl+C.",
+    )
     learn = command("learn-ir", _learn_ir, "Pelajari kode tombol remote IR.")
     learn.add_argument("device_id", metavar="id")
     learn.add_argument("ir_command", metavar="command", nargs="?")
@@ -2051,6 +2064,48 @@ def _device(args: argparse.Namespace) -> int:
     result = registry.execute(args.device_id, args.device_command, args.value)
     print(result.message)
     return 0 if result.ok else 1
+
+
+def _quick_page(args: argparse.Namespace) -> int:
+    """Serve the quick buttons on 127.0.0.1 and open them in the default browser until Ctrl+C.
+
+    The phone's buttons (`phone.quick_actions`) on the devices (simulated with --dry-run). A
+    routine's delayed steps go into her schedule for `waifu run`, as with `waifu routine run`;
+    a dry run's into a schedule of its own that is gone when it ends. A browser that cannot be
+    opened leaves the page served at the printed address.
+    """
+    config = load_config(args.config)
+    registry = build_registry(config, dry_run=args.dry_run)
+    with _session_schedule(config, dry_run=args.dry_run) as schedule:
+        actions = QuickActions(
+            registry,
+            config.routines,
+            schedule=schedule,
+            chosen=config.phone.quick_actions,
+            where=PC_WHERE,
+        )
+        if not actions.groups():
+            print(f"{WARN} Belum ada tombol cepat: {QUICK_PAGE_HINT}.")
+            return 1
+        mode = " (perangkat simulasi)" if args.dry_run else ""
+        try:
+            with DeskServer(actions, owner_call=config.assistant.owner_call) as server:
+                try:
+                    open_in_browser(server.url)
+                except OSError as exc:
+                    print(
+                        f"{WARN} Browser tidak bisa dibuka otomatis ({exc}). Buka alamat di bawah "
+                        "ini di browser."
+                    )
+                print(
+                    f"Tombol cepat di PC: {server.url}{mode}. Tekan Ctrl+C untuk menutup.",
+                    flush=True,
+                )
+                while True:
+                    sleep(AVATAR_WAIT_S)
+        except KeyboardInterrupt:
+            print("\nSelesai.")
+    return 0
 
 
 def _learn_ir(args: argparse.Namespace) -> int:
@@ -5688,6 +5743,7 @@ def _checks(config_path: Path) -> Iterator[Check]:
     yield _version_notice_check(config.version_notice)
     yield from _device_checks(config, config_path)
     yield from _routine_checks(config)
+    yield _quick_page_check(config)
     yield _voiceprint_check(config)
     yield _brain_check(config)
     yield _vision_check(config)
@@ -5811,6 +5867,17 @@ def _routine_checks(config: AppConfig) -> Iterator[Check]:
             yield FAIL, f"Rutinitas {name}: {' '.join(problems)}"
         else:
             yield OK, f"Rutinitas {describe_routine(name, routine)}"
+
+
+def _quick_page_check(config: AppConfig) -> Check:
+    """How many buttons `waifu tombol` shows, counted on the real devices (nothing connects)."""
+    actions = QuickActions(
+        build_registry(config), config.routines, chosen=config.phone.quick_actions
+    )
+    count = sum(len(group.actions) for group in actions.groups())
+    if count == 0:
+        return WARN, f"Tombol cepat di PC: belum ada tombol ({QUICK_PAGE_HINT})"
+    return OK, f"Tombol cepat di PC: {count} tombol, buka dengan 'waifu tombol'"
 
 
 def _voiceprint_check(config: AppConfig) -> Check:

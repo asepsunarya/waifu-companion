@@ -2186,13 +2186,13 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 228 · **Files:** `src/waifu/avatar/web/tombol/*`, `tests/js/tombol_desk.test.mjs`, `tests/js/tombol_page.test.mjs`, `tests/js/tombol_ui.test.mjs`, `SPEC.md` · **Scope:** M
 
-## Task 230: `waifu tombol` and the check line
+## Task 230: `waifu tombol` and the check line ✅
 
 **Acceptance criteria:**
-- [ ] `waifu tombol` serves the page, opens exactly its `http://127.0.0.1:` address once, says the address and Ctrl+C, and ends with "Selesai." and the server stopped; `--dry-run` presses the mocks; no buttons is a warning and exit 1 with nothing opened; a browser that cannot be opened still serves the page
-- [ ] `waifu check` counts the page's buttons right after the routine lines
+- [x] `waifu tombol` serves the page, opens exactly its `http://127.0.0.1:` address once, says the address and Ctrl+C, and ends with "Selesai." and the server stopped; `--dry-run` presses the mocks; no buttons is a warning and exit 1 with nothing opened; a browser that cannot be opened still serves the page
+- [x] `waifu check` counts the page's buttons right after the routine lines
 
-**Dependencies:** 228, 229 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** M
+**Dependencies:** 228, 229 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py`, `SPEC.md` · **Scope:** M
 
 ## Task 231: Docs
 
