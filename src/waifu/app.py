@@ -1107,8 +1107,8 @@ class Assistant:
         read it until now and Master hears which word she caught (a stray word would make a
         rule that never matches). Like `_tell_heard`, no turn is taken and it is never
         remembered for "ulangi". A rule `lexicon` refuses is explained; a file that cannot be
-        written is said, and the confirmation is then never played. Neither word reaches the
-        log.
+        written is said, and the confirmation is then never played. These lines log neither
+        word; the "Heard" line before them holds the whole request, as for any command.
         """
         try:
             term, reading = checked_rule(term, reading)

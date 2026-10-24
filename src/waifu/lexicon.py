@@ -333,7 +333,7 @@ class Lexicon:
 
 
 def _parse(raw: object) -> dict[str, str]:
-    """The rules in `raw`; ValueError says what is wrong."""
+    """The rules in `raw`; ValueError says what is wrong, never naming a word (it is logged)."""
     if not isinstance(raw, dict) or raw.keys() != {"version", "rules"}:
         raise ValueError("expected an object with only a version and rules")
     version = raw["version"]
@@ -345,10 +345,10 @@ def _parse(raw: object) -> dict[str, str]:
     rules: dict[str, str] = {}
     for term, reading in found.items():
         if not isinstance(reading, str):
-            raise ValueError(f"the reading of {term!r} must be text")
+            raise ValueError("a reading must be text")
         term, reading = checked_rule(term, reading)
         if any(_key(kept) == _key(term) for kept in rules):
-            raise ValueError(f"{term!r} has two rules")
+            raise ValueError("a word has two rules")
         rules[term] = reading
     return rules
 

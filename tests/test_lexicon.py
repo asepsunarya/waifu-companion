@@ -232,6 +232,20 @@ def test_a_file_that_is_not_a_dictionary_is_moved_aside_and_read_as_empty(
     assert "moved it to" in caplog.text
 
 
+@pytest.mark.parametrize("rules", [{"Kafka": 5}, {"Kafka": "Kaf Ka", "KAFKA": "Kaf Kah"}])
+def test_the_error_for_a_broken_dictionary_names_none_of_its_words(tmp_path, caplog, rules):
+    path = tmp_path / "tts_lexicon.json"
+    path.write_text(json.dumps({"version": 1, "rules": rules}), encoding="utf-8")
+
+    with caplog.at_level(logging.ERROR, logger="waifu.lexicon"):
+        make_lexicon(path).read()
+
+    told = caplog.text.replace(str(tmp_path), "").casefold()
+    assert "moved it to" in told
+    assert "kafka" not in told
+    assert "kaf ka" not in told
+
+
 def test_a_file_that_is_not_utf8_is_moved_aside(tmp_path):
     path = tmp_path / "tts_lexicon.json"
     path.write_bytes(b'{"version": 1, "rules": {"K\xe4fka": "Kaf Ka"}}')

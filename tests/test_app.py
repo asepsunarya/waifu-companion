@@ -4201,14 +4201,16 @@ def test_what_she_says_when_taught_is_never_what_ulangi_repeats(tmp_path):
     assert rig.speech.texts == [REPLY, TAUGHT_ACHERON, REPLY]
 
 
-def test_the_line_logged_for_a_reading_names_neither_word(tmp_path, caplog):
+def test_only_the_heard_line_names_the_word_and_the_reading_taught(tmp_path, caplog):
     rig = Rig("Cyrene, cara baca Acheron itu A Ke Ron", lexicon=Lexicon(tmp_path / "x.json"))
 
-    with caplog.at_level(logging.INFO, logger="waifu.app"):
+    with caplog.at_level(logging.DEBUG):
         rig.assistant.handle_utterance(rig.utterance())
 
-    told = [record.getMessage() for record in caplog.records if "reading" in record.getMessage()]
-    assert told == ["Learned a reading for a word"]
+    messages = [record.getMessage() for record in caplog.records]
+    naming = [message for message in messages if "Acheron" in message or "Ke Ron" in message]
+    assert naming == ["Heard (id): Cyrene, cara baca Acheron itu A Ke Ron"]
+    assert "Learned a reading for a word" in messages
 
 
 def test_the_phone_shows_her_words_as_written_while_its_voice_reads_them_by_the_rules():
