@@ -277,7 +277,7 @@ def _minute(moment: datetime) -> datetime:
 
 
 def _missed_text(missed: list[tuple[datetime, str]], now: datetime, owner_call: str) -> str:
-    """One announcement for every one-shot reminder a tick found missed, oldest first."""
+    """One announcement for every one-shot, monthly, or yearly reminder missed, oldest first."""
 
     def when(at: datetime) -> str:
         if at.date() == now.date():
