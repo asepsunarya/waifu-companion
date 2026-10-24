@@ -19115,3 +19115,321 @@ def test_setup_stops_when_input_ends(home, monkeypatch, capsys):
 
     assert capsys.readouterr().out.endswith("Setup berhenti.\n")
     assert config_backups(home) == []
+
+
+# The wizard's devices.json after "Poll local devices?" found the lamp but not the plug (whose
+# address the snapshot has); keys with characters YAML would read otherwise.
+LAMP_LOCAL_KEY = "Lk1'<{x}#y:z\"q!"
+PLUG_LOCAL_KEY = "Pl#ug: [key] &1*"
+TUYA_API_SECRET = "made-up-api-secret-0123456789ab"
+WIZARD_LAMP = {
+    "name": "Lampu Kamar",
+    "id": "bf1111111111111111aaaa",
+    "key": LAMP_LOCAL_KEY,
+    "mac": "aa:bb:cc:dd:ee:01",
+    "category": "dj",
+    "product_name": "Smart Bulb",
+    "sub": False,
+    "last_ip": "36.80.1.2",
+    "ip": "192.168.1.60",
+    "version": "3.3",
+}
+WIZARD_PLUG = {
+    "name": "Smart Plug",
+    "id": "bf2222222222222222bbbb",
+    "key": PLUG_LOCAL_KEY,
+    "category": "cz",
+    "sub": False,
+    "last_ip": "36.80.1.2",
+}
+WIZARD_PORCH = {
+    "name": "Lampu Teras",
+    "id": "bf5555555555555555eeee",
+    "key": "PorchKey12345678",
+    "category": "dj",
+    "sub": False,
+}
+WIZARD_SNAPSHOT = {
+    "timestamp": 1761370000.5,
+    "devices": [{"id": WIZARD_PLUG["id"], "ip": "192.168.1.61", "ver": "3.4"}],
+}
+WIZARD_SAYS = "[tinytuya wizard berjalan]"
+
+
+class FakeWizard:
+    """tinytuya's wizard as `waifu setup tuya` runs it: records each command and folder, says
+    it ran, and writes what the real one would there (devices.json, snapshot.json, and the two
+    files with the cloud credentials); `None` as `devices` writes nothing, and `interrupted`
+    stands for Ctrl+C."""
+
+    def __init__(self, devices=(WIZARD_LAMP, WIZARD_PLUG), *, code=0, interrupted=False):
+        self.devices = devices
+        self.code = code
+        self.interrupted = interrupted
+        self.calls: list[tuple[list[str], Path]] = []
+
+    def __call__(self, command, folder: Path) -> int | None:
+        self.calls.append((list(command), folder))
+        print(WIZARD_SAYS)
+        if self.devices is not None:
+            write_wizard_files(folder, list(self.devices))
+            credentials = {"apiKey": "made-up-api-key", "apiSecret": TUYA_API_SECRET}
+            (folder / "tinytuya.json").write_text(json.dumps(credentials), encoding="utf-8")
+            raw = {"result": list(self.devices), "file": {"account": "made-up-api-key"}}
+            (folder / "tuya-raw.json").write_text(json.dumps(raw), encoding="utf-8")
+        return None if self.interrupted else self.code
+
+
+def write_wizard_files(folder: Path, devices: list[dict]) -> None:
+    (folder / "devices.json").write_text(json.dumps(devices, indent=4), encoding="utf-8")
+    (folder / "snapshot.json").write_text(json.dumps(WIZARD_SNAPSHOT), encoding="utf-8")
+
+
+def use_wizard(monkeypatch, wizard: FakeWizard) -> FakeWizard:
+    monkeypatch.setattr(cli, "TUYA_WIZARD_RUNNER", wizard)
+    return wizard
+
+
+def tuya_of(home: Path, device_id: str):
+    [device] = [device for device in setup_config(home).devices if device.id == device_id]
+    return device.tuya
+
+
+def assert_no_secret(out: str) -> None:
+    for secret in (LAMP_LOCAL_KEY, PLUG_LOCAL_KEY, TUYA_API_SECRET):
+        assert secret not in out
+
+
+def test_setup_tuya_runs_the_wizard_in_the_config_folder_and_writes_each_confirmed_device(
+    home, monkeypatch, capsys
+):
+    wizard = use_wizard(monkeypatch, FakeWizard())
+    answer(monkeypatch, "", "", "", "n")  # run it, the lamp, the plug, keep the credentials
+
+    assert cli.main(["setup", "tuya"]) == 0
+
+    assert wizard.calls == [([sys.executable, "-m", "tinytuya", "wizard"], home.resolve())]
+    lamp = tuya_of(home, "lampu_kamar")
+    assert (lamp.device_id, lamp.local_key, lamp.address, lamp.version) == (
+        WIZARD_LAMP["id"],
+        LAMP_LOCAL_KEY,
+        "192.168.1.60",
+        3.3,
+    )
+    plug = tuya_of(home, "colokan_pc")
+    assert (plug.device_id, plug.local_key, plug.address, plug.version) == (
+        WIZARD_PLUG["id"],
+        PLUG_LOCAL_KEY,
+        "192.168.1.61",
+        3.4,
+    )
+    out = capsys.readouterr().out
+    assert_no_secret(out)
+    assert (
+        f"✓ Lampu kamar: device_id {WIZARD_LAMP['id']}, local_key (disembunyikan, 15 karakter), "
+        "address 192.168.1.60, version 3.3"
+    ) in out
+    assert (
+        "✓ config.yaml diperbarui: devices[lampu_kamar].tuya (device_id, local_key, address, "
+        "version), devices[colokan_pc].tuya (device_id, local_key, address, version)."
+    ) in out
+    text = (home / "config.yaml").read_text(encoding="utf-8")
+    assert "# Colokan yang mengalirkan listrik ke PC (README" in text
+    assert len(config_backups(home)) == 1
+
+
+def test_setup_tuya_explains_the_steps_and_the_risks_before_the_wizard(home, monkeypatch, capsys):
+    use_wizard(monkeypatch, FakeWizard())
+    answer(monkeypatch, "", "l", "l", "n")
+
+    cli.main(["setup", "tuya"])
+
+    out = capsys.readouterr().out
+    before = out[: out.index(WIZARD_SAYS)]
+    assert "https://iot.tuya.com" in before
+    assert "Access ID" in before
+    assert "Access Secret" in before
+    assert "Wizard menampilkan API Secret dan semua local key di layar" in before
+    assert '"Poll local devices? (Y/n)"' in before
+    assert "Perangkat Tuya di config.yaml:\n  - Lampu kamar (lampu_kamar): belum diisi" in before
+
+
+def test_setup_tuya_skipped_runs_no_wizard(home, monkeypatch, capsys):
+    wizard = use_wizard(monkeypatch, FakeWizard())
+    answer(monkeypatch, "n")
+
+    assert cli.main(["setup", "tuya"]) == 0
+
+    assert wizard.calls == []
+    assert "Perangkat Tuya dilewati." in capsys.readouterr().out
+    assert config_backups(home) == []
+
+
+def test_setup_tuya_reads_the_device_list_already_there_without_running_the_wizard(
+    home, monkeypatch, capsys
+):
+    write_wizard_files(home, [WIZARD_LAMP, WIZARD_PLUG])
+    wizard = use_wizard(monkeypatch, FakeWizard())
+    answer(monkeypatch, "", "", "")  # not again, the lamp, the plug
+
+    assert cli.main(["setup", "tuya"]) == 0
+
+    assert wizard.calls == []
+    assert tuya_of(home, "lampu_kamar").device_id == WIZARD_LAMP["id"]
+    assert "Hapus" not in capsys.readouterr().out  # no credential files to delete
+
+
+def test_setup_tuya_takes_another_number_or_skips_a_device(home, monkeypatch, capsys):
+    use_wizard(monkeypatch, FakeWizard(devices=(WIZARD_LAMP, WIZARD_PLUG, WIZARD_PORCH)))
+    answer(monkeypatch, "", "3", "l", "n")
+
+    assert cli.main(["setup", "tuya"]) == 0
+
+    lamp = tuya_of(home, "lampu_kamar")
+    assert (lamp.device_id, lamp.local_key, lamp.address) == (
+        WIZARD_PORCH["id"],
+        WIZARD_PORCH["key"],
+        "Auto",
+    )
+    assert tuya_of(home, "colokan_pc").device_id == "isi_dari_tinytuya_wizard"
+    out = capsys.readouterr().out
+    assert "  1. Lampu Kamar (dj, 192.168.1.60, versi 3.3)" in out
+    assert "  2. Smart Plug (cz, 192.168.1.61, versi 3.4)" in out
+    assert "  3. Lampu Teras (dj, IP belum diketahui)" in out
+    assert "Colokan PC dilewati." in out
+
+
+def test_setup_tuya_refuses_an_entry_another_device_took(home, monkeypatch, capsys):
+    use_wizard(monkeypatch, FakeWizard())
+    answer(monkeypatch, "", "2", "2", "l", "n")  # the plug for the lamp, then again for the plug
+
+    assert cli.main(["setup", "tuya"]) == 0
+
+    assert "Nomor 2 sudah dipakai untuk Lampu kamar." in capsys.readouterr().out
+    assert tuya_of(home, "lampu_kamar").device_id == WIZARD_PLUG["id"]
+    assert tuya_of(home, "colokan_pc").device_id == "isi_dari_tinytuya_wizard"
+
+
+def fill_lamp(home: Path, device_id: str) -> None:
+    """The example config with the lamp's Tuya block already filled with `device_id`."""
+    config = home / "config.yaml"
+    text = config.read_text(encoding="utf-8")
+    old = (
+        '      device_id: "isi_dari_tinytuya_wizard"\n      local_key: "isi_dari_tinytuya_wizard"\n'
+    )
+    new = f'      device_id: "{device_id}"\n      local_key: "old-local-key-123"\n'
+    assert old in text
+    config.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+
+@pytest.mark.parametrize(("reply", "kept"), [("", True), ("n", True), ("y", False)])
+def test_setup_tuya_replaces_a_device_id_already_filled_only_on_yes(
+    home, monkeypatch, capsys, reply, kept
+):
+    fill_lamp(home, "bf9999999999999999ffff")
+    write_wizard_files(home, [WIZARD_LAMP])
+    use_wizard(monkeypatch, FakeWizard())
+    answer(monkeypatch, "", "", reply, "l")
+
+    assert cli.main(["setup", "tuya"]) == 0
+
+    assert "  - Lampu kamar (lampu_kamar): sudah terisi" in capsys.readouterr().out
+    expected = "bf9999999999999999ffff" if kept else WIZARD_LAMP["id"]
+    assert tuya_of(home, "lampu_kamar").device_id == expected
+
+
+def test_setup_tuya_refreshes_the_key_of_the_same_device_without_asking(home, monkeypatch):
+    # A device paired again in Smart Life gets a new local key under the same id.
+    fill_lamp(home, WIZARD_LAMP["id"])
+    write_wizard_files(home, [WIZARD_LAMP])
+    use_wizard(monkeypatch, FakeWizard())
+    answer(monkeypatch, "", "", "l")
+
+    assert cli.main(["setup", "tuya"]) == 0
+
+    assert tuya_of(home, "lampu_kamar").local_key == LAMP_LOCAL_KEY
+
+
+def test_setup_tuya_deletes_the_cloud_credentials_on_yes(home, monkeypatch, capsys):
+    use_wizard(monkeypatch, FakeWizard())
+    answer(monkeypatch, "", "", "", "")
+
+    assert cli.main(["setup", "tuya"]) == 0
+
+    assert not (home / "tinytuya.json").exists()
+    assert not (home / "tuya-raw.json").exists()
+    assert (home / "devices.json").exists()
+    out = capsys.readouterr().out
+    assert "✓ tinytuya.json dan tuya-raw.json dihapus." in out
+    assert "devices.json dan snapshot.json masih berisi local key" in out
+
+
+def test_setup_tuya_keeps_the_cloud_credentials_on_no(home, monkeypatch, capsys):
+    use_wizard(monkeypatch, FakeWizard())
+    answer(monkeypatch, "", "", "", "n")
+
+    assert cli.main(["setup", "tuya"]) == 0
+
+    assert (home / "tinytuya.json").exists()
+    assert (home / "tuya-raw.json").exists()
+    assert "! tinytuya.json dan tuya-raw.json tetap ada" in capsys.readouterr().out
+
+
+def test_setup_tuya_says_when_the_wizard_was_stopped_and_left_no_list(home, monkeypatch, capsys):
+    use_wizard(monkeypatch, FakeWizard(devices=None, interrupted=True))
+    answer(monkeypatch, "")
+
+    assert cli.main(["setup", "tuya"]) == 0
+
+    out = capsys.readouterr().out
+    assert "! Wizard dihentikan." in out
+    assert "✗ devices.json belum ada" in out
+    assert config_backups(home) == []
+
+
+def test_setup_tuya_says_when_the_wizard_failed(home, monkeypatch, capsys):
+    use_wizard(monkeypatch, FakeWizard(devices=None, code=1))
+    answer(monkeypatch, "")
+
+    cli.main(["setup", "tuya"])
+
+    assert "! Wizard berhenti dengan kode 1." in capsys.readouterr().out
+
+
+def test_setup_tuya_hides_every_local_key_when_config_yaml_cannot_be_patched(
+    home, monkeypatch, capsys
+):
+    config = home / "config.yaml"
+    text = config.read_text(encoding="utf-8")
+    block = (
+        "    tuya:\n"
+        '      device_id: "isi_dari_tinytuya_wizard"\n'
+        '      local_key: "isi_dari_tinytuya_wizard"\n'
+        "      address: Auto\n"
+        "      version: 3.3\n"
+    )
+    flow = '    tuya: {device_id: "isi_dari_tinytuya_wizard", local_key: "x", version: 3.3}\n'
+    assert block in text
+    config.write_text(text.replace(block, flow, 1), encoding="utf-8")
+    before = config.read_bytes()
+    use_wizard(monkeypatch, FakeWizard())
+    answer(monkeypatch, "", "", "", "n")
+
+    assert cli.main(["setup", "tuya"]) == 1
+
+    out = capsys.readouterr().out
+    assert_no_secret(out)
+    assert '          local_key: "..."   # disembunyikan (16 karakter)' in out
+    assert 'salin nilai "key" dari devices.json' in out
+    assert config.read_bytes() == before
+
+
+def test_setup_tuya_without_tuya_devices_runs_no_wizard(home, monkeypatch, capsys):
+    write_config(home, "assistant:\n  name: Cyrene\n")
+    wizard = use_wizard(monkeypatch, FakeWizard())
+    answer(monkeypatch)
+
+    assert cli.main(["setup", "tuya"]) == 0
+
+    assert wizard.calls == []
+    assert "Tidak ada perangkat Tuya di config.yaml" in capsys.readouterr().out

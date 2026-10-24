@@ -109,7 +109,7 @@ from waifu.config import (
     cookie_names,
     load_config,
 )
-from waifu.config_patch import Change, apply_changes, snippet
+from waifu.config_patch import Change, apply_changes, masked, snippet
 from waifu.devices.base import DeviceError, DeviceResult
 from waifu.devices.ir_codes import COMMAND_PATTERN, IrCodeStoreError
 from waifu.devices.ir_device import IrDevice
@@ -269,6 +269,15 @@ from waifu.scheduler import MONTHS_ID, Scheduler
 from waifu.screen import capture_screen
 from waifu.single_instance import InstanceLock
 from waifu.todo import Task, TodoError, TodoStore
+from waifu.tuya_import import (
+    CloudDevice,
+    TuyaImportError,
+    TuyaTarget,
+    read_cloud_devices,
+    suggest,
+    tuya_changes,
+    tuya_targets,
+)
 from waifu.usage import DayUsage, TokenUsage, UsageLedger, UsageSummary, cost_usd
 from waifu.version import (
     INSTALL_COMMAND,
@@ -447,12 +456,20 @@ NOTIFY_OFF = (
 NOTIFY_TEST_MESSAGE = "Tes notifikasi dari {name}. Kalau ini muncul di HP, notifikasi sudah siap."
 NOTIFY_TAG = "video_game"  # ntfy shows it as a game controller emoji
 # `waifu setup`: its steps in the order `all` runs them, and what Master may answer.
-SETUP_STEPS = ("mic",)
-SETUP_TITLES = {"mic": "Mikrofon"}
+SETUP_STEPS = ("mic", "tuya")
+SETUP_TITLES = {"mic": "Mikrofon", "tuya": "Perangkat Tuya"}
 YES_WORDS = frozenset({"y", "ya", "iya", "yes", "ok", "oke"})
 NO_WORDS = frozenset({"n", "no", "tidak", "ga", "gak", "nggak", "enggak", "t"})
 SKIP_WORD = "l"  # lewati
 StepOutcome = Literal["written", "failed", "unchanged"]
+# What tinytuya's wizard writes into the folder it runs in (tinytuya/core/const.py); the first
+# and the last hold the cloud credentials (tuya-raw.json also every local key).
+TUYA_DEVICE_FILE = "devices.json"
+TUYA_SNAPSHOT_FILE = "snapshot.json"
+TUYA_CREDENTIAL_FILES = ("tinytuya.json", "tuya-raw.json")
+TUYA_WIZARD_FILES = ("tinytuya.json", TUYA_DEVICE_FILE, TUYA_SNAPSHOT_FILE, "tuya-raw.json")
+TUYA_IOT_URL = "https://iot.tuya.com"
+TUYA_GUIDE_URL = "https://github.com/jasonacox/tinytuya#get-the-tuya-device-local-key"
 GACHA_DESCRIPTION = (
     "Teman main game HoYoverse: status stamina dan daily, check-in harian HoYoLAB, "
     "riwayat pull (pity, 50/50), data akun game (karakter, endgame, kalender event), kode "
@@ -6756,7 +6773,7 @@ def _write_config(config_path: Path, changes: list[Change]) -> bool:
     by hand, every local key hidden."""
     outcome = apply_changes(config_path, changes)
     if outcome.written:
-        print(f"{OK} {config_path} diperbarui: {', '.join(change.path for change in changes)}.")
+        print(f"{OK} {config_path} diperbarui: {_changed_keys(changes)}.")
         print(f"  Isi sebelumnya tersimpan di {outcome.backup}.")
         return True
     print(f"{FAIL} {config_path} tidak diubah: {outcome.problem}.")
@@ -6770,6 +6787,19 @@ def _write_config(config_path: Path, changes: list[Change]) -> bool:
             'yang "id"-nya sama dengan device_id di atas.'
         )
     return False
+
+
+def _changed_keys(changes: list[Change]) -> str:
+    """The changed keys, grouped by their block: `devices[ac].ir.host`, or
+    `devices[lampu_kamar].tuya (device_id, local_key)`."""
+    blocks: dict[str, list[str]] = {}
+    for change in changes:
+        block, _, key = change.path.rpartition(".")
+        blocks.setdefault(block, []).append(key)
+    return ", ".join(
+        f"{block}.{keys[0]}" if len(keys) == 1 else f"{block} ({', '.join(keys)})"
+        for block, keys in blocks.items()
+    )
 
 
 def _setup_mic(args: argparse.Namespace) -> StepOutcome:
@@ -6824,8 +6854,207 @@ def _setup_mic(args: argparse.Namespace) -> StepOutcome:
     return "written"
 
 
+def _run_tuya_wizard(command: Sequence[str], folder: Path) -> int | None:
+    """Runs tinytuya's wizard in `folder` with Master's terminal attached, so he types his own
+    cloud keys into it; its exit code, or None after Ctrl+C."""
+    try:
+        return subprocess.run(list(command), cwd=folder, check=False).returncode
+    except KeyboardInterrupt:
+        return None
+
+
+TUYA_WIZARD_RUNNER: Callable[[Sequence[str], Path], int | None] = _run_tuya_wizard
+
+
+def _setup_tuya(args: argparse.Namespace) -> StepOutcome:
+    """Runs tinytuya's wizard on Master's yes, then writes the devices he matches."""
+    targets = tuya_targets(load_config(args.config))
+    if not targets:
+        print(
+            "Tidak ada perangkat Tuya di config.yaml (tuya_light, tuya_plug, atau IR dengan "
+            "backend: tuya); tambahkan dulu (README, bagian Lampu dan colokan Tuya)."
+        )
+        return "unchanged"
+    print("Perangkat Tuya di config.yaml:")
+    for target in targets:
+        state = "sudah terisi" if target.filled else "belum diisi"
+        print(f"  - {target.name} ({target.device_id}): {state}")
+    folder = args.config.resolve().parent
+    _explain_tuya_wizard(folder)
+    if (folder / TUYA_DEVICE_FILE).exists():
+        print(f"{TUYA_DEVICE_FILE} dari wizard sebelumnya sudah ada di {folder}.")
+        run_wizard = _ask_yes(
+            f"Jalankan wizard lagi? Tanpa itu, {TUYA_DEVICE_FILE} yang ada yang dibaca.",
+            default=False,
+        )
+    else:
+        run_wizard = _ask_yes("Jalankan wizard tinytuya sekarang?", default=True)
+        if not run_wizard:
+            print("Perangkat Tuya dilewati.")
+            return "unchanged"
+    if run_wizard:
+        code = TUYA_WIZARD_RUNNER([sys.executable, "-m", "tinytuya", "wizard"], folder)
+        if code is None:
+            print(f"{WARN} Wizard dihentikan.")
+        elif code != 0:
+            print(f"{WARN} Wizard berhenti dengan kode {code}.")
+    outcome = _import_tuya(args.config, targets, folder)
+    _offer_tuya_cleanup(folder)
+    return outcome
+
+
+def _explain_tuya_wizard(folder: Path) -> None:
+    print(
+        "\nWizard tinytuya mengambil device_id dan local_key tiap perangkat dari cloud Tuya. "
+        "Sekali saja:\n"
+        f"  1. Daftar atau login di {TUYA_IOT_URL}, lalu Cloud > Development > Create Cloud "
+        "Project (Development Method: Smart Home; Data Center: sama dengan akun Smart Life-mu).\n"
+        "  2. Di project itu: Devices > Link App Account > Add App Account, lalu pindai QR-nya "
+        "dari aplikasi Smart Life (tab Saya/Me, ikon pindai).\n"
+        "  3. Dari halaman Overview project, salin Access ID/Client ID (itulah API Key) dan "
+        "Access Secret/Client Secret (itulah API Secret).\n"
+        f"  Panduan bergambar: {TUYA_GUIDE_URL}\n"
+        "Wizard lalu menanyakan API Key, API Secret, satu Device ID (dari info perangkat di "
+        "Smart Life, atau ketik scan untuk mencarinya di jaringan), dan region data center "
+        "project-mu. Kamu mengetiknya langsung ke wizard; Cyrene tidak membacanya.\n"
+        f"{WARN} Wizard menampilkan API Secret dan semua local key di layar: jangan merekam atau "
+        "membagikan layar selama wizard berjalan.\n"
+        f"Wizard menulis {', '.join(TUYA_WIZARD_FILES)} ke {folder} (semuanya ada di "
+        ".gitignore).\n"
+        'Di akhir, "Poll local devices? (Y/n)": Y memindai jaringan rumah untuk mencari IP dan '
+        "versi tiap perangkat (diisi ke address dan version); n membiarkan address: Auto "
+        "(dicari sekitar 6 detik saat perangkat pertama kali dipakai)."
+    )
+
+
+def _import_tuya(config_path: Path, targets: list[TuyaTarget], folder: Path) -> StepOutcome:
+    """Asks which wizard device each Tuya device of config.yaml is, then writes them."""
+    try:
+        devices = read_cloud_devices(folder / TUYA_DEVICE_FILE, folder / TUYA_SNAPSHOT_FILE)
+    except TuyaImportError as exc:
+        print(f"{FAIL} {exc}; jalankan 'waifu setup tuya' lagi setelah wizard selesai.")
+        return "unchanged"
+    listed = [index for index, device in enumerate(devices) if not device.sub]
+    if not listed:
+        print(f"{FAIL} {TUYA_DEVICE_FILE} tidak berisi perangkat yang bisa dipakai.")
+        return "unchanged"
+    print(f"\nPerangkat di {TUYA_DEVICE_FILE}:")
+    for number, index in enumerate(listed, start=1):
+        print(f"  {number}. {_cloud_device_text(devices[index])}")
+    if len(listed) < len(devices):
+        print(
+            f"  ({len(devices) - len(listed)} sub-perangkat, misalnya remote di bawah IR blaster, "
+            "tidak dicantumkan)"
+        )
+    suggested = suggest(targets, devices)
+    taken: dict[int, str] = {}  # a light's or plug's entry -> the device it went to
+    changes: list[Change] = []
+    summary: list[str] = []
+    for target in targets:
+        index = _pick_cloud_device(target, devices, listed, suggested[target.device_id], taken)
+        if index is None:
+            print(f"  {target.name} dilewati.")
+            continue
+        device = devices[index]
+        if target.filled and target.current_id != device.id:
+            replace = _ask_yes(
+                f"  {target.name} sudah terisi dengan perangkat lain. Ganti?", default=False
+            )
+            if not replace:
+                print(f"  {target.name} tetap.")
+                continue
+        if target.kind != "ir":
+            taken[index] = target.name
+        changes.extend(tuya_changes(target, device))
+        summary.append(_tuya_summary(target, device))
+    if not changes:
+        print("Tidak ada yang diubah.")
+        return "unchanged"
+    if not _write_config(config_path, changes):
+        return "failed"
+    print("\n".join(summary))
+    return "written"
+
+
+def _cloud_device_text(device: CloudDevice) -> str:
+    where = device.ip or "IP belum diketahui"
+    version = f", versi {device.version:g}" if device.version is not None else ""
+    return f"{device.name or '(tanpa nama)'} ({device.category or 'kategori ?'}, {where}{version})"
+
+
+def _pick_cloud_device(
+    target: TuyaTarget,
+    devices: list[CloudDevice],
+    listed: list[int],
+    suggested: int | None,
+    taken: dict[int, str],
+) -> int | None:
+    """The index in `devices` Master picks for `target`, or None when he skips it. A light's or
+    plug's entry another device took is never offered or taken."""
+    label = f"{target.name} ({target.device_id})"
+    if suggested is not None and suggested not in taken:
+        question = (
+            f"{label}: pakai {listed.index(suggested) + 1}. {devices[suggested].name}? Enter = "
+            f"ya, nomor lain = pilih, {SKIP_WORD} = lewati:"
+        )
+    else:
+        suggested = None
+        question = f"{label}: nomor perangkatnya? Enter atau {SKIP_WORD} = lewati:"
+    while True:
+        reply = _ask(question).lower()
+        if reply == SKIP_WORD or (not reply and suggested is None):
+            return None
+        if not reply:
+            return suggested
+        if reply.isascii() and reply.isdecimal() and 1 <= int(reply) <= len(listed):
+            index = listed[int(reply) - 1]
+            if index not in taken:
+                return index
+            print(f"Nomor {reply} sudah dipakai untuk {taken[index]}.")
+            continue
+        print(f"Ketik nomor 1 sampai {len(listed)}, atau {SKIP_WORD}.")
+
+
+def _tuya_summary(target: TuyaTarget, device: CloudDevice) -> str:
+    parts = [f"device_id {device.id}", f"local_key ({masked(device.key)})"]
+    parts.append(f"address {device.ip}" if device.ip is not None else "address tetap")
+    if device.version is not None:
+        parts.append(f"version {device.version:g}")
+    return f"{OK} {target.name}: {', '.join(parts)}"
+
+
+def _offer_tuya_cleanup(folder: Path) -> None:
+    """Offers to delete the wizard's files that hold the Tuya cloud credentials."""
+    present = [folder / name for name in TUYA_CREDENTIAL_FILES if (folder / name).exists()]
+    if present:
+        names = " dan ".join(path.name for path in present)
+        print(
+            f"\n{names} berisi API Key dan API Secret akun Tuya-mu (tuya-raw.json juga semua "
+            "local key); Cyrene tidak membutuhkannya."
+        )
+        if _ask_yes(f"Hapus {names} sekarang?", default=True):
+            try:
+                for path in present:
+                    path.unlink(missing_ok=True)
+            except OSError as exc:
+                print(f"{FAIL} Tidak bisa menghapus {names}: {exc.strerror or exc}")
+            else:
+                print(
+                    f"{OK} {names} dihapus. Wizard berikutnya menanyakan API Key dan API Secret "
+                    "lagi."
+                )
+        else:
+            print(f"{WARN} {names} tetap ada di {folder}; jangan dibagikan.")
+    if (folder / TUYA_DEVICE_FILE).exists():
+        print(
+            f"{TUYA_DEVICE_FILE} dan {TUYA_SNAPSHOT_FILE} masih berisi local key (dibaca lagi "
+            "kalau wizard dijalankan ulang); keduanya ada di .gitignore, jangan dibagikan."
+        )
+
+
 _SETUP_HANDLERS: dict[str, Callable[[argparse.Namespace], StepOutcome]] = {
     "mic": _setup_mic,
+    "tuya": _setup_tuya,
 }
 
 
