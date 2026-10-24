@@ -45,22 +45,22 @@ def terms(text: str) -> list[str]:
     return text.split(", ")
 
 
-def test_hotwords_list_her_names_devices_routines_apps_and_games_in_that_order():
+def test_hotwords_list_her_names_devices_apps_games_routines_and_aliases_in_that_order():
     assert terms(build_hotwords(home_config())) == [
         "Cyrene",
         "hai cyrene",
         "Lampu Meja",
         "AC",
         "Aplikasi PC",
-        "lampu belajar",
-        "pendingin",
-        "mau tidur",
         "star rail",
         "discord",
         "HSR",
         "Honkai: Star Rail",
         "ZZZ",
         "Zenless Zone Zero",
+        "mau tidur",
+        "lampu belajar",
+        "pendingin",
     ]
 
 
@@ -79,10 +79,15 @@ def test_the_games_are_left_out_while_gacha_is_off():
     listed = terms(build_hotwords(home_config(gacha=False)))
 
     assert "HSR" not in listed
-    assert listed[-1] == "discord"
+    assert listed[-3:] == ["mau tidur", "lampu belajar", "pendingin"]
 
 
-def test_roster_names_come_last_in_the_configured_games_order_ten_per_game():
+def roster_part(listed: list[str]) -> list[str]:
+    """The names between the games and the routine of `home_config`."""
+    return listed[listed.index("Zenless Zone Zero") + 1 : listed.index("mau tidur")]
+
+
+def test_roster_names_follow_the_games_taking_turns_in_the_order_given_five_per_game():
     rosters = {
         "zzz": ["Ellen", "Ellen Joe"],
         "hsr": [f"Hero {n}" for n in range(1, 13)],
@@ -90,11 +95,32 @@ def test_roster_names_come_last_in_the_configured_games_order_ten_per_game():
 
     listed = terms(build_hotwords(home_config(), rosters))
 
-    roster = listed[listed.index("Zenless Zone Zero") + 1 :]
-    assert roster == [f"Hero {n}" for n in range(1, ROSTER_NAMES_PER_GAME + 1)] + [
+    assert roster_part(listed) == [
         "Ellen",
+        "Hero 1",
         "Ellen Joe",
+        "Hero 2",
+        "Hero 3",
+        "Hero 4",
+        "Hero 5",
     ]
+
+
+def test_every_game_read_gets_names_ahead_of_the_aliases():
+    games = ("hsr", "genshin", "zzz")
+    config = home_config(games=games)
+    config.devices[0].aliases.extend(f"lampu {n}" for n in range(20))
+    rosters = {game: [f"{game} {n}" for n in range(10)] for game in games}
+
+    listed = terms(build_hotwords(config, rosters))
+
+    assert len(listed) == HOTWORDS_MAX_TERMS
+    for game in games:
+        assert [term for term in listed if term.startswith(f"{game} ")] == [
+            f"{game} {n}" for n in range(ROSTER_NAMES_PER_GAME)
+        ]
+    assert "mau tidur" in listed
+    assert "pendingin" not in listed
 
 
 def test_a_roster_of_a_game_not_configured_is_left_out():
@@ -103,17 +129,24 @@ def test_a_roster_of_a_game_not_configured_is_left_out():
     assert "Furina" not in listed
 
 
-def test_a_full_list_drops_the_roster_first():
-    roster = {"hsr": [f"N{n}" for n in range(10)], "zzz": [f"Z{n}" for n in range(10)]}
-    config = home_config()
-    config.devices[0].aliases.extend(f"lampu {n}" for n in range(18))
+def test_a_full_list_drops_the_aliases_first():
+    config = home_config(gacha=False)
+    config.devices[0].aliases.extend(f"lampu {n}" for n in range(40))
 
-    listed = terms(build_hotwords(config, roster))
+    listed = terms(build_hotwords(config))
 
     assert len(listed) == HOTWORDS_MAX_TERMS
-    assert "Zenless Zone Zero" in listed
-    assert [term for term in listed if term.startswith("N")] == [f"N{n}" for n in range(8)]
-    assert not any(term.startswith("Z") and term[1:].isdigit() for term in listed)
+    assert listed[:8] == [
+        "Cyrene",
+        "hai cyrene",
+        "Lampu Meja",
+        "AC",
+        "Aplikasi PC",
+        "star rail",
+        "discord",
+        "mau tidur",
+    ]
+    assert "pendingin" not in listed
 
 
 def test_the_list_ends_before_the_first_term_that_would_pass_the_character_cap():
@@ -150,10 +183,21 @@ def test_a_roster_read_joins_the_vocabulary_and_replaces_that_games_earlier_one(
         vocabulary.set_roster("hsr", ["Firefly"])
 
     listed = terms(vocabulary.text())
-    assert listed[-2:] == ["Firefly", "Ellen"]
+    assert roster_part(listed) == ["Firefly", "Ellen"]
     assert "Acheron" not in listed
     assert "Whisper hotwords now hold 16 terms" in caplog.text
     assert "Firefly" not in caplog.text  # the names never reach the log
+
+
+def test_the_roster_read_last_comes_first():
+    vocabulary = Vocabulary(home_config())
+
+    vocabulary.set_roster("hsr", ["Acheron"])
+    vocabulary.set_roster("zzz", ["Ellen"])
+    assert roster_part(terms(vocabulary.text())) == ["Ellen", "Acheron"]
+
+    vocabulary.set_roster("hsr", ["Acheron"])
+    assert roster_part(terms(vocabulary.text())) == ["Acheron", "Ellen"]
 
 
 def test_the_same_roster_again_logs_nothing(caplog):
@@ -180,4 +224,4 @@ def test_the_vocabulary_is_read_while_another_thread_sets_rosters():
     reader.join()
 
     assert all(text.startswith("Cyrene, hai cyrene") for text in texts)
-    assert terms(vocabulary.text())[-1] == "Hero 199"
+    assert roster_part(terms(vocabulary.text())) == ["Hero 199"]

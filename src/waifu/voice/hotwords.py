@@ -1,9 +1,10 @@
 """The words Whisper should expect: faster-whisper's `hotwords` (SPEC, kamus cyrene (v1.49)).
 
-The list is built from the config in order of importance, her names first and the roster names
-of the games last, so the cap drops the roster first: faster-whisper keeps the first tokens when
-it cuts, and every token of the list is one less for the transcript. Roster names come only from
-the rosters the brain read in this run (`GameDataTools`' `on_roster`); none is fetched for it.
+The list is built from the config in order of importance, her names first and the device
+aliases last, so the cap drops the aliases, mostly ordinary words Whisper writes well, before
+the proper nouns: faster-whisper keeps the first tokens when it cuts, and every token of the
+list is one less for the transcript. Roster names come only from the rosters the brain read in
+this run (`GameDataTools`' `on_roster`); none is fetched for it.
 """
 
 from __future__ import annotations
@@ -21,15 +22,16 @@ HOTWORDS_MAX_TERMS = 40
 # Roughly 100 to 150 Whisper tokens: the window's 448 tokens hold the hotwords, the prompt, and
 # the transcript.
 HOTWORDS_MAX_CHARS = 400
-ROSTER_NAMES_PER_GAME = 10
+ROSTER_NAMES_PER_GAME = 5
 SEPARATOR = ", "
 
 
 def build_hotwords(config: AppConfig, rosters: Mapping[str, Sequence[str]] | None = None) -> str:
-    """Her name, wake words, device names and aliases, routines, app keys, the games while
-    gacha is on, then the roster names of `rosters` (per game, in `gacha.games` order): blanks
-    and repeats (casefolded) left out, within HOTWORDS_MAX_TERMS terms and HOTWORDS_MAX_CHARS
-    characters, ending before the first term that would pass them."""
+    """Her name, wake words, device names, app keys, while gacha is on the games and the
+    roster names of `rosters` (the configured games' in turn, in `rosters`' order, at most
+    ROSTER_NAMES_PER_GAME each), routines, then device aliases: blanks and repeats (casefolded)
+    left out, within HOTWORDS_MAX_TERMS terms and HOTWORDS_MAX_CHARS characters, ending before
+    the first term that would pass them."""
     return SEPARATOR.join(_chosen(config, rosters or {}))
 
 
@@ -54,16 +56,26 @@ def _terms(config: AppConfig, rosters: Mapping[str, Sequence[str]]) -> Iterator[
     yield config.assistant.name
     yield from config.assistant.wake_words
     yield from (device.name for device in config.devices)
-    yield from (alias for device in config.devices for alias in device.aliases)
-    yield from _spoken(config.routines)
     yield from _spoken(app for device in config.devices for app in device.apps or {})
-    if not config.gacha.enabled:
-        return
-    for game in config.gacha.games:
-        yield GAMES[game].short
-        yield GAMES[game].name
-    for game in config.gacha.games:
-        yield from list(rosters.get(game, ()))[:ROSTER_NAMES_PER_GAME]
+    if config.gacha.enabled:
+        for game in config.gacha.games:
+            yield GAMES[game].short
+            yield GAMES[game].name
+        yield from _in_turn(
+            list(names)[:ROSTER_NAMES_PER_GAME]
+            for game, names in rosters.items()
+            if game in config.gacha.games
+        )
+    yield from _spoken(config.routines)
+    yield from (alias for device in config.devices for alias in device.aliases)
+
+
+def _in_turn(lists: Iterable[list[str]]) -> Iterator[str]:
+    """The first item of each list, then the second of each, and so on: every game gets names
+    before a full list cuts them."""
+    lists = list(lists)
+    for index in range(max(map(len, lists), default=0)):
+        yield from (items[index] for items in lists if index < len(items))
 
 
 def _spoken(slugs: Iterable[str]) -> Iterator[str]:
@@ -72,7 +84,8 @@ def _spoken(slugs: Iterable[str]) -> Iterator[str]:
 
 
 class Vocabulary:
-    """The hotwords of this run: the config's, built at start, and the rosters read since.
+    """The hotwords of this run: the config's, built at start, and the rosters read since,
+    the one read last first.
 
     The voice and the phone threads read `text`; the brain's turns call `set_roster`.
     """
@@ -88,10 +101,12 @@ class Vocabulary:
             return self._text
 
     def set_roster(self, game: str, names: Sequence[str]) -> None:
-        """Take `game`'s roster names (most used first) in place of its earlier ones."""
+        """Take `game`'s roster names (most used first) in place of its earlier ones, ahead of
+        the other games' rosters."""
         with self._lock:
+            self._rosters.pop(game, None)
             self._rosters[game] = list(names)
-            chosen = _chosen(self._config, self._rosters)
+            chosen = _chosen(self._config, dict(reversed(self._rosters.items())))
             text = SEPARATOR.join(chosen)
             changed = text != self._text
             self._text = text
