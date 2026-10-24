@@ -6299,11 +6299,16 @@ Tiap tombol satu huruf A-Z, angka 0-9, atau F1-F12 (Ctrl+Alt selalu ditambahkan)
 mematikan satu hotkey, `enabled: false` mematikan semuanya. Semua pengaturannya ada di
 `config.example.yaml`, bagian `hotkeys`. Jalankan ulang `waifu run` sesudah mengubahnya.
 
-`waifu check` punya baris `Hotkey global`: kombinasinya, apakah sedang aktif di `waifu run` yang
-jalan, dan sampai jam berapa dia tidak mendengarkan. Windows memberikan satu kombinasi hanya ke
-program pertama yang memintanya; kalau sudah dipakai program lain, `waifu check` menulis
-`! Hotkey Ctrl+Alt+Q (berhenti mendengarkan) sudah dipakai program lain; ganti hotkeys.quiet di
-config.yaml` (log `waifu run` juga menyebutnya), dan hotkey lain tetap jalan.
+`waifu check` punya baris `Hotkey global`: kombinasi yang sedang aktif di `waifu run` yang jalan
+(tanpa `waifu run`, kombinasi di `config.yaml` yang akan dicoba), dan sampai jam berapa dia tidak
+mendengarkan. Windows memberikan satu kombinasi hanya ke program pertama yang memintanya; kalau
+sudah dipakai program lain, `waifu check` menulis `! Hotkey Ctrl+Alt+Q (berhenti mendengarkan)
+sudah dipakai program lain; ganti hotkeys.quiet di config.yaml` (log `waifu run` juga
+menyebutnya), dan hotkey lain tetap jalan. Kalau `waifu run` tidak memegang satu kombinasi pun,
+barisnya `! Hotkey global tidak aktif di 'waifu run'`; sebabnya ada di baris sesudahnya atau di
+log. Kalau `config.yaml` diubah sesudah `waifu run` mulai, `waifu check` tetap menampilkan
+kombinasi yang dipegang `waifu run` dan mengingatkan bahwa yang baru dipakai setelah `waifu run`
+dijalankan ulang.
 
 ### Kalau tombolnya tidak sampai
 

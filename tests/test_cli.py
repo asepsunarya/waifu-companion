@@ -19,7 +19,7 @@ import types
 import urllib.error
 import urllib.parse
 import urllib.request
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime, time, timedelta, timezone
 from importlib.machinery import ModuleSpec
@@ -18534,13 +18534,15 @@ def test_check_lists_the_hotkeys_to_try_right_after_the_mic_line(home, nothing_i
     assert "Mikrofon" in lines[lines.index(line) - 1]
 
 
-def running_with_hotkeys(home: Path, pid: int, taken: dict[str, int]) -> InstanceLock:
-    """The run lock held, as by a `waifu run` of process `pid` that recorded its hotkeys, those of
-    `taken` refused with their errors."""
+def running_with_hotkeys(
+    home: Path, pid: int, taken: dict[str, int], hotkey_list: Sequence[Hotkey] = DEFAULT_HOTKEYS
+) -> InstanceLock:
+    """The run lock held, as by a `waifu run` of process `pid` that recorded `hotkey_list`, those
+    of `taken` refused with their errors."""
     write_status(
         hotkeys_file(home),
         pid,
-        [Registration(hotkey, taken.get(hotkey.key, 0)) for hotkey in DEFAULT_HOTKEYS],
+        [Registration(hotkey, taken.get(hotkey.key, 0)) for hotkey in hotkey_list],
     )
     lock = InstanceLock(home / "data" / "run.lock")
     assert lock.acquire()
@@ -18555,11 +18557,56 @@ def test_check_trusts_what_the_running_waifu_run_registered(home, nothing_instal
         lock.release()
 
     assert hotkeys_lines(capsys.readouterr().out) == [
-        f"✓ Hotkey global: {DEFAULT_COMBOS}; aktif di 'waifu run'",
+        "✓ Hotkey global: Ctrl+Alt+C bicara, Ctrl+Alt+X potong; aktif di 'waifu run'",
         "! Hotkey Ctrl+Alt+R (ulangi) tidak bisa didaftarkan (Windows error 5); ganti "
         "hotkeys.repeat di config.yaml",
         "! Hotkey Ctrl+Alt+Q (berhenti mendengarkan) sudah dipakai program lain; ganti "
         "hotkeys.quiet di config.yaml",
+    ]
+
+
+def test_check_warns_when_the_running_waifu_run_holds_no_hotkey(home, nothing_installed, capsys):
+    # Its hotkey thread could not start, or lost the combos when its message queue failed.
+    lock = running_with_hotkeys(home, os.getpid(), {}, hotkey_list=[])
+    try:
+        cli.main(["check"])
+    finally:
+        lock.release()
+
+    assert hotkeys_lines(capsys.readouterr().out) == [
+        "! Hotkey global tidak aktif di 'waifu run' (sebabnya ada di log); jalankan ulang "
+        "'waifu run'"
+    ]
+
+
+def test_check_warns_when_other_programs_hold_every_hotkey(home, nothing_installed, capsys):
+    lock = running_with_hotkeys(home, os.getpid(), {"C": 1409, "X": 1409, "R": 1409, "Q": 1409})
+    try:
+        cli.main(["check"])
+    finally:
+        lock.release()
+
+    lines = hotkeys_lines(capsys.readouterr().out)
+    assert lines[0] == "! Hotkey global tidak aktif di 'waifu run'"
+    assert len(lines) == 5
+    assert all("sudah dipakai program lain" in line for line in lines[1:])
+
+
+def test_check_names_the_hotkeys_the_run_holds_and_asks_for_a_restart_after_a_config_change(
+    home, nothing_installed, capsys
+):
+    append_config(home, "hotkeys:\n  talk: f9\n")
+    lock = running_with_hotkeys(home, os.getpid(), {})
+    try:
+        cli.main(["check"])
+    finally:
+        lock.release()
+
+    assert hotkeys_lines(capsys.readouterr().out) == [
+        f"✓ Hotkey global: {DEFAULT_COMBOS}; aktif di 'waifu run'",
+        "! Hotkey global di config.yaml (Ctrl+Alt+F9 bicara, Ctrl+Alt+X potong, Ctrl+Alt+R "
+        "ulangi, Ctrl+Alt+Q berhenti mendengarkan) baru dipakai setelah 'waifu run' dijalankan "
+        "ulang",
     ]
 
 

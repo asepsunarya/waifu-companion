@@ -7189,10 +7189,11 @@ def _microphone_check(config: AppConfig) -> Check:
 
 
 def _hotkeys_check(config: AppConfig) -> Iterator[Check]:
-    """The global hotkeys switched on and what each does; whether the running `waifu run` holds
-    them, each one another program holds, from what that run recorded (trusted only while the
-    run lock is held and the process that recorded it is alive); and a listen pause under way.
-    No Win32 call: registering here would take the combos from the running `waifu run`."""
+    """The global hotkeys switched on and what each does, or those the running `waifu run` holds
+    (none: a warning), each one another program holds, and a config changed since that run
+    started, from what that run recorded (trusted only while the run lock is held and the process
+    that recorded it is alive); and a listen pause under way. No Win32 call: registering here
+    would take the combos from the running `waifu run`."""
     settings = config.hotkeys
     if sys.platform != "win32":
         yield WARN, "Hotkey global hanya ada di Windows"
@@ -7203,20 +7204,31 @@ def _hotkeys_check(config: AppConfig) -> Iterator[Check]:
     if not settings.bindings:
         yield WARN, "Hotkey global mati (semua tombolnya null)"
         return
-    combos = ", ".join(
-        f"{Hotkey(action, key).combo} {HOTKEY_ACTION_TEXT[action]}"
-        for action, key in settings.bindings.items()
-    )
+    configured = [Hotkey(action, key) for action, key in settings.bindings.items()]
     status = _running_hotkeys()
-    line = f"Hotkey global: {combos}; " + (
-        "dicoba saat 'waifu run' jalan" if status is None else "aktif di 'waifu run'"
-    )
+    recorded = () if status is None else status.registrations
+    held = [registration.hotkey for registration in recorded if registration.registered]
+    if status is None:
+        mark, line = (
+            OK,
+            f"Hotkey global: {_hotkey_combos(configured)}; dicoba saat 'waifu run' jalan",
+        )
+    elif held:
+        mark, line = OK, f"Hotkey global: {_hotkey_combos(held)}; aktif di 'waifu run'"
+    elif recorded:  # each refusal follows
+        mark, line = WARN, "Hotkey global tidak aktif di 'waifu run'"
+    else:  # its thread could not start, or lost them
+        mark, line = (
+            WARN,
+            "Hotkey global tidak aktif di 'waifu run' (sebabnya ada di log); jalankan ulang "
+            "'waifu run'",
+        )
     pause = _listen_pause(config)
     until = None if pause is None else pause.until()  # an ended pause's file goes, as in `run`
     if until is not None:
         line += f"; sedang tidak mendengarkan sampai {until:%H:%M}"
-    yield OK, line
-    for registration in () if status is None else status.registrations:
+    yield mark, line
+    for registration in recorded:
         if registration.registered:
             continue
         hotkey = registration.hotkey
@@ -7226,6 +7238,17 @@ def _hotkeys_check(config: AppConfig) -> Iterator[Check]:
             why = f"tidak bisa didaftarkan (Windows error {registration.error})"
         named = f"Hotkey {hotkey.combo} ({HOTKEY_ACTION_TEXT[hotkey.action]})"
         yield WARN, f"{named} {why}; ganti hotkeys.{hotkey.action} di config.yaml"
+    if recorded and {registration.hotkey for registration in recorded} != set(configured):
+        yield (
+            WARN,
+            f"Hotkey global di config.yaml ({_hotkey_combos(configured)}) baru dipakai setelah "
+            "'waifu run' dijalankan ulang",
+        )
+
+
+def _hotkey_combos(hotkeys: Sequence[Hotkey]) -> str:
+    """The combos of `hotkeys` and what each does: "Ctrl+Alt+C bicara, Ctrl+Alt+X potong"."""
+    return ", ".join(f"{hotkey.combo} {HOTKEY_ACTION_TEXT[hotkey.action]}" for hotkey in hotkeys)
 
 
 def _running_hotkeys() -> HotkeyStatus | None:
