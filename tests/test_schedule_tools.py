@@ -315,6 +315,15 @@ def test_schedule_says_to_use_stop_or_volume_instead_of_the_media_toggles(tmp_pa
     ) in description
 
 
+def test_schedule_sends_waking_master_to_the_alarm_tool(tmp_path):
+    tools, _, _ = make_tools(tmp_path)
+
+    assert (
+        "To wake Master up ('bangunkan aku jam 6', 'alarm jam 5'), use the alarm tool when you "
+        "have it, not a reminder: an alarm rings again and again until he is awake."
+    ) in spec(tools, "schedule").description
+
+
 def test_schedule_without_routines_does_not_point_to_a_missing_tool(tmp_path):
     tools, _, _ = make_tools(tmp_path, routines={})
 

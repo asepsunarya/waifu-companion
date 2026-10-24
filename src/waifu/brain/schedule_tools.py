@@ -129,7 +129,9 @@ class ScheduleTools:
             name=SCHEDULE,
             description=(
                 "Schedule something for later: a reminder you will say to Master, a device "
-                "command, or a routine. Every user turn starts with a time stamp of the "
+                "command, or a routine. To wake Master up ('bangunkan aku jam 6', 'alarm jam "
+                "5'), use the alarm tool when you have it, not a reminder: an alarm rings again "
+                "and again until he is awake. Every user turn starts with a time stamp of the "
                 "current local time, [weekday, DD-MM-YYYY HH:MM]; turn relative times "
                 "('10 menit lagi', 'jam 3 sore', 'besok pagi') into a clock time from it and "
                 "pass `at` as YYYY-MM-DD HH:MM (local, 24-hour). A clock time that has "
