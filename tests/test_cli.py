@@ -9218,6 +9218,24 @@ def test_rekap_names_each_top_pull_the_words_learned_and_what_is_still_to_come(
     assert "Jadwal: 09:00 minum vitamin; 22:00 telepon Ibu (nanti)" in lines
 
 
+def test_rekap_says_no_play_when_no_game_was_open_a_whole_minute(home, recap_clock, capsys):
+    eight = RECAP_NOW.replace(hour=20, minute=0)
+    seconds_25 = timedelta(seconds=25)
+    PlayTimeStore(
+        home / "data" / "playtime.json", games=["hsr", "genshin"], keep_days=90, now=recap_clock
+    ).save(
+        [],
+        [
+            Session("hsr", eight, eight + seconds_25),
+            Session("genshin", eight + timedelta(hours=1), eight + timedelta(hours=1) + seconds_25),
+        ],
+    )
+
+    assert cli.main(["rekap"]) == 0
+
+    assert "Main game: tidak ada" in capsys.readouterr().out.splitlines()
+
+
 def test_rekap_marks_a_part_that_fails_prints_the_rest_and_exits_1(
     home, recap_clock, monkeypatch, capsys
 ):

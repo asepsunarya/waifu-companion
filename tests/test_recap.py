@@ -216,6 +216,28 @@ def test_the_play_time_is_each_game_s_time_that_day_and_the_total_counting_toget
     assert played.seconds == (30 + 75 + 9) * 60  # 20:00-21:15 counted once
 
 
+def test_play_is_left_out_when_no_game_was_open_a_whole_minute_though_together_they_make_one(
+    tmp_path,
+):
+    store = PlayTimeStore(
+        tmp_path / "playtime.json", games=["hsr", "genshin"], keep_days=90, now=lambda: NOW
+    )
+    seconds_25 = timedelta(seconds=25)
+    store.save(
+        [],
+        [
+            Session("hsr", at(20), at(20) + seconds_25),
+            Session("genshin", at(21), at(21) + seconds_25),
+        ],
+    )
+
+    day = recap(play_time=store).gather(TODAY)
+
+    assert day.play_time.seconds == 50
+    assert day.play_time.played == ()
+    assert "play_time" not in recap_json(day)
+
+
 def test_a_session_across_midnight_counts_on_each_day(play):
     played = recap(play_time=play).gather(YESTERDAY).play_time
 

@@ -138,6 +138,12 @@ class PlayDay:
     games: tuple[GamePlay, ...]  # every tracked game, in the configured order
     seconds: int  # two games open together count once
 
+    @property
+    def played(self) -> tuple[GamePlay, ...]:
+        """The games open a whole minute (rounded) that day, the ones the recap tells: with
+        none, nothing is told, though games open seconds each may make a minute together."""
+        return tuple(game for game in self.games if whole_minutes(game.seconds))
+
 
 @dataclass(frozen=True)
 class GamePulls:
@@ -414,12 +420,11 @@ def recap_json(recap: Recap) -> dict[str, Any]:
     if recap.focus is not None and whole_minutes(recap.focus):
         data["focus"] = _hours_minutes(recap.focus)
     play = recap.play_time
-    if play is not None and whole_minutes(play.seconds):
+    if play is not None and play.played:
         data["play_time"] = {
             "games": [
                 {"name": GAMES[g.game].name, **_hours_minutes(g.seconds), "sessions": g.sessions}
-                for g in play.games
-                if whole_minutes(g.seconds)
+                for g in play.played
             ],
             "total": _hours_minutes(play.seconds),
         }

@@ -4291,12 +4291,10 @@ def _focus_lines(seconds: int) -> list[str]:
 
 
 def _play_lines(play: PlayDay) -> list[str]:
-    if not whole_minutes(play.seconds):
+    if not play.played:
         return ["Main game: tidak ada"]
     games = ", ".join(
-        f"{GAMES[game.game].name} {_play_duration(game.seconds)}"
-        for game in play.games
-        if whole_minutes(game.seconds)
+        f"{GAMES[game.game].name} {_play_duration(game.seconds)}" for game in play.played
     )
     return [f"Main game: {_play_duration(play.seconds)} ({games})"]
 
