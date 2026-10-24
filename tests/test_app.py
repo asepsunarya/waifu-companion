@@ -3893,3 +3893,108 @@ def test_speak_still_answers_nothing():
     rig = Rig()
 
     assert rig.assistant.speak("Halo, Master.") is None
+
+
+# --- "tadi kamu denger apa?" -------------------------------------------------------------------
+
+UNADDRESSED = (
+    'Tadi aku dengar "matikan lampu", tapi kamu tidak memanggil namaku, jadi tidak kujawab.'
+)
+
+
+def test_she_tells_what_she_heard_last_and_why_she_did_not_answer_without_the_brain():
+    rig = Rig("matikan lampu", "Cyrene, tadi kamu denger apa?", diagnosis=UtteranceLog())
+
+    rig.assistant.handle_utterance(rig.utterance())
+    said = rig.assistant.handle_utterance(rig.utterance())
+
+    assert said == UNADDRESSED
+    assert rig.speech.texts == [UNADDRESSED]
+    assert rig.brain.turns == []
+    assert rig.gate.check("terus?").accepted is True  # said like a reply: the window opened
+
+
+def test_she_tells_another_voice_s_score_against_the_threshold():
+    rig = Rig("Cyrene, kamu dengar apa tadi?", diagnosis=UtteranceLog())  # Whisper runs once
+    rig.verifier.result = (False, 0.31)
+    rig.assistant.handle_utterance(rig.utterance())
+    rig.verifier.result = (True, 0.7)
+
+    rig.assistant.handle_utterance(rig.utterance())
+
+    assert rig.speech.texts == [
+        "Tadi ada suara, tapi kemiripannya dengan suaramu cuma 0,31, padahal butuh 0,45, "
+        "jadi tidak kujawab."
+    ]
+
+
+def test_asking_twice_tells_the_same_utterance_and_the_question_is_still_recorded():
+    log = UtteranceLog()
+    rig = Rig(
+        "matikan lampu", "Cyrene, tadi kamu denger apa?", "Cyrene, tadi denger apa?", diagnosis=log
+    )
+
+    for _ in range(3):
+        rig.assistant.handle_utterance(rig.utterance())
+
+    assert rig.speech.texts == [UNADDRESSED, UNADDRESSED]
+    assert [record.heard_request for record in log.records()] == [True, True, False]
+
+
+def test_with_nothing_heard_yet_she_says_so():
+    rig = Rig("Cyrene, tadi kamu denger apa?", diagnosis=UtteranceLog())
+
+    rig.assistant.handle_utterance(rig.utterance())
+
+    assert rig.speech.texts == ["Belum ada yang kudengar, Master."]
+
+
+def test_without_a_log_she_still_answers_without_the_brain():
+    rig = Rig("Cyrene, tadi kamu denger apa?")
+
+    rig.assistant.handle_utterance(rig.utterance())
+
+    assert rig.speech.texts == ["Belum ada yang kudengar, Master."]
+    assert rig.brain.turns == []
+
+
+def test_her_answer_is_never_what_ulangi_repeats():
+    rig = Rig(
+        "Cyrene, nyalakan lampu kamar",
+        "Cyrene, tadi kamu denger apa?",
+        "Cyrene, ulangi",
+        diagnosis=UtteranceLog(),
+    )
+
+    for _ in range(3):
+        rig.assistant.handle_utterance(rig.utterance())
+
+    told = 'Tadi aku dengar "Cyrene, nyalakan lampu kamar", dan sudah kujawab.'
+    assert rig.speech.texts == [REPLY, told, REPLY]
+
+
+def test_what_she_heard_before_guest_mode_switched_is_never_told():
+    marker = GuestMarker()
+    rig = Rig(
+        "matikan lampu",
+        "Cyrene, tadi kamu denger apa?",
+        guest_marker=marker,
+        diagnosis=UtteranceLog(marker=marker),
+    )
+    rig.assistant.handle_utterance(rig.utterance())
+    marker.generation += 1  # guest mode turned on
+
+    rig.assistant.handle_utterance(rig.utterance())
+
+    assert rig.speech.texts == ["Belum ada yang kudengar, Master."]
+
+
+def test_her_answer_never_reaches_the_info_log(caplog):
+    rig = Rig("matikan lampu", "Cyrene, tadi kamu denger apa?", diagnosis=UtteranceLog())
+    rig.assistant.handle_utterance(rig.utterance())
+
+    with caplog.at_level(logging.INFO, logger="waifu.app"):
+        rig.assistant.handle_utterance(rig.utterance())
+
+    assert "Telling what she heard last" in caplog.text
+    assert UNADDRESSED not in caplog.text

@@ -2506,11 +2506,11 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 262 · **Files:** `src/waifu/voice/diagnosis.py`, `src/waifu/app.py`, `tests/test_voice_diagnosis.py`, `tests/test_app.py` · **Scope:** M
 
-## Task 264: "Tadi kamu denger apa?"
+## Task 264: "Tadi kamu denger apa?" ✅
 
 **Acceptance criteria:**
-- [ ] `is_heard_request` takes the heard phrases with her names and the softeners left out and nothing else; no heard phrase is a repeat phrase and no repeat phrase a heard one
-- [ ] She tells the last utterance and its outcome without the brain, not remembered for "ulangi", forgotten when guest mode switches
+- [x] `is_heard_request` takes the heard phrases with her names and the softeners left out and nothing else; no heard phrase is a repeat phrase and no repeat phrase a heard one
+- [x] She tells the last utterance and its outcome without the brain, not remembered for "ulangi", forgotten when guest mode switches
 
 **Dependencies:** 263 · **Files:** `src/waifu/heard.py`, `src/waifu/app.py`, `tests/test_heard.py`, `tests/test_app.py` · **Scope:** S
 

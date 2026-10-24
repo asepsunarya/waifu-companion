@@ -35,7 +35,9 @@ repeat.
 
 With a `diagnosis` log (`waifu.voice.diagnosis`), each utterance is recorded once it is handled:
 its level, the transcript, the wake gate's reason, the speaker score, what she did with it, and
-how long Whisper, the brain, and her voice took, for the phone's Suara page.
+how long Whisper, the brain, and her voice took, for the phone's Suara page. When Master's whole
+utterance asks what she heard ("tadi kamu denger apa?": `waifu.heard`), she tells the last one
+and why she did or did not act on it, like "ulangi" without the brain.
 
 The owner's paired phone (`waifu.phone`) talks to her from the phone server's threads:
 `reply_for_phone` and `transcribe_for_phone`, handed to the server as `PhoneAnswers`. Brain
@@ -73,6 +75,7 @@ from waifu.brain.base import Brain, BrainReply, ToolCallRecord, ToolImage
 from waifu.brain.tools import logged_arguments
 from waifu.config import AppConfig
 from waifu.gate import WakeGate
+from waifu.heard import heard_answer, is_heard_request
 from waifu.phone.server import PhoneReply
 from waifu.repeat import is_repeat_request
 from waifu.schedule import ScheduleError
@@ -476,6 +479,9 @@ class Assistant:
             hearing.tts_s = self._speak(reply_text, ACKNOWLEDGEMENT_EMOTION)
         elif is_repeat_request(result.command, self._names):
             reply_text, hearing.tts_s = self._repeat()
+        elif is_heard_request(result.command, self._names):
+            hearing.heard_request = True
+            reply_text, hearing.tts_s = self._tell_heard()
         else:
             self._show(lambda avatar: avatar.state("thinking"))
             marker = self._guest_generation()
@@ -972,6 +978,19 @@ class Assistant:
             return text, self._speak(text)
         logger.info("Repeating what she said last")
         return said.text, self._speak(said.text, said.emotion)
+
+    def _tell_heard(self) -> tuple[str, float | None]:
+        """Say what she heard last and what she did with it (`heard_answer`) like a reply,
+        without the brain; returns what she said and how long its synthesis took.
+
+        No turn is taken, and it is never remembered for "ulangi": the words are about
+        Master's, not hers. The diagnosis log gives only what was heard since guest mode last
+        switched. The answer never reaches the INFO log.
+        """
+        heard = None if self._diagnosis is None else self._diagnosis.last_heard()
+        logger.info("Telling what she heard last")
+        text = heard_answer(heard, self._owner_call)
+        return text, self._speak(text)
 
     def _guest_generation(self) -> object:
         return None if self._guest_marker is None else self._guest_marker()
