@@ -2429,6 +2429,64 @@ Privacy: Windows tells only that a registered combo was pressed; no other key is
 
 Safety: tests use a fake user32 (a queue for the messages), fake clocks, and files under tmp_path; `tests/conftest.py` refuses `RegisterHotKey`, `UnregisterHotKey`, `GetMessageW`, `PeekMessageW`, and `PostThreadMessageW`, and `run`'s tests start a fake hotkey thread.
 
+### kamus cyrene (v1.49)
+
+Whisper hears her own world badly: "Cyrene" becomes "Sirin", a device alias or a routine name is misheard, and a HoYo character's name comes out as a common word, so the gate misses her name or the brain gets the wrong device. Her voices read abbreviations wrongly too: Edge's Indonesian voice says "HSR" as one word. Inspired by Home Assistant's Speech-to-Phrase (a vocabulary built from the configured devices) and faster-whisper's `hotwords`, she gets a small vocabulary for her ears and a pronunciation dictionary for her mouth.
+
+User stories:
+
+1. Master says "Cyrene, nyalakan lampu meja" with the TV on: Whisper writes "Cyrene" and "lampu meja", the names in `config.yaml`, more often than a similar common word.
+2. After he asked "karakter HSR-ku siapa aja?", "build Acheron gimana?" is heard as "Acheron" for the rest of the run.
+3. She says "HSR" as "Ha Es Er", "ZZZ" as "Zet Zet Zet", "HoYoLAB" as "Hoyolab", in her Indonesian voice and its Windows fallback; a Japanese run is never touched, and the phone shows her words as written.
+4. "Cyrene, cara baca Acheron itu A Ke Ron" → "Oke Master. Mulai sekarang kubaca: A Ke Ron." and from her next sentence she says it so, without the brain. "Cara baca HSR itu gimana?" is a question, so it goes to the brain as always.
+5. `waifu lafal add Kafka Kaf Ka`, `waifu lafal list` (the built-in rules marked "bawaan"), `waifu lafal remove Kafka`; a running `waifu run` uses a change at her next sentence.
+
+Non-goals (v1.49): fetching a roster from HoYoLAB for the vocabulary (only names the brain already read in this run); keeping a roster across a restart; reloading `config.yaml` while she runs; a learned or weighted vocabulary, or a grammar-constrained recogniser as Speech-to-Phrase has; hotwords for `waifu enroll`, `speaker-test`, or `waifu chat`; rules for the Japanese voice, the brain's history, the logs, or the phone's text; a rule for rupiah, numbers, or dates (the voices read them well enough and a wrong rule would be worse); a "MoC" rule (the code always writes full mode names, `GAME_MODES`); removing a rule by voice ("lupakan cara baca X"; `waifu lafal remove` does); teaching from the phone's chat (a brain turn as always); a phonetic alphabet; a phone page for the dictionary; a brain tool, a persona line, or a dependency (18 of 20 strict tools, 17 of 24 optional parameters, and 0 of 16 unions stay).
+
+The vocabulary (`voice/hotwords.py`), pure:
+- `build_hotwords(config, rosters={}) -> str`: the terms joined with ", ", in this order: `assistant.name`; `assistant.wake_words`; each device's `name`, then each device's `aliases`; the `routines` names; the app keys of `type: apps` devices (`_` in a slug read as a space); with `gacha.enabled`, each of `gacha.games`' `short` and `name` (`GAMES`); last the roster names `rosters` holds per game (in `gacha.games` order, at most `ROSTER_NAMES_PER_GAME` (10) each). Blank terms are dropped, a term already listed (casefolded) is skipped, and the list ends at `HOTWORDS_MAX_TERMS` (40) terms or before the first term that would take the text past `HOTWORDS_MAX_CHARS` (400). So the roster goes first when the list is full.
+- `Vocabulary(config)`: `text()` gives the hotwords, built at start (the config is read once per run); `set_roster(game, names)` rebuilds them with that game's names (INFO "Whisper hotwords now hold 31 terms" when they changed, never the names). Thread-safe: the voice and the phone threads transcribe, the brain's turns set rosters.
+- `GameDataTools(..., on_roster: Callable[[str, list[str]], None] | None = None)`: every successful `game_characters` read (also one from its 15-minute cache) calls `on_roster(game, names)` with the roster's names in its order (rarity, then level), each character's `names` (an HSR or Genshin name; a ZZZ agent's name and full name). No request is made for it, and the tool's spec is unchanged.
+
+Whisper (`voice/stt.py`), `WhisperStt(..., hotwords: Callable[[], str | None] = lambda: None)`: both decodes of a transcription (the detected language and the fallback re-run) pass `hotwords=` the text then (None when empty) to faster-whisper 1.2.1's `WhisperModel.transcribe`, never a `prefix` (with one, faster-whisper ignores hotwords). The initial prompt stays "{name}, tolong nyalakan lampu kamar.". faster-whisper puts the hotwords before the prompt of every 30 s window, cut at 223 tokens (keeping the first ones, so importance order matters) and within the window's 448 tokens, so the 400 characters (roughly 100 to 150 tokens) keep room for the transcript.
+
+The dictionary (`lexicon.py`):
+- `BUILT_IN_READINGS`: `HSR` "Ha Es Er", `ZZZ` "Zet Zet Zet" (her "Zzz" stays), `HoYoLAB` "Hoyolab", `HoYoverse` "Hoyovers"; matched case-sensitively.
+- `pronounce(text, rules={}) -> str`: every built-in rule and every rule of `rules` (Master's, matched case-insensitively, since Whisper's casing of a word taught by voice is arbitrary; one with a built-in's term, casefolded, replaces that built-in) in one alternation, longest term first, each term only as a whole word (`(?<!\w)` and `(?!\w)`, so "HSRX", "aHSR", and "HSR2" stay; a space in a term matches any whitespace), applied in one pass, so a reading is never rewritten again.
+- `checked_rule(term, reading) -> (term, reading)`, whitespace collapsed, else `LexiconError` (Indonesian): the term 1 to 3 words, at most 30 characters, with a letter and no Japanese script; the reading 1 to 8 words, at most 60 characters, with a letter and no Japanese script, not holding the term as a whole word (casefolded), so it is never the term itself.
+- `Lexicon(path, *, now=datetime.now)`, the file `tts.lexicon_path` (`data/tts_lexicon.json`) as `{"version": 1, "rules": {"Acheron": "A Ke Ron"}}`, following `voice_override.py`: re-read at every call, written atomically, never created by reading, read with `utf-8-sig`; a file that is not such a dictionary (bad JSON, another shape, a rule `checked_rule` refuses, two terms the same casefolded, more than `MAX_RULES`) is moved aside as `<name>.corrupt-<stamp>[-n]` (ERROR) and read as empty; one lock for the stores of this process. `read() -> dict[str, str]` (OSError when it cannot be read); `add(term, reading) -> (term, reading)` replaces a rule with the same term casefolded, at most `MAX_RULES` (200) rules (`LexiconError`), OSError from the write; `remove(term) -> str | None` the term removed (casefolded match), None when Master has none. `readings() -> dict[str, str]` never raises: an OSError is logged once (WARNING) until a read works again, and gives no rules of Master's.
+
+The voices (`voice/tts.py`), `SpeechRouter(..., lexicon: Callable[[], Mapping[str, str]] | None = None)` and `build_speech_router(..., lexicon=None)`: `synthesize` reads `lexicon()` once per call (None: only the built-in rules, no file) and passes each run labelled `INDONESIAN` ("id") through `pronounce` before its engine, its Windows fallback, or `fallback_only` speaks it. A Japanese run is never rewritten; "HSR" inside Japanese text is a Latin run of its own, labelled "id". `build_speech_router` never reads `tts.lexicon_path` by itself. The reply's text is unchanged everywhere else: the brain's history, `_last_said`, the logs (which hold only lengths), the phone's `PhoneReply.text` (its audio is the router's, so it is read with the rules).
+
+Teaching by voice (`lexicon.py`), `reading_request(command, names=()) -> (term, reading) | None`, pure, on the gate's command with its casing:
+- None when the command holds "?". The words are split at whitespace, with `.,!;:` and quotes stripped from their edges; leading words that are words of `names` (her name, wake words, owner call), "master", or the softeners `dong`, `deh`, `ya`, `coba`, `tolong` are left out, and trailing ones that are words of her name or wake words, or `ya`, `dong`, `deh` (not "master": a reading may end with it, "Game Master").
+- What is left must be `cara baca <term> itu <reading>` (the fixed words in any case): the term 1 to 3 words before the first `itu`, the reading 1 to 8 words, and neither holding a word of `QUESTION_WORDS` (apa, apaan, gimana, bagaimana, gmn, kenapa, mana, siapa, berapa, nggak, gak, ga, enggak, engga, kah, bukan, bener, benar, betul). Anything else goes to the brain.
+- `Assistant(..., lexicon: Lexicon | None = None)`: in `handle_utterance`, after "ulangi" and "tadi kamu denger apa?", a reading request with a lexicon is answered by `_teach_reading` without the brain, like `_tell_heard` (never remembered for "ulangi"): `add`, then `TAUGHT` "Oke {owner}. Mulai sekarang kubaca: {reading}." (it never says the term, which the new rule would rewrite), `TEACH_REFUSED` "Maaf {owner}, belum bisa kucatat. {problem}" for a `LexiconError`, `TEACH_FAILED` "Maaf {owner}, kamusku belum bisa disimpan. Coba lagi sebentar." for an OSError (WARNING). INFO "Learned a reading for a word" (neither word). Inside the follow-up window without her name too. Also in guest mode (decision).
+
+Config: `tts.lexicon_path` (`data/tts_lexicon.json`). `config.example.yaml` documents it in `tts`.
+
+CLI:
+- `run`: one `Vocabulary(config)`, its `text` given to `WhisperStt(..., hotwords=)` and its `set_roster` to the brain's `GameDataTools` (`_companion_brain(..., vocabulary=)`); one `Lexicon`, its `readings` given to the router and the store to the Assistant. `chat --speak` and `say` (also `--fallback`) give the router the lexicon's `readings`.
+- `waifu lafal` (`add <kata> <bacaan...>`, `list`, `remove <kata>`), like `memory`: `add` prints `✓ HSR dibaca: Ha Es Er` (`✗` and the problem when refused or when the file cannot be written); `list` prints each rule as `HSR: Ha Es Er`, Master's in the file's order, then the built-ins he has not replaced with ` (bawaan)`; `remove` prints `✓ Dihapus: Kafka`, for a built-in `✗ HSR adalah aturan bawaan; ganti bacaannya dengan 'waifu lafal add HSR <bacaan>'.`, otherwise `✗ Tidak ada aturan untuk Kafka.`; a file that cannot be read or written gives `✗` and the error. The description says a running `waifu run` uses a change at her next sentence.
+
+Docs: README section "Kamus Cyrene" after "Hotkey global" (what the vocabulary holds and when the roster joins it, the built-in rules, teaching by voice, `waifu lafal`, what is never rewritten), a contents entry and checklist items; CHANGELOG v1.49.
+
+Decisions:
+- Hotwords, not a longer initial prompt: faster-whisper gives hotwords to every window, while `condition_on_previous_text=False` leaves the prompt to the first; one utterance (at most 15 s) is one window either way, and the short prompt keeps its example of Master's Indonesian.
+- Importance order and a character cap instead of a token count: the tokenizer is not loaded in tests, and faster-whisper keeps the first tokens when it cuts.
+- The roster only from reads the brain made: the vocabulary never costs a HoYoLAB request.
+- Rules only on Indonesian runs, after `split_by_language`: Latin letters inside Japanese text are an Indonesian run of their own anyway, and kana and kanji are never touched.
+- Built-in rules case-sensitive (so "Zzz" stays a sound), Master's case-insensitive.
+- One pass, longest first: "HoYoverse" is never read as a shorter rule plus "verse", and a reading holding another rule's term is said as written.
+- The voice phrase is strict and says only the reading back: a loose gate would write questions into the file.
+- Guest mode allows teaching: the dictionary is not private, and speaker verification still decides who is heard.
+
+Known limits: hotwords can make Whisper write a listed name out of noise (speaker verification and the VAD run before Whisper, and the list stays short); faster-whisper may cut the last term in half at its token limit; the roster is gone after a restart until the brain reads it again; Master's term must be written as Whisper writes it, which a voice-taught rule always is; two processes writing the dictionary at the same moment may lose one change, as with the other stores; a rule also rewrites the word inside a quoted title or a URL she reads aloud.
+
+Privacy: the dictionary holds only words and readings and is never sent anywhere; character names stay in memory; the log says how many hotwords there are and that a reading was learned, never which.
+
+Safety: tests use a fake Whisper model, fake engines and fallbacks, and files under tmp_path; no test loads Whisper, plays audio, or reads the repository's `data/`.
+
 ## Code Style
 
 See `CLAUDE.md` → Code Conventions and Patterns. Dataclasses for value

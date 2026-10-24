@@ -2648,3 +2648,70 @@ named `tests/test_<package>_<module>.py`.
 - [x] Fix pass: the README, the CHANGELOG, config.example.yaml, and the SPEC say that the combos are taken from every other program while `run` holds them, that a game swallowing every combo is handled by pausing before it and "Dengar lagi" (another key helps only for one clashing combo), and that Ctrl+Alt+Q pressed while she speaks is confirmed after her speech (a second press ends it; Ctrl+Alt+X cuts her first); the SPEC names `Message(message, wparam)` and `hearingBadgeShown`
 
 **Dependencies:** 278 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
+
+## Task 280a: Kamus Cyrene contract ✅
+
+**Acceptance criteria:**
+- [x] SPEC "kamus cyrene (v1.49)" (stories, non-goals, the vocabulary, Whisper, the dictionary, the voices, teaching by voice, config, CLI, decisions, known limits, privacy, safety); tasks 280a-287 in the plan and here
+
+**Dependencies:** none · **Files:** `SPEC.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
+
+## Task 280: The hotword builder
+
+**Acceptance criteria:**
+- [ ] `build_hotwords` lists the name, wake words, device names, aliases, routines, app keys, the games when gacha is on, then the roster names (10 per game), skipping blanks and repeats (casefolded), within 40 terms and 400 characters, so the roster is dropped first
+- [ ] `Vocabulary` builds them at start and again on `set_roster`, safe across threads
+
+**Dependencies:** 280a · **Files:** `src/waifu/voice/hotwords.py`, `tests/test_voice_hotwords.py` · **Scope:** S
+
+## Task 281: Whisper's hotwords
+
+**Acceptance criteria:**
+- [ ] `WhisperStt(..., hotwords=)` passes its text on the detected-language decode and on the fallback re-run, None when empty, never a `prefix`; the initial prompt stays short
+
+**Dependencies:** 280 · **Files:** `src/waifu/voice/stt.py`, `tests/test_voice_stt.py` · **Scope:** XS
+
+## Task 282: The roster hook
+
+**Acceptance criteria:**
+- [ ] `GameDataTools(..., on_roster=)` is called with the game and the roster's names in its order on every successful roster read (also from the cache), never on a failure; the specs are unchanged
+
+**Dependencies:** 280a · **Files:** `src/waifu/gacha/game_data_tools.py`, `tests/test_gacha_game_data_tools.py` · **Scope:** XS
+
+## Task 283: The dictionary
+
+**Acceptance criteria:**
+- [ ] `pronounce` rewrites the built-in terms case-sensitively and Master's case-insensitively, whole words only, longest first, in one pass; Master's rule replaces a built-in with the same term
+- [ ] `checked_rule` bounds the term and the reading; `Lexicon` adds, replaces, lists, and removes rules, is never created by reading, sets a broken file aside, refuses rule 201, and `readings` never raises
+
+**Dependencies:** 280a · **Files:** `src/waifu/lexicon.py`, `tests/test_lexicon.py` · **Scope:** M
+
+## Task 284: The speech router
+
+**Acceptance criteria:**
+- [ ] `SpeechRouter(..., lexicon=)` rewrites each Indonesian run before its engine, its fallback, and `fallback_only`, never a Japanese run; without a lexicon only the built-in rules apply; `build_speech_router` passes it through and reads no file
+
+**Dependencies:** 283 · **Files:** `src/waifu/voice/tts.py`, `tests/test_voice_tts.py` · **Scope:** S
+
+## Task 285: Teaching by voice
+
+**Acceptance criteria:**
+- [ ] `reading_request` takes "cara baca X itu Y" with its casing, names and softeners left out, and refuses a question ("?" or a question word) and a term over 3 or a reading over 8 words
+- [ ] The Assistant answers it without the brain: the rule saved and the reading said back, a refused rule or a failing file said, never remembered for "ulangi"; the phone's text keeps the reply as written
+
+**Dependencies:** 283 · **Files:** `src/waifu/lexicon.py`, `src/waifu/app.py`, `tests/test_lexicon.py`, `tests/test_app.py` · **Scope:** S
+
+## Task 286: The CLI
+
+**Acceptance criteria:**
+- [ ] `tts.lexicon_path` with its example; `waifu lafal add|list|remove` with the built-ins marked and protected
+- [ ] `run` gives Whisper the vocabulary and the brain's game tools its roster hook, and the router and the Assistant the dictionary; `chat --speak` and `say` give the router the dictionary
+
+**Dependencies:** 281, 282, 284, 285 · **Files:** `src/waifu/config.py`, `src/waifu/cli.py`, `config.example.yaml`, `tests/test_config.py`, `tests/test_cli.py` · **Scope:** M
+
+## Task 287: Docs
+
+**Acceptance criteria:**
+- [ ] README "Kamus Cyrene" with a contents entry and checklist items; CHANGELOG v1.49; full suite, ruff, and JS tests clean
+
+**Dependencies:** 286 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S

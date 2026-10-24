@@ -1063,6 +1063,30 @@ and 0 of 16 unions stay.
 - [x] Fix pass (2026-10-25): every `hello` hides the avatar's "Tidak mendengarkan" badge, so a browser tab that outlives a `run` restarted during a pause stops showing it; the hotkey thread calls `on_lost()` once it unregistered combos it let go without being stopped, and `run` then records none held (a locked record, so a loss never restores stale combos or a removed file); `waifu check` lists the combos the run holds, warns when it holds none, and asks for a restart after config.yaml changed; a test pins that a stranger is refused before Whisper after `listen_now` (a skip of the owner check inside the follow-up window fails only that test); the docs say which apps lose the combos, what helps against a game that swallows them, and that Ctrl+Alt+Q while she speaks is confirmed after her speech; the SPEC names `Message(message, wparam)` and `hearingBadgeShown`. By hand, a scratch script (deleted afterwards) over the real `HotkeyThread`, `_global_hotkeys`, and `_hotkeys_check` with a fake user32 and the run lock held: a GetMessageW failure unregistered 1-4, rewrote the record to `"hotkeys": []`, and turned the line from `✓ ... aktif di 'waifu run'` into `! Hotkey global tidak aktif di 'waifu run' (sebabnya ada di log); jalankan ulang 'waifu run'`; a queue that could not be made gave the same warning; with talk: F9 in the config while the run held Ctrl+Alt+C, check listed Ctrl+Alt+C and warned that the F9 config is used after a restart; no file was left after the block. The real avatar page served on 127.0.0.1 in the browser pane showed the badge after `hearing` off, and after the server and bus were replaced on the same port it reconnected without a reload and hid the badge. 10607 pytest and 601 JS tests, ruff clean; nothing under src/waifu/brain changed, so 18 of 20 strict tools, 17 of 24 optional parameters, and 0 of 16 unions stay
 - [ ] On the owner's PC: Ctrl+Alt+C and Ctrl+Alt+Q work while a fullscreen game has the focus
 
+### Phase 53: Kamus Cyrene (v1.49, see SPEC → kamus cyrene)
+Decision: her ears get faster-whisper's `hotwords`, a capped list built from the config in order of
+importance, with the names of the rosters the brain read in this run last (never fetched for it);
+the initial prompt stays short. Her mouth gets a pronunciation dictionary applied only to the
+Indonesian runs inside the speech router, so Edge's Indonesian voice and its Windows fallback read
+"HSR" as "Ha Es Er" while the Japanese voice, the phone's text, the history, and the logs keep the
+words as written. Master's own rules live in `data/tts_lexicon.json`, written by `waifu lafal` and
+by a strict voice phrase, "cara baca X itu Y", answered without the brain. No tool: 18 of 20
+strict tools, 17 of 24 optional parameters, and 0 of 16 unions stay.
+- [x] Task 280a: contract: SPEC, tasks
+- [ ] Task 280: the hotword builder and `Vocabulary` (`voice/hotwords.py`)
+- [ ] Task 281: Whisper passes the hotwords on both decodes
+- [ ] Task 282: the roster hook in `GameDataTools`
+- [ ] Task 283: the dictionary: rules, `pronounce`, and the store (`lexicon.py`)
+- [ ] Task 284: the speech router rewrites the Indonesian runs
+- [ ] Task 285: teaching by voice: the "cara baca X itu Y" gate and `_teach_reading`
+- [ ] Task 286: the CLI: `waifu lafal`, `tts.lexicon_path`, and the wiring of `run`, `chat`, and `say`
+- [ ] Task 287: README, CHANGELOG
+
+### Checkpoint: Kamus Cyrene
+- [ ] Python suite, ruff, and JS tests clean; no test loaded Whisper, played audio, or read the repository's `data/`; the strict-tool budget unchanged (18 of 20 strict tools, 17 of 24 optional parameters, 0 of 16 unions)
+- [ ] By hand: in a scratch folder with a fake Whisper model and fake voices, the hotwords reach both decodes and grow after a roster read, "HSR" is read "Ha Es Er" by the Indonesian voice only, and "cara baca X itu Y" writes the dictionary
+- [ ] On the owner's PC: "Cyrene" and a device alias are heard more often with the TV on, and Edge says "Ha Es Er"
+
 ## Risks and Mitigations
 
 | Risk | Impact | Mitigation |
