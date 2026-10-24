@@ -39,7 +39,8 @@ logger = logging.getLogger(__name__)
 # slugs, so an id is plain ASCII.
 ACTION_ID = re.compile(r"dev\.[a-z0-9_]+\.[a-z0-9_]+(\.[0-9]{1,3})?|rt\.[a-z0-9_]+")
 ROUTINES_GROUP = "Rutinitas"
-# Where a refused device "never runs from", in `pc_power_refusal`'s sentence.
+# Where a refused device "never runs from", in `pc_power_refusal`'s sentence: the phone's
+# buttons unless told otherwise.
 WHERE = "tombol cepat HP"
 # The device kinds that may have buttons (a dry run's mocks keep the real device's kind).
 QUICK_KINDS = frozenset({"light", "plug", "ir", "mock"})
@@ -88,6 +89,7 @@ class QuickActions:
 
     A routine's delayed steps go into `schedule` (None: they fail, as with the schedule off),
     timed from `now`. Actions run one at a time: the devices have no locks of their own.
+    `where` names the buttons in the sentence that refuses the PC ("tombol cepat PC").
     """
 
     def __init__(
@@ -98,12 +100,14 @@ class QuickActions:
         schedule: ScheduleStore | None = None,
         chosen: QuickActionsConfig | None = None,
         now: Callable[[], datetime] = datetime.now,
+        where: str = WHERE,
     ) -> None:
         self._registry = registry
         self._routines = routines
         self._schedule = schedule
         self._chosen = chosen or QuickActionsConfig()
         self._now = now
+        self._where = where
         self._lock = threading.Lock()
 
     def groups(self) -> list[QuickGroup]:
@@ -148,7 +152,7 @@ class QuickActions:
         )
 
     def _run_device(self, action: QuickAction) -> QuickResult:
-        refusal = pc_power_refusal(self._registry, action.device, WHERE)
+        refusal = pc_power_refusal(self._registry, action.device, self._where)
         if refusal is not None:
             logger.warning("Refused quick action %s: its device powers the PC", action.id)
             return QuickResult(ok=False, message=refusal)

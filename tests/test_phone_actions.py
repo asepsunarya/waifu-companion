@@ -340,6 +340,18 @@ def test_the_pc_and_its_plug_are_refused_even_when_asked_directly(
     assert devices[device].calls == []
 
 
+def test_the_pc_refusal_names_where_the_buttons_are() -> None:
+    devices = house()
+    action = QuickAction("dev.komputer.shutdown", "Mati", device="komputer", command="shutdown")
+
+    result = quick(devices, where="tombol cepat PC").run(action)
+
+    assert (
+        result.message == "Komputer adalah PC, dan PC tidak pernah dijalankan dari tombol cepat PC."
+    )
+    assert devices["komputer"].calls == []
+
+
 def test_a_routine_runs_every_step_and_sums_it_up(tmp_path: Path) -> None:
     devices = house()
     schedule = store(tmp_path)
