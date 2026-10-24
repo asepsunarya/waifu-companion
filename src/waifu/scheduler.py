@@ -14,6 +14,11 @@ a schedule. A routine's delayed steps ("mode tidur": the AC off three hours late
 this schedule when the routine runs, counted from then, and fire later like any device
 command.
 
+An alarm starts the alarm bell (`waifu.alarm`), which the voice loop rings until Master stops it,
+and its first ring is pushed; the entry is marked fired at once. Without a bell (`waifu chat`)
+it is said once like a reminder. An alarm has a grace of its own, ALARM_GRACE_MINUTES: one
+missed by more is never rung late, only pushed as missed, and a repeating one moves on.
+
 It runs in a daemon thread. A failing entry is logged and the other entries go on; an
 occurrence that ran but could not be marked is marked again at the next tick, never run
 twice.
@@ -27,15 +32,19 @@ from collections.abc import Callable, Mapping
 from datetime import datetime, timedelta
 from types import TracebackType
 
+from waifu.alarm import AlarmBell, missed_text, wake_text
 from waifu.config import RoutineConfig, at_sentence_start
 from waifu.devices.registry import DeviceRegistry
 from waifu.notify import Notifier
 from waifu.routines import describe_step, pc_power_refusal, run_routine
-from waifu.schedule import DeviceAction, Entry, Reminder, ScheduleStore, due
+from waifu.schedule import AlarmAction, DeviceAction, Entry, Reminder, ScheduleStore, due
 
 logger = logging.getLogger(__name__)
 
 SCHEDULE_TAG = "alarm_clock"  # ntfy shows it as an alarm clock emoji
+# How late an alarm may still ring (or the schedule's grace, when that is smaller): one half an
+# hour late wakes Master after he needed it.
+ALARM_GRACE_MINUTES = 2
 # The repeats of a missed reminder that is told as well as pushed: it never comes again, or
 # only a month or a year later. One that comes again within a week is only pushed.
 _TOLD_WHEN_MISSED = frozenset({"none", "monthly", "yearly"})
@@ -71,13 +80,22 @@ class Scheduler:
         owner_call: str = "Master",
         now: Callable[[], datetime] = datetime.now,
         tick_seconds: float = 15,
+        alarm: AlarmBell | None = None,
+        alarm_push: bool = True,
+        alarm_click: str | None = None,
     ) -> None:
+        """`alarm` rings the alarms (None: each is said once); with `alarm_push` the first ring
+        of each is pushed too, opening `alarm_click` (the phone page) when tapped."""
         self._store = store
         self._registry = registry
         self._routines = routines
         self._announce = announce
         self._notifier = notifier
         self._grace = timedelta(minutes=grace_minutes)
+        self._alarm_grace = timedelta(minutes=min(grace_minutes, ALARM_GRACE_MINUTES))
+        self._alarm = alarm
+        self._alarm_push = alarm_push
+        self._alarm_click = alarm_click
         self._title = title
         self._owner_call = owner_call
         self._now = now
@@ -96,18 +114,17 @@ class Scheduler:
         Cyrene was busy, not away. An entry is missed only when it is also older than the
         minute of the check before this one, `tick_seconds` ago: one made in that minute after
         the check ("in one minute", said just before the minute changed) still fires, also
-        with no grace.
+        with no grace. An alarm counts back by its own, smaller grace.
         """
         started = self._now()
-        earliest = min(
-            _minute(started) - self._grace,
-            _minute(started - timedelta(seconds=self._tick_seconds)),
-        )
+        earliest = self._earliest(started, self._grace)
+        alarm_earliest = self._earliest(started, self._alarm_grace)
         handled: set[tuple[str, datetime]] = set()
         missed: list[tuple[datetime, str]] = []
         while (entry := self._next_due(earliest, handled)) is not None:
             handled.add((entry.id, entry.at))
-            self._settle(entry, earliest, missed)
+            is_alarm = isinstance(entry.action, AlarmAction)
+            self._settle(entry, alarm_earliest if is_alarm else earliest, missed)
         if missed:
             self._say(_missed_text(missed, started, self._owner_call), "sad")
 
@@ -144,6 +161,12 @@ class Scheduler:
             except Exception:
                 logger.exception("A schedule tick failed; trying again at the next one")
             self._stop.wait(self._tick_seconds)
+
+    def _earliest(self, started: datetime, grace: timedelta) -> datetime:
+        """The oldest time an entry may still fire in the tick that started at `started`."""
+        return min(
+            _minute(started) - grace, _minute(started - timedelta(seconds=self._tick_seconds))
+        )
 
     def _next_due(self, earliest: datetime, handled: set[tuple[str, datetime]]) -> Entry | None:
         """The soonest occurrence due now that this tick has not handled yet."""
@@ -187,8 +210,12 @@ class Scheduler:
             self._unmarked.discard(occurrence)
 
     def _fire(self, entry: Entry) -> None:
-        """Say and push a reminder; run a device command or a routine, telling only a failure."""
+        """Say and push a reminder; ring an alarm; run a device command or a routine, telling
+        only a failure."""
         action = entry.action
+        if isinstance(action, AlarmAction):
+            self._ring(entry, action)
+            return
         if isinstance(action, Reminder):
             logger.info("Schedule entry %s: reminding Master", entry.id)
             self._say(action.text, "happy")
@@ -211,21 +238,43 @@ class Scheduler:
         self._say(text, "sad")
         self._push(text)
 
+    def _ring(self, entry: Entry, action: AlarmAction) -> None:
+        """Start the bell for the alarm and push its first ring (`alarm_push`); without a bell,
+        say it once and push it like a reminder. A bell that cannot start is logged, and the
+        push still goes out."""
+        text = wake_text(entry.at, [] if action.label is None else [action.label], self._owner_call)
+        if self._alarm is None:
+            logger.info("Schedule entry %s: an alarm, said once since nothing rings here", entry.id)
+            self._say(text, "happy")
+            self._push(text)
+            return
+        logger.info("Schedule entry %s: ringing the alarm", entry.id)
+        try:
+            self._alarm.start(entry)
+        except OSError:
+            logger.exception("Could not start the alarm of schedule entry %s", entry.id)
+        if self._alarm_push:
+            self._push(text, click=self._alarm_click)
+
     def _skip(self, entry: Entry, missed: list[tuple[datetime, str]]) -> None:
         """Push a missed reminder, and keep it in `missed` to tell when it repeats only monthly
-        or yearly or never (`_TOLD_WHEN_MISSED`); nothing runs.
+        or yearly or never (`_TOLD_WHEN_MISSED`); push a missed alarm, never told or rung;
+        nothing runs.
 
         The push names the day too when the missed one was not today's, so it never reads as
         if today's had been missed.
         """
+        is_alarm = isinstance(entry.action, AlarmAction)
         logger.warning(
             "Schedule entry %s due at %s was missed by more than %s; %s",
             entry.id,
             f"{entry.at:%Y-%m-%d %H:%M}",
-            self._grace,
+            self._alarm_grace if is_alarm else self._grace,
             "removing it" if entry.repeat == "none" else "moving it to its next time",
         )
-        if isinstance(entry.action, Reminder):
+        if isinstance(entry.action, AlarmAction):
+            self._push(missed_text(entry.at, entry.action.label, self._now().date()))
+        elif isinstance(entry.action, Reminder):
             when = f"{entry.at:%H.%M}"
             if entry.at.date() != self._now().date():
                 when = f"{entry.at:%d-%m-%Y} {when}"
@@ -267,9 +316,9 @@ class Scheduler:
         if self._announce is not None:
             self._announce(text, emotion)
 
-    def _push(self, text: str) -> None:
+    def _push(self, text: str, *, click: str | None = None) -> None:
         if self._notifier is not None:
-            self._notifier.send(self._title, text, tags=[SCHEDULE_TAG])
+            self._notifier.send(self._title, text, tags=[SCHEDULE_TAG], click=click)
 
 
 def _minute(moment: datetime) -> datetime:

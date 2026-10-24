@@ -6,11 +6,12 @@ from datetime import datetime, timedelta
 
 import pytest
 
+from waifu.alarm import AlarmBell
 from waifu.config import RoutineConfig, RoutineStep
 from waifu.devices.base import DeviceError, DeviceResult
 from waifu.devices.mock import MockDevice
 from waifu.devices.registry import DeviceRegistry
-from waifu.schedule import DeviceAction, Reminder, RoutineAction, ScheduleStore
+from waifu.schedule import AlarmAction, DeviceAction, Reminder, RoutineAction, ScheduleStore
 from waifu.scheduler import Scheduler
 
 START = datetime(2026, 10, 13, 14, 30)  # a Tuesday
@@ -52,9 +53,11 @@ class FakeNotifier:
     def __init__(self, outcome: bool | BaseException = True) -> None:
         self.outcome = outcome
         self.sent: list[tuple[str, str, tuple[str, ...]]] = []
+        self.clicks: list[str | None] = []  # the link of each push, in the order sent
 
-    def send(self, title, message, *, tags=()):
+    def send(self, title, message, *, tags=(), click=None):
         self.sent.append((title, message, tuple(tags)))
+        self.clicks.append(click)
         if isinstance(self.outcome, BaseException):
             raise self.outcome
         return self.outcome
@@ -833,3 +836,177 @@ def test_a_missed_reminder_from_another_month_is_told_with_its_month(tmp_path):
             "sad",
         )
     ]
+
+
+# --- alarms -----------------------------------------------------------------------------------
+
+WORK = AlarmAction("berangkat kerja")
+WORK_PUSH = "Master, bangun! Alarm jam 15.00. Berangkat kerja."
+PHONE_PAGE = "https://pc.tailnet.ts.net/"
+
+
+def ringing_house(tmp_path, *, bell=True, grace_minutes=30, **scheduler_kwargs) -> House:
+    """A house whose scheduler starts an alarm bell on a file under tmp_path (none with
+    `bell` false)."""
+    house = House(tmp_path)
+    house.bell = (
+        AlarmBell(tmp_path / "alarm.json", house.store, now=house.clock, clock=lambda: 0.0)
+        if bell
+        else None
+    )
+    house.scheduler = Scheduler(
+        house.store,
+        registry=DeviceRegistry(list(house.devices.values())),
+        routines={},
+        announce=lambda text, emotion: house.announced.append((text, emotion)),
+        notifier=house.notifier,
+        grace_minutes=grace_minutes,
+        now=house.clock,
+        alarm=house.bell,
+        **scheduler_kwargs,
+    )
+    return house
+
+
+def test_a_due_alarm_starts_the_bell_is_pushed_once_and_marked_fired(tmp_path):
+    house = ringing_house(tmp_path)
+    house.add(WORK)
+
+    house.tick_at(datetime(2026, 10, 13, 15, 0, 10))
+    house.tick_at(datetime(2026, 10, 13, 15, 0, 25))
+
+    assert house.bell.ringing() is True
+    assert [alarm.id for alarm in house.bell.ring_state().alarms] == ["j1"]
+    assert house.told == ([], [("Cyrene", WORK_PUSH, ("alarm_clock",))])
+    assert house.notifier.clicks == [None]
+    assert house.store.entries() == []
+
+
+def test_a_repeating_alarm_rings_once_and_moves_to_its_next_day(tmp_path):
+    house = ringing_house(tmp_path)
+    house.add(WORK, repeat="daily")
+
+    house.tick_at(datetime(2026, 10, 13, 15, 0, 10))
+
+    [moved] = house.store.entries()
+    assert (moved.at, moved.action) == (datetime(2026, 10, 14, 15, 0), WORK)
+    assert house.bell.ringing() is True
+
+
+def test_the_push_of_an_alarm_opens_the_phone_page_when_given_its_link(tmp_path):
+    house = ringing_house(tmp_path, alarm_click=PHONE_PAGE)
+    house.add(WORK)
+
+    house.tick_at(TODAY_15)
+
+    assert house.notifier.clicks == [PHONE_PAGE]
+
+
+def test_without_alarm_push_a_due_alarm_only_rings(tmp_path):
+    house = ringing_house(tmp_path, alarm_push=False)
+    house.add(WORK)
+
+    house.tick_at(TODAY_15)
+
+    assert house.bell.ringing() is True
+    assert house.told == ([], [])
+
+
+def test_without_a_bell_a_due_alarm_is_said_once_and_pushed_like_a_reminder(tmp_path):
+    house = ringing_house(tmp_path, bell=False)
+    house.add(AlarmAction())
+
+    house.tick_at(TODAY_15)
+
+    wake_up = "Master, bangun! Alarm jam 15.00."
+    assert house.told == ([(wake_up, "happy")], [("Cyrene", wake_up, ("alarm_clock",))])
+    assert house.store.entries() == []
+
+
+def test_an_alarm_whose_bell_cannot_start_is_still_pushed_and_marked(tmp_path, caplog):
+    house = ringing_house(tmp_path)
+    (tmp_path / "alarm.json").mkdir()  # a folder where the ring file should go
+    house.add(WORK)
+
+    with caplog.at_level(logging.ERROR, logger="waifu.scheduler"):
+        house.tick_at(TODAY_15)
+
+    assert house.notifier.sent == [("Cyrene", WORK_PUSH, ("alarm_clock",))]
+    assert house.store.entries() == []
+    assert "Could not start the alarm of schedule entry j1" in caplog.text
+
+
+def test_an_alarm_late_by_two_minutes_still_rings(tmp_path):
+    house = ringing_house(tmp_path)
+    house.add(WORK)
+
+    house.tick_at(datetime(2026, 10, 13, 15, 2, 59))
+
+    assert house.bell.ringing() is True
+
+
+def test_an_alarm_late_by_more_than_two_minutes_never_rings_and_is_only_pushed(tmp_path):
+    house = ringing_house(tmp_path)
+    house.add(WORK)
+
+    house.tick_at(datetime(2026, 10, 13, 15, 3, 0))
+
+    assert house.bell.ringing() is False
+    assert house.told == (
+        [],
+        [("Cyrene", "Alarm jam 15.00 terlewat: berangkat kerja.", ("alarm_clock",))],
+    )
+    assert house.store.entries() == []
+
+
+def test_a_missed_daily_alarm_rings_again_tomorrow(tmp_path):
+    house = ringing_house(tmp_path)
+    house.add(AlarmAction(), repeat="daily")
+
+    house.tick_at(datetime(2026, 10, 13, 15, 10))
+
+    [moved] = house.store.entries()
+    assert moved.at == datetime(2026, 10, 14, 15, 0)
+    assert house.notifier.sent == [("Cyrene", "Alarm jam 15.00 terlewat.", ("alarm_clock",))]
+
+
+def test_an_alarm_missed_on_another_day_names_its_date(tmp_path):
+    house = ringing_house(tmp_path)
+    house.add(AlarmAction())
+
+    house.tick_at(datetime(2026, 10, 14, 8, 0))
+
+    assert house.notifier.sent == [
+        ("Cyrene", "Alarm 13-10-2026 jam 15.00 terlewat.", ("alarm_clock",))
+    ]
+    assert house.announced == []
+
+
+def test_a_missed_alarm_is_pushed_even_without_alarm_push(tmp_path):
+    house = ringing_house(tmp_path, alarm_push=False)
+    house.add(AlarmAction())
+
+    house.tick_at(datetime(2026, 10, 13, 15, 5))
+
+    assert house.notifier.sent == [("Cyrene", "Alarm jam 15.00 terlewat.", ("alarm_clock",))]
+
+
+def test_a_smaller_grace_holds_for_alarms_too(tmp_path):
+    house = ringing_house(tmp_path, grace_minutes=0)
+    house.add(AlarmAction())
+
+    house.tick_at(datetime(2026, 10, 13, 15, 1, 20))
+
+    assert house.bell.ringing() is False
+    assert house.notifier.sent == [("Cyrene", "Alarm jam 15.00 terlewat.", ("alarm_clock",))]
+
+
+def test_a_reminder_late_by_three_minutes_still_fires_beside_a_missed_alarm(tmp_path):
+    house = ringing_house(tmp_path)
+    house.add(WORK)
+    house.add(MEDICINE)
+
+    house.tick_at(datetime(2026, 10, 13, 15, 3, 0))
+
+    assert house.announced == [(MEDICINE.text, "happy")]
+    assert house.bell.ringing() is False
