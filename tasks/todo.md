@@ -2177,14 +2177,14 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 227 · **Files:** `src/waifu/phone/actions.py`, `src/waifu/phone/desk.py`, `tests/test_phone_actions.py`, `tests/test_phone_desk.py` · **Scope:** M
 
-## Task 229: The page
+## Task 229: The page ✅
 
 **Acceptance criteria:**
-- [ ] `desk.js`: the problem of each status, a request that resolves to data or a problem and never rejects (offline, timeout, bad reply), the PC page's texts
-- [ ] `tombol.js` shows the groups or why not, posts only the clicked id, marks it busy and the rest unavailable until the answer, ignores clicks meanwhile, and toasts the answer or the problem for 6 s
-- [ ] `index.html` sets its CSP before any script, runs no inline script or style, and loads only relative files that exist; `tombol.css` has the desktop grid
+- [x] `desk.js`: the problem of each status, a request that resolves to data or a problem and never rejects (closed, timeout, bad reply), the PC page's texts
+- [x] `tombol.js` shows the groups or why not, posts only the clicked id, marks it busy and the rest unavailable until the answer, ignores clicks meanwhile, and toasts the answer or the problem for 6 s
+- [x] `index.html` sets its CSP before any script, runs no inline script or style, and loads only relative files that exist; `tombol.css` has the desktop grid
 
-**Dependencies:** 228 · **Files:** `src/waifu/avatar/web/tombol/*`, `tests/js/tombol.test.mjs` · **Scope:** M
+**Dependencies:** 228 · **Files:** `src/waifu/avatar/web/tombol/*`, `tests/js/tombol_desk.test.mjs`, `tests/js/tombol_page.test.mjs`, `tests/js/tombol_ui.test.mjs`, `SPEC.md` · **Scope:** M
 
 ## Task 230: `waifu tombol` and the check line
 

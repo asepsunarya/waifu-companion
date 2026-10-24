@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!--
+      Served by `waifu tombol` at http://127.0.0.1:<port>/t/<token>/ (this folder's files under tombol/, the phone
+      page's actions.js under phone/), so every URL here is relative: it keeps the token's prefix. The page reaches
+      only that server, runs no inline script, and sends no form; the server adds frame-ancestors 'none', which a meta
+      tag cannot set, and Referrer-Policy: no-referrer.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'"
+    />
+    <title>Tombol cepat</title>
+    <meta name="color-scheme" content="light dark" />
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="tombol/tombol.css" />
+    <script type="module" src="tombol/tombol.js"></script>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>Tombol cepat</h1>
+        <p class="hint">Lampu, AC, colokan, dan rutinitas, langsung dari PC.</p>
+      </header>
+      <p id="message" role="alert">Memuat tombol…</p>
+      <section id="groups" aria-label="Tombol cepat" hidden></section>
+    </main>
+    <p id="notice" role="status" hidden></p>
+  </body>
+</html>
