@@ -2858,6 +2858,7 @@ named `tests/test_<package>_<module>.py`.
 - [x] `apply_changes` backs the original bytes up to `data/<name>.bak-YYYYMMDD-HHMMSS` (`-2` on a collision), writes atomically, reloads, and compares the whole config with the intended one; the BOM is kept
 - [x] A config that does not load, a file that is not UTF-8, an invalid new value, or a `PatchError` writes nothing; a reload that differs (a section held by a `? notify` complex key, appended again) or fails (a section appended after a `...` document end) restores the original bytes and says so; a file that cannot be replaced is left as it was
 - [x] The problem text never holds a value or the loader's text; the log names paths only
+- [x] Fix pass: `.gitignore` covers the atomic write's temp copy (`.config.yaml.<random>.tmp`, every local key and the topic), which a hard kill before the replace leaves behind; a test checks the name the write really uses
 
 **Dependencies:** 299 · **Files:** `src/waifu/config_patch.py`, `tests/test_config_patch.py` · **Scope:** S
 
@@ -2868,6 +2869,7 @@ named `tests/test_<package>_<module>.py`.
 - [x] `tuya_targets` lists `tuya_light`, `tuya_plug`, and IR devices with `backend: tuya`, in config order
 - [x] `suggest` matches by name, aliases, and id with a category hint, never a sub-device, a light or plug entry once, an IR blaster for every IR target, nothing under 0.5
 - [x] `tuya_changes` sets device_id, local_key (secret), and address and version only when known
+- [x] Fix pass: `TuyaTarget.current` is the connection config.yaml has, and `tuya_changes` leaves out each value already there, so a second import of the same list writes nothing
 
 **Dependencies:** 299 · **Files:** `src/waifu/tuya_import.py`, `tests/test_tuya_import.py` · **Scope:** M
 
@@ -2887,6 +2889,9 @@ named `tests/test_<package>_<module>.py`.
 - [x] Each Tuya target is confirmed, picked, or skipped; device_id, local_key, address, and version are written; a real device_id is replaced only on his yes; a light or plug entry is not taken twice
 - [x] No local key is printed (the summary and the snippet hide it, with the devices.json instruction)
 - [x] tinytuya.json and tuya-raw.json are deleted on his yes and kept on no; `.gitignore` lists the four wizard files; tests/conftest.py refuses running tinytuya
+- [x] Fix pass: the import reads devices.json only when the wizard wrote it in this run (its time or size changed); after a Tuya cloud error (exit 0, devices.json untouched) she explains the wizard's English errors and imports nothing, never an older list with a re-paired device's old key
+- [x] Fix pass: Ctrl+C in the wizard stops setup (exit 130) and imports nothing; stopped by Ctrl+C or the end of input while matching or at the delete question, she says the credential files stay
+- [x] Fix pass: a device already holding every value of its pick says "sudah sama dengan devices.json"; the list names each kind in Indonesian (lampu, colokan, IR blaster, lainnya), never the raw category code; the steps warn of an empty Devices tab (wrong data center) and of renewing IoT Core, and take the Device ID from the Devices tab
 
 **Dependencies:** 300, 301 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py`, `tests/conftest.py`, `tests/test_safety_guard.py` · **Scope:** M
 
@@ -2895,6 +2900,7 @@ named `tests/test_<package>_<module>.py`.
 **Acceptance criteria:**
 - [x] ir: each Broadlink address asked once (Enter keeps it, a non-IPv4 asked again), written to every device on it; the `learn-ir --missing` lines follow
 - [x] notify: a new topic matching the pattern is written with `enabled: true` and printed once for the subscribe steps; an existing topic is kept unless he says yes; a test push only on yes
+- [x] Fix pass: with a topic present but notify off, n to "Nyalakan notifikasi HP?" writes nothing (it used to turn notify on with a new topic); a new topic is its own question (default no); turning notify on with the kept topic shows the subscribe steps with it
 
 **Dependencies:** 300 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** M
 
@@ -2903,6 +2909,8 @@ named `tests/test_<package>_<module>.py`.
 **Acceptance criteria:**
 - [x] `waifu setup` and `waifu setup all` run mic, tuya, ir, notify, then `check`; the end of input stops before `check`; a restart of a running `waifu run` is asked for after a write
 - [x] `waifu check` warns for each Tuya device at the placeholder and each Broadlink blaster at 192.168.1.50, naming `waifu setup tuya` and `waifu setup ir`; the example config still exits 0 and no other line changes
+- [x] Fix pass: a write or failed write before a later question (the test push, the delete offer) still counts when the input ends there: the restart reminder, exit 1 for a failure
+- [x] Fix pass: unless stopped, setup ends with "Ringkasan setup:" (several steps) and "Langkah berikutnya:" from config.yaml as it then is (waifu enroll after a mic write, waifu setup mic/tuya/notify for what is empty or off, each learn-ir command, waifu run after a write when it is not running), before `check`
 
 **Dependencies:** 302, 303, 304 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** S
 

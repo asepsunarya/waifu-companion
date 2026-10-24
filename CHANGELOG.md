@@ -17,7 +17,16 @@ aktif, lalu jalankan `waifu check`.
   notifikasi tes kalau kamu mau). Tanpa langkah, keempatnya berurutan lalu `waifu check`; atau
   satu saja: `waifu setup mic`, `tuya`, `ir`, `notify`.
 - Setiap langkah bisa dilewati (`n`, atau `l` saat diminta nomor), dan menjalankannya lagi aman:
-  `device_id` yang sudah asli dan topik ntfy yang sudah ada hanya diganti kalau kamu minta.
+  `device_id` yang sudah asli dan topik ntfy yang sudah ada hanya diganti kalau kamu minta, dan
+  nilai yang sudah sama tidak ditulis ulang. Ctrl+C menghentikan setup, juga di dalam wizard.
+- Kalau wizard tinytuya tidak mendapat daftar perangkat dari cloud Tuya (misalnya API Key
+  salah, atau layanan IoT Core project-mu habis setelah bulan pertama), tidak ada yang diimpor,
+  juga dari `devices.json` lama, dan Cyrene menjelaskan arti pesan Inggris wizard itu. Langkah
+  Tuya juga menyebut dua penghalang yang paling sering: tab Devices kosong (data center salah)
+  dan layanan IoT Core yang perlu diperpanjang.
+- Di akhir ada ringkasan tiap langkah dan **Langkah berikutnya** (misalnya `waifu enroll`
+  setelah mic diganti, `waifu learn-ir ac --missing`, `waifu setup notify`), sebelum
+  `waifu check`.
 - Hanya kunci yang disebut yang diubah; komentar dan format `config.yaml` tetap. Isi lamanya
   disalin dulu ke `data\config.yaml.bak-<tanggal>-<jam>`, dan kalau setelah ditulis
   `config.yaml` tidak terbaca persis seperti yang dimaksud, isi lama dikembalikan. Bentuk YAML
@@ -25,7 +34,9 @@ aktif, lalu jalankan `waifu check`.
   sendiri.
 - Local key tidak pernah ditampilkan atau dicatat. Wizard menulis filenya ke folder proyek (semua
   ada di `.gitignore`); setelah impor Cyrene menawarkan menghapus `tinytuya.json` dan
-  `tuya-raw.json`, yang berisi API Key dan API Secret akun Tuya-mu.
+  `tuya-raw.json`, yang berisi API Key dan API Secret akun Tuya-mu, dan kalau setup berhenti
+  sebelum itu, dia bilang keduanya masih ada. File sementara saat `config.yaml` ditulis juga ada
+  di `.gitignore`.
 - `waifu check` menandai perangkat Tuya yang masih `isi_dari_tinytuya_wizard` ("Jalankan:
   waifu setup tuya") dan IR blaster di alamat contoh `192.168.1.50` ("waifu setup ir"; abaikan
   kalau blastermu memang di alamat itu).
