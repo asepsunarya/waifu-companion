@@ -2399,6 +2399,7 @@ named `tests/test_<package>_<module>.py`.
 - [x] `AlarmBell.start` writes the ring file; a second alarm joins the ring; `due_ring` gives each ring once at `index * repeat_seconds`, its level `min(150, day level + 20 * index)` and its short text; it ends by itself at `until` and deletes the file
 - [x] `stop` deletes the file; `snooze` adds a one-shot alarm rounded up to a whole minute and stops, keeps ringing on a refusal, and gives None when nothing rings
 - [x] A new bell on a file under way resumes at the index of the time passed; an expired file is deleted; a broken one is moved aside; a stop by another bell on the file is seen within `REREAD_S`; reading never raises
+- [x] Fix pass: an ended state kept from an earlier read is read afresh before the delete, so a ring another bell has just started survives; an ended ring's undeletable file is logged once and retried at each read; a snooze whose ring file cannot be deleted cancels the entry it added and raises the OSError; `repeat_seconds` and `max_minutes` are public, beside `snooze_minutes`
 
 **Dependencies:** 250 · **Files:** `src/waifu/alarm.py`, `tests/test_alarm.py` · **Scope:** M
 
@@ -2406,6 +2407,7 @@ named `tests/test_<package>_<module>.py`.
 
 **Acceptance criteria:**
 - [x] `alarm_request` gives stop for the stop phrases and snooze (with its minutes, digits or words, 1-30) for the snooze phrases, leaving out her names, "master", and the softeners; None for "matikan lampu", "matikan musik", a bare "stop", "matikan", "udah", "bangun", and any phrase with another word
+- [x] Fix pass: "tunda N menit lagi" and "snooze N menit lagi" snooze; "tunda sebentar" snoozes for the bell's minutes; "aku bangun", "dah bangun", and "aku dah bangun" stop; "aku bangun jam 6" and "tunda 5 menit lagi lagi" stay no request
 
 **Dependencies:** 250a · **Files:** `src/waifu/alarm.py`, `tests/test_alarm.py` · **Scope:** S
 
@@ -2429,6 +2431,7 @@ named `tests/test_<package>_<module>.py`.
 **Acceptance criteria:**
 - [x] A due ring is said by itself between utterances, at its level through `hold_level`, as a reply, also while quiet holds and in the follow-up window, never remembered for "ulangi"; requests wait while it rings
 - [x] While it rings, a stop or snooze phrase is answered without the brain (no turn, a pending confirmation waits), with or without her name; "matikan lampu" goes to the brain; nothing ringing leaves every utterance as before
+- [x] Fix pass: a ring file that cannot be changed (OSError) makes her say the alarm could not be stopped or snoozed yet, logged, and the ring goes on
 
 **Dependencies:** 251, 252, 254 · **Files:** `src/waifu/app.py`, `tests/test_app.py` · **Scope:** M
 
@@ -2437,6 +2440,7 @@ named `tests/test_<package>_<module>.py`.
 **Acceptance criteria:**
 - [x] Non-strict `alarm {action?, at?, repeat?, label?, id?, minutes?}` sets, lists, cancels (alarms only), stops, and snoozes; bad arguments are error results; guest mode refuses `list` and `cancel`; her own turns are refused
 - [x] The `schedule` description sends waking Master to `alarm` with one static sentence
+- [x] Fix pass: the description tells the bell's `repeat_seconds` and `max_minutes` ("every 2 minutes", "20 minutes pass"), built once in `__init__`
 
 **Dependencies:** 251 · **Files:** `src/waifu/brain/alarm_tools.py`, `src/waifu/brain/schedule_tools.py`, `tests/test_alarm_tools.py`, `tests/test_schedule_tools.py` · **Scope:** M
 
@@ -2445,6 +2449,7 @@ named `tests/test_<package>_<module>.py`.
 **Acceptance criteria:**
 - [x] `QuickActions` lists an "Alarm" group first only while the bell rings, finds `al.stop` and `al.snooze` whenever there is a bell, and runs them outside the devices' lock with friendly messages after the ring ended; both servers accept the ids
 - [x] `phone.js` reads the buttons again when the page shows and when the panel opens, hides an empty toggle, and opens the panel for an alarm button; `tombol.js` reads them again every 15 s and on focus, not while a press runs
+- [x] Fix pass: both pages read the buttons again right after an alarm button (`isAlarmAction` in `actions.js`); `phone.js` reads them every 15 s while the alarm group shows and the page is visible, stops on hide and pagehide, and rebuilds after a hide so a new ring reopens the panel; the docstring and SPEC say a stop waits for a press its own page still runs
 
 **Dependencies:** 251 · **Files:** `src/waifu/phone/actions.py`, `src/waifu/avatar/web/phone/phone.js`, `src/waifu/avatar/web/tombol/tombol.js`, their Python and JS tests · **Scope:** M
 
