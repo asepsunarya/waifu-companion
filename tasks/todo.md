@@ -2318,3 +2318,57 @@ named `tests/test_<package>_<module>.py`.
 - [x] Fix pass: the README, its checklist, and the CHANGELOG say "cuaca hari ini" comes from the rest of today's forecast with the briefing off; the checklist's `waifu cuaca akhir-pekan` names what a Saturday and a Sunday show
 
 **Dependencies:** 241, 242 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
+
+## Task 244a: Rekap hari ini contract ✅
+
+**Acceptance criteria:**
+- [x] SPEC "rekap hari ini (v1.45)" (stories, non-goals, the additions, the gatherer, the JSON, the tool, the CLI, guest mode, decisions, known limits, privacy, safety); tasks 244a-249 in the plan and here
+
+**Dependencies:** none · **Files:** `SPEC.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
+
+## Task 244: The day's pulls and the day's schedule
+
+**Acceptance criteria:**
+- [ ] `pulls_since(..., until=)` counts only `since < moment <= until`; without `until` it counts as before
+- [ ] `occurrence_on(entry, day)`: a one-shot entry on its date; a repeating one (daily, weekdays, weekends, weekly, monthly with the month-end rule, yearly) at its clock time on its days, also when its `at` has moved on, never before it was created
+
+**Dependencies:** 244a · **Files:** `src/waifu/gacha/history.py`, `src/waifu/schedule.py`, `tests/test_gacha_history.py`, `tests/test_schedule.py` · **Scope:** S
+
+## Task 245: The gatherer
+
+**Acceptance criteria:**
+- [ ] `DailyRecap.gather(day)`: the tasks done in the WIB day and still due, the focus seconds, the play time per game and its union total, the day's pulls per game with their tops, the words learned and last reviewed, the journal's note count, and the reminders and routines due that day with `passed`; the window ends now for today
+- [ ] A part that is off is absent, one that fails is logged and gets its Indonesian problem while the rest is read; `recap_day` takes today, yesterday, or a date up to 30 days back
+- [ ] `recap_json`: compact, the parts with something only, lists of at most 10 with whole counts, `as_of` today only, `problems` when any; never a journal text
+
+**Dependencies:** 244 · **Files:** `src/waifu/recap.py`, `tests/test_recap.py` · **Scope:** M
+
+## Task 246: The `daily_recap` tool
+
+**Acceptance criteria:**
+- [ ] Non-strict `daily_recap {date?}` with a static English description (looking back vs `daily_briefing`, the parts, the journal counted only, no money, highlights first, play time never judged, never in her own turns)
+- [ ] Bad arguments, a date out of range, every part failing, and anything unexpected are error results; her own turns get a refusal; `daily_recap` is in `PRIVATE_TOOLS`
+
+**Dependencies:** 245 · **Files:** `src/waifu/brain/recap_tools.py`, `src/waifu/guest.py`, `tests/test_recap_tools.py`, `tests/test_guest.py` · **Scope:** M
+
+## Task 247: The brain gets it
+
+**Acceptance criteria:**
+- [ ] `run` and `chat` add the tool after the Japanese lessons whenever any of its sources is on, with `run`'s focus timer (elsewhere the focus log), the run's schedule, and the local pull store; none with every source off
+- [ ] The every-tool request keeps 18 of 20 strict tools, 17 of 24 optional parameters, and 0 of 16 unions; guest mode refuses it
+
+**Dependencies:** 246 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** S
+
+## Task 248: `waifu rekap`
+
+**Acceptance criteria:**
+- [ ] `waifu rekap [hari-ini|kemarin|YYYY-MM-DD]` prints the day, a line per part that is on, and a `✗` line and exit 1 for a part that failed; every part off is a `!` line; a bad word, date, or a date out of range is an argparse error
+
+**Dependencies:** 245 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** S
+
+## Task 249: Docs
+
+**Acceptance criteria:**
+- [ ] README "Rekap hari ini" after "Jurnal harian" with a contents entry, the command row, the "Mode tamu" bullet, a checklist item, and a Privasi bullet; CHANGELOG v1.45; full suite and ruff clean
+
+**Dependencies:** 247, 248 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S

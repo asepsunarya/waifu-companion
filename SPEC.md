@@ -2103,6 +2103,68 @@ Privacy: each question asks Open-Meteo with the place's coordinates (the city ge
 
 Safety: tests never reach Open-Meteo (fake fetches; `tests/conftest.py` and `test_cli.py`'s `no_real_weather`); nothing is spoken or pushed.
 
+### rekap hari ini (v1.45)
+
+Master asks what the day held: "hari ini aku ngapain aja?", "rekap hari ini dong", "rekap kemarin", "tanggal 20 aku ngapain?". The answers are spread over her local records (the to-do list, the focus log, the play time file, the stored pull history, the Japanese lessons, the journal, the schedule), each behind its own tool; one question should need one call.
+
+User stories:
+
+1. "Cyrene, hari ini aku ngapain aja?" → from her `daily_recap` tool, in two to four warm sentences, highlights first: "Hari ini kamu menyelesaikan dua tugas, fokus 50 menit, dan dapat Acheron di banner HSR! Main game sekitar dua setengah jam, dan tagihan listriknya masih menunggu."
+2. "Rekap kemarin dong" → the same for yesterday; "tanggal 20 aku ngapain?" → a date, from today back to 30 days ago. A day without anything recorded is said so warmly.
+3. The journal is counted, never read out: "kamu juga menulis dua catatan jurnal"; its text comes only from `journal_read`, when Master asks.
+4. Play time is news, never a judgement.
+5. `waifu rekap [hari-ini|kemarin|YYYY-MM-DD]` prints the same, without the brain.
+6. Guest mode closes it: it is Master's own records.
+
+Non-goals (v1.45): money (tepira's figures stay with the finance tools; the recap says nothing about money); the journal's text; the weather; HoYoLAB or any other network read (no pull history refresh, no income, no endgame); a record of the reminders that were said (the schedule keeps none; adding one would change its file format, and v1.43 showed that a downgrade then sets the file aside); more than 30 days back; a week or month recap (`play_time`, `focus_timer`, and `weekly_report` tell those); her own recap in a turn she starts herself; a config section or switch of its own; a strict tool or a new strict parameter (18 of 20 strict tools, 17 of 24 optional parameters, and 0 of 16 unions stay); a dependency.
+
+Small additions to existing modules:
+- `gacha/history.py`: `pulls_since(..., *, until: datetime | None = None)` also bounds the pulls from above (`since < moment <= until`); left out, it counts everything after `since` as before (the weekly report).
+- `schedule.py`: `occurrence_on(entry, day) -> datetime | None`: when `entry` is due on `day` (local), or None: a one-shot entry on its own date; a repeating one at its clock time on each of its days (by `next_occurrence`, so on the month's last day for a missing 31st or 29 February), not before it was created. A repeating entry's `at` is only its next time, so an occurrence that already fired still counts.
+
+The gatherer (`recap.py`, no brain module, nothing written, nothing logged at INFO: the facts are Master's own):
+- `DailyRecap(*, todo, focus, play_time, gacha, japanese, words, journal, schedule, now=wib_now)`: each source optional, None when its feature is off. `focus` is a function of `(since, until)` giving the focused seconds: in `run` the focus timer's `focused_seconds` (the block under way counts), elsewhere the focus log's totals. `gacha` is `StoredPulls(store, games, server_utc_offset, extra_standard)` (the local `GachaStore` only). `parts` names the parts that are on, in the order `tasks`, `focus`, `play_time`, `gacha`, `japanese`, `journal`, `schedule`.
+- `recap_day(value, today) -> date`: `today`, `yesterday`, or a date from `today - 30` to `today`; a later date → `RecapError("Hari itu belum terjadi; rekap hanya untuk hari ini atau hari yang sudah lewat.")`, an older one → `RecapError("Rekap hanya sampai 30 hari ke belakang, paling jauh <Hari DD-MM-YYYY>.")`.
+- `gather(day) -> Recap`: the day's window is from its WIB midnight to the next midnight, or to now for today. Each part is read on its own: one that fails is logged with its traceback and gets an Indonesian problem (`Daftar tugas tidak bisa dibaca saat ini.`, `Catatan fokus ...`, `Jam main ...`, `Riwayat pull <short> ...` per game, `Catatan bahasa Jepang ...`, `Jurnal ...`, `Jadwal ...`), and the rest is still told. A part that is off is absent; a part that is on and has nothing is empty.
+  - `tasks`: the done tasks finished inside the window, the most recent first, and the open tasks due on the day or before (`due_or_overdue(day)`).
+  - `focus`: the focused seconds inside the window.
+  - `play_time`: each tracked game's time and sessions inside the window, open sessions up to their last poll, and the total in which two games open together count once.
+  - `gacha`: per configured game, the pulls inside the window from its stored history (server time, `server_utc_offset`), per banner with the top-rarity items (their pulls and 50/50 worked out over the banner's whole history, as the weekly report does).
+  - `japanese`: the words of the word list whose `learned` day is the day, and how many had their last review that day. Only the last review is stored: it is the day `due - 2^(box-1)` when that is not before `learned`.
+  - `journal`: how many notes the day holds (`notes(day, day)`), never their text.
+  - `schedule`: the reminders (their text) and routines (`rutinitas <name>`) due on the day by `occurrence_on`, soonest first, each `passed` or still to come (the schedule's naive times read as WIB); device commands, also a routine's delayed steps, are left out.
+- `recap_json(recap)`: `{"date": "YYYY-MM-DD", "day": <WEEKDAYS_ID>, "as_of"?: "HH:MM" (today only), "tasks"?: {"done_count", "done": [text], "still_due_count", "still_due": [{"text", "due": "YYYY-MM-DD"}]}, "focus"?: {"hours", "minutes"}, "play_time"?: {"games": [{"name", "hours", "minutes", "sessions"}], "total": {"hours", "minutes"}}, "gacha"?: [{"name", "pulls", "top_pulls": [{"banner", "name", "rarity": "5★"|"S", "pulls", "won_5050"}]}], "japanese"?: {"learned_count", "learned": [{"kana", "kanji"?, "meaning"}], "reviewed"}, "journal"?: {"notes"}, "schedule"?: {"count", "entries": [{"time": "HH:MM", "what", "passed"}]}, "problems"?: [text]}`, compact (`separators=(",", ":")`, `ensure_ascii=False`). A part is there only when it is on and has something: a task, a whole minute of focus or play (a game listed from a whole minute), a pull, a word, a note, an entry. Lists hold at most 10 (the counts are whole).
+
+The tool (`brain/recap_tools.py`):
+- `DailyRecapTools(recap: DailyRecap)`, a `ToolProvider` with `daily_recap {date?: string}`, non-strict (no required argument), its spec static English, built once. `date` is `today` (the default; null counts as left out), `yesterday`, or `YYYY-MM-DD`; another value or key → `Argumen daily_recap tidak valid: ...`; a date out of range → the `RecapError` message (logged at INFO).
+- Every part that is on failed → `{"ok": false, "message": "Rekap hari itu tidak bisa dibuat: catatannya tidak terbaca saat ini."}` as an error result; anything unexpected → logged with its traceback, "Rekap hari itu tidak bisa dibuat saat ini."; `run` never raises.
+- In her own turns (the morning greeting, the weekly game report, the nightly journal question) it refuses: "Rekap hari hanya untuk pertanyaan Master, bukan untuk sapaan pagi." (`... laporan game mingguan.`, `... pertanyaan jurnal malam.`).
+- The description: a look back at Master's day from her own records on this PC, in one call, without the internet, while `daily_briefing` tells what is ahead; the date words and range; what each part holds, that no part at all means nothing was recorded (said warmly), and `problems`; the pull history as of its last refresh; the journal counted only, its text from `journal_read` when Master asks; no money; one thing only (just the play time) goes to that thing's own tool; only when Master asks, never in a greeting or anything she starts herself; two to four warm sentences, highlights first (a finished task, a 5-star, the focus time), never the data read out one by one, no lists or parentheses; play time only as news, never judged or scolded; after an error, its message briefly and no second call.
+
+CLI:
+- `run` and `chat` give the brain the tool right after the Japanese lessons (before the briefing) whenever any of its sources is on (`todo`, `focus`, `play_time`, `gacha`, `japanese`, `journal`, `schedule`), with the stores the other tools use: `run`'s focus timer, the run's schedule (a dry run's own empty one), `GachaStore(gacha.data_dir)`. Nothing is read at startup.
+- `waifu rekap [hari-ini|kemarin|YYYY-MM-DD]` (default `hari-ini`; no brain): `Rekap <Hari DD-MM-YYYY>[, sampai HH:MM], dari catatan <name>:`, then a line per part that is on, in the parts' order (`Tugas: ...`, `Fokus: ...`, `Main game: ...`, `Gacha: ...`, `Kata Jepang: ...`, `Jurnal: ...`, `Jadwal: ...`; `belum ada` when empty), `✗ <problem>` for a part that failed, exit 1 when any failed. Every part off → `! Rekap kosong: semua catatan yang dibacanya mati (todo, focus, play_time, gacha, japanese, journal, schedule).`, exit 0. Another word, a date not written `YYYY-MM-DD`, or a date out of range is an argparse error.
+- `check` gets no line: the recap has no switch, and each store's own line already says how it is.
+
+Guest mode: closed (`daily_recap` is in `PRIVATE_TOOLS`): the tasks, the games, the pulls, and the reminder texts are Master's own.
+
+Docs: README (Indonesian) section "Rekap hari ini" after "Jurnal harian" (asking, the parts, the dates, what it never tells, `waifu rekap`, guest mode, privacy) with a contents entry, the command row, the "Mode tamu" bullet, a checklist item, and a Privasi bullet; CHANGELOG v1.45.
+
+Decisions:
+- Gathered in code from local files, one call: fast, cheap, offline, and the same in `waifu rekap`; the model only tells it.
+- No network: the pull history is read as stored, never refreshed (a refresh needs the authkey or the cookie and takes seconds per game); a pull made after the last `gacha_history`, weekly report, or `waifu gacha history` is not there yet.
+- Non-strict, `date` optional, no config switch: each part follows its own feature's switch, and the tool is offered when any is on.
+- What was scheduled, not what fired: the scheduler keeps no log, and a log would change the schedule file's format.
+- The journal is counted only: her nightly question already asks about the day, and the notes are read only when Master asks for them.
+- Up to 30 days back: far enough for "tanggal 20" or last week's days, without promising more than the stores keep (done tasks only `todo.keep_done_days`, 7 by default).
+- In `run`, focus comes from the timer, so a block under way counts, as `focus_timer`'s status does.
+
+Known limits: one-shot reminders that already fired have left the schedule, so they are not in the recap (repeating ones are); done tasks are there only within `todo.keep_done_days` (0 keeps none); pulls only as of the last stored refresh, and HoYoverse lists a pull about an hour late; a pull at exactly midnight counts on the day before; "reviewed" counts each word's last review only (exact for today, possibly fewer for an earlier day), and "learned" includes the word of the day her greeting introduces; play and focus time count only while `waifu run` was on; the to-do list and the schedule use the PC's clock while the rest use WIB (the same on the owner's PC).
+
+Privacy: only local files are read and nothing is written; with Claude the result (task texts, game names, pulls, Japanese words, reminder texts, counts) goes to Anthropic like any turn; the journal's text and money never do.
+
+Safety: tests use stores under tmp_path, fake clocks, and fake sources, never the repository's `data/`, never the network or an LLM; nothing is spoken or pushed.
+
 ## Code Style
 
 See `CLAUDE.md` → Code Conventions and Patterns. Dataclasses for value

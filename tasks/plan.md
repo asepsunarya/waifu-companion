@@ -956,6 +956,28 @@ mode. 18 of 20 strict tools, 17 of 24 optional parameters, and 0 of 16 unions st
 - [x] Polish (2026-10-24): `waifu cuaca` and `waifu briefing` print one temperature (`20°C`) instead of `20-20°C` when the lowest and highest read the same (late in the day, one hourly entry left); the `weather_forecast` description says equal `min_c` and `max_c` are one temperature, said once; the result's keys are unchanged, so 18 of 20 strict tools, 17 of 24 optional parameters, and 0 of 16 unions stay
 - [ ] On the owner's PC: "besok cuaca gimana?", "nanti sore hujan nggak?", and "akhir pekan hujan nggak?" get short answers for Cianjur
 
+### Phase 49: Rekap hari ini (v1.45, see SPEC → rekap hari ini)
+Decision: a non-strict `daily_recap {date?}` tool whose facts are gathered in code (`recap.py`)
+from the local stores only: the tasks done and still due, the focus time, the play time, the
+day's pulls in the stored pull history (no refresh, no network), the Japanese words learned and
+reviewed, the journal's note count (never its text), and the reminders and routines scheduled
+that day (the scheduler records no fired times). Each part follows its own feature's switch and
+fails on its own; no money. Today, yesterday, or a date up to 30 days back. Private in guest
+mode, refused in her own turns, and printed by `waifu rekap`. 18 of 20 strict tools, 17 of 24
+optional parameters, and 0 of 16 unions stay.
+- [x] Task 244a: contract: SPEC, tasks
+- [ ] Task 244: the day's pulls (`pulls_since(until=)`) and the day's schedule (`occurrence_on`)
+- [ ] Task 245: the gatherer (`recap.py`): the parts, per-part isolation, the JSON
+- [ ] Task 246: the `daily_recap` tool, guest mode, her own turns
+- [ ] Task 247: the brain gets it: the sources, the strict budget
+- [ ] Task 248: `waifu rekap`
+- [ ] Task 249: README, CHANGELOG
+
+### Checkpoint: Rekap hari ini
+- [ ] Python suite and ruff clean; no test read the repository's `data/` or reached the network; the strict-tool budget unchanged (18 of 20 strict tools, 17 of 24 optional parameters, 0 of 16 unions); the weekly report's pulls unchanged
+- [ ] By hand: in a scratch folder with filled stores and a fake clock, the tool answers today, yesterday, a date, a date out of range, and a broken store; `waifu rekap` prints each part
+- [ ] On the owner's PC: "hari ini aku ngapain aja?" and "rekap kemarin dong" get a short warm recap
+
 ## Risks and Mitigations
 
 | Risk | Impact | Mitigation |
