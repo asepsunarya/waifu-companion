@@ -3308,6 +3308,69 @@ def test_a_hoyolab_error_becomes_an_error_result_with_its_message(game, tool, ar
     assert json.loads(result) == {"ok": False, "message": NETWORK_ERROR.message}
 
 
+# --- the roster hook (kamus cyrene) ---------------------------------------------------------
+
+
+class RosterReads:
+    """Records every `on_roster` call."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, list[str]]] = []
+
+    def __call__(self, game: str, names: list[str]) -> None:
+        self.calls.append((game, names))
+
+
+def test_a_roster_read_hands_its_names_in_roster_order_to_the_hook():
+    reads = RosterReads()
+    tools = GameDataTools(source_with(ROSTER), HSR, now=lambda: NOW, on_roster=reads)
+
+    tools.run(GAME_CHARACTERS, {"name": "Acheron"})
+
+    assert reads.calls == [("hsr", ["Acheron", "Firefly", "Castorice", "Pela"])]
+
+
+def test_a_zzz_roster_hands_each_agents_name_and_full_name_once():
+    reads = RosterReads()
+    tools = GameDataTools(zzz_source(), ALL_GAMES, now=lambda: NOW, on_roster=reads)
+
+    tools.run(GAME_CHARACTERS, ZZZ)
+
+    assert reads.calls == [
+        (
+            "zzz",
+            ["Ellen", "Ellen Joe", "Zhu Yuan", "Anby", "Anby Demara", "Nicole", "Nicole Demara"],
+        )
+    ]
+
+
+def test_a_roster_kept_in_the_cache_is_handed_again_without_a_request():
+    reads = RosterReads()
+    source = source_with(ROSTER)
+    tools = GameDataTools(source, HSR, now=lambda: NOW, on_roster=reads)
+
+    tools.run(GAME_CHARACTERS, {})
+    tools.run(GAME_CHARACTERS, {})
+
+    assert source.calls == ["hsr_characters"]
+    assert [game for game, _ in reads.calls] == ["hsr", "hsr"]
+
+
+def test_a_failed_roster_read_hands_nothing():
+    reads = RosterReads()
+    tools = GameDataTools(failing_source(), ALL_GAMES, now=lambda: NOW, on_roster=reads)
+
+    tools.run(GAME_CHARACTERS, ZZZ)
+
+    assert reads.calls == []
+
+
+def test_the_roster_hook_changes_no_tool_spec():
+    with_hook = GameDataTools(sample_source(), ALL_GAMES, on_roster=RosterReads())
+
+    assert wire(with_hook) == wire(make_tools(games=ALL_GAMES))
+
+
 # --- the cache ------------------------------------------------------------------------------
 
 

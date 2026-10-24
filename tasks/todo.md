@@ -2671,10 +2671,10 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 280 · **Files:** `src/waifu/voice/stt.py`, `tests/test_voice_stt.py` · **Scope:** XS
 
-## Task 282: The roster hook
+## Task 282: The roster hook ✅
 
 **Acceptance criteria:**
-- [ ] `GameDataTools(..., on_roster=)` is called with the game and the roster's names in its order on every successful roster read (also from the cache), never on a failure; the specs are unchanged
+- [x] `GameDataTools(..., on_roster=)` is called with the game and the roster's names in its order on every successful roster read (also from the cache), never on a failure; the specs are unchanged
 
 **Dependencies:** 280a · **Files:** `src/waifu/gacha/game_data_tools.py`, `tests/test_gacha_game_data_tools.py` · **Scope:** XS
 

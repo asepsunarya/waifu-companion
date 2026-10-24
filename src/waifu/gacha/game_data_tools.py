@@ -209,7 +209,8 @@ class GameDataTools:
     Successful reads are kept per process (`characters:<game>`, `detail:<game>:<ref>`,
     `endgame:<mode>`, `calendar:<game>`) for their TTL. The lock guards only the cache's dict:
     voice and phone turns run on different threads, and neither waits for the other's
-    HoYoLAB request.
+    HoYoLAB request. Every roster read, also one kept, hands `on_roster` the game and the
+    roster's names in its order (Whisper's hotwords, `Vocabulary.set_roster`).
     """
 
     def __init__(
@@ -218,9 +219,11 @@ class GameDataTools:
         games: Sequence[str],
         *,
         now: Callable[[], datetime] = _local_now,
+        on_roster: Callable[[str, list[str]], None] | None = None,
     ) -> None:
         self._source = source
         self._games = list(games)
+        self._on_roster = on_roster
         self._modes = [mode for game in self._games for mode in GAME_MODES[game]]
         self._now = now
         self._specs = _specs(self._games, self._modes)
@@ -280,6 +283,9 @@ class GameDataTools:
         roster = self._read(f"characters:{game}", CHARACTERS_TTL, now, self._roster_source(game))
         view = _ROSTERS[game]
         characters = sorted(roster.value, key=view.order)
+        if self._on_roster is not None:
+            names = (name for character in characters for name in view.names(character))
+            self._on_roster(game, list(dict.fromkeys(names)))
         if query is None:
             return _to_json(_roster_json(view, characters, _local(roster.at, now))), False
         matches = _matching(view, characters, query)
