@@ -3,7 +3,6 @@ import logging
 import threading
 from dataclasses import replace
 from datetime import datetime, time, timedelta, timezone
-from queue import SimpleQueue
 
 import pytest
 
@@ -12,6 +11,7 @@ from waifu.gacha.hoyolab import CheckinResult, GachaError, GameStatus, WeeklyTas
 from waifu.gacha.starrail import HsrCalendar, HsrEvent
 from waifu.gacha.watcher import GachaWatcher
 from waifu.play_time import Session
+from waifu.play_watch import ClosedGames
 
 WIB = timezone(timedelta(hours=7))
 
@@ -503,11 +503,14 @@ OVERNIGHT_LINE = "Master, Trailblaze Power di HSR penuh jam 04.10, sebelum kamu 
 FULL = replace(FILLING, stamina=300, stamina_full_in_s=0)
 
 
-def closed_games(*sessions: Session) -> SimpleQueue:
-    queue: SimpleQueue = SimpleQueue()
+def closed_games(*sessions: Session, playing: bool = False) -> ClosedGames:
+    """The play time watcher's word: `sessions` just closed, and whether a tracked game is still
+    open."""
+    closes = ClosedGames()
     for session in sessions:
-        queue.put(session)
-    return queue
+        closes.put(session)
+    closes.observe(playing, False)
+    return closes
 
 
 def test_a_game_closed_late_tells_its_stamina_and_holds_the_full_line_until_the_morning(
@@ -556,6 +559,65 @@ def test_a_game_closed_late_with_its_stamina_full_within_the_hour_gets_the_stami
     assert [notice.kind for notice in told] == ["stamina"]
     assert told[0].text.startswith("Master, Trailblaze Power di HSR sudah 292 dari 300, penuh")
     assert [notice.kind for notice in full_again] == ["stamina"]  # never held
+
+
+def test_a_game_closed_while_another_is_still_open_waits_until_none_is(tmp_path, clock):
+    clock.now = AFTER_CLOSING
+    closes = closed_games(CLOSED, playing=True)  # Genshin is still open
+    watcher, _, _ = planner_watcher(tmp_path, clock, statuses={"hsr": FILLING}, closed=closes)
+
+    while_playing = watcher.poll_once()
+    closes.observe(False, False)  # Genshin closed too
+    clock.now = wib(13, 0, 35)
+    left = watcher.poll_once()
+
+    assert while_playing == []
+    assert [notice.text for notice in left] == [OVERNIGHT_LINE.replace("04.10", "04.55")]
+
+
+def test_a_game_left_open_all_night_holds_no_stamina_line_of_one_closed_before(tmp_path, clock):
+    clock.now = AFTER_CLOSING
+    watcher, _, hoyolab = planner_watcher(
+        tmp_path, clock, statuses={"hsr": FILLING}, closed=closed_games(CLOSED, playing=True)
+    )
+
+    watcher.poll_once()
+    clock.now = wib(13, 3, 10)
+    hoyolab.statuses = {"hsr": replace(FILLING, stamina=292, stamina_full_in_s=60 * 60)}
+    almost = watcher.poll_once()
+
+    assert [notice.kind for notice in almost] == ["stamina"]
+
+
+def test_a_game_open_again_before_the_poll_is_told_by_its_next_close(tmp_path, clock):
+    clock.now = AFTER_CLOSING
+    closes = closed_games(CLOSED, playing=True)  # HSR crashed at 23:40 and is open again
+    two_hours = replace(FILLING, stamina_full_in_s=2 * 3600)
+    watcher, announced, _ = planner_watcher(
+        tmp_path, clock, statuses={"hsr": two_hours}, closed=closes
+    )
+
+    watcher.poll_once()
+    closes.put(Session("hsr", wib(12, 23, 44), wib(13, 3, 30)))  # closed in the early morning
+    closes.observe(False, False)
+    clock.now = wib(13, 3, 35)
+    watcher.poll_once()
+
+    assert announced == []
+
+
+def test_while_a_game_is_open_again_after_the_overnight_line_its_stamina_is_told(tmp_path, clock):
+    clock.now = AFTER_CLOSING
+    closes = closed_games(CLOSED)
+    watcher, _, hoyolab = planner_watcher(tmp_path, clock, statuses={"hsr": FILLING}, closed=closes)
+    watcher.poll_once()  # the overnight line
+
+    closes.observe(True, False)  # HSR open again from 00:30
+    clock.now = wib(13, 3, 10)
+    hoyolab.statuses = {"hsr": replace(FILLING, stamina=292, stamina_full_in_s=60 * 60)}
+    playing = watcher.poll_once()
+
+    assert [notice.kind for notice in playing] == ["stamina"]
 
 
 def test_the_hold_survives_a_restart_in_the_night(tmp_path, clock):

@@ -19,7 +19,7 @@ import pytest
 from waifu.config import PlayTimeConfig
 from waifu.finance.values import WIB
 from waifu.play_time import PlayRecord, PlayTimeStore, PlayTotal, Session
-from waifu.play_watch import PlayTimeWatcher, in_night, spoken_clock
+from waifu.play_watch import ClosedGames, PlayTimeWatcher, in_night, spoken_clock
 
 DAY = datetime(2026, 10, 17, tzinfo=WIB)  # a Saturday
 MINUTE = timedelta(minutes=1)
@@ -611,6 +611,26 @@ def test_a_failing_listener_is_logged_and_the_play_time_goes_on(tmp_path, caplog
     assert rig.record().open == (Session("genshin", at(20) + 5 * MINUTE, at(20) + 5 * MINUTE),)
     assert [record.exc_info is not None for record in caplog.records] == [True]
     assert "Could not tell that a game was closed" in caplog.text
+
+
+def test_the_closed_games_hand_the_planner_each_session_once_in_order():
+    closes = ClosedGames()
+    hsr, genshin = Session("hsr", at(22), at(23)), Session("genshin", at(22), at(23.5))
+    closes.put(hsr)
+    closes.put(genshin)
+
+    assert closes.take() == [hsr, genshin]
+    assert closes.take() == []
+
+
+def test_the_closed_games_know_whether_a_game_was_open_at_the_last_poll():
+    closes = ClosedGames()
+    before_any_poll = closes.playing()
+    closes.observe(True, False)
+    playing = closes.playing()
+    closes.observe(False, False)
+
+    assert (before_any_poll, playing, closes.playing()) == (False, True, False)
 
 
 # --- the bedtime nudge ---------------------------------------------------------------------------

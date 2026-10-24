@@ -11,9 +11,10 @@ logged and the next one comes as usual.
 
 With `reminders.planner` on and no guests around (v1.50) it also plans ahead: from the evening
 of `reminders.daily_time` it reads each game's event calendar once a game day for the
-planner's evening line, and it hands each game Master closed late at night (from the play time
-watcher's queue) with that game's status to the overnight line, whose game's stamina reminder
-then waits for the morning. Planner lines are reminders about a game's state too.
+planner's evening line, and once no tracked game is open (the play time watcher's word) it
+hands each game Master closed late at night with that game's status to the overnight line,
+whose game's stamina reminder then waits for the morning while no game is open. Planner lines
+are reminders about a game's state too.
 """
 
 from __future__ import annotations
@@ -23,7 +24,6 @@ import threading
 from collections.abc import Callable, Iterable
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
-from queue import Empty, SimpleQueue
 from types import TracebackType
 from typing import Protocol
 
@@ -47,6 +47,7 @@ from waifu.gacha.reminders import (
 )
 from waifu.notify import Notifier
 from waifu.play_time import Session
+from waifu.play_watch import ClosedGames
 from waifu.rain_watch import Announce
 
 logger = logging.getLogger(__name__)
@@ -85,12 +86,12 @@ class GachaWatcher:
         state_path: Path | None = None,
         read_calendar: CalendarReader | None = None,
         guest_mode: Callable[[], bool] | None = None,
-        closed_games: SimpleQueue[Session] | None = None,
+        closed_games: ClosedGames | None = None,
         morning: time = time(7, 0),
     ) -> None:
         """Without `read_calendar` there is no evening planner line, and without `closed_games`
-        no overnight one; `guest_mode` says whether guests are around, `morning` (the
-        briefing's time) when Master wakes."""
+        (the games Master closed, and whether one is still open) no overnight one; `guest_mode`
+        says whether guests are around, `morning` (the briefing's time) when Master wakes."""
         self._hoyolab = hoyolab
         self._config = config
         self._notifier = notifier
@@ -119,8 +120,15 @@ class GachaWatcher:
         }
         self._take_closed_games()
         planning = self._planning()
-        notices = self._overnight(readable, now) if planning else []
-        held = [game for game in readable if stamina_held(game, now, self._state, self._morning)]
+        # While a tracked game is open Master is at the PC: a game he closed waits for him to
+        # leave it, and no stamina reminder waits for the morning.
+        away = self._away()
+        notices = self._overnight(readable, now) if planning and away else []
+        held = [
+            game
+            for game in readable
+            if away and stamina_held(game, now, self._state, self._morning)
+        ]
         notices += due_notices(
             readable,
             now,
@@ -185,15 +193,17 @@ class GachaWatcher:
         guests = self._guest_mode is not None and self._guest_mode()
         return self._config.reminders.planner and not guests
 
+    def _away(self) -> bool:
+        """Whether no tracked game was open at the play time watcher's last poll; without its
+        word, as if none were."""
+        return self._closed_games is None or not self._closed_games.playing()
+
     def _take_closed_games(self) -> None:
-        """Keep, per game, the last session Master closed since the last poll."""
+        """Keep, per game, the last session Master closed: a game opened and closed again
+        replaces the close before."""
         if self._closed_games is None:
             return
-        while True:
-            try:
-                session = self._closed_games.get_nowait()
-            except Empty:
-                return
+        for session in self._closed_games.take():
             self._closed[session.game] = session
 
     def _overnight(self, readable: dict[str, GameStatus], now: datetime) -> list[Notice]:

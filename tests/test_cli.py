@@ -5846,13 +5846,34 @@ def test_run_gives_the_gacha_watcher_the_planner_s_calendar_guests_morning_and_c
         "hsr", datetime(2026, 10, 24, 22, tzinfo=WIB), datetime(2026, 10, 24, 23, 40, tzinfo=WIB)
     )
     play_time.on_finished(closed)
-    assert watcher.closed_games.get_nowait() == closed
+    play_time.on_poll(True, False)
+    assert watcher.closed_games.take() == [closed]
+    assert watcher.closed_games.playing()
     assert watcher.read_calendar("hsr") is games.hoyolab.hsr_events
     assert games.hoyolab.hsr_asked == ["calendar"]
     assert watcher.morning == time(6, 30)
     assert not watcher.guest_mode()
     brains[0].providers[0].run("guest_mode", {"on": True})
     assert watcher.guest_mode()
+
+
+def test_run_tells_game_mode_and_the_planner_whether_a_game_is_open(
+    home, run_fakes, brains, games, watchers, play_time_watchers, monkeypatch
+):
+    enable_gacha(home)
+    use_game_mode(home)
+    seen: dict[str, bool] = {}
+
+    def play(assistant: RecordingAssistant) -> None:
+        play_time_watchers[0].on_poll(True, False)
+        seen["held_by_the_game"] = assistant.collaborators["game_holding"]()
+        seen["planner_heard"] = watchers[0].closed_games.playing()
+
+    while_listening(monkeypatch, play)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    assert seen == {"held_by_the_game": True, "planner_heard": True}
 
 
 def test_the_planner_reads_each_game_s_own_calendar():

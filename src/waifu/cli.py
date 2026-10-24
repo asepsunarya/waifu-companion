@@ -36,7 +36,6 @@ from importlib.util import find_spec
 from itertools import count, groupby
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from queue import SimpleQueue
 from time import sleep
 from typing import TYPE_CHECKING, Any, Literal, get_args
 
@@ -229,7 +228,6 @@ from waifu.play_time import (
     PlayRecord,
     PlayTimeStore,
     PlayTotal,
-    Session,
     period_window,
     play_totals,
     played_seconds,
@@ -237,7 +235,7 @@ from waifu.play_time import (
     whole_minutes,
     wib_now,
 )
-from waifu.play_watch import PlayTimeWatcher
+from waifu.play_watch import ClosedGames, PlayTimeWatcher
 from waifu.prayer import PrayerError, PrayerPlace
 from waifu.prayer_times import PRAYERS, prayer_times
 from waifu.prayer_watch import PrayerWatcher
@@ -1530,7 +1528,8 @@ def _listen(args: argparse.Namespace) -> int:
     # an alarm's ring, which holds a level of its own for its clip.
     voice_level = _voice_level(config)
     hold = LevelHold(voice_level.level_now)
-    # The games Master closes, from the play time watcher to the gacha planner's overnight line.
+    # The games Master closes, and whether one is still open, from the play time watcher to the
+    # gacha planner's overnight line.
     closed_games = _closed_games(config)
     with _session_schedule(config, dry_run=args.dry_run) as schedule:
         # One bell for the alarms: the scheduler starts it, she rings it, and her tool and the
@@ -3048,7 +3047,7 @@ def _gacha_watcher(
     game_mode: GameMode | None,
     *,
     guest_mode: Callable[[], bool],
-    closed_games: SimpleQueue[Session] | None,
+    closed_games: ClosedGames | None,
 ) -> AbstractContextManager[object]:
     """The reminders and check-in while she listens, also pushed to the phone when
     notifications are on; nothing to watch without the cookie. Its planner reads the event
@@ -3085,13 +3084,13 @@ def _calendar_reader(source: GameDataSource) -> CalendarReader:
     return read
 
 
-def _closed_games(config: AppConfig) -> SimpleQueue[Session] | None:
-    """The queue from the play time watcher to the gacha planner, only while both run with the
-    planner on: the gacha watcher (`gacha.enabled` and a cookie) takes what the other puts."""
+def _closed_games(config: AppConfig) -> ClosedGames | None:
+    """What the play time watcher tells the gacha planner, only while both run with the planner
+    on: the gacha watcher (`gacha.enabled` and a cookie) takes what the other puts."""
     gacha = config.gacha
     watched = gacha.enabled and gacha.cookie is not None
     if watched and gacha.reminders.planner and config.play_time.enabled:
-        return SimpleQueue()
+        return ClosedGames()
     return None
 
 
@@ -5753,7 +5752,7 @@ def _play_time_watcher(
     config: AppConfig,
     assistant: Assistant,
     game_mode: GameMode | None,
-    closed_games: SimpleQueue[Session] | None,
+    closed_games: ClosedGames | None,
 ) -> Iterator[None]:
     """Counting how long Master's games are open while the block runs, from the process list's
     names only, telling game mode after each poll whether a game runs, and with
@@ -5762,7 +5761,7 @@ def _play_time_watcher(
     sessions at their last poll. While game mode holds her announcements, the nudge is said
     like Master's reminders: it is due only while a game is open, so held until the game has
     closed it would come too late. Each game just closed goes into `closed_games`, when
-    given."""
+    given, and each poll's word goes to it as to game mode."""
     if not config.play_time.enabled:
         yield
         return
@@ -5773,7 +5772,7 @@ def _play_time_watcher(
         config.play_time,
         announce=assistant.remind if holds else _announcer(assistant, None, patient=True),
         owner_call=config.assistant.owner_call,
-        on_poll=None if game_mode is None else game_mode.observe,
+        on_poll=_poll_listeners(closed_games, game_mode),
         on_finished=None if closed_games is None else closed_games.put,
     )
     watcher.start()
@@ -5781,6 +5780,22 @@ def _play_time_watcher(
         yield
     finally:
         watcher.stop()
+
+
+def _poll_listeners(
+    *listeners: ClosedGames | GameMode | None,
+) -> Callable[[bool, bool], None] | None:
+    """Each play time poll's word (whether a game is open, whether the first poll resumed one)
+    for every listener given, in order; None without any."""
+    observers = [listener.observe for listener in listeners if listener is not None]
+    if not observers:
+        return None
+
+    def observe(playing: bool, resumed: bool) -> None:
+        for each in observers:
+            each(playing, resumed)
+
+    return observe
 
 
 def _playtime(args: argparse.Namespace) -> int:

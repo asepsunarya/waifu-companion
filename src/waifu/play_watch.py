@@ -28,7 +28,8 @@ within `SLEEP_POLLS` polls of its end: a game Master just closed, for the gacha 
 overnight line. A session ended by a sleep, by a restart's first poll after a longer gap, or by
 the clock set back, was not just closed and is not told, nor one of a game that poll still sees;
 one finished by a poll whose write failed is told at the next poll that works. Never from
-`stop()`.
+`stop()`. `ClosedGames` carries those sessions, and `on_poll`'s word on whether a game is open,
+to the gacha watcher's thread.
 
 A failed listing, read, or write is never said: the first of a run of failures is logged at
 WARNING and the next poll tries again. What she sees is Master's own: sessions are logged only
@@ -109,6 +110,35 @@ def _resumed(tracking: Tracking) -> bool:
     """Whether a game the run's first poll found running went on with a session from before
     the restart (its start is earlier)."""
     return any(t.session.start < tracking.last_poll for t in tracking.open)
+
+
+class ClosedGames:
+    """What the watcher tells the gacha planner (v1.50), from its thread to the gacha
+    watcher's: each session of a game Master just closed (`put`, as `on_finished`), and whether
+    a tracked game was open at its last poll that worked (`observe`, as `on_poll`)."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._sessions: list[Session] = []
+        self._playing = False  # replaced whole, so it is read without the lock
+
+    def put(self, session: Session) -> None:
+        with self._lock:
+            self._sessions.append(session)
+
+    def observe(self, playing: bool, resumed: bool) -> None:
+        """A poll's word: whether a tracked game is open, one missed at a single poll still
+        counting; a resume changes nothing here."""
+        self._playing = playing
+
+    def take(self) -> list[Session]:
+        """The sessions put since the last take, in order."""
+        with self._lock:
+            sessions, self._sessions = self._sessions, []
+        return sessions
+
+    def playing(self) -> bool:
+        return self._playing
 
 
 class PlayTimeWatcher:
