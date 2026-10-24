@@ -89,9 +89,13 @@ class WhisperStt(SpeechToText):
         *,
         model_factory: ModelFactory | None = None,
         register_dlls: Callable[[], list[str]] = register_cuda_dll_dirs,
+        hotwords: Callable[[], str | None] = lambda: None,
     ) -> None:
+        """`hotwords` gives the words Whisper should expect at each decode
+        (`Vocabulary.text`); the initial prompt stays one short example of Master's words."""
         self._config = config
         self._initial_prompt = f"{assistant_name}, tolong nyalakan lampu kamar."
+        self._hotwords = hotwords
         self._model_factory = model_factory or _load_faster_whisper
         self._register_dlls = register_dlls
         self._model: Any = None
@@ -143,6 +147,8 @@ class WhisperStt(SpeechToText):
             vad_filter=True,
             condition_on_previous_text=False,
             initial_prompt=self._initial_prompt,
+            # Never with a `prefix`: faster-whisper ignores hotwords when one is set.
+            hotwords=self._hotwords() or None,
         )
 
 

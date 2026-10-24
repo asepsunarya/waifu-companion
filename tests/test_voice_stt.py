@@ -98,6 +98,48 @@ def test_disallowed_detected_language_reruns_with_the_first_configured_language(
     assert [call["language"] for call in model.calls] == [None, "id"]
 
 
+def test_both_decodes_pass_the_hotwords_of_that_moment_and_never_a_prefix():
+    model = FakeWhisperModel(
+        ([segment("Sirene, turn on the lamp")], "en"),
+        ([segment("Cyrene, nyalakan lampu meja")], "id"),
+    )
+    hotwords = iter(["Cyrene, Lampu Meja", "Cyrene, Lampu Meja, Acheron"])
+
+    make_stt(model, hotwords=lambda: next(hotwords)).transcribe(ONE_SECOND, 16000)
+
+    assert [call["hotwords"] for call in model.calls] == [
+        "Cyrene, Lampu Meja",
+        "Cyrene, Lampu Meja, Acheron",
+    ]
+    # faster-whisper ignores hotwords when a prefix is set.
+    assert all("prefix" not in call for call in model.calls)
+
+
+def test_the_initial_prompt_stays_one_short_sentence_beside_the_hotwords():
+    model = FakeWhisperModel(([segment("halo")], "id"))
+
+    make_stt(model, hotwords=lambda: "Cyrene, Lampu Meja").transcribe(ONE_SECOND, 16000)
+
+    assert model.calls[0]["initial_prompt"] == "Cyrene, tolong nyalakan lampu kamar."
+
+
+@pytest.mark.parametrize("empty", [None, ""])
+def test_no_hotwords_pass_none(empty: str | None):
+    model = FakeWhisperModel(([segment("halo")], "id"))
+
+    make_stt(model, hotwords=lambda: empty).transcribe(ONE_SECOND, 16000)
+
+    assert model.calls[0]["hotwords"] is None
+
+
+def test_without_a_vocabulary_whisper_gets_no_hotwords():
+    model = FakeWhisperModel(([segment("halo")], "id"))
+
+    make_stt(model).transcribe(ONE_SECOND, 16000)
+
+    assert model.calls[0]["hotwords"] is None
+
+
 @pytest.mark.parametrize(
     "hallucination",
     [

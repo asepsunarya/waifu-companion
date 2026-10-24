@@ -2664,10 +2664,10 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 280a · **Files:** `src/waifu/voice/hotwords.py`, `tests/test_voice_hotwords.py` · **Scope:** S
 
-## Task 281: Whisper's hotwords
+## Task 281: Whisper's hotwords ✅
 
 **Acceptance criteria:**
-- [ ] `WhisperStt(..., hotwords=)` passes its text on the detected-language decode and on the fallback re-run, None when empty, never a `prefix`; the initial prompt stays short
+- [x] `WhisperStt(..., hotwords=)` passes its text on the detected-language decode and on the fallback re-run, None when empty, never a `prefix`; the initial prompt stays short
 
 **Dependencies:** 280 · **Files:** `src/waifu/voice/stt.py`, `tests/test_voice_stt.py` · **Scope:** XS
 
