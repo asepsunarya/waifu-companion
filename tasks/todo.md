@@ -2168,12 +2168,12 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 227a · **Files:** `src/waifu/phone/actions.py`, `src/waifu/phone/server.py` · **Scope:** S
 
-## Task 228: `DeskServer`
+## Task 228: `DeskServer` ✅
 
 **Acceptance criteria:**
-- [ ] `QuickActions(where=...)` names that place in the PC refusal ("tombol cepat PC")
-- [ ] The page, its files, `actions`, and `action` only under `/t/<token>/` (a wrong or missing token 404, each server its own token); a foreign Host 403 even with the token; a POST from any Origin but the page's own 403; OPTIONS and GET `action` 405 without CORS headers; `PROTECTING_HEADERS` and `Referrer-Policy: no-referrer` on every response
-- [ ] A press runs its button and answers `{"ok", "message"}`; the PC and its plug 404 with nothing run; ten presses a minute, refused ones counted; 409 while one runs; 400, 411, 413, 415; 500 with `FAILED_TEXT`; the token never logged; a host that is not loopback is a `ValueError`
+- [x] `QuickActions(where=...)` names that place in the PC refusal ("tombol cepat PC")
+- [x] The page, its files, `actions`, and `action` only under `/t/<token>/` (a wrong or missing token 404, each server its own token); a foreign Host 403 even with the token; a POST from any Origin but the page's own 403; OPTIONS and GET `action` 405 without CORS headers; `PROTECTING_HEADERS` and `Referrer-Policy: no-referrer` on every response
+- [x] A press runs its button and answers `{"ok", "message"}`; the PC and its plug 404 with nothing run; ten presses a minute, refused ones counted; 409 while one runs; 400, 411, 413, 415; 500 with `FAILED_TEXT`; the token never logged; a host that is not loopback is a `ValueError`
 
 **Dependencies:** 227 · **Files:** `src/waifu/phone/actions.py`, `src/waifu/phone/desk.py`, `tests/test_phone_actions.py`, `tests/test_phone_desk.py` · **Scope:** M
 

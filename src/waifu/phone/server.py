@@ -316,7 +316,7 @@ class PhoneServer(ThreadingHTTPServer):
         camera_max_side: int | None = None,
         actions: QuickActions | None = None,
     ) -> None:
-        if not _is_ipv4_loopback(host):
+        if not is_ipv4_loopback(host):
             raise ValueError(f"The phone server listens only on IPv4 loopback, not {host!r}")
         self.auth = auth
         self.backend = backend
@@ -968,7 +968,7 @@ def icon_png(size: int, initial: str) -> bytes:
     return encode_png(np.round(image).astype(np.uint8))
 
 
-def _is_ipv4_loopback(host: str) -> bool:
+def is_ipv4_loopback(host: str) -> bool:
     try:
         address = ipaddress.ip_address(host)
     except ValueError:
