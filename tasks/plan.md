@@ -990,20 +990,20 @@ never whispered, until a strict local phrase ("aku sudah bangun", "tunda"), a qu
 the phone or the PC, the brain, or ten minutes stop it. A missed alarm is only pushed. 18 of 20
 strict tools, 17 of 24 optional parameters, and 0 of 16 unions stay.
 - [x] Task 250a: contract: SPEC, tasks
-- [ ] Task 250: the alarm entry (`AlarmAction`) and every place that names an entry
-- [ ] Task 251: the bell (`alarm.py`): the ring file, start and merge, the rings and their levels, stop, snooze, restart
-- [ ] Task 252: the phrases (`alarm_request`)
-- [ ] Task 253: the scheduler rings, pushes, and misses alarms
-- [ ] Task 254: the volume: `LevelHold`, `VoiceLevel.day_level`
-- [ ] Task 255: the voice loop rings and hears the phrases
-- [ ] Task 256: the `alarm` tool and the `schedule` description
-- [ ] Task 257: the quick buttons on the phone and the PC
-- [ ] Task 258: config, the CLI wiring, the check line
-- [ ] Task 259: README, CHANGELOG
+- [x] Task 250: the alarm entry (`AlarmAction`) and every place that names an entry
+- [x] Task 251: the bell (`alarm.py`): the ring file, start and merge, the rings and their levels, stop, snooze, restart
+- [x] Task 252: the phrases (`alarm_request`)
+- [x] Task 253: the scheduler rings, pushes, and misses alarms
+- [x] Task 254: the volume: `LevelHold`, `VoiceLevel.day_level`
+- [x] Task 255: the voice loop rings and hears the phrases
+- [x] Task 256: the `alarm` tool and the `schedule` description
+- [x] Task 257: the quick buttons on the phone and the PC
+- [x] Task 258: config, the CLI wiring, the check line
+- [x] Task 259: README, CHANGELOG
 
 ### Checkpoint: Alarm bangun
-- [ ] Python suite, ruff, and JS tests clean; no test played audio, pushed, or read the repository's `data/`; the strict-tool budget unchanged (18 of 20 strict tools, 17 of 24 optional parameters, 0 of 16 unions) with `alarm` non-strict and open in guest mode
-- [ ] By hand: in a scratch folder with a fake clock, an alarm set by the tool rings in the voice loop louder each time, stops by "aku sudah bangun", snoozes by "tunda", never stops on "matikan lampu", shows and runs its quick buttons, ends after its minutes, and a missed one is pushed
+- [x] Python suite, ruff, and JS tests clean; no test played audio, pushed, or read the repository's `data/`; the strict-tool budget unchanged (18 of 20 strict tools, 17 of 24 optional parameters, 0 of 16 unions) with `alarm` non-strict and open in guest mode (2026-10-24: 10143 pytest and 542 JS tests; the every-tool Claude request, counted by a scratch wrapper around its own test, held 47 tools, 18 of 20 strict, 17 of 24 optional parameters, and 0 of 16 unions, with `alarm` not strict)
+- [x] By hand: in a scratch folder with a fake clock, an alarm set by the tool rings in the voice loop louder each time, stops by "aku sudah bangun", snoozes by "tunda", never stops on "matikan lampu", shows and runs its quick buttons, ends after its minutes, and a missed one is pushed (2026-10-24, a scratch script over the real store, bell, tool, scheduler, Assistant, `LevelHold`, and `QuickActions` with fake speech, player, and notifier, at Sunday 25-10-2026, deleted afterwards: whisper mode on held her replies at 50 percent while the 05:30 alarm "berangkat kerja" rang at 100, 120, and 140 percent (peaks 0.5, 0.6, 0.7) with the three lines in turn and one ring per minute however often the loop asked; the first ring was pushed once with `alarm_clock` and the phone page's link; the buttons listed "Alarm" first; "Cyrene, matikan lampu" went to the brain and the alarm rang on; "aku sudah bangun" answered "Oke Master, alarmnya kumatikan." without the brain and deleted the ring file; "tunda" at 05:40:03 answered "Oke, kubangunkan lagi jam 05.46." and the snoozed alarm rang at 05:46; "Matikan alarm" stopped it and a second tap said "Alarm sudah tidak berbunyi."; a 05:50 alarm rang ten times and ended by itself; a daily 06:30 alarm checked at 06:35 was pushed as "Alarm jam 06.30 terlewat." without a ring and moved to tomorrow)
 - [ ] On the owner's PC: "bangunkan aku jam 6" rings at six and "aku sudah bangun" stops it
 
 ## Risks and Mitigations
@@ -1027,6 +1027,7 @@ strict tools, 17 of 24 optional parameters, and 0 of 16 unions stay.
 | Guest mode leaves something private reachable | Master's money, journal, tasks, or memory said in front of guests | One shared refusal in `run_tool` for a fixed list, a test that sorts every tool of a full request, a new session without the remembered facts at the next turn, the briefing reduced and the private self-started turns dropped; the switching turn and the fixed announcements are documented limits |
 | A repeat request answers a confirmation question or repeats private words to guests | The PC turned off on "ulangi", or what Master heard before guests came said in front of them | The repeat never reaches the brain, so the gate never sees it and a pending question waits for Master's next real turn; only whole repeat phrases count; the remembered words carry guest mode's generation and are forgotten once it has moved |
 | The break watcher misreads activity (a tick wrap after 49.7 days, a sleep, controller play) | A nudge to an empty chair, a nudge right after waking the PC, or none while playing | The idle time is the masked 32-bit difference, read input first; a poll gap longer than a break by the tick count or the wall clock starts the count again; a line needs input at its due point and expires after a break's length; gamepad input is a documented limit |
+| An alarm that never wakes Master, or a device command that stops it | Master oversleeps, or "matikan lampu" ends the alarm | It rings louder each minute, never whispered, until a whole stop phrase, a button, the brain, or 10 minutes; the first ring and a missed alarm are pushed; while it rings only whole phrases stop it, tested against device commands; the tool, the README, and `waifu check` say it rings only while `waifu run` runs on an awake PC |
 
 ## Open Questions
 

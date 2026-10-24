@@ -2385,81 +2385,81 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** none · **Files:** `SPEC.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
 
-## Task 250: The alarm entry
+## Task 250: The alarm entry ✅
 
 **Acceptance criteria:**
-- [ ] `AlarmAction(label)` is added, listed, cancelled, fired, and skipped like any entry, with every repeat; its label is checked (collapsed, empty is None, at most 100 characters); the file writes `{"type": "alarm"[, "label"]}` and reads it back, and refuses a malformed one; a file without alarms is written as before
-- [ ] `list_schedules`/`cancel_schedule`, `waifu schedule list`/`cancel`, the morning briefing (left out in guest mode), and the daily recap name an alarm, never as a routine
+- [x] `AlarmAction(label)` is added, listed, cancelled, fired, and skipped like any entry, with every repeat; its label is checked (collapsed, empty is None, at most 100 characters); the file writes `{"type": "alarm"[, "label"]}` and reads it back, and refuses a malformed one; a file without alarms is written as before
+- [x] `list_schedules`/`cancel_schedule`, `waifu schedule list`/`cancel`, the morning briefing (left out in guest mode), and the daily recap name an alarm, never as a routine
 
 **Dependencies:** 250a · **Files:** `src/waifu/schedule.py`, `src/waifu/brain/schedule_tools.py`, `src/waifu/briefing.py`, `src/waifu/recap.py`, `src/waifu/cli.py` and their tests · **Scope:** M
 
-## Task 251: The bell
+## Task 251: The bell ✅
 
 **Acceptance criteria:**
-- [ ] `AlarmBell.start` writes the ring file; a second alarm joins the ring; `due_ring` gives each ring once at `index * repeat_seconds`, its level `min(150, day level + 20 * index)` and its short text; it ends by itself at `until` and deletes the file
-- [ ] `stop` deletes the file; `snooze` adds a one-shot alarm rounded up to a whole minute and stops, keeps ringing on a refusal, and gives None when nothing rings
-- [ ] A new bell on a file under way resumes at the index of the time passed; an expired file is deleted; a broken one is moved aside; a stop by another bell on the file is seen within `REREAD_S`; reading never raises
+- [x] `AlarmBell.start` writes the ring file; a second alarm joins the ring; `due_ring` gives each ring once at `index * repeat_seconds`, its level `min(150, day level + 20 * index)` and its short text; it ends by itself at `until` and deletes the file
+- [x] `stop` deletes the file; `snooze` adds a one-shot alarm rounded up to a whole minute and stops, keeps ringing on a refusal, and gives None when nothing rings
+- [x] A new bell on a file under way resumes at the index of the time passed; an expired file is deleted; a broken one is moved aside; a stop by another bell on the file is seen within `REREAD_S`; reading never raises
 
 **Dependencies:** 250 · **Files:** `src/waifu/alarm.py`, `tests/test_alarm.py` · **Scope:** M
 
-## Task 252: The phrases
+## Task 252: The phrases ✅
 
 **Acceptance criteria:**
-- [ ] `alarm_request` gives stop for the stop phrases and snooze (with its minutes, digits or words, 1-30) for the snooze phrases, leaving out her names, "master", and the softeners; None for "matikan lampu", "matikan musik", a bare "stop", "matikan", "udah", "bangun", and any phrase with another word
+- [x] `alarm_request` gives stop for the stop phrases and snooze (with its minutes, digits or words, 1-30) for the snooze phrases, leaving out her names, "master", and the softeners; None for "matikan lampu", "matikan musik", a bare "stop", "matikan", "udah", "bangun", and any phrase with another word
 
 **Dependencies:** 250a · **Files:** `src/waifu/alarm.py`, `tests/test_alarm.py` · **Scope:** S
 
-## Task 253: The scheduler and alarms
+## Task 253: The scheduler and alarms ✅
 
 **Acceptance criteria:**
-- [ ] A due alarm starts the bell, is pushed once with `alarm_clock` (and the phone page's link) when `alarm_push`, and is marked fired; without a bell its wake text is said once and pushed
-- [ ] An alarm late by more than two minutes (or the smaller grace) never rings, is pushed as missed (with its date when not today's) and never told; a daily one moves to tomorrow
+- [x] A due alarm starts the bell, is pushed once with `alarm_clock` (and the phone page's link) when `alarm_push`, and is marked fired; without a bell its wake text is said once and pushed
+- [x] An alarm late by more than two minutes (or the smaller grace) never rings, is pushed as missed (with its date when not today's) and never told; a daily one moves to tomorrow
 
 **Dependencies:** 251 · **Files:** `src/waifu/scheduler.py`, `tests/test_scheduler.py` · **Scope:** S
 
-## Task 254: The volume
+## Task 254: The volume ✅
 
 **Acceptance criteria:**
-- [ ] `LevelHold.level_now` is the held level inside `held(level)` and `base()` otherwise; `VoiceLevel.day_level` ignores whisper mode and never raises
+- [x] `LevelHold.level_now` is the held level inside `held(level)` and `base()` otherwise; `VoiceLevel.day_level` ignores whisper mode and never raises
 
 **Dependencies:** 250a · **Files:** `src/waifu/voice/volume.py`, `src/waifu/voice_level.py`, `tests/test_voice_volume.py`, `tests/test_voice_level.py` · **Scope:** S
 
-## Task 255: The voice loop
+## Task 255: The voice loop ✅
 
 **Acceptance criteria:**
-- [ ] A due ring is said by itself between utterances, at its level through `hold_level`, as a reply, also while quiet holds and in the follow-up window, never remembered for "ulangi"; requests wait while it rings
-- [ ] While it rings, a stop or snooze phrase is answered without the brain (no turn, a pending confirmation waits), with or without her name; "matikan lampu" goes to the brain; nothing ringing leaves every utterance as before
+- [x] A due ring is said by itself between utterances, at its level through `hold_level`, as a reply, also while quiet holds and in the follow-up window, never remembered for "ulangi"; requests wait while it rings
+- [x] While it rings, a stop or snooze phrase is answered without the brain (no turn, a pending confirmation waits), with or without her name; "matikan lampu" goes to the brain; nothing ringing leaves every utterance as before
 
 **Dependencies:** 251, 252, 254 · **Files:** `src/waifu/app.py`, `tests/test_app.py` · **Scope:** M
 
-## Task 256: The `alarm` tool
+## Task 256: The `alarm` tool ✅
 
 **Acceptance criteria:**
-- [ ] Non-strict `alarm {action?, at?, repeat?, label?, id?, minutes?}` sets, lists, cancels (alarms only), stops, and snoozes; bad arguments are error results; guest mode refuses `list` and `cancel`; her own turns are refused
-- [ ] The `schedule` description sends waking Master to `alarm` with one static sentence
+- [x] Non-strict `alarm {action?, at?, repeat?, label?, id?, minutes?}` sets, lists, cancels (alarms only), stops, and snoozes; bad arguments are error results; guest mode refuses `list` and `cancel`; her own turns are refused
+- [x] The `schedule` description sends waking Master to `alarm` with one static sentence
 
 **Dependencies:** 251 · **Files:** `src/waifu/brain/alarm_tools.py`, `src/waifu/brain/schedule_tools.py`, `tests/test_alarm_tools.py`, `tests/test_schedule_tools.py` · **Scope:** M
 
-## Task 257: The quick buttons
+## Task 257: The quick buttons ✅
 
 **Acceptance criteria:**
-- [ ] `QuickActions` lists an "Alarm" group first only while the bell rings, finds `al.stop` and `al.snooze` whenever there is a bell, and runs them outside the devices' lock with friendly messages after the ring ended; both servers accept the ids
-- [ ] `phone.js` reads the buttons again when the page shows and when the panel opens, hides an empty toggle, and opens the panel for an alarm button; `tombol.js` reads them again every 15 s and on focus, not while a press runs
+- [x] `QuickActions` lists an "Alarm" group first only while the bell rings, finds `al.stop` and `al.snooze` whenever there is a bell, and runs them outside the devices' lock with friendly messages after the ring ended; both servers accept the ids
+- [x] `phone.js` reads the buttons again when the page shows and when the panel opens, hides an empty toggle, and opens the panel for an alarm button; `tombol.js` reads them again every 15 s and on focus, not while a press runs
 
 **Dependencies:** 251 · **Files:** `src/waifu/phone/actions.py`, `src/waifu/avatar/web/phone/phone.js`, `src/waifu/avatar/web/tombol/tombol.js`, their Python and JS tests · **Scope:** M
 
-## Task 258: Config, wiring, check
+## Task 258: Config, wiring, check ✅
 
 **Acceptance criteria:**
-- [ ] `AlarmConfig` with its ranges and the example block; `run` builds one bell (a dry run's in its temporary folder) for the Assistant, the brain, the phone, and the scheduler, plays through `LevelHold`; `chat` gives its tool a bell and its scheduler none; `waifu tombol` passes the bell
-- [ ] The every-tool request keeps 18 of 20 strict tools, 17 of 24 optional parameters, and 0 of 16 unions with `alarm` non-strict and open in guest mode
-- [ ] `waifu check` says how alarms ring, warns when they are off or the schedule is, and names a broken file moved aside
+- [x] `AlarmConfig` with its ranges and the example block; `run` builds one bell (a dry run's in its temporary folder) for the Assistant, the brain, the phone, and the scheduler, plays through `LevelHold`; `chat` gives its tool a bell and its scheduler none; `waifu tombol` passes the bell
+- [x] The every-tool request keeps 18 of 20 strict tools, 17 of 24 optional parameters, and 0 of 16 unions with `alarm` non-strict and open in guest mode
+- [x] `waifu check` says how alarms ring, warns when they are off or the schedule is, and names a broken file moved aside
 
 **Dependencies:** 253, 255, 256, 257 · **Files:** `src/waifu/config.py`, `config.example.yaml`, `src/waifu/cli.py`, `tests/test_config.py`, `tests/test_cli.py` · **Scope:** M
 
-## Task 259: Docs
+## Task 259: Docs ✅
 
 **Acceptance criteria:**
-- [ ] README "Alarm bangun" after "Jadwal, pengingat, dan rutinitas" with a contents entry, checklist items, and a line in "Volume suaraku"; CHANGELOG v1.46 with the downgrade note; full suite, ruff, and JS tests clean
+- [x] README "Alarm bangun" after "Jadwal, pengingat, dan rutinitas" with a contents entry, checklist items, and a line in "Volume suaraku"; CHANGELOG v1.46 with the downgrade note; full suite, ruff, and JS tests clean
 
 **Dependencies:** 258 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S

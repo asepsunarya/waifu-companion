@@ -39,6 +39,7 @@ Cyrene : "Komputer mau kumatikan sekarang, Master? Jawab iya kalau jadi." (minta
 - [Teman main gacha (HoYoverse)](#teman-main-gacha-hoyoverse)
 - [Ingatan Cyrene](#ingatan-cyrene)
 - [Jadwal, pengingat, dan rutinitas](#jadwal-pengingat-dan-rutinitas)
+- [Alarm bangun](#alarm-bangun)
 - [Daftar tugas](#daftar-tugas)
 - [Musik, volume, dan aplikasi PC](#musik-volume-dan-aplikasi-pc)
 - [Volume suaraku](#volume-suaraku)
@@ -2450,8 +2451,10 @@ Cyrene : "Lampu kamar sudah mati dan AC di dua puluh enam derajat. おやすみ�
 - **Pengingat pada jam tertentu:** "Cyrene, ingatkan aku jam 3 sore minum obat."
 - **Pengingat N menit lagi:** "Cyrene, 10 menit lagi ingatkan aku angkat jemuran." Dia tahu
   jam sekarang dari setiap kalimatmu, lalu menghitung jamnya sendiri.
-- **Berulang:** "Cyrene, setiap hari jam 7 pagi bangunkan aku.", "... tiap hari kerja"
-  (Senin–Jumat), atau "... tiap akhir pekan" (Sabtu–Minggu).
+- **Berulang:** "Cyrene, setiap hari jam 7 pagi ingatkan aku minum vitamin.", "... tiap hari
+  kerja" (Senin–Jumat), atau "... tiap akhir pekan" (Sabtu–Minggu).
+- **Dibangunkan:** "Cyrene, bangunkan aku jam 6" menjadi alarm, yang diulang makin keras sampai
+  Master bangun: lihat [Alarm bangun](#alarm-bangun).
 - **Mingguan, bulanan, tahunan:** "Cyrene, tiap Senin jam 7 ingatkan buang sampah.",
   "Cyrene, tiap tanggal 20 ingatkan bayar listrik.", "Cyrene, ingatkan ulang tahun Ibu tiap
   5 Mei." Tanpa jam, ulang tahun dan tagihan diingatkan jam 08.00 pagi itu ("Master, hari
@@ -2731,6 +2734,129 @@ dalam 15 detik. `waifu check` menampilkan `✓ Jadwal: <n> entri (data\schedule.
 - Untuk mematikan jadwal: `schedule.enabled: false`. Dia tidak lagi membuat atau menjalankan
   jadwal, tapi filenya tidak dihapus; hapus isinya dengan `waifu schedule clear --yes` kalau
   mau.
+
+## Alarm bangun
+
+Pengingat diucapkan sekali saja, dan berbisik kalau [mode bisik](#mode-bisik) menyala, jadi
+Master yang masih tidur bisa tidak mendengarnya. **Alarm** terus membangunkan: pada jamnya Cyrene
+bilang "Master, bangun!", lalu mengulanginya setiap menit, makin keras, sampai Master bilang sudah
+bangun. Alarm masuk jadwal yang sama dengan pengingat (lihat
+[Jadwal, pengingat, dan rutinitas](#jadwal-pengingat-dan-rutinitas)), jadi sudah menyala dari
+awal di `waifu run`, dengan otak Ollama maupun Claude.
+
+```text
+Master : "Cyrene, bangunkan aku jam 6, ada kuliah pagi."
+Cyrene : "Siap, alarm jam enam pagi. Alarmnya cuma bunyi kalau PC menyala dan aku jalan ya, Master."
+(06.00)  Cyrene : "Master, bangun! Sudah jam 06.00. Kuliah pagi."
+(06.01)  Cyrene : "Ayo bangun, Master! Sudah jam 06.01. Kuliah pagi."   (lebih keras)
+Master : "Aku sudah bangun."
+Cyrene : "Oke Master, alarmnya kumatikan."
+```
+
+### Contoh kalimat alarm
+
+- **Sekali:** "Cyrene, bangunkan aku jam 6.", "alarm jam 5.30 besok", "pasang alarm 20 menit
+  lagi". Jam yang sudah lewat hari ini berarti besok.
+- **Dengan keterangan:** "alarm jam 5.30 besok buat berangkat kerja": keterangannya ikut disebut
+  di setiap bunyi ("... Berangkat kerja.").
+- **Berulang:** "alarm tiap hari kerja jam 6", "bangunkan aku tiap hari jam 5", "alarm tiap
+  Sabtu jam 8": semua pengulangan jadwal bisa (harian, hari kerja, akhir pekan, mingguan,
+  bulanan, tahunan).
+- **Melihat dan membatalkan:** "alarmku apa aja?", "batalkan alarm jam 6". Alarm juga muncul di
+  `waifu schedule list` (`alarm "berangkat kerja"`) dan bisa dibatalkan dengan
+  `waifu schedule cancel <id>`.
+
+### Saat alarm berbunyi
+
+- Dia bilang "Master, bangun! Sudah jam 06.00." (dengan keterangannya), lalu lagi setiap
+  `alarm.repeat_seconds` detik (bawaan 60) dengan kalimat bergantian. Setiap bunyi 20 persen
+  lebih keras: mulai dari volume suaranya di siang hari (lihat [Volume suaraku](#volume-suaraku))
+  sampai paling keras 150 persen. **Mode bisik tidak berlaku untuk alarm.**
+- Alarm tetap berbunyi selama [teman fokus](#teman-fokus) atau [mode game](#mode-game). Bunyinya
+  tidak pernah memotong omongan Master atau jawabannya sendiri: bunyi berikutnya menunggu sampai
+  kalimatnya selesai.
+- Berhenti sendiri setelah `alarm.max_minutes` menit (bawaan 10) kalau tidak dimatikan.
+- Sapaan pagi dan hal lain yang dia mulai sendiri menunggu sampai alarmnya berhenti; pengingat
+  lain di menit yang sama tetap diucapkan, sesudah bunyinya.
+- Dua alarm pada menit yang sama berbunyi sebagai satu, dengan kedua keterangannya.
+- Dengan [notifikasi ke HP](#3-notifikasi-ke-hp-ntfy) (`notify.enabled: true`), bunyi pertama
+  setiap alarm juga dikirim ke HP ("Master, bangun! Alarm jam 06.00."). Kalau
+  [Cyrene di HP](#cyrene-di-hp) sudah diatur, mengetuk notifikasinya membuka halamannya langsung
+  dengan tombol **Matikan alarm**. Notifikasinya memakai prioritas biasa ntfy: untuk bunyi yang
+  lebih keras, atur suara notifikasi topik itu di aplikasi ntfy. `alarm.push: false` mematikan
+  kiriman ini.
+
+### Mematikan dan menunda
+
+- **Ucapkan saja, tanpa memanggil namanya:** "aku sudah bangun", "udah bangun", "matikan
+  alarm", "stop alarm", atau "hentikan alarm" mematikannya. "Tunda", "snooze", atau "sebentar
+  lagi" menundanya `alarm.snooze_minutes` menit (bawaan 5); "tunda 10 menit" atau "lima menit
+  lagi" sekian menit (1-30). Dia menjawab langsung tanpa otak: "Oke, kubangunkan lagi jam
+  06.06."
+- **Hanya kalimat itu persis**, boleh ditambah namanya, "Master", "dong", "iya", atau "oke".
+  "Matikan lampu", "stop" saja, atau "aku sudah bangun, nyalakan lampu" dijawab seperti biasa,
+  dan alarmnya jalan terus. Kalimat lain soal alarm ("Cyrene, matiin alarmnya ya, aku udah
+  melek") tetap sampai ke otaknya, yang juga bisa mematikan atau menunda alarm.
+- Mikrofon dimatikan selagi dia berbicara, jadi ucapkan sesudah kalimat bunyinya selesai.
+- [Verifikasi suara](#mendaftarkan-suara-master) tetap berlaku. Kalau suara bangun tidur tidak
+  dikenali, pakai tombolnya.
+- **Tombol:** selagi alarm berbunyi, [Tombol cepat di HP](#tombol-cepat-di-hp) dan halaman
+  [`waifu tombol`](#tombol-cepat-di-pc) menampilkan grup **Alarm** paling atas: **Matikan
+  alarm** dan **Tunda 5 menit**. Di HP panelnya terbuka sendiri begitu halamannya dibuka lagi.
+- Alarm yang ditunda menjadi alarm sekali di jadwal (dibulatkan ke atas ke menit penuh), jadi
+  terlihat di `waifu schedule list` dan bisa dibatalkan. Kalau jadwal sudah penuh, penundaannya
+  ditolak dan alarmnya jalan terus.
+- Double-click di avatar hanya memotong satu kalimat bunyi, bukan alarmnya.
+
+### Hanya selama PC menyala
+
+- Alarm hanya berbunyi selama `waifu run` jalan dan PC menyala, tidak sleep atau hibernate.
+  Cyrene tidak bisa membangunkan PC: biarkan PC menyala malam itu, dan atur Windows supaya tidak
+  sleep sendiri.
+- Suaranya keluar dari speaker PC dengan volume Windows: kalau volume Windows nol atau di-mute,
+  alarmnya tidak terdengar. 150 persen hanya mengeraskan suaranya sendiri. Notifikasi HP adalah
+  cadangannya.
+- Alarm yang terlewat (PC mati atau sleep, atau Cyrene telat lebih dari 2 menit) tidak
+  dibunyikan terlambat. Dengan notifikasi HP, HP menerima "Alarm jam 06.00 terlewat." (dengan
+  tanggalnya kalau bukan hari ini), dan alarm berulang tetap berbunyi di jadwal berikutnya.
+- Jadwal dicek setiap 15 detik, jadi bunyi pertama bisa telat sampai sekitar 15 detik.
+- Kalau `waifu run` dijalankan ulang selagi alarm berbunyi, alarmnya lanjut (tanpa notifikasi
+  kedua) sampai batas menitnya.
+- Tanpa `waifu run`, `waifu chat` hanya mencetak alarm yang jatuh tempo sekali. Selagi `waifu run`
+  berjalan, "matikan alarm" yang diketik di `waifu chat` mematikan alarm yang sedang berbunyi.
+
+### Pengaturan alarm
+
+Sudah menyala tanpa ditulis. Untuk mengubahnya, tulis di `config.yaml`, lalu jalankan ulang
+`waifu run`:
+
+```yaml
+alarm:
+  repeat_seconds: 60     # jarak antar bunyi, dalam detik (30-300)
+  max_minutes: 10        # berhenti sendiri setelah N menit (1-30)
+  snooze_minutes: 5      # "tunda" tanpa angka (1-30)
+  push: true             # bunyi pertama juga ke HP (hanya kalau notify menyala)
+```
+
+`alarm.enabled: false` mematikan tool alarm; alarm yang sudah ada di jadwal hanya diucapkan sekali
+seperti pengingat. Alarm butuh jadwal (`schedule.enabled: true`). `waifu check` punya baris
+`✓ Alarm: 1 alarm, bunyi tiap 60 detik sampai 10 menit; hanya saat 'waifu run' jalan dan PC
+menyala` (dengan `, juga ke HP` kalau notifikasi HP menyala, dan `; sedang berbunyi sampai 06:10`
+selagi berbunyi).
+
+### Alarm dan mode tamu
+
+[Mode tamu](#mode-tamu) tidak menghentikan alarm: alarm tetap berbunyi, dan memasang, mematikan,
+atau menunda alarm tetap bisa. Daftar alarm dan membatalkannya ditutup, karena isinya keterangan
+dan jadwal Master. Mode tamu selalu berakhir paling lambat jam 05:00, jadi biasanya sudah selesai
+sebelum alarm pagi.
+
+### Privasi alarm
+
+Alarm disimpan di `data\schedule.json` seperti jadwal lain, hanya di PC ini. Selagi berbunyi,
+`data\alarm.json` berisi id, jam, dan keterangan alarmnya, lalu dihapus saat alarm berhenti. Dengan
+Claude, keterangannya ke API Anthropic seperti teks pengingat; dengan notifikasi HP, bunyi pertama
+dan alarm yang terlewat ke `ntfy.sh`.
 
 ## Daftar tugas
 
@@ -3128,10 +3254,10 @@ voice:
 ```
 
 Kalau `briefing.time` lebih awal dari `until`, sapaan paginya ikut berbisik. Begitu juga
-pengingat dan pengumuman jadwal: "bangunkan aku jam 5" dengan mode bisik menyala diucapkan paling
-keras 50 persen. Untuk pengingat yang harus membangunkan Master, nyalakan juga
-[notifikasi ke HP](#3-notifikasi-ke-hp-ntfy). Kalimat yang mulai diucapkan sebelum jam `from`
-diucapkan sampai selesai dengan volume biasa.
+pengingat dan pengumuman jadwal: "ingatkan aku jam 5 minum obat" dengan mode bisik menyala
+diucapkan paling keras 50 persen. [Alarm bangun](#alarm-bangun) tidak pernah berbisik: untuk
+dibangunkan, minta alarm ("bangunkan aku jam 5"), yang makin keras sampai Master bangun. Kalimat
+yang mulai diucapkan sebelum jam `from` diucapkan sampai selesai dengan volume biasa.
 
 ### Tersimpan dan dicoba
 
@@ -4108,6 +4234,10 @@ Rutinitas       [Mode tidur]
   keadaannya sekarang.
 - Log `waifu run` mencatat HP dan tombolnya
   (`Phone device d1 ran quick action dev.lampu_kamar.on: ok`), tidak pernah token HP.
+- **Alarm:** selagi [alarm](#alarm-bangun) berbunyi, grup **Alarm** muncul paling atas dengan
+  **Matikan alarm** dan **Tunda 5 menit**. Daftar tombolnya dibaca lagi setiap kali panel dibuka
+  dan setiap kali halamannya tampil lagi (misalnya dari notifikasi alarm), dan panelnya terbuka
+  sendiri kalau ada tombol alarm.
 
 **Memilih dan mengurutkan tombol.** Tanpa pengaturan, semua perangkat dan rutinitas di atas
 muncul dengan urutan di `config.yaml`. Untuk menampilkan sebagian saja, dengan urutanmu sendiri:
@@ -5407,7 +5537,8 @@ bilang singkat bahwa itu ditutup dulu selama ada tamu:
 - akun game: status, riwayat pull, pendapatan, karakter, endgame, jadwal banner dan event
   (jawabannya memuat progres event dan bintang endgame Master), laporan mingguan, dan kode
   redeem;
-- daftar jadwal dan membatalkan jadwal (isinya teks pengingat Master);
+- daftar jadwal dan membatalkan jadwal (isinya teks pengingat Master), juga daftar alarm dan
+  membatalkan alarm;
 - biaya API Claude;
 - melihat layar PC.
 
@@ -5425,6 +5556,8 @@ bilang singkat bahwa itu ditutup dulu selama ada tamu:
 - [Pengingat istirahat](#pengingat-istirahat): kalimatnya tidak menyebut hal pribadi.
 - [Waktu sholat](#waktu-sholat): jadwalnya dan pengingatnya. Waktu sholat untuk kota yang sudah
   disebut cuaca bukan hal pribadi, dan koordinat rumah tidak pernah dia sebut.
+- [Alarm bangun](#alarm-bangun): alarm tetap berbunyi, dan memasang, mematikan, atau menunda alarm
+  tetap bisa.
 - [Tombol cepat di HP](#tombol-cepat-di-hp) dan [di PC](#tombol-cepat-di-pc): tombolnya
   mengendalikan perangkat tanpa otak Cyrene.
 - Perintah terminal (`waifu todo`, `waifu jurnal`, `waifu tepira`, dan lainnya): terminal milik
@@ -5931,9 +6064,13 @@ Tombol cepat di PC: http://127.0.0.1:53211/t/Gz7mNcckSlaxLMFcD9ptmJzD6qRMkzBA/. 
   mengurutkannya untuk keduanya (lihat [Tombol cepat di HP](#tombol-cepat-di-hp)), juga kalau
   `phone.enabled: false`. Klik satu tombol: hasilnya muncul 6 detik di bawah jendela ("Lampu
   kamar dinyalakan.", atau alasan perangkatnya gagal).
-- Tombolnya dibaca sekali, saat `waifu tombol` dijalankan. Setelah mengubah perangkat,
+- `config.yaml` dibaca sekali, saat `waifu tombol` dijalankan. Setelah mengubah perangkat,
   rutinitas, atau `phone.quick_actions` di `config.yaml`, tutup `waifu tombol` (Ctrl+C) lalu
   jalankan lagi; memuat ulang halaman atau menjalankan ulang `waifu run` saja tidak cukup.
+- Halamannya membaca daftar tombol lagi setiap 15 detik dan saat jendelanya aktif lagi: selagi
+  [alarm](#alarm-bangun) `waifu run` berbunyi, grup **Alarm** (**Matikan alarm**, **Tunda 5
+  menit**) muncul paling atas. Tanpa tombol perangkat atau rutinitas sama sekali, `waifu tombol`
+  tidak membuka halaman, jadi tombol alarmnya pun tidak ada: pakai HP atau suara.
 - **Jendela terminalnya harus tetap terbuka** selama halaman dipakai; Ctrl+C menutupnya
   ("Selesai."). Halaman yang masih terbuka sesudahnya bilang "Tombol cepat di PC sudah ditutup.
   ...". Alamatnya baru setiap kali `waifu tombol` dijalankan (port dan token baru), jadi tidak
@@ -6354,6 +6491,24 @@ dan `off` untuk `ac` harus sudah dipelajari.)
       `waifu run`.
 - [ ] `waifu chat --dry-run`: jadwal yang dibuat di sana tidak muncul di
       `waifu schedule list`.
+
+**Alarm bangun** (lihat [Alarm bangun](#alarm-bangun))
+
+- [ ] `waifu check` menampilkan `✓ Alarm: 0 alarm, bunyi tiap 60 detik sampai 10 menit; hanya saat
+      'waifu run' jalan dan PC menyala`.
+- [ ] "Cyrene, pasang alarm dua menit lagi buat tes": dia menyebut jamnya, dan `waifu schedule
+      list` menampilkan `alarm "tes"`. Dua menit kemudian dia bilang "Master, bangun! ...", lalu
+      lagi semenit kemudian, lebih keras. HP menerima notifikasinya kalau notifikasi HP menyala.
+- [ ] Selagi berbunyi, "Cyrene, matikan lampu": lampunya mati dan alarmnya tetap berbunyi. Lalu
+      "aku sudah bangun" tanpa namanya: dia menjawab "Oke Master, alarmnya kumatikan." dan tidak
+      berbunyi lagi.
+- [ ] Pasang lagi, lalu saat berbunyi bilang "tunda": dia menyebut jam lima menit lagi, dan pada
+      jam itu berbunyi lagi.
+- [ ] Pasang lagi; saat berbunyi, buka panel tombol di HP dan `waifu tombol` di PC: grup **Alarm**
+      ada paling atas. **Matikan alarm** di salah satunya mematikannya.
+- [ ] Nyalakan mode bisik, pasang alarm di jam mode bisik: bunyinya tidak berbisik.
+- [ ] Pasang alarm, tutup `waifu run` sampai lewat 3 menit dari jamnya, lalu jalankan lagi: alarmnya
+      tidak berbunyi, dan HP menerima "Alarm jam ... terlewat." kalau notifikasi HP menyala.
 
 **Daftar tugas**
 
@@ -6811,6 +6966,10 @@ di sampingnya)
 - **Jadwal** (pengingat, perintah perangkat terjadwal) ada di `data\schedule.json`, hanya di
   PC ini. Teks pengingat juga dikirim ke `ntfy.sh` kalau notifikasi HP menyala. Lihat
   [File data\schedule.json](#file-dataschedulejson).
+- **Alarm bangun:** alarm ada di `data\schedule.json`; selagi berbunyi, `data\alarm.json` berisi
+  id, jam, dan keterangannya, lalu dihapus. Keterangannya ke API Anthropic dengan Claude, dan bunyi
+  pertama serta alarm yang terlewat ke `ntfy.sh` kalau notifikasi HP menyala. Lihat
+  [Privasi alarm](#privasi-alarm).
 - **Daftar tugas** ada di `data\todo.json`, hanya di PC ini; rahasia seperti kata sandi atau
   nomor kartu tidak pernah disimpan. Lihat
   [File data\todo.json dan privasi tugas](#file-datatodojson-dan-privasi-tugas).

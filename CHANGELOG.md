@@ -4,6 +4,31 @@ Ringkasan per versi, yang terbaru di atas. Rinciannya ada di README (bagian yang
 setiap versi) dan di SPEC.md. Setelah memperbarui, **mulai ulang `waifu run`** supaya semuanya
 aktif, lalu jalankan `waifu check`.
 
+## v1.46: alarm bangun
+
+- "Cyrene, bangunkan aku jam 6", "alarm jam 5.30 besok buat berangkat kerja", atau "alarm tiap
+  hari kerja jam 6" memasang alarm. Pada jamnya dia bilang "Master, bangun! Sudah jam 06.00.",
+  lalu mengulanginya setiap menit, makin keras sampai 150 persen, dan tidak pernah berbisik
+  walau mode bisik menyala. Juga selama teman fokus atau mode game.
+- "Aku sudah bangun", "udah bangun", "matikan alarm", atau "stop alarm" mematikannya tanpa
+  memanggil namanya; "tunda", "snooze", "tunda 10 menit", atau "lima menit lagi" menundanya.
+  Hanya kalimat itu persis: "matikan lampu" atau "stop" saja tidak menyentuh alarm. Alarm
+  berhenti sendiri setelah 10 menit.
+- Selagi berbunyi, tombol cepat di HP dan `waifu tombol` punya grup **Alarm** paling atas
+  (**Matikan alarm**, **Tunda 5 menit**); keduanya sekarang membaca daftar tombolnya lagi
+  sendiri (HP: saat halaman tampil lagi dan saat panel dibuka; PC: setiap 15 detik).
+- Dengan notifikasi HP, bunyi pertama juga dikirim ke HP dan membuka halaman Cyrene di HP.
+- **Hanya selama `waifu run` jalan dan PC menyala.** Alarm yang terlewat karena PC mati atau
+  sleep tidak dibunyikan terlambat, hanya dikirim ke HP ("Alarm jam 06.00 terlewat.").
+- "Alarmku apa aja?" dan "batalkan alarm jam 6" lewat tool baru `alarm`; `waifu schedule list`
+  menampilkan alarm, `waifu check` punya baris `Alarm`. Pengaturan baru `alarm` (jarak bunyi,
+  lama berbunyi, lama tunda, kiriman ke HP), semuanya sudah menyala tanpa ditulis.
+- Di mode tamu alarm tetap berbunyi; daftar dan membatalkannya ditutup.
+- Turun lagi ke versi sebelum v1.46 selagi ada alarm di jadwal membuat versi lama menganggap
+  `data\schedule.json` rusak dan memindahkannya ke samping (`.corrupt-...`); batalkan dulu
+  alarmnya (`waifu schedule cancel <id>`) sebelum turun versi.
+- README: "Alarm bangun".
+
 ## v1.45: rekap hari ini
 
 - "Cyrene, hari ini aku ngapain aja?", "rekap kemarin dong", atau "tanggal 20 aku ngapain?"
