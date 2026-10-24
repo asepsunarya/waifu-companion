@@ -8,8 +8,9 @@ a window without progress (Genshin's events, the Theater, a season not played ye
 told.
 
 And once a night, when Master closes a game late (from 22:00 until 03:00) and its stamina will
-be full before the morning (`briefing.time`), one line says when; the stamina reminder of that
-game then waits for the morning (`stamina_held`), so it is not said to an empty room.
+be full before the morning (`briefing.time`), but not within the stamina reminder's own minutes,
+one line says when; the stamina reminder of that game then waits for the morning
+(`stamina_held`), so it is not said to an empty room.
 """
 
 from __future__ import annotations
@@ -145,15 +146,18 @@ def overnight_notice(
     state: ReminderState,
     morning: time,
     *,
+    stamina_minutes: int,
     owner_call: str = "Master",
 ) -> Notice | None:
     """Once a night: `game_id` was closed late at `ended_at` and `status`, read at `now`, says
-    its stamina fills before the next `morning`; None otherwise."""
+    its stamina fills before the next `morning`, later than `stamina_minutes` from `now`
+    (sooner, the stamina reminder tells it); None otherwise."""
     closed = ended_at.astimezone(now.tzinfo)
     if LATE_UNTIL <= closed.time() < LATE_FROM:  # closed in the day or the evening
         return None
     wake = _next_morning(closed, morning)
-    if now >= wake or status.stamina >= status.stamina_max or status.stamina_full_in_s <= 0:
+    filling = status.stamina < status.stamina_max
+    if now >= wake or not filling or status.stamina_full_in_s <= stamina_minutes * 60:
         return None
     full_at = _up_to_the_minute(now + timedelta(seconds=status.stamina_full_in_s))
     if full_at >= wake or not state.once(_night_key(game_id, wake.date()), wake.date()):

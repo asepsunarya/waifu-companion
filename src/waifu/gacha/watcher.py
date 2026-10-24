@@ -208,6 +208,7 @@ class GachaWatcher:
                 now,
                 self._state,
                 self._morning,
+                stamina_minutes=self._config.reminders.stamina_minutes,
                 owner_call=self._owner_call,
             )
             notices.extend([notice] if notice else [])

@@ -533,6 +533,31 @@ def test_a_game_closed_late_tells_its_stamina_and_holds_the_full_line_until_the_
     assert [notice.kind for notice in morning] == ["stamina"]
 
 
+def test_a_game_closed_late_with_its_stamina_full_within_the_hour_gets_the_stamina_line_alone(
+    tmp_path, clock
+):
+    clock.now = AFTER_CLOSING
+    soon = replace(FILLING, stamina=292, stamina_full_in_s=25 * 60)
+    watcher, _, hoyolab = planner_watcher(
+        tmp_path, clock, statuses={"hsr": soon}, closed=closed_games(CLOSED)
+    )
+
+    told = watcher.poll_once()
+    clock.now = wib(13, 0, 20)
+    hoyolab.statuses = {"hsr": FULL}
+    watcher.poll_once()  # the occasion was told, still full: nothing new
+    hoyolab.statuses = {"hsr": replace(FILLING, stamina_full_in_s=8 * 3600)}
+    clock.now = wib(13, 1, 0)
+    watcher.poll_once()  # spent
+    hoyolab.statuses = {"hsr": FULL}
+    clock.now = wib(13, 2, 0)
+    full_again = watcher.poll_once()
+
+    assert [notice.kind for notice in told] == ["stamina"]
+    assert told[0].text.startswith("Master, Trailblaze Power di HSR sudah 292 dari 300, penuh")
+    assert [notice.kind for notice in full_again] == ["stamina"]  # never held
+
+
 def test_the_hold_survives_a_restart_in_the_night(tmp_path, clock):
     clock.now = AFTER_CLOSING
     first, _, _ = planner_watcher(

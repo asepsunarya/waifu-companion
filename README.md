@@ -2290,8 +2290,10 @@ masalah serta check-in tetap diucapkan.
   kapan kamu menutup game. Dia bilang di pengecekan HoYoLAB berikutnya (paling lama
   `poll_minutes`), lalu pengingat stamina game itu menunggu sampai pagi, supaya tidak berbunyi
   jam 04.10 di kamar kosong. Sesudah jam pagi, kalau staminanya masih penuh, dia bilang sekali
-  seperti biasa. Jam pagi adalah `briefing.time`, juga saat sapaan pagi dimatikan. Game yang
-  tertutup karena PC tidur atau `waifu run` mati lama tidak dihitung.
+  seperti biasa. Jam pagi adalah `briefing.time`, juga saat sapaan pagi dimatikan. Kalau
+  staminanya akan penuh dalam `stamina_minutes` (bawaan 60 menit), kalimat ini tidak ada:
+  pengingat stamina biasa ("penuh sekitar 25 menit lagi") yang bilang, dan tidak ditahan. Game
+  yang tertutup karena PC tidur atau `waifu run` mati lama tidak dihitung.
 - Selama [mode tamu](#mode-tamu) menyala, ketiganya diam dan tidak membaca HoYoLAB; game yang
   kamu tutup malam itu menunggu sampai tamunya pergi (sebelum pagi). Pengingat lain di tabel
   ini tetap berbunyi seperti dulu.

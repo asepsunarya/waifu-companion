@@ -366,6 +366,7 @@ def overnight(
     ended_at=CLOSED, status=HSR_STATUS, now=POLL, state=None, game="hsr", **options
 ) -> Notice | None:
     state = ReminderState() if state is None else state
+    options.setdefault("stamina_minutes", RULES.stamina_minutes)
     return overnight_notice(game, ended_at, status, now, state, MORNING, **options)
 
 
@@ -419,6 +420,17 @@ def test_a_stamina_full_only_after_the_morning_or_already_full_says_nothing():
 
     assert overnight(status=at_seven) is None
     assert overnight(status=full) is None  # the stamina reminder says it at once
+
+
+def test_a_stamina_full_within_the_stamina_reminder_s_minutes_is_left_to_that_reminder():
+    soon = replace(HSR_STATUS, stamina=292, stamina_full_in_s=55 * 60)  # full at 00:45
+    state = ReminderState()
+
+    assert overnight(status=soon, state=state) is None
+    assert not stamina_held("hsr", POLL, state, MORNING)  # "penuh sekitar 55 menit lagi" is said
+    assert overnight(status=soon, stamina_minutes=30) is not None
+    assert overnight(status=replace(soon, stamina_full_in_s=60 * 60)) is None
+    assert overnight(status=replace(soon, stamina_full_in_s=60 * 60 + 1)) is not None
 
 
 def test_nothing_is_told_once_the_morning_has_come():
