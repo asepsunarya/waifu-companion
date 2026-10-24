@@ -2614,11 +2614,11 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 274 · **Files:** `src/waifu/app.py`, `src/waifu/avatar/bus.py`, `src/waifu/avatar/web/index.html`, `src/waifu/avatar/web/logic.js`, `tests/test_app.py`, `tests/test_avatar_bus.py`, `tests/test_avatar_web.py`, `tests/js/logic.test.mjs` · **Scope:** M
 
-## Task 276: The actions
+## Task 276: The actions ✅
 
 **Acceptance criteria:**
-- [ ] `InteractionHandler.press` takes a double-click or a listen after a cut whatever the avatar's switches say
-- [ ] `HotkeyActions.press` never blocks: talk as a double-click, stop cuts at once and listens unless paused, repeat and quiet on its worker; quiet switches the pause and says so, also when its file fails
+- [x] `InteractionHandler.press` takes a double-click or a listen after a cut whatever the avatar's switches say
+- [x] `HotkeyActions.press` never blocks: talk as a double-click, stop cuts at once and listens unless paused, repeat and quiet on its worker; quiet switches the pause and says so, also when its file fails
 
 **Dependencies:** 272, 274, 275 · **Files:** `src/waifu/hotkey_actions.py`, `src/waifu/avatar/interactions.py`, `tests/test_hotkey_actions.py`, `tests/test_avatar_interactions.py` · **Scope:** M
 

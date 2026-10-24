@@ -491,6 +491,87 @@ def test_without_an_interrupt_a_double_click_while_she_is_busy_is_ignored():
     assert assistant.events == []
 
 
+# A global hotkey (`press`): a double-click or a listen after a cut, whatever the switches say
+
+
+@pytest.mark.parametrize(
+    "config",
+    [{}, {"enabled": False}, {"double_click_listen": False}],
+    ids=["on", "all-off", "double-click-off"],
+)
+def test_a_pressed_double_click_listens_and_says_a_listen_line_whatever_the_switches(config):
+    handler, assistant, _ = make_handler(**config)
+
+    handler.press("double_click")
+    handler.drain()
+
+    assert assistant.events == ["listen", "speak happy"]
+    assert assistant.spoken[0][0] in LINES["listen"]
+
+
+def test_a_pressed_double_click_while_she_speaks_cuts_her_off_at_once_and_only_listens():
+    handler, assistant, _ = make_handler(enabled=False)
+    assistant.busy = assistant.speaking = True
+
+    handler.press("double_click")
+    cut_before_the_worker = list(assistant.cuts)
+    handler.drain()
+
+    assert cut_before_the_worker == [threading.current_thread()]
+    assert assistant.events == ["listen"]
+
+
+def test_a_pressed_listen_after_a_cut_only_listens_although_she_is_busy():
+    handler, assistant, _ = make_handler(enabled=False)
+    assistant.busy = True  # still winding the cut speech down
+
+    handler.press(interactions.LISTEN_AFTER_CUT)
+    handler.drain()
+
+    assert assistant.cuts == []  # the hotkey cut her itself
+    assert assistant.events == ["listen"]
+
+
+def test_a_pressed_double_click_while_she_thinks_is_ignored_like_a_double_click():
+    handler, assistant, _ = make_handler()
+    assistant.busy = True
+
+    handler.press("double_click")
+    handler.drain()
+
+    assert assistant.events == []
+
+
+def test_a_pressed_double_click_within_the_cooldown_listens_without_a_line():
+    handler, assistant, _ = make_handler(reaction_cooldown_s=3)
+    react(handler, "head_pat")
+
+    handler.press("double_click")
+    handler.drain()
+
+    assert assistant.events == ["speak happy", "listen"]
+
+
+def test_press_takes_only_a_double_click_or_a_listen_after_a_cut():
+    handler, assistant, _ = make_handler()
+
+    with pytest.raises(ValueError, match="head_pat"):
+        handler.press("head_pat")
+
+    assert assistant.events == [] and assistant.cuts == []
+
+
+def test_a_stopped_handler_takes_no_press():
+    handler, assistant, _ = make_handler()
+    assistant.busy = assistant.speaking = True
+    handler.stop()
+
+    handler.press("double_click")
+    handler.drain()
+
+    assert assistant.cuts == [] and assistant.events == []
+
+
 # Which line she says
 
 

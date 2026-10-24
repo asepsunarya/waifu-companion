@@ -22,6 +22,11 @@ A double-click while she speaks cuts her off: `handle` calls `interrupt`
 (`Assistant.interrupt`) at once on the server's thread. When that stopped her
 speech, the worker only opens listening and says no line; it does so although she
 is still busy winding the cut speech down, since `listen` waits for that.
+
+The global hotkeys (`waifu.hotkey_actions`) `press` a double-click (Ctrl+Alt+C) or
+a listen after a cut they made themselves (Ctrl+Alt+X), handled exactly as above but
+whatever the avatar's switches say: the owner who turned the double-click off still
+has his keys.
 """
 
 from __future__ import annotations
@@ -51,6 +56,8 @@ REACTIONS: dict[str, tuple[str, str]] = {
 }
 # Queued instead of a double-click that cut her off: she only listens.
 LISTEN_AFTER_CUT = "listen_after_cut"
+# What a global hotkey may `press`.
+PRESSABLE = ("double_click", LISTEN_AFTER_CUT)
 
 
 def _nothing_to_interrupt() -> bool:
@@ -107,6 +114,18 @@ class InteractionHandler:
         if not self._switched_on(kind):
             logger.debug("Avatar interaction %s is switched off", kind)
             return
+        self._queue_interaction(kind)
+
+    def press(self, kind: str) -> None:
+        """Queue a global hotkey's double-click (talk now) or listen after a cut it made itself
+        (LISTEN_AFTER_CUT), whatever the avatar's switches say; never blocks. A no-op after
+        `stop()`. ValueError for any other kind."""
+        if kind not in PRESSABLE:
+            raise ValueError(f"a hotkey presses only {PRESSABLE}, not {kind!r}")
+        self._queue_interaction(kind)
+
+    def _queue_interaction(self, kind: str) -> None:
+        """Queue `kind`, a double-click first cutting off whatever she is saying."""
         with self._lock:
             if not self._accepting:
                 return
