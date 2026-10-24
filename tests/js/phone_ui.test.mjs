@@ -85,6 +85,19 @@ const QUICK = {
   ],
 };
 const LAMP_ON = { ok: true, message: "Lampu kamar: perintah 'on' berhasil (simulasi)." };
+// The same buttons while an alarm rings on the PC: its group comes first.
+const RINGING = {
+  groups: [
+    {
+      name: "Alarm",
+      actions: [
+        { id: "al.stop", label: "Matikan alarm" },
+        { id: "al.snooze", label: "Tunda 5 menit" },
+      ],
+    },
+    ...QUICK.groups,
+  ],
+};
 
 /** A JPEG's first bytes, telling the quality it was encoded at. */
 function smallJpeg(quality) {
@@ -414,9 +427,9 @@ function chatAnswer(text) {
 
 /**
  * Loads phone.js afresh against a page whose /config.json is `config` (as it is at each request) and whose /chat and
- * /talk answer `replyText` (or the status `chatStatus`, `talkStatus`). /actions answers `actions` (404 when null), and
- * /action `actionReply` with `actionStatus`. Every request is recorded in `requests` ({route, init}); object URLs in
- * `objectUrls`.
+ * /talk answer `replyText` (or the status `chatStatus`, `talkStatus`). /actions answers `actions` (404 when null; the
+ * test changes it with `setActions`), and /action `actionReply` with `actionStatus`. Every request is recorded in
+ * `requests` ({route, init}); object URLs in `objectUrls`.
  */
 async function openPage({
   config = LIVE2D_CONFIG,
@@ -489,7 +502,10 @@ async function openPage({
   loads += 1;
   await import(`${PHONE_JS.href}?load=${loads}`);
   await settle();
-  return { element: (id) => elements.get(id), scripts, requests, devices, objectUrls };
+  const setActions = (listed) => {
+    actions = listed;
+  };
+  return { element: (id) => elements.get(id), scripts, requests, devices, objectUrls, setActions };
 }
 
 async function send(page, text) {
@@ -1095,10 +1111,11 @@ function quickButton(page, label) {
     .find((button) => button.textContent === label);
 }
 
-/** The page with the PC's quick buttons, their panel opened. */
+/** The page with the PC's quick buttons, their panel opened and the buttons it read again then. */
 async function openQuick(options = {}) {
   const page = await openPage({ actions: QUICK, ...options });
   page.element("quick-toggle").dispatch("click");
+  await settle();
   return page;
 }
 
@@ -1353,6 +1370,92 @@ describe("phone quick buttons", () => {
 
     assert.equal(focusedHeight, "44px");
     assert.equal(text.style.height, "66px");
+  });
+
+  it("are read again when the page shows again, opening the panel on the alarm's buttons", async () => {
+    const page = await openPage({ actions: QUICK });
+    page.setActions(RINGING);
+
+    document.hidden = false;
+    document.dispatch("visibilitychange");
+    await settle();
+
+    assert.deepEqual(
+      quickGroups(page).map(({ heading }) => heading),
+      ["Alarm", "Lampu kamar", "Rutinitas"],
+    );
+    assert.equal(page.element("quick").hidden, false);
+    assert.equal(page.element("quick-toggle").attributes.get("aria-expanded"), "true");
+    assert.equal(focused, quickButton(page, "Matikan alarm"));
+  });
+
+  it("are read again when the panel opens", async () => {
+    const page = await openPage({ actions: QUICK });
+    page.setActions(RINGING);
+
+    page.element("quick-toggle").dispatch("click");
+    await settle();
+
+    assert.equal(quickGroups(page)[0].heading, "Alarm");
+    assert.equal(focused, quickButton(page, "Matikan alarm"));
+  });
+
+  it("send the alarm's stop like any button", async () => {
+    const page = await openPage({ actions: RINGING, actionReply: { ok: true, message: "Alarm dimatikan." } });
+
+    await press(page, "Matikan alarm");
+
+    assert.equal(lastRequest(page, "/action").init.body, '{"id":"al.stop"}');
+    assert.equal(page.element("notice").textContent, "Alarm dimatikan.");
+  });
+
+  it("hide their toggle and close the panel once the PC lists none", async () => {
+    const page = await openQuick();
+    page.setActions({ groups: [] });
+
+    document.dispatch("visibilitychange");
+    await settle();
+
+    assert.equal(page.element("quick-toggle").hidden, true);
+    assert.equal(page.element("quick").hidden, true);
+  });
+
+  it("keep the buttons shown when the PC cannot list them again", async () => {
+    const page = await openQuick();
+    page.setActions(null);
+
+    document.dispatch("visibilitychange");
+    await settle();
+
+    assert.deepEqual(
+      quickGroups(page).map(({ heading }) => heading),
+      ["Lampu kamar", "Rutinitas"],
+    );
+    assert.equal(page.element("quick").hidden, false);
+  });
+
+  it("are left as they are when the PC lists the same buttons", async () => {
+    const page = await openQuick();
+    const lamp = quickButton(page, "Nyala");
+
+    document.dispatch("visibilitychange");
+    await settle();
+
+    assert.equal(quickButton(page, "Nyala"), lamp);
+  });
+
+  it("are not read again while a press runs", async () => {
+    const page = await openQuick();
+    const held = holdActions(page);
+    await press(page, "Nyala");
+    const listed = page.requests.filter(({ route }) => route === "/actions").length;
+
+    document.dispatch("visibilitychange");
+    await settle();
+    held.answer();
+    await settle();
+
+    assert.equal(page.requests.filter(({ route }) => route === "/actions").length, listed);
   });
 
   it("take the viewfinder's place, and give it back", async () => {

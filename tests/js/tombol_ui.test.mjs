@@ -21,6 +21,19 @@ const QUICK = {
   ],
 };
 const LAMP_ON = { ok: true, message: "Lampu kamar: perintah 'on' berhasil (simulasi)." };
+// The same buttons while an alarm rings on the PC: its group comes first.
+const RINGING = {
+  groups: [
+    {
+      name: "Alarm",
+      actions: [
+        { id: "al.stop", label: "Matikan alarm" },
+        { id: "al.snooze", label: "Tunda 5 menit" },
+      ],
+    },
+    ...QUICK.groups,
+  ],
+};
 
 class FakeElement {
   constructor(tagName, id = "") {
@@ -81,8 +94,9 @@ const saved = {};
 
 /**
  * Loads tombol.js afresh against a page whose `actions` answers `actions` with `listStatus` (or fails like a closed
- * server with `listError`), and whose `action` answers `actionReply` with `actionStatus`. Every request is recorded in
- * `requests` ({route, init}).
+ * server with `listError`; the test changes the list with `setActions`), and whose `action` answers `actionReply` with
+ * `actionStatus`. Every request is recorded in `requests` ({route, init}). The page's timers that repeat are recorded
+ * in `intervals` ({callback, ms}) and never run by themselves; `window` is a fake element.
  */
 async function openPage({
   actions = QUICK,
@@ -94,11 +108,14 @@ async function openPage({
   const elements = new Map(ELEMENT_IDS.map((id) => [id, new FakeElement(id === "groups" ? "section" : "p", id)]));
   elements.get("message").textContent = "Memuat tombol…";
   const requests = [];
+  const intervals = [];
   const fakes = {
     document: {
       getElementById: (id) => elements.get(id) ?? null,
       createElement: (tagName) => new FakeElement(tagName),
     },
+    window: new FakeElement("window"),
+    setInterval: (callback, ms) => intervals.push({ callback, ms }),
     fetch: async (route, init) => {
       requests.push({ route, init });
       if (route === "actions") {
@@ -116,7 +133,19 @@ async function openPage({
   loads += 1;
   await import(`${TOMBOL_JS.href}?load=${loads}`);
   await settle();
-  return { element: (id) => elements.get(id), requests };
+  const setActions = (listed) => {
+    actions = listed;
+  };
+  return { element: (id) => elements.get(id), requests, intervals, setActions };
+}
+
+const listRequests = (page) => page.requests.filter(({ route }) => route === "actions");
+
+/** Runs the page's repeating read of the buttons once, as its interval would. */
+async function readAgain(page) {
+  const [{ callback }] = page.intervals;
+  callback();
+  await settle();
 }
 
 afterEach(() => {
@@ -310,5 +339,94 @@ describe("PC quick-button page", () => {
 
     assert.equal(page.element("notice").textContent, deskText("closed"));
     assert.equal(buttonOf(page, "Nyala").attributes.get("aria-busy"), "false");
+  });
+
+  it("reads the buttons again every fifteen seconds, an alarm's first", async () => {
+    const page = await openPage();
+    page.setActions(RINGING);
+
+    await readAgain(page);
+
+    assert.deepEqual(
+      page.intervals.map(({ ms }) => ms),
+      [15_000],
+    );
+    assert.deepEqual(
+      groupsOf(page).map(({ heading }) => heading.textContent),
+      ["Alarm", "Lampu kamar", "Rutinitas"],
+    );
+    assert.equal(page.element("message").hidden, true);
+  });
+
+  it("reads the buttons again when the window gets the focus", async () => {
+    const page = await openPage();
+    page.setActions(RINGING);
+
+    window.dispatch("focus");
+    await settle();
+
+    assert.equal(groupsOf(page)[0].heading.textContent, "Alarm");
+  });
+
+  it("sends the alarm's stop like any button", async () => {
+    const page = await openPage({ actions: RINGING, actionReply: { ok: true, message: "Alarm dimatikan." } });
+
+    await press(page, "Matikan alarm");
+
+    assert.equal(actionRequests(page).at(-1).init.body, '{"id":"al.stop"}');
+    assert.equal(page.element("notice").textContent, "Alarm dimatikan.");
+  });
+
+  it("says so when the PC lists no buttons any more, and shows them when they come back", async () => {
+    const page = await openPage();
+    page.setActions({ groups: [] });
+
+    await readAgain(page);
+    const emptied = [page.element("message").hidden, page.element("message").textContent];
+    const groupsHidden = page.element("groups").hidden;
+    page.setActions(QUICK);
+    await readAgain(page);
+
+    assert.deepEqual(emptied, [false, "Belum ada tombol cepat di PC."]);
+    assert.equal(groupsHidden, true);
+    assert.equal(page.element("message").hidden, true);
+    assert.equal(page.element("groups").hidden, false);
+    assert.equal(groupsOf(page).length, 2);
+  });
+
+  it("keeps the buttons it shows when they cannot be read again", async () => {
+    const page = await openPage();
+    globalThis.fetch = async () => {
+      throw new TypeError("Failed to fetch");
+    };
+
+    await readAgain(page);
+
+    assert.equal(page.element("message").hidden, true);
+    assert.equal(groupsOf(page).length, 2);
+  });
+
+  it("leaves the buttons as they are when the PC lists the same", async () => {
+    const page = await openPage();
+    const lamp = buttonOf(page, "Nyala");
+
+    await readAgain(page);
+
+    assert.equal(buttonOf(page, "Nyala"), lamp);
+  });
+
+  it("does not read the buttons again while a press runs", async () => {
+    const page = await openPage();
+    const held = holdActions(page);
+    await press(page, "Nyala");
+    const listed = listRequests(page).length;
+
+    await readAgain(page);
+    window.dispatch("focus");
+    await settle();
+    held.answer();
+    await settle();
+
+    assert.equal(listRequests(page).length, listed);
   });
 });

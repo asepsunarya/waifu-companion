@@ -18,7 +18,9 @@
 //
 // When the PC has quick buttons (SPEC, "tombol cepat di HP (v1.35)"), the lamp button left of the text box opens a
 // panel of them in the viewfinder's place: the owner's switches and routines, run on the PC without asking her. A tap
-// sends the button's id to POST /action (actions.js) and the PC's answer shows as a toast; one runs at a time.
+// sends the button's id to POST /action (actions.js) and the PC's answer shows as a toast; one runs at a time. The
+// buttons are read again whenever the page shows again and the panel opens, since an alarm that rings on the PC (SPEC,
+// "alarm bangun (v1.46)") adds its own, first: the panel then opens on them.
 import { actionOutcome, actionRequest, parseActionGroups } from "./actions.js";
 import {
   DEFAULT_OWNER_CALL,
@@ -52,6 +54,8 @@ import {
 const CONFIG_URL = "/config.json";
 const ACTIONS_URL = "/actions";
 const ACTION_URL = "/action";
+// The quick buttons of an alarm that rings on the PC.
+const ALARM_PREFIX = "al.";
 const CHAT_URL = "/chat";
 const TALK_URL = "/talk";
 const PAIR_URL = "/pair";
@@ -144,6 +148,8 @@ let viewfinder = null;
 // Every quick button in the panel, and whether one of them is running on the PC.
 let quickButtons = [];
 let quickRunning = false;
+// The groups the panel shows, as JSON, so a new listing rebuilds it only when they changed.
+let quickListed = "[]";
 
 class CoreMissingError extends Error {}
 
@@ -799,16 +805,35 @@ async function cameraTurnedOff() {
 // --- The quick buttons ------------------------------------------------------------------------------
 
 /**
- * Reads the PC's quick buttons and shows their toggle when there are any; without them, or on a problem, the page
- * stays as it was, without a word.
+ * Reads the PC's quick buttons and shows them when they changed: their toggle when there are any, none when there are
+ * none. A problem, or an answer it cannot read, keeps what shows, without a word; so does a press that runs meanwhile.
  */
 async function loadQuick() {
+  if (quickRunning) return;
   const result = await requestCyrene(fetch, ACTIONS_URL);
   const groups = result.problem ? null : parseActionGroups(result.data);
-  if (!groups?.length) return;
+  if (groups === null || quickRunning) return;
+  const listed = JSON.stringify(groups);
+  if (listed === quickListed) return;
+  quickListed = listed;
+  showQuick(groups);
+}
+
+/**
+ * Builds the panel of `groups` and shows or hides its toggle. An alarm's buttons (ids `al.`) open the panel, so a tap
+ * on the alarm's push lands on "Matikan alarm"; an open panel puts the focus on its first button, which it replaced.
+ */
+function showQuick(groups) {
   quickButtons = [];
   page.quick.replaceChildren(...groups.map(quickGroup));
-  page.quickToggle.hidden = false;
+  page.quickToggle.hidden = groups.length === 0;
+  if (groups.length === 0) {
+    setQuickOpen(false);
+    return;
+  }
+  const ringing = groups.some(({ actions }) => actions.some(({ id }) => id.startsWith(ALARM_PREFIX)));
+  if (ringing && page.quick.hidden) setQuickOpen(true);
+  if (!page.quick.hidden) quickButtons[0]?.focus();
 }
 
 /** One group of the panel: its heading, which names the group for a screen reader, over its buttons. */
@@ -851,7 +876,9 @@ function setQuickOpen(open) {
 function toggleQuick() {
   const open = page.quick.hidden;
   setQuickOpen(open);
-  if (open) quickButtons[0]?.focus();
+  if (!open) return;
+  quickButtons[0]?.focus();
+  loadQuick();
 }
 
 /** Escape in the open panel, or on its toggle, closes it and leaves the focus on the toggle. */
@@ -915,7 +942,10 @@ page.talk.addEventListener("keyup", (event) => {
 });
 page.talk.addEventListener("blur", cancelTalk);
 document.addEventListener("visibilitychange", () => {
-  if (!document.hidden) return;
+  if (!document.hidden) {
+    loadQuick();
+    return;
+  }
   cancelTalk();
   closeViewfinder();
 });

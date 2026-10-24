@@ -2,13 +2,15 @@
 // http://127.0.0.1:<port>/t/<token>/ and opens it in the PC's browser; every URL here is relative, so it keeps the
 // token's prefix. The page shows the phone's buttons (GET actions), always open: the owner's switches and routines,
 // run on the PC without asking Cyrene. A click sends the button's id to POST action (actions.js) and the PC's answer
-// shows as a toast; one runs at a time.
+// shows as a toast; one runs at a time. The buttons are read again every REFRESH_MS and when the window gets the focus,
+// since an alarm that rings (SPEC, "alarm bangun (v1.46)") adds its own, first, while it rings.
 import { actionOutcome, actionRequest, parseActionGroups } from "../phone/actions.js";
 import { deskText, requestDesk } from "./desk.js";
 
 const ACTIONS_URL = "actions";
 const ACTION_URL = "action";
 const NOTICE_MS = 6000;
+const REFRESH_MS = 15_000;
 const NO_BUTTONS_TEXT = "Belum ada tombol cepat di PC.";
 
 const page = {
@@ -18,30 +20,48 @@ const page = {
 };
 
 let buttons = [];
-// Whether the PC is running a button; clicks meanwhile are ignored.
+// Whether the PC is running a button; clicks meanwhile are ignored, and the buttons are not read again.
 let running = false;
 let noticeTimer = 0;
+// The groups the page shows, as JSON, so a new listing rebuilds them only when they changed; null before the first.
+let listed = null;
 
-/** Reads the PC's buttons and shows them, or says in the message why they cannot show. */
+/** Reads the PC's buttons and shows them, or says in the message why they cannot show; then reads them again. */
 async function boot() {
+  await loadButtons({ first: true });
+  window.addEventListener("focus", () => loadButtons({ first: false }));
+  setInterval(() => loadButtons({ first: false }), REFRESH_MS);
+}
+
+/**
+ * Reads the PC's buttons and shows them when they changed. A problem, or an answer it cannot read, is said in the
+ * message the first time; later the buttons shown stay. A press that runs meanwhile keeps them as they are.
+ */
+async function loadButtons({ first }) {
+  if (running) return;
   const result = await requestDesk(fetch, ACTIONS_URL);
-  if (result.problem) {
-    showMessage(deskText(result.problem));
-    return;
-  }
-  const groups = parseActionGroups(result.data);
+  if (running) return;
+  const groups = result.problem ? null : parseActionGroups(result.data);
   if (groups === null) {
-    showMessage(deskText("bad_reply"));
+    if (first) showMessage(deskText(result.problem ?? "bad_reply"));
     return;
   }
+  const shown = JSON.stringify(groups);
+  if (shown === listed) return;
+  listed = shown;
+  showGroups(groups);
+}
+
+/** The groups in place of the message, or the message that there are none. */
+function showGroups(groups) {
+  buttons = [];
+  page.groups.replaceChildren(...groups.map(quickGroup));
+  page.groups.hidden = groups.length === 0;
   if (groups.length === 0) {
     showMessage(NO_BUTTONS_TEXT);
     return;
   }
-  buttons = [];
-  page.groups.replaceChildren(...groups.map(quickGroup));
   page.message.hidden = true;
-  page.groups.hidden = false;
 }
 
 function showMessage(text) {
