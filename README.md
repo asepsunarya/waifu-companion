@@ -66,6 +66,7 @@ Cyrene : "Komputer mau kumatikan sekarang, Master? Jawab iya kalau jadi." (minta
 - [Tombol cepat di PC](#tombol-cepat-di-pc)
 - [Diagnosa suara](#diagnosa-suara)
 - [Hotkey global](#hotkey-global)
+- [Kamus Cyrene](#kamus-cyrene)
 - [Pemecahan masalah](#pemecahan-masalah)
 - [Checklist uji perangkat keras](#checklist-uji-perangkat-keras)
 - [Privasi](#privasi)
@@ -663,6 +664,7 @@ waifu speaker-test    # skor kecocokan langsung, Ctrl+C untuk berhenti
 | `waifu mic` / `waifu mic --seconds 5` | Cari mic yang mendengar suaramu: tiap mic didengarkan sebentar sambil kamu menyebut "halo Cyrene", lalu baris `audio.input_device` untuk mic terbaik (lihat [Pemecahan masalah](#pemecahan-masalah)) |
 | `waifu voices` | Daftar suara Windows per bahasa, dan suara cadangan offline yang dipakai tiap bahasa |
 | `waifu avatar` / `waifu avatar --demo` | Tampilkan avatar saja, tanpa mendengarkan; `--demo` mengganti ekspresi setiap 3 detik, dan reaksi elusan atau colekan dicetak di terminal (lihat [Avatar 3D](#avatar-3d-つくよみちゃん) dan [Avatar Live2D & interaksi](#avatar-live2d--interaksi)) |
+| `waifu lafal list` / `add <kata> <bacaan>` / `remove <kata>` | Lihat, tambah, dan hapus cara baca kata untuk suara Indonesianya (lihat [Kamus Cyrene](#kamus-cyrene)) |
 | `waifu memory list` / `add` / `forget` / `clear` | Lihat, tambah, dan hapus catatan ingatannya (lihat [Ingatan Cyrene](#ingatan-cyrene)) |
 | `waifu schedule list` / `cancel <id>` / `clear` | Lihat dan batalkan pengingat dan perintah terjadwal (lihat [Jadwal, pengingat, dan rutinitas](#jadwal-pengingat-dan-rutinitas)) |
 | `waifu routine list` / `run <nama>` | Lihat rutinitas dari `config.yaml`, atau jalankan satu sekarang (`--dry-run`: perangkat simulasi) |
@@ -712,6 +714,8 @@ Contoh kalimat saat `waifu run`:
 - Ctrl+Alt+C, juga di tengah game layar penuh: dia langsung mendengarkan tanpa dipanggil
   namanya; Ctrl+Alt+Q: dia berhenti mendengarkan sampai ditekan lagi (lihat
   [Hotkey global](#hotkey-global)).
+- "Cyrene, cara baca Acheron itu A Ke Ron.": mulai kalimat berikutnya dia membacanya begitu
+  (lihat [Kamus Cyrene](#kamus-cyrene)).
 
 Obrolan dilupakan setelah 10 menit tanpa percakapan atau 40 giliran
 (`assistant.session_idle_minutes`, `assistant.max_session_turns`). Hal penting tentang
@@ -6341,6 +6345,94 @@ tidak pernah terlihat oleh Cyrene, dan log hanya menulis kombinasi dan aksinya.
 `data\listen_pause.json` berisi jam mulai dan selesai selama dia tidak mendengarkan, lalu
 dihapus; `data\hotkeys.json` berisi tombol dan nomor proses `waifu run` selama dia jalan.
 
+## Kamus Cyrene
+
+Dua kamus kecil supaya Cyrene lebih tepat mendengar dan mengucapkan kata-kata dunianya sendiri:
+kata yang ditunggu Whisper, dan cara baca kata untuk suara Indonesianya. Keduanya sudah menyala
+tanpa pengaturan.
+
+### Kata yang ditunggu Whisper
+
+Whisper mendapat daftar pendek kata yang sering kamu ucapkan ke Cyrene (`hotwords` di
+faster-whisper), urut dari yang paling penting:
+
+1. namanya dan `assistant.wake_words`;
+2. nama setiap perangkat di `devices`, lalu aliasnya;
+3. nama rutinitas (`mau_tidur` menjadi "mau tidur") dan nama aplikasi perangkat `type: apps`;
+4. kalau teman gacha menyala, game di `gacha.games`: "HSR", "Honkai: Star Rail", "Genshin",
+   "Genshin Impact", "ZZZ", "Zenless Zone Zero";
+5. nama karakter milikmu, paling banyak 10 per game, yang paling langka dan levelnya paling
+   tinggi dulu. Nama ini baru masuk setelah kamu menanyakan karakter game itu (misalnya
+   "karakter HSR-ku siapa aja?") selama `waifu run` ini, dan hilang saat `waifu run` dijalankan
+   ulang. Cyrene tidak pernah membuka HoYoLAB hanya untuk daftar ini.
+
+Daftarnya paling banyak 40 kata dan 400 karakter; kalau penuh, nama karakter yang dibuang lebih
+dulu. Kalimat contoh untuk Whisper tetap pendek ("Cyrene, tolong nyalakan lampu kamar.").
+`config.yaml` yang diubah baru dipakai setelah `waifu run` dijalankan ulang. Saat nama karakter
+masuk, log hanya menyebut jumlah katanya, misalnya `Whisper hotwords now hold 31 terms`.
+
+Daftar ini membuat Whisper lebih condong ke kata-kata itu, jadi tulis alias seperlunya: alias
+yang terlalu umum bisa membuat Whisper menulisnya di tempat kata lain. Verifikasi suara dan
+deteksi suara tetap berjalan sebelum Whisper.
+
+### Cara baca kata
+
+Suara Indonesia (edge-tts dan suara cadangan Windows) membaca singkatan seperti kata biasa,
+jadi ada aturan bawaan:
+
+| Kata | Dibaca |
+|---|---|
+| HSR | Ha Es Er |
+| ZZZ | Zet Zet Zet |
+| HoYoLAB | Hoyolab |
+| HoYoverse | Hoyovers |
+
+Aturan bawaan hanya cocok dengan huruf besar-kecil persis seperti itu, jadi "Zzz..." (suara
+tidurnya) tetap. Kata hanya diganti kalau berdiri sendiri: "HSR-ku" dibaca "Ha Es Er-ku", tapi
+"HSRX" tidak.
+
+Ajari kata lain lewat suara:
+
+> "Cyrene, cara baca Acheron itu A Ke Ron."
+>
+> "Oke Master. Mulai sekarang kubaca: A Ke Ron."
+
+Cara bacanya langsung dipakai mulai kalimat berikutnya, tanpa otak (seketika, tanpa biaya).
+Kalimatnya harus persis "cara baca <kata> itu <bacaan>": katanya 1 sampai 3 kata, bacaannya 1
+sampai 8 kata. Kalimat tanya ("cara baca HSR itu gimana?", atau yang memuat kata seperti apa,
+gimana, bener, atau nggak) diteruskan ke otak seperti biasa dan tidak dicatat. Kalimat ini juga
+jalan dalam 8 detik sesudah dia menjawab tanpa memanggil namanya, dan saat mode tamu. Dia hanya
+mengulang bacaannya, tidak katanya, karena kata itu sekarang dibaca dengan aturan barunya.
+
+Atau lewat terminal:
+
+```powershell
+waifu lafal add Acheron A Ke Ron
+waifu lafal add "Star Rail" Star Rel    # kata lebih dari satu: pakai tanda kutip
+waifu lafal list                        # aturanmu, lalu aturan bawaan yang ditandai (bawaan)
+waifu lafal remove Acheron
+```
+
+Aturanmu cocok dengan huruf besar atau kecil apa pun, dan aturanmu untuk kata yang sama dengan
+aturan bawaan menggantikannya (misalnya `waifu lafal add HSR Honkai Star Rail`). Aturan bawaan
+tidak bisa dihapus, hanya diganti. Paling banyak 200 aturan. `waifu run` yang sedang berjalan
+memakai perubahan dari terminal mulai kalimat berikutnya, tanpa dijalankan ulang; `waifu say`
+dan `waifu chat --speak` juga memakainya.
+
+Yang tidak pernah diubah: suara Jepang, teks jawaban di HP (suaranya di HP tetap memakai
+aturan), riwayat obrolan, dan log. Aturan juga berlaku untuk kata di dalam judul atau alamat web
+yang dia bacakan.
+
+Aturanmu disimpan di `data\tts_lexicon.json` (`tts.lexicon_path`), bukan di `config.yaml`.
+File yang rusak (misalnya salah edit) dipindah menjadi `tts_lexicon.json.corrupt-<tanggal>`, dan
+dia memakai aturan bawaan saja sampai ada aturan baru.
+
+### Privasi kamus
+
+Kamus hanya berisi kata dan cara bacanya, di PC ini, dan tidak dikirim ke mana pun. Nama
+karakter untuk Whisper hanya ada di memori selama `waifu run` jalan. Log hanya menyebut jumlah
+kata yang ditunggu dan bahwa ada cara baca baru, tidak pernah katanya.
+
 ## Pemecahan masalah
 
 Log `waifu run` tampil di terminal dalam bahasa Inggris. Baris seperti
@@ -6437,7 +6529,8 @@ sehari-hari yang mirip namanya ("sirene", "sirine", "saring") tidak pernah
 dianggap salah eja. Kata itu hanya memanggilnya kalau kamu menulisnya persis di
 `wake_words`, dan sejak itu obrolan biasa seperti "ada suara sirene" juga
 memanggilnya. Jadi tambahkan hanya kalau Whisper memang sering menulis namanya
-begitu.
+begitu. Namanya dan `wake_words` juga diberikan ke Whisper sebagai kata yang ditunggu (lihat
+[Kamus Cyrene](#kamus-cyrene)).
 
 **Suaramu sendiri ditolak.** Log menampilkan
 `Ignoring another speaker (similarity 0.22)`. Turunkan `speaker.threshold` sedikit
@@ -7133,6 +7226,15 @@ di sampingnya)
       "Cyrene, nyalakan lampu kamar" tidak dijawab, tapi pengingat tetap diucapkan. **Dengar
       lagi** di HP: dia mendengarkan lagi dan tulisan di avatar hilang.
 
+**Kamus Cyrene** (lihat [Kamus Cyrene](#kamus-cyrene))
+
+- [ ] `waifu say "Pity HSR-ku 70, cek di HoYoLAB"` terdengar "Ha Es Er" dan "Hoyolab".
+- [ ] `waifu say --fallback "Main ZZZ dulu"` terdengar "Zet Zet Zet" dengan suara Windows.
+- [ ] "Cyrene, cara baca Acheron itu A Ke Ron": dia bilang "Oke Master. Mulai sekarang kubaca:
+      A Ke Ron.", dan `waifu lafal list` menampilkan `Acheron: A Ke Ron`.
+- [ ] Dengan TV menyala, "Cyrene, nyalakan" dengan alias lampumu lebih sering tertulis benar di
+      log `Heard (id): ...`.
+
 **Belajar bahasa Jepang** (lihat [Belajar bahasa Jepang](#belajar-bahasa-jepang))
 
 - [ ] Dengan `japanese.enabled: true`, `waifu check` menampilkan `✓ Belajar bahasa Jepang: 0 dari
@@ -7247,6 +7349,9 @@ di sampingnya)
   pernah tombol lain yang kamu ketik. `data\listen_pause.json` ada hanya selama dia tidak
   mendengarkan, dan `data\hotkeys.json` selama `waifu run` jalan. Lihat
   [Privasi hotkey](#privasi-hotkey).
+- **Kamus Cyrene:** cara baca kata ada di `data\tts_lexicon.json`, hanya di PC ini; nama
+  karakter untuk Whisper hanya di memori selama `waifu run` jalan. Lihat
+  [Privasi kamus](#privasi-kamus).
 - **Daftar tugas** ada di `data\todo.json`, hanya di PC ini; rahasia seperti kata sandi atau
   nomor kartu tidak pernah disimpan. Lihat
   [File data\todo.json dan privasi tugas](#file-datatodojson-dan-privasi-tugas).

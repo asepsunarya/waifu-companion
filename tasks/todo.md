@@ -2709,9 +2709,9 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 281, 282, 284, 285 · **Files:** `src/waifu/config.py`, `src/waifu/cli.py`, `config.example.yaml`, `tests/test_config.py`, `tests/test_cli.py` · **Scope:** M
 
-## Task 287: Docs
+## Task 287: Docs ✅
 
 **Acceptance criteria:**
-- [ ] README "Kamus Cyrene" with a contents entry and checklist items; CHANGELOG v1.49; full suite, ruff, and JS tests clean
+- [x] README "Kamus Cyrene" with a contents entry and checklist items; CHANGELOG v1.49; full suite, ruff, and JS tests clean
 
 **Dependencies:** 286 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S

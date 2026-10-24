@@ -1080,11 +1080,11 @@ strict tools, 17 of 24 optional parameters, and 0 of 16 unions stay.
 - [x] Task 284: the speech router rewrites the Indonesian runs
 - [x] Task 285: teaching by voice: the "cara baca X itu Y" gate and `_teach_reading`
 - [x] Task 286: the CLI: `waifu lafal`, `tts.lexicon_path`, and the wiring of `run`, `chat`, and `say`
-- [ ] Task 287: README, CHANGELOG
+- [x] Task 287: README, CHANGELOG
 
 ### Checkpoint: Kamus Cyrene
-- [ ] Python suite, ruff, and JS tests clean; no test loaded Whisper, played audio, or read the repository's `data/`; the strict-tool budget unchanged (18 of 20 strict tools, 17 of 24 optional parameters, 0 of 16 unions)
-- [ ] By hand: in a scratch folder with a fake Whisper model and fake voices, the hotwords reach both decodes and grow after a roster read, "HSR" is read "Ha Es Er" by the Indonesian voice only, and "cara baca X itu Y" writes the dictionary
+- [x] Python suite, ruff, and JS tests clean; no test loaded Whisper, played audio, or read the repository's `data/`; the strict-tool budget unchanged (18 of 20 strict tools, 17 of 24 optional parameters, 0 of 16 unions) (2026-10-25: 10751 pytest and 601 JS tests, ruff clean; test_cli.py now refuses any `Lexicon` outside tmp_path, as for the other stores, and test_voice_tts.py builds its routers without a rules file; nothing under src/waifu/brain changed and a test pins that `on_roster` leaves the game data tools' specs as they were, so no tool schema moved)
+- [x] By hand: in a scratch folder with a fake Whisper model and fake voices, the hotwords reach both decodes and grow after a roster read, "HSR" is read "Ha Es Er" by the Indonesian voice only, and "cara baca X itu Y" writes the dictionary (2026-10-25, a scratch script, deleted afterwards, over the real Vocabulary, WhisperStt, GameDataTools, Lexicon, SpeechRouter, and Assistant with a fake Whisper model that detected English first, fake voices, a fake brain, and a fake HSR source: both decodes of every utterance got the same hotwords and never a prefix; "Cyrene, cara baca Acheron itu A Ke Ron." answered "Oke Master. Mulai sekarang kubaca: A Ke Ron." without the brain and wrote `{"version":1,"rules":{"Acheron":"A Ke Ron"}}`; "cara baca HSR itu gimana?" went to the brain; a `game_characters` read added "Acheron, Kafka, Pela" at the end of the hotwords ("Whisper hotwords now hold 15 terms"), used by the next decodes; the reply "Pity HSR-mu 70, Acheron siap. はい、Master!" reached the Indonesian voice as "Pity Ha Es Er-mu 70, A Ke Ron siap." and "Master!", the Japanese voice only as "はい、"; faster-whisper 1.2.1's own `get_prompt` put the hotwords in the prompt without a prefix and left them out with one; the Whisper tokenizer file alone (no model loaded) counted a realistic 400-character list of names at 147 tokens)
 - [ ] On the owner's PC: "Cyrene" and a device alias are heard more often with the TV on, and Edge says "Ha Es Er"
 
 ## Risks and Mitigations
