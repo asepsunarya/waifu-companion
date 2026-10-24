@@ -322,6 +322,9 @@
         switch (event.type) {
           case "hello":
             showViewerSettings(event);
+            // A new connection, maybe to a new run that cleared the pause without a word: the bus
+            // replays a pause still holding right after hello.
+            hearingElement.hidden = true;
             break;
           case "state":
             renderer?.setState(event.state, event.followup_s);

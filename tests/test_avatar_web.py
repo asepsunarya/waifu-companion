@@ -183,6 +183,14 @@ def test_the_page_shows_when_she_does_not_hear_master_also_as_a_mascot() -> None
     assert not any("#hearing" in selector for selector in mascot_selectors)
 
 
+def test_a_new_connection_s_hello_hides_a_hearing_badge_left_by_an_earlier_run() -> None:
+    # A browser tab outlives `waifu run`, whose restart clears the pause without a hearing event;
+    # within a run, hello comes first and the bus then replays a pause still holding.
+    (hello,) = re.findall(r'case "hello":(.*?)break;', page_text(), re.DOTALL)
+
+    assert "hearingElement.hidden = true;" in hello
+
+
 def test_the_page_has_no_window_drag_region() -> None:
     # The mascot is dragged by interaction.js through Electron; a drag region would
     # swallow the pats, pokes, and double-clicks on her.
