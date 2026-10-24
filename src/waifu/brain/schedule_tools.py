@@ -208,7 +208,7 @@ class ScheduleTools:
         mapping = _arguments_mapping(arguments, allowed=_SCHEDULE_KEYS)
         at = parse_local_time(_text(mapping, "at"))
         entry = self._store.add(at, _repeat(mapping), self._action(mapping))
-        return _to_json({"ok": True, "id": entry.id, **_when_json(entry)}), False
+        return _to_json({"ok": True, "id": entry.id, **when_json(entry)}), False
 
     def _action(self, arguments: Mapping[str, object]) -> Action:
         """The one action the arguments name; null counts as left out, as Ollama sends it."""
@@ -353,10 +353,10 @@ def _repeat(arguments: Mapping[str, object]) -> str:
 
 
 def _entry_json(entry: Entry) -> dict[str, object]:
-    return {"id": entry.id, **_when_json(entry), "action": _describe_action(entry.action)}
+    return {"id": entry.id, **when_json(entry), "action": _describe_action(entry.action)}
 
 
-def _when_json(entry: Entry) -> dict[str, object]:
+def when_json(entry: Entry) -> dict[str, object]:
     """Its next time and its repeat, with the weekday or the day of the month it repeats on.
 
     The weekday is named so the model never works it out from the date, and a date that was
