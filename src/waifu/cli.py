@@ -44,6 +44,7 @@ import numpy as np
 from pydantic import ValidationError
 
 from waifu import autostart, memory
+from waifu.alarm import AlarmBell
 from waifu.app import Assistant, AudioPlayer, PhoneAnswers, split_reply
 from waifu.autostart import RunKey, WindowsRunKey
 from waifu.avatar.bus import STATES as AVATAR_STATES
@@ -53,6 +54,7 @@ from waifu.avatar.interactions import InteractionHandler
 from waifu.avatar.lipsync import SHAPE_CENTRE_HZ
 from waifu.avatar.server import AvatarError, AvatarServer, file_under
 from waifu.avatar.window import AvatarWindow
+from waifu.brain.alarm_tools import AlarmTools
 from waifu.brain.attachments import CameraTurn, TurnImages
 from waifu.brain.base import Brain, ToolCallRecord
 from waifu.brain.confirm import ConfirmationGate
@@ -288,7 +290,7 @@ from waifu.voice.segmenter import EnergySegmenter, frame_db
 from waifu.voice.speaker import MIN_ENROLL_SAMPLES, EcapaEmbedder, SpeakerError, SpeakerVerifier
 from waifu.voice.stt import CUDA_HINT, SttError, WhisperStt, register_cuda_dll_dirs
 from waifu.voice.tts import SpeechRouter, TtsError, build_speech_router
-from waifu.voice.volume import LEVELS, VolumePlayer
+from waifu.voice.volume import LEVELS, NORMAL, LevelHold, VolumePlayer
 from waifu.voice.windows_voices import (
     WindowsVoice,
     WindowsVoiceError,
@@ -1439,9 +1441,14 @@ def _listen(args: argparse.Namespace) -> int:
     # afresh as it switches, the briefing leaves Master's tasks out, and the Assistant skips her
     # private turns while it is on and forgets her last words (for "ulangi") as it switches.
     guest_mode = GuestMode(max_hours=config.guest_mode.max_hours)
-    # Her own voice level: her tool sets it, and the player reads it at every clip she says.
+    # Her own voice level: her tool sets it, and the player reads it at every clip she says, except
+    # an alarm's ring, which holds a level of its own for its clip.
     voice_level = _voice_level(config)
+    hold = LevelHold(voice_level.level_now)
     with _session_schedule(config, dry_run=args.dry_run) as schedule:
+        # One bell for the alarms: the scheduler starts it, she rings it, and her tool and the
+        # phone's buttons stop it.
+        alarm = _alarm_bell(config, schedule, dry_run=args.dry_run, day_level=voice_level.day_level)
         # While a game runs (the play time watcher tells it), game mode may hold what she says
         # by herself, and it runs Master's start and stop routines on this run's devices.
         game_mode = _game_mode(config, registry, schedule)
@@ -1460,6 +1467,7 @@ def _listen(args: argparse.Namespace) -> int:
             guest_mode=guest_mode,
             voice_level=voice_level,
             prayer=prayer,
+            alarm=alarm,
         )
         stt = WhisperStt(config.stt, name)
         gate = WakeGate(config.assistant.wake_words, config.assistant.followup_seconds)
@@ -1488,7 +1496,7 @@ def _listen(args: argparse.Namespace) -> int:
                 stt=stt,
                 speech=build_speech_router(config.tts, converter=converter),
                 # Only the PC's speaker: the phone's replies are synthesised apart.
-                player=VolumePlayer(Player(config.audio.output_device), voice_level.level_now),
+                player=VolumePlayer(Player(config.audio.output_device), hold.level_now),
                 gate=gate,
                 verifier=verifier,
                 speaker_check=speaker_check,
@@ -1499,6 +1507,8 @@ def _listen(args: argparse.Namespace) -> int:
                 game_holding=None if game_mode is None else game_mode.holding,
                 guest_mode=guest_mode.is_on,
                 guest_marker=guest_mode.generation,
+                alarm=alarm,
+                hold_level=hold.held,
             )
             reactions = InteractionHandler(
                 config.avatar.interactions,
@@ -1540,7 +1550,9 @@ def _listen(args: argparse.Namespace) -> int:
                         _version_watcher(config, running, assistant, notifier, game_mode),
                         _offers_watcher(config, assistant, notifier, usage, game_mode),
                         # Master set the reminders: they speak in a focus block or a game too.
-                        _masters_reminders(config, schedule, registry, prayer, assistant, notifier),
+                        _masters_reminders(
+                            config, schedule, registry, prayer, assistant, notifier, alarm
+                        ),
                         _briefing_timer(config, assistant, notifier),
                         _weekly_report_timer(config, gacha, assistant, notifier),
                         _journal_timer(config, assistant),
@@ -1554,6 +1566,7 @@ def _listen(args: argparse.Namespace) -> int:
                                 config.routines,
                                 schedule=schedule,
                                 chosen=config.phone.quick_actions,
+                                alarm=alarm,
                             ),
                         ),
                     ):
@@ -1651,6 +1664,9 @@ def _chat(args: argparse.Namespace) -> int:
             build_notifier(config.notify),
             guest_mode=GuestMode(max_hours=config.guest_mode.max_hours),
             voice_level=voice_level,
+            # Its tool stops or snoozes a ring of `waifu run` through the bell's file; nothing
+            # rings in chat, whose scheduler says a due alarm once.
+            alarm=_alarm_bell(config, schedule, dry_run=args.dry_run),
         )
         # One scheduler fires the real schedule, and one teller gives the budget notices: a
         # running `waifu run`, which speaks and pushes, rather than this chat, which would take
@@ -1726,9 +1742,11 @@ def _companion_brain(
     guest_mode: GuestMode,
     voice_level: VoiceLevel,
     prayer: PrayerPlace | None = None,
+    alarm: AlarmBell | None = None,
 ) -> Brain:
     """The brain with `guest_mode`'s tool first, her own voice volume (`voice_level`), then the
-    game tools when they are on, her long-term memory when it is on, her schedule when it is on,
+    game tools when they are on, her long-term memory when it is on, her schedule when it is on
+    (with `alarm`, Master's alarms rung by that bell),
     Master's to-do list when it is on, Master's journal when it is on, with `focus` (only `run`
     has one) Master's focus timer, Master's Japanese lessons when they are on, a look back at
     Master's day when any of the records it reads is on, the day's briefing when it is on, the
@@ -1773,6 +1791,8 @@ def _companion_brain(
                 schedule, registry=registry, routines=config.routines, owner_call=owner_call
             )
         )
+        if alarm is not None:
+            providers.append(AlarmTools(schedule, alarm, guest_mode=guest_mode.is_on))
     if todo is not None:
         providers.append(TodoTools(todo))
     if journal is not None:
@@ -2185,6 +2205,8 @@ def _quick_page(args: argparse.Namespace) -> int:
             schedule=schedule,
             chosen=config.phone.quick_actions,
             where=PC_WHERE,
+            # Another process than `waifu run`: the bell's file shows a ring of the run's.
+            alarm=_alarm_bell(config, schedule, dry_run=args.dry_run),
         )
         groups = actions.groups()
         if not groups:
@@ -3480,12 +3502,20 @@ def _masters_reminders(
     prayer: PrayerPlace | None,
     assistant: Assistant,
     notifier: Notifier | None,
+    alarm: AlarmBell | None,
 ) -> Iterator[None]:
     """The reminders Master asked for while the block runs, queued as his own (`remind`): what
-    he scheduled, and with `prayer` the prayer times. One item of `run`'s watchers, which are
-    at Python's limit of blocks nested in one function."""
+    he scheduled (his alarms rung by `alarm`), and with `prayer` the prayer times. One item of
+    `run`'s watchers, which are at Python's limit of blocks nested in one function."""
     with (
-        _scheduler(config, schedule, registry, announce=assistant.remind, notifier=notifier),
+        _scheduler(
+            config,
+            schedule,
+            registry,
+            announce=assistant.remind,
+            notifier=notifier,
+            alarm=alarm,
+        ),
         _prayer_watcher(config, prayer, assistant, notifier),
     ):
         yield
@@ -3498,8 +3528,11 @@ def _scheduler(
     *,
     announce: Callable[[str, str], None],
     notifier: Notifier | None,
+    alarm: AlarmBell | None = None,
 ) -> AbstractContextManager[object]:
-    """What comes due fires while the block runs; nothing fires with the schedule off."""
+    """What comes due fires while the block runs; nothing fires with the schedule off. With
+    `alarm` a due alarm rings, its first ring pushed (`alarm.push`) with a link to the phone
+    page when there is one; without it, it is said once."""
     if store is None:
         return nullcontext()
     return Scheduler(
@@ -3511,7 +3544,41 @@ def _scheduler(
         grace_minutes=config.schedule.late_grace_minutes,
         title=config.assistant.name,
         owner_call=config.assistant.owner_call,
+        alarm=alarm,
+        alarm_push=config.alarm.push,
+        alarm_click=_phone_page(config),
     )
+
+
+def _alarm_bell(
+    config: AppConfig,
+    schedule: ScheduleStore | None,
+    *,
+    dry_run: bool,
+    day_level: Callable[[], int] = lambda: NORMAL,
+) -> AlarmBell | None:
+    """The bell of Master's alarms for this process, or None with the alarm or the schedule off.
+    A dry run's ring file is in its temporary folder, beside its schedule: its alarms never ring
+    in the real file. `day_level` is her level without whisper mode, the first ring's."""
+    if schedule is None or not config.alarm.enabled:
+        return None
+    settings = config.alarm
+    path = schedule.path.with_name(settings.state_path.name) if dry_run else settings.state_path
+    return AlarmBell(
+        path,
+        schedule,
+        repeat_seconds=settings.repeat_seconds,
+        max_minutes=settings.max_minutes,
+        snooze_minutes=settings.snooze_minutes,
+        day_level=day_level,
+        owner_call=config.assistant.owner_call,
+    )
+
+
+def _phone_page(config: AppConfig) -> str | None:
+    """The phone page's address through Tailscale, for a push to open; None without one."""
+    phone = config.phone
+    return f"https://{phone.host}/" if phone.enabled and phone.host is not None else None
 
 
 def _schedule_list(args: argparse.Namespace) -> int:
@@ -6103,6 +6170,7 @@ def _checks(config_path: Path) -> Iterator[Check]:
     yield _web_search_check(config)
     yield _memory_check(config)
     yield _schedule_check(config)
+    yield _alarm_check(config)
     yield _todo_check(config)
     yield _journal_check(config)
     yield _japanese_check(config)
@@ -6341,6 +6409,39 @@ def _schedule_check(config: AppConfig) -> Check:
             f"{status}; file jadwal yang rusak dipindah ke {', '.join(map(str, moved))} "
             "(cara memulihkannya ada di README, bagian Jadwal, pengingat, dan rutinitas)"
         )
+    return OK, status
+
+
+def _alarm_check(config: AppConfig) -> Check:
+    """How many alarms the schedule holds, how a ring repeats and how long, whether its first
+    ring goes to the phone, that it rings only while `waifu run` runs on an awake PC, until when
+    one rings now, and where a broken ring file was moved, if one was."""
+    if not config.alarm.enabled:
+        return WARN, "Alarm mati"
+    if not config.schedule.enabled:
+        return WARN, "Alarm mati (schedule.enabled: false)"
+    settings = config.alarm
+    path = settings.state_path
+    schedule = _schedule_store(config)
+    try:
+        ringing = _alarm_bell(config, schedule, dry_run=False).ring_state()  # as `run` reads it
+    except OSError as exc:
+        return FAIL, f"File alarm {path} tidak bisa dibaca: {exc}"
+    try:
+        alarms = sum(isinstance(entry.action, AlarmAction) for entry in schedule.entries())
+    except OSError:  # the schedule line above already fails
+        status = "Alarm: "
+    else:
+        status = f"Alarm: {alarms} alarm, "
+    status += f"bunyi tiap {settings.repeat_seconds} detik sampai {settings.max_minutes} menit"
+    if settings.push and config.notify.enabled:
+        status += ", juga ke HP"
+    status += "; hanya saat 'waifu run' jalan dan PC menyala"
+    if ringing is not None:
+        status += f"; sedang berbunyi sampai {ringing.until:%H:%M}"
+    moved = _set_aside_files(path)
+    if moved:
+        return WARN, f"{status}; file alarm yang rusak dipindah ke {', '.join(map(str, moved))}"
     return OK, status
 
 

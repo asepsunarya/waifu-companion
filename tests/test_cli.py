@@ -37,6 +37,7 @@ from tinytuya.core.error_helper import ERR_PAYLOAD, error_json
 from tinytuya.core.XenonDevice import XenonDevice
 
 from waifu import cli
+from waifu.alarm import AlarmBell
 from waifu.app import Assistant
 from waifu.autostart import DEFAULT_DELAY_S, build_command
 from waifu.avatar.bus import STATES
@@ -45,6 +46,7 @@ from waifu.avatar.lipsync import VISEMES, viseme_track
 from waifu.avatar.server import AvatarError
 from waifu.avatar.window import AvatarWindow
 from waifu.brain import claude as claude_module
+from waifu.brain.alarm_tools import AlarmTools
 from waifu.brain.attachments import CameraTurn, TurnImages
 from waifu.brain.base import Brain, BrainReply, ToolCallRecord
 from waifu.brain.finance_tools import FinanceTools
@@ -5565,6 +5567,7 @@ def test_run_with_the_games_on_gives_the_brain_the_game_tools_and_watches_while_
         weekly,
         memory_tools,
         schedule,
+        alarm,
         todo,
         journal,
         focus,
@@ -5581,6 +5584,7 @@ def test_run_with_the_games_on_gives_the_brain_the_game_tools_and_watches_while_
         type(tools),
         type(memory_tools),
         type(schedule),
+        type(alarm),
         type(todo),
         type(journal),
         type(focus),
@@ -5596,6 +5600,7 @@ def test_run_with_the_games_on_gives_the_brain_the_game_tools_and_watches_while_
         GachaTools,
         MemoryTools,
         ScheduleTools,
+        AlarmTools,
         TodoTools,
         JournalTools,
         FocusTools,
@@ -5663,6 +5668,7 @@ def test_run_without_a_cookie_has_the_game_tools_but_no_watcher(
         WeeklyReportTools,
         MemoryTools,
         ScheduleTools,
+        AlarmTools,
         TodoTools,
         JournalTools,
         FocusTools,
@@ -5685,6 +5691,7 @@ def test_run_with_the_games_off_builds_none_of_it(home, run_fakes, brains, games
         VoiceVolumeTools,
         MemoryTools,
         ScheduleTools,
+        AlarmTools,
         TodoTools,
         JournalTools,
         FocusTools,
@@ -5713,6 +5720,7 @@ def test_chat_with_the_games_on_gives_the_brain_the_game_tools(home, brains, gam
         WeeklyReportTools,
         MemoryTools,
         ScheduleTools,
+        AlarmTools,
         TodoTools,
         JournalTools,
         DailyRecapTools,
@@ -6728,7 +6736,7 @@ def test_run_gives_the_brain_her_memory_tools_and_the_notes_at_each_session_star
     brain = brains[0]
     # After guest mode's and the voice volume's tools, then the schedule, to-do, journal,
     # focus, recap, briefing, PC, play time, offers, and music.
-    [_, _, tools, _, _, _, _, _, _, _, _, _, _] = brain.providers
+    [_, _, tools, _, _, _, _, _, _, _, _, _, _, _] = brain.providers
     assert isinstance(tools, MemoryTools)
     assert brain.memory_section() == memory_prompt_section([])
     assert tools.run("remember", {"text": "Master alergi udang."})[1] is False
@@ -6750,6 +6758,7 @@ def test_chat_gives_the_brain_the_notes_saved_in_data_memory_json(home, brains, 
         VoiceVolumeTools,
         MemoryTools,
         ScheduleTools,
+        AlarmTools,
         TodoTools,
         JournalTools,
         DailyRecapTools,
@@ -6775,6 +6784,7 @@ def test_with_the_memory_off_the_brain_gets_neither_the_tools_nor_the_notes(
         GuestTools,
         VoiceVolumeTools,
         ScheduleTools,
+        AlarmTools,
         TodoTools,
         JournalTools,
         *([FocusTools] if argv[0] == "run" else []),
@@ -7096,6 +7106,7 @@ def test_run_gives_the_brain_the_schedule_tools_and_fires_her_schedule_while_she
         VoiceVolumeTools,
         MemoryTools,
         ScheduleTools,
+        AlarmTools,
         TodoTools,
         JournalTools,
         FocusTools,
@@ -7119,6 +7130,134 @@ def test_run_gives_the_brain_the_schedule_tools_and_fires_her_schedule_while_she
     assert brain.registry.get("lampu_kamar").calls == [("off", None)]
     # The routine's last step waits three hours after it ran, in the same schedule.
     assert left == [[(at + timedelta(hours=3), DeviceAction("ac", "off", routine="tidur"))]]
+
+
+def alarm_tools(brain: HouseBrain) -> AlarmTools:
+    [tools] = [provider for provider in brain.providers if isinstance(provider, AlarmTools)]
+    return tools
+
+
+def alarm_file(home: Path) -> Path:
+    """Where the example config keeps the ring of an alarm, inside the test's working directory."""
+    return home / "data" / "alarm.json"
+
+
+def test_run_rings_an_alarm_through_one_bell_for_her_voice_the_brain_the_phone_and_the_schedule(
+    home, run_fakes, brains, schedulers, phone_servers, monkeypatch
+):
+    append_config(home, PHONE_ON)
+    enable_notify(home)
+    notifier = FakeNotifier()
+    use_notifier(monkeypatch, notifier)
+    at = tomorrow_at(6)
+    seen: list[object] = []
+
+    def listen(self, mic, segmenter) -> None:
+        self.ran_with = (mic, segmenter)
+        answer, is_error = alarm_tools(brains[0]).run("alarm", {"at": f"{at:%Y-%m-%d %H:%M}"})
+        schedulers[0].tick_at(at)
+        bell = self.collaborators["alarm"]
+        seen.extend([is_error, bell.ringing(), phone_servers[0].actions.groups()[0].name])
+        seen.append(bell.path.parent == schedulers[0].store.path.parent)
+
+    monkeypatch.setattr(RecordingAssistant, "run", listen)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    assistant = RecordingAssistant.instances[0]
+    bell = assistant.collaborators["alarm"]
+    assert isinstance(bell, AlarmBell)
+    assert schedulers[0].arguments["alarm"] is bell
+    assert schedulers[0].arguments["alarm_push"] is True
+    assert schedulers[0].arguments["alarm_click"] == f"https://{TAILNET_NAME}/"
+    assert seen == [False, True, "Alarm", True]  # the dry run's ring file sits by its schedule
+    assert notifier.sent == [("Cyrene", "Master, bangun! Alarm jam 06.00.", ("alarm_clock",))]
+    assert not alarm_file(home).exists()
+
+
+def test_run_plays_a_ring_at_its_own_level_and_every_other_clip_at_hers(
+    home, run_fakes, brains, player
+):
+    save_voice(home, 50)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    collaborators = RecordingAssistant.instances[0].collaborators
+    with collaborators["hold_level"](80):
+        collaborators["player"].play(np.full(240, 0.5, dtype=np.float32), 24000)
+    collaborators["player"].play(np.full(240, 0.5, dtype=np.float32), 24000)
+    assert player.peaks == [pytest.approx(0.4), pytest.approx(0.25)]
+
+
+def test_run_keeps_the_ring_file_where_the_config_says(home, run_fakes, brains):
+    append_config(home, "alarm:\n  state_path: bangun/alarm.json\n  snooze_minutes: 7\n")
+
+    assert cli.main(["run", "--no-speaker-check"]) == 0
+
+    bell = RecordingAssistant.instances[0].collaborators["alarm"]
+    assert bell.path == Path("bangun/alarm.json")
+    assert bell.snooze_minutes == 7
+
+
+@pytest.mark.parametrize(
+    "switch", [disable_schedule, lambda home: append_config(home, "alarm:\n  enabled: false\n")]
+)
+def test_run_without_the_alarm_or_the_schedule_has_no_bell_and_no_alarm_tool(
+    home, run_fakes, brains, schedulers, switch
+):
+    switch(home)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    assert RecordingAssistant.instances[0].collaborators["alarm"] is None
+    assert not any(isinstance(provider, AlarmTools) for provider in brains[0].providers)
+    assert all(scheduler.arguments.get("alarm") is None for scheduler in schedulers)
+
+
+def test_chat_gives_the_brain_the_alarm_tool_and_its_scheduler_no_bell(
+    home, brains, schedulers, monkeypatch
+):
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+    alarm_file(home).parent.mkdir(parents=True)
+    ring_now(alarm_file(home))
+
+    assert cli.main(["chat"]) == 0
+
+    tools = alarm_tools(brains[0])
+    assert json.loads(tools.run("alarm", {"action": "stop"})[0])["stopped"] is True
+    assert not alarm_file(home).exists()  # a ring of `waifu run` stops through the file
+    assert schedulers[0].arguments.get("alarm") is None
+
+
+def ring_now(path: Path) -> None:
+    """A ring file as `waifu run` writes it while an alarm rings now."""
+    started = datetime.now()
+    path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "started": started.isoformat(timespec="seconds"),
+                "until": (started + timedelta(minutes=10)).isoformat(timespec="seconds"),
+                "alarms": [
+                    {"id": "j1", "at": started.isoformat(timespec="minutes"), "label": None}
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def test_tombol_shows_the_alarm_s_buttons_while_waifu_run_rings(home, monkeypatch):
+    alarm_file(home).parent.mkdir(parents=True)
+    ring_now(alarm_file(home))
+    browser = use_desk_browser(monkeypatch, presses=("al.stop",))
+    monkeypatch.setattr(cli, "sleep", InterruptingSleep(1))
+
+    assert cli.main(["tombol"]) == 0
+
+    assert browser.group_names[0] == "Alarm"
+    assert browser.answers == [{"ok": True, "message": "Alarm dimatikan."}]
+    assert not alarm_file(home).exists()
 
 
 def test_run_keeps_her_schedule_where_and_as_the_config_says(home, run_fakes, brains, schedulers):
@@ -7584,6 +7723,87 @@ def schedule_line(out: str) -> str:
     return line
 
 
+def alarm_line(out: str) -> str:
+    [line] = [line for line in out.splitlines() if "Alarm" in line or "File alarm" in line]
+    return line
+
+
+def test_check_counts_the_alarms_and_says_when_they_ring_right_after_the_schedule(
+    home, nothing_installed, capsys
+):
+    store = saved_schedule(schedule_file(home))
+    store.add(datetime(2026, 10, 14, 6, 0), "weekdays", AlarmAction("kerja"))
+    store.add(datetime(2026, 10, 14, 5, 0), "none", AlarmAction())
+
+    cli.main(["check"])
+
+    lines = capsys.readouterr().out.splitlines()
+    line = alarm_line("\n".join(lines))
+    assert line == (
+        "✓ Alarm: 2 alarm, bunyi tiap 60 detik sampai 10 menit; hanya saat 'waifu run' jalan "
+        "dan PC menyala"
+    )
+    assert lines[lines.index(line) - 1].startswith("✓ Jadwal: 7 entri")
+
+
+def test_check_says_the_first_ring_goes_to_the_phone_too(home, nothing_installed, capsys):
+    enable_notify(home)
+
+    cli.main(["check"])
+
+    assert alarm_line(capsys.readouterr().out) == (
+        "✓ Alarm: 0 alarm, bunyi tiap 60 detik sampai 10 menit, juga ke HP; hanya saat "
+        "'waifu run' jalan dan PC menyala"
+    )
+
+
+def test_check_says_until_when_an_alarm_rings_now(home, nothing_installed, capsys):
+    alarm_file(home).parent.mkdir(parents=True)
+    ring_now(alarm_file(home))
+    until = json.loads(alarm_file(home).read_text(encoding="utf-8"))["until"]
+
+    cli.main(["check"])
+
+    assert alarm_line(capsys.readouterr().out).endswith(f"; sedang berbunyi sampai {until[11:16]}")
+
+
+@pytest.mark.parametrize(
+    ("switch", "expected"),
+    [
+        (lambda home: append_config(home, "alarm:\n  enabled: false\n"), "! Alarm mati"),
+        (disable_schedule, "! Alarm mati (schedule.enabled: false)"),
+    ],
+)
+def test_check_warns_when_the_alarm_is_off(home, nothing_installed, capsys, switch, expected):
+    switch(home)
+
+    cli.main(["check"])
+
+    assert alarm_line(capsys.readouterr().out) == expected
+
+
+def test_check_shows_where_a_broken_ring_file_was_moved(home, nothing_installed, capsys):
+    alarm_file(home).parent.mkdir(parents=True)
+    alarm_file(home).write_text("{rusak", encoding="utf-8")
+
+    cli.main(["check"])
+
+    [moved] = alarm_file(home).parent.glob("alarm.json.corrupt-*")
+    line = alarm_line(capsys.readouterr().out)
+    assert line.startswith("! Alarm: 0 alarm")
+    assert line.endswith(f"; file alarm yang rusak dipindah ke {Path('data') / moved.name}")
+
+
+def test_check_fails_a_ring_file_it_cannot_read(home, nothing_installed, capsys):
+    alarm_file(home).mkdir(parents=True)  # a folder where the file should be
+
+    assert cli.main(["check"]) == 1
+
+    assert alarm_line(capsys.readouterr().out).startswith(
+        f"✗ File alarm {Path('data/alarm.json')} tidak bisa dibaca: "
+    )
+
+
 def routine_lines(out: str) -> list[str]:
     return [line for line in out.splitlines() if "Rutinitas" in line]
 
@@ -7858,6 +8078,7 @@ def test_with_claude_she_may_look_at_the_screen_at_the_configured_size(
         VoiceVolumeTools,
         MemoryTools,
         ScheduleTools,
+        AlarmTools,
         TodoTools,
         JournalTools,
         *([FocusTools] if argv[0] == "run" else []),
@@ -8014,6 +8235,7 @@ def test_without_claude_or_with_vision_off_the_brain_gets_no_screen_tool(
         VoiceVolumeTools,
         MemoryTools,
         ScheduleTools,
+        AlarmTools,
         TodoTools,
         JournalTools,
         DailyRecapTools,
@@ -8308,6 +8530,7 @@ def test_with_the_briefing_off_she_gets_neither_the_tool_nor_the_greeting(
         VoiceVolumeTools,
         MemoryTools,
         ScheduleTools,
+        AlarmTools,
         TodoTools,
         JournalTools,
         *([FocusTools] if argv[0] == "run" else []),
@@ -12801,6 +13024,7 @@ def test_run_gives_the_brain_the_prayer_tool_right_after_the_briefing(
         VoiceVolumeTools,
         MemoryTools,
         ScheduleTools,
+        AlarmTools,
         TodoTools,
         JournalTools,
         FocusTools,
@@ -15177,6 +15401,7 @@ def test_run_gives_the_brain_her_to_do_tools_and_the_tasks_due_today_in_the_brie
         VoiceVolumeTools,
         MemoryTools,
         ScheduleTools,
+        AlarmTools,
         TodoTools,
         JournalTools,
         FocusTools,
@@ -15217,6 +15442,7 @@ def test_chat_gives_the_brain_the_tasks_saved_in_data_todo_json_with_either_back
         VoiceVolumeTools,
         MemoryTools,
         ScheduleTools,
+        AlarmTools,
         TodoTools,
         JournalTools,
         DailyRecapTools,
@@ -15250,6 +15476,7 @@ def test_with_the_todo_list_off_the_brain_gets_neither_the_tools_nor_the_tasks(
         VoiceVolumeTools,
         MemoryTools,
         ScheduleTools,
+        AlarmTools,
         JournalTools,
         *([FocusTools] if argv[0] == "run" else []),
         DailyRecapTools,
@@ -15534,6 +15761,7 @@ def test_run_gives_the_brain_her_journal_tools_right_after_the_to_do_tools(
         VoiceVolumeTools,
         MemoryTools,
         ScheduleTools,
+        AlarmTools,
         TodoTools,
         JournalTools,
         FocusTools,
@@ -15587,11 +15815,12 @@ def test_chat_reads_the_journal_saved_in_data_journal_json_with_either_backend(
 
     assert cli.main(["chat", "--dry-run"]) == 0
 
-    assert [type(tools) for tools in brains[0].providers][:6] == [
+    assert [type(tools) for tools in brains[0].providers][:7] == [
         GuestTools,
         VoiceVolumeTools,
         MemoryTools,
         ScheduleTools,
+        AlarmTools,
         TodoTools,
         JournalTools,
     ]
@@ -15944,6 +16173,7 @@ def test_run_gives_the_brain_the_lesson_tool_right_after_the_focus_timer(
         VoiceVolumeTools,
         MemoryTools,
         ScheduleTools,
+        AlarmTools,
         TodoTools,
         JournalTools,
         FocusTools,
@@ -16234,6 +16464,9 @@ OPEN_TO_GUESTS = frozenset(
         "prayer_times",
         # The weather of the days ahead at the city the briefing already names: nothing private.
         "weather_forecast",
+        # Setting, stopping, or snoozing an alarm is a control, and an alarm rings in any mode;
+        # the tool itself closes its list and cancel while guest mode is on.
+        "alarm",
     }
 )
 
@@ -16293,6 +16526,7 @@ def test_the_claude_request_with_every_tool_on_stays_within_the_strict_tool_limi
         "prayer_times",
         "weather_forecast",
         "daily_recap",
+        "alarm",
         *FINANCE_TOOLS,
     } <= names
     # Every tool is either closed in guest mode or still open: a new one must be sorted.
@@ -16331,6 +16565,7 @@ def test_the_claude_request_with_every_tool_on_stays_within_the_strict_tool_limi
         "prayer_times",
         "weather_forecast",
         "daily_recap",
+        "alarm",
     }
     assert not not_strict & {tool["name"] for tool in strict}
 
@@ -16394,6 +16629,7 @@ def test_run_and_chat_give_the_brain_the_music_tool_with_either_backend(
         VoiceVolumeTools,
         MemoryTools,
         ScheduleTools,
+        AlarmTools,
         TodoTools,
         JournalTools,
         *([FocusTools] if argv[0] == "run" else []),
@@ -16494,6 +16730,7 @@ def test_with_music_off_the_brain_gets_no_music_tool(
         VoiceVolumeTools,
         MemoryTools,
         ScheduleTools,
+        AlarmTools,
         TodoTools,
         JournalTools,
         *([FocusTools] if argv[0] == "run" else []),
