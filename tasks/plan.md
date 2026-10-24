@@ -1025,7 +1025,7 @@ optional parameters, and 0 of 16 unions stay.
 - [x] Task 263: the records (`voice/diagnosis.py`) and the voice loop fills them
 - [x] Task 264: "tadi kamu denger apa?" (`heard.py`) and her answer
 - [x] Task 265: the preference list in the config and the override file (`voice_override.py`)
-- [ ] Task 266: `MicSource`: preferences, failover, coming back, the phone's switch, retrying
+- [x] Task 266: `MicSource`: preferences, failover, coming back, the phone's switch, retrying
 - [ ] Task 267: the panel (`voice/panel.py`) and GET /voice, POST /voice/set
 - [ ] Task 268: the phone page's "Suara" sheet (`voice.js`)
 - [ ] Task 269: the CLI wiring, `_open_mic`, the check line

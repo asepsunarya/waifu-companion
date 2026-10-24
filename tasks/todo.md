@@ -2522,12 +2522,12 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 260a · **Files:** `src/waifu/config.py`, `src/waifu/voice_override.py`, `tests/test_config.py`, `tests/test_voice_override.py` · **Scope:** S
 
-## Task 266: `MicSource`
+## Task 266: `MicSource` ✅
 
 **Acceptance criteria:**
-- [ ] It opens the first preference that opens and says so when it is not the first; a failing or flat mic fails over with one line, the same mic reopened says nothing; with none, silent frames and a retry every 5 s
-- [ ] A changed Windows input list restarts PortAudio between frames and switches back to a more preferred mic with one line; no restart with a numbered device
-- [ ] The phone's switch runs on `run`'s thread, rolls back when the mic does not open, answers pending when not taken in time, and keeps a paused mic paused
+- [x] It opens the first preference that opens and says so when it is not the first; a failing or flat mic fails over with one line, the same mic reopened says nothing; with none, silent frames and a retry every 5 s
+- [x] A changed Windows input list restarts PortAudio between frames and switches back to a more preferred mic with one line; no restart with a numbered device
+- [x] The phone's switch runs on `run`'s thread, rolls back when the mic does not open, answers pending when not taken in time, and keeps a paused mic paused
 
 **Dependencies:** 261, 262 · **Files:** `src/waifu/voice/mic_source.py`, `tests/test_voice_mic_source.py` · **Scope:** L
 
