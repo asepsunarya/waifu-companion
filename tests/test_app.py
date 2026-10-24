@@ -4107,6 +4107,18 @@ def test_a_question_about_a_reading_goes_to_the_brain_and_writes_nothing(tmp_pat
     assert not path.exists()
 
 
+@pytest.mark.parametrize("command", ["Cara baca HSR itu salah.", "cara baca kamu itu salah"])
+def test_a_complaint_about_her_reading_goes_to_the_brain_and_writes_nothing(tmp_path, command):
+    path = tmp_path / "tts_lexicon.json"
+    rig = Rig("Cyrene", command, lexicon=Lexicon(path))
+
+    rig.assistant.handle_utterance(rig.utterance())
+    rig.assistant.handle_utterance(rig.utterance())
+
+    assert rig.brain.turns == [(command, NOW)]
+    assert not path.exists()
+
+
 def test_without_a_lexicon_a_reading_request_goes_to_the_brain():
     rig = Rig("Cyrene, cara baca Acheron itu A Ke Ron")
 

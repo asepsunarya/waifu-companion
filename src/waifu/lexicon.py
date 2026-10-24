@@ -76,6 +76,59 @@ QUESTION_WORDS = frozenset(
 # Question tags that are also syllables ("Ga Le Ger"): a question only as the reading's last
 # word ("itu Ha Es Er ga"), anywhere in the term.
 QUESTION_TAGS = frozenset({"ga", "gak", "kah", "kan", "mana"})
+# Words that judge or describe how a word is read ("cara baca HSR itu salah", "... itu susah
+# banget", "... itu dari kanan ke kiri"): a remark, never a reading to keep.
+REMARK_WORDS = frozenset(
+    {
+        "salah",
+        "keliru",
+        "aneh",
+        "jelek",
+        "bagus",
+        "lucu",
+        "beda",
+        "begitu",
+        "gitu",
+        "kok",
+        "sih",
+        "lho",
+        "toh",
+        "atau",
+        "harus",
+        "bisa",
+        "susah",
+        "sulit",
+        "gampang",
+        "mudah",
+        "banget",
+        "dari",
+    }
+)
+# Never a term taught by voice: "cara baca kamu itu ..." is about how she reads.
+PRONOUNS = frozenset(
+    {
+        "aku",
+        "saya",
+        "gue",
+        "gua",
+        "gw",
+        "kamu",
+        "kau",
+        "engkau",
+        "anda",
+        "lu",
+        "lo",
+        "elu",
+        "elo",
+        "dia",
+        "ia",
+        "beliau",
+        "kita",
+        "kami",
+        "kalian",
+        "mereka",
+    }
+)
 # Left out before the request ("Cyrene, tolong cara baca ..."), like `waifu.repeat`'s.
 _LEADING_SKIPPED = frozenset({"master", "dong", "deh", "ya", "coba", "tolong"})
 # Left out after it; never "master", which may end a reading ("Game Master").
@@ -118,11 +171,13 @@ def reading_request(
     """The (term, reading) of a whole "cara baca <term> itu <reading>" as said, None for
     anything else. `names` are her name and wake words: their words are left out before and
     after it, with the words of `leading` (Master's form of address), "master", and softeners
-    before it and "ya", "dong", "deh" after it. A "?", a question word, or a question tag
-    ending the reading makes it a question; the term takes 1 to TERM_MAX_WORDS words before
-    the first "itu", the reading 1 to READING_MAX_WORDS after it."""
+    before it and "ya", "dong", "deh" after it. The term takes 1 to TERM_MAX_WORDS words
+    before the first "itu", the reading 1 to READING_MAX_WORDS after it. A question or a
+    remark about a reading is not a request (`_remark`), and neither is a term that is a
+    pronoun, one of `names`, or `leading`: "cara baca kamu itu salah" is about her."""
     if "?" in command:
         return None
+    names, leading = tuple(names), tuple(leading)
     name_words = {word.casefold() for name in names for word in name.split()}
     leading_words = {word.casefold() for call in leading for word in call.split()}
     words = [stripped for word in command.split() if (stripped := word.strip(_EDGE_MARKS))]
@@ -140,13 +195,22 @@ def reading_request(
     term, reading = left[2:split], left[split + 1 :]
     if not (1 <= len(term) <= TERM_MAX_WORDS and 1 <= len(reading) <= READING_MAX_WORDS):
         return None
-    if (
-        any(word.casefold() in QUESTION_WORDS | QUESTION_TAGS for word in term)
-        or any(word.casefold() in QUESTION_WORDS for word in reading)
-        or reading[-1].casefold() in QUESTION_TAGS
-    ):
+    if _remark(term, reading) or _key(" ".join(term)) in {_key(name) for name in names + leading}:
         return None
     return " ".join(term), " ".join(reading)
+
+
+def _remark(term: list[str], reading: list[str]) -> bool:
+    """Whether "cara baca <term> itu <reading>" asks or says something about a reading instead
+    of teaching one: a question word or tag, a remark word, or a pronoun in the term; a
+    question word or a remark word in the reading, or a question tag ending it."""
+    term_words = {word.casefold() for word in term}
+    reading_words = [word.casefold() for word in reading]
+    return bool(
+        term_words & (QUESTION_WORDS | QUESTION_TAGS | REMARK_WORDS | PRONOUNS)
+        or set(reading_words) & (QUESTION_WORDS | REMARK_WORDS)
+        or reading_words[-1] in QUESTION_TAGS
+    )
 
 
 def checked_rule(term: str, reading: str) -> tuple[str, str]:

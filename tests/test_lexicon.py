@@ -372,3 +372,42 @@ def test_a_question_tag_ending_the_reading_makes_it_a_question(command):
 )
 def test_anything_else_is_not_a_reading_request(command):
     assert reading_request(command, NAMES) is None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "Cara baca HSR itu salah.",
+        "cara baca Acheron itu salah",
+        "cara baca kamu itu lucu banget",
+        "cara baca HSR itu jelek",
+        "cara baca HSR itu keliru",
+        "cara baca HSR itu beda",
+        "cara baca HSR itu gitu",
+        "cara baca HSR itu Ha Es Er sih",
+        "cara baca HSR itu kok Ha Es Er",
+        "Cyrene, cara baca manga itu dari kanan ke kiri.",
+        "Cyrene, cara baca Al-Quran itu harus pelan.",
+        "Cyrene, cara baca kanji itu susah banget",
+        "Cyrene cara baca peta itu gampang kok",
+        "Cyrene, cara baca HSR itu Ha Es Er atau Hon Kai",
+    ],
+)
+def test_a_remark_about_how_a_word_is_read_is_not_a_reading_request(command):
+    assert reading_request(command, NAMES) is None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cara baca kamu itu salah",
+        "cara baca kamu itu Ka Mu",
+        "cara baca aku itu A Ku",
+        "cara baca nama kamu itu Ka Mu",
+        "Cara baca Cyrene itu Sai Rin.",
+        "cara baca hai cyrene itu Hai Sai Rin",
+        "Cyrene, cara baca Sayang itu Sa Yang",
+    ],
+)
+def test_a_pronoun_her_names_or_masters_form_of_address_is_never_taught_by_voice(command):
+    assert reading_request(command, NAMES, leading=("Sayang",)) is None
