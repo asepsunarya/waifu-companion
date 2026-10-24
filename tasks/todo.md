@@ -2183,6 +2183,7 @@ named `tests/test_<package>_<module>.py`.
 - [x] `desk.js`: the problem of each status, a request that resolves to data or a problem and never rejects (closed, timeout, bad reply), the PC page's texts
 - [x] `tombol.js` shows the groups or why not, posts only the clicked id, marks it busy and the rest unavailable until the answer, ignores clicks meanwhile, and toasts the answer or the problem for 6 s
 - [x] `index.html` sets its CSP before any script, runs no inline script or style, and loads only relative files that exist; `tombol.css` has the desktop grid
+- [x] Fix pass: `requestDesk` asks for `mode: "cors"` and `referrerPolicy: "same-origin"`, so a POST keeps the page's own Origin under the server's `no-referrer` (with mode "same-origin" the Fetch spec, which Firefox follows, sends `Origin: null`, and every press got a 403)
 
 **Dependencies:** 228 · **Files:** `src/waifu/avatar/web/tombol/*`, `tests/js/tombol_desk.test.mjs`, `tests/js/tombol_page.test.mjs`, `tests/js/tombol_ui.test.mjs`, `SPEC.md` · **Scope:** M
 
@@ -2191,6 +2192,7 @@ named `tests/test_<package>_<module>.py`.
 **Acceptance criteria:**
 - [x] `waifu tombol` serves the page, opens exactly its `http://127.0.0.1:` address once, says the address and Ctrl+C, and ends with "Selesai." and the server stopped; `--dry-run` presses the mocks; no buttons is a warning and exit 1 with nothing opened; a browser that cannot be opened still serves the page
 - [x] `waifu check` counts the page's buttons right after the routine lines
+- [x] Fix pass: when a routine button has a step with `after_minutes`, `waifu tombol` says under the address line who runs it: `DRY_RUN_DELAYED_STEPS` on a dry run, `DELAYED_STEPS_IN_RUN` while the run lock is held, else `! 'waifu run' tidak sedang berjalan: ...`; nothing without such a button
 
 **Dependencies:** 228, 229 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py`, `SPEC.md` · **Scope:** M
 
@@ -2198,5 +2200,6 @@ named `tests/test_<package>_<module>.py`.
 
 **Acceptance criteria:**
 - [x] README "Tombol cepat di PC" with a contents entry, a checklist item, and a Privasi bullet; CHANGELOG v1.42; full suite, JS tests, and ruff clean
+- [x] Fix pass: the README command table has `waifu sholat` and `waifu tombol` and its `waifu check` row names both lines; the page opens in the "browser default" (not "bawaan Windows", which reads as Edge); `waifu tombol` must be restarted after a config change; delayed routine steps still need `waifu run` on at their time
 
 **Dependencies:** 230 · **Files:** `README.md`, `CHANGELOG.md`, `SPEC.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
