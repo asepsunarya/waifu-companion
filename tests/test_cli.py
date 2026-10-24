@@ -19644,3 +19644,114 @@ def test_setup_notify_skipped_writes_nothing(home, monkeypatch, capsys):
 
     assert "Notifikasi HP dilewati." in capsys.readouterr().out
     assert config_backups(home) == []
+
+
+def test_setup_runs_every_step_in_order_then_check(home, monkeypatch, capsys, nothing_installed):
+    use_sounddevice(monkeypatch, FakeSoundDevice(heard={HEADSET_MIC: master_speaking()}))
+    wizard = use_wizard(monkeypatch, FakeWizard())
+    answer(monkeypatch, "n", "n", "", "n")  # mic, tuya, the blaster's address, notify
+
+    code = cli.main(["setup"])
+
+    out = capsys.readouterr().out
+    headings = [line for line in out.splitlines() if line.startswith("== ")]
+    assert headings == [
+        "== 1/4 Mikrofon ==",
+        "== 2/4 Perangkat Tuya ==",
+        "== 3/4 IR blaster ==",
+        "== 4/4 Notifikasi HP ==",
+        "== Pemeriksaan (waifu check) ==",
+    ]
+    assert "✓ Konfigurasi valid (config.yaml)" in out
+    assert wizard.calls == []
+    assert config_backups(home) == []
+    assert code == cli.main(["check"])
+
+
+def test_setup_all_is_the_default_step():
+    assert cli.build_parser().parse_args(["setup"]).step == "all"
+
+
+def test_setup_stops_before_check_when_input_ends(home, monkeypatch, capsys, nothing_installed):
+    use_sounddevice(monkeypatch, FakeSoundDevice(heard={HEADSET_MIC: master_speaking()}))
+    answer(monkeypatch, "n")
+
+    assert cli.main(["setup", "all"]) == 0
+
+    out = capsys.readouterr().out
+    assert out.endswith("Setup berhenti.\n")
+    assert "== 2/4 Perangkat Tuya ==" in out
+    assert "Pemeriksaan" not in out
+
+
+def test_setup_asks_for_a_restart_when_it_wrote_while_waifu_run_runs(home, monkeypatch, capsys):
+    answer(monkeypatch, "192.168.1.23")
+
+    with InstanceLock(home / "data" / "run.lock"):
+        assert cli.main(["setup", "ir"]) == 0
+
+    assert (
+        "! 'waifu run' sedang berjalan: tutup lalu jalankan lagi supaya perubahan ini dipakai."
+    ) in capsys.readouterr().out
+
+
+def test_setup_asks_for_no_restart_when_it_wrote_nothing(home, monkeypatch, capsys):
+    answer(monkeypatch, "")
+
+    with InstanceLock(home / "data" / "run.lock"):
+        assert cli.main(["setup", "ir"]) == 0
+
+    assert "sedang berjalan" not in capsys.readouterr().out
+
+
+def check_lines(out: str, needle: str) -> list[str]:
+    return [line for line in out.splitlines() if needle in line]
+
+
+def test_check_points_at_waifu_setup_while_the_example_s_placeholders_remain(
+    home, nothing_installed, capsys
+):
+    cli.main(["check"])
+
+    out = capsys.readouterr().out
+    assert check_lines(out, "waifu setup") == [
+        "! Lampu kamar: device_id atau local_key masih contoh (isi_dari_tinytuya_wizard). "
+        "Jalankan: waifu setup tuya",
+        "! Colokan PC: device_id atau local_key masih contoh (isi_dari_tinytuya_wizard). "
+        "Jalankan: waifu setup tuya",
+        "! IR blaster 192.168.1.50 (AC Samsung, Proyektor Wanbo Dali): alamat contoh dari "
+        "config.example.yaml; kalau memang alamat blastermu, abaikan. Kalau bukan, jalankan: "
+        "waifu setup ir",
+    ]
+
+
+def test_check_names_a_tuya_ir_blaster_still_at_the_placeholder(home, nothing_installed, capsys):
+    write_config(
+        home,
+        "devices:\n"
+        "  - id: tv\n"
+        "    name: TV\n"
+        "    type: ir\n"
+        "    ir:\n"
+        "      backend: tuya\n"
+        "      tuya: {device_id: bf1234, local_key: isi_dari_tinytuya_wizard}\n"
+        "    commands: [power]\n",
+    )
+
+    cli.main(["check"])
+
+    assert check_lines(capsys.readouterr().out, "waifu setup") == [
+        "! TV: device_id atau local_key masih contoh (isi_dari_tinytuya_wizard). "
+        "Jalankan: waifu setup tuya"
+    ]
+
+
+def test_check_drops_the_setup_hints_once_the_values_are_real(home, nothing_installed, capsys):
+    config = home / "config.yaml"
+    text = config.read_text(encoding="utf-8")
+    text = text.replace('"isi_dari_tinytuya_wizard"', '"bf1234567890abcdef"')
+    config.write_text(text.replace("host: 192.168.1.50", "host: 192.168.1.23"), encoding="utf-8")
+
+    cli.main(["check"])
+
+    assert check_lines(capsys.readouterr().out, "waifu setup") == []

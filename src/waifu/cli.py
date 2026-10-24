@@ -272,6 +272,7 @@ from waifu.scheduler import MONTHS_ID, Scheduler
 from waifu.screen import capture_screen
 from waifu.single_instance import InstanceLock
 from waifu.todo import Task, TodoError, TodoStore
+from waifu.tuya_import import PLACEHOLDER as TUYA_PLACEHOLDER
 from waifu.tuya_import import (
     CloudDevice,
     TuyaImportError,
@@ -7287,9 +7288,41 @@ def _device_checks(config: AppConfig, config_path: Path) -> Iterator[Check]:
     for device in devices:
         if isinstance(device, IrDevice):
             yield _ir_check(device, config_path)
+    yield from _setup_hint_checks(config)
     for device_config in config.devices:
         for slug, target in (device_config.apps or {}).items():
             yield _app_check(slug, target)
+
+
+def _setup_hint_checks(config: AppConfig) -> Iterator[Check]:
+    """The example's placeholders still in config.yaml, each with the setup step that fills it:
+    a Tuya device (or Tuya IR blaster) without the wizard's values, and the example's Broadlink
+    address, which may really be the blaster's."""
+    for target in tuya_targets(config):
+        if not target.filled:
+            yield (
+                WARN,
+                (
+                    f"{target.name}: device_id atau local_key masih contoh ({TUYA_PLACEHOLDER}). "
+                    "Jalankan: waifu setup tuya"
+                ),
+            )
+    on_example = [
+        device.name
+        for device in config.devices
+        if device.ir is not None
+        and device.ir.backend == "broadlink"
+        and device.ir.host == EXAMPLE_BLASTER_HOST
+    ]
+    if on_example:
+        yield (
+            WARN,
+            (
+                f"IR blaster {EXAMPLE_BLASTER_HOST} ({', '.join(on_example)}): alamat contoh dari "
+                "config.example.yaml; kalau memang alamat blastermu, abaikan. Kalau bukan, "
+                "jalankan: waifu setup ir"
+            ),
+        )
 
 
 def _app_check(slug: str, target: str) -> Check:
