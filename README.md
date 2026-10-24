@@ -2448,6 +2448,12 @@ Cyrene : "Lampu kamar sudah mati dan AC di dua puluh enam derajat. おやすみ�
   jam sekarang dari setiap kalimatmu, lalu menghitung jamnya sendiri.
 - **Berulang:** "Cyrene, setiap hari jam 7 pagi bangunkan aku.", "... tiap hari kerja"
   (Senin–Jumat), atau "... tiap akhir pekan" (Sabtu–Minggu).
+- **Mingguan, bulanan, tahunan:** "Cyrene, tiap Senin jam 7 ingatkan buang sampah.",
+  "Cyrene, tiap tanggal 20 ingatkan bayar listrik.", "Cyrene, ingatkan ulang tahun Ibu tiap
+  5 Mei." Tanpa jam, ulang tahun dan tagihan diingatkan jam 08.00 pagi itu ("Master, hari
+  ini ulang tahun Ibu!"); sebut jamnya kalau mau lain. Lihat
+  [Mingguan, bulanan, dan tahunan](#mingguan-bulanan-dan-tahunan).
+- **Jadwal bulan ini:** "Cyrene, jadwal bulan ini apa?", "Ulang tahun siapa bulan ini?"
 - **Perangkat pada jamnya:** "Cyrene, matikan AC jam 2 pagi.", "Cyrene, nyalakan lampu kamar
   setiap hari jam 6 sore."
 - **Rutinitas sekarang:** "Cyrene, mode tidur." **Rutinitas pada jamnya:** "Cyrene, jalankan
@@ -2459,6 +2465,37 @@ Cyrene : "Lampu kamar sudah mati dan AC di dua puluh enam derajat. おやすみ�
 Jam yang sudah lewat hari ini biasanya berarti besok: "jam 7 pagi" yang diucapkan malam hari
 dijadwalkan besok pagi. Dia selalu menyebut jam yang dia jadwalkan; kalau salah, minta
 batalkan lalu ulangi.
+
+### Mingguan, bulanan, dan tahunan
+
+```text
+Master : "Cyrene, ingatkan ulang tahun Ibu tiap 5 Mei."
+Cyrene : "Siap, tiap 5 Mei jam delapan pagi aku ingatkan, mulai 5 Mei tahun depan."
+(5 Mei, 08.00)  Cyrene : "Master, hari ini ulang tahun Ibu!"
+Master : "Cyrene, jadwal bulan ini apa?"
+Cyrene : "Tanggal 20 bayar listrik, dan tiap Senin buang sampah."
+```
+
+- **Mingguan** jalan di hari yang sama setiap minggu: hari dari jam pertama yang dia
+  jadwalkan.
+- **Bulanan** jalan di tanggal yang sama setiap bulan. Tanggal 29, 30, atau 31 jalan di hari
+  terakhir bulan yang lebih pendek, lalu kembali ke tanggalnya bulan berikutnya: "tiap tanggal
+  31" jalan 30 November, 31 Desember, 31 Januari, 28 Februari (29 di tahun kabisat), 31 Maret,
+  dan seterusnya.
+- **Tahunan** jalan di tanggal dan bulan yang sama setiap tahun. Ulang tahun 29 Februari
+  diingatkan 28 Februari di tahun biasa dan 29 Februari di tahun kabisat.
+- Tanggal yang sudah lewat tidak ditolak: "tiap 5 Mei" yang diucapkan bulan Oktober mulai 5 Mei
+  tahun depan, dan "tiap tanggal 5" yang diucapkan tanggal 20 mulai bulan depan. Dia selalu
+  menyebut kapan jadwal itu pertama kali jalan.
+- "Tiap tanggal 31" yang diucapkan di bulan tanpa tanggal 31 (misalnya November) dimulai 31
+  Desember. Kalau dia malah menyebut tanggal 30, jadwalnya menjadi tiap tanggal 30: minta
+  batalkan lalu ulangi ("tiap tanggal 31, mulai Desember").
+- Jadwal tahunan selalu mulai di tanggal terdekatnya, jadi "mulai tahun depan" untuk tanggal
+  yang belum lewat tahun ini belum bisa.
+- Ulang tahun dan tagihan ikut dihitung dalam batas `schedule.max_entries` (bawaan 50, paling
+  banyak 200).
+- Pengingat bulanan atau tahunan yang terlewat karena PC mati tetap diucapkan begitu Cyrene
+  jalan lagi (lihat [Cara jadwal dijalankan](#cara-jadwal-dijalankan)).
 
 ### Cara jadwal dijalankan
 
@@ -2478,12 +2515,15 @@ batalkan lalu ulangi.
   masih dijalankan. Yang lebih telat dilewati: jadwal sekali dihapus, dan jadwal berulang
   pindah ke jam berikutnya yang belum lewat dari batas itu. Jadi kalau PC mati sepanjang
   akhir pekan, jadwal "tiap hari jam 7" tetap jalan Senin pagi saat PC dinyalakan 07.10.
-- Pengingat sekali yang terlewat diucapkan begitu Cyrene jalan lagi, semuanya dalam satu
-  kalimat ("Master, ada pengingat yang terlewat jam 07.00: ..."), dan dikirim ke HP sebagai
-  `Terlewat (07.00): ...` (dengan tanggalnya kalau bukan hari ini, misalnya
-  `Terlewat (10-10-2026 07.00): ...`). Pengingat berulang yang terlewat hanya dikirim ke HP,
-  karena jamnya akan datang lagi: **tanpa notifikasi HP** (`notify.enabled: false`, bawaan)
-  yang berulang tidak diucapkan maupun dikirim, dan jejaknya hanya baris WARNING di log.
+- Pengingat sekali, bulanan, atau tahunan yang terlewat diucapkan begitu Cyrene jalan lagi,
+  semuanya dalam satu kalimat ("Master, ada pengingat yang terlewat jam 07.00: ..."), dan
+  dikirim ke HP sebagai `Terlewat (07.00): ...` (dengan tanggalnya kalau bukan hari ini,
+  misalnya `Terlewat (10-10-2026 07.00): ...`). Jadi ulang tahun yang jamnya lewat saat PC
+  mati tetap disebut, walau baru diucapkan siang itu atau beberapa hari kemudian. Pengingat
+  harian, hari kerja, akhir pekan, atau mingguan yang terlewat hanya dikirim ke HP, karena
+  jamnya akan datang lagi dalam seminggu: **tanpa notifikasi HP** (`notify.enabled: false`,
+  bawaan) yang seperti itu tidak diucapkan maupun dikirim, dan jejaknya hanya baris WARNING di
+  log.
 - Jadwal dicek setiap 15 detik, jadi bisa jalan sampai sekitar 15 detik setelah menitnya.
   Jam pada menit yang sedang berjalan masih diterima ("satu menit lagi" yang sampai sedikit
   terlambat) dan langsung jalan pada pengecekan berikutnya. Jadwal yang jatuh tempo selagi
@@ -2642,11 +2682,17 @@ waifu routine run tidur             # jalankan sekarang di perangkat asli; langk
 `waifu schedule list` menampilkan jam berikutnya setiap jadwal:
 
 ```text
-ID  BERIKUTNYA               ULANG             ISI
-j1  Selasa 13-10-2026 15:00  sekali            pengingat "Master, sudah jam tiga, waktunya minum obat!"
-j3  Selasa 13-10-2026 23:00  tiap hari         rutinitas tidur
-j2  Rabu 14-10-2026 02:00    sekali            perangkat ac off
+ID  BERIKUTNYA               ULANG            ISI
+j1  Selasa 13-10-2026 15:00  sekali           pengingat "Master, sudah jam tiga, waktunya minum obat!"
+j3  Selasa 13-10-2026 23:00  tiap hari        rutinitas tidur
+j2  Rabu 14-10-2026 02:00    sekali           perangkat ac off
+j4  Senin 19-10-2026 07:00   tiap Senin       pengingat "Master, buang sampah!"
+j5  Selasa 20-10-2026 08:00  tiap tanggal 20  pengingat "Master, bayar listrik!"
+j6  Rabu 05-05-2027 08:00    tiap 5 Mei       pengingat "Master, hari ini ulang tahun Ibu!"
 ```
+
+Jadwal bulanan dan tahunan menyebut tanggal ulangnya sendiri: jadwal "tiap tanggal 31" yang
+berikutnya jatuh 30 November tetap tertulis `tiap tanggal 31`.
 
 Jadwal baru dibuat lewat suara, `waifu chat` (tanpa `--dry-run`), atau `waifu routine run`
 untuk langkah yang ditunda (lihat [Mode tidur](#mode-tidur)). Perintah `waifu schedule` tetap
@@ -2660,6 +2706,13 @@ dalam 15 detik. `waifu check` menampilkan `✓ Jadwal: <n> entri (data\schedule.
   dibagikan.
 - Batasnya `schedule.max_entries` jadwal (bawaan 50), paling jauh 366 hari ke depan, dan
   teks pengingat paling panjang 200 karakter.
+- Jadwal bulanan dan tahunan menyimpan tanggal ulangnya di kunci `day` (misalnya `"day": 31`
+  untuk jadwal yang sekarang jatuh 30 November). Kalau mengedit `at` jadwal seperti itu dengan
+  tangan, `day` harus cocok dengan tanggalnya, atau file dianggap rusak (lihat di bawah).
+- **Turun ke versi sebelum v1.43** selagi ada jadwal mingguan, bulanan, atau tahunan membuat
+  versi lama menganggap `data\schedule.json` rusak dan memindahkannya ke samping
+  (`.corrupt-...`), jadi semua jadwal hilang dari versi itu. Batalkan dulu jadwal seperti itu
+  sebelum turun versi.
 - **Edit hanya saat Cyrene mati**, seperti `data\memory.json`: di antara dua program, yang
   terakhir menulis yang menang. `waifu schedule` membaca file tepat sebelum mengubahnya, jadi
   aman dipakai selagi dia berjalan.
@@ -6102,6 +6155,10 @@ dan `off` untuk `ac` harus sudah dipelajari.)
 - [ ] Jadwalkan pengingat, tutup Cyrene sampai jamnya lewat lebih dari
       `late_grace_minutes`, lalu jalankan lagi: dia bilang ada pengingat yang terlewat, dan
       HP menerima `Terlewat (...)`.
+- [ ] "Cyrene, ingatkan ulang tahun Ibu tiap 5 Mei": dia menyebut 5 Mei jam 08.00 (tahun
+      depan kalau tanggalnya sudah lewat) dan `waifu schedule list` menampilkan `tiap 5 Mei`.
+      "Cyrene, tiap tanggal 20 ingatkan bayar listrik" tampil sebagai `tiap tanggal 20`, dan
+      "jadwal bulan ini apa?" menyebut tagihan itu. Batalkan keduanya setelah itu.
 - [ ] "Cyrene, matikan colokan PC": dia minta konfirmasi dulu (jawab "tidak").
 - [ ] Dengan `waifu run` berjalan, buka `waifu chat`: chat bilang jadwal dijalankan oleh
       Cyrene yang sedang berjalan, dan pengingat yang dibuat di chat diucapkan oleh

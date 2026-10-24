@@ -918,17 +918,17 @@ clamped `at` (30 November for the 31st) loses it. The three accept a past `at` a
 their next time, and a yearly one ignores the year. A missed monthly or yearly reminder is told
 like a one-shot one, since a birthday comes back only a year later. 18 of 20 strict tools, 17 of
 24 optional parameters, and 0 of 16 unions stay.
-- [ ] Task 232a: contract: SPEC, tasks
-- [ ] Task 232: `next_occurrence` for weekly, monthly, and yearly (pure)
-- [ ] Task 233: the anchor day: `Entry.day`, `add`, `fired`/`skipped`, and the file
-- [ ] Task 234: the `schedule` and `list_schedules` tools (enum, descriptions, `day`)
-- [ ] Task 235: `waifu schedule list` and `cancel` say how an entry repeats
-- [ ] Task 236: a missed monthly or yearly reminder is told
-- [ ] Task 237: README, CHANGELOG
+- [x] Task 232a: contract: SPEC, tasks
+- [x] Task 232: `next_occurrence` for weekly, monthly, and yearly (pure)
+- [x] Task 233: the anchor day: `Entry.day`, `add`, `fired`/`skipped`, and the file
+- [x] Task 234: the `schedule` and `list_schedules` tools (enum, descriptions, `day`)
+- [x] Task 235: `waifu schedule list` and `cancel` say how an entry repeats
+- [x] Task 236: a missed monthly or yearly reminder is told
+- [x] Task 237: README, CHANGELOG
 
 ### Checkpoint: Jadwal mingguan, bulanan, tahunan
-- [ ] Python suite and ruff clean; no test touched `data/schedule.json`, spoke, or pushed; the strict-tool budget unchanged (18 of 20 strict tools, 17 of 24 optional parameters, 0 of 16 unions)
-- [ ] By hand: in a scratch folder, the tools add a yearly birthday, a monthly entry of the 31st, and a weekly one; `waifu schedule list` shows `tiap 5 Mei`, `tiap tanggal 31`, and `tiap Senin`; firing them on a fake clock walks the months' last days and 29 February
+- [x] Python suite and ruff clean; no test touched `data/schedule.json`, spoke, or pushed; the strict-tool budget unchanged (18 of 20 strict tools, 17 of 24 optional parameters, 0 of 16 unions) (2026-10-24: 9671 pytest, no JS touched; only the `repeat` enum of `schedule` grew, and the every-tool Claude request counted 18 of 20 strict tools, 17 of 24 optional parameters, and 0 of 16 unions)
+- [x] By hand: in a scratch folder, the tools add a yearly birthday, a monthly entry of the 31st, and a weekly one; `waifu schedule list` shows `tiap 5 Mei`, `tiap tanggal 31`, and `tiap Senin`; firing them on a fake clock walks the months' last days and 29 February (2026-10-24, a scratch folder with the example config, its mock devices, and a fake clock at 24-10-2026 14:30, deleted afterwards: the `schedule` tool answered 2026-05-05 yearly with `"at":"2027-05-05 08:00","repeat":"yearly","day":5`, 2026-10-20 monthly with 2026-11-20 and `"day":20`, 2026-10-19 weekly with 2026-10-26, and 2028-02-29 yearly with 2027-02-28 and `"day":29`; 2026-11-31 was refused as a date that does not exist and a past daily time as "sudah lewat"; `waifu schedule list` printed `tiap Senin`, `tiap tanggal 31`, `tiap tanggal 20`, `tiap 29 Februari`, and `tiap 5 Mei`, and `waifu schedule cancel j3` ended `..., tiap tanggal 20`; a real `Scheduler` firing the 31st on time said it on 31-10, 30-11, 31-12, 31-01, 28-02-2027, ... 31-01-2028, and 29-02-2028; 29 February fired on 2028-02-29, 2029-02-28 to 2031-02-28, and 2032-02-29; Ibu's birthday missed with the PC off from 4 to 7 May 2027 was told at 09:00 on the 7th as "Master, ada pengingat yang terlewat tanggal 5 jam 08.00: Master, hari ini ulang tahun Ibu!" and moved to 2028-05-05, and one missed by 40 minutes on 5 May 2028 as "... jam 08.00: ...")
 - [ ] On the owner's PC: "ingatkan ulang tahun Ibu tiap 5 Mei" makes a yearly entry at 08:00, "tiap tanggal 20 ingatkan bayar listrik" a monthly one, and "jadwal bulan ini apa?" names them
 
 ## Risks and Mitigations

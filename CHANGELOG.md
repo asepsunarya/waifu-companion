@@ -4,6 +4,25 @@ Ringkasan per versi, yang terbaru di atas. Rinciannya ada di README (bagian yang
 setiap versi) dan di SPEC.md. Setelah memperbarui, **mulai ulang `waifu run`** supaya semuanya
 aktif, lalu jalankan `waifu check`.
 
+## v1.43: jadwal mingguan, bulanan, tahunan
+
+- Jadwal sekarang bisa berulang tiap minggu, tiap bulan, dan tiap tahun: "Cyrene, tiap Senin
+  jam 7 ingatkan buang sampah.", "Cyrene, tiap tanggal 20 ingatkan bayar listrik.", "Cyrene,
+  ingatkan ulang tahun Ibu tiap 5 Mei." Tanpa jam, ulang tahun dan tagihan diingatkan jam 08.00
+  pagi itu ("Master, hari ini ulang tahun Ibu!"). Tanggal yang sudah lewat tahun ini mulai
+  tahun depan.
+- Tanggal 29, 30, atau 31 jalan di hari terakhir bulan yang lebih pendek (30 November, 28
+  Februari), lalu kembali ke tanggalnya; ulang tahun 29 Februari diingatkan 28 Februari di tahun
+  biasa.
+- "Jadwal bulan ini apa?" dan "ulang tahun siapa bulan ini?" dijawab dari daftar jadwal.
+  `waifu schedule list` menulis `tiap Senin`, `tiap tanggal 20`, dan `tiap 5 Mei`.
+- Pengingat bulanan atau tahunan yang terlewat karena PC atau `waifu run` mati sekarang
+  diucapkan begitu dia jalan lagi, seperti pengingat sekali, tidak hanya dikirim ke HP.
+- Jadwal yang sudah ada tidak berubah. Turun lagi ke versi sebelum v1.43 selagi ada jadwal
+  mingguan, bulanan, atau tahunan membuat versi lama menganggap `data\schedule.json` rusak dan
+  memindahkannya ke samping (`.corrupt-...`); batalkan dulu jadwal itu sebelum turun versi.
+- README: "Mingguan, bulanan, dan tahunan" (di bagian "Jadwal, pengingat, dan rutinitas").
+
 ## v1.42: tombol cepat di PC
 
 - `waifu tombol` membuka tombol cepat HP di browser PC ini: lampu, AC, colokan, dan rutinitas,

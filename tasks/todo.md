@@ -2204,57 +2204,57 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 230 · **Files:** `README.md`, `CHANGELOG.md`, `SPEC.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
 
-## Task 232a: Jadwal mingguan, bulanan, tahunan contract
+## Task 232a: Jadwal mingguan, bulanan, tahunan contract ✅
 
 **Acceptance criteria:**
-- [ ] SPEC "jadwal mingguan, bulanan, tahunan (v1.43)" (stories, non-goals, the next occurrence, the anchor day and the file, the missed rule, the tools, the CLI, decisions, known limits, safety) and pointers from the v1.7 schedule section; tasks 232a-237 in the plan and here
+- [x] SPEC "jadwal mingguan, bulanan, tahunan (v1.43)" (stories, non-goals, the next occurrence, the anchor day and the file, the missed rule, the tools, the CLI, decisions, known limits, safety) and pointers from the v1.7 schedule section; tasks 232a-237 in the plan and here
 
 **Dependencies:** none · **Files:** `SPEC.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
 
-## Task 232: The next weekly, monthly, and yearly occurrence
+## Task 232: The next weekly, monthly, and yearly occurrence ✅
 
 **Acceptance criteria:**
-- [ ] `REPEATS` gains weekly, monthly, and yearly; the refusal of an unknown repeat lists `REPEATS`
-- [ ] `next_occurrence(at, repeat, after, *, day=None)`: weekly on `at`'s weekday (across a year's end too); monthly on `min(day, the month's length)` (an entry of the 31st walks 30 November, 31 December, 31 January, 28 February 2027, 31 March, and 29 February 2028); yearly on `at`'s month and `min(day, its length)` (29 February is 28 February 2027 and 29 February 2028); always later than `after` at `at`'s clock time, by whole calendar days
-- [ ] The tests that used "monthly" as an unknown repeat use another one; the `schedule` enum test lists the seven values
+- [x] `REPEATS` gains weekly, monthly, and yearly; the refusal of an unknown repeat lists `REPEATS`
+- [x] `next_occurrence(at, repeat, after, *, day=None)`: weekly on `at`'s weekday (across a year's end too); monthly on `min(day, the month's length)` (an entry of the 31st walks 30 November, 31 December, 31 January, 28 February 2027, 31 March, and 29 February 2028); yearly on `at`'s month and `min(day, its length)` (29 February is 28 February 2027 and 29 February 2028); always later than `after` at `at`'s clock time, by whole calendar days
+- [x] The tests that used "monthly" as an unknown repeat use another one; the `schedule` enum test lists the seven values
 
 **Dependencies:** 232a · **Files:** `src/waifu/schedule.py`, `tests/test_schedule.py`, `tests/test_schedule_tools.py` · **Scope:** S
 
-## Task 233: The anchor day
+## Task 233: The anchor day ✅
 
 **Acceptance criteria:**
-- [ ] `Entry.day` (last field, default None) holds the day of a monthly or yearly entry, from the `at` passed to `add`; `fired` and `skipped` move an entry with it
-- [ ] `add` starts a weekly, monthly, or yearly entry passed a past `at` at its first occurrence from the current minute; a yearly one ignores the year (2026-05-05 added on 24 October 2026 is 5 May 2027; 2028-02-29 is 28 February 2027); the older repeats still refuse a past time, and a weekly or monthly one over 366 days ahead is still refused
-- [ ] The file has `day` only on monthly and yearly entries and reads back equal; a `day` on another entry, a missing one, 0, 32, a boolean, text, one `at` disagrees with, or a yearly 31 April is not a schedule
+- [x] `Entry.day` (last field, default None) holds the day of a monthly or yearly entry, from the `at` passed to `add`; `fired` and `skipped` move an entry with it
+- [x] `add` starts a weekly, monthly, or yearly entry passed a past `at` at its first occurrence from the current minute; a yearly one ignores the year (2026-05-05 added on 24 October 2026 is 5 May 2027; 2028-02-29 is 28 February 2027); the older repeats still refuse a past time, and a weekly or monthly one over 366 days ahead is still refused
+- [x] The file has `day` only on monthly and yearly entries and reads back equal; a `day` on another entry, a missing one, 0, 32, a boolean, text, one `at` disagrees with, or a yearly 31 April is not a schedule
 
 **Dependencies:** 232 · **Files:** `src/waifu/schedule.py`, `tests/test_schedule.py` · **Scope:** M
 
-## Task 234: The tools
+## Task 234: The tools ✅
 
 **Acceptance criteria:**
-- [ ] The `schedule` description explains weekly, monthly, and yearly, a past `at` for them, the next month that has the day, birthdays (yearly, 08:00 unless Master says a time, a reminder in the owner's call word) and bills (monthly), and keeps its earlier guidance
-- [ ] The `schedule` result and `list_schedules` give `day` for a monthly or yearly entry only; the description of `list_schedules` tells her to pick "this month" from the list herself
-- [ ] No schema changes but the enum; the strict-tool budget stays
+- [x] The `schedule` description explains weekly, monthly, and yearly, a past `at` for them, the next month that has the day, birthdays (yearly, 08:00 unless Master says a time, a reminder in the owner's call word) and bills (monthly), and keeps its earlier guidance
+- [x] The `schedule` result and `list_schedules` give `day` for a monthly or yearly entry only; the description of `list_schedules` tells her to pick "this month" from the list herself
+- [x] No schema changes but the enum; the strict-tool budget stays
 
 **Dependencies:** 233 · **Files:** `src/waifu/brain/schedule_tools.py`, `tests/test_schedule_tools.py` · **Scope:** S
 
-## Task 235: `waifu schedule list` and `cancel`
+## Task 235: `waifu schedule list` and `cancel` ✅
 
 **Acceptance criteria:**
-- [ ] They say `tiap Senin`, `tiap tanggal 31`, and `tiap 5 Mei` (`tiap 29 Februari`), and the older repeats as before
+- [x] They say `tiap Senin`, `tiap tanggal 31`, and `tiap 5 Mei` (`tiap 29 Februari`), and the older repeats as before
 
 **Dependencies:** 233 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** S
 
-## Task 236: A missed monthly or yearly reminder is told
+## Task 236: A missed monthly or yearly reminder is told ✅
 
 **Acceptance criteria:**
-- [ ] A monthly or yearly reminder missed beyond the grace is told in the tick's one announcement (with its date when not today's) and pushed; a missed daily, weekdays, weekends, or weekly one is still only pushed; the entry moves to its next time
+- [x] A monthly or yearly reminder missed beyond the grace is told in the tick's one announcement (with its date when not today's) and pushed; a missed daily, weekdays, weekends, or weekly one is still only pushed; the entry moves to its next time
 
 **Dependencies:** 233 · **Files:** `src/waifu/scheduler.py`, `tests/test_scheduler.py` · **Scope:** S
 
-## Task 237: Docs
+## Task 237: Docs ✅
 
 **Acceptance criteria:**
-- [ ] README "Jadwal, pengingat, dan rutinitas": weekly, monthly, and yearly examples (birthdays, bills), the month-end and 29 February rules, the missed rule, the list example; CHANGELOG v1.43 with the downgrade note; full suite and ruff clean
+- [x] README "Jadwal, pengingat, dan rutinitas": weekly, monthly, and yearly examples (birthdays, bills), the month-end and 29 February rules, the missed rule, the list example; CHANGELOG v1.43 with the downgrade note; full suite and ruff clean
 
 **Dependencies:** 234, 235, 236 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
