@@ -2294,11 +2294,11 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 239 · **Files:** `src/waifu/brain/weather_tools.py`, `tests/test_weather_tools.py` · **Scope:** M
 
-## Task 241: The brain gets it
+## Task 241: The brain gets it ✅
 
 **Acceptance criteria:**
-- [ ] `run` and `chat` add the tool right after the briefing tool whenever `briefing` names a place, also with the briefing off; the briefing tool and it share one client (one city lookup); nothing is asked at startup
-- [ ] Guest mode leaves it open; the every-tool request keeps 18 of 20 strict tools, 17 of 24 optional parameters, and 0 of 16 unions
+- [x] `run` and `chat` add the tool right after the briefing tool whenever `briefing` names a place, also with the briefing off; the briefing tool and it share one client (one city lookup); nothing is asked at startup
+- [x] Guest mode leaves it open; the every-tool request keeps 18 of 20 strict tools, 17 of 24 optional parameters, and 0 of 16 unions
 
 **Dependencies:** 240 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** S
 

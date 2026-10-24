@@ -75,6 +75,7 @@ from waifu.brain.todo_tools import TodoTools
 from waifu.brain.tools import ToolProvider
 from waifu.brain.usage_tools import UsageTools
 from waifu.brain.voice_volume_tools import VoiceVolumeTools
+from waifu.brain.weather_tools import WeatherForecastTools
 from waifu.break_watch import BreakWatcher
 from waifu.briefing import DAILY_BRIEFING, BriefingTimer, BriefingTools
 from waifu.config import (
@@ -1647,7 +1648,8 @@ def _companion_brain(
     game tools when they are on, her long-term memory when it is on, her schedule when it is on,
     Master's to-do list when it is on, Master's journal when it is on, with `focus` (only `run`
     has one) Master's focus timer, Master's Japanese lessons when they are on, the day's
-    briefing when it is on, the prayer times when they are on (at `prayer`, the place `run`
+    briefing when it is on, the weather of the days ahead whenever the weather has a place (with
+    the briefing's client), the prayer times when they are on (at `prayer`, the place `run`
     shares with the reminders, else a place of their own), with `pc` how the PC is doing, how
     long Master's games were open when play time is on, the free offers when they are on (their
     links pushed through `notifier`), Master's money from tepira when it is on, songs on YouTube
@@ -1697,16 +1699,21 @@ def _companion_brain(
         providers.append(FocusTools(focus, now=wib_now))
     if japanese is not None:
         providers.append(JapaneseTools(words, japanese, now=wib_now))
+    # One client for the briefing and the days ahead, so the city is looked up once.
+    weather = _weather_client(config.briefing)
     if config.briefing.enabled:
         providers.append(
             _briefing_tools(
-                config.briefing,
+                weather,
                 schedule,
                 todo=todo,
                 guest_mode=guest_mode.is_on,
                 japanese=None if japanese is None else _japanese_word_of_the_day(words, japanese),
             )
         )
+    if weather is not None:
+        # The days ahead need only a place, as the rain alerts do; she names the city as written.
+        providers.append(WeatherForecastTools(weather, place=config.briefing.city))
     if config.prayer.enabled:
         providers.append(
             PrayerTools(
@@ -3838,18 +3845,19 @@ def _weather_client(
 
 
 def _briefing_tools(
-    briefing: BriefingConfig,
+    weather: WeatherClient | None,
     schedule: ScheduleStore | None,
     *,
     todo: TodoStore | None = None,
     guest_mode: Callable[[], bool] | None = None,
     japanese: Callable[[date], Word] | None = None,
 ) -> BriefingTools:
-    """The day's date, weather, entries of `schedule` (none without one), with `todo` the tasks
-    due today and overdue, and with `japanese` the word of the day, for the brain; while
-    `guest_mode` says guests are around, without the tasks and the reminder texts."""
+    """The day's date, the weather from `weather` (none without a place), entries of `schedule`
+    (none without one), with `todo` the tasks due today and overdue, and with `japanese` the
+    word of the day, for the brain; while `guest_mode` says guests are around, without the tasks
+    and the reminder texts."""
     return BriefingTools(
-        weather=_weather_client(briefing),
+        weather=weather,
         schedule=schedule,
         todo=todo,
         japanese=japanese,
@@ -3931,7 +3939,8 @@ def _briefing(args: argparse.Namespace) -> int:
     it failed; the rest is printed all the same."""
     config = load_config(args.config)
     schedule = _schedule_store(config) if config.schedule.enabled else None
-    result, is_error = _briefing_tools(config.briefing, schedule).run(DAILY_BRIEFING, {})
+    weather = _weather_client(config.briefing)
+    result, is_error = _briefing_tools(weather, schedule).run(DAILY_BRIEFING, {})
     briefing = json.loads(result)
     if is_error:
         print(f"{FAIL} {briefing['message']}")

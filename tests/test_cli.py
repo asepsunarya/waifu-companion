@@ -65,6 +65,7 @@ from waifu.brain.todo_tools import TodoTools
 from waifu.brain.tools import to_anthropic
 from waifu.brain.usage_tools import UsageTools
 from waifu.brain.voice_volume_tools import VoiceVolumeTools
+from waifu.brain.weather_tools import WeatherForecastTools
 from waifu.briefing import BRIEFING_PROMPT, DAILY_BRIEFING, BriefingTimer, BriefingTools
 from waifu.config import (
     AvatarConfig,
@@ -8052,22 +8053,57 @@ def open_meteo_forecast(today: date) -> dict:
     }
 
 
+def open_meteo_outlook(today: date) -> dict:
+    """A seven-day forecast shaped like Open-Meteo's reply to the outlook's request, trimmed to
+    the fields the weather client reads: 07:15 now; every hour cloudy (code 2) with a 10 % chance
+    and no rain at 20 °C plus half a degree per hour of the day, except tomorrow's 13:00-15:00
+    entries (rain, 80 %, 2.5 mm each); the last day's chance and amount unknown."""
+    days = [today + timedelta(days=n) for n in range(7)]
+    codes, chances, amounts = [2] * 168, [10] * 168, [0.0] * 168
+    for index in (24 + 13, 24 + 14, 24 + 15):
+        codes[index], chances[index], amounts[index] = 63, 80, 2.5
+    return {
+        "timezone": "Asia/Jakarta",
+        "utc_offset_seconds": 25200,
+        "current": {"time": f"{today}T07:15", "interval": 900, "weather_code": 2},
+        "hourly": {
+            "time": [f"{day}T{hour:02d}:00" for day in days for hour in range(24)],
+            "weather_code": codes,
+            "temperature_2m": [20.0 + hour / 2 for _ in days for hour in range(24)],
+            "precipitation_probability": chances,
+            "precipitation": amounts,
+        },
+        "daily": {
+            "time": [day.isoformat() for day in days],
+            "weather_code": [2, 63, 3, 61, 80, 1, 0],
+            "temperature_2m_max": [27.9, 28.3, 27.5, 26.8, 27.1, 29.0, 30.2],
+            "temperature_2m_min": [18.6, 18.9, 19.2, 19.0, 18.7, 18.4, 18.1],
+            "precipitation_probability_max": [10, 80, 30, 70, 60, 20, None],
+            "precipitation_sum": [0.0, 7.5, 0.2, 4.1, 3.0, 0.0, None],
+        },
+    }
+
+
 class FakeOpenMeteo:
     """The weather client's fetch: answers like Open-Meteo's geocoding and forecast APIs for
-    today (with `forecast`, which a test may change), or raises `failure`; records every URL
-    and never goes online."""
+    today (with `forecast`, and `outlook` for a seven-day request, which a test may change), or
+    raises `failure`; records every URL and never goes online."""
 
     def __init__(self) -> None:
         self.urls: list[str] = []
         self.failure: Exception | None = None
         self.forecast = open_meteo_forecast(date.today())
+        self.outlook = open_meteo_outlook(date.today())
 
     def __call__(self, url: str, timeout_s: float) -> object:
         self.urls.append(url)
         if self.failure is not None:
             raise self.failure
-        if urllib.parse.urlsplit(url).hostname == GEOCODING_HOST:
+        parts = urllib.parse.urlsplit(url)
+        if parts.hostname == GEOCODING_HOST:
             return {"results": [BANDUNG], "generationtime_ms": 0.6}
+        if urllib.parse.parse_qs(parts.query).get("forecast_days") == ["7"]:
+            return self.outlook
         return self.forecast
 
     def queries(self, host: str) -> list[dict[str, list[str]]]:
@@ -8232,6 +8268,7 @@ def test_with_the_briefing_off_she_gets_neither_the_tool_nor_the_greeting(
         TodoTools,
         JournalTools,
         *([FocusTools] if argv[0] == "run" else []),
+        WeatherForecastTools,  # the days ahead need only the place, as the rain alerts
         PcTools,
         PlayTimeTools,
         OffersTools,
@@ -8722,6 +8759,85 @@ def test_check_reports_the_rain_alerts_right_after_the_morning_greeting(
     lines = capsys.readouterr().out.splitlines()
     greeting = next(index for index, line in enumerate(lines) if "Sapaan pagi" in line)
     assert "Peringatan hujan" in lines[greeting + 1]
+
+
+# --- the weather of the days ahead -------------------------------------------------------------
+
+
+def forecast_tools(brain: HouseBrain) -> WeatherForecastTools:
+    [tools] = [
+        provider for provider in brain.providers if isinstance(provider, WeatherForecastTools)
+    ]
+    return tools
+
+
+def ask_forecast(brain: HouseBrain, arguments: dict | None = None) -> dict:
+    result, is_error = forecast_tools(brain).run("weather_forecast", arguments or {})
+    assert is_error is False, result
+    return json.loads(result)
+
+
+def test_run_gives_the_brain_the_forecast_right_after_the_briefing_and_asks_nothing_yet(
+    home, run_fakes, brains, open_meteo
+):
+    write_out_example_briefing(home)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    assert [type(tools) for tools in brains[0].providers][-6:] == [
+        BriefingTools,
+        WeatherForecastTools,
+        PcTools,
+        PlayTimeTools,
+        OffersTools,
+        MusicTools,
+    ]
+    assert open_meteo.urls == []
+
+
+@pytest.mark.parametrize("argv", [["run", "--no-speaker-check"], ["chat"]])
+def test_without_a_place_she_gets_no_forecast(argv, home, run_fakes, brains, monkeypatch):
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main([*argv, "--dry-run"]) == 0
+
+    assert not any(isinstance(tools, WeatherForecastTools) for tools in brains[0].providers)
+
+
+def test_the_forecast_and_the_briefing_look_the_city_up_once_and_she_names_it_as_written(
+    home, brains, open_meteo, monkeypatch
+):
+    write_out_example_briefing(home)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main(["chat"]) == 0
+
+    assert daily_briefing(brains[0])["weather"]["place"] == "Bandung, Jawa Barat"
+    answer = ask_forecast(brains[0], {"day": "tomorrow"})
+    assert answer["place"] == "Bandung"  # as the rain alert names it
+    [tomorrow] = answer["forecast"]
+    assert (tomorrow["condition"], tomorrow["rain_chance"]) == ("hujan", 80)
+    assert tomorrow["parts"][1] == {"part": "siang", "condition": "hujan", "rain_chance": 80}
+    assert len(open_meteo.queries(GEOCODING_HOST)) == 1
+    assert [query["forecast_days"] for query in open_meteo.queries(FORECAST_HOST)] == [
+        ["2"],
+        ["7"],
+    ]
+
+
+def test_the_forecast_names_no_place_at_coordinates_without_a_city(
+    home, brains, open_meteo, monkeypatch
+):
+    append_config(home, "briefing:\n  latitude: -6.82\n  longitude: 107.14\n")
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main(["chat", "--dry-run"]) == 0
+
+    result, is_error = forecast_tools(brains[0]).run("weather_forecast", {"day": "weekend"})
+    assert is_error is False
+    assert json.loads(result)["place"] is None
+    assert "-6.82" not in result and "107.14" not in result
+    assert open_meteo.queries(GEOCODING_HOST) == []
 
 
 # --- versi baru --------------------------------------------------------------------------------
@@ -15590,6 +15706,8 @@ OPEN_TO_GUESTS = frozenset(
         "focus_timer",
         # Computed for the city the weather already names: nothing private.
         "prayer_times",
+        # The weather of the days ahead at the city the briefing already names: nothing private.
+        "weather_forecast",
     }
 )
 
@@ -15607,6 +15725,7 @@ def test_the_claude_request_with_every_tool_on_stays_within_the_strict_tool_limi
     )
     append_config(home, "japanese:\n  enabled: true\n")
     append_config(home, "prayer:\n  enabled: true\n")
+    append_config(home, "briefing:\n  city: Bandung\n")  # the forecast needs a place
     (home / "config").mkdir()
     shutil.copy(ROOT / "config" / "persona.md", home / "config" / "persona.md")
     sent: list[dict] = []
@@ -15646,6 +15765,7 @@ def test_the_claude_request_with_every_tool_on_stays_within_the_strict_tool_limi
         "voice_volume",
         "japanese_lesson",
         "prayer_times",
+        "weather_forecast",
         *FINANCE_TOOLS,
     } <= names
     # Every tool is either closed in guest mode or still open: a new one must be sorted.
@@ -15677,7 +15797,13 @@ def test_the_claude_request_with_every_tool_on_stays_within_the_strict_tool_limi
         "record_expense",
         "journal_write",
     } <= {tool["name"] for tool in strict}
-    not_strict = {"guest_mode", "voice_volume", "japanese_lesson", "prayer_times"}
+    not_strict = {
+        "guest_mode",
+        "voice_volume",
+        "japanese_lesson",
+        "prayer_times",
+        "weather_forecast",
+    }
     assert not not_strict & {tool["name"] for tool in strict}
 
 
