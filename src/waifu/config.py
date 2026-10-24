@@ -539,6 +539,9 @@ class GachaRemindersConfig(_Strict):
     daily_time: time = time(20, 0)
     weekly: bool = True
     expeditions: bool = True
+    # Events and endgame seasons ending soon (from daily_time), and a stamina that fills before
+    # the morning after a game closed late at night (v1.50).
+    planner: bool = True
 
     @field_validator("daily_time", mode="before")
     @classmethod

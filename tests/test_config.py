@@ -285,6 +285,19 @@ def test_gacha_daily_time_takes_quoted_or_bare_yaml_hh_mm(tmp_path):
     assert bare.gacha.reminders.daily_time == time(21, 15)
 
 
+def test_the_gacha_planner_is_on_by_default_and_can_be_turned_off(tmp_path):
+    off = load_config(write_yaml(tmp_path, "gacha:\n  reminders:\n    planner: false\n"))
+
+    assert AppConfig().gacha.reminders.planner is True
+    assert off.gacha.reminders.planner is False
+
+
+def test_the_example_config_lists_the_gacha_planner():
+    example = (ROOT / "config.example.yaml").read_text(encoding="utf-8")
+
+    assert "\n    planner: true " in example
+
+
 @pytest.mark.parametrize("value", ["'25:00'", "8pm", "'20.00'"])
 def test_gacha_daily_time_must_be_a_time_of_day(tmp_path, value):
     with pytest.raises(ConfigError, match="daily_time"):

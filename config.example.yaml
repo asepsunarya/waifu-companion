@@ -187,6 +187,7 @@ gacha:
     daily_time: "20:00"      # jam lokal; daily yang belum selesai diingatkan mulai jam ini
     weekly: true             # di hari terakhir sebelum reset mingguan
     expeditions: true        # saat semua ekspedisi selesai
+    planner: true            # event & endgame yang mau habis, stamina penuh sebelum kamu bangun
   # Karakter 5★ tambahan yang berarti kalah 50/50, misalnya pilihan Celestial Invitation di HSR.
   # off_banner: {hsr: [Yunli]}
   data_dir: data/gacha
