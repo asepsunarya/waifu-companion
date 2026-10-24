@@ -635,10 +635,12 @@ class FakePlayTimeWatcher:
         announce,
         owner_call,
         on_poll=None,
+        on_finished=None,
         events: list[str],
     ) -> None:
         self.list_processes, self.store, self.config = list_processes, store, config
         self.announce, self.owner_call, self.on_poll = announce, owner_call, on_poll
+        self.on_finished = on_finished
         self._events = events
         self.listening: list[bool] = []
         self.events_when_started: list[str] | None = None
@@ -5712,9 +5714,24 @@ def test_gacha_history_without_anything_saved_fails(home, games, capsys):
 class FakeWatcher:
     instances: list["FakeWatcher"] = []
 
-    def __init__(self, hoyolab, config, *, notifier, announce, title, owner_call) -> None:
+    def __init__(
+        self,
+        hoyolab,
+        config,
+        *,
+        notifier,
+        announce,
+        title,
+        owner_call,
+        read_calendar,
+        guest_mode,
+        closed_games,
+        morning,
+    ) -> None:
         self.hoyolab, self.config, self.notifier = hoyolab, config, notifier
         self.announce, self.title, self.owner_call = announce, title, owner_call
+        self.read_calendar, self.guest_mode = read_calendar, guest_mode
+        self.closed_games, self.morning = closed_games, morning
         self.ran_when_started: bool | None = None
         self.ran_when_stopped: bool | None = None
         FakeWatcher.instances.append(self)
@@ -5813,6 +5830,69 @@ def test_run_with_the_games_on_gives_the_brain_the_game_tools_and_watches_while_
     watcher.announce("Master, resin penuh.", "surprised", game_expires_at=next_poll)
     assert assistant.announced == [("Master, resin penuh.", "surprised")]
     assert (assistant.announced_until, assistant.game_held_until) == ([None], [next_poll])
+
+
+def test_run_gives_the_gacha_watcher_the_planner_s_calendar_guests_morning_and_closed_games(
+    home, run_fakes, brains, games, watchers, play_time_watchers, guest_clock
+):
+    enable_gacha(home)
+    append_config(home, "briefing:\n  time: '06:30'\n")
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    [watcher] = watchers
+    [play_time] = play_time_watchers
+    closed = Session(
+        "hsr", datetime(2026, 10, 24, 22, tzinfo=WIB), datetime(2026, 10, 24, 23, 40, tzinfo=WIB)
+    )
+    play_time.on_finished(closed)
+    assert watcher.closed_games.get_nowait() == closed
+    assert watcher.read_calendar("hsr") is games.hoyolab.hsr_events
+    assert games.hoyolab.hsr_asked == ["calendar"]
+    assert watcher.morning == time(6, 30)
+    assert not watcher.guest_mode()
+    brains[0].providers[0].run("guest_mode", {"on": True})
+    assert watcher.guest_mode()
+
+
+def test_the_planner_reads_each_game_s_own_calendar():
+    source = types.SimpleNamespace(
+        hsr_calendar=lambda: "HSR calendar",
+        genshin_calendar=lambda: "Genshin calendar",
+        zzz_calendar=lambda: "ZZZ calendar",
+    )
+
+    read = cli._calendar_reader(source)
+
+    assert [read(game) for game in ("hsr", "genshin", "zzz")] == [
+        "HSR calendar",
+        "Genshin calendar",
+        "ZZZ calendar",
+    ]
+
+
+def turn_the_planner_off(home: Path) -> None:
+    config = home / "config.yaml"
+    text = config.read_text(encoding="utf-8")
+    off = text.replace("    planner: true ", "    planner: false ", 1)
+    assert off != text
+    config.write_text(off, encoding="utf-8")
+
+
+@pytest.mark.parametrize("left_off", ["planner", "play_time"])
+def test_run_without_the_planner_or_play_time_hands_the_gacha_watcher_no_closed_games(
+    home, run_fakes, brains, games, watchers, play_time_watchers, left_off
+):
+    enable_gacha(home)
+    if left_off == "planner":
+        turn_the_planner_off(home)
+    else:
+        append_config(home, "play_time:\n  enabled: false\n")
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    assert watchers[0].closed_games is None
+    assert [watcher.on_finished for watcher in play_time_watchers] in ([], [None])
 
 
 def call_the_owner(home: Path, word: str) -> None:

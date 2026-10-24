@@ -36,6 +36,7 @@ from importlib.util import find_spec
 from itertools import count, groupby
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
+from queue import SimpleQueue
 from time import sleep
 from typing import TYPE_CHECKING, Any, Literal, get_args
 
@@ -162,6 +163,7 @@ from waifu.gacha.hoyolab import (
 )
 from waifu.gacha.income import GameIncome, income_months, month_text
 from waifu.gacha.income_tools import IncomeTools
+from waifu.gacha.planner import Calendar, CalendarReader
 from waifu.gacha.reminders import duration_text
 from waifu.gacha.starrail import (
     ENDGAME_MODES,
@@ -227,6 +229,7 @@ from waifu.play_time import (
     PlayRecord,
     PlayTimeStore,
     PlayTotal,
+    Session,
     period_window,
     play_totals,
     played_seconds,
@@ -1527,6 +1530,8 @@ def _listen(args: argparse.Namespace) -> int:
     # an alarm's ring, which holds a level of its own for its clip.
     voice_level = _voice_level(config)
     hold = LevelHold(voice_level.level_now)
+    # The games Master closes, from the play time watcher to the gacha planner's overnight line.
+    closed_games = _closed_games(config)
     with _session_schedule(config, dry_run=args.dry_run) as schedule:
         # One bell for the alarms: the scheduler starts it, she rings it, and her tool and the
         # phone's buttons stop it.
@@ -1650,10 +1655,17 @@ def _listen(args: argparse.Namespace) -> int:
                     assistant.speak(f"{name} siap, {config.assistant.owner_call}.", followup=False)
                 try:
                     with (
-                        _gacha_watcher(config, gacha, assistant, game_mode),
+                        _gacha_watcher(
+                            config,
+                            gacha,
+                            assistant,
+                            game_mode,
+                            guest_mode=guest_mode.is_on,
+                            closed_games=closed_games,
+                        ),
                         _code_watcher(config, gacha, assistant, notifier, game_mode),
                         _pc_watcher(config, pc, assistant, notifier, game_mode),
-                        _play_time_watcher(config, assistant, game_mode),
+                        _play_time_watcher(config, assistant, game_mode, closed_games),
                         _focus_session(config, focus, assistant, notifier),
                         _break_watcher(config, focus, assistant, notifier, game_mode),
                         _rain_watcher(config, assistant, notifier, game_mode),
@@ -3030,10 +3042,19 @@ def _weekly_report_tools(config: AppConfig, gacha: GachaParts) -> WeeklyReportTo
 
 
 def _gacha_watcher(
-    config: AppConfig, gacha: GachaParts | None, assistant: Assistant, game_mode: GameMode | None
+    config: AppConfig,
+    gacha: GachaParts | None,
+    assistant: Assistant,
+    game_mode: GameMode | None,
+    *,
+    guest_mode: Callable[[], bool],
+    closed_games: SimpleQueue[Session] | None,
 ) -> AbstractContextManager[object]:
     """The reminders and check-in while she listens, also pushed to the phone when
-    notifications are on; nothing to watch without the cookie."""
+    notifications are on; nothing to watch without the cookie. Its planner reads the event
+    calendars through the run's HoYoLAB client, is silent while `guest_mode` says guests are
+    around, takes the games Master closed from `closed_games`, and counts the morning from the
+    briefing's time."""
     if gacha is None or config.gacha.cookie is None:
         return nullcontext()
     notifier = build_notifier(config.notify)
@@ -3044,7 +3065,34 @@ def _gacha_watcher(
         announce=_announcer(assistant, game_mode, pushed=notifier is not None),
         title=config.assistant.name,
         owner_call=config.assistant.owner_call,
+        read_calendar=_calendar_reader(gacha.hoyolab),
+        guest_mode=guest_mode,
+        closed_games=closed_games,
+        morning=config.briefing.time,
     )
+
+
+def _calendar_reader(source: GameDataSource) -> CalendarReader:
+    """Reads one game's event calendar from HoYoLAB."""
+
+    def read(game: str) -> Calendar:
+        if game == "genshin":
+            return source.genshin_calendar()
+        if game == "zzz":
+            return source.zzz_calendar()
+        return source.hsr_calendar()
+
+    return read
+
+
+def _closed_games(config: AppConfig) -> SimpleQueue[Session] | None:
+    """The queue from the play time watcher to the gacha planner, only while both run with the
+    planner on: the gacha watcher (`gacha.enabled` and a cookie) takes what the other puts."""
+    gacha = config.gacha
+    watched = gacha.enabled and gacha.cookie is not None
+    if watched and gacha.reminders.planner and config.play_time.enabled:
+        return SimpleQueue()
+    return None
 
 
 def _code_store(config: AppConfig) -> CodeStore:
@@ -5702,7 +5750,10 @@ def _play_time_store(config: AppConfig) -> PlayTimeStore:
 
 @contextmanager
 def _play_time_watcher(
-    config: AppConfig, assistant: Assistant, game_mode: GameMode | None
+    config: AppConfig,
+    assistant: Assistant,
+    game_mode: GameMode | None,
+    closed_games: SimpleQueue[Session] | None,
 ) -> Iterator[None]:
     """Counting how long Master's games are open while the block runs, from the process list's
     names only, telling game mode after each poll whether a game runs, and with
@@ -5710,7 +5761,8 @@ def _play_time_watcher(
     conversation is never interrupted; nothing with play time off. Stopping ends the open
     sessions at their last poll. While game mode holds her announcements, the nudge is said
     like Master's reminders: it is due only while a game is open, so held until the game has
-    closed it would come too late."""
+    closed it would come too late. Each game just closed goes into `closed_games`, when
+    given."""
     if not config.play_time.enabled:
         yield
         return
@@ -5722,6 +5774,7 @@ def _play_time_watcher(
         announce=assistant.remind if holds else _announcer(assistant, None, patient=True),
         owner_call=config.assistant.owner_call,
         on_poll=None if game_mode is None else game_mode.observe,
+        on_finished=None if closed_games is None else closed_games.put,
     )
     watcher.start()
     try:
