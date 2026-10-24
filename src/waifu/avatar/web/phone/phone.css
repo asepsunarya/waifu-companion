@@ -717,6 +717,10 @@ body[data-state="speaking"] #status::before {
   display: none;
 }
 
+#voice p.problem {
+  color: var(--recording);
+}
+
 #voice-records {
   display: flex;
   flex-direction: column;

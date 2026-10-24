@@ -199,13 +199,17 @@ let quickRinging = false;
 let alarmPoll = null;
 // The Suara sheet: the last status read, the timer reading it again (null when none runs), whether a read or a change
 // runs, the mics its picker lists (as JSON, so it is rebuilt only when they changed), and whether its settings' boxes
-// hold the PC's settings (filled once per opening, so a poll never overwrites what the owner types).
+// hold the PC's settings (filled once per opening, so a poll never overwrites what the owner types); whether the
+// picker's note holds a failed read's problem (gone at the next good read), and whether a switch the PC answered
+// "pending" is still to be shown there once it came out.
 let voiceStatus = null;
 let voicePoll = null;
 let voiceReading = false;
 let voiceChanging = false;
 let voiceListed = "";
 let voiceBoxesFilled = false;
+let voiceReadProblem = false;
+let voiceSwitchAwaited = false;
 
 class CoreMissingError extends Error {}
 
@@ -1041,10 +1045,17 @@ async function readVoice() {
   voiceReading = true;
   const result = await requestCyrene(fetch, VOICE_URL, { timeoutMs: VOICE_TIMEOUT_MS });
   voiceReading = false;
-  if (!voiceAnswered(result, page.voiceMicNote)) return;
+  if (!voiceAnswered(result, page.voiceMicNote)) {
+    voiceReadProblem = true;
+    return;
+  }
   const status = parseVoiceStatus(result.data);
-  if (status === null) page.voiceMicNote.textContent = problemText("bad_reply", ownerCall);
-  else showVoice(status);
+  if (status !== null) {
+    showVoice(status);
+    return;
+  }
+  showVoiceNote(page.voiceMicNote, problemText("bad_reply", ownerCall), true);
+  voiceReadProblem = true;
 }
 
 /** Whether `result` of a voice route is an answer to show; else it is dealt with here, a problem shown in `note`. */
@@ -1060,14 +1071,23 @@ function voiceAnswered(result, note) {
     return false;
   }
   if (result.problem) {
-    note.textContent = problemText(result.problem, ownerCall);
+    showVoiceNote(note, problemText(result.problem, ownerCall), true);
     return false;
   }
   return true;
 }
 
+/** Writes `text` in one of the sheet's notes, marked when it tells a problem. */
+function showVoiceNote(note, text, problem = false) {
+  note.textContent = text;
+  note.className = problem ? "problem" : "";
+  if (note === page.voiceMicNote) voiceReadProblem = false;
+}
+
 function showVoice(status) {
   voiceStatus = status;
+  if (voiceReadProblem) showVoiceNote(page.voiceMicNote, "");
+  showSwitchOutcome(status.switch);
   const { mic, level, vad } = status;
   page.voiceMic.textContent = mic === null ? VOICE_NO_MIC : [mic.name, mic.host_api].filter(Boolean).join(" · ");
   page.voiceDefault.textContent = `Default Windows (saat Cyrene mulai): ${status.windowsDefault ?? "tidak ada"}`;
@@ -1083,6 +1103,13 @@ function showVoice(status) {
   showVoiceDevices(status);
   if (!voiceBoxesFilled) fillVoiceBoxes(status);
   page.voiceRecords.replaceChildren(...status.records.map(voiceRecord));
+}
+
+/** How a switch the PC answered "pending" came out (it waited for her to finish thinking or speaking), once it has. */
+function showSwitchOutcome({ pending, last }) {
+  if (!voiceSwitchAwaited || pending || last === null) return;
+  voiceSwitchAwaited = false;
+  showVoiceNote(page.voiceMicNote, last.message, !last.ok);
 }
 
 /** The picker's mics, rebuilt only when the PC lists others, so a pick under way is kept. */
@@ -1133,15 +1160,20 @@ function voiceRecord(record) {
   return item;
 }
 
-/** Sends a change to POST /voice/set, one at a time, shows the PC's answer in `note`, and reads the status again. */
-async function changeVoice(request, note) {
+/**
+ * Sends a change to POST /voice/set, one at a time, shows the PC's answer in `note`, and reads the status again. A mic
+ * switch (`switching`) the PC answered "pending" is shown there again once the status tells how it came out.
+ */
+async function changeVoice(request, note, { switching = false } = {}) {
   if (voiceChanging) return;
   voiceChanging = true;
   const result = await requestCyrene(fetch, VOICE_SET_URL, request);
   voiceChanging = false;
   if (!voiceAnswered(result, note)) return;
   const outcome = voiceOutcome(result.data);
-  note.textContent = outcome === null ? problemText("bad_reply", ownerCall) : outcome.text;
+  if (outcome === null) showVoiceNote(note, problemText("bad_reply", ownerCall), true);
+  else showVoiceNote(note, outcome.text, !outcome.ok);
+  if (switching) voiceSwitchAwaited = outcome?.pending === true;
   readVoice();
 }
 
@@ -1238,7 +1270,9 @@ page.voiceClose.addEventListener("click", () => {
   page.voiceToggle.focus();
 });
 page.voice.addEventListener("keydown", closeVoiceOnEscape);
-page.voiceSwitch.addEventListener("click", () => changeVoice(micRequest(page.voiceDevice.value), page.voiceMicNote));
+page.voiceSwitch.addEventListener("click", () =>
+  changeVoice(micRequest(page.voiceDevice.value), page.voiceMicNote, { switching: true }),
+);
 page.voiceSave.addEventListener("click", saveVoice);
 page.voiceReset.addEventListener("click", resetVoice);
 

@@ -1748,6 +1748,41 @@ describe("phone Suara sheet", () => {
     assert.equal(page.element("voice-mic-note").textContent, SWITCHING.message); // beside the picker
   });
 
+  it("shows how a switch that waited for her came out, a failure as one", async (t) => {
+    t.mock.timers.enable({ apis: ["setInterval"] });
+    const page = await openVoice();
+    page.element("voice-device").value = "Microphone (High Definition Aud, MME";
+    page.element("voice-switch").dispatch("click");
+    await settle();
+    page.setVoice({ ...VOICE, switch: { pending: true, last: null } });
+    t.mock.timers.tick(1_500);
+    await settle();
+
+    assert.equal(page.element("voice-mic-note").textContent, SWITCHING.message); // still under way
+    const failed = "Microphone (High Definition Aud, MME tidak bisa dibuka (Device unavailable). Tetap memakai X.";
+    page.setVoice({ ...VOICE, switch: { pending: false, last: { ok: false, message: failed } } });
+    t.mock.timers.tick(1_500);
+    await settle();
+
+    assert.equal(page.element("voice-mic-note").textContent, failed);
+    assert.match(page.element("voice-mic-note").className, /\bproblem\b/);
+  });
+
+  it("drops a failed reading's problem once the status reads again", async (t) => {
+    t.mock.timers.enable({ apis: ["setInterval"] });
+    const page = await openVoice();
+    page.setVoice(VOICE, 502);
+    t.mock.timers.tick(1_500);
+    await settle();
+    assert.equal(page.element("voice-mic-note").textContent, problemText("offline", "Master"));
+
+    page.setVoice(VOICE);
+    t.mock.timers.tick(1_500);
+    await settle();
+
+    assert.equal(page.element("voice-mic-note").textContent, "");
+  });
+
   it("saves the settings in the boxes, and refuses one out of its bounds without asking the PC", async () => {
     const page = await openVoice({ voiceReply: { ok: true, message: "Setelan suara dipakai dan disimpan.", pending: false } });
     page.element("voice-speaker").value = "0,5";
