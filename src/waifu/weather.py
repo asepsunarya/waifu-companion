@@ -276,27 +276,31 @@ def _weather(place: str, data: Any) -> Weather:
 
 def _forecast(place: str, data: Any) -> Forecast:
     """The forecast reply's time and code now and its hourly entries as a Forecast."""
-    current, hourly = data["current"], data["hourly"]
+    current = data["current"]
+    return Forecast(
+        place=place,
+        now=_local_time(current["time"]),
+        current_code=int(_number(current["weather_code"])),
+        hours=_hours(data["hourly"]),
+    )
+
+
+def _hours(hourly: Any) -> tuple[Hour, ...]:
+    """The hourly entries in order; a null value is None."""
     columns = [
         hourly[name]
         for name in ("time", "weather_code", "precipitation_probability", "precipitation")
     ]
     if not all(isinstance(column, list) for column in columns):
         raise TypeError("the hourly values are not lists")
-    hours = tuple(
+    return tuple(
         Hour(
             at=_local_time(at),
-            code=None if code is None else int(_number(code)),
-            rain_chance=None if chance is None else round(_number(chance)),
-            precipitation_mm=None if amount is None else _number(amount),
+            code=_maybe_code(code),
+            rain_chance=_maybe_percent(chance),
+            precipitation_mm=_maybe_number(amount),
         )
         for at, code, chance, amount in zip(*columns, strict=True)
-    )
-    return Forecast(
-        place=place,
-        now=_local_time(current["time"]),
-        current_code=int(_number(current["weather_code"])),
-        hours=hours,
     )
 
 
@@ -311,6 +315,18 @@ def _number(value: object) -> float:
     if isinstance(value, bool) or not isinstance(value, int | float):
         raise TypeError(f"not a number: {value!r}")
     return float(value)
+
+
+def _maybe_number(value: object) -> float | None:
+    return None if value is None else _number(value)
+
+
+def _maybe_code(value: object) -> int | None:
+    return None if value is None else int(_number(value))
+
+
+def _maybe_percent(value: object) -> int | None:
+    return None if value is None else round(_number(value))
 
 
 def _condition(value: object) -> str:
