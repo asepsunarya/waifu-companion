@@ -64,6 +64,7 @@ Cyrene : "Komputer mau kumatikan sekarang, Master? Jawab iya kalau jadi." (minta
 - [Pengingat istirahat](#pengingat-istirahat)
 - [Waktu sholat](#waktu-sholat)
 - [Tombol cepat di PC](#tombol-cepat-di-pc)
+- [Diagnosa suara](#diagnosa-suara)
 - [Pemecahan masalah](#pemecahan-masalah)
 - [Checklist uji perangkat keras](#checklist-uji-perangkat-keras)
 - [Privasi](#privasi)
@@ -239,7 +240,7 @@ waifu check
 | Bagian | Isi |
 |---|---|
 | `assistant` | nama, `owner_call` (panggilannya untukmu), `wake_words`, `followup_seconds`, `persona_file`, kapan obrolan direset |
-| `audio` | `input_device`/`output_device` (nama dari `waifu mic`, atau nomor atau nama dari `waifu mics`), `vad` (kepekaan deteksi bicara) |
+| `audio` | `input_device` (satu mic, atau beberapa berurutan; nama dari `waifu mic`, atau nomor atau nama dari `waifu mics`), `output_device`, `vad` (kepekaan deteksi bicara), `override_path` (mic dan setelan dari [halaman Suara di HP](#diagnosa-suara)) |
 | `speaker` | verifikasi suara: `enabled`, `voiceprint_path`, `threshold`, `device` |
 | `stt` | model Whisper, `device`, `compute_type`, `languages` |
 | `brain` | `backend` (`ollama` atau `claude`), `max_tool_rounds`, lalu blok `ollama` dan `claude` |
@@ -705,6 +706,8 @@ Contoh kalimat saat `waifu run`:
   lanjut tanpa memanggil namanya: "terus nyalakan TV juga".
 - "Ulangi" atau "tadi bilang apa?" dalam 8 detik itu: dia mengucapkan kalimatnya lagi,
   seketika (lihat [Ulangi](#ulangi)).
+- "Cyrene, tadi kamu denger apa?" saat dia tidak menjawab: dia bilang yang dia dengar dan
+  kenapa diam (lihat [Diagnosa suara](#diagnosa-suara)).
 
 Obrolan dilupakan setelah 10 menit tanpa percakapan atau 40 giliran
 (`assistant.session_idle_minutes`, `assistant.max_session_turns`). Hal penting tentang
@@ -6119,6 +6122,118 @@ ada di alamat yang dibuka browser (riwayat browser menyimpannya, tapi tidak berl
 halamannya ditutup) dan di terminal, tidak pernah di log, juga dengan `-v`. Terminal mencatat
 tombol dan hasilnya (`PC page ran quick action dev.lampu_kamar.on: ok`).
 
+## Diagnosa suara
+
+Kalau Cyrene diam saja, biasanya salah satunya: mic yang dia pakai tidak mendengarmu (misalnya
+colokan mic di PC yang kosong, bukan headset), suaramu tidak cukup keras untuk batas deteksi
+bicaranya, suaramu dianggap suara orang lain, Whisper tidak menangkap namanya, atau tidak ada kata
+yang tertangkap. Diagnosa suara menunjukkan yang mana, tanpa membuka log, dan Cyrene sendiri bisa
+ditanya "tadi kamu denger apa?". Tidak perlu pengaturan baru; halaman Suara butuh
+[Cyrene di HP](#cyrene-di-hp).
+
+### Halaman Suara di HP
+
+Di [halaman HP](#cyrene-di-hp), tombol **Suara** di bilah atas membuka lembar **Diagnosa suara**
+yang diperbarui tiap 1,5 detik selama terbuka:
+
+- **Mic yang dipakai**: nama mic dan host API-nya (misalnya `Headset (Polaris-BT) · MME`), dan mic
+  default Windows saat Cyrene mulai.
+- **Bar level**: bagian paling keras dari detik terakhir (satu potongan sekitar 30 ms, yang sama
+  dengan yang dibandingkan deteksi bicaranya), dengan garis merah di batas suara: suara baru
+  dianggap bicara kalau mencapai garis itu, dan bar-nya menjadi hijau. Kalau saat kamu bicara bar
+  itu tidak pernah melewati garis, mic itu tidak cukup jelas mendengarmu: ganti mic, dekatkan, atau
+  turunkan ambang VAD.
+- **Yang terdengar**: 50 ucapan terakhir, terbaru di atas, masing-masing dengan jam, panjang,
+  puncak suara, apa yang ditangkap Whisper, skor kecocokan suaramu dibanding batasnya, dan lama
+  Whisper, otak, dan suaranya, berwarna sesuai yang dia lakukan:
+
+  | Tanda | Artinya |
+  |---|---|
+  | dijawab (hijau) | untuknya, dan sudah dia jawab |
+  | tanpa nama (kuning) | ada kata-kata, tapi tanpa namanya dan di luar 8 detik sesudah dia bicara |
+  | bukan suaramu (merah) | skornya di bawah `speaker.threshold`, atau verifikasi suara sedang tidak jalan; Whisper tidak dijalankan, jadi tidak ada teksnya |
+  | tak ada kata (ungu) | ada suara, tapi Whisper tidak menangkap kata apa pun |
+  | terlalu pendek (abu-abu) | bunyi pendek (klik, batuk, ketukan) yang tidak dianggap ucapan |
+
+Selama [mode tamu](#mode-tamu) menyala, tombol Suara hilang dan halamannya ditolak (catatannya
+memuat yang diucapkan), dan sesudah mode tamu berganti, catatan sebelumnya tidak ditampilkan lagi.
+
+### Ganti mic dari HP
+
+Pilih mic di **Ganti mic** lalu ketuk **Pakai**: Cyrene langsung pindah tanpa dijalankan ulang, dan
+pilihan itu tetap dipakai sesudah `waifu run` dijalankan ulang. Daftarnya mic yang dikenali PC
+saat itu (sama dengan `waifu mic`). Mic yang tidak bisa dibuka tidak pernah dipakai: dia tetap
+memakai mic sebelumnya dan menyebut alasannya. Kalau dia sedang berpikir atau bicara, gantinya
+menunggu sampai dia selesai, dan hasilnya muncul di lembar itu. **Ikuti urutan di config** kembali
+ke urutan `audio.input_device`.
+
+Pilihan dari HP disimpan di file kecil `data\voice_override.json` (`audio.override_path`),
+bukan di `config.yaml`. Sesudah ganti mic, daftarkan ulang suaramu dengan `waifu enroll` lewat
+mic itu supaya skor kecocokannya bagus.
+
+### Setelan suara
+
+Di **Setelan** bisa diubah, langsung berlaku dan ikut disimpan di file yang sama:
+
+- **Ambang kecocokan suaramu** (`speaker.threshold`, 0,30 sampai 0,70): turunkan sedikit kalau
+  suaramu sendiri sering "bukan suaramu"; naikkan kalau suara orang lain ikut dijawab.
+- **Ambang VAD** (`audio.vad.threshold_db`, -70 sampai -25 dB): turunkan (misalnya -50) kalau bar
+  suaramu jarang melewati garis.
+- **Margin VAD** (`audio.vad.margin_db`, 3 sampai 30 dB): seberapa jauh suara harus di atas bising
+  mic itu; naikkan kalau kipas atau AC memicu "terlalu pendek" atau "tak ada kata".
+
+**Reset ke default** mengembalikan ketiganya ke `config.yaml` (mic pilihan HP tetap).
+
+### Beberapa mic berurutan
+
+`audio.input_device` boleh berisi beberapa mic, urut dari yang paling diinginkan:
+
+```yaml
+audio:
+  input_device: ["Headset (Polaris-BT), MME", "Microphone (USB Audio), MME"]
+```
+
+Cyrene memakai mic pertama yang bisa dibuka; mic pilihan HP selalu dicoba duluan, dan mic default
+Windows paling akhir. Kalau mic yang dipakai terputus, berhenti mengirim suara, atau hanya
+mengirim sunyi total selama 8 detik (misalnya headset Bluetooth dimatikan), dia pindah ke mic
+berikutnya dan bilang sekali "Sekarang aku pakai mic Microphone (USB Audio)." Begitu headsetnya
+tersambung lagi, dia kembali memakainya: "Mic Headset (Polaris-BT) tersambung lagi, aku pakai
+itu lagi." Kalau tidak ada mic yang bisa dibuka, dia tetap jalan (pengingat dan alarm tetap
+diucapkan) dan mencoba lagi tiap 5 detik. Satu nama seperti sebelumnya tetap bisa dipakai.
+
+Untuk melihat mic yang datang dan pergi, Cyrene memulai ulang PortAudio sebentar dengan mic
+tertutup (ucapan yang jatuh tepat di saat itu tidak terdengar), hanya saat daftar mic Windows
+berubah, saat mic gagal, atau saat ganti mic dari HP. Kalau `audio.input_device` atau
+`audio.output_device` berisi **nomor** dari `waifu mics`, itu tidak dilakukan (nomornya bisa
+bergeser), jadi mic yang kembali baru dipakai lagi setelah `waifu run` dijalankan ulang: pakai
+nama dari `waifu mic`.
+
+### "Tadi kamu denger apa?"
+
+"Cyrene, tadi kamu denger apa?" (atau "kamu dengar apa tadi?", "tadi denger apa?") dijawab
+langsung tanpa otaknya: ucapan terakhir yang dia dengar dan kenapa dia menjawab atau tidak.
+
+```text
+Master : "Matikan lampu."
+Master : "Cyrene, tadi kamu denger apa?"
+Cyrene : "Tadi aku dengar "matikan lampu", tapi kamu tidak memanggil namaku, jadi tidak kujawab."
+```
+
+Untuk suara lain dia menyebut skor kecocokannya dan batasnya ("kemiripannya dengan suaramu cuma
+0,32, padahal butuh 0,45"), dan untuk suara tanpa kata panjangnya. Bunyi pendek seperti klik
+atau batuk dilewati. Seperti [ulangi](#ulangi), kalimatnya harus hanya pertanyaan itu, dalam 8
+detik sesudah dia bicara cukup tanpa nama, dan sesudah mode tamu berganti dia menjawab "Belum ada
+yang kudengar." Jawabannya tidak ikut diulang oleh "ulangi".
+
+### Privasi diagnosa suara
+
+Rekaman tidak pernah disimpan: level mic dihitung dari sampelnya lalu sampelnya dibuang.
+Catatan ucapan (dengan teks yang ditangkap Whisper) hanya ada di memori selama `waifu run`
+berjalan, paling banyak 50, hilang saat dia berhenti, hanya dikirim ke HP yang sudah dipasangkan
+lewat Tailscale (tidak lewat Funnel, tidak saat mode tamu), dan jawaban "tadi kamu denger apa?"
+tidak dicatat di log. Yang disimpan hanya `data\voice_override.json`: nama mic pilihan HP dan tiga
+angka setelan.
+
 ## Pemecahan masalah
 
 Log `waifu run` tampil di terminal dalam bahasa Inggris. Baris seperti
@@ -6149,6 +6264,11 @@ dari torch dan paket `nvidia-*` di venv.
 
 **Mic tidak terdeteksi atau tidak mau dibuka.**
 
+- Pertama, buka **Suara** di [halaman HP](#diagnosa-suara) selagi `waifu run` jalan: lihat mic
+  yang dipakai, bicara, dan perhatikan apakah bar-nya melewati garis merah dan apa yang tertulis
+  di **Yang terdengar** ("bukan suaramu", "tanpa nama", "tak ada kata", "terlalu pendek"). Dari
+  sana mic bisa langsung diganti, dan ambang suaranya disetel, tanpa menjalankan ulang. Tanpa HP,
+  tanya "Cyrene, tadi kamu denger apa?".
 - Jalankan `waifu mic`, lalu sebut "halo Cyrene" beberapa kali dengan suara biasa. Dia
   menampilkan tiap mic sekali, menandai mic yang dipakai Cyrene dan default Windows,
   mendengarkan tiap mic 3 detik (`waifu mic --seconds 5` untuk lebih lama), lalu menulis
@@ -6177,6 +6297,10 @@ dari torch dan paket `nvidia-*` di venv.
   mic terpisah.
 - `waifu mics` menampilkan semua perangkat apa adanya (tanda `>` = mic default). Isi
   `audio.input_device` dengan nomor atau namanya.
+- Headset yang datang dan pergi: isi `audio.input_device` dengan beberapa mic berurutan
+  (`["Headset (Polaris-BT), MME", "Microphone (USB Audio), MME"]`), supaya Cyrene pindah ke mic
+  berikutnya saat headsetnya mati dan kembali saat tersambung lagi (lihat
+  [Beberapa mic berurutan](#beberapa-mic-berurutan)).
 - Mic dibuka di sample rate bawaannya lalu di-resample ke 16 kHz, jadi
   `audio.sample_rate` tetap `16000`. Kalau satu entri mic (misalnya versi WASAPI
   atau WDM-KS) gagal dibuka dengan error sample rate, pilih entri mic yang sama
@@ -6248,6 +6372,9 @@ menguji nomor 5.
       `✓ suara terdengar` (atau isi `audio.input_device` dengan baris yang dia sarankan), dan
       baris `Mikrofon` di `waifu check` menyebut mic itu.
 - [ ] `waifu speaker-test`: suaramu `✓`, suara orang lain `✗`.
+- [ ] Halaman **Suara** di HP (lihat [Diagnosa suara](#diagnosa-suara)): bar level bergerak
+      melewati garis merah saat kamu bicara ke mic yang dipakai, dan "Cyrene, nyalakan lampu
+      kamar" muncul di **Yang terdengar** sebagai "dijawab" dengan skormu.
 
 **User story** (jalankan `waifu run` dan tunggu sampai muncul "Cyrene siap
 mendengarkan"; jawaban pertama bisa lebih lama karena model Ollama baru dimuat)
@@ -6867,6 +6994,18 @@ di sampingnya)
 - [ ] "Cyrene, mode tamu", lalu "mode tamu selesai" dari chat HP, lalu di PC "Cyrene, ulangi":
       dia bilang "Belum ada yang bisa kuulangi, Master."
 
+**Diagnosa suara** (lihat [Diagnosa suara](#diagnosa-suara))
+
+- [ ] "Matikan lampu" tanpa nama, lalu "Cyrene, tadi kamu denger apa?": dia bilang mendengar
+      "matikan lampu" tanpa namanya, dan lampunya tetap menyala.
+- [ ] Di halaman Suara, ganti ke mic lain lalu kembali ke **Ikuti urutan di config**: tiap kali
+      nama mic di atas berganti, tanpa menjalankan ulang `waifu run`.
+- [ ] Dengan `audio.input_device` berisi headset Bluetooth lalu mic lain: matikan headsetnya; dia
+      bilang "Sekarang aku pakai mic ..." dan tetap mendengar lewat mic kedua. Nyalakan lagi
+      headsetnya: dia bilang "Mic ... tersambung lagi, aku pakai itu lagi."
+- [ ] "Cyrene, mode tamu": tombol Suara di HP hilang. "Mode tamu selesai": tombol itu kembali
+      saat halaman HP dibuka lagi.
+
 **Belajar bahasa Jepang** (lihat [Belajar bahasa Jepang](#belajar-bahasa-jepang))
 
 - [ ] Dengan `japanese.enabled: true`, `waifu check` menampilkan `✓ Belajar bahasa Jepang: 0 dari
@@ -6973,6 +7112,10 @@ di sampingnya)
   id, jam, dan keterangannya, lalu dihapus. Keterangannya ke API Anthropic dengan Claude, dan bunyi
   pertama serta alarm yang terlewat ke `ntfy.sh` kalau notifikasi HP menyala. Lihat
   [Privasi alarm](#privasi-alarm).
+- **Diagnosa suara:** rekaman tidak pernah disimpan; catatan ucapan (dengan teks yang ditangkap
+  Whisper) hanya di memori dan hanya ke HP yang dipasangkan, tidak saat mode tamu. Mic dan setelan
+  pilihan HP ada di `data\voice_override.json`. Lihat
+  [Privasi diagnosa suara](#privasi-diagnosa-suara).
 - **Daftar tugas** ada di `data\todo.json`, hanya di PC ini; rahasia seperti kata sandi atau
   nomor kartu tidak pernah disimpan. Lihat
   [File data\todo.json dan privasi tugas](#file-datatodojson-dan-privasi-tugas).

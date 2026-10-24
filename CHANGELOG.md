@@ -4,6 +4,31 @@ Ringkasan per versi, yang terbaru di atas. Rinciannya ada di README (bagian yang
 setiap versi) dan di SPEC.md. Setelah memperbarui, **mulai ulang `waifu run`** supaya semuanya
 aktif, lalu jalankan `waifu check`.
 
+## v1.47: diagnosa suara
+
+- Halaman HP punya tombol **Suara**: mic yang dipakai Cyrene dan host API-nya, mic default
+  Windows, bar level suara dengan garis batas deteksi bicaranya, dan 50 ucapan terakhir dengan
+  teks yang ditangkap, skor kecocokan suaramu dibanding batasnya, lama Whisper, otak, dan
+  suaranya, berwarna sesuai yang dia lakukan (dijawab, tanpa nama, bukan suaramu, tak ada kata,
+  terlalu pendek). Diperbarui tiap 1,5 detik selama terbuka; disembunyikan selama mode tamu.
+- Dari halaman itu mic bisa diganti tanpa menjalankan ulang `waifu run` (mic yang tidak bisa
+  dibuka tidak pernah dipakai), dan ambang kecocokan suara (0,30 sampai 0,70) serta ambang dan
+  margin VAD bisa disetel, dengan **Reset ke default**. Pilihannya disimpan di
+  `data\voice_override.json` (`audio.override_path`), `config.yaml` tidak diubah.
+- `audio.input_device` boleh berisi beberapa mic berurutan. Kalau mic yang dipakai terputus atau
+  hanya mengirim sunyi total, dia pindah ke mic berikutnya (terakhir mic default Windows) dan
+  bilang sekali mic mana yang dipakai sekarang; headset yang tersambung lagi dipakai lagi. Mic
+  yang gagal tidak lagi menghentikan `waifu run` dengan "Terjadi kesalahan tak terduga": dia
+  tetap jalan dan mencoba lagi tiap 5 detik. Mic dengan nomor dari `waifu mics` tidak dipakai
+  lagi otomatis sesudah kembali; pakai nama dari `waifu mic`.
+- "Cyrene, tadi kamu denger apa?" dijawab tanpa otak: ucapan terakhir yang dia dengar dan
+  kenapa dia menjawab atau diam.
+- `waifu check`, `waifu mic`, `waifu enroll`, dan `waifu speaker-test` memakai urutan mic yang
+  sama (mic pilihan HP dulu); baris `Mikrofon` di `waifu check` menyebut pilihan HP, urutan
+  daftar, dan setelan suara dari HP.
+- Rekaman tidak pernah disimpan; catatan ucapan hanya di memori. Tidak ada tool baru.
+- README: "Diagnosa suara", dan "Pemecahan masalah" untuk mic sekarang mulai dari halaman Suara.
+
 ## v1.46: alarm bangun
 
 - "Cyrene, bangunkan aku jam 6", "alarm jam 5.30 besok buat berangkat kerja", atau "alarm tiap

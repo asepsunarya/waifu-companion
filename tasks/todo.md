@@ -2554,9 +2554,9 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 264, 266, 267 · **Files:** `src/waifu/cli.py`, `config.example.yaml`, `tests/test_cli.py` · **Scope:** M
 
-## Task 270: Docs
+## Task 270: Docs ✅
 
 **Acceptance criteria:**
-- [ ] README "Diagnosa suara" with a contents entry and checklist items, the troubleshooting mic entry led by the Suara page, the list form of `input_device`; CHANGELOG v1.47; full suite, ruff, and JS tests clean
+- [x] README "Diagnosa suara" with a contents entry and checklist items, the troubleshooting mic entry led by the Suara page, the list form of `input_device`; CHANGELOG v1.47; full suite, ruff, and JS tests clean
 
 **Dependencies:** 269 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
