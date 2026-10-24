@@ -4005,7 +4005,7 @@ def _weather_text(weather: dict[str, object]) -> str:
     weather as the owner reads it."""
     return (
         f"Cuaca di {weather['place']}: {weather['condition']}, {weather['temperature_c']:g}°C; "
-        f"hari ini {weather['min_c']:g}-{weather['max_c']:g}°C, "
+        f"hari ini {_temperature_text(weather['min_c'], weather['max_c'])}, "
         f"peluang hujan {weather['rain_chance']}%; besok pagi {weather['tomorrow_morning']}"
     )
 
@@ -4127,12 +4127,18 @@ def _forecast_text(period: Period) -> str:
     """`hujan, 18.9-28.3°C, peluang hujan 80%, curah hujan 7.5 mm`, unknown values left out."""
     texts = [] if period.condition is None else [period.condition]
     if period.min_c is not None and period.max_c is not None:
-        texts.append(f"{period.min_c:g}-{period.max_c:g}°C")
+        texts.append(_temperature_text(period.min_c, period.max_c))
     if period.rain_chance is not None:
         texts.append(f"peluang hujan {period.rain_chance}%")
     if period.rain_mm is not None:
         texts.append(f"curah hujan {period.rain_mm:g} mm")
     return ", ".join(texts) or "tidak ada data"
+
+
+def _temperature_text(min_c: float, max_c: float) -> str:
+    """`18.9-28.3°C`, or one value (`20°C`) when the lowest and the highest read the same."""
+    lowest, highest = f"{min_c:g}", f"{max_c:g}"
+    return f"{highest}°C" if lowest == highest else f"{lowest}-{highest}°C"
 
 
 # --- the running version -----------------------------------------------------------------------

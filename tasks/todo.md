@@ -2307,6 +2307,7 @@ named `tests/test_<package>_<module>.py`.
 
 **Acceptance criteria:**
 - [x] `waifu cuaca [hari-ini|besok|akhir-pekan|YYYY-MM-DD]` prints the place, the time, each day, and its parts not passed; no place, an Open-Meteo failure, or a day out of reach is a `✗` line and exit 1; a bad word or date is an argparse error
+- [x] Polish: a lowest and highest that print the same are one temperature (`20°C`, not `20-20°C`), also in `waifu briefing`; the tool's description says to say equal `min_c` and `max_c` once
 
 **Dependencies:** 239 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** S
 

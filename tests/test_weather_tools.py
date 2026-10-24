@@ -418,6 +418,13 @@ def test_the_description_routes_the_weather_now_to_the_briefing_and_asks_for_one
         assert guidance in spec.description
 
 
+def test_the_description_says_an_equal_lowest_and_highest_is_one_temperature():
+    # Late in the day one hourly entry may be left, and then min_c and max_c are the same.
+    [spec] = tool()[0].specs()
+
+    assert "equal ones are one temperature: say it once, never as a range" in spec.description
+
+
 def test_the_description_sends_the_weather_of_today_here_when_there_is_no_briefing():
     # She has this tool with the briefing off too, and then no daily_briefing to send it to.
     [spec] = tool()[0].specs()

@@ -8350,6 +8350,17 @@ def test_briefing_prints_today_s_date_weather_and_schedule_without_the_brain(
     assert brains == []
 
 
+def test_briefing_prints_one_temperature_when_today_s_lowest_and_highest_are_the_same(
+    home, open_meteo, capsys
+):
+    write_out_example_briefing(home)
+    open_meteo.forecast["daily"]["temperature_2m_min"][0] = 27.9
+
+    assert cli.main(["briefing"]) == 0
+
+    assert "berawan, 21.4°C; hari ini 27.9°C, peluang hujan 85%" in capsys.readouterr().out
+
+
 def test_briefing_whose_weather_fails_still_prints_the_rest_and_exits_1(home, open_meteo, capsys):
     write_out_example_briefing(home)
     open_meteo.failure = urllib.error.URLError("getaddrinfo failed")
@@ -8900,6 +8911,20 @@ def test_cuaca_leaves_out_the_parts_of_today_that_have_passed(home, open_meteo, 
     assert capsys.readouterr().out.splitlines()[1:] == [
         "Sabtu 24-10-2026, sisa hari ini: berawan, 20-31.5°C, peluang hujan 10%, curah hujan 0 mm",
         CLOUDY_PARTS["malam"],
+    ]
+
+
+def test_cuaca_prints_one_temperature_when_the_lowest_and_highest_are_the_same(
+    home, open_meteo, capsys
+):
+    write_out_example_briefing(home)
+    outlook_on_saturday(open_meteo, now="23:30")  # only the next 00:00 entry is left: 20 °C
+
+    assert cli.main(["cuaca"]) == 0
+
+    assert capsys.readouterr().out.splitlines()[1:] == [
+        "Sabtu 24-10-2026, sisa hari ini: berawan, 20°C, peluang hujan 10%, curah hujan 0 mm",
+        "  malam: berawan, 20°C, peluang hujan 10%, curah hujan 0 mm",
     ]
 
 
