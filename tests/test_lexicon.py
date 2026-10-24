@@ -385,6 +385,18 @@ def test_a_syllable_that_doubles_as_a_question_tag_is_kept_inside_a_reading(comm
 
 
 @pytest.mark.parametrize(
+    ("command", "rule"),
+    [
+        ("cara baca HSR itu Ha-Es-Er", ("HSR", "Ha-Es-Er")),
+        ("cara baca Al-Quran itu Al Qur An", ("Al-Quran", "Al Qur An")),
+        ("cara baca Kanzaki itu Kan-Za-Ki", ("Kanzaki", "Kan-Za-Ki")),
+    ],
+)
+def test_a_reading_or_a_term_spelled_with_hyphens_is_kept(command, rule):
+    assert reading_request(command, NAMES) == rule
+
+
+@pytest.mark.parametrize(
     "command",
     [
         "cara baca HSR itu Ha Es Er ga",
@@ -478,6 +490,20 @@ def test_a_sentence_with_a_common_remark_word_is_not_a_reading_request(command):
 @pytest.mark.parametrize(
     "command",
     [
+        "cara baca buku itu pelan-pelan",
+        "Cyrene, cara baca berita itu cepat-cepat aja",
+        "cara baca resep itu biasa-biasa saja",
+        "cara baca HSR itu sama-sama",
+        "cara baca lain-lain itu La In",
+    ],
+)
+def test_a_remark_word_said_twice_with_a_hyphen_is_still_a_remark(command):
+    assert reading_request(command, NAMES) is None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
         "cara baca kamu itu salah",
         "cara baca kamu itu Ka Mu",
         "cara baca aku itu A Ku",
@@ -530,6 +556,8 @@ def test_a_forget_request_gives_the_term_as_said(command, term):
         "lupakan Acheron",
         "jangan lupakan cara baca Acheron",
         "hapus semua cara baca",
+        "lupakan cara baca pelan-pelan",
+        "hapus cara baca sama-sama",
         "cara baca Acheron itu A Ke Ron",
         "nyalakan lampu kamar",
         "",

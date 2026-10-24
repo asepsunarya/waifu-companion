@@ -208,8 +208,9 @@ def reading_request(
     before it and fillers ("ya", "aja", "oke", ...) after it. The term takes 1 to
     TERM_MAX_WORDS words before the first "itu", without a leading "nama", "kata", or
     "tulisan"; the reading 1 to READING_MAX_WORDS after it, without the "harusnya", "dibaca",
-    ... that lead into it. A question or a remark about a reading is not a request
-    (`_remark`), and neither is a term that is a pronoun, one of `names`, or `leading`:
+    ... that lead into it. A question or a remark about a reading ("... itu pelan-pelan") is
+    not a request (`_remark`), and neither is a term that is a pronoun, one of `names`, or
+    `leading`:
     "cara baca kamu itu salah" is about her."""
     if "?" in command:
         return None
@@ -237,8 +238,8 @@ def forget_request(
     None for anything else. The words left out around it are `reading_request`'s, and so are
     the term's 1 to TERM_MAX_WORDS words without a leading "nama", "kata", or "tulisan"; words
     that point at a reading ("itu", "yang tadi") are left out after it. A question, and a term
-    holding a question word or tag, a remark word, a pronoun, or a pointing word, is not a
-    request: "lupakan cara baca itu" names no word."""
+    holding a question word or tag, a remark word (`_holds_remark`), a pronoun, or a pointing
+    word, is not a request: "lupakan cara baca itu" names no word."""
     if "?" in command:
         return None
     left = _request_words(command, tuple(names), tuple(leading))
@@ -250,8 +251,11 @@ def forget_request(
     while term and term[-1].casefold() in _POINTING:
         term = term[:-1]
     term = _without_term_lead(term)
-    refused = QUESTION_WORDS | QUESTION_TAGS | REMARK_WORDS | PRONOUNS | _POINTING
-    if not 1 <= len(term) <= TERM_MAX_WORDS or {word.casefold() for word in term} & refused:
+    if (
+        not 1 <= len(term) <= TERM_MAX_WORDS
+        or {word.casefold() for word in term} & (QUESTION_TAGS | PRONOUNS | _POINTING)
+        or _holds_remark(term)
+    ):
         return None
     return " ".join(term)
 
@@ -278,15 +282,20 @@ def _without_term_lead(term: list[str]) -> list[str]:
 
 def _remark(term: list[str], reading: list[str]) -> bool:
     """Whether "cara baca <term> itu <reading>" asks or says something about a reading instead
-    of teaching one: a question word or tag, a remark word, or a pronoun in the term; a
-    question word or a remark word in the reading, or a question tag ending it."""
-    term_words = {word.casefold() for word in term}
-    reading_words = [word.casefold() for word in reading]
+    of teaching one: a question tag or a pronoun in the term; a question word or a remark word
+    in either (`_holds_remark`), or a question tag ending the reading."""
     return bool(
-        term_words & (QUESTION_WORDS | QUESTION_TAGS | REMARK_WORDS | PRONOUNS)
-        or set(reading_words) & (QUESTION_WORDS | REMARK_WORDS)
-        or reading_words[-1] in QUESTION_TAGS
+        {word.casefold() for word in term} & (QUESTION_TAGS | PRONOUNS)
+        or _holds_remark(term + reading)
+        or reading[-1].casefold() in QUESTION_TAGS
     )
+
+
+def _holds_remark(words: list[str]) -> bool:
+    """Whether `words` hold a question word or a remark word, also as a part of a word written
+    with hyphens: Whisper writes "pelan-pelan" for "pelan pelan"."""
+    parts = {part for word in words for part in word.casefold().split("-")}
+    return bool(parts & (QUESTION_WORDS | REMARK_WORDS))
 
 
 def built_in_term(term: str) -> str | None:
