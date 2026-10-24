@@ -2277,11 +2277,11 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 238a · **Files:** `src/waifu/weather.py`, `tests/test_weather.py` · **Scope:** M
 
-## Task 239: The days and parts asked
+## Task 239: The days and parts asked ✅
 
 **Acceptance criteria:**
-- [ ] `period_of`: a later day's daily values; the rest of today and any part from the hourly entries after now (highest code, highest chance, summed amount, lowest and highest temperature, known values only); a part from a to b reads the entries after a up to b (night with the next day's 00:00); None when a part of today has passed
-- [ ] `periods`: today, tomorrow, the weekend (Monday-Friday, Saturday, Sunday), a date of the reply; a date out of reach and a passed part are a `ForecastError`; after midnight today is the new date
+- [x] `period_of`: a later day's daily values; the rest of today and any part from the hourly entries after now (highest code, highest chance, summed amount, lowest and highest temperature, known values only); a part from a to b reads the entries after a up to b (night with the next day's 00:00); None when a part of today has passed
+- [x] `periods`: today, tomorrow, the weekend (Monday-Friday, Saturday, Sunday), a date of the reply; a date out of reach and a passed part are a `ForecastError`; after midnight today is the new date
 
 **Dependencies:** 238 · **Files:** `src/waifu/brain/weather_tools.py`, `tests/test_weather_tools.py` · **Scope:** M
 

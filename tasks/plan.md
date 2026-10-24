@@ -943,7 +943,7 @@ client, names the place as the rain alert does, refuses in her own turns, and st
 mode. 18 of 20 strict tools, 17 of 24 optional parameters, and 0 of 16 unions stay.
 - [x] Task 238a: contract: SPEC, tasks
 - [x] Task 238: `WeatherClient.outlook()`: seven days with hourly temperatures
-- [ ] Task 239: the days and parts asked (`periods`, pure)
+- [x] Task 239: the days and parts asked (`periods`, pure)
 - [ ] Task 240: the `weather_forecast` tool
 - [ ] Task 241: the brain gets it: a shared client, the place gate, guest mode, the strict budget
 - [ ] Task 242: `waifu cuaca`
