@@ -8,6 +8,12 @@ next poll are dropped unsaid: the game played has likely changed what they tell.
 focus block alone holds them as long as it lasts, like problems and the check-in,
 which wait as long as they must. It runs in a daemon thread; a failing poll is
 logged and the next one comes as usual.
+
+With `reminders.planner` on and no guests around (v1.50) it also plans ahead: from the evening
+of `reminders.daily_time` it reads each game's event calendar once a game day for the
+planner's evening line, and it hands each game Master closed late at night (from the play time
+watcher's queue) with that game's status to the overnight line, whose game's stamina reminder
+then waits for the morning. Planner lines are reminders about a game's state too.
 """
 
 from __future__ import annotations
@@ -15,14 +21,23 @@ from __future__ import annotations
 import logging
 import threading
 from collections.abc import Callable, Iterable
-from datetime import datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
+from queue import Empty, SimpleQueue
 from types import TracebackType
 from typing import Protocol
 
 from waifu.config import GachaConfig
 from waifu.gacha.games import checkin_day, game_day
 from waifu.gacha.hoyolab import CheckinResult, GachaError, GameStatus
+from waifu.gacha.planner import (
+    Calendar,
+    CalendarReader,
+    evening_due,
+    evening_notice,
+    overnight_notice,
+    stamina_held,
+)
 from waifu.gacha.reminders import (
     Notice,
     ReminderState,
@@ -31,16 +46,18 @@ from waifu.gacha.reminders import (
     problem_notice,
 )
 from waifu.notify import Notifier
+from waifu.play_time import Session
 from waifu.rain_watch import Announce
 
 logger = logging.getLogger(__name__)
 
 GAME_TAG = "video_game"  # ntfy shows it as a game controller emoji
 EMOTION_STRENGTH = {"sad": 3, "surprised": 2, "happy": 1}
-RETRY_KINDS = frozenset({"network", "rate_limit"})  # a check-in that may work on the next poll
+# A check-in or a calendar read that may work on the next poll.
+RETRY_KINDS = frozenset({"network", "rate_limit"})
 # What a game's play changes: told as the poll saw it, out of date once a game held it past the
 # next poll.
-STATE_KINDS = frozenset({"stamina", "daily", "weekly", "expeditions"})
+STATE_KINDS = frozenset({"stamina", "daily", "weekly", "expeditions", "planner"})
 STOP_TIMEOUT_S = 5.0
 
 
@@ -66,7 +83,14 @@ class GachaWatcher:
         owner_call: str = "Master",
         now: Callable[[], datetime] = _local_now,
         state_path: Path | None = None,
+        read_calendar: CalendarReader | None = None,
+        guest_mode: Callable[[], bool] | None = None,
+        closed_games: SimpleQueue[Session] | None = None,
+        morning: time = time(7, 0),
     ) -> None:
+        """Without `read_calendar` there is no evening planner line, and without `closed_games`
+        no overnight one; `guest_mode` says whether guests are around, `morning` (the
+        briefing's time) when Master wakes."""
         self._hoyolab = hoyolab
         self._config = config
         self._notifier = notifier
@@ -76,6 +100,12 @@ class GachaWatcher:
         self._now = now
         self._state_path = state_path or config.data_dir / "reminders.json"
         self._state = ReminderState.load(self._state_path)
+        self._read_calendar = read_calendar
+        self._guest_mode = guest_mode
+        self._closed_games = closed_games
+        self._morning = morning
+        self._closed: dict[str, Session] = {}  # per game, the last closed, waiting for a status
+        self._calendar_read: dict[str, date] = {}  # per game, the game day its calendar was read
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -87,9 +117,21 @@ class GachaWatcher:
         readable = {
             game: status for game, status in statuses.items() if isinstance(status, GameStatus)
         }
-        notices = due_notices(
-            readable, now, self._state, self._config.reminders, offset, owner_call=self._owner_call
+        self._take_closed_games()
+        planning = self._planning()
+        notices = self._overnight(readable, now) if planning else []
+        held = [game for game in readable if stamina_held(game, now, self._state, self._morning)]
+        notices += due_notices(
+            readable,
+            now,
+            self._state,
+            self._config.reminders,
+            offset,
+            owner_call=self._owner_call,
+            stamina_held=held,
         )
+        if planning:
+            notices += self._evening(readable, now)
         for game, result in statuses.items():
             if isinstance(result, GachaError):
                 notice = problem_notice(
@@ -137,6 +179,82 @@ class GachaWatcher:
             except Exception:
                 logger.exception("A HoYoLAB poll failed; trying again at the next one")
             self._stop.wait(self._config.poll_minutes * 60)
+
+    def _planning(self) -> bool:
+        """Whether the planner speaks now: on, and no guests around."""
+        guests = self._guest_mode is not None and self._guest_mode()
+        return self._config.reminders.planner and not guests
+
+    def _take_closed_games(self) -> None:
+        """Keep, per game, the last session Master closed since the last poll."""
+        if self._closed_games is None:
+            return
+        while True:
+            try:
+                session = self._closed_games.get_nowait()
+            except Empty:
+                return
+            self._closed[session.game] = session
+
+    def _overnight(self, readable: dict[str, GameStatus], now: datetime) -> list[Notice]:
+        """Each closed game whose status this poll read, handed to the overnight line."""
+        notices = []
+        for game in [game for game in self._closed if game in readable]:
+            session = self._closed.pop(game)
+            notice = overnight_notice(
+                game,
+                session.end,
+                readable[game],
+                now,
+                self._state,
+                self._morning,
+                owner_call=self._owner_call,
+            )
+            notices.extend([notice] if notice else [])
+        return notices
+
+    def _evening(self, readable: dict[str, GameStatus], now: datetime) -> list[Notice]:
+        """The evening line of each readable game that is due one and whose calendar was not
+        read yet this game day."""
+        offset = self._config.server_utc_offset
+        day = game_day(now, offset)
+        notices = []
+        for game in readable:
+            if self._read_calendar is None or self._calendar_read.get(game) == day:
+                continue
+            if not evening_due(game, now, self._state, self._config.reminders, offset):
+                continue
+            calendar = self._calendar(self._read_calendar, game, day)
+            if calendar is None:
+                continue
+            notice = evening_notice(
+                game, calendar, now, self._state, offset, owner_call=self._owner_call
+            )
+            notices.extend([notice] if notice else [])
+        return notices
+
+    def _calendar(self, read: CalendarReader, game: str, day: date) -> Calendar | None:
+        """`game`'s calendar, read once for `day`; None after an error, which is read again at
+        the next poll only when it may work then."""
+        try:
+            calendar = read(game)
+        except GachaError as error:
+            if error.kind in RETRY_KINDS:
+                logger.info(
+                    "Could not read the %s event calendar (%s); trying again at the next poll",
+                    game,
+                    error.kind,
+                )
+                return None
+            logger.warning(
+                "Could not read the %s event calendar (%s); no planner line for it this game day",
+                game,
+                error.kind,
+            )
+            self._calendar_read[game] = day
+            return None
+        self._calendar_read[game] = day
+        return calendar
 
     def _checkin(self, now: datetime) -> list[Notice]:
         """Claim every game's check-in once per check-in day; retry later after a network error."""

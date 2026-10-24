@@ -2,13 +2,16 @@ import json
 import logging
 import threading
 from dataclasses import replace
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time, timedelta, timezone
+from queue import SimpleQueue
 
 import pytest
 
-from waifu.config import GachaConfig
+from waifu.config import GachaConfig, GachaRemindersConfig
 from waifu.gacha.hoyolab import CheckinResult, GachaError, GameStatus, WeeklyTask
+from waifu.gacha.starrail import HsrCalendar, HsrEvent
 from waifu.gacha.watcher import GachaWatcher
+from waifu.play_time import Session
 
 WIB = timezone(timedelta(hours=7))
 
@@ -315,3 +318,289 @@ def test_the_thread_polls_at_once_and_stops_promptly(tmp_path, clock, caplog):
 
     assert not any(thread.name == "gacha-watcher" for thread in threading.enumerate())
     assert "HoYoLAB exploded" in caplog.text
+
+
+# --- the planner (v1.50) -------------------------------------------------------------------------
+
+
+def wib(day: int, hour: int, minute: int = 0) -> datetime:
+    return datetime(2026, 10, day, hour, minute, tzinfo=WIB)
+
+
+MONDAY_EVENING = wib(12, 20, 0)
+GIFT = HsrEvent("Gift of Odyssey", wib(10, 4), MONDAY_EVENING + timedelta(hours=20), 3, 7, False)
+ENDING = HsrCalendar("3.7", (), (GIFT,), ())
+NOTHING_ENDING = HsrCalendar("3.7", (), (), ())
+GIFT_LINE = "Master, event Gift of Odyssey di HSR berakhir sekitar 20 jam lagi, baru 3 dari 7."
+
+
+class FakeCalendars:
+    """Stands in for the HoYoLAB calendar reads: each game's calendar, or the error it raises;
+    a list gives one answer per read, its last one for every read after."""
+
+    def __init__(self, calendars=None) -> None:
+        self.calendars = calendars or {"hsr": ENDING}
+        self.reads: list[str] = []
+
+    def __call__(self, game: str):
+        self.reads.append(game)
+        answer = self.calendars[game]
+        if isinstance(answer, list):
+            answer = answer.pop(0) if len(answer) > 1 else answer[0]
+        if isinstance(answer, BaseException):
+            raise answer
+        return answer
+
+
+class Guests:
+    def __init__(self, around: bool = False) -> None:
+        self.around = around
+
+    def __call__(self) -> bool:
+        return self.around
+
+
+def planner_watcher(
+    tmp_path, clock, *, statuses=None, calendars=None, guests=None, closed=None, **config
+) -> tuple:
+    announced = Announced()
+    hoyolab = FakeHoyolab(statuses or {"hsr": QUIET})
+    gacha = GachaConfig(enabled=True, games=["hsr"], data_dir=tmp_path / "gacha", **config)
+    watcher = GachaWatcher(
+        hoyolab,
+        gacha,
+        notifier=None,
+        announce=announced,
+        now=clock,
+        read_calendar=calendars,
+        guest_mode=guests,
+        closed_games=closed,
+        morning=time(7, 0),
+    )
+    return watcher, announced, hoyolab
+
+
+def test_the_evening_line_comes_from_one_calendar_read_a_game_day(tmp_path, clock):
+    clock.now = MONDAY_EVENING
+    calendars = FakeCalendars()
+    watcher, announced, _ = planner_watcher(tmp_path, clock, calendars=calendars)
+
+    notices = watcher.poll_once()
+    clock.now += timedelta(minutes=15)
+    later = watcher.poll_once()
+
+    assert [(notice.kind, notice.text) for notice in notices] == [("planner", GIFT_LINE)]
+    assert later == []
+    assert calendars.reads == ["hsr"]
+    # Held by a game, it may be said only until the next poll, like the dailies.
+    assert announced.expiries == [(None, MONDAY_EVENING + timedelta(minutes=15))]
+
+
+def test_no_calendar_is_read_before_the_evening(tmp_path, clock):
+    calendars = FakeCalendars()
+    watcher, _, _ = planner_watcher(tmp_path, clock, calendars=calendars)
+
+    watcher.poll_once()  # noon
+
+    assert calendars.reads == []
+
+
+def test_a_calendar_with_nothing_ending_is_read_once_that_game_day(tmp_path, clock):
+    clock.now = MONDAY_EVENING
+    calendars = FakeCalendars({"hsr": NOTHING_ENDING})
+    watcher, announced, _ = planner_watcher(tmp_path, clock, calendars=calendars)
+
+    for _ in range(3):
+        watcher.poll_once()
+        clock.now += timedelta(minutes=15)
+    clock.now = MONDAY_EVENING + timedelta(days=1)
+    watcher.poll_once()
+
+    assert calendars.reads == ["hsr", "hsr"]
+    assert announced == []
+
+
+def test_a_calendar_cut_off_by_the_network_is_read_again_at_the_next_poll(tmp_path, clock):
+    clock.now = MONDAY_EVENING
+    cut_off = GachaError("network", "HoYoLAB tidak bisa dihubungi.")
+    calendars = FakeCalendars({"hsr": [cut_off, ENDING]})
+    watcher, _, _ = planner_watcher(tmp_path, clock, calendars=calendars)
+
+    first = watcher.poll_once()
+    second = watcher.poll_once()
+
+    assert first == []
+    assert [notice.kind for notice in second] == ["planner"]
+    assert calendars.reads == ["hsr", "hsr"]
+
+
+def test_any_other_calendar_error_gives_up_that_game_day_and_is_logged_once(
+    tmp_path, clock, caplog
+):
+    clock.now = MONDAY_EVENING
+    private = GachaError("chronicle_private", "Battle Chronicle HSR disembunyikan.")
+    tomorrow = replace(GIFT, ends_at=MONDAY_EVENING + timedelta(hours=40))
+    calendars = FakeCalendars({"hsr": [private, HsrCalendar("3.7", (), (tomorrow,), ())]})
+    watcher, announced, _ = planner_watcher(tmp_path, clock, calendars=calendars)
+
+    with caplog.at_level(logging.WARNING, logger="waifu.gacha.watcher"):
+        watcher.poll_once()
+        watcher.poll_once()
+    clock.now += timedelta(days=1)
+    watcher.poll_once()
+
+    assert calendars.reads == ["hsr", "hsr"]
+    assert [record.getMessage() for record in caplog.records] == [
+        "Could not read the hsr event calendar (chronicle_private); no planner line for it "
+        "this game day"
+    ]
+    assert len(announced) == 1  # the next evening's line
+
+
+def test_a_game_whose_status_failed_gets_no_calendar_read(tmp_path, clock):
+    clock.now = MONDAY_EVENING
+    calendars = FakeCalendars()
+    statuses = {"hsr": GachaError("network", "HoYoLAB tidak bisa dihubungi.")}
+    watcher, _, _ = planner_watcher(tmp_path, clock, statuses=statuses, calendars=calendars)
+
+    watcher.poll_once()
+
+    assert calendars.reads == []
+
+
+def test_with_the_planner_off_no_calendar_is_read(tmp_path, clock):
+    clock.now = MONDAY_EVENING
+    calendars = FakeCalendars()
+    rules = GachaRemindersConfig(planner=False)
+    watcher, announced, _ = planner_watcher(tmp_path, clock, calendars=calendars, reminders=rules)
+
+    watcher.poll_once()
+
+    assert (calendars.reads, announced) == ([], [])
+
+
+def test_while_guests_are_around_the_planner_reads_and_spends_nothing(tmp_path, clock):
+    clock.now = MONDAY_EVENING
+    calendars, guests = FakeCalendars(), Guests(around=True)
+    watcher, announced, _ = planner_watcher(tmp_path, clock, calendars=calendars, guests=guests)
+
+    watcher.poll_once()
+    held = (list(calendars.reads), list(announced))
+    guests.around = False
+    clock.now += timedelta(hours=1)
+    watcher.poll_once()
+
+    assert held == ([], [])
+    assert [text for text, _ in announced] == [GIFT_LINE.replace("20 jam", "19 jam")]
+
+
+# --- the overnight line --------------------------------------------------------------------------
+
+CLOSED = Session("hsr", wib(12, 22, 30), wib(12, 23, 40))
+AFTER_CLOSING = wib(12, 23, 50)
+FILLING = replace(QUIET, stamina=208, stamina_full_in_s=(4 * 60 + 20) * 60)  # full at 04:10
+OVERNIGHT_LINE = "Master, Trailblaze Power di HSR penuh jam 04.10, sebelum kamu bangun."
+FULL = replace(FILLING, stamina=300, stamina_full_in_s=0)
+
+
+def closed_games(*sessions: Session) -> SimpleQueue:
+    queue: SimpleQueue = SimpleQueue()
+    for session in sessions:
+        queue.put(session)
+    return queue
+
+
+def test_a_game_closed_late_tells_its_stamina_and_holds_the_full_line_until_the_morning(
+    tmp_path, clock
+):
+    clock.now = AFTER_CLOSING
+    watcher, _, hoyolab = planner_watcher(
+        tmp_path, clock, statuses={"hsr": FILLING}, closed=closed_games(CLOSED)
+    )
+
+    told = watcher.poll_once()
+    clock.now = wib(13, 3, 10)
+    hoyolab.statuses = {"hsr": replace(FILLING, stamina=292, stamina_full_in_s=60 * 60)}
+    almost = watcher.poll_once()
+    clock.now = wib(13, 4, 15)
+    hoyolab.statuses = {"hsr": FULL}
+    full_at_night = watcher.poll_once()
+    clock.now = wib(13, 7, 0)
+    morning = watcher.poll_once()
+
+    assert [(notice.kind, notice.text) for notice in told] == [("planner", OVERNIGHT_LINE)]
+    assert (almost, full_at_night) == ([], [])
+    assert [notice.kind for notice in morning] == ["stamina"]
+
+
+def test_the_hold_survives_a_restart_in_the_night(tmp_path, clock):
+    clock.now = AFTER_CLOSING
+    first, _, _ = planner_watcher(
+        tmp_path, clock, statuses={"hsr": FILLING}, closed=closed_games(CLOSED)
+    )
+    first.poll_once()
+
+    clock.now = wib(13, 4, 15)
+    second, _, _ = planner_watcher(tmp_path, clock, statuses={"hsr": FULL})
+
+    assert second.poll_once() == []
+
+
+def test_a_closed_game_waits_for_a_poll_that_reads_its_status(tmp_path, clock):
+    clock.now = AFTER_CLOSING
+    failing = {"hsr": GachaError("network", "HoYoLAB tidak bisa dihubungi.")}
+    watcher, _, hoyolab = planner_watcher(
+        tmp_path, clock, statuses=failing, closed=closed_games(CLOSED)
+    )
+
+    first = watcher.poll_once()
+    hoyolab.statuses = {"hsr": FILLING}
+    clock.now += timedelta(minutes=15)
+    second = watcher.poll_once()
+
+    assert first == []
+    assert [notice.text for notice in second] == [OVERNIGHT_LINE.replace("04.10", "04.25")]
+
+
+def test_a_game_closed_in_the_evening_or_not_watched_says_nothing(tmp_path, clock):
+    clock.now = wib(12, 21, 10)
+    evening = Session("hsr", wib(12, 19, 0), wib(12, 21, 0))
+    zzz = Session("zzz", wib(12, 19, 0), wib(12, 23, 40))
+    watcher, announced, _ = planner_watcher(
+        tmp_path, clock, statuses={"hsr": FILLING}, closed=closed_games(evening, zzz)
+    )
+
+    watcher.poll_once()
+    clock.now = AFTER_CLOSING
+    watcher.poll_once()
+
+    assert announced == []
+
+
+def test_while_guests_are_around_a_closed_game_waits_for_them_to_leave(tmp_path, clock):
+    clock.now = AFTER_CLOSING
+    guests = Guests(around=True)
+    watcher, announced, _ = planner_watcher(
+        tmp_path, clock, statuses={"hsr": FILLING}, guests=guests, closed=closed_games(CLOSED)
+    )
+
+    watcher.poll_once()
+    held = list(announced)
+    guests.around = False
+    clock.now += timedelta(minutes=15)
+    watcher.poll_once()
+
+    assert held == []
+    assert [text for text, _ in announced] == [OVERNIGHT_LINE.replace("04.10", "04.25")]
+
+
+def test_with_the_planner_off_a_closed_game_says_nothing(tmp_path, clock):
+    clock.now = AFTER_CLOSING
+    rules = GachaRemindersConfig(planner=False)
+    watcher, announced, _ = planner_watcher(
+        tmp_path, clock, statuses={"hsr": FILLING}, closed=closed_games(CLOSED), reminders=rules
+    )
+
+    watcher.poll_once()
+
+    assert announced == []
