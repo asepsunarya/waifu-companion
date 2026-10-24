@@ -166,7 +166,7 @@ describe("PC quick-button page", () => {
     const [request] = page.requests;
     assert.equal(request.route, "actions");
     assert.equal(request.init.method, "GET");
-    assert.equal(request.init.mode, "same-origin");
+    assert.equal(request.init.mode, "cors");
   });
 
   it("shows a group per device and the routines, each named by its heading, in place of the message", async () => {

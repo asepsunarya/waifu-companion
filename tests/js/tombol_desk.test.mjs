@@ -57,7 +57,7 @@ describe("deskProblem", () => {
 });
 
 describe("requestDesk", () => {
-  it("asks for the list as a same-origin GET without cookies, never from the cache", async () => {
+  it("asks for the list as a GET without cookies, never from the cache", async () => {
     const { calls, fetchFn } = recordingFetch(() => jsonResponse({ groups: [] }));
 
     const result = await requestDesk(fetchFn, "actions");
@@ -66,7 +66,6 @@ describe("requestDesk", () => {
     const [{ route, init }] = calls;
     assert.equal(route, "actions");
     assert.equal(init.method, "GET");
-    assert.equal(init.mode, "same-origin");
     assert.equal(init.credentials, "omit");
     assert.equal(init.cache, "no-store");
     assert.ok(init.signal instanceof AbortSignal);
@@ -84,7 +83,22 @@ describe("requestDesk", () => {
     assert.equal(init.method, "POST");
     assert.deepEqual(init.headers, { "Content-Type": "application/json" });
     assert.equal(init.body, '{"id":"rt.tidur"}');
-    assert.equal(init.mode, "same-origin");
+  });
+
+  it("keeps the page's own Origin on every request, under the server's no-referrer policy", async () => {
+    // The server answers with `Referrer-Policy: no-referrer` and refuses a POST whose Origin is not its own. Under the
+    // Fetch spec, a POST that is not in "cors" mode carries `Origin: null` with that policy (Firefox follows it), so the
+    // requests use "cors" mode (their URLs are relative, so still same-origin) and a same-origin referrer policy.
+    const { calls, fetchFn } = recordingFetch(() => jsonResponse({ ok: true, message: "" }));
+
+    await requestDesk(fetchFn, "actions");
+    await requestDesk(fetchFn, "action", { body: "{}", contentType: "application/json" });
+
+    assert.equal(calls.length, 2);
+    for (const { route, init } of calls) {
+      assert.equal(init.mode, "cors", route);
+      assert.equal(init.referrerPolicy, "same-origin", route);
+    }
   });
 
   it("turns an error status into its problem", async () => {

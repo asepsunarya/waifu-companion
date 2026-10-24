@@ -47,15 +47,20 @@ export function deskProblem(route, status) {
 
 /**
  * One request to the page's own server, at `route` relative to the page (so under its token): a POST of `body` (with
- * `contentType`) when given, else a GET; same-origin only, without cookies, and never from the HTTP cache. Resolves to
- * {data} (the JSON answer) or {problem} (deskProblem, "closed", "timeout", or "bad_reply"); it never rejects.
+ * `contentType`) when given, else a GET; without cookies, and never from the HTTP cache. Resolves to {data} (the JSON
+ * answer) or {problem} (deskProblem, "closed", "timeout", or "bad_reply"); it never rejects.
+ *
+ * The server refuses a POST whose Origin is not its own, and its pages carry `Referrer-Policy: no-referrer`. Under the
+ * Fetch spec, a POST that is not in "cors" mode carries `Origin: null` with that policy (Firefox does so), so the mode
+ * is "cors" (the relative URL keeps it same-origin) and the referrer policy same-origin: the page's Origin always goes.
  */
 export async function requestDesk(fetchFn, route, { body, contentType, timeoutMs = REQUEST_TIMEOUT_MS } = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   const init = {
     method: "GET",
-    mode: "same-origin",
+    mode: "cors",
+    referrerPolicy: "same-origin",
     credentials: "omit",
     cache: "no-store",
     signal: controller.signal,
