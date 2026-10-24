@@ -2334,12 +2334,12 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 244a · **Files:** `src/waifu/gacha/history.py`, `src/waifu/schedule.py`, `tests/test_gacha_history.py`, `tests/test_schedule.py` · **Scope:** S
 
-## Task 245: The gatherer
+## Task 245: The gatherer ✅
 
 **Acceptance criteria:**
-- [ ] `DailyRecap.gather(day)`: the tasks done in the WIB day and still due, the focus seconds, the play time per game and its union total, the day's pulls per game with their tops, the words learned and last reviewed, the journal's note count, and the reminders and routines due that day with `passed`; the window ends now for today
-- [ ] A part that is off is absent, one that fails is logged and gets its Indonesian problem while the rest is read; `recap_day` takes today, yesterday, or a date up to 30 days back
-- [ ] `recap_json`: compact, the parts with something only, lists of at most 10 with whole counts, `as_of` today only, `problems` when any; never a journal text
+- [x] `DailyRecap.gather(day)`: the tasks done in the WIB day and still due, the focus seconds, the play time per game and its union total, the day's pulls per game with their tops, the words learned and last reviewed, the journal's note count, and the reminders and routines due that day with `passed`; the window ends now for today
+- [x] A part that is off is absent, one that fails is logged and gets its Indonesian problem while the rest is read; `recap_day` takes today, yesterday, or a date up to 30 days back
+- [x] `recap_json`: compact, the parts with something only, lists of at most 10 with whole counts, `as_of` today only, `problems` when any; never a journal text
 
 **Dependencies:** 244 · **Files:** `src/waifu/recap.py`, `tests/test_recap.py` · **Scope:** M
 
