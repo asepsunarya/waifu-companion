@@ -12,6 +12,7 @@ import configparser
 import hashlib
 import http.client
 import io
+import ipaddress
 import json
 import logging
 import math
@@ -41,7 +42,7 @@ from typing import TYPE_CHECKING, Any, Literal, get_args
 
 import httpx
 import numpy as np
-from pydantic import ValidationError
+from pydantic import SecretStr, ValidationError
 
 from waifu import autostart, memory
 from waifu.alarm import AlarmBell
@@ -96,9 +97,11 @@ from waifu.config import (
     AvatarConfig,
     BriefingConfig,
     ConfigError,
+    DeviceConfig,
     FallbackTtsConfig,
     GameId,
     GameModeConfig,
+    NotifyConfig,
     OllamaConfig,
     PhoneConfig,
     RoutineStep,
@@ -456,8 +459,13 @@ NOTIFY_OFF = (
 NOTIFY_TEST_MESSAGE = "Tes notifikasi dari {name}. Kalau ini muncul di HP, notifikasi sudah siap."
 NOTIFY_TAG = "video_game"  # ntfy shows it as a game controller emoji
 # `waifu setup`: its steps in the order `all` runs them, and what Master may answer.
-SETUP_STEPS = ("mic", "tuya")
-SETUP_TITLES = {"mic": "Mikrofon", "tuya": "Perangkat Tuya"}
+SETUP_STEPS = ("mic", "tuya", "ir", "notify")
+SETUP_TITLES = {
+    "mic": "Mikrofon",
+    "tuya": "Perangkat Tuya",
+    "ir": "IR blaster",
+    "notify": "Notifikasi HP",
+}
 YES_WORDS = frozenset({"y", "ya", "iya", "yes", "ok", "oke"})
 NO_WORDS = frozenset({"n", "no", "tidak", "ga", "gak", "nggak", "enggak", "t"})
 SKIP_WORD = "l"  # lewati
@@ -470,6 +478,8 @@ TUYA_CREDENTIAL_FILES = ("tinytuya.json", "tuya-raw.json")
 TUYA_WIZARD_FILES = ("tinytuya.json", TUYA_DEVICE_FILE, TUYA_SNAPSHOT_FILE, "tuya-raw.json")
 TUYA_IOT_URL = "https://iot.tuya.com"
 TUYA_GUIDE_URL = "https://github.com/jasonacox/tinytuya#get-the-tuya-device-local-key"
+# The Broadlink address config.example.yaml ships with.
+EXAMPLE_BLASTER_HOST = "192.168.1.50"
 GACHA_DESCRIPTION = (
     "Teman main game HoYoverse: status stamina dan daily, check-in harian HoYoLAB, "
     "riwayat pull (pity, 50/50), data akun game (karakter, endgame, kalender event), kode "
@@ -7052,9 +7062,156 @@ def _offer_tuya_cleanup(folder: Path) -> None:
         )
 
 
+def _setup_ir(args: argparse.Namespace) -> StepOutcome:
+    """Asks each Broadlink blaster's address and writes it to every device on it, then says
+    which remote buttons are still to be learned."""
+    config = load_config(args.config)
+    ir_devices = [device for device in config.devices if device.ir is not None]
+    if not ir_devices:
+        print(
+            "Tidak ada perangkat IR di config.yaml; tambahkan dulu (README, bagian IR blaster "
+            "dan remote)."
+        )
+        return "unchanged"
+    on_tuya = [device.name for device in ir_devices if device.ir.backend == "tuya"]
+    if on_tuya:
+        print(f"IR lewat Tuya ({', '.join(on_tuya)}): datanya diisi lewat 'waifu setup tuya'.")
+    blasters: dict[str, list[DeviceConfig]] = {}
+    for device in ir_devices:
+        if device.ir.backend == "broadlink" and device.ir.host:
+            blasters.setdefault(device.ir.host, []).append(device)
+    if blasters:
+        print(
+            "Cari IP blaster Broadlink di aplikasi Broadlink (info perangkat) atau di daftar "
+            "perangkat router, dan beri IP tetap (reservasi DHCP) supaya tidak berubah."
+        )
+    changes: list[Change] = []
+    for host, devices in blasters.items():
+        example = (
+            " (alamat contoh dari config.example.yaml)" if host == EXAMPLE_BLASTER_HOST else ""
+        )
+        print(f"Blaster Broadlink untuk {', '.join(d.name for d in devices)}: {host}{example}.")
+        address = _ask_ipv4(f"Alamat IP blaster? Enter = tetap {host}:")
+        if address is not None and address != host:
+            changes.extend(Change(("devices", d.id, "ir", "host"), address) for d in devices)
+    outcome: StepOutcome = "unchanged"
+    if changes:
+        if not _write_config(args.config, changes):
+            return "failed"
+        outcome = "written"
+        config = load_config(args.config)
+    _learn_ir_hints(config)
+    return outcome
+
+
+def _ask_ipv4(question: str) -> str | None:
+    """An IPv4 address Master types; None for Enter (keep what is there)."""
+    while True:
+        reply = _ask(question)
+        if not reply:
+            return None
+        try:
+            return str(ipaddress.IPv4Address(reply))
+        except ValueError:
+            print(f"'{reply}' bukan alamat IPv4 (contoh 192.168.1.23).")
+
+
+def _learn_ir_hints(config: AppConfig) -> None:
+    """Which IR devices still have remote buttons to learn, with the command that learns them.
+    Building the registry never connects."""
+    devices = [device for device in build_registry(config).all() if isinstance(device, IrDevice)]
+    if devices:
+        print("Lalu ajarkan tombol remote-nya (arahkan remote ke blaster):")
+    for device in devices:
+        try:
+            missing = device.missing_commands()
+            learned = device.commands()
+        except IrCodeStoreError as exc:
+            print(f"{FAIL} Kode IR tidak bisa dibaca: {exc}")
+            return
+        if missing:
+            print(
+                f"  Ajarkan tombol remote {device.name} ({len(missing)} belum): "
+                f"waifu learn-ir {device.id} --missing"
+            )
+        elif learned:
+            print(f"  {OK} {device.name}: semua tombol sudah dipelajari.")
+        else:
+            print(f"  {device.name}: belum ada tombol; waifu learn-ir {device.id} <perintah>")
+
+
+def _setup_notify(args: argparse.Namespace) -> StepOutcome:
+    """Turns notify on with a new random ntfy topic (or the one there), shows how to subscribe
+    to it, and sends a test push on Master's yes."""
+    config = load_config(args.config)
+    notify = config.notify
+    current = notify.topic.get_secret_value() if notify.topic is not None else None
+    topic = current
+    if notify.enabled and current is not None:
+        print(f"Notifikasi HP sudah menyala lewat {notify.server} (topik {current[:4]}…).")
+        if _ask_yes("Buat topik baru (HP perlu berlangganan topik baru itu)?", default=False):
+            topic = _new_ntfy_topic()
+    elif current is not None:
+        print(f"Ada topik di notify.topic ({current[:4]}…), tapi notifikasi HP masih mati.")
+        if not _ask_yes("Nyalakan dengan topik itu?", default=True):
+            topic = _new_ntfy_topic()
+    else:
+        print(
+            "Notifikasi HP lewat ntfy (aplikasi gratis, tanpa akun): pengingat dan laporan "
+            f"{config.assistant.name} juga muncul di HP."
+        )
+        if not _ask_yes("Nyalakan notifikasi HP?", default=True):
+            print("Notifikasi HP dilewati.")
+            return "unchanged"
+        topic = _new_ntfy_topic()
+    assert topic is not None
+    changes = [] if notify.enabled else [Change(("notify", "enabled"), True)]
+    if topic != current:
+        changes.append(Change(("notify", "topic"), topic))
+        print(
+            "Di HP:\n"
+            "  1. Pasang aplikasi ntfy (Play Store atau App Store; gratis, tanpa akun).\n"
+            f"  2. Ketuk +, isi topik ini, server bawaan ({notify.server}):\n"
+            f"       {topic}\n"
+            "  3. Ketuk Subscribe.\n"
+            "Topik ini rahasia: siapa pun yang tahu namanya bisa membaca notifikasinya."
+        )
+    outcome: StepOutcome = "unchanged"
+    if changes:
+        outcome = "written" if _write_config(args.config, changes) else "failed"
+    turned_on = NotifyConfig(enabled=True, server=notify.server, topic=SecretStr(topic))
+    _offer_test_push(config.assistant.name, turned_on)
+    return outcome
+
+
+def _new_ntfy_topic() -> str:
+    """A topic nobody can guess: anyone who knows it can read the notifications."""
+    return "cyrene-" + secrets.token_urlsafe(12)
+
+
+def _offer_test_push(name: str, notify: NotifyConfig) -> None:
+    if not _ask_yes("Kirim notifikasi tes sekarang?", default=False):
+        return
+    notifier = build_notifier(notify)
+    if notifier is not None and notifier.send(
+        name, NOTIFY_TEST_MESSAGE.format(name=name), tags=[NOTIFY_TAG]
+    ):
+        print(
+            f"{OK} Notifikasi tes terkirim. Kalau tidak muncul di HP, cek langganan topiknya di "
+            "aplikasi ntfy."
+        )
+        return
+    print(
+        f"{FAIL} Notifikasi tes tidak terkirim ke {notify.server}. Cek koneksi internet; "
+        "detailnya ada di log."
+    )
+
+
 _SETUP_HANDLERS: dict[str, Callable[[argparse.Namespace], StepOutcome]] = {
     "mic": _setup_mic,
     "tuya": _setup_tuya,
+    "ir": _setup_ir,
+    "notify": _setup_notify,
 }
 
 

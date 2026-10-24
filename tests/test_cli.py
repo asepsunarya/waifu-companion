@@ -19433,3 +19433,214 @@ def test_setup_tuya_without_tuya_devices_runs_no_wizard(home, monkeypatch, capsy
 
     assert wizard.calls == []
     assert "Tidak ada perangkat Tuya di config.yaml" in capsys.readouterr().out
+
+
+def host_of(home: Path, device_id: str) -> str | None:
+    [device] = [device for device in setup_config(home).devices if device.id == device_id]
+    return device.ir.host
+
+
+def test_setup_ir_writes_the_blaster_address_to_every_device_on_it(home, monkeypatch, capsys):
+    answer(monkeypatch, "192.168.1.23")
+
+    assert cli.main(["setup", "ir"]) == 0
+
+    out = capsys.readouterr().out
+    assert (
+        "Blaster Broadlink untuk AC Samsung, Proyektor Wanbo Dali: 192.168.1.50 (alamat contoh "
+        "dari config.example.yaml)."
+    ) in out
+    assert (host_of(home, "ac"), host_of(home, "proyektor")) == ("192.168.1.23", "192.168.1.23")
+    assert "✓ config.yaml diperbarui: devices[ac].ir.host, devices[proyektor].ir.host." in out
+    assert len(config_backups(home)) == 1
+    assert "Ajarkan tombol remote AC Samsung (17 belum): waifu learn-ir ac --missing" in out
+    assert (
+        "Ajarkan tombol remote Proyektor Wanbo Dali (6 belum): waifu learn-ir proyektor --missing"
+        in out
+    )
+
+
+def test_setup_ir_asks_again_for_an_address_that_is_not_ipv4(home, monkeypatch, capsys):
+    answer(monkeypatch, "blaster.local", "192.168.1.300", "192.168.1.23")
+
+    assert cli.main(["setup", "ir"]) == 0
+
+    out = capsys.readouterr().out
+    assert out.count("bukan alamat IPv4 (contoh 192.168.1.23)") == 2
+    assert host_of(home, "ac") == "192.168.1.23"
+
+
+def test_setup_ir_keeps_the_address_on_enter_and_still_points_at_learn_ir(
+    home, monkeypatch, capsys
+):
+    original = (home / "config.yaml").read_bytes()
+    answer(monkeypatch, "")
+
+    assert cli.main(["setup", "ir"]) == 0
+
+    assert (home / "config.yaml").read_bytes() == original
+    assert config_backups(home) == []
+    assert "waifu learn-ir ac --missing" in capsys.readouterr().out
+
+
+def test_setup_ir_says_when_every_button_is_learned(home, monkeypatch, capsys):
+    write_config(
+        home,
+        "devices:\n"
+        "  - id: tv\n"
+        "    name: TV\n"
+        "    type: ir\n"
+        "    ir: {backend: broadlink, host: 192.168.1.40}\n"
+        "    commands: [power]\n",
+    )
+    IrCodeStore(home / "data" / "ir_codes.json").put("tv", "power", "JgBQAAAB")
+    answer(monkeypatch, "")
+
+    assert cli.main(["setup", "ir"]) == 0
+
+    out = capsys.readouterr().out
+    assert "Blaster Broadlink untuk TV: 192.168.1.40." in out
+    assert "✓ TV: semua tombol sudah dipelajari." in out
+
+
+def test_setup_ir_leaves_a_tuya_blaster_to_setup_tuya(home, monkeypatch, capsys):
+    write_config(
+        home,
+        "devices:\n"
+        "  - id: tv\n"
+        "    name: TV\n"
+        "    type: ir\n"
+        "    ir:\n"
+        "      backend: tuya\n"
+        "      tuya: {device_id: isi_dari_tinytuya_wizard, local_key: isi_dari_tinytuya_wizard}\n"
+        "    commands: [power]\n",
+    )
+    answer(monkeypatch)
+
+    assert cli.main(["setup", "ir"]) == 0
+
+    out = capsys.readouterr().out
+    assert "IR lewat Tuya (TV): datanya diisi lewat 'waifu setup tuya'." in out
+    assert "Setup berhenti." not in out  # nothing was asked
+
+
+def test_setup_ir_without_ir_devices_says_so(home, monkeypatch, capsys):
+    write_config(home, "assistant:\n  name: Cyrene\n")
+    answer(monkeypatch)
+
+    assert cli.main(["setup", "ir"]) == 0
+
+    assert "Tidak ada perangkat IR di config.yaml" in capsys.readouterr().out
+
+
+def topic_in(home: Path) -> str | None:
+    topic = setup_config(home).notify.topic
+    return None if topic is None else topic.get_secret_value()
+
+
+def test_setup_notify_writes_a_new_random_topic_and_shows_it_once(
+    home, monkeypatch, capsys, caplog
+):
+    notifier = FakeNotifier()
+    use_notifier(monkeypatch, notifier)
+    answer(monkeypatch, "", "")  # turn it on, no test push
+
+    with caplog.at_level(logging.DEBUG):
+        assert cli.main(["setup", "notify"]) == 0
+
+    notify = setup_config(home).notify
+    topic = topic_in(home)
+    assert notify.enabled
+    assert re.fullmatch(r"cyrene-[A-Za-z0-9_-]{16}", topic)
+    out = capsys.readouterr().out
+    assert out.count(topic) == 1
+    assert "Pasang aplikasi ntfy" in out
+    assert topic not in caplog.text
+    assert notifier.sent == []
+    text = (home / "config.yaml").read_text(encoding="utf-8")
+    assert "  # Topik rahasia 16-64 huruf, angka, - atau _" in text
+
+
+def test_setup_notify_makes_a_different_topic_each_time(tmp_path, monkeypatch):
+    topics = []
+    for name in ("first", "second"):
+        folder = tmp_path / name
+        folder.mkdir()
+        shutil.copy(ROOT / "config.example.yaml", folder / "config.yaml")
+        monkeypatch.chdir(folder)
+        answer(monkeypatch, "", "")
+        assert cli.main(["setup", "notify"]) == 0
+        topics.append(topic_in(folder))
+
+    assert topics[0] != topics[1]
+
+
+def test_setup_notify_sends_one_test_push_on_yes(home, monkeypatch, capsys):
+    notifier = FakeNotifier()
+    use_notifier(monkeypatch, notifier)
+    answer(monkeypatch, "", "y")
+
+    assert cli.main(["setup", "notify"]) == 0
+
+    [(title, message, tags)] = notifier.sent
+    assert (title, tags) == ("Cyrene", ("video_game",))
+    assert message.startswith("Tes notifikasi dari Cyrene")
+    assert "✓ Notifikasi tes terkirim." in capsys.readouterr().out
+
+
+def test_setup_notify_says_when_the_test_push_did_not_go_out(home, monkeypatch, capsys):
+    use_notifier(monkeypatch, FakeNotifier(delivered=False))
+    answer(monkeypatch, "", "y")
+
+    cli.main(["setup", "notify"])
+
+    assert "✗ Notifikasi tes tidak terkirim ke https://ntfy.sh." in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(("reply", "kept"), [("", True), ("y", False)])
+def test_setup_notify_renews_a_topic_already_on_only_on_yes(home, monkeypatch, capsys, reply, kept):
+    enable_notify(home)
+    use_notifier(monkeypatch, FakeNotifier())
+    answer(monkeypatch, reply, "")
+
+    assert cli.main(["setup", "notify"]) == 0
+
+    assert "Notifikasi HP sudah menyala lewat https://ntfy.sh (topik cyre…)." in (
+        capsys.readouterr().out
+    )
+    assert (topic_in(home) == NOTIFY_TOPIC) is kept
+    assert (config_backups(home) == []) is kept
+
+
+def test_setup_notify_turns_on_a_topic_written_while_notify_was_off(home, monkeypatch):
+    config = home / "config.yaml"
+    text = config.read_text(encoding="utf-8")
+    off = "notify:\n  enabled: false\n"
+    config.write_text(text.replace(off, f"{off}  topic: {NOTIFY_TOPIC}\n", 1), encoding="utf-8")
+    use_notifier(monkeypatch, FakeNotifier())
+    answer(monkeypatch, "", "")  # use it, no test push
+
+    assert cli.main(["setup", "notify"]) == 0
+
+    assert setup_config(home).notify.enabled
+    assert topic_in(home) == NOTIFY_TOPIC
+
+
+def test_setup_notify_adds_the_section_a_config_lacks(home, monkeypatch):
+    write_config(home, "assistant:\n  name: Cyrene\n")
+    use_notifier(monkeypatch, FakeNotifier())
+    answer(monkeypatch, "", "")
+
+    assert cli.main(["setup", "notify"]) == 0
+
+    assert setup_config(home).notify.enabled
+    assert topic_in(home).startswith("cyrene-")
+
+
+def test_setup_notify_skipped_writes_nothing(home, monkeypatch, capsys):
+    answer(monkeypatch, "n")
+
+    assert cli.main(["setup", "notify"]) == 0
+
+    assert "Notifikasi HP dilewati." in capsys.readouterr().out
+    assert config_backups(home) == []
