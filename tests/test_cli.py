@@ -6007,9 +6007,10 @@ def test_a_roster_the_brain_reads_in_run_joins_whispers_hotwords(
     monkeypatch.setattr(cli, "GameDataTools", build)
 
     assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+    assert "Acheron" not in run_fakes.stts[0].hotwords().split(", ")
     hooks[0]("hsr", ["Acheron"])
 
-    assert run_fakes.stts[0].hotwords().split(", ")[-1] == "Acheron"
+    assert "Acheron" in run_fakes.stts[0].hotwords().split(", ")
 
 
 @pytest.mark.parametrize("argv", [["run", "--no-speaker-check"], ["chat"]])
