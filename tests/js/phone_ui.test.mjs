@@ -48,6 +48,7 @@ const ELEMENT_IDS = [
   "voice-margin",
   "voice-save",
   "voice-reset",
+  "voice-mic-note",
   "voice-note",
   "voice-records",
 ];
@@ -1744,7 +1745,7 @@ describe("phone Suara sheet", () => {
       action: "mic",
       device: "Microphone (High Definition Aud, MME",
     });
-    assert.equal(page.element("voice-note").textContent, SWITCHING.message);
+    assert.equal(page.element("voice-mic-note").textContent, SWITCHING.message); // beside the picker
   });
 
   it("saves the settings in the boxes, and refuses one out of its bounds without asking the PC", async () => {

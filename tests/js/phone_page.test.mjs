@@ -192,6 +192,24 @@ describe("phone page", () => {
     assert.match(rule, /(^|;)\s*display:\s*none\s*(;|$)/);
   });
 
+  it("orders the Suara sheet as the owner diagnoses: the mic and its answer, what she heard, then the settings", () => {
+    const sheet = page.slice(page.indexOf('<section id="voice"'));
+    const order = ["voice-switch", "voice-mic-note", "voice-records", "voice-settings-title", "voice-note"].map((id) =>
+      sheet.indexOf(` id="${id}"`),
+    );
+
+    assert.ok(order.every((index) => index >= 0), "every part is in the sheet");
+    assert.deepEqual(order, order.toSorted((a, b) => a - b));
+  });
+
+  it("gives the Suara button a 44 px target without a bigger pill", () => {
+    // The pill is 29 px high at 360 px: its hit area reaches 8 px beyond it above and below.
+    assert.match(cssRule("#voice-toggle") ?? "", /(^|;)\s*position:\s*relative\s*(;|$)/);
+    const area = cssRule("#voice-toggle::after") ?? "";
+    assert.match(area, /(^|;)\s*position:\s*absolute\s*(;|$)/);
+    assert.match(area, /(^|;)\s*inset:\s*-8px -4px\s*(;|$)/);
+  });
+
   it("has the canvas and the message the renderers draw into", () => {
     assert.match(page, /<canvas id="stage"/);
     assert.match(page, /id="message"/);

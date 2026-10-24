@@ -161,6 +161,7 @@ const page = {
   voiceLevelText: document.getElementById("voice-level-text"),
   voiceDevice: document.getElementById("voice-device"),
   voiceSwitch: document.getElementById("voice-switch"),
+  voiceMicNote: document.getElementById("voice-mic-note"),
   voiceSpeaker: document.getElementById("voice-speaker"),
   voiceThreshold: document.getElementById("voice-threshold"),
   voiceMargin: document.getElementById("voice-margin"),
@@ -1040,14 +1041,14 @@ async function readVoice() {
   voiceReading = true;
   const result = await requestCyrene(fetch, VOICE_URL, { timeoutMs: VOICE_TIMEOUT_MS });
   voiceReading = false;
-  if (!voiceAnswered(result)) return;
+  if (!voiceAnswered(result, page.voiceMicNote)) return;
   const status = parseVoiceStatus(result.data);
-  if (status === null) page.voiceNote.textContent = problemText("bad_reply", ownerCall);
+  if (status === null) page.voiceMicNote.textContent = problemText("bad_reply", ownerCall);
   else showVoice(status);
 }
 
-/** Whether `result` of a voice route is an answer to show; otherwise it is dealt with here. */
-function voiceAnswered(result) {
+/** Whether `result` of a voice route is an answer to show; else it is dealt with here, a problem shown in `note`. */
+function voiceAnswered(result, note) {
   if (result.problem === "unpaired") {
     closeVoice();
     showPairing();
@@ -1059,7 +1060,7 @@ function voiceAnswered(result) {
     return false;
   }
   if (result.problem) {
-    page.voiceNote.textContent = problemText(result.problem, ownerCall);
+    note.textContent = problemText(result.problem, ownerCall);
     return false;
   }
   return true;
@@ -1132,15 +1133,15 @@ function voiceRecord(record) {
   return item;
 }
 
-/** Sends a change to POST /voice/set, one at a time, shows the PC's answer, and reads the status again. */
-async function changeVoice(request) {
+/** Sends a change to POST /voice/set, one at a time, shows the PC's answer in `note`, and reads the status again. */
+async function changeVoice(request, note) {
   if (voiceChanging) return;
   voiceChanging = true;
   const result = await requestCyrene(fetch, VOICE_SET_URL, request);
   voiceChanging = false;
-  if (!voiceAnswered(result)) return;
+  if (!voiceAnswered(result, note)) return;
   const outcome = voiceOutcome(result.data);
-  page.voiceNote.textContent = outcome === null ? problemText("bad_reply", ownerCall) : outcome.text;
+  note.textContent = outcome === null ? problemText("bad_reply", ownerCall) : outcome.text;
   readVoice();
 }
 
@@ -1156,12 +1157,12 @@ function saveVoice() {
     page.voiceNote.textContent = checked.problem;
     return;
   }
-  changeVoice(tuneRequest(checked.tuning));
+  changeVoice(tuneRequest(checked.tuning), page.voiceNote);
 }
 
 function resetVoice() {
   voiceBoxesFilled = false; // the next status fills them with the config's settings
-  changeVoice(resetRequest());
+  changeVoice(resetRequest(), page.voiceNote);
 }
 
 const isTalkKey = (event) => event.key === " " || event.key === "Enter";
@@ -1237,7 +1238,7 @@ page.voiceClose.addEventListener("click", () => {
   page.voiceToggle.focus();
 });
 page.voice.addEventListener("keydown", closeVoiceOnEscape);
-page.voiceSwitch.addEventListener("click", () => changeVoice(micRequest(page.voiceDevice.value)));
+page.voiceSwitch.addEventListener("click", () => changeVoice(micRequest(page.voiceDevice.value), page.voiceMicNote));
 page.voiceSave.addEventListener("click", saveVoice);
 page.voiceReset.addEventListener("click", resetVoice);
 

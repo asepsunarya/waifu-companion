@@ -551,17 +551,26 @@ body[data-state="speaking"] #status::before {
 /* --- The Suara sheet: what her mic on the PC hears ------------------------------------------------- */
 
 #voice-toggle {
+  position: relative;
   margin-left: auto;
   padding: 6px 14px;
   font-size: 13px;
   pointer-events: auto;
 }
 
+/* A 44 px target around the 29 px pill, which stays as small as the bar's other parts. */
+#voice-toggle::after {
+  content: "";
+  position: absolute;
+  inset: -8px -4px;
+}
+
 #voice-toggle[aria-expanded="true"] {
   background: var(--ink);
 }
 
-/* Over the whole page, one column, read top to bottom on a 360-412 px phone. */
+/* Over the whole page, one column, read top to bottom on a 360-412 px phone: the mic and the answer to a switch,
+   what she heard, then the settings. */
 #voice {
   position: fixed;
   inset: 0;
@@ -703,6 +712,7 @@ body[data-state="speaking"] #status::before {
   border: 1px solid rgba(111, 91, 211, 0.3);
 }
 
+#voice-mic-note:empty,
 #voice-note:empty {
   display: none;
 }
