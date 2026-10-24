@@ -984,7 +984,9 @@ class Assistant:
         first one's emotion, except the announcements while `quiet`, those that wait while
         the follow-up window is open, and those that have expired (dropped; by their game
         expiry too when a game held them). A text queued more than once is said once, and the
-        announcements a game held come first, after GAME_HELD. True when there was any to say."""
+        announcements a game held come first, after GAME_HELD. Saying any drops the reading she
+        asked about: a later yes may answer what she announced instead. True when there was any
+        to say."""
         reminders = _take_all(self._reminders)
         announcements: list[_Announcement] = []
         if quiet:
@@ -1006,6 +1008,7 @@ class Assistant:
         texts = [reminder.text for reminder in reminders] + lead_in + [item.text for item in news]
         text = " ".join(dict.fromkeys(texts))
         logger.info("Announcing: %s", text)
+        self._reading_asked = None
         self._say_remembered(text, due[0].emotion, self._guest_generation(), followup=False)
         return True
 

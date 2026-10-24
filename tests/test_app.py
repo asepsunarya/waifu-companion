@@ -4260,6 +4260,40 @@ def test_a_yes_after_a_bare_wake_word_still_comes_within_60_seconds_of_her_quest
     assert not path.exists()
 
 
+CODE_NOTICE = "Master, ada 2 kode HSR baru: 60 Stellar Jade. Mau kutukarkan?"
+
+
+@pytest.mark.parametrize("queue", ["announce", "remind"])
+def test_an_announcement_said_after_her_question_drops_it(tmp_path, queue):
+    # Master's "iya" may answer the announcement's own question: never her reading's.
+    path = tmp_path / "tts_lexicon.json"
+    rig = Rig(TEACH_ACHERON, "Cyrene, iya", lexicon=Lexicon(path))
+
+    rig.assistant.handle_utterance(rig.utterance())
+    rig.clock.now += 20  # the follow-up window has closed
+    getattr(rig.assistant, queue)(CODE_NOTICE)
+    rig.assistant.run(FakeMic(rig.events, [SILENT_FRAME]), FakeSegmenter(rig.events, [None]))
+    said = rig.assistant.handle_utterance(rig.utterance())
+
+    assert rig.speech.texts[:2] == [ASKED_ACHERON, CODE_NOTICE]
+    assert said == REPLY
+    assert asked(rig) == ["iya"]
+    assert not path.exists()
+
+
+def test_an_announcement_waiting_for_the_follow_up_window_leaves_her_question_waiting(tmp_path):
+    lexicon = Lexicon(tmp_path / "tts_lexicon.json")
+    rig = Rig(TEACH_ACHERON, "iya", lexicon=lexicon)
+
+    rig.assistant.handle_utterance(rig.utterance())
+    rig.assistant.announce(CODE_NOTICE, wait_for_followup=True)
+    rig.assistant.run(FakeMic(rig.events, [SILENT_FRAME]), FakeSegmenter(rig.events, [None]))
+    said = rig.assistant.handle_utterance(rig.utterance())
+
+    assert said == TAUGHT_ACHERON
+    assert lexicon.read() == {"Acheron": "A Ke Ron"}
+
+
 def test_a_phone_message_after_her_question_drops_it(tmp_path):
     path = tmp_path / "tts_lexicon.json"
     rig = Rig(TEACH_ACHERON, "iya", lexicon=Lexicon(path))
