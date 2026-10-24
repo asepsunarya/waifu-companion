@@ -375,6 +375,11 @@ NO_MIC_FOUND = (
     "Windows tidak menemukan mikrofon. Sambungkan mic atau headset, lalu cek Windows Settings, "
     "Privacy & security, Microphone."
 )
+NO_MIC_HEARD = (
+    "Tidak ada mic yang mendengar suara sekeras yang dibutuhkan Cyrene. Dekatkan mic, naikkan "
+    "volume rekamannya di Windows (Settings, System, Sound, Input), lalu jalankan '{command}' "
+    "lagi."
+)
 
 DEFAULT_CONFIG = Path("config.yaml")
 RUN_LOCK = Path("data") / "run.lock"
@@ -2715,9 +2720,25 @@ def _mic(args: argparse.Namespace) -> int:
     if not devices:
         print(f"{FAIL} {NO_MIC_FOUND}")
         return 0
-    default = windows_default_input(sounddevice)
+    picked, used = _list_mics(sounddevice, devices, config)
+    print(
+        f"\nSebut 'halo Cyrene' beberapa kali selama {args.seconds:g} detik di tiap mikrofon, "
+        "dengan suara biasa. Rekamannya tidak disimpan."
+    )
+    heard = _measure_mics(sounddevice, devices, args.seconds, config.audio)
+    print()
+    _suggest_mic(heard, used, picked)
+    return 0
+
+
+def _list_mics(
+    sd: Any, devices: list[InputDevice], config: AppConfig
+) -> tuple[str | None, str | None]:
+    """Says which mic Cyrene uses and lists `devices`, marking it and the Windows default; the
+    mic picked on the phone, if any, and the name of the mic in use."""
+    default = windows_default_input(sd)
     picked = _voice_override(config).input_device
-    used = _mic_in_use(sounddevice, picked, config.audio.input_preferences, default)
+    used = _mic_in_use(sd, picked, config.audio.input_preferences, default)
     print("Mikrofon di PC ini:")
     for number, device in enumerate(devices, start=1):
         marks = [
@@ -2726,15 +2747,19 @@ def _mic(args: argparse.Namespace) -> int:
             if name is not None and same_device_name(device.name, name)
         ]
         print(f"  {number}. {device.config_value}" + (f"  <- {', '.join(marks)}" if marks else ""))
-    print(
-        f"\nSebut 'halo Cyrene' beberapa kali selama {args.seconds:g} detik di tiap mikrofon, "
-        "dengan suara biasa. Rekamannya tidak disimpan."
-    )
+    return picked, used
+
+
+def _measure_mics(
+    sd: Any, devices: list[InputDevice], seconds: float, audio: AudioConfig
+) -> list[tuple[InputDevice, Levels]]:
+    """Listens to each of `devices` in turn while Master speaks, saying each one's levels; the
+    ones that heard speech, with their levels."""
     heard: list[tuple[InputDevice, Levels]] = []
     for number, device in enumerate(devices, start=1):
         print(f"[{number}/{len(devices)}] {device.config_value}: mendengarkan...", flush=True)
         try:
-            found = measure(sounddevice, device, args.seconds, config.audio)
+            found = measure(sd, device, seconds, audio)
         except MicrophoneError as exc:  # it opened, then stopped delivering audio
             print(f"  {FAIL} {exc}")
             continue
@@ -2744,9 +2769,7 @@ def _mic(args: argparse.Namespace) -> int:
         print(f"  {_mic_levels(found)}")
         if found.heard_speech:
             heard.append((device, found))
-    print()
-    _suggest_mic(heard, used, picked)
-    return 0
+    return heard
 
 
 def _mic_in_use(
@@ -2801,13 +2824,9 @@ def _suggest_mic(
     """Which mic to use: the one whose speech level stood furthest above the VAD's bar, picked
     on the phone while a phone's pick leads (`picked`), else in audio.input_device."""
     if not heard:
-        print(
-            f"{FAIL} Tidak ada mic yang mendengar suara sekeras yang dibutuhkan Cyrene. Dekatkan "
-            "mic, naikkan volume rekamannya di Windows (Settings, System, Sound, Input), lalu "
-            "jalankan 'waifu mic' lagi."
-        )
+        print(f"{FAIL} {NO_MIC_HEARD.format(command='waifu mic')}")
         return
-    best, _ = max(heard, key=lambda pair: pair[1].speech_db - pair[1].speech_bar_db)
+    best, _ = max(heard, key=lambda pair: _speech_margin(pair[1]))
     if used is not None and same_device_name(best.name, used):
         print(f"{OK} Suaramu paling jelas di mic yang dipakai Cyrene: {best.name}.")
         return
@@ -2827,6 +2846,11 @@ def _suggest_mic(
         "Lalu jalankan ulang 'waifu run', dan daftarkan ulang suaramu dengan 'waifu enroll' "
         "lewat mic itu."
     )
+
+
+def _speech_margin(found: Levels) -> float:
+    """How far Master's speech stood above the VAD's bar: the higher, the clearer he is heard."""
+    return found.speech_db - found.speech_bar_db
 
 
 def _voices(args: argparse.Namespace) -> int:
