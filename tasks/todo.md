@@ -2285,12 +2285,12 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 238 · **Files:** `src/waifu/brain/weather_tools.py`, `tests/test_weather_tools.py` · **Scope:** M
 
-## Task 240: The `weather_forecast` tool
+## Task 240: The `weather_forecast` tool ✅
 
 **Acceptance criteria:**
-- [ ] Non-strict `weather_forecast {day?, part?}` with a static English description (routing against `daily_briefing`, one call per question, the parts, null place, never in her own turns)
-- [ ] The result names the place as written (null with coordinates), the days in Indonesian, whole degrees, and a whole day's parts; unknown values left out
-- [ ] Bad arguments, Open-Meteo failures, out-of-reach questions, and anything unexpected are error results; her own turns get a refusal
+- [x] Non-strict `weather_forecast {day?, part?}` with a static English description (routing against `daily_briefing`, one call per question, the parts, null place, never in her own turns)
+- [x] The result names the place as written (null with coordinates), the days in Indonesian, whole degrees, and a whole day's parts; unknown values left out
+- [x] Bad arguments, Open-Meteo failures, out-of-reach questions, and anything unexpected are error results; her own turns get a refusal
 
 **Dependencies:** 239 · **Files:** `src/waifu/brain/weather_tools.py`, `tests/test_weather_tools.py` · **Scope:** M
 

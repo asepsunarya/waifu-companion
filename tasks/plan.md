@@ -944,7 +944,7 @@ mode. 18 of 20 strict tools, 17 of 24 optional parameters, and 0 of 16 unions st
 - [x] Task 238a: contract: SPEC, tasks
 - [x] Task 238: `WeatherClient.outlook()`: seven days with hourly temperatures
 - [x] Task 239: the days and parts asked (`periods`, pure)
-- [ ] Task 240: the `weather_forecast` tool
+- [x] Task 240: the `weather_forecast` tool
 - [ ] Task 241: the brain gets it: a shared client, the place gate, guest mode, the strict budget
 - [ ] Task 242: `waifu cuaca`
 - [ ] Task 243: README, CHANGELOG
