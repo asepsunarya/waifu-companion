@@ -2343,21 +2343,21 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 244 · **Files:** `src/waifu/recap.py`, `tests/test_recap.py` · **Scope:** M
 
-## Task 246: The `daily_recap` tool
+## Task 246: The `daily_recap` tool ✅
 
 **Acceptance criteria:**
-- [ ] Non-strict `daily_recap {date?}` with a static English description (looking back vs `daily_briefing`, the parts, the journal counted only, no money, highlights first, play time never judged, never in her own turns)
-- [ ] Bad arguments, a date out of range, every part failing, and anything unexpected are error results; her own turns get a refusal; `daily_recap` is in `PRIVATE_TOOLS`
+- [x] Non-strict `daily_recap {date?}` with a static English description (looking back vs `daily_briefing`, the parts, the journal counted only, no money, highlights first, play time never judged, never in her own turns)
+- [x] Bad arguments, a date out of range, every part failing, and anything unexpected are error results; her own turns get a refusal
 
-**Dependencies:** 245 · **Files:** `src/waifu/brain/recap_tools.py`, `src/waifu/guest.py`, `tests/test_recap_tools.py`, `tests/test_guest.py` · **Scope:** M
+**Dependencies:** 245 · **Files:** `src/waifu/brain/recap_tools.py`, `tests/test_recap_tools.py` · **Scope:** M
 
 ## Task 247: The brain gets it
 
 **Acceptance criteria:**
 - [ ] `run` and `chat` add the tool after the Japanese lessons whenever any of its sources is on, with `run`'s focus timer (elsewhere the focus log), the run's schedule, and the local pull store; none with every source off
-- [ ] The every-tool request keeps 18 of 20 strict tools, 17 of 24 optional parameters, and 0 of 16 unions; guest mode refuses it
+- [ ] `daily_recap` is in `PRIVATE_TOOLS` (a full request carries every private tool, so it lands with the wiring); the every-tool request keeps 18 of 20 strict tools, 17 of 24 optional parameters, and 0 of 16 unions
 
-**Dependencies:** 246 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** S
+**Dependencies:** 246 · **Files:** `src/waifu/cli.py`, `src/waifu/guest.py`, `tests/test_cli.py`, `tests/test_guest.py` · **Scope:** S
 
 ## Task 248: `waifu rekap`
 

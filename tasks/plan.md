@@ -968,8 +968,8 @@ optional parameters, and 0 of 16 unions stay.
 - [x] Task 244a: contract: SPEC, tasks
 - [x] Task 244: the day's pulls (`pulls_since(until=)`) and the day's schedule (`occurrence_on`)
 - [x] Task 245: the gatherer (`recap.py`): the parts, per-part isolation, the JSON
-- [ ] Task 246: the `daily_recap` tool, guest mode, her own turns
-- [ ] Task 247: the brain gets it: the sources, the strict budget
+- [x] Task 246: the `daily_recap` tool, her own turns
+- [ ] Task 247: the brain gets it: the sources, guest mode, the strict budget
 - [ ] Task 248: `waifu rekap`
 - [ ] Task 249: README, CHANGELOG
 
