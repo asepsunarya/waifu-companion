@@ -8,15 +8,18 @@ aktif, lalu jalankan `waifu check`.
 
 - Whisper sekarang menunggu kata-kata duniamu sendiri: namanya dan kata panggilannya, nama dan
   alias perangkat, rutinitas, aplikasi PC, game gacha yang menyala, dan nama karakter milikmu
-  setelah kamu menanyakan karakter game itu (paling banyak 10 per game, tanpa membuka HoYoLAB
-  hanya untuk itu). Daftarnya pendek (paling banyak 40 kata) dan urut dari yang paling penting,
-  jadi namanya dan perangkat lebih sering tertulis benar walau TV menyala.
+  setelah kamu menanyakan karakter game itu (paling banyak 5 per game, bergiliran antar game,
+  tanpa membuka HoYoLAB hanya untuk itu). Daftarnya pendek (paling banyak 40 kata) dan urut dari
+  yang paling penting, alias perangkat paling akhir, jadi namanya, perangkat, dan nama karakter
+  lebih sering tertulis benar walau TV menyala.
 - Suara Indonesia (edge-tts dan suara cadangan Windows) membaca **HSR** "Ha Es Er", **ZZZ** "Zet
   Zet Zet", **HoYoLAB** "Hoyolab", dan **HoYoverse** "Hoyovers". Suara Jepang, teks di HP,
   riwayat obrolan, dan log tidak diubah; "Zzz..." (suara tidurnya) tetap.
 - Ajari cara baca kata lain lewat suara, tanpa otak: "Cyrene, cara baca Acheron itu A Ke Ron"
-  dijawab "Oke Master. Mulai sekarang kubaca: A Ke Ron." Kalimat tanya ("cara baca HSR itu
-  gimana?") tetap ke otak seperti biasa.
+  dijawab "Oke Master. Acheron mulai sekarang kubaca A Ke Ron.", dengan Acheron masih dibaca
+  cara lama supaya kamu dengar kata mana yang dia tangkap. Kalimat tanya ("cara baca HSR itu
+  gimana?"), komentar ("cara baca HSR itu salah", "cara baca kamu itu aneh"), dan obrolan lewat
+  HP tetap ke otak seperti biasa dan tidak dicatat.
 - Perintah baru `waifu lafal add|list|remove` untuk melihat, menambah, dan menghapus cara baca;
   aturan bawaan bisa diganti, tidak bisa dihapus. Disimpan di `data\tts_lexicon.json`
   (`tts.lexicon_path`) dan dipakai `waifu run` yang sedang berjalan mulai kalimat berikutnya.

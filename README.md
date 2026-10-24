@@ -6357,17 +6357,21 @@ Whisper mendapat daftar pendek kata yang sering kamu ucapkan ke Cyrene (`hotword
 faster-whisper), urut dari yang paling penting:
 
 1. namanya dan `assistant.wake_words`;
-2. nama setiap perangkat di `devices`, lalu aliasnya;
-3. nama rutinitas (`mau_tidur` menjadi "mau tidur") dan nama aplikasi perangkat `type: apps`;
-4. kalau teman gacha menyala, game di `gacha.games`: "HSR", "Honkai: Star Rail", "Genshin",
+2. nama setiap perangkat di `devices`, lalu nama aplikasi perangkat `type: apps`;
+3. kalau teman gacha menyala, game di `gacha.games`: "HSR", "Honkai: Star Rail", "Genshin",
    "Genshin Impact", "ZZZ", "Zenless Zone Zero";
-5. nama karakter milikmu, paling banyak 10 per game, yang paling langka dan levelnya paling
+4. nama karakter milikmu, paling banyak 5 per game, yang paling langka dan levelnya paling
    tinggi dulu. Nama ini baru masuk setelah kamu menanyakan karakter game itu (misalnya
    "karakter HSR-ku siapa aja?") selama `waifu run` ini, dan hilang saat `waifu run` dijalankan
-   ulang. Cyrene tidak pernah membuka HoYoLAB hanya untuk daftar ini.
+   ulang. Game-game itu bergiliran (nama pertama tiap game, lalu nama kedua tiap game, dan
+   seterusnya), game yang terakhir ditanyakan lebih dulu, jadi setiap game yang kamu tanyakan
+   kebagian nama. Cyrene tidak pernah membuka HoYoLAB hanya untuk daftar ini;
+5. nama rutinitas (`mau_tidur` menjadi "mau tidur");
+6. alias perangkat.
 
-Daftarnya paling banyak 40 kata dan 400 karakter; kalau penuh, nama karakter yang dibuang lebih
-dulu. Kalimat contoh untuk Whisper tetap pendek ("Cyrene, tolong nyalakan lampu kamar.").
+Daftarnya paling banyak 40 kata dan 400 karakter; kalau penuh, alias perangkat yang dibuang
+lebih dulu, karena kebanyakan kata biasa ("lampu", "ac") yang sudah ditulis benar oleh Whisper.
+Kalimat contoh untuk Whisper tetap pendek ("Cyrene, tolong nyalakan lampu kamar.").
 `config.yaml` yang diubah baru dipakai setelah `waifu run` dijalankan ulang. Saat nama karakter
 masuk, log hanya menyebut jumlah katanya, misalnya `Whisper hotwords now hold 31 terms`.
 
@@ -6395,14 +6399,36 @@ Ajari kata lain lewat suara:
 
 > "Cyrene, cara baca Acheron itu A Ke Ron."
 >
-> "Oke Master. Mulai sekarang kubaca: A Ke Ron."
+> "Oke Master. Acheron mulai sekarang kubaca A Ke Ron."
 
 Cara bacanya langsung dipakai mulai kalimat berikutnya, tanpa otak (seketika, tanpa biaya).
+Di jawabannya, katanya masih dibaca dengan cara lama, jadi kamu mendengar kata mana yang dia
+tangkap; kalau yang terdengar salah kata, hapus dengan `waifu lafal remove` dan ulangi.
+
 Kalimatnya harus persis "cara baca <kata> itu <bacaan>": katanya 1 sampai 3 kata, bacaannya 1
-sampai 8 kata. Kalimat tanya ("cara baca HSR itu gimana?", atau yang memuat kata seperti apa,
-gimana, bener, atau nggak) diteruskan ke otak seperti biasa dan tidak dicatat. Kalimat ini juga
-jalan dalam 8 detik sesudah dia menjawab tanpa memanggil namanya, dan saat mode tamu. Dia hanya
-mengulang bacaannya, tidak katanya, karena kata itu sekarang dibaca dengan aturan barunya.
+sampai 8 kata. Boleh diawali namanya atau panggilanmu (`assistant.owner_call`), dan
+"nama"/"kata"/"tulisan" sebelum katanya ("cara baca nama Acheron itu ..."), "harusnya",
+"sebenarnya", "dibaca", atau "kayak" sesudah "itu", serta "ya", "dong", "aja", "oke", atau "nih"
+di akhir tidak ikut dicatat. Kalimat ini juga jalan dalam 8 detik sesudah dia menjawab tanpa
+memanggil namanya, dan saat mode tamu.
+
+Yang diteruskan ke otak seperti biasa dan **tidak dicatat**:
+
+- kalimat tanya: ada "?", kata tanya seperti apa, gimana, siapa, berapa, bener, nggak, atau
+  bukan, atau diakhiri "ga", "gak", "kah", "kan", atau "mana" ("cara baca HSR itu Ha Es Er
+  kan"). Suku kata di tengah bacaan tetap boleh: "cara baca Gallagher itu Ga Le Ger" dicatat;
+- komentar tentang cara baca: kalimat yang memuat kata seperti salah, keliru, aneh, jelek,
+  bagus, lucu, beda, gitu, kok, sih, atau, harus, bisa, susah, gampang, banget, atau dari ("cara
+  baca HSR itu salah", "cara baca manga itu dari kanan ke kiri");
+- kata ganti (kamu, aku, dia, ...), namanya sendiri, kata panggilannya, dan panggilanmu: "cara
+  baca kamu itu salah" berarti cara dia membaca yang salah. Aturan untuk namanya sendiri atau
+  panggilanmu hanya bisa lewat `waifu lafal add`;
+- kalimat yang mirip tapi tidak persis ("cara bacanya Acheron itu ...", "cara baca Acheron tuh
+  ...");
+- semua yang kamu ketik atau kirim sebagai pesan suara lewat HP: obrolan HP selalu ke otak.
+
+Otak tidak bisa menyimpan cara baca, jadi kalau dia menjawab seolah sudah mencatat, cek dengan
+`waifu lafal list`, dan pakai `waifu lafal add` kalau belum ada.
 
 Atau lewat terminal:
 
@@ -6430,8 +6456,10 @@ dia memakai aturan bawaan saja sampai ada aturan baru.
 ### Privasi kamus
 
 Kamus hanya berisi kata dan cara bacanya, di PC ini, dan tidak dikirim ke mana pun. Nama
-karakter untuk Whisper hanya ada di memori selama `waifu run` jalan. Log hanya menyebut jumlah
-kata yang ditunggu dan bahwa ada cara baca baru, tidak pernah katanya.
+karakter untuk Whisper hanya ada di memori selama `waifu run` jalan. Seperti setiap perintah,
+kalimat "cara baca ..." tertulis utuh di baris `Heard (id): ...` log. Selain baris itu, log
+hanya menyebut jumlah kata yang ditunggu dan bahwa ada cara baca yang dicatat atau ditolak,
+tidak pernah katanya; kamus rusak yang dipindah juga disebut tanpa isinya.
 
 ## Pemecahan masalah
 
@@ -7230,8 +7258,11 @@ di sampingnya)
 
 - [ ] `waifu say "Pity HSR-ku 70, cek di HoYoLAB"` terdengar "Ha Es Er" dan "Hoyolab".
 - [ ] `waifu say --fallback "Main ZZZ dulu"` terdengar "Zet Zet Zet" dengan suara Windows.
-- [ ] "Cyrene, cara baca Acheron itu A Ke Ron": dia bilang "Oke Master. Mulai sekarang kubaca:
-      A Ke Ron.", dan `waifu lafal list` menampilkan `Acheron: A Ke Ron`.
+- [ ] "Cyrene, cara baca Acheron itu A Ke Ron": dia bilang "Oke Master. Acheron mulai sekarang
+      kubaca A Ke Ron." (Acheron masih dengan cara lama), dan `waifu lafal list` menampilkan
+      `Acheron: A Ke Ron`.
+- [ ] "Cyrene, cara baca HSR itu salah" diteruskan ke otak, dan `waifu lafal list` tidak
+      menampilkan aturan baru.
 - [ ] Dengan TV menyala, "Cyrene, nyalakan" dengan alias lampumu lebih sering tertulis benar di
       log `Heard (id): ...`.
 
