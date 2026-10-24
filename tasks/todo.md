@@ -2302,10 +2302,10 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 240 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** S
 
-## Task 242: `waifu cuaca`
+## Task 242: `waifu cuaca` ✅
 
 **Acceptance criteria:**
-- [ ] `waifu cuaca [hari-ini|besok|akhir-pekan|YYYY-MM-DD]` prints the place, the time, each day, and its parts not passed; no place, an Open-Meteo failure, or a day out of reach is a `✗` line and exit 1; a bad word or date is an argparse error
+- [x] `waifu cuaca [hari-ini|besok|akhir-pekan|YYYY-MM-DD]` prints the place, the time, each day, and its parts not passed; no place, an Open-Meteo failure, or a day out of reach is a `✗` line and exit 1; a bad word or date is an argparse error
 
 **Dependencies:** 239 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** S
 

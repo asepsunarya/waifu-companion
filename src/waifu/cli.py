@@ -75,7 +75,14 @@ from waifu.brain.todo_tools import TodoTools
 from waifu.brain.tools import ToolProvider
 from waifu.brain.usage_tools import UsageTools
 from waifu.brain.voice_volume_tools import VoiceVolumeTools
-from waifu.brain.weather_tools import WeatherForecastTools
+from waifu.brain.weather_tools import (
+    PARTS,
+    ForecastError,
+    Period,
+    WeatherForecastTools,
+    period_of,
+    periods,
+)
 from waifu.break_watch import BreakWatcher
 from waifu.briefing import DAILY_BRIEFING, BriefingTimer, BriefingTools
 from waifu.config import (
@@ -726,6 +733,20 @@ def build_parser() -> argparse.ArgumentParser:
         f"Tampilkan kapan hujan berikutnya dalam {RAIN_LOOKAHEAD_HOURS} jam di kota "
         "briefing.city, tanpa otak.",
     )
+    weather_ahead = command(
+        "cuaca",
+        _weather_ahead,
+        "Tampilkan prakiraan cuaca sisa hari ini, besok, akhir pekan, atau tanggal lain sampai "
+        "enam hari lagi di kota briefing.city, per bagian hari, tanpa otak.",
+    )
+    weather_ahead.add_argument(
+        "day",
+        nargs="?",
+        type=_forecast_day,
+        default="hari-ini",
+        metavar="hari",
+        help="hari-ini (sisa hari ini, bawaan), besok, akhir-pekan, atau tanggal YYYY-MM-DD",
+    )
     usage = command(
         "usage",
         _usage,
@@ -1184,6 +1205,20 @@ def _due_date(text: str) -> date:
     raise argparse.ArgumentTypeError(
         f"tulis tanggalnya YYYY-MM-DD, misalnya 2026-10-23, bukan {text!r}"
     )
+
+
+def _forecast_day(text: str) -> str | date:
+    """`hari-ini`, `besok`, or `akhir-pekan` as the forecast's day word, or a date written
+    exactly YYYY-MM-DD."""
+    if text in FORECAST_DAYS:
+        return FORECAST_DAYS[text]
+    try:
+        return _due_date(text)
+    except argparse.ArgumentTypeError:
+        raise argparse.ArgumentTypeError(
+            "tulis hari-ini, besok, akhir-pekan, atau tanggal YYYY-MM-DD, misalnya 2026-10-25, "
+            f"bukan {text!r}"
+        ) from None
 
 
 def _transaction_count(text: str) -> int:
@@ -4054,6 +4089,50 @@ def _rain_window_text(window: RainWindow, now: datetime) -> str:
     clock = f"{start_day}{window.start:%H:%M}-{end_day}{window.last:%H:%M}"
     chance = "" if window.chance is None else f", peluang {window.chance}%"
     return f"sekitar {spoken_hour(window.start.hour)} ({clock}{chance})"
+
+
+# --- the weather of the days ahead -------------------------------------------------------------
+
+# `waifu cuaca`'s words for the forecast's days.
+FORECAST_DAYS = {"hari-ini": "today", "besok": "tomorrow", "akhir-pekan": "weekend"}
+
+
+def _weather_ahead(args: argparse.Namespace) -> int:
+    """Print the weather of the day asked (the rest of today by default) at the briefing's place,
+    each day with its parts not passed, read as the `weather_forecast` tool reads it, without the
+    brain; it works with the briefing off. Exit 1 when there is no forecast for it."""
+    config = load_config(args.config)
+    weather = _weather_client(config.briefing)
+    if weather is None:
+        print(f"{FAIL} Cuaca belum diatur (isi briefing.city di config.yaml)")
+        return 1
+    try:
+        outlook = weather.outlook()
+        days = periods(outlook, args.day, None)
+    except (WeatherError, ForecastError) as exc:
+        print(f"{FAIL} {exc}")
+        return 1
+    print(f"Prakiraan cuaca di {outlook.place}, per {outlook.now:%H:%M}:")
+    for day in days:
+        rest = "" if day.part is None else f", {day.part}"
+        print(f"{_day_text(day.day)}{rest}: {_forecast_text(day)}")
+        for part in PARTS:
+            found = period_of(outlook, day.day, part)
+            if found is not None:
+                print(f"  {found.part}: {_forecast_text(found)}")
+    return 0
+
+
+def _forecast_text(period: Period) -> str:
+    """`hujan, 18.9-28.3°C, peluang hujan 80%, curah hujan 7.5 mm`, unknown values left out."""
+    texts = [] if period.condition is None else [period.condition]
+    if period.min_c is not None and period.max_c is not None:
+        texts.append(f"{period.min_c:g}-{period.max_c:g}°C")
+    if period.rain_chance is not None:
+        texts.append(f"peluang hujan {period.rain_chance}%")
+    if period.rain_mm is not None:
+        texts.append(f"curah hujan {period.rain_mm:g} mm")
+    return ", ".join(texts) or "tidak ada data"
 
 
 # --- the running version -----------------------------------------------------------------------

@@ -8840,6 +8840,138 @@ def test_the_forecast_names_no_place_at_coordinates_without_a_city(
     assert open_meteo.queries(GEOCODING_HOST) == []
 
 
+def outlook_on_saturday(open_meteo: FakeOpenMeteo, now: str = "07:15") -> None:
+    """The fake's seven days from Saturday 24-10-2026, its time now `now`."""
+    open_meteo.outlook = open_meteo_outlook(date(2026, 10, 24))
+    open_meteo.outlook["current"]["time"] = f"2026-10-24T{now}"
+
+
+CLOUDY_PARTS = {
+    "pagi": "  pagi: berawan, 22.5-25.5°C, peluang hujan 10%, curah hujan 0 mm",
+    "siang": "  siang: berawan, 26-27.5°C, peluang hujan 10%, curah hujan 0 mm",
+    "sore": "  sore: berawan, 28-29.5°C, peluang hujan 10%, curah hujan 0 mm",
+    "malam": "  malam: berawan, 20-31.5°C, peluang hujan 10%, curah hujan 0 mm",
+}
+
+
+def test_cuaca_besok_prints_tomorrow_and_its_parts_without_the_brain(
+    home, brains, open_meteo, capsys
+):
+    write_out_example_briefing(home)
+    outlook_on_saturday(open_meteo)
+
+    assert cli.main(["cuaca", "besok"]) == 0
+
+    assert capsys.readouterr().out.splitlines() == [
+        "Prakiraan cuaca di Bandung, Jawa Barat, per 07:15:",
+        "Minggu 25-10-2026: hujan, 18.9-28.3°C, peluang hujan 80%, curah hujan 7.5 mm",
+        CLOUDY_PARTS["pagi"],
+        "  siang: hujan, 26-27.5°C, peluang hujan 80%, curah hujan 7.5 mm",
+        CLOUDY_PARTS["sore"],
+        CLOUDY_PARTS["malam"],
+    ]
+    assert brains == []
+    assert [query["forecast_days"] for query in open_meteo.queries(FORECAST_HOST)] == [["7"]]
+
+
+@pytest.mark.parametrize("argv", [["cuaca"], ["cuaca", "hari-ini"]], ids=["default", "hari-ini"])
+def test_cuaca_prints_the_rest_of_today_by_default(argv, home, open_meteo, capsys):
+    write_out_example_briefing(home)
+    outlook_on_saturday(open_meteo)
+
+    assert cli.main(argv) == 0
+
+    assert capsys.readouterr().out.splitlines() == [
+        "Prakiraan cuaca di Bandung, Jawa Barat, per 07:15:",
+        "Sabtu 24-10-2026, sisa hari ini: berawan, 20-31.5°C, peluang hujan 10%, curah hujan 0 mm",
+        "  pagi: berawan, 24-25.5°C, peluang hujan 10%, curah hujan 0 mm",  # from 08:00
+        CLOUDY_PARTS["siang"],
+        CLOUDY_PARTS["sore"],
+        CLOUDY_PARTS["malam"],
+    ]
+
+
+def test_cuaca_leaves_out_the_parts_of_today_that_have_passed(home, open_meteo, capsys):
+    write_out_example_briefing(home)
+    outlook_on_saturday(open_meteo, now="20:15")
+
+    assert cli.main(["cuaca"]) == 0
+
+    assert capsys.readouterr().out.splitlines()[1:] == [
+        "Sabtu 24-10-2026, sisa hari ini: berawan, 20-31.5°C, peluang hujan 10%, curah hujan 0 mm",
+        CLOUDY_PARTS["malam"],
+    ]
+
+
+def test_cuaca_akhir_pekan_on_a_saturday_prints_today_and_sunday(home, open_meteo, capsys):
+    write_out_example_briefing(home)
+    outlook_on_saturday(open_meteo)
+
+    assert cli.main(["cuaca", "akhir-pekan"]) == 0
+
+    days = [line for line in capsys.readouterr().out.splitlines()[1:] if not line.startswith(" ")]
+    assert days == [
+        "Sabtu 24-10-2026, sisa hari ini: berawan, 20-31.5°C, peluang hujan 10%, curah hujan 0 mm",
+        "Minggu 25-10-2026: hujan, 18.9-28.3°C, peluang hujan 80%, curah hujan 7.5 mm",
+    ]
+
+
+def test_cuaca_of_a_date_leaves_out_what_is_unknown(home, open_meteo, capsys):
+    write_out_example_briefing(home)
+    outlook_on_saturday(open_meteo)
+    for name in ("weather_code", "precipitation_probability", "precipitation", "temperature_2m"):
+        open_meteo.outlook["hourly"][name][24 * 6 + 16 : 24 * 6 + 20] = [None] * 4
+
+    assert cli.main(["cuaca", "2026-10-30"]) == 0
+
+    assert capsys.readouterr().out.splitlines()[1:] == [
+        "Jumat 30-10-2026: cerah, 18.1-30.2°C",  # its chance and amount are unknown
+        CLOUDY_PARTS["pagi"],
+        CLOUDY_PARTS["siang"],
+        "  sore: tidak ada data",
+        "  malam: berawan, 30-31.5°C, peluang hujan 10%, curah hujan 0 mm",  # no next 00:00
+    ]
+
+
+def test_cuaca_of_a_day_out_of_the_seven_says_how_far_it_goes_and_exits_1(home, open_meteo, capsys):
+    write_out_example_briefing(home)
+    outlook_on_saturday(open_meteo)
+
+    assert cli.main(["cuaca", "2026-10-31"]) == 1
+
+    assert capsys.readouterr().out.splitlines() == [
+        "✗ Prakiraan cuaca hanya ada untuk hari ini sampai Jumat 30-10-2026."
+    ]
+
+
+def test_cuaca_without_a_place_says_how_to_set_one_and_exits_1(home, capsys):
+    assert cli.main(["cuaca", "besok"]) == 1
+
+    assert capsys.readouterr().out.splitlines() == [
+        "✗ Cuaca belum diatur (isi briefing.city di config.yaml)"
+    ]
+
+
+def test_cuaca_whose_forecast_fails_says_why_and_exits_1(home, open_meteo, capsys):
+    append_config(home, "briefing:\n  enabled: false\n  city: Bandung\n")
+    open_meteo.failure = urllib.error.URLError("getaddrinfo failed")
+
+    assert cli.main(["cuaca"]) == 1
+
+    assert capsys.readouterr().out.splitlines() == [
+        "✗ Server cuaca tidak bisa dihubungi. Cek koneksi internet, lalu coba lagi."
+    ]
+
+
+@pytest.mark.parametrize("day", ["lusa", "25-10-2026", "2026-02-30", "minggu-depan"])
+def test_cuaca_refuses_another_word_or_a_date_not_written_yyyy_mm_dd(day, home, capsys):
+    with pytest.raises(SystemExit) as exited:
+        cli.main(["cuaca", day])
+
+    assert exited.value.code == 2
+    assert "tulis hari-ini, besok, akhir-pekan, atau tanggal YYYY-MM-DD" in capsys.readouterr().err
+
+
 # --- versi baru --------------------------------------------------------------------------------
 
 V111 = Release("v1.11", "memotong bicaranya")
