@@ -2,13 +2,13 @@
 
 "Hari ini aku ngapain aja?", "rekap kemarin dong": the facts come from `recap.DailyRecap`, read in
 code from her local records only (the tasks, the focus log or timer, the play time, the stored
-pull history, the Japanese lessons, the journal's note count, the schedule), for today up to now,
-yesterday, or a date up to 30 days back; the model only tells them. Its one argument may be left
-out, so it takes no strict slot, and its spec is static English built once, so it stays
-byte-identical for the brain's lifetime and keeps the prompt cache warm. It refuses in the turns
-she starts herself (the morning greeting, the weekly game report, and the nightly journal
-question): a recap is told only when Master asks. Guest mode closes it (`PRIVATE_TOOLS`). `run`
-never raises.
+pull history, the Japanese lessons, the journal's note count, the schedule, the internet outages),
+for today up to now, yesterday, or a date up to 30 days back; the model only tells them. Its one
+argument may be left out, so it takes no strict slot, and its spec is static English built once,
+so it stays byte-identical for the brain's lifetime and keeps the prompt cache warm. It refuses in
+the turns she starts herself (the morning greeting, the weekly game report, and the nightly
+journal question): a recap is told only when Master asks. Guest mode closes it (`PRIVATE_TOOLS`).
+`run` never raises.
 """
 
 from __future__ import annotations
@@ -112,9 +112,11 @@ def _spec() -> ToolSpec:
             "`gacha` (that day's pulls per game in the pull history as stored at its last "
             "refresh, so the newest may be missing, with each 5-star, an S-rank in ZZZ), "
             "`japanese` (the words learned and reviewed), `journal` (how many notes Master "
-            "wrote, never their text: journal_read reads them only when Master asks), and "
+            "wrote, never their text: journal_read reads them only when Master asks), "
             "`schedule` (the reminders and routines set for that day, `passed` or still to "
-            "come: not a record that they were said). `as_of` (today only) is the time now. No "
+            "come: not a record that they were said), and `network` (how many times and how "
+            "long the internet was down that day while `waifu run` watched it). `as_of` (today "
+            "only) is the time now. No "
             "part at all means nothing was recorded that day: say so warmly. Each entry of "
             "`problems` is a part that could not be read: say briefly that it is unavailable "
             "and tell the rest. It holds no money: for that use the finance tools. For a "

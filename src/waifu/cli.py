@@ -216,6 +216,7 @@ from waifu.lexicon import BUILT_IN_READINGS, Lexicon, LexiconError
 from waifu.listen_pause import ListenPause
 from waifu.memory import MemoryStore, memory_prompt_section
 from waifu.music import MusicService, open_in_browser, open_link, search_link, youtube_link
+from waifu.network_history import NetworkStore
 from waifu.notify import Notifier, build_notifier
 from waifu.offers.checks import official_link
 from waifu.offers.errors import OffersError
@@ -251,6 +252,7 @@ from waifu.recap import (
     DailyRecap,
     FocusSeconds,
     GamePulls,
+    OutageDay,
     Planned,
     PlayDay,
     RecapError,
@@ -3170,9 +3172,10 @@ def _game_data_tools(
 
 def _weekly_report_tools(config: AppConfig, gacha: GachaParts) -> WeeklyReportTools:
     """The week in the configured games from the pull history in `gacha.data_dir`, HoYoLAB
-    (this month's income too), with the redeem codes on, the codes `waifu run` keeps, and with
-    play time on, how long each game was open; the week starts from the report's slot even when
-    the report is off, so `waifu gacha report` shows her week."""
+    (this month's income too), with the redeem codes on, the codes `waifu run` keeps, with
+    play time on, how long each game was open, and with the internet watcher on, its outages;
+    the week starts from the report's slot even when the report is off, so `waifu gacha report`
+    shows her week."""
     return WeeklyReportTools(
         config.gacha.games,
         history=gacha.history,
@@ -3185,6 +3188,7 @@ def _weekly_report_tools(config: AppConfig, gacha: GachaParts) -> WeeklyReportTo
         extra_standard=config.gacha.off_banner,
         play_time=_play_time_store(config) if config.play_time.enabled else None,
         income=gacha.hoyolab,
+        network=_network_store(config) if config.network.enabled else None,
     )
 
 
@@ -3722,8 +3726,9 @@ def _thousands(amount: int) -> str:
 
 def _gacha_report(args: argparse.Namespace) -> int:
     """Print the last 7 days in Master's games as her weekly report gathers them, without the
-    brain; it works whether or not `gacha.enabled` and `weekly_report.enabled` are on. Exit 1
-    when a part of a game could not be read; the rest is printed all the same."""
+    brain, and the internet outages when there were any; it works whether or not
+    `gacha.enabled` and `weekly_report.enabled` are on. Exit 1 when a part of a game or the
+    internet history could not be read; the rest is printed all the same."""
     config = load_config(args.config)
     codes_label = UNREDEEMED_CODES if config.gacha.enabled else UNREDEEMED_STORED_CODES
     print("Membaca riwayat pull dan HoYoLAB, tunggu sebentar...", flush=True)
@@ -3739,6 +3744,13 @@ def _gacha_report(args: argparse.Namespace) -> int:
         for line in _game_week_lines(week, report.now, codes_label):
             print(f"  {line}")
         failed = failed or bool(week.problems)
+    if report.network_problem is not None:
+        print(f"{FAIL} {report.network_problem}")
+        failed = True
+    elif report.network is not None and report.network.count:
+        outages = report.network
+        total = _play_duration(outages.seconds)
+        print(f"Internet putus minggu ini: {outages.count} kali, total {total}")
     print(WEEKLY_REPORT_NOTE)
     return 1 if failed else 0
 
@@ -4874,7 +4886,7 @@ def _daily_recap(
     """Master's day from the records of the features that are on: `schedule` is the session's
     (a dry run's own) or None with the schedule off; with `focus` (only `run` has one) the focus
     timer, so the block under way counts, else the focus log; the pull history as stored in
-    `gacha.data_dir`, never refreshed."""
+    `gacha.data_dir`, never refreshed; the internet outages the watcher kept."""
     gacha = config.gacha
     japanese = config.japanese.enabled
     return DailyRecap(
@@ -4895,6 +4907,7 @@ def _daily_recap(
         words=load_words() if japanese else (),
         journal=_journal_store(config) if config.journal.enabled else None,
         schedule=schedule,
+        network=_network_store(config) if config.network.enabled else None,
         now=wib_now,
     )
 
@@ -4913,10 +4926,19 @@ def _focus_seconds(config: AppConfig, timer: FocusTimer | None) -> FocusSeconds 
 # `waifu rekap`'s words for the days.
 RECAP_DAYS: dict[str, Literal["today", "yesterday"]] = {"hari-ini": "today", "kemarin": "yesterday"}
 # The config sections whose switches turn the recap's parts on, in the parts' order.
-RECAP_SWITCHES = ("todo", "focus", "play_time", "gacha", "japanese", "journal", "schedule")
+RECAP_SWITCHES = (
+    "todo",
+    "focus",
+    "play_time",
+    "gacha",
+    "japanese",
+    "journal",
+    "schedule",
+    "network",
+)
 RECAP_NOTE = (
-    "Hanya dari catatan di PC ini: jam main dan fokus dihitung selama 'waifu run' menyala, dan "
-    "pull dari riwayat yang terakhir disimpan."
+    "Hanya dari catatan di PC ini: jam main, fokus, dan internet putus dihitung selama 'waifu "
+    "run' menyala, dan pull dari riwayat yang terakhir disimpan."
 )
 
 
@@ -5016,6 +5038,14 @@ def _schedule_lines(planned: tuple[Planned, ...]) -> list[str]:
     return [f"Jadwal: {entries}"]
 
 
+def _outage_lines(outages: OutageDay) -> list[str]:
+    if not outages.known:
+        return [f"Internet putus: tidak tersimpan lagi (network.keep_days: {outages.keep_days})"]
+    if not outages.count:
+        return ["Internet putus: tidak ada"]
+    return [f"Internet putus: {outages.count} kali, total {_play_duration(outages.seconds)}"]
+
+
 # Each part of the recap as `waifu rekap` prints it, by its name in `recap.PARTS`.
 _RECAP_LINES: dict[str, Callable[[Any], list[str]]] = {
     "tasks": _tasks_lines,
@@ -5025,6 +5055,7 @@ _RECAP_LINES: dict[str, Callable[[Any], list[str]]] = {
     "japanese": _words_lines,
     "journal": _journal_lines,
     "schedule": _schedule_lines,
+    "network": _outage_lines,
 }
 
 
@@ -6085,6 +6116,16 @@ def _play_rows(
 def _play_duration(seconds: int) -> str:
     """`2 jam 39 menit`, rounded to the minute."""
     return duration_text(whole_minutes(seconds))
+
+
+# --- pemantau internet -----------------------------------------------------------------------
+
+
+def _network_store(config: AppConfig) -> NetworkStore:
+    """The internet outages, in the file `network.path` names (`run`'s watcher writes it; the
+    tool, the recap, the weekly report, `waifu internet`, and `check` read it)."""
+    network = config.network
+    return NetworkStore(network.path, keep_days=network.keep_days, now=wib_now)
 
 
 # --- focus companion -------------------------------------------------------------------------

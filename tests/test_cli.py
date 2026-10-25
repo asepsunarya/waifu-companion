@@ -167,6 +167,7 @@ from waifu.japanese import JapaneseStore, WordProgress, load_words, word_of_the_
 from waifu.journal import JOURNAL_PROMPT, JournalStore, JournalTimer
 from waifu.lexicon import Lexicon
 from waifu.memory import MemoryStore, memory_prompt_section
+from waifu.network_history import NetworkStore
 from waifu.offers.errors import OffersError
 from waifu.offers.store import OffersStore
 from waifu.offers.values import AiOffer, GameGiveaway
@@ -770,6 +771,14 @@ def no_real_focus_log(tmp_path, monkeypatch):
     directory at the repository fails instead of reading or writing the owner's focus blocks in
     data/focus.json (building a store touches no file, so the refusal comes first)."""
     monkeypatch.setattr(cli, "FocusStore", only_under(tmp_path, cli.FocusStore))
+
+
+@pytest.fixture(autouse=True)
+def no_real_network_history(tmp_path, monkeypatch):
+    """Every internet history a command builds lives under tmp_path: a test that leaves the
+    working directory at the repository fails instead of reading or writing the owner's outages
+    in data/network.json (building a store touches no file, so the refusal comes first)."""
+    monkeypatch.setattr(cli, "NetworkStore", only_under(tmp_path, cli.NetworkStore))
 
 
 def wait_until_stopped(stop: threading.Event, timeout: float) -> bool:
@@ -9814,7 +9823,7 @@ def test_a_dry_run_s_recap_reads_its_own_empty_schedule(home, brains, monkeypatc
 
 
 def test_with_every_part_off_she_gets_no_recap(home, brains, monkeypatch):
-    for section in ("todo", "focus", "play_time", "journal", "schedule"):
+    for section in ("todo", "focus", "play_time", "journal", "schedule", "network"):
         append_config(home, f"{section}:\n  enabled: false\n")
     monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
 
@@ -9825,8 +9834,8 @@ def test_with_every_part_off_she_gets_no_recap(home, brains, monkeypatch):
 
 RECAP_NOW = datetime(2026, 10, 24, 21, 30, tzinfo=WIB)  # a Saturday
 RECAP_NOTE = (
-    "Hanya dari catatan di PC ini: jam main dan fokus dihitung selama 'waifu run' menyala, dan "
-    "pull dari riwayat yang terakhir disimpan."
+    "Hanya dari catatan di PC ini: jam main, fokus, dan internet putus dihitung selama 'waifu "
+    "run' menyala, dan pull dari riwayat yang terakhir disimpan."
 )
 
 
@@ -9855,6 +9864,7 @@ def test_rekap_kemarin_prints_each_part_from_the_stores_without_the_brain(home, 
         "Gacha: Honkai: Star Rail 2 pull",
         "Jurnal: 1 catatan",
         "Jadwal: 23:00 rutinitas tidur",
+        "Internet putus: tidak ada",
         RECAP_NOTE,
     ]
     assert brains == []
@@ -9872,6 +9882,7 @@ def test_rekap_prints_today_until_now_with_tidak_ada_for_an_empty_part_and_makes
         "Main game: tidak ada",
         "Jurnal: tidak ada",
         "Jadwal: tidak ada",
+        "Internet putus: tidak ada",
         RECAP_NOTE,
     ]
     assert not (home / "data").exists()
@@ -9958,6 +9969,49 @@ def test_rekap_says_no_play_when_no_game_was_open_a_whole_minute(home, recap_clo
     assert "Main game: tidak ada" in capsys.readouterr().out.splitlines()
 
 
+def network_history(home: Path, now: Callable[[], datetime]) -> NetworkStore:
+    return NetworkStore(home / "data" / "network.json", keep_days=7, now=now)
+
+
+def test_rekap_counts_the_day_s_internet_outages_with_their_time(home, recap_clock, capsys):
+    store = network_history(home, recap_clock)
+    for start, minutes in ((RECAP_NOW.replace(hour=8), 10), (RECAP_NOW.replace(hour=20), 4)):
+        store.begin(start, start, "offline")
+        store.end(start + timedelta(minutes=minutes))
+
+    assert cli.main(["rekap"]) == 0
+
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[-2:] == ["Internet putus: 2 kali, total 14 menit", RECAP_NOTE]
+
+
+def test_rekap_of_a_day_the_internet_history_no_longer_keeps_says_so(home, recap_clock, capsys):
+    assert cli.main(["rekap", "2026-10-10"]) == 0
+
+    lines = capsys.readouterr().out.splitlines()
+    assert "Internet putus: tidak tersimpan lagi (network.keep_days: 7)" in lines
+
+
+def test_rekap_with_the_internet_watcher_off_has_no_internet_line(home, recap_clock, capsys):
+    append_config(home, "network:\n  enabled: false\n")
+
+    assert cli.main(["rekap"]) == 0
+
+    assert not any(line.startswith("Internet") for line in capsys.readouterr().out.splitlines())
+
+
+def test_chat_s_recap_tells_the_day_s_internet_outages(home, brains, recap_clock, monkeypatch):
+    start = RECAP_NOW - timedelta(minutes=30)
+    store = network_history(home, recap_clock)
+    store.begin(start, start, "router")
+    store.end(start + timedelta(minutes=10))
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main(["chat", "--dry-run"]) == 0
+
+    assert daily_recap(brains[0])["network"] == {"outages": 1, "minutes": 10}
+
+
 def test_rekap_marks_a_part_that_fails_prints_the_rest_and_exits_1(
     home, recap_clock, monkeypatch, capsys
 ):
@@ -9977,14 +10031,14 @@ def test_rekap_marks_a_part_that_fails_prints_the_rest_and_exits_1(
 
 
 def test_rekap_with_every_part_off_says_so(home, recap_clock, capsys):
-    for section in ("todo", "focus", "play_time", "journal", "schedule"):
+    for section in ("todo", "focus", "play_time", "journal", "schedule", "network"):
         append_config(home, f"{section}:\n  enabled: false\n")
 
     assert cli.main(["rekap"]) == 0
 
     assert capsys.readouterr().out.splitlines() == [
         "! Rekap kosong: semua catatan yang dibacanya mati (todo, focus, play_time, gacha, "
-        "japanese, journal, schedule)."
+        "japanese, journal, schedule, network)."
     ]
 
 
@@ -12495,6 +12549,59 @@ def test_gacha_report_tells_the_week_s_play_time(home, game_data, games, capsys)
     assert cli.main(["gacha", "report"]) == 0
 
     assert "  Jam main minggu ini: 2 jam dalam 1 sesi" in capsys.readouterr().out.splitlines()
+
+
+def test_gacha_report_tells_the_week_s_internet_outages_after_the_games(
+    home, game_data, games, capsys
+):
+    play_only(home, "[hsr]")
+    save_hsr_week(home)
+    hsr_week_on_hoyolab(game_data)
+    now = datetime.now(WIB).replace(microsecond=0)
+    store = network_history(home, lambda: now)
+    for hours_ago, minutes in ((30, 10), (5, 4)):
+        start = now - timedelta(hours=hours_ago)
+        store.begin(start, start, "offline")
+        store.end(start + timedelta(minutes=minutes))
+
+    assert cli.main(["gacha", "report"]) == 0
+
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[-3:-1] == [
+        "  Pendapatan bulan ini: 4.800 Stellar Jade (30 pull), hari ini 60",
+        "Internet putus minggu ini: 2 kali, total 14 menit",
+    ]
+
+
+def test_gacha_report_marks_an_unreadable_internet_history_and_exits_1(
+    home, game_data, games, monkeypatch, capsys
+):
+    play_only(home, "[hsr]")
+    save_hsr_week(home)
+    hsr_week_on_hoyolab(game_data)
+
+    def unreadable(self):
+        raise PermissionError("access denied")
+
+    monkeypatch.setattr(NetworkStore, "record", unreadable)
+
+    assert cli.main(["gacha", "report"]) == 1
+
+    assert capsys.readouterr().out.splitlines()[-2] == "✗ Riwayat internet tidak terbaca saat ini."
+
+
+def test_gacha_report_has_no_internet_line_with_the_watcher_off(home, game_data, games, capsys):
+    play_only(home, "[hsr]")
+    save_hsr_week(home)
+    hsr_week_on_hoyolab(game_data)
+    append_config(home, "network:\n  enabled: false\n")
+    now = datetime.now(WIB).replace(microsecond=0)
+    store = network_history(home, lambda: now)
+    store.begin(now - timedelta(hours=1), now - timedelta(minutes=50), "offline")
+
+    assert cli.main(["gacha", "report"]) == 0
+
+    assert not any("Internet" in line for line in capsys.readouterr().out.splitlines())
 
 
 def play_time_line(out: str) -> str:

@@ -108,6 +108,15 @@ def test_the_description_says_forgotten_done_tasks_are_unknown_never_none(tmp_pa
     ) in spec.description
 
 
+def test_the_description_tells_the_day_s_internet_outages_while_waifu_run_watched(tmp_path):
+    [spec] = tool(tmp_path).specs()
+
+    assert (
+        "`network` (how many times and how long the internet was down that day while `waifu "
+        "run` watched it)"
+    ) in spec.description
+
+
 def test_the_spec_is_the_same_at_every_call_for_prompt_caching(tmp_path):
     provider = tool(tmp_path)
     before = provider.specs()

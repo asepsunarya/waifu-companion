@@ -12,10 +12,12 @@ from waifu.gacha.games import GAMES
 from waifu.gacha.history import GachaRecord, GachaStore
 from waifu.japanese import JapaneseStore, Word
 from waifu.journal import JournalStore
+from waifu.network_history import NetworkStore
 from waifu.play_time import PlayTimeStore, Session
 from waifu.recap import (
     PARTS,
     DailyRecap,
+    OutageDay,
     RecapError,
     StoredPulls,
     recap_day,
@@ -110,7 +112,16 @@ def test_the_parts_on_are_named_in_the_recap_s_order(tmp_path):
     )
 
     assert on.parts == ("focus", "journal", "schedule")
-    assert PARTS == ("tasks", "focus", "play_time", "gacha", "japanese", "journal", "schedule")
+    assert PARTS == (
+        "tasks",
+        "focus",
+        "play_time",
+        "gacha",
+        "japanese",
+        "journal",
+        "schedule",
+        "network",
+    )
 
 
 def test_with_every_source_off_no_part_is_on_and_nothing_is_readable():
@@ -462,6 +473,7 @@ def test_a_part_that_fails_has_its_problem_and_the_rest_is_still_read(tmp_path, 
         ("japanese", "Catatan bahasa Jepang tidak bisa dibaca saat ini."),
         ("journal", "Jurnal tidak bisa dibaca saat ini."),
         ("schedule", "Jadwal tidak bisa dibaca saat ini."),
+        ("network", "Riwayat internet tidak bisa dibaca saat ini."),
     ],
 )
 def test_each_part_that_fails_says_so_in_indonesian(part, problem):
@@ -488,6 +500,53 @@ def test_a_game_whose_history_cannot_be_read_says_so_and_the_others_are_still_to
 
     assert [game.game.id for game in day.gacha] == ["hsr"]
     assert day.problems == {"gacha": "Riwayat pull Genshin tidak bisa dibaca saat ini."}
+
+
+# --- internet outages --------------------------------------------------------------------------
+
+
+@pytest.fixture
+def network(tmp_path) -> NetworkStore:
+    """Down from 23:50 yesterday to 00:10 today, 08:00 to 08:04, and 21:20 until its last
+    failed poll at 21:28, still open."""
+    store = NetworkStore(tmp_path / "network.json", keep_days=7, now=lambda: NOW)
+    for start, end, kind in (
+        (at(-0.1667), at(1 / 6), "offline"),
+        (at(8), at(8 + 4 / 60), "router"),
+    ):
+        store.begin(start, start, kind)
+        store.end(end)
+    store.begin(at(21 + 1 / 3), at(21 + 28 / 60), "offline")
+    return store
+
+
+def test_the_day_s_outages_are_counted_with_their_time_that_day(network):
+    day = recap(network=network).gather(TODAY)
+
+    assert day.network == OutageDay(count=3, seconds=(10 + 4 + 8) * 60, keep_days=7, known=True)
+
+
+def test_an_outage_across_midnight_counts_on_each_day(network):
+    day = recap(network=network).gather(YESTERDAY)
+
+    assert day.network == OutageDay(count=1, seconds=10 * 60, keep_days=7, known=True)
+
+
+def test_a_day_older_than_the_history_keeps_is_unknown_not_without_outages(network):
+    day = recap(network=network).gather(TODAY - timedelta(days=8))
+
+    assert day.network == OutageDay(count=0, seconds=0, keep_days=7, known=False)
+
+
+def test_the_json_tells_the_outages_only_when_there_were_any(network, tmp_path):
+    quiet = NetworkStore(tmp_path / "quiet.json", keep_days=7, now=lambda: NOW)
+
+    assert recap_json(recap(network=network).gather(TODAY))["network"] == {
+        "outages": 3,
+        "minutes": 22,
+    }
+    assert "network" not in recap_json(recap(network=quiet).gather(TODAY))
+    assert "network" not in recap_json(recap(network=network).gather(TODAY - timedelta(days=8)))
 
 
 # --- the JSON ----------------------------------------------------------------------------------

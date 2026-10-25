@@ -4,7 +4,8 @@
 (from its midnight to the next, or to now for today), the tasks done that day and the open ones
 due by it, the time Master focused, how long each tracked game was open, the day's pulls in the
 stored pull history, the Japanese words learned and reviewed, how many journal notes the day
-holds (never their text), and the reminders and routines due that day. Every source is a local
+holds (never their text), the reminders and routines due that day, and how often and how long the
+internet was down while `waifu run` watched it. Every source is a local
 file read as it is: nothing reaches the network (the pull history is never refreshed here), and
 nothing is written. A source whose feature is off is None and its part absent; each part is read
 on its own, so one that fails carries a short Indonesian problem and the rest is still told.
@@ -33,6 +34,7 @@ from waifu.gacha.games import GAMES, Game
 from waifu.gacha.history import BannerPulls, StoredHistory, pulls_since
 from waifu.japanese import Word, WordProgress
 from waifu.journal import Note
+from waifu.network_history import NetworkRecord, outage_totals
 from waifu.play_time import PlayRecord, play_totals, played_seconds, whole_minutes, wib_now
 from waifu.schedule import (
     AlarmAction,
@@ -48,7 +50,7 @@ T = TypeVar("T")
 
 logger = logging.getLogger(__name__)
 
-PARTS = ("tasks", "focus", "play_time", "gacha", "japanese", "journal", "schedule")
+PARTS = ("tasks", "focus", "play_time", "gacha", "japanese", "journal", "schedule", "network")
 DAYS_BACK = 30
 LIST_MAX = 10
 _ONE_DAY = timedelta(days=1)
@@ -60,6 +62,7 @@ _PROBLEMS = {
     "japanese": "Catatan bahasa Jepang tidak bisa dibaca saat ini.",
     "journal": "Jurnal tidak bisa dibaca saat ini.",
     "schedule": "Jadwal tidak bisa dibaca saat ini.",
+    "network": "Riwayat internet tidak bisa dibaca saat ini.",
 }
 _PULLS_FAILED = "Riwayat pull {short} tidak bisa dibaca saat ini."
 _FUTURE = "Hari itu belum terjadi; rekap hanya untuk hari ini atau hari yang sudah lewat."
@@ -113,6 +116,14 @@ class ScheduleSource(Protocol):
     """The part of `ScheduleStore` the recap reads."""
 
     def entries(self) -> list[Entry]: ...
+
+
+class OutageSource(Protocol):
+    """The part of `NetworkStore` the recap reads."""
+
+    keep_days: int  # how long an outage is kept, then forgotten
+
+    def record(self) -> NetworkRecord: ...
 
 
 # The seconds Master focused inside `[since, until]`.
@@ -174,6 +185,14 @@ class WordsDay:
 
 
 @dataclass(frozen=True)
+class OutageDay:
+    count: int  # the outages with time that day
+    seconds: int  # their time that day
+    keep_days: int  # how long the history keeps an outage
+    known: bool  # False: the history no longer keeps all of that day's outages
+
+
+@dataclass(frozen=True)
 class Planned:
     """A reminder or routine due that day."""
 
@@ -196,6 +215,7 @@ class Recap:
     japanese: WordsDay | None = None
     journal: int | None = None  # notes
     schedule: tuple[Planned, ...] | None = None
+    network: OutageDay | None = None
     problems: Mapping[str, str] = field(default_factory=dict)  # by part, in the parts' order
 
     @property
@@ -240,6 +260,7 @@ class DailyRecap:
         words: Sequence[Word] = (),
         journal: JournalSource | None = None,
         schedule: ScheduleSource | None = None,
+        network: OutageSource | None = None,
         now: Callable[[], datetime] = wib_now,
     ) -> None:
         """A source is None when its feature is off; `words` names the Japanese words, and
@@ -252,6 +273,7 @@ class DailyRecap:
         self._words = tuple(words)
         self._journal = journal
         self._schedule = schedule
+        self._network = network
         self._now = now
 
     @property
@@ -265,6 +287,7 @@ class DailyRecap:
             self._japanese,
             self._journal,
             self._schedule,
+            self._network,
         )
         return tuple(
             part for part, source in zip(PARTS, sources, strict=True) if source is not None
@@ -282,11 +305,12 @@ class DailyRecap:
         problems: dict[str, str] = {}  # filled in the parts' order
         read = partial(_read, problems)
         todo, focus, play, gacha = self._todo, self._focus, self._play_time, self._gacha
-        japanese, words, journal, schedule = (
+        japanese, words, journal, schedule, network = (
             self._japanese,
             self._words,
             self._journal,
             self._schedule,
+            self._network,
         )
         return Recap(
             day,
@@ -311,6 +335,11 @@ class DailyRecap:
             ),
             schedule=(
                 None if schedule is None else read("schedule", lambda: _planned(schedule, day, now))
+            ),
+            network=(
+                None
+                if network is None
+                else read("network", lambda: _outages(network, since, until, now))
             ),
             problems=problems,
         )
@@ -379,6 +408,16 @@ def _play(play: PlaySource, since: datetime, until: datetime) -> PlayDay:
         tuple(GamePlay(game, total.seconds, total.sessions) for game, total in totals.items()),
         played_seconds(mine, since, until),
     )
+
+
+def _outages(network: OutageSource, since: datetime, until: datetime, now: datetime) -> OutageDay:
+    """The outages with time in `[since, until]`; unknown once a moment of the day is more than
+    `keep_days` before `now`, since the history has forgotten what ended then."""
+    keep = network.keep_days
+    if since < now - timedelta(days=keep):
+        return OutageDay(0, 0, keep, known=False)
+    total = outage_totals(network.record(), since, until)
+    return OutageDay(total.count, total.seconds, keep, known=True)
 
 
 def _words(japanese: ProgressSource, words: Sequence[Word], day: date) -> WordsDay:
@@ -469,6 +508,9 @@ def recap_json(recap: Recap) -> dict[str, Any]:
                 for item in recap.schedule[:LIST_MAX]
             ],
         }
+    outages = recap.network
+    if outages is not None and outages.count:
+        data["network"] = {"outages": outages.count, "minutes": whole_minutes(outages.seconds)}
     if recap.problems:
         data["problems"] = list(recap.problems.values())
     return data

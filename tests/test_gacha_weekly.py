@@ -40,6 +40,7 @@ from waifu.gacha.weekly import (
     report_json,
     week_start,
 )
+from waifu.network_history import NetworkStore, OutageTotal
 from waifu.play_time import PlayTimeStore, PlayTotal, Session
 from waifu.screen import ScreenImage
 
@@ -228,6 +229,7 @@ def gather(
     extra=None,
     play_time=None,
     income=None,
+    network=None,
 ):
     store = store if store is not None else make_store(tmp_path)
     return gather_weekly_report(
@@ -243,6 +245,7 @@ def gather(
         budget_s=budget_s,
         play_time=play_time,
         income=income,
+        network=network,
     )
 
 
@@ -755,6 +758,78 @@ def test_the_json_holds_no_play_time_without_a_source(tmp_path):
     [data] = report_json(gather(tmp_path))["games"]
 
     assert "play_time" not in data and "play_time_problem" not in data
+
+
+# --- the internet outages ------------------------------------------------------------------------
+
+
+def network_store(tmp_path) -> NetworkStore:
+    """Down from 18:58 to 19:04 across the week's start (Sunday 19:00), 10 minutes on Thursday,
+    and since 18:50 today until its last failed poll at 18:55, still open."""
+    store = NetworkStore(tmp_path / "network.json", keep_days=7, now=lambda: NOW)
+    week_starts = SINCE + LISTING_LAG
+    thursday = datetime(2026, 10, 15, 21, 0, tzinfo=WIB)
+    for start, minutes in ((week_starts - timedelta(minutes=2), 6), (thursday, 10)):
+        store.begin(start, start, "offline")
+        store.end(start + timedelta(minutes=minutes))
+    store.begin(NOW - timedelta(minutes=10), NOW - timedelta(minutes=5), "router")
+    return store
+
+
+class UnreadableNetwork:
+    def record(self):
+        raise OSError("the disk is gone")
+
+
+def test_the_week_s_internet_outages_come_when_a_source_is_given(tmp_path):
+    report = gather(tmp_path, network=network_store(tmp_path))
+
+    assert report.network == OutageTotal(3, (4 + 10 + 5) * 60)
+    assert report.network_problem is None
+
+
+def test_without_a_network_source_there_are_no_outages(tmp_path):
+    report = gather(tmp_path)
+
+    assert (report.network, report.network_problem) == (None, None)
+
+
+def test_an_internet_history_that_cannot_be_read_is_the_network_problem(tmp_path, caplog):
+    with caplog.at_level(logging.ERROR, logger="waifu.gacha.weekly"):
+        report = gather(tmp_path, network=UnreadableNetwork())
+
+    assert report.network is None
+    assert report.network_problem == "Riwayat internet tidak terbaca saat ini."
+    assert "the disk is gone" in caplog.text
+
+
+def test_the_json_holds_the_outages_only_when_there_were_any(tmp_path):
+    quiet = NetworkStore(tmp_path / "quiet.json", keep_days=7, now=lambda: NOW)
+
+    data = report_json(gather(tmp_path, network=network_store(tmp_path)))
+
+    assert data["network"] == {"outages": 3, "minutes": 19}
+    assert "network_problem" not in data
+    for without in (report_json(gather(tmp_path, network=quiet)), report_json(gather(tmp_path))):
+        assert "network" not in without and "network_problem" not in without
+
+
+def test_the_json_names_an_internet_history_that_cannot_be_read(tmp_path):
+    data = report_json(gather(tmp_path, network=UnreadableNetwork()))
+
+    assert "network" not in data
+    assert data["network_problem"] == "Riwayat internet tidak terbaca saat ini."
+
+
+def test_outages_alone_are_nothing_to_report(tmp_path):
+    report = gather(
+        tmp_path,
+        store=GachaStore(tmp_path / "empty"),
+        source=FakeSource(failures=no_cookie_anywhere()),
+        network=network_store(tmp_path),
+    )
+
+    assert report.readable is False
 
 
 # --- this month's income -------------------------------------------------------------------------
@@ -1280,6 +1355,7 @@ def make_tools(
     now=NOW,
     play_time=None,
     income=None,
+    network=None,
 ):
     store = store if store is not None else make_store(tmp_path)
     return WeeklyReportTools(
@@ -1296,6 +1372,7 @@ def make_tools(
         budget_s=5.0,
         play_time=play_time,
         income=income,
+        network=network,
     )
 
 
@@ -1360,6 +1437,27 @@ def test_the_tool_s_report_holds_the_play_time_when_it_is_counted(tmp_path):
     assert is_error is False
     hsr = json.loads(result)["games"][0]
     assert hsr["play_time"] == {"hours": 5, "minutes": 19, "sessions": 3}
+
+
+def test_the_description_names_the_internet_outages_when_they_are_kept(tmp_path):
+    [spec] = make_tools(tmp_path, network=network_store(tmp_path)).specs()
+    [without] = make_tools(tmp_path).specs()
+
+    told = (
+        "`network`, there only when it happened, counts the times Master's internet was down "
+        "in the last 7 days while `waifu run` watched it, with their minutes"
+    )
+    assert told in spec.description
+    assert "`network`" not in without.description
+
+
+def test_the_tool_s_report_holds_the_week_s_internet_outages(tmp_path):
+    tools = make_tools(tmp_path, network=network_store(tmp_path))
+
+    result, is_error = tools.run("weekly_report", {})
+
+    assert is_error is False
+    assert json.loads(result)["network"] == {"outages": 3, "minutes": 19}
 
 
 def test_the_description_names_only_the_configured_games_and_the_codes_when_tracked(tmp_path):
