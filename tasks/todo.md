@@ -3245,6 +3245,7 @@ named `tests/test_<package>_<module>.py`.
 **Acceptance criteria:**
 - [x] `read_clipboard` reads `CF_UNICODETEXT` through user32 and kernel32 loaded with `use_last_error=True` at each call and the documented signatures; a password manager's mark gives `PRIVATE` without reading; no text gives `NOT_TEXT`; a held clipboard is tried five times, then `BUSY`; the clipboard is closed and the memory unlocked whatever happens; a text over the cap is cut without a lone surrogate
 - [x] `looks_private` catches the secrets `looks_secret` does, a lone password-like word, an OTP or PIN, an account number, and a private key, and leaves ordinary Japanese and English text alone
+- [x] Fix pass: the marks are looked for again once the clipboard is open, so a mark put on during the busy retries keeps the text unread; punctuation around a word of letters alone is no symbol of a password ("Welcome!", "#HonkaiStarRail"); OTP or verification wording within 40 characters of a 4-8 digit code, on either side, and a "pass:", "pw:", or "pwd:" line with one word are refused; the text is taken in NFKC first
 - [x] `tests/conftest.py` refuses the clipboard functions of user32 and the global memory functions of kernel32; the real reader trips it in the suite
 
 **Dependencies:** 340a · **Files:** `src/waifu/clipboard.py`, `tests/test_clipboard.py`, `tests/conftest.py` · **Scope:** M
@@ -3254,6 +3255,7 @@ named `tests/test_<package>_<module>.py`.
 **Acceptance criteria:**
 - [x] The tool reads only in a turn whose own words name the copy (her names left out), once per turn, takes no argument, and is not strict; its result holds the text (at most 2000 characters, `cut`) and a note that it is data; every refusal leaves the content out
 - [x] It is in guest mode's `PRIVATE_TOOLS`, in the full chat request, and not strict; `logged_result` keeps its text out of the DEBUG lines and `waifu chat --verbose`
+- [x] Fix pass: "kucopas", "dicopas", "kukopas", "dikopas", "copi", "kucopi", and "dicopi" are copy words (never "kopi"), and a copy word outside ASCII ("コピー") is found inside a word too; the description puts a Japanese copy on a card with its reading and, for a short phrase, its word list even for one sentence, keeps one short English sentence spoken, and sends "simpan kata itu" to `japanese_lesson` only when she has that tool
 
 **Dependencies:** 340 · **Files:** `src/waifu/brain/clipboard_tools.py`, `src/waifu/brain/tools.py`, `src/waifu/guest.py`, `src/waifu/app.py`, `src/waifu/brain/ollama_brain.py`, `src/waifu/cli.py`, tests · **Scope:** M
 
@@ -3271,6 +3273,7 @@ named `tests/test_<package>_<module>.py`.
 **Acceptance criteria:**
 - [x] The lesson store keeps added words under an optional `custom` key, validated, deduplicated, capped at 200, and still reads a v1.39 file
 - [x] `japanese_lesson` `add` learns a built-in word, adds a new one, or says it is there already; refused in her own turns and in guest mode; quizzes and grades take added words; progress counts them apart; `waifu jepang progres` names them
+- [x] Fix pass: `same_word(kana, kanji, meaning, other)` is the same word only with the same kana and kanji, or, when either has no kanji, the same meaning (the words of one, ignoring case, all among the other's), so はい 肺, いる 要る, and a kana-only かえる "katak" are kept as Master's own and はし "sumpit" does not block 橋 "jembatan"; `waifu jepang progres` says "Belum ada kata dari daftar yang dipelajari" when he kept words of his own
 
 **Dependencies:** 340a · **Files:** `src/waifu/japanese.py`, `src/waifu/brain/japanese_tools.py`, `src/waifu/cli.py`, tests · **Scope:** M
 
@@ -3278,5 +3281,6 @@ named `tests/test_<package>_<module>.py`.
 
 **Acceptance criteria:**
 - [x] README "Artinya apa" (and in the table of contents), Ctrl+Alt+T in the hotkey section, the added words in the Japanese section, the guest-mode list; CHANGELOG v1.56; full suite, ruff, and JS tests clean
+- [x] Fix pass: README, SPEC, and CHANGELOG say that a Japanese copy always gets its card, that "simpan kata itu" needs the Japanese lessons switched on, the new copy words, the password rule's "at least three" and its punctuation, the refused verification messages and what is still missed, and the same-word rule with meanings; the hand checklist tries a one-line Japanese copy
 
 **Dependencies:** 342, 343 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
