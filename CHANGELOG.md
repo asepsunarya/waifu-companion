@@ -4,6 +4,31 @@ Ringkasan per versi, yang terbaru di atas. Rinciannya ada di README (bagian yang
 setiap versi) dan di SPEC.md. Setelah memperbarui, **mulai ulang `waifu run`** supaya semuanya
 aktif, lalu jalankan `waifu check`.
 
+## v1.54: pemantau internet
+
+- Selama `waifu run` menyala, Cyrene mengecek router dan internet tiap menit, dan selagi HSR,
+  Genshin, atau ZZZ dimainkan juga server HoYoLAB/HoYoverse. Saat internet nyambung lagi sesudah
+  putus paling sedikit 3 menit, dia bilang sekali: "Master, internetnya sudah nyambung lagi, tadi
+  putus sekitar 12 menit, sejak jam 21.03." Paling banyak 3 kali sehari, ditahan blok fokus dan
+  mode game seperti pengumuman lain, tidak dikirim ke HP.
+- Putus berarti dua cek berturut-turut gagal, dan router hanya disalahkan kalau Windows tidak
+  punya rute atau router yang tadi membalas sekarang diam. PC bangun dari sleep, jam PC berubah,
+  atau `waifu run` baru mulai tidak pernah dihitung putus.
+- "Internetnya kenapa?", "internet mati ya?", "kok lemot?", "server HoYo down?": dia mengecek saat
+  itu dan menjawab sendiri tanpa otak, jadi juga saat Claude tidak bisa dihubungi: router tidak
+  terjangkau, internet putus, DNS bermasalah, lambat, atau server HoYo bermasalah. Server HoYo
+  yang dicek adalah server web HoYoLAB/HoYoverse, bukan server game-nya.
+- Selama cek terakhir gagal, suara cadangan Windows langsung bicara tanpa menunggu edge-tts gagal
+  dulu, dan edge-tts dipakai lagi begitu internetnya kembali.
+- Kalau giliran Claude gagal karena tidak bisa terhubung, permintaan maafnya menyebut putusnya:
+  "Internetnya lagi putus sejak jam 21.03." Dengan internet menyala, tool baru `network_status`
+  memberi detail (tanpa slot strict, juga terbuka di mode tamu, tidak pernah menyebut alamat IP).
+- Riwayat putus seminggu di `data\network.json`. "Rekap hari ini" dan laporan game mingguan
+  menyebut berapa kali dan berapa lama internet putus, hanya kalau pernah; `waifu internet`
+  mengecek sekarang dan menampilkan putus hari ini; `waifu check` menyebut pemantaunya. Matikan
+  dengan `network.enabled: false`. Tanpa paket baru dan tanpa hak administrator.
+- README: "Pemantau internet".
+
 ## v1.53: pengingat saat game dibuka
 
 - "Cyrene, pas buka HSR nanti, ingetin aku farming relic": dia menyimpannya dan, saat HSR

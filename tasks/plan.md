@@ -1219,22 +1219,22 @@ spoken by the offline voice when edge-tts cannot be reached; Claude's connection
 outage. One non-strict tool, open in guest mode: 18 of 20 strict tools, 17 of 24 optional
 parameters, and 0 of 16 unions stay. No dependency.
 - [x] Task 320a: contract: SPEC, tasks
-- [ ] Task 320: the `network` settings
-- [ ] Task 321: the probes (`network_probe.py`) and the conftest refusals
-- [ ] Task 322: classification, the state, a check when asked, and her words (`network.py`)
-- [ ] Task 323: the history (`network_history.py`)
-- [ ] Task 324: the watcher (`network_watch.py`)
-- [ ] Task 325: asking without Claude (`network_ask.py`, the Assistant)
-- [ ] Task 326: Claude's connection apology names the outage
-- [ ] Task 327: the `network_status` tool
-- [ ] Task 328: the recap and weekly report sections
-- [ ] Task 329: `run`, `chat`, `waifu internet`, and `check`
-- [ ] Task 330: the speech router speaks offline at once while the internet is down
-- [ ] Task 331: README, CHANGELOG
+- [x] Task 320: the `network` settings
+- [x] Task 321: the probes (`network_probe.py`) and the conftest refusals
+- [x] Task 322: classification, the state, a check when asked, and her words (`network.py`)
+- [x] Task 323: the history (`network_history.py`)
+- [x] Task 324: the watcher (`network_watch.py`)
+- [x] Task 325: asking without Claude (`network_ask.py`, the Assistant)
+- [x] Task 326: Claude's connection apology names the outage
+- [x] Task 327: the `network_status` tool
+- [x] Task 328: the recap and weekly report sections
+- [x] Task 329: `run`, `chat`, `waifu internet`, and `check`
+- [x] Task 330: the speech router speaks offline at once while the internet is down
+- [x] Task 331: README, CHANGELOG
 
 ### Checkpoint: Pemantau internet
-- [ ] Python suite, ruff, and JS tests clean; no test pinged, resolved, connected beyond loopback, spoke, or read `data/`; the strict-tool budget unchanged (18 of 20 strict tools, 17 of 24 optional parameters, 0 of 16 unions)
-- [ ] By hand: in a scratch folder, the real watcher with fake probes and clocks: two failed polls start an outage, the poll that answers ends it and says the back line once, a sleep gap and startup failures say nothing
+- [x] Python suite, ruff, and JS tests clean; no test pinged, resolved, connected beyond loopback, spoke, or read `data/`; the strict-tool budget unchanged (18 of 20 strict tools, 17 of 24 optional parameters, 0 of 16 unions) (2026-10-25: 11766 pytest and 601 JS tests, ruff check and format clean; tests/conftest.py refuses and records iphlpapi's echo and route functions and dnsapi's queries, the probe tests fail on any lookup or connect beyond loopback, the CLI tests use the autouse fake NetworkProbe and NetworkWatcher and keep every NetworkStore under tmp_path; measured on the full Claude chat request: 18 strict tools, 17 optional parameters, 0 unions, `network_status` having no `required`)
+- [x] By hand: in a scratch folder, the real watcher with fake probes and clocks: two failed polls start an outage, the poll that answers ends it and says the back line once, a sleep gap and startup failures say nothing (2026-10-25, a mktemp folder deleted afterwards: the real NetworkWatcher, NetworkProbe with fake route, echo, connect, and lookup, NetworkStore, and NetworkState with fake clocks and announce: the run's first two failed polls counted nothing; the next two started an outage at 21:00 with the note "Internetnya lagi putus sejak jam 21.00."; the answering poll at 21:13 said "Master, internetnya sudah nyambung lagi, tadi putus sekitar 13 menit, sejak jam 21.00." once; an outage open across a 2 h gap ended at its last failed poll 21:17 without a line; a +1 h clock step and the poll after it counted nothing; the file held both outages and `back_told` 1)
 - [ ] On the owner's PC (the lead): `waifu internet` with the real probes; unplugging the network for 4 minutes gives the back line; "internetnya kenapa?" is answered while it is down
 
 ## Risks and Mitigations

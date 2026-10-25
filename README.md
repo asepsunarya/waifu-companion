@@ -57,6 +57,7 @@ Cyrene : "Komputer mau kumatikan sekarang, Master? Jawab iya kalau jadi." (minta
 - [Teman fokus](#teman-fokus)
 - [Mode game](#mode-game)
 - [Pengingat saat game dibuka](#pengingat-saat-game-dibuka)
+- [Pemantau internet](#pemantau-internet)
 - [Jurnal harian](#jurnal-harian)
 - [Rekap hari ini](#rekap-hari-ini)
 - [Pencarian web dan promo gratis](#pencarian-web-dan-promo-gratis)
@@ -757,16 +758,17 @@ waifu speaker-test    # skor kecocokan langsung, Ctrl+C untuk berhenti
 | `waifu pc` | Tampilkan kondisi PC saat ini: beban CPU, RAM, sisa disk, GPU NVIDIA, dan waktu sejak Windows terakhir di-restart (lihat [Kesehatan PC](#kesehatan-pc)) |
 | `waifu playtime` / `playtime yesterday` / `week` / `month` | Berapa lama HSR, Genshin, dan ZZZ terbuka hari ini, kemarin, minggu ini, atau bulan ini, dari catatan Cyrene selama `waifu run` menyala (lihat [Jam main](#jam-main)) |
 | `waifu pengingat-game` / `pengingat-game hapus <id>` | Lihat dan hapus pengingat yang dia ucapkan saat game dibuka, misalnya "pas buka HSR nanti, ingetin aku farming relic" (lihat [Pengingat saat game dibuka](#pengingat-saat-game-dibuka)) |
+| `waifu internet` | Cek internet sekarang (router, internet, DNS, server HoYoLAB/HoYoverse) dan kapan saja putus hari ini, dari catatan Cyrene selama `waifu run` menyala (lihat [Pemantau internet](#pemantau-internet)) |
 | `waifu focus` | Waktu fokus hari ini dan minggu ini dari catatan teman fokus (pomodoro) Cyrene selama `waifu run` menyala (lihat [Teman fokus](#teman-fokus)) |
 | `waifu jurnal` / `jurnal show <tanggal>` / `add <teks> [--date YYYY-MM-DD]` / `forget <tanggal> [--yes]` | Lihat hari yang ada catatannya, catatan satu hari, tambah catatan, dan hapus catatan satu hari di jurnal harian (lihat [Jurnal harian](#jurnal-harian)) |
-| `waifu rekap` / `rekap kemarin` / `rekap YYYY-MM-DD` | Rekap hari ini sampai sekarang, kemarin, atau tanggal lain sampai 30 hari ke belakang dari catatan di PC ini (tugas, fokus, jam main, pull, kata Jepang, jumlah catatan jurnal, jadwal), tanpa otak (lihat [Rekap hari ini](#rekap-hari-ini)) |
+| `waifu rekap` / `rekap kemarin` / `rekap YYYY-MM-DD` | Rekap hari ini sampai sekarang, kemarin, atau tanggal lain sampai 30 hari ke belakang dari catatan di PC ini (tugas, fokus, jam main, pull, kata Jepang, jumlah catatan jurnal, jadwal, internet putus), tanpa otak (lihat [Rekap hari ini](#rekap-hari-ini)) |
 | `waifu jepang` / `jepang progres` | Kata Jepang hari ini dengan contoh kalimatnya, atau berapa kata yang sudah dipelajari, dikuasai, dan perlu diulang hari ini, tanpa mencatat apa pun (lihat [Belajar bahasa Jepang](#belajar-bahasa-jepang)) |
 | `waifu youtube <link atau judul lagu>` | Buka video atau playlist YouTube itu, atau halaman pencarian YouTube untuk judulnya, di browser default (lihat [Lagu di YouTube](#lagu-di-youtube)) |
 | `waifu offers` / `offers games` / `offers ai` | Game gratis dan promo AI yang tersimpan, dengan linknya; `waifu offers ai --scan` mencari promo AI sekarang dengan Claude (berbayar) (lihat [Pencarian web dan promo gratis](#pencarian-web-dan-promo-gratis)) |
 | `waifu tepira` / `tepira dompet` / `tujuan [nama]` / `transaksi [-n N]` / `token` | Keuangan dari tepira: ringkasan bulan ini, saldo dompet, tujuan tabungan, dan transaksi terbaru; `token` membuat token API Cyrene baru tanpa internet (lihat [Keuangan dari tepira](#keuangan-dari-tepira)) |
 | `waifu sholat` / `sholat YYYY-MM-DD` | Waktu sholat hari ini atau tanggal lain untuk tempat Master, dihitung tanpa internet dengan metode Kemenag RI, juga saat fiturnya mati (lihat [Waktu sholat](#waktu-sholat)) |
 | `waifu tombol` | Buka tombol cepat (lampu, AC, colokan, rutinitas) di browser default PC ini, tanpa otak; tutup dengan Ctrl+C (lihat [Tombol cepat di PC](#tombol-cepat-di-pc)) |
-| `waifu check` | Periksa config, versi `waifu run` yang berjalan, kabar versi baru, kode IR, aplikasi PC, rutinitas, tombol cepat di PC, voiceprint, otak, ingatan, jadwal, daftar tugas, jurnal, belajar bahasa Jepang, lagu YouTube, sapaan pagi, peringatan hujan, biaya API, kesehatan PC, jam main, pengingat saat game dibuka, teman fokus, mode game, mode tamu, volume suaranya, waktu sholat, pencarian web, promo gratis, paket suara, CUDA, mic, suara cadangan offline, suara anime, avatar, keuangan tepira, dan Cyrene di HP |
+| `waifu check` | Periksa config, versi `waifu run` yang berjalan, kabar versi baru, kode IR, aplikasi PC, rutinitas, tombol cepat di PC, voiceprint, otak, ingatan, jadwal, daftar tugas, jurnal, belajar bahasa Jepang, lagu YouTube, sapaan pagi, peringatan hujan, biaya API, kesehatan PC, pemantau internet, jam main, pengingat saat game dibuka, teman fokus, mode game, mode tamu, volume suaranya, waktu sholat, pencarian web, promo gratis, paket suara, CUDA, mic, suara cadangan offline, suara anime, avatar, keuangan tepira, dan Cyrene di HP |
 
 Opsi untuk semua perintah: `--config <file>` (default `config.yaml`), `--dry-run`
 (perangkat simulasi), `-v` (log lebih rinci), `--log-file <file>` (log juga ditulis
@@ -792,6 +794,8 @@ Contoh kalimat saat `waifu run`:
   seketika (lihat [Ulangi](#ulangi)).
 - "Cyrene, tadi kamu denger apa?" saat dia tidak menjawab: dia bilang yang dia dengar dan
   kenapa diam (lihat [Diagnosa suara](#diagnosa-suara)).
+- "Cyrene, internetnya kenapa?" atau "kok lemot?": dia mengecek saat itu dan menjawab sendiri,
+  juga saat internet putus (lihat [Pemantau internet](#pemantau-internet)).
 - Ctrl+Alt+C, juga di tengah game layar penuh: dia langsung mendengarkan tanpa dipanggil
   namanya; Ctrl+Alt+Q: dia berhenti mendengarkan sampai ditekan lagi (lihat
   [Hotkey global](#hotkey-global)).
@@ -1240,6 +1244,9 @@ jawabannya tetap tampil seperti biasa.
   (`tts.fallback.retry_s`) tanpa menunggu edge-tts gagal lagi di setiap jawaban (tiap
   percobaan bisa makan sampai 10 detik), lalu edge-tts dicoba lagi. Log mencatat peringatannya
   sekali per gangguan, dan sekali lagi saat edge-tts pulih.
+- Dengan [pemantau internet](#pemantau-internet) menyala (bawaannya menyala), selama cek
+  internetnya yang terakhir gagal, suara Windows langsung bicara tanpa mencoba edge-tts dulu, dan
+  begitu cek berikutnya berhasil, edge-tts dicoba lagi di kalimat berikutnya.
 - **Seperti apa suaranya:** suara pembaca Windows, jelas tapi datar dan lebih kaku dari
   edge-tts, dan Andika suara laki-laki. Dengan suara anime menyala, RVC mengubahnya ke suara
   つくよみちゃん dengan nadanya sendiri (lihat Pengaturan), jadi tetap terdengar seperti
@@ -2215,6 +2222,10 @@ Isinya, untuk tiap game:
 - **Pendapatan bulan ini sejauh ini**: mata uang premium yang didapat dan kira-kira berapa pull,
   dari catatan bulanan HoYoLAB (lihat [Pendapatan gacha bulanan](#pendapatan-gacha-bulanan)).
 
+Untuk semua game sekaligus, kalau [pemantau internet](#pemantau-internet) menyala: berapa kali
+dan berapa lama internet putus dalam 7 hari terakhir, hanya kalau pernah (`waifu gacha report`
+menulisnya sesudah daftar game: `Internet putus minggu ini: 2 kali, total 16 menit`).
+
 Kapan dia melapor:
 
 - **Sekali seminggu, di hari dan jamnya:** dari `weekly_report.time` sampai tengah malam di
@@ -2311,7 +2322,8 @@ weekly_report:
   state_path: data/weekly_report.json
 ```
 
-**Privasi.** Angka minggu itu (pull, pity, endgame, kode, jam main, pendapatan bulan ini)
+**Privasi.** Angka minggu itu (pull, pity, endgame, kode, jam main, pendapatan bulan ini,
+internet putus)
 dikirim ke otaknya (dengan Claude, ke API Anthropic, sama seperti saat Master bertanya pity) dan
 tidak pernah ditulis ke log biasa. Kalimat laporannya ke `ntfy.sh` kalau notifikasi HP dan
 `weekly_report.push` menyala. `data\weekly_report.json` hanya menyimpan tanggal laporan terakhir.
@@ -5159,6 +5171,153 @@ Claude, teksnya ikut ke API Anthropic saat Master membuat, melihat, atau menghap
 Ollama, semuanya lokal). Seperti pengingat jadwal, log biasa mencatat teksnya saat Master
 membuatnya (baris panggilan tool), tapi saat diucapkan hanya berapa pengingatnya, bukan isinya.
 
+## Pemantau internet
+
+Saat internet putus, Cyrene dulu hanya bisa bilang tidak bisa terhubung ke server Claude, dan
+Master tidak tahu yang salah Wi-Fi, provider, DNS, atau HoYoverse. Sekarang selama `waifu run`
+menyala dia memantau koneksi PC: router, internet di luar, dan (selagi HSR, Genshin, atau ZZZ
+dimainkan) server HoYoLAB/HoYoverse. Dia bilang sekali saat internet nyambung lagi sesudah putus,
+menjawab "internetnya kenapa?" sendiri tanpa Claude (jadi juga saat internet mati), dan
+menyimpan riwayat putusnya seminggu. Fitur ini sudah menyala dari awal (`network.enabled:
+true`), dengan otak Ollama maupun Claude, tanpa paket tambahan dan tanpa hak administrator.
+
+```text
+Master : "Cyrene, internetnya kenapa?"
+Cyrene : "Master, internetnya putus: routernya tersambung, tapi internet di luar tidak bisa
+          dihubungi. Putusnya sejak jam 21.03."
+          ... jam 21.15 internetnya kembali ...
+Cyrene : "Master, internetnya sudah nyambung lagi, tadi putus sekitar 12 menit, sejak jam 21.03."
+Master : "Cyrene, kok lemot?"
+Cyrene : "Master, internetnya lagi lambat, sekitar 350 milidetik."
+Master : "Cyrene, server HoYo down?"
+Cyrene : "Master, internetnya lancar kok, sekitar 24 milidetik. Server HoYoLAB dan HoYoverse
+          menjawab, sekitar 45 milidetik. Itu server HoYoLAB dan HoYoverse, bukan server game-nya."
+Master : "Cyrene, ping-ku berapa?"
+Master : "Cyrene, tadi internet putus berapa kali?"
+```
+
+### Yang dicek
+
+- **Router:** ping ke gateway yang dipakai Windows (`hosts.gateway: auto`). Banyak router tidak
+  membalas ping, jadi router yang tidak pernah membalas tidak pernah disalahkan: "router tidak
+  terjangkau" hanya kalau Windows tidak punya rute (Wi-Fi atau kabel lepas), atau router yang
+  tadi membalas sekarang diam.
+- **Internet:** ping ke 1.1.1.1 dan 8.8.8.8 (`hosts.anchors`), dan kalau ping diblokir firewall,
+  sambungan ke port 443-nya. Putus hanya kalau keduanya diam.
+- **DNS:** mencari `www.google.com` (`hosts.dns`) langsung ke server DNS, melewati cache Windows
+  yang bisa menyembunyikan DNS yang mati. Dicek saat Master bertanya, bukan tiap menit.
+- **Lambat:** median ping beberapa cek terakhir (`slow_window`, 5) di atas `slow_ms` (200 ms).
+- **Server HoYoLAB/HoYoverse:** sambungan TCP (tanpa mengirim apa pun) ke server web yang dipakai
+  [teman main gacha](#teman-main-gacha-hoyoverse) (`hosts.hoyo`), hanya selagi game dimainkan
+  (paling sering tiap 150 detik) dan saat Master bertanya. Ini **bukan ping server game**: alamat
+  server game-nya tidak dipublikasikan.
+- Satu cek paling lama sekitar 3 detik.
+
+### Kapan dia bicara sendiri
+
+- **Hanya sekali saat nyambung lagi**, sesudah putus paling sedikit 3 menit
+  (`back_after_minutes`), paling banyak 3 kali sehari (`max_back_per_day`). Hitungannya disimpan
+  di file sebelum dia bicara, jadi restart tidak mengulangnya.
+- **Putus berarti dua cek berturut-turut gagal** (cek tiap 60 detik, `poll_seconds`), jadi ping
+  yang hilang sekali tidak dihitung. Mulainya dicatat di cek gagal pertama.
+- Diucapkan seperti pengumuman lain: sesudah jendela lanjutan tertutup, ditahan blok
+  [Teman fokus](#teman-fokus) dan [Mode game](#mode-game) (`hold` maupun `phone`), dan dibuang
+  kalau 30 menit kemudian belum sempat diucapkan. Tidak dikirim ke HP.
+- **Bukan saat PC bangun dari sleep, jam PC berubah, atau `waifu run` baru mulai:** Wi-Fi butuh
+  waktu menyambung lagi, jadi dua cek sesudahnya tidak dihitung. Putus yang masih berjalan saat PC
+  tidur dicatat sampai cek gagal terakhirnya, tanpa kalimat, karena kapan internetnya kembali
+  tidak diketahui.
+
+### Ditanya, juga tanpa internet
+
+"Internetnya kenapa?", "internet mati ya?", "kok lemot?", "koneksinya gimana?", "cek wifi",
+"server HoYo down?", "server HoYoLAB bermasalah?": kalau kalimatnya hanya itu (nama dia,
+"Master", dan kata seperti "dong", "ya", "sih", "coba" boleh ada), dia mengecek saat itu (sekitar
+3 detik, avatarnya terlihat berpikir) dan menjawab sendiri tanpa otak, jadi juga saat Claude
+tidak bisa dihubungi. "Ulangi" mengulang jawabannya. Kalimat lain ("internetnya kenapa ya,
+restart router dong") tetap ke otak seperti biasa.
+
+- Tanpa internet yang bicara [suara cadangan offline](#suara-cadangan-offline) (suara Windows):
+  selama cek terakhir gagal, dia langsung memakainya tanpa menunggu edge-tts gagal dulu, dan
+  begitu cek berikutnya berhasil, edge-tts dipakai lagi. Tanpa suara Windows bahasa Indonesia dia
+  tidak bisa bicara saat offline (`waifu voices` memberi tahu).
+- Kalau giliran Claude gagal karena tidak bisa terhubung, permintaan maafnya menyebut putusnya:
+  "Maaf Master, aku tidak bisa terhubung ke server Claude. Internetnya lagi putus sejak jam
+  21.03."
+- Dengan internet menyala, otaknya punya tool `network_status` untuk detail (ping, router, DNS,
+  server HoYo, berapa kali putus hari ini). Dia tidak pernah menyebut alamat IP.
+- Lewat [HP](#cyrene-di-hp) dan `waifu chat`, pertanyaan ini ke otak seperti biasa.
+- [Rekap hari ini](#rekap-hari-ini) dan [laporan game mingguan](#laporan-game-mingguan) menyebut
+  berapa kali dan berapa lama internet putus, hanya kalau pernah.
+
+### Dari terminal: `waifu internet`
+
+```powershell
+waifu internet
+```
+
+```text
+Memeriksa internet sekarang, tunggu sebentar...
+✓ Status: lancar
+  Router 192.168.1.1: menjawab dalam <1 ms
+  Internet (1.1.1.1, 8.8.8.8): menjawab dalam 24 ms
+  DNS (www.google.com): menjawab dalam 18 ms
+  Server HoYoLAB/HoYoverse: 3 dari 3 menjawab, sekitar 45 ms (bukan ping server game)
+Hari ini: putus 2 kali, total 16 menit: 21.03-21.15, 22.30-22.34
+Putusnya dicatat hanya selama 'waifu run' menyala.
+```
+
+Perintah ini jalan juga saat pemantaunya mati, tidak menulis apa pun, dan exit code-nya 1 kalau
+riwayatnya tidak bisa dibaca. Alamat router hanya tampil di sini. `waifu check` menampilkan
+`✓ Pemantau internet: aktif, tiap 60 detik` atau `! Pemantau internet mati`, tanpa mengecek
+koneksi. File `data\network.json` yang rusak dipindah ke `network.json.corrupt-<waktu>` (riwayat
+baru dimulai dari kosong), dan `check` menunjuknya.
+
+### Pengaturan pemantau internet
+
+Tidak perlu ditulis untuk memakai bawaannya (contohnya ada di `config.example.yaml`; `waifu run`
+perlu dijalankan ulang setelah mengubahnya):
+
+```yaml
+network:
+  enabled: true          # false: tanpa pemantau, tanpa jawaban lokal, dan tanpa tool (`waifu internet` tetap jalan)
+  poll_seconds: 60       # cek router dan internet tiap N detik (30-600)
+  hoyo_poll_seconds: 150 # cek server HoYo paling sering tiap N detik, hanya selama game dimainkan (60-1800)
+  slow_ms: 200           # lambat: median ping beberapa cek terakhir di atas N milidetik
+  slow_window: 5         # ... dari N cek terakhir
+  announce_back: true    # false: tidak bilang saat internet nyambung lagi
+  back_after_minutes: 3  # bilang hanya kalau putusnya paling sedikit N menit
+  max_back_per_day: 3    # paling banyak N kali sehari
+  keep_days: 7           # riwayat putus disimpan N hari
+  path: data/network.json
+  hosts:
+    gateway: auto        # router; auto = yang dipakai Windows, atau alamat IPv4 seperti 192.168.1.1
+    anchors: [1.1.1.1, 8.8.8.8]
+    dns: www.google.com
+    hoyo: [sg-public-api.hoyolab.com, bbs-api-os.hoyolab.com, public-operation-hk4e-sg.hoyoverse.com]
+```
+
+### Batasan pemantau internet
+
+- Hanya selama `waifu run` menyala.
+- Putus diketahui satu sampai dua menit sesudah mulai, dan nyambungnya paling lama satu cek
+  kemudian. Putus yang mulai dalam dua cek sesudah sleep, perubahan jam, atau `waifu run` mulai
+  baru dihitung dari cek ketiga.
+- Ping dibulatkan ke milidetik; router di rumah sering terbaca `<1 ms`.
+- Dengan VPN, yang terlihat sebagai router adalah ujung VPN-nya.
+- Firewall atau router yang memblokir ping dan port 443 ke 1.1.1.1 dan 8.8.8.8 membuat internet
+  terlihat putus; ubah `hosts.anchors` kalau begitu.
+
+### Privasi pemantau internet
+
+`data\network.json` hanya berisi kapan internet putus dan jenisnya (router atau internet), hanya
+di PC ini, selama `keep_days` hari. Ceknya ke router, ke 1.1.1.1 dan 8.8.8.8 (ping, dan port 443
+kalau ping diblokir), ke server DNS untuk `www.google.com`, dan selagi game dimainkan ke server
+HoYoLAB/HoYoverse (hanya membuka sambungan, tanpa mengirim data). Kalimatnya dan tool-nya tidak
+pernah menyebut alamat; alamat router hanya di `waifu internet` dan log DEBUG. Dengan Claude, hasil
+`network_status` (status, milidetik, jumlah putus) ikut ke API Anthropic saat ditanya. Tool ini
+tetap terbuka di [mode tamu](#mode-tamu): isinya bukan hal pribadi.
+
 ## Jurnal harian
 
 Cyrene bisa menyimpan jurnal harian Master: catatan singkat per tanggal, dengan kata-kata Master
@@ -5299,11 +5458,11 @@ Untuk mematikannya, tulis `enabled: false` di bagian `journal`; catatan lama hil
 
 "Hari ini aku ngapain aja?" dijawab sekali tanya dari catatan Cyrene sendiri di PC ini, tanpa
 internet: tugas yang selesai dan yang masih menunggu, berapa lama Master fokus, berapa lama game
-terbuka, pull gacha hari itu, kata Jepang yang dipelajari, jumlah catatan jurnal, dan jadwal hari
-itu. Tidak ada pengaturan sendiri: tiap bagian ikut sakelar fiturnya, bagian yang fiturnya mati
-dilewati, dan selama salah satunya menyala (daftar tugas, teman fokus, jam main, jurnal, dan
-jadwal sudah menyala dari awal) rekapnya ada di `waifu run` dan `waifu chat`, dengan otak Ollama
-maupun Claude.
+terbuka, pull gacha hari itu, kata Jepang yang dipelajari, jumlah catatan jurnal, jadwal hari
+itu, dan berapa kali internet putus. Tidak ada pengaturan sendiri: tiap bagian ikut sakelar
+fiturnya, bagian yang fiturnya mati dilewati, dan selama salah satunya menyala (daftar tugas,
+teman fokus, jam main, jurnal, jadwal, dan pemantau internet sudah menyala dari awal) rekapnya ada
+di `waifu run` dan `waifu chat`, dengan otak Ollama maupun Claude.
 
 ```text
 Master : "Cyrene, hari ini aku ngapain aja?"
@@ -5346,6 +5505,10 @@ Master : "Tanggal 20 aku ngapain?"
   tapi hanya sampai waktu terakhir sebelum mulainya lewat: sesudah itu, dan sesudah pertama kali
   berbunyi, hari-hari sejak jadwal itu dibuat ikut tersebut, karena file jadwal tidak menyimpan
   tanggal mulainya.
+- **Internet putus** dari [pemantau internet](#pemantau-internet): berapa kali dan berapa lama
+  hari itu, hanya kalau pernah, dan hanya selama `waifu run` menyala. Riwayatnya disimpan
+  `network.keep_days` hari (bawaan 7), jadi untuk hari yang lebih lama `waifu rekap` menulis
+  `Internet putus: tidak tersimpan lagi (network.keep_days: 7)`.
 
 Selain itu:
 
@@ -5377,7 +5540,8 @@ Main game: 1 jam 54 menit (Honkai: Star Rail 1 jam 9 menit, Genshin Impact 30 me
 Gacha: Honkai: Star Rail 82 pull, 5★ Acheron (74 pull)
 Jurnal: 2 catatan
 Jadwal: 07:00 minum obat; 22:00 telepon Ibu (nanti)
-Hanya dari catatan di PC ini: jam main dan fokus dihitung selama 'waifu run' menyala, dan pull dari riwayat yang terakhir disimpan.
+Internet putus: 2 kali, total 16 menit
+Hanya dari catatan di PC ini: jam main, fokus, dan internet putus dihitung selama 'waifu run' menyala, dan pull dari riwayat yang terakhir disimpan.
 ```
 
 Bagian yang fiturnya mati tidak ditampilkan, dan bagian yang kosong menampilkan `tidak ada`.
@@ -5848,6 +6012,8 @@ bilang singkat bahwa itu ditutup dulu selama ada tamu:
 - [Belajar bahasa Jepang](#belajar-bahasa-jepang): kata hari ini, kuis, dan kemajuannya. Kata
   pemula dan berapa kata yang Master hafal bukan hal pribadi.
 - [Pengingat istirahat](#pengingat-istirahat): kalimatnya tidak menyebut hal pribadi.
+- [Pemantau internet](#pemantau-internet): jawabannya, kalimat saat internet nyambung lagi, dan
+  tool `network_status`. Kondisi internet bukan hal pribadi, dan alamat tidak pernah disebut.
 - [Waktu sholat](#waktu-sholat): jadwalnya dan pengingatnya. Waktu sholat untuk kota yang sudah
   disebut cuaca bukan hal pribadi, dan koordinat rumah tidak pernah dia sebut.
 - [Alarm bangun](#alarm-bangun): alarm tetap berbunyi, dan memasang, mematikan, atau menunda alarm
@@ -7708,8 +7874,8 @@ di sampingnya)
   cookie milikmu, hanya saat Master minta (atau dengan `auto_redeem`). Kode, hadiah, dan hasil
   penukarannya ada di `data\redeem_codes.json`, hanya di PC ini; pemberitahuannya ke `ntfy.sh`
   kalau notifikasi HP menyala. Lihat [Kode redeem](#kode-redeem).
-- **Laporan game mingguan:** pull, pity, endgame, kode, jam main, dan pendapatan bulan ini
-  minggu itu ke otaknya (dengan Claude, ke API Anthropic), tidak pernah ke log biasa; kalimat
+- **Laporan game mingguan:** pull, pity, endgame, kode, jam main, pendapatan bulan ini, dan
+  berapa kali internet putus minggu itu ke otaknya (dengan Claude, ke API Anthropic), tidak pernah ke log biasa; kalimat
   laporannya ke `ntfy.sh` kalau notifikasi HP dan `weekly_report.push` menyala. `data\weekly_report.json` hanya menyimpan
   tanggal laporan terakhir. Lihat [Laporan game mingguan](#laporan-game-mingguan).
 - **Pendapatan gacha bulanan:** dibaca dari HoYoLAB hanya saat ditanya (dan untuk laporan
@@ -7756,6 +7922,11 @@ di sampingnya)
   main ke `ntfy.sh` kalau notifikasi HP dan `weekly_report.push` menyala; dengan Claude, totalnya
   ke API Anthropic saat Master bertanya dan di laporan game mingguan. Lihat
   [Privasi jam main](#privasi-jam-main).
+- **Pemantau internet:** `data\network.json` hanya berisi kapan internet putus dan jenisnya,
+  hanya di PC ini (7 hari). Ceknya ke router, 1.1.1.1, 8.8.8.8, server DNS, dan selagi game
+  dimainkan server HoYoLAB/HoYoverse, tanpa mengirim data. Kalimat dan tool-nya tidak pernah
+  menyebut alamat; dengan Claude, hasil `network_status` ke API Anthropic saat ditanya. Lihat
+  [Privasi pemantau internet](#privasi-pemantau-internet).
 - **Pengingat saat game dibuka:** `data\app_reminders.json` (game, teks, sekali atau tiap kali)
   hanya di PC ini. Pengingat yang jatuh waktunya ke `ntfy.sh` kalau notifikasi HP menyala, seperti
   pengingat jadwal; dengan Claude, teksnya ke API Anthropic saat Master membuat, melihat, atau
@@ -7772,7 +7943,7 @@ di sampingnya)
   catatan yang ditulis atau dibaca ikut ke API Anthropic; tidak pernah ke `ntfy.sh`, sapaan pagi,
   atau laporan mingguan. Lihat [Privasi jurnal](#privasi-jurnal).
 - **Rekap hari ini:** hanya membaca catatan yang sudah ada di PC ini (tugas, fokus, jam main,
-  riwayat pull tersimpan, kata Jepang, jumlah catatan jurnal, jadwal) dan tidak menyimpan atau
+  riwayat pull tersimpan, kata Jepang, jumlah catatan jurnal, jadwal, internet putus) dan tidak menyimpan atau
   mengirim apa pun sendiri. Dengan Claude, hasilnya ke API Anthropic saat Master bertanya, tanpa
   isi jurnal dan tanpa uang; tidak pernah ke `ntfy.sh`. Lihat [Privasi rekap](#privasi-rekap).
 - **Pencarian web dan promo gratis:** dengan Claude, kata kunci pencarian (ditambah negara,

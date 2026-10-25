@@ -3056,97 +3056,97 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** none · **Files:** `SPEC.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
 
-## Task 320: The `network` settings
+## Task 320: The `network` settings ✅
 
 **Acceptance criteria:**
-- [ ] `network` loads with its defaults (on, every 60 s, HoYo every 150 s, slow at 200 ms over 5 checks, the back line after 3 minutes at most 3 a day, 7 days in `data/network.json`, the gateway `auto`, 1.1.1.1 and 8.8.8.8, www.google.com, the three HoYo hosts); bounds, an unknown key, an anchor that is not a public IPv4 address, a gateway that is neither `auto` nor IPv4, and a host that is not a host name are refused; the example's commented block written out holds the defaults
+- [x] `network` loads with its defaults (on, every 60 s, HoYo every 150 s, slow at 200 ms over 5 checks, the back line after 3 minutes at most 3 a day, 7 days in `data/network.json`, the gateway `auto`, 1.1.1.1 and 8.8.8.8, www.google.com, the three HoYo hosts); bounds, an unknown key, an anchor that is not a public IPv4 address, a gateway that is neither `auto` nor IPv4, and a host that is not a host name are refused; the example's commented block written out holds the defaults
 
 **Dependencies:** 320a · **Files:** `src/waifu/config.py`, `config.example.yaml`, `tests/test_config.py` · **Scope:** XS
 
-## Task 321: The probes
+## Task 321: The probes ✅
 
 **Acceptance criteria:**
-- [ ] `icmp_echo`, `default_route`, `dns_query_ms`, and `tcp_connect_ms` read Windows' answers as documented (against fake libraries and sockets): a reply only with status 0 from the address asked, the ICMP handle and the DNS answer always released, the next hop or None for a direct route, None for no route; they look the functions up at the call
-- [ ] `NetworkProbe.check` runs the gateway, the anchors, and with `dns` and `hoyo` the lookup and the HoYo hosts at once, falls back to TCP on 443 when no anchor echoes, counts what has not answered within the budget as failed, never starts a probe of a target still running, and never raises
-- [ ] tests/conftest.py refuses and records the iphlpapi ICMP and route functions and the dnsapi queries; the probe tests fail on any non-loopback lookup or connect
+- [x] `icmp_echo`, `default_route`, `dns_query_ms`, and `tcp_connect_ms` read Windows' answers as documented (against fake libraries and sockets): a reply only with status 0 from the address asked, the ICMP handle and the DNS answer always released, the next hop or None for a direct route, None for no route; they look the functions up at the call
+- [x] `NetworkProbe.check` runs the gateway, the anchors, and with `dns` and `hoyo` the lookup and the HoYo hosts at once, falls back to TCP on 443 when no anchor echoes, counts what has not answered within the budget as failed, never starts a probe of a target still running, and never raises
+- [x] tests/conftest.py refuses and records the iphlpapi ICMP and route functions and the dnsapi queries; the probe tests fail on any non-loopback lookup or connect
 
 **Dependencies:** 320 · **Files:** `src/waifu/network_probe.py`, `tests/conftest.py`, `tests/test_network_probe.py` · **Scope:** M
 
-## Task 322: Classification, the state, and her words
+## Task 322: Classification, the state, and her words ✅
 
 **Acceptance criteria:**
-- [ ] `classify` gives router, offline, dns, slow, hoyo, and ok in that order (a gateway never seen answering is never blamed; slow by the median with the recent round trips)
-- [ ] `NetworkState` keeps the answered gateways, the recent round trips, whether the last check failed, whether a HoYo game runs, and the confirmed outage with its note; `NetworkCheck.now` checks with DNS, classifies, and notes
-- [ ] `answer_line` and `back_line` say each case in Indonesian with the owner word, never an address, the HoYo answers saying they are not the game's server
+- [x] `classify` gives router, offline, dns, slow, hoyo, and ok in that order (a gateway never seen answering is never blamed; slow by the median with the recent round trips)
+- [x] `NetworkState` keeps the answered gateways, the recent round trips, whether the last check failed, whether a HoYo game runs, and the confirmed outage with its note; `NetworkCheck.now` checks with DNS, classifies, and notes
+- [x] `answer_line` and `back_line` say each case in Indonesian with the owner word, never an address, the HoYo answers saying they are not the game's server
 
 **Dependencies:** 321 · **Files:** `src/waifu/network.py`, `tests/test_network.py` · **Scope:** M
 
-## Task 323: The history
+## Task 323: The history ✅
 
 **Acceptance criteria:**
-- [ ] `begin`, `still_down`, `end`, and `told_back` keep the open outage, the ended ones, and the day's back count; ended outages older than `keep_days` are dropped; `outage_totals` counts the outages with time in a span and their seconds inside it, the open one up to its last failed poll
-- [ ] Reading never creates the file; a file that is not a network history is moved aside and an empty one starts; a naive clock is a ValueError
+- [x] `begin`, `still_down`, `end`, and `told_back` keep the open outage, the ended ones, and the day's back count; ended outages older than `keep_days` are dropped; `outage_totals` counts the outages with time in a span and their seconds inside it, the open one up to its last failed poll
+- [x] Reading never creates the file; a file that is not a network history is moved aside and an empty one starts; a naive clock is a ValueError
 
 **Dependencies:** 320a · **Files:** `src/waifu/network_history.py`, `tests/test_network_history.py` · **Scope:** S
 
-## Task 324: The watcher
+## Task 324: The watcher ✅
 
 **Acceptance criteria:**
-- [ ] Two failed polls in a row start an outage at the first (written, told to the state, logged); the poll that answers ends it, and one of at least `back_after_minutes` gets the back line once through `announce` with a 30-minute expiry, at most `max_back_per_day` a day by the file's count
-- [ ] Nothing counts at the run's first two polls, nor at two polls after a sleep gap or a clock step; an outage open across one ends at its last failed poll without a line; one left open by a crash ends at its last failed poll; `stop()` ends an open one
-- [ ] The HoYo hosts are checked only while a game runs and at most every `hoyo_poll_seconds`; failures are logged once, nothing is raised
+- [x] Two failed polls in a row start an outage at the first (written, told to the state, logged); the poll that answers ends it, and one of at least `back_after_minutes` gets the back line once through `announce` with a 30-minute expiry, at most `max_back_per_day` a day by the file's count
+- [x] Nothing counts at the run's first two polls, nor at two polls after a sleep gap or a clock step; an outage open across one ends at its last failed poll without a line; one left open by a crash ends at its last failed poll; `stop()` ends an open one
+- [x] The HoYo hosts are checked only while a game runs and at most every `hoyo_poll_seconds`; failures are logged once, nothing is raised
 
 **Dependencies:** 322, 323 · **Files:** `src/waifu/network_watch.py`, `tests/test_network_watch.py` · **Scope:** M
 
-## Task 325: Asking without Claude
+## Task 325: Asking without Claude ✅
 
 **Acceptance criteria:**
-- [ ] `network_question` takes the whole internet and HoYo phrases (with her names, the owner word, and softeners left out) and nothing with another word
-- [ ] The Assistant answers them with `network` without a brain turn, said like a reply and repeated by "ulangi"; without `network` they reach the brain; `NetworkAnswers` checks with HoYo for the HoYo topic
+- [x] `network_question` takes the whole internet and HoYo phrases (with her names, the owner word, and softeners left out) and nothing with another word
+- [x] The Assistant answers them with `network` without a brain turn, said like a reply and repeated by "ulangi"; without `network` they reach the brain; `NetworkAnswers` checks with HoYo for the HoYo topic
 
 **Dependencies:** 322 · **Files:** `src/waifu/network_ask.py`, `src/waifu/app.py`, `tests/test_network_ask.py`, `tests/test_app.py` · **Scope:** S
 
-## Task 326: Claude's apology names the outage
+## Task 326: Claude's apology names the outage ✅
 
 **Acceptance criteria:**
-- [ ] With `network_note`, a connection failure and a stalled stream add the note after the apology and before the finance changes, unformatted; no note, None, or a note that raises adds nothing; `build_brain` passes it to Claude only
+- [x] With `network_note`, a connection failure and a stalled stream add the note after the apology and before the finance changes, unformatted; no note, None, or a note that raises adds nothing; `build_brain` passes it to Claude only
 
 **Dependencies:** 322 · **Files:** `src/waifu/brain/claude.py`, `src/waifu/brain/factory.py`, `tests/test_brain_claude.py`, `tests/test_brain_factory.py` · **Scope:** S
 
-## Task 327: The `network_status` tool
+## Task 327: The `network_status` tool ✅
 
 **Acceptance criteria:**
-- [ ] Non-strict spec without arguments, byte-identical across calls; the result has the status, its meaning, the round trip, the router, DNS, the HoYo hosts, an open outage, and today's outages only when there were any, never an address; an argument is an error; an unreadable history is left out; `run` never raises
+- [x] Non-strict spec without arguments, byte-identical across calls; the result has the status, its meaning, the round trip, the router, DNS, the HoYo hosts, an open outage, and today's outages only when there were any, never an address; an argument is an error; an unreadable history is left out; `run` never raises
 
 **Dependencies:** 322, 323 · **Files:** `src/waifu/brain/network_tools.py`, `tests/test_network_tools.py` · **Scope:** S
 
-## Task 328: The recap and weekly report sections
+## Task 328: The recap and weekly report sections ✅
 
 **Acceptance criteria:**
-- [ ] The recap's `network` part gives the day's outages (unknown past `keep_days`), its JSON only when there were any; `waifu rekap` prints its line
-- [ ] The weekly report's `network` gives the outages of the 7 days up to now only when there were any, a problem when the file cannot be read; the spec mentions it only with the source; `waifu gacha report` prints its line
+- [x] The recap's `network` part gives the day's outages (unknown past `keep_days`), its JSON only when there were any; `waifu rekap` prints its line
+- [x] The weekly report's `network` gives the outages of the 7 days up to now only when there were any, a problem when the file cannot be read; the spec mentions it only with the source; `waifu gacha report` prints its line
 
 **Dependencies:** 323 · **Files:** `src/waifu/recap.py`, `src/waifu/brain/recap_tools.py`, `src/waifu/gacha/weekly.py`, `src/waifu/cli.py`, tests · **Scope:** M
 
-## Task 329: `run`, `chat`, `waifu internet`, and `check`
+## Task 329: `run`, `chat`, `waifu internet`, and `check` ✅
 
 **Acceptance criteria:**
-- [ ] `run` with the network on builds one state, gives the brain its note, the Assistant `NetworkAnswers`, starts the watcher with the play time watcher in one item, and the state hears the play time polls; nothing with it off
-- [ ] `run` and `chat` offer `network_status`; it is open in guest mode; a full Claude chat request still holds 18 of 20 strict tools, 17 of 24 optional parameters, and 0 of 16 unions
-- [ ] `waifu internet` prints the check and today's outages, also with the watcher off, exit 1 for an unreadable file; `check` says on, off, unreadable, or a broken file moved
+- [x] `run` with the network on builds one state, gives the brain its note, the Assistant `NetworkAnswers`, starts the watcher with the play time watcher in one item, and the state hears the play time polls; nothing with it off
+- [x] `run` and `chat` offer `network_status`; it is open in guest mode; a full Claude chat request still holds 18 of 20 strict tools, 17 of 24 optional parameters, and 0 of 16 unions
+- [x] `waifu internet` prints the check and today's outages, also with the watcher off, exit 1 for an unreadable file; `check` says on, off, unreadable, or a broken file moved
 
 **Dependencies:** 324, 325, 326, 327, 328 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** M
 
-## Task 330: Speaking offline at once
+## Task 330: Speaking offline at once ✅
 
 **Acceptance criteria:**
-- [ ] While `offline()` says the last check failed, the router speaks the online voices' languages with their fallback without trying the engine, and tries it again once the check answers; a language without a fallback is tried as before; `build_speech_router` marks the edge voices; `run` passes the state
+- [x] While the internet watcher's state says the last check failed (`internet_changed(True)`, told through `state.follow` at each check that changes it), the router speaks the online voices' languages with their fallback without trying the engine, and tries it again at the next run once a check answers, also inside its pause after a failure; a language without a fallback, and one whose fallback cannot speak, is tried as before; a clip spoken that way counts as `degraded`; `build_speech_router` marks the edge voices; `run` has the state tell the router
 
-**Dependencies:** 329 · **Files:** `src/waifu/voice/tts.py`, `src/waifu/cli.py`, `tests/test_tts.py`, `tests/test_cli.py` · **Scope:** S
+**Dependencies:** 329 · **Files:** `src/waifu/voice/tts.py`, `src/waifu/network.py`, `src/waifu/cli.py`, `tests/test_voice_tts.py`, `tests/test_network.py`, `tests/test_cli.py`, `SPEC.md` · **Scope:** S
 
-## Task 331: Docs
+## Task 331: Docs ✅
 
 **Acceptance criteria:**
-- [ ] README "Pemantau internet" (and in the table of contents), the command row, the guest-mode list, and the Privasi bullet; CHANGELOG v1.54; full suite, ruff, and JS tests clean
+- [x] README "Pemantau internet" (and in the table of contents), the command row, the guest-mode list, and the Privasi bullet; CHANGELOG v1.54; full suite, ruff, and JS tests clean
 
 **Dependencies:** 330 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
