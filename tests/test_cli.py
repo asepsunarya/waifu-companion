@@ -861,6 +861,15 @@ def no_real_network_history(tmp_path, monkeypatch):
     monkeypatch.setattr(cli, "NetworkStore", only_under(tmp_path, cli.NetworkStore))
 
 
+@pytest.fixture(autouse=True)
+def no_real_app_reminders(tmp_path, monkeypatch):
+    """Every game reminder store a command builds lives under tmp_path: a test that leaves the
+    working directory at the repository fails instead of reading or writing the owner's
+    reminders in data/app_reminders.json (building a store touches no file, so the refusal comes
+    first)."""
+    monkeypatch.setattr(cli, "AppReminderStore", only_under(tmp_path, cli.AppReminderStore))
+
+
 def wait_until_stopped(stop: threading.Event, timeout: float) -> bool:
     return stop.wait()
 
