@@ -1174,7 +1174,7 @@ optional parameters, and 0 of 16 unions stay.
 - [x] Task 307: the stand-in flag of her voice (`SpeechRouter.degraded`)
 - [x] Task 308: the filler bank (`voice/nod.py`)
 - [x] Task 309: the `nod` settings
-- [ ] Task 310: fillers in the voice turn (`_think_with_nod`, `_say_nod`, the reply's voice made ahead)
+- [x] Task 310: fillers in the voice turn (`_think_with_nod`, `_say_nod`, the reply's voice made ahead)
 - [ ] Task 311: `waifu run` prepares the fillers in the background
 - [ ] Task 312: README, CHANGELOG
 

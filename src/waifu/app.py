@@ -40,6 +40,11 @@ rings she hears through the pause, so a sleepy "aku sudah bangun" still stops it
 or Ctrl+Alt+C ends the pause (`listen_now`); one that ends by itself is said once. Ctrl+Alt+R
 repeats her last words (`repeat_now`) from the hotkeys' thread, as "ulangi" does.
 
+When the brain has not answered Master's words after `nod.after_ms`, she says a short filler
+("Hmm, bentar ya…", `waifu.voice.nod`) made ahead in her voice, from a timer's thread under the
+voice lock, and her reply follows it; never for what she answers without the brain, her own
+requests, the phone, or the text chat.
+
 With a `diagnosis` log (`waifu.voice.diagnosis`), each utterance is recorded once it is handled:
 its level, the transcript, the wake gate's reason, the speaker score, what she did with it, and
 how long Whisper, the brain, and her voice took, for the phone's Suara page. When Master's whole
@@ -113,6 +118,7 @@ from waifu.voice.diagnosis import (
     UtteranceLog,
     UtteranceRecord,
 )
+from waifu.voice.nod import Nod, NodBank
 from waifu.voice.speaker import SpeakerError
 from waifu.voice.stt import SttError
 from waifu.voice.tts import TtsError
@@ -291,6 +297,23 @@ class Avatar(Protocol):
 ReplyHandler = Callable[[str], None]
 
 
+class _Timer(Protocol):
+    def start(self) -> None: ...
+
+    def cancel(self) -> None: ...
+
+
+# Runs a function once after an interval in seconds, on a thread of its own (her filler).
+TimerFactory = Callable[[float, Callable[[], None]], _Timer]
+
+
+def _daemon_timer(interval: float, function: Callable[[], None]) -> threading.Timer:
+    """A timer that never keeps the app alive."""
+    timer = threading.Timer(interval, function)
+    timer.daemon = True
+    return timer
+
+
 @dataclasses.dataclass(frozen=True)
 class _Announcement:
     """A fixed text queued by `announce` or `remind`."""
@@ -309,6 +332,35 @@ class _Said:
     text: str
     emotion: str
     marker: object  # `guest_marker` before the turn that thought it up (None without one)
+
+
+class _NodTurn:
+    """One brain turn's chance of a filler: the timer's thread `begin`s it, unless the voice
+    thread has `close`d it first because the reply is ready. `Timer.cancel` cannot stop a timer
+    that has fired, so this handshake is what keeps a filler from starting after the reply is
+    ready, and a turn of its own keeps a late timer out of the next turn."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._open = True
+        self._began = False
+
+    def begin(self, pick: Callable[[], Nod | None]) -> Nod | None:
+        """The filler to say now (`pick`ed), or None once the reply is ready or one was asked
+        for already: one turn has one filler at most."""
+        with self._lock:
+            if not self._open:
+                return None
+            self._open = False
+            nod = pick()
+            self._began = nod is not None
+            return nod
+
+    def close(self) -> bool:
+        """The reply is ready: no filler begins from now on. Whether one began."""
+        with self._lock:
+            self._open = False
+            return self._began
 
 
 @dataclasses.dataclass(frozen=True)
@@ -373,6 +425,8 @@ class Assistant:
         diagnosis: UtteranceLog | None = None,
         listen_pause: ListenPause | None = None,
         lexicon: Lexicon | None = None,
+        nods: NodBank | None = None,
+        timer: TimerFactory = _daemon_timer,
     ) -> None:
         """`quiet` (the focus timer's `in_block`, in game mode also whether a game holds her
         announcements) says when what she would say by herself must wait: only `remind` is
@@ -383,7 +437,9 @@ class Assistant:
         it moved are never repeated. `alarm` is the bell whose rings she says; `hold_level`
         (`LevelHold.held`) plays one clip, a ring, at a level of its own. `diagnosis` records
         each utterance she handles. While `listen_pause` holds, she does not hear Master.
-        `lexicon` keeps the readings Master teaches with "cara baca X itu Y" and confirms."""
+        `lexicon` keeps the readings Master teaches with "cara baca X itu Y" and confirms.
+        `nods` are her fillers, one of which she says when the brain has not answered Master's
+        words after `nod.after_ms` (counted by a `timer`); None: she waits silently."""
         self._name = config.assistant.name
         self._owner_call = config.assistant.owner_call
         # Left out around Master's "cara baca X itu Y" (`reading_request`).
@@ -414,6 +470,9 @@ class Assistant:
         self._diagnosis = diagnosis
         self._pause = listen_pause
         self._lexicon = lexicon
+        self._nods = nods
+        self._nod_after_s = config.nod.after_ms / 1000
+        self._timer = timer
         # The reading she last asked Master about, until his next turn takes it (`_ask_reading`).
         # Set and taken on the voice thread; any brain turn, also the phone's, drops it.
         self._reading_asked: _AskedReading | None = None
@@ -569,10 +628,10 @@ class Assistant:
             self._show(lambda avatar: avatar.state("thinking"))
             marker = self._guest_generation()
             started = self._clock()
-            emotion, reply = self._think(result.command)
+            emotion, reply, nodded = self._think_with_nod(result.command)
             hearing.brain_s = self._clock() - started
             reply_text = reply.text
-            hearing.tts_s = self._say_remembered(reply_text, emotion, marker)
+            hearing.tts_s = self._say_reply(reply_text, emotion, marker, nodded=nodded)
         return reply_text
 
     def handle_text(self, text: str) -> BrainReply:
@@ -1112,7 +1171,13 @@ class Assistant:
                 return request
 
     def _say_remembered(
-        self, text: str, emotion: str, marker: object, *, followup: bool = True
+        self,
+        text: str,
+        emotion: str,
+        marker: object,
+        *,
+        followup: bool = True,
+        clip: tuple[np.ndarray, int] | None = None,
     ) -> float | None:
         """Say `text` like `_speak`, remembered first as her last words for "ulangi" (`_repeat`),
         so a reply that was cut off or could not be voiced can still be asked for again.
@@ -1126,7 +1191,19 @@ class Assistant:
         session.
         """
         self._last_said = _Said(text, emotion, marker)
-        return self._speak(text, emotion, followup=followup)
+        return self._speak(text, emotion, followup=followup, clip=clip)
+
+    def _say_reply(self, text: str, emotion: str, marker: object, *, nodded: bool) -> float | None:
+        """Say Master's reply (`_say_remembered`). After a filler (`nodded`) its voice is made
+        first, outside the voice lock, while the filler still plays, so the reply follows it
+        without a gap; when that fails, `_speak` tries again."""
+        if not nodded:
+            return self._say_remembered(text, emotion, marker)
+        clip, synthesis_s = self._voice_ahead(text)
+        if clip is None:
+            return self._say_remembered(text, emotion, marker)
+        self._say_remembered(text, emotion, marker, clip=clip)
+        return synthesis_s
 
     def _repeat(self) -> tuple[str, float | None]:
         """Say her last words again like a reply, without the brain; returns what she said and
@@ -1264,6 +1341,44 @@ class Assistant:
         logger.info("Refused a reading for a word")
         text = TEACH_REFUSED.format(owner=self._owner_call, problem=problem)
         return text, self._speak(text)
+
+    def _think_with_nod(self, command: str) -> tuple[str, BrainReply, bool]:
+        """`_think` for Master's own words, with a filler (`_say_nod`) when the reply is not
+        ready after `nod.after_ms`; also whether one began. Only his voice turns come here: the
+        phone, the text chat, and her own requests use `_think` without one."""
+        if self._nods is None:
+            emotion, reply = self._think(command)
+            return emotion, reply, False
+        nods, turn = self._nods, _NodTurn()
+        timer = self._timer(self._nod_after_s, lambda: self._say_nod(nods, turn))
+        timer.start()
+        try:
+            emotion, reply = self._think(command)
+        finally:
+            timer.cancel()
+            nodded = turn.close()
+        return emotion, reply, nodded
+
+    def _say_nod(self, nods: NodBank, turn: _NodTurn) -> None:
+        """Say a filler while the brain still thinks up Master's reply; on the timer's thread.
+
+        Under the voice lock, so it never overlaps anything she says, and picked there, so a
+        filler skipped because the reply is ready (`turn.begin`) never uses up the no-repeat
+        slot. Played like a reply with the microphone paused, but afterwards she is back to
+        thinking: no follow-up window, nothing remembered for "ulangi". Failures are logged.
+        """
+        with self._engaged(), self._voice:
+            nod = turn.begin(nods.pick)
+            if nod is None:
+                return
+            logger.info("Saying a filler while the reply is thought up")
+            try:
+                with self._mic_off():
+                    self._play(nod.audio, nod.sample_rate, NEUTRAL)
+            except Exception:
+                logger.exception("Could not say a filler")
+            finally:
+                self._show(lambda avatar: avatar.state("thinking"))
 
     def _guest_generation(self) -> object:
         return None if self._guest_marker is None else self._guest_marker()

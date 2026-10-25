@@ -2951,14 +2951,14 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 307a · **Files:** `src/waifu/config.py`, `config.example.yaml`, `tests/test_config.py` · **Scope:** XS
 
-## Task 310: Fillers in the voice turn
+## Task 310: Fillers in the voice turn ✅
 
 **Acceptance criteria:**
-- [ ] `_speak`'s pausing and playing are shared helpers (a refactor, no test changes), and `_teach_reading`'s early synthesis is the shared `_voice_ahead`
-- [ ] A brain turn slower than `nod.after_ms` says a filler first: the timer waits `after_ms`, the avatar goes speaking then back to thinking, the mic is paused and resumed, and the reply follows, its voice synthesised while the filler played; a fast turn cancels the timer and a late call says nothing
-- [ ] The reply never overlaps the filler (threaded test), and a filler whose reply became ready while it waited for the voice is skipped
-- [ ] No timer for alarm words, the bare wake word, "ulangi", the heard request, a reading asked, confirmed, or forgotten, `ask_aloud`, the phone, or `handle_text`; a filler also while `quiet` holds
-- [ ] Never the same filler twice in a row, never repeated by "ulangi", not in `tts_s`; a cut filler still lets the reply play; no bank, no timer
+- [x] `_speak`'s pausing and playing are shared helpers (a refactor, no test changes), and `_teach_reading`'s early synthesis is the shared `_voice_ahead`
+- [x] A brain turn slower than `nod.after_ms` says a filler first: the timer waits `after_ms`, the avatar goes speaking then back to thinking, the mic is paused and resumed, and the reply follows, its voice synthesised while the filler played; a fast turn cancels the timer and a late call says nothing
+- [x] The reply never overlaps the filler (threaded test), and a filler whose reply became ready while it waited for the voice is skipped
+- [x] No timer for alarm words, the bare wake word, "ulangi", the heard request, a reading asked, confirmed, or forgotten, `ask_aloud`, the phone, or `handle_text`; a filler also while `quiet` holds
+- [x] Never the same filler twice in a row, never repeated by "ulangi", not in `tts_s`; a cut filler still lets the reply play; no bank, no timer
 
 **Dependencies:** 308, 309 · **Files:** `src/waifu/app.py`, `tests/test_app.py` · **Scope:** M
 

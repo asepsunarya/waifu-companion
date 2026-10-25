@@ -4,6 +4,7 @@ import http.client
 import io
 import json
 import logging
+import random
 import struct
 import threading
 import wave
@@ -58,6 +59,7 @@ from waifu.voice.diagnosis import (
     UtteranceLog,
     UtteranceRecord,
 )
+from waifu.voice.nod import NodBank
 from waifu.voice.speaker import SpeakerError
 from waifu.voice.stt import SttError
 from waifu.voice.tts import SpeechRouter, TtsError
@@ -235,6 +237,36 @@ class FakeAvatar:
             raise self.error
 
 
+class FakeTimer:
+    """A timer that never runs by itself: the test calls `function` once its time has passed."""
+
+    def __init__(self, interval: float, function: Callable[[], None]) -> None:
+        self.interval = interval
+        self.function = function
+        self.started = False
+        self.cancelled = False
+
+    def start(self) -> None:
+        self.started = True
+
+    def cancel(self) -> None:
+        self.cancelled = True
+
+
+class FakeTimers:
+    """Makes FakeTimers and keeps them in order (`made`); `fire` runs the last one's function."""
+
+    def __init__(self) -> None:
+        self.made: list[FakeTimer] = []
+
+    def __call__(self, interval: float, function: Callable[[], None]) -> FakeTimer:
+        self.made.append(FakeTimer(interval, function))
+        return self.made[-1]
+
+    def fire(self) -> None:
+        self.made[-1].function()
+
+
 class Rig:
     """An Assistant wired to fakes that share one event log and one clock."""
 
@@ -263,8 +295,10 @@ class Rig:
         listen_pause: ListenPause | None = None,
         lexicon: Lexicon | None = None,
         speech: Speech | None = None,
+        nods: NodBank | None = None,
     ) -> None:
-        """`speech` voices her words in place of the rig's FakeSpeech (`self.speech`)."""
+        """`speech` voices her words in place of the rig's FakeSpeech (`self.speech`). Her
+        filler timers are fakes (`self.timers`) that only the test fires."""
         config = config or AppConfig()
         self.events: list[str] = []
         self.clock = FakeClock()
@@ -281,6 +315,7 @@ class Rig:
         # Her level of now (`volume`, else 100), which a ring of `alarm` holds for its clip.
         self.hold = LevelHold(lambda: 100 if volume is None else volume)
         played_through = volume is not None or alarm is not None
+        self.timers = FakeTimers()
         self.assistant = Assistant(
             config,
             brain=self.brain,
@@ -306,6 +341,8 @@ class Rig:
             diagnosis=diagnosis,
             listen_pause=listen_pause,
             lexicon=lexicon,
+            nods=nods,
+            timer=self.timers,
         )
 
     def utterance(self) -> Utterance:
@@ -4866,3 +4903,336 @@ def test_she_is_busy_while_repeat_now_speaks():
     rig.assistant.repeat_now()
 
     assert while_playing == [True]
+
+
+# --- respons instan: a filler while a slow reply is thought up -----------------------------------
+
+SLOW_QUESTION = "Cyrene, besok hujan nggak?"
+HMM = "Hmm, bentar ya…"
+CHECKING = "Sebentar, kucek dulu ya."
+NOD_RATE = 16000  # the clips of her fillers, apart from the 24 kHz of her replies
+
+
+class FakeNodVoice:
+    """Her voice for the fillers: a clip as long as each text, at NOD_RATE."""
+
+    degraded = False
+
+    def synthesize(self, text: str) -> tuple[np.ndarray, int]:
+        return np.full(len(text), 0.25, dtype=np.float32), NOD_RATE
+
+
+def nod_bank(*lines: str) -> NodBank:
+    """A bank of `lines` (HMM alone by default), made in her voice."""
+    bank = NodBank(FakeNodVoice(), lines=lines or (HMM,), rng=random.Random(1))
+    bank.prepare()
+    return bank
+
+
+class PonderingBrain(FakeBrain):
+    """Runs `while_thinking` inside each turn: the time a slow reply takes."""
+
+    def __init__(self, reply: str = REPLY) -> None:
+        super().__init__(reply)
+        self.while_thinking: Callable[[], None] = lambda: None
+
+    def respond(self, user_text: str, *, now: datetime | None = None) -> BrainReply:
+        self.while_thinking()
+        return super().respond(user_text, now=now)
+
+
+def slow_rig(*heard: str, nods: NodBank | None = None, **kwargs) -> Rig:
+    """A rig whose brain takes longer than nod.after_ms on every turn: its filler timer fires."""
+    rig = Rig(*(heard or (SLOW_QUESTION,)), brain=PonderingBrain, nods=nods or nod_bank(), **kwargs)
+    rig.brain.while_thinking = rig.timers.fire
+    return rig
+
+
+def fillers_said(rig: Rig) -> list[int]:
+    """The length of each filler the avatar mouthed, in order (a filler is as long as its text)."""
+    return [length for length, rate, _ in rig.avatar.spoken if rate == NOD_RATE]
+
+
+def test_a_reply_not_ready_after_nod_after_ms_comes_after_a_filler():
+    rig = slow_rig(with_avatar=True)
+    rig.assistant.set_mic(FakeMic(rig.events, []), FakeSegmenter(rig.events, []))
+
+    reply = rig.assistant.handle_utterance(rig.utterance())
+
+    assert reply == REPLY
+    assert rig.player.played == [NOD_RATE, 24000]
+    assert rig.speech.texts == [REPLY]  # the filler was ready in memory
+    assert rig.events == [
+        "avatar.state thinking",
+        "mic.pause",
+        "avatar.state speaking",
+        "avatar.speak neutral",
+        "play",
+        "mic.resume",
+        "segmenter.reset",
+        "avatar.state thinking",
+        "synthesize",  # her reply's voice, made while the filler played
+        "mic.pause",
+        "avatar.state speaking",
+        "avatar.speak neutral",
+        "play",
+        "mic.resume",
+        "segmenter.reset",
+        "avatar.state listening 8",
+    ]
+
+
+def test_the_filler_timer_waits_1200_ms_by_default_and_is_cancelled_by_the_reply():
+    rig = Rig("Cyrene, nyalakan lampu kamar", nods=nod_bank())
+
+    rig.assistant.handle_utterance(rig.utterance())
+
+    [timer] = rig.timers.made
+    assert (timer.interval, timer.started, timer.cancelled) == (1.2, True, True)
+
+
+def test_the_filler_timer_waits_the_configured_nod_after_ms():
+    config = AppConfig.model_validate({"nod": {"after_ms": 2500}})
+    rig = Rig("Cyrene, nyalakan lampu kamar", config=config, nods=nod_bank())
+
+    rig.assistant.handle_utterance(rig.utterance())
+
+    assert [timer.interval for timer in rig.timers.made] == [2.5]
+
+
+def test_a_reply_ready_in_time_has_no_filler_even_from_a_timer_that_fires_late():
+    rig = Rig("Cyrene, nyalakan lampu kamar", nods=nod_bank())
+    rig.assistant.handle_utterance(rig.utterance())
+
+    rig.timers.fire()  # Timer.cancel cannot stop a timer that has just fired
+
+    assert rig.player.played == [24000]
+
+
+def test_a_turn_says_one_filler_at_most():
+    rig = slow_rig(nods=nod_bank(HMM, CHECKING))
+
+    def fire_twice() -> None:
+        rig.timers.fire()
+        rig.timers.fire()
+
+    rig.brain.while_thinking = fire_twice
+
+    rig.assistant.handle_utterance(rig.utterance())
+
+    assert rig.player.played == [NOD_RATE, 24000]
+
+
+def test_her_reply_waits_until_the_filler_has_been_said():
+    rig = slow_rig()
+    playing, release = hold_first_play(rig)
+    nodding = threading.Thread(target=rig.timers.fire)  # the timer's own thread
+
+    def think_past_the_filler() -> None:
+        nodding.start()
+        playing.wait(WAIT_S)
+
+    rig.brain.while_thinking = think_past_the_filler
+    turn = threading.Thread(target=rig.assistant.handle_utterance, args=(rig.utterance(),))
+    turn.start()
+    assert playing.wait(WAIT_S)
+    turn.join(0.1)
+    waiting, events = turn.is_alive(), list(rig.events)
+    release.set()
+    nodding.join(WAIT_S)
+    turn.join(WAIT_S)
+
+    assert waiting
+    assert events == ["play", "synthesize"]  # the reply's voice was made meanwhile
+    assert rig.player.played == [NOD_RATE, 24000]
+
+
+def test_a_filler_still_waiting_for_her_voice_once_the_reply_is_ready_is_never_said():
+    rig = slow_rig()
+    playing, release = hold_first_play(rig)
+    reaction = threading.Thread(target=rig.assistant.speak_reaction, args=(PAT_LINE, "happy"))
+    reaction.start()
+    assert playing.wait(WAIT_S)
+    nodding = threading.Thread(target=rig.timers.fire)  # its time passed while a reaction spoke
+    rig.brain.while_thinking = nodding.start
+    turn = threading.Thread(target=rig.assistant.handle_utterance, args=(rig.utterance(),))
+    turn.start()
+    turn.join(0.1)  # the reply is ready and waits for her voice as well
+    release.set()
+    for thread in (reaction, nodding, turn):
+        thread.join(WAIT_S)
+
+    assert rig.speech.texts == [PAT_LINE, REPLY]
+    assert rig.player.played == [24000, 24000]
+
+
+def test_two_slow_turns_never_say_the_same_filler():
+    rig = slow_rig(SLOW_QUESTION, SLOW_QUESTION, nods=nod_bank(HMM, CHECKING), with_avatar=True)
+
+    handle_all(rig)
+
+    assert sorted(fillers_said(rig)) == sorted([len(HMM), len(CHECKING)])
+
+
+def test_with_only_the_last_filler_ready_a_slow_turn_has_none():
+    rig = slow_rig(SLOW_QUESTION, SLOW_QUESTION)
+
+    handle_all(rig)
+
+    assert rig.player.played == [NOD_RATE, 24000, 24000]
+
+
+def test_without_a_ready_filler_a_slow_turn_is_answered_as_before():
+    rig = slow_rig(nods=NodBank(FakeNodVoice(), lines=(HMM,)))  # not prepared yet
+
+    rig.assistant.handle_utterance(rig.utterance())
+
+    assert rig.player.played == [24000]
+
+
+def test_without_fillers_no_timer_is_set():
+    rig = Rig("Cyrene, nyalakan lampu kamar")
+
+    rig.assistant.handle_utterance(rig.utterance())
+
+    assert rig.timers.made == []
+
+
+def test_ulangi_repeats_her_reply_never_the_filler():
+    rig = slow_rig(SLOW_QUESTION, "ulangi")
+
+    said = handle_all(rig)
+
+    assert said == [REPLY, REPLY]
+    assert rig.speech.texts == [REPLY, REPLY]
+
+
+def test_cutting_the_filler_short_still_lets_the_reply_come_and_holds_announcements():
+    rig = slow_rig()
+    rig.player.on_play = lambda: rig.assistant.interrupt() if not rig.player.played else None
+
+    reply = rig.assistant.handle_utterance(rig.utterance())
+    rig.assistant.announce(ANNOUNCEMENT)
+    listen_once(rig)
+
+    assert reply == REPLY
+    assert rig.player.played == [NOD_RATE, 24000]
+    assert rig.speech.texts == [REPLY]  # Master cut her off to talk: the announcement waits
+
+
+def test_a_filler_that_cannot_be_played_is_logged_and_the_reply_still_comes(caplog):
+    rig = slow_rig(with_avatar=True)
+
+    def broken_once() -> None:
+        if rig.events.count("play") == 1:
+            raise RuntimeError("PortAudio error")
+
+    rig.player.on_play = broken_once
+
+    with caplog.at_level(logging.ERROR, logger="waifu.app"):
+        reply = rig.assistant.handle_utterance(rig.utterance())
+
+    assert reply == REPLY
+    assert "Could not say a filler" in caplog.text
+    assert rig.events[rig.events.index("play") + 1] == "avatar.state thinking"
+    assert rig.player.played == [24000]
+
+
+def test_her_reply_after_a_filler_is_timed_without_the_filler():
+    log = UtteranceLog(now=lambda: NOW)
+    rig = slow_rig(diagnosis=log)
+    takes(rig, brain=2.0, tts=0.25)
+
+    rig.assistant.handle_utterance(rig.utterance())
+
+    (record,) = log.records()
+    assert (record.brain_s, record.tts_s) == (2.0, 0.25)
+
+
+class OnceFailingSpeech(FakeSpeech):
+    """Fails its first synthesis, then voices every text."""
+
+    def synthesize(self, text: str) -> tuple[np.ndarray, int]:
+        failing, self.error = self.error, None
+        if failing is not None:
+            self.texts.append(text)
+            raise failing
+        return super().synthesize(text)
+
+
+def test_a_reply_whose_voice_could_not_be_made_during_the_filler_is_voiced_again():
+    speech = OnceFailingSpeech([], TtsError("edge mati"))
+    rig = slow_rig(speech=speech)
+
+    reply = rig.assistant.handle_utterance(rig.utterance())
+
+    assert reply == REPLY
+    assert speech.texts == [REPLY, REPLY]
+    assert rig.player.played == [NOD_RATE, 24000]
+
+
+def test_a_filler_is_said_while_quiet_holds_since_master_is_talking():
+    rig = slow_rig(quiet=lambda: True, game_holding=lambda: True)
+
+    rig.assistant.handle_utterance(rig.utterance())
+
+    assert rig.player.played == [NOD_RATE, 24000]
+
+
+@pytest.mark.parametrize(
+    "heard",
+    ["Cyrene?", "Cyrene, ulangi", "Cyrene, tadi kamu denger apa?", "nyalakan lampu kamar"],
+    ids=["wake-word", "ulangi", "heard", "not-for-her"],
+)
+def test_words_answered_without_the_brain_set_no_filler_timer(heard):
+    rig = slow_rig(heard)
+
+    rig.assistant.handle_utterance(rig.utterance())
+
+    assert rig.brain.turns == []
+    assert rig.timers.made == []
+
+
+def test_a_reading_asked_confirmed_and_forgotten_sets_no_filler_timer(tmp_path):
+    rig = slow_rig(
+        TEACH_ACHERON,
+        "iya",
+        "Cyrene, lupakan cara baca Acheron",
+        lexicon=Lexicon(tmp_path / "tts_lexicon.json"),
+    )
+
+    handle_all(rig)
+
+    assert rig.brain.turns == []
+    assert rig.timers.made == []
+
+
+def test_the_words_that_stop_a_ringing_alarm_set_no_filler_timer(tmp_path):
+    rig = AlarmRig(tmp_path, "aku sudah bangun", brain=PonderingBrain, nods=nod_bank())
+    rig.start_alarm()
+
+    rig.assistant.handle_utterance(rig.utterance())
+
+    assert rig.bell.ringing() is False
+    assert rig.timers.made == []
+
+
+def test_a_request_she_answers_by_herself_has_no_filler():
+    rig = Rig(nods=nod_bank())
+    rig.assistant.ask_aloud(GREETING_PROMPT)
+
+    listen_once(rig)
+
+    assert [text for text, _ in rig.brain.turns] == [GREETING_PROMPT]
+    assert rig.timers.made == []
+
+
+def test_a_phone_message_and_the_text_chat_have_no_filler():
+    rig = Rig(nods=nod_bank())
+
+    rig.assistant.reply_for_phone(PHONE_TEXT)
+    rig.assistant.handle_text(PHONE_TEXT)
+
+    assert len(rig.brain.turns) == 2
+    assert rig.timers.made == []
+    assert rig.player.played == []
