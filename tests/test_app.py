@@ -296,9 +296,11 @@ class Rig:
         lexicon: Lexicon | None = None,
         speech: Speech | None = None,
         nods: NodBank | None = None,
+        real_timers: bool = False,
     ) -> None:
         """`speech` voices her words in place of the rig's FakeSpeech (`self.speech`). Her
-        filler timers are fakes (`self.timers`) that only the test fires."""
+        filler timers are fakes (`self.timers`) that only the test fires, or with
+        `real_timers` the Assistant's own."""
         config = config or AppConfig()
         self.events: list[str] = []
         self.clock = FakeClock()
@@ -316,6 +318,7 @@ class Rig:
         self.hold = LevelHold(lambda: 100 if volume is None else volume)
         played_through = volume is not None or alarm is not None
         self.timers = FakeTimers()
+        timers = {} if real_timers else {"timer": self.timers}
         self.assistant = Assistant(
             config,
             brain=self.brain,
@@ -342,7 +345,7 @@ class Rig:
             listen_pause=listen_pause,
             lexicon=lexicon,
             nods=nods,
-            timer=self.timers,
+            **timers,
         )
 
     def utterance(self) -> Utterance:
@@ -4998,6 +5001,45 @@ def test_the_filler_timer_waits_the_configured_nod_after_ms():
     rig.assistant.handle_utterance(rig.utterance())
 
     assert [timer.interval for timer in rig.timers.made] == [2.5]
+
+
+def test_by_default_her_filler_comes_from_a_daemon_timer_after_nod_after_ms():
+    # A timer that kept the app alive would hold a Ctrl+C back until the filler ends.
+    config = AppConfig.model_validate({"nod": {"after_ms": 600}})
+    rig = Rig(SLOW_QUESTION, brain=PonderingBrain, config=config, nods=nod_bank(), real_timers=True)
+    nodded = threading.Event()
+    nodding_threads: list[threading.Thread] = []
+
+    def note_the_filler() -> None:
+        if not rig.player.played:  # the first clip is the filler
+            nodding_threads.append(threading.current_thread())
+            nodded.set()
+
+    rig.player.on_play = note_the_filler
+    rig.brain.while_thinking = lambda: nodded.wait(WAIT_S)
+
+    rig.assistant.handle_utterance(rig.utterance())
+
+    [timer] = nodding_threads
+    assert isinstance(timer, threading.Timer)
+    assert (timer.interval, timer.daemon) == (0.6, True)
+    assert rig.player.played == [NOD_RATE, 24000]
+
+
+def test_by_default_a_reply_ready_in_time_cancels_her_filler_timer_and_its_thread_ends():
+    rig = Rig(SLOW_QUESTION, brain=PonderingBrain, nods=nod_bank(), real_timers=True)
+    before = set(threading.enumerate())
+    started: list[threading.Thread] = []
+    rig.brain.while_thinking = lambda: started.extend(set(threading.enumerate()) - before)
+
+    rig.assistant.handle_utterance(rig.utterance())
+    [timer] = started
+    timer.join(WAIT_S)
+
+    assert isinstance(timer, threading.Timer)
+    assert (timer.interval, timer.daemon) == (1.2, True)
+    assert not timer.is_alive()
+    assert rig.player.played == [24000]
 
 
 def test_a_reply_ready_in_time_has_no_filler_even_from_a_timer_that_fires_late():
