@@ -47,6 +47,10 @@ _GAME_IDS = frozenset(get_args(GameId))
 _FILE_KEYS = {"version", "next_id", "reminders"}
 _REMINDER_KEYS = {"id", "game", "text", "every_time", "created"}
 _REMINDER_ID = re.compile(r"g[1-9][0-9]*")
+# What a text may open with that her line says anyway: "jangan lupa daily" is said once.
+_SAID_ANYWAY = re.compile(r"^(?:jangan\s+lupa|inget|ingat)\b[\s,:]*", re.IGNORECASE)
+# Something not to do ("jangan top up dulu") is no thing to remember to do.
+_NOT_TO_DO = re.compile(r"jangan\b", re.IGNORECASE)
 
 # One lock for every store: two stores on the same file in this process must not lose
 # each other's reminders.
@@ -240,12 +244,29 @@ class AppReminderTeller:
 
 def reminder_line(owner_call: str, game: GameId, texts: Sequence[str]) -> str:
     """The line said at a game's start, "Master, kamu baru buka HSR, jangan lupa farming relic
-    dan daily.": the texts in order, each without its own full stop, one said twice said once."""
-    things = list(dict.fromkeys(text.rstrip(" .!?,;:") for text in texts))
-    return (
-        f"{at_sentence_start(owner_call)}, kamu baru buka {GAMES[game].short}, "
-        f"jangan lupa {_joined(things)}."
-    )
+    dan daily.": the texts in order, each without its own full stop or an opening "jangan lupa"
+    (or "inget", "ingat"), one said twice in any case said once as first made. Things not to do
+    ("jangan top up dulu") follow "ingat ya", in a sentence of their own after things to do."""
+    things: dict[str, str] = {}
+    for text in texts:
+        thing = _spoken_thing(text)
+        things.setdefault(thing.casefold(), thing)
+    to_do = [thing for thing in things.values() if not _NOT_TO_DO.match(thing)]
+    not_to_do = [thing for thing in things.values() if _NOT_TO_DO.match(thing)]
+    opening = f"{at_sentence_start(owner_call)}, kamu baru buka {GAMES[game].short}"
+    if not to_do:
+        return f"{opening}, ingat ya, {_joined(not_to_do)}."
+    line = f"{opening}, jangan lupa {_joined(to_do)}."
+    if not_to_do:
+        line += f" Ingat ya, {_joined(not_to_do)}."
+    return line
+
+
+def _spoken_thing(text: str) -> str:
+    """`text` as her line says it: without its own full stop, nor the words the line says
+    anyway, unless they are all it holds."""
+    thing = text.rstrip(" .!?,;:")
+    return _SAID_ANYWAY.sub("", thing) or thing
 
 
 def _joined(items: Sequence[str]) -> str:

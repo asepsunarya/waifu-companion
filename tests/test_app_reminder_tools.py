@@ -101,6 +101,8 @@ def test_the_description_steers_game_start_reminders_away_from_the_schedule(tmp_
         "never schedule",
         "Honkai: Star Rail = hsr, Genshin Impact = genshin, Zenless Zone Zero = zzz",
         "without 'ingetin aku'",
+        "The `text` is said after 'jangan lupa', so leave that out of it too",
+        "something not to do keeps its 'jangan' ('jangan top up dulu')",
         "`every_time` true only when Master says every time",
         "never for a game already open when you start or when the PC wakes from sleep",
         "`game_open_now`",

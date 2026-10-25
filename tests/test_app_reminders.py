@@ -436,6 +436,43 @@ def test_a_text_s_own_full_stop_is_dropped_and_a_repeat_is_said_once():
     )
 
 
+def test_a_repeat_in_another_case_is_said_once_as_it_was_first_made():
+    assert reminder_line("Master", "zzz", ["Claim battle pass.", "claim battle pass"]) == (
+        "Master, kamu baru buka ZZZ, jangan lupa Claim battle pass."
+    )
+
+
+@pytest.mark.parametrize(
+    "text", ["jangan lupa daily", "Jangan lupa, daily.", "inget daily", "Ingat: daily"]
+)
+def test_a_text_opening_with_what_she_says_anyway_is_not_said_twice(text):
+    assert reminder_line("Master", "hsr", [text, "daily"]) == (
+        "Master, kamu baru buka HSR, jangan lupa daily."
+    )
+
+
+def test_a_text_that_is_nothing_but_those_words_is_still_said():
+    assert reminder_line("Master", "hsr", ["Ingat!"]) == (
+        "Master, kamu baru buka HSR, jangan lupa Ingat."
+    )
+
+
+@pytest.mark.parametrize("text", ["jangan top up dulu", "jangan lupa jangan top up dulu"])
+def test_something_not_to_do_is_said_as_a_warning_not_a_thing_to_do(text):
+    assert reminder_line("Master", "genshin", [text]) == (
+        "Master, kamu baru buka Genshin, ingat ya, jangan top up dulu."
+    )
+
+
+def test_things_not_to_do_come_after_the_things_to_do_in_a_sentence_of_their_own():
+    texts = ["cek ekspedisi", "Jangan top up dulu", "claim daily", "jangan begadang"]
+
+    assert reminder_line("Master", "genshin", texts) == (
+        "Master, kamu baru buka Genshin, jangan lupa cek ekspedisi dan claim daily. "
+        "Ingat ya, Jangan top up dulu dan jangan begadang."
+    )
+
+
 class Told:
     """Stands in for her reminder path: what she would say, with its emotion."""
 

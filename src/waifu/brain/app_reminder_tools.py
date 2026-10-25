@@ -178,13 +178,15 @@ def _spec(games: Sequence[GameId]) -> ToolSpec:
             "for Master's game reminders, with `game` for one game's only; remove with the `id` "
             "from add or list (a `game` given with remove must be that reminder's game): when "
             "Master names one by its text, list first and pick it by its text; never guess an "
-            "id. You say a game's reminders when you see it start while `waifu run` is on, "
-            "never for a game already open when you start or when the PC wakes from sleep. When "
-            "the result has `game_open_now` true, the game is open right now: tell Master you "
-            "will remind him the next time he opens it. Only when Master asks, never in a "
-            "greeting or anything you start yourself. Answer in one short sentence: no lists "
-            "and no parentheses, because your voice drops whatever is in parentheses. After an "
-            "error result, say its message briefly and do not call again in this turn."
+            "id. The `text` is said after 'jangan lupa', so leave that out of it too; something "
+            "not to do keeps its 'jangan' ('jangan top up dulu'). You say a game's reminders "
+            "when you see it start while `waifu run` is on, never for a game already open when "
+            "you start or when the PC wakes from sleep. When the result has `game_open_now` "
+            "true, the game is open right now: tell Master you will remind him the next time he "
+            "opens it. Only when Master asks, never in a greeting or anything you start "
+            "yourself. Answer in one short sentence: no lists and no parentheses, because your "
+            "voice drops whatever is in parentheses. After an error result, say its message "
+            "briefly and do not call again in this turn."
         ),
         input_schema={
             "type": "object",
