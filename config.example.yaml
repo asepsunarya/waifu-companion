@@ -475,8 +475,8 @@ schedule:
 #   enabled: true          # false: tanpa pemantau, tanpa jawaban lokal, dan tanpa tool (`waifu internet` tetap jalan)
 #   poll_seconds: 60       # cek router dan internet tiap N detik (30-600)
 #   hoyo_poll_seconds: 150 # cek server HoYo paling sering tiap N detik, hanya selama game dimainkan (60-1800)
-#   slow_ms: 200           # lambat: median ping beberapa cek terakhir di atas N milidetik (50-5000)
-#   slow_window: 5         # ... dari N cek terakhir (1-30)
+#   slow_ms: 200           # lambat: ping di atas N milidetik; saat ditanya ping saat itu, untuk pemantau median beberapa cek terakhir (50-5000)
+#   slow_window: 5         # ... median pemantau dari N cek terakhir (1-30)
 #   announce_back: true    # false: tidak bilang saat internet nyambung lagi
 #   back_after_minutes: 3  # bilang hanya kalau putusnya paling sedikit N menit (1-120)
 #   max_back_per_day: 3    # paling banyak N kali sehari (1-24)

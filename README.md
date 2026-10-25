@@ -5184,13 +5184,18 @@ true`), dengan otak Ollama maupun Claude, tanpa paket tambahan dan tanpa hak adm
 ```text
 Master : "Cyrene, internetnya kenapa?"
 Cyrene : "Master, internetnya putus: routernya tersambung, tapi internet di luar tidak bisa
-          dihubungi. Putusnya sejak jam 21.03."
+          dihubungi. Putusnya sejak jam 21.03. Coba restart modem atau routernya. Kalau tetap
+          putus, mungkin ada gangguan dari provider."
           ... jam 21.15 internetnya kembali ...
 Cyrene : "Master, internetnya sudah nyambung lagi, tadi putus sekitar 12 menit, sejak jam 21.03."
 Master : "Cyrene, kok lemot?"
-Cyrene : "Master, internetnya lagi lambat, sekitar 350 milidetik."
+Cyrene : "Master, internetnya lagi lambat, ping-nya sekitar 350 milidetik. Mungkin ada yang
+          sedang download, atau jaringannya lagi padat."
+Master : "Cyrene, kok lemot lagi?"
+Cyrene : "Master, ping internetnya normal, sekitar 24 milidetik. Kalau masih terasa lemot,
+          mungkin kecepatannya yang turun, atau dari aplikasinya."
 Master : "Cyrene, server HoYo down?"
-Cyrene : "Master, internetnya lancar kok, sekitar 24 milidetik. Server HoYoLAB dan HoYoverse
+Cyrene : "Master, ping internetnya normal, sekitar 24 milidetik. Server HoYoLAB dan HoYoverse
           menjawab, sekitar 45 milidetik. Itu server HoYoLAB dan HoYoverse, bukan server game-nya."
 Master : "Cyrene, ping-ku berapa?"
 Master : "Cyrene, tadi internet putus berapa kali?"
@@ -5206,8 +5211,12 @@ Master : "Cyrene, tadi internet putus berapa kali?"
   sambungan ke port 443-nya. Putus hanya kalau keduanya diam.
 - **DNS:** mencari `www.google.com` (`hosts.dns`) langsung ke server DNS, melewati cache Windows
   yang bisa menyembunyikan DNS yang mati. Dicek saat Master bertanya, bukan tiap menit.
-- **Lambat:** median ping beberapa cek terakhir (`slow_window`, 5) di atas `slow_ms` (200 ms).
-- **Server HoYoLAB/HoYoverse:** sambungan TCP (tanpa mengirim apa pun) ke server web yang dipakai
+- **Lambat:** ping di atas `slow_ms` (200 ms). Saat Master bertanya, yang dinilai dan disebut
+  adalah ping cek saat itu; untuk catatan pemantau, median beberapa cek terakhir (`slow_window`,
+  5), jadi satu cek lambat tidak dihitung. Yang diukur hanya ping (jeda), bukan kecepatan
+  download, jadi dengan ping normal dia tidak bilang internetnya pasti lancar.
+- **Server HoYoLAB/HoYoverse:** sambungan TCP lewat IPv4, seperti ping-nya (tanpa mengirim apa
+  pun), ke server web yang dipakai
   [teman main gacha](#teman-main-gacha-hoyoverse) (`hosts.hoyo`), hanya selagi game dimainkan
   (paling sering tiap 150 detik) dan saat Master bertanya. Ini **bukan ping server game**: alamat
   server game-nya tidak dipublikasikan.
@@ -5217,7 +5226,8 @@ Master : "Cyrene, tadi internet putus berapa kali?"
 
 - **Hanya sekali saat nyambung lagi**, sesudah putus paling sedikit 3 menit
   (`back_after_minutes`), paling banyak 3 kali sehari (`max_back_per_day`). Hitungannya disimpan
-  di file sebelum dia bicara, jadi restart tidak mengulangnya.
+  di file sebelum dia bicara, jadi restart tidak mengulangnya. Putus lebih dari sejam disebut
+  dalam jam dan menit ("sekitar 2 jam 5 menit"), seperti di rekap.
 - **Putus berarti dua cek berturut-turut gagal** (cek tiap 60 detik, `poll_seconds`), jadi ping
   yang hilang sekali tidak dihitung. Mulainya dicatat di cek gagal pertama.
 - Diucapkan seperti pengumuman lain: sesudah jendela lanjutan tertutup, ditahan blok
@@ -5231,11 +5241,18 @@ Master : "Cyrene, tadi internet putus berapa kali?"
 ### Ditanya, juga tanpa internet
 
 "Internetnya kenapa?", "internet mati ya?", "kok lemot?", "koneksinya gimana?", "cek wifi",
-"server HoYo down?", "server HoYoLAB bermasalah?": kalau kalimatnya hanya itu (nama dia,
-"Master", dan kata seperti "dong", "ya", "sih", "coba" boleh ada), dia mengecek saat itu (sekitar
-3 detik, avatarnya terlihat berpikir) dan menjawab sendiri tanpa otak, jadi juga saat Claude
-tidak bisa dihubungi. "Ulangi" mengulang jawabannya. Kalimat lain ("internetnya kenapa ya,
-restart router dong") tetap ke otak seperti biasa.
+"WiFi-nya putus lagi?", "server HoYo down?", "server HoYoLAB bermasalah?": kalau kalimatnya hanya
+itu (nama dia, "Master", dan kata seperti "dong", "ya", "sih", "coba" boleh ada), dia mengecek
+saat itu (sekitar 3 detik, avatarnya terlihat berpikir) dan menjawab sendiri tanpa otak, jadi
+juga saat Claude tidak bisa dihubungi. "Ulangi" mengulang jawabannya. Kalimat lain ("internetnya
+kenapa ya, restart router dong") dan pertanyaan tanpa subjek ("mati lagi?") tetap ke otak seperti
+biasa.
+
+- Setiap masalah yang bisa Master atasi diakhiri satu saran singkat: router tidak terjangkau
+  "coba cek Wi-Fi, kabel, atau routernya"; internet putus "coba restart modem atau routernya,
+  kalau tetap putus mungkin ada gangguan dari provider"; DNS bermasalah "coba restart routernya,
+  atau ganti DNS-nya ke Cloudflare atau Google"; lambat "mungkin ada yang sedang download, atau
+  jaringannya lagi padat".
 
 - Tanpa internet yang bicara [suara cadangan offline](#suara-cadangan-offline) (suara Windows):
   selama cek terakhir gagal, dia langsung memakainya tanpa menunggu edge-tts gagal dulu, dan
@@ -5243,9 +5260,10 @@ restart router dong") tetap ke otak seperti biasa.
   tidak bisa bicara saat offline (`waifu voices` memberi tahu).
 - Kalau giliran Claude gagal karena tidak bisa terhubung, permintaan maafnya menyebut putusnya:
   "Maaf Master, aku tidak bisa terhubung ke server Claude. Internetnya lagi putus sejak jam
-  21.03."
-- Dengan internet menyala, otaknya punya tool `network_status` untuk detail (ping, router, DNS,
-  server HoYo, berapa kali putus hari ini). Dia tidak pernah menyebut alamat IP.
+  21.03." Sebelum putusnya dipastikan (dua cek gagal berturut-turut), selama cek terakhir gagal:
+  "Sepertinya internetnya lagi putus."
+- Dengan internet menyala, otaknya punya tool `network_status` untuk detail (ping saat itu,
+  router, DNS, server HoYo, berapa kali putus hari ini). Dia tidak pernah menyebut alamat IP.
 - Lewat [HP](#cyrene-di-hp) dan `waifu chat`, pertanyaan ini ke otak seperti biasa.
 - [Rekap hari ini](#rekap-hari-ini) dan [laporan game mingguan](#laporan-game-mingguan) menyebut
   berapa kali dan berapa lama internet putus, hanya kalau pernah.
@@ -5267,8 +5285,9 @@ Hari ini: putus 2 kali, total 16 menit: 21.03-21.15, 22.30-22.34
 Putusnya dicatat hanya selama 'waifu run' menyala.
 ```
 
-Perintah ini jalan juga saat pemantaunya mati, tidak menulis apa pun, dan exit code-nya 1 kalau
-riwayatnya tidak bisa dibaca. Alamat router hanya tampil di sini. `waifu check` menampilkan
+Kalau ada masalah, baris `  Saran: ...` di bawah hasil cek memberi saran yang sama dengan
+jawabannya. Perintah ini jalan juga saat pemantaunya mati, tidak menulis apa pun, dan exit
+code-nya 1 kalau riwayatnya tidak bisa dibaca. Alamat router hanya tampil di sini. `waifu check` menampilkan
 `✓ Pemantau internet: aktif, tiap 60 detik` atau `! Pemantau internet mati`, tanpa mengecek
 koneksi. File `data\network.json` yang rusak dipindah ke `network.json.corrupt-<waktu>` (riwayat
 baru dimulai dari kosong), dan `check` menunjuknya.
@@ -5283,8 +5302,8 @@ network:
   enabled: true          # false: tanpa pemantau, tanpa jawaban lokal, dan tanpa tool (`waifu internet` tetap jalan)
   poll_seconds: 60       # cek router dan internet tiap N detik (30-600)
   hoyo_poll_seconds: 150 # cek server HoYo paling sering tiap N detik, hanya selama game dimainkan (60-1800)
-  slow_ms: 200           # lambat: median ping beberapa cek terakhir di atas N milidetik
-  slow_window: 5         # ... dari N cek terakhir
+  slow_ms: 200           # lambat: ping di atas N milidetik (saat ditanya ping saat itu, untuk pemantau median beberapa cek terakhir)
+  slow_window: 5         # ... median pemantau dari N cek terakhir
   announce_back: true    # false: tidak bilang saat internet nyambung lagi
   back_after_minutes: 3  # bilang hanya kalau putusnya paling sedikit N menit
   max_back_per_day: 3    # paling banyak N kali sehari

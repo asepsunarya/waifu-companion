@@ -925,7 +925,8 @@ class NetworkConfig(_Strict):
     poll_seconds: int = Field(default=60, ge=30, le=600)
     # The HoYo hosts are checked only while a tracked game runs, at most this often.
     hoyo_poll_seconds: int = Field(default=150, ge=60, le=1800)
-    # Slow: the median round trip of the last `slow_window` checks above this.
+    # Slow: a round trip above this; for the watcher's polls the median of the last
+    # `slow_window` checks, for a check when asked its own.
     slow_ms: int = Field(default=200, ge=50, le=5000)
     slow_window: int = Field(default=5, ge=1, le=30)
     # Her line once the internet is back after an outage of at least `back_after_minutes`.
