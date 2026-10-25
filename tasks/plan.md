@@ -1197,8 +1197,8 @@ strict tools, 17 of 24 optional parameters, and 0 of 16 unions stay. No dependen
 - [ ] Task 314: the store (`app_reminders.py`)
 - [ ] Task 315: real game starts (`opened_games`, `PlayTimeWatcher(on_started=)`)
 - [ ] Task 316: telling the reminders at a start (`AppReminderTeller`)
-- [ ] Task 317: the `app_reminder` tool and guest mode
-- [ ] Task 318: `run`, `chat`, `waifu pengingat-game`, and `check`
+- [ ] Task 317: the `app_reminder` tool
+- [ ] Task 318: `run`, `chat` (and guest mode), `waifu pengingat-game`, and `check`
 - [ ] Task 319: README, CHANGELOG
 
 ### Checkpoint: Pengingat saat game dibuka

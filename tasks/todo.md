@@ -3026,18 +3026,17 @@ named `tests/test_<package>_<module>.py`.
 **Acceptance criteria:**
 - [ ] Non-strict spec (no `required`) with the configured games, byte-identical across calls; add (the default), list, and remove with JSON results; `game_open_now` and its message when the game's session is open now in the play time file
 - [ ] Bad arguments (unknown key, a key the action does not take, a game not tracked, a text that is not a string, a flag that is not a boolean, a missing game or text or id) and store refusals are error results; an unreadable file is logged; `run` never raises; refused in her own turns
-- [ ] `app_reminder` is in guest mode's `PRIVATE_TOOLS`
 
-**Dependencies:** 314 · **Files:** `src/waifu/brain/app_reminder_tools.py`, `src/waifu/guest.py`, `tests/test_app_reminder_tools.py`, `tests/test_guest.py` · **Scope:** S
+**Dependencies:** 314 · **Files:** `src/waifu/brain/app_reminder_tools.py`, `tests/test_app_reminder_tools.py` · **Scope:** S
 
 ## Task 318: `waifu run`, `chat`, `pengingat-game`, and `check`
 
 **Acceptance criteria:**
 - [ ] `run` gives the play watcher `on_started` with app reminders on (none with them off): a start reminds through `assistant.remind` and, with notify on, pushes from a daemon thread with the schedule tag; no new `with` item
-- [ ] `run` and `chat` offer `app_reminder` after `play_time` when play time and app reminders are on; a full Claude chat request still holds 18 of 20 strict tools, 17 of 24 optional parameters, and 0 of 16 unions, with `app_reminder` not strict
+- [ ] `run` and `chat` offer `app_reminder` after `play_time` when play time and app reminders are on; it joins guest mode's `PRIVATE_TOOLS` (with the registration, so a full chat request carries every private tool at every commit); a full Claude chat request still holds 18 of 20 strict tools, 17 of 24 optional parameters, and 0 of 16 unions, with `app_reminder` not strict
 - [ ] `waifu pengingat-game` lists, `hapus <id>` removes (exit 1 for an unknown id); `check` says how many are kept, off, off without play time, unreadable, or a broken file moved
 
-**Dependencies:** 315, 316, 317 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** M
+**Dependencies:** 315, 316, 317 · **Files:** `src/waifu/cli.py`, `src/waifu/guest.py`, `tests/test_cli.py`, `tests/test_guest.py` · **Scope:** M
 
 ## Task 319: Docs
 
