@@ -128,6 +128,7 @@ class Rig:
         self.said: list[tuple[str, str]] = []
         self.polled: list[tuple[bool, bool]] = []  # each (playing, resumed) told to game mode
         self.ended: list[Session] = []  # each session told as just finished (on_finished)
+        self.started: list[str] = []  # each game told as just opened (on_started)
         self.owner_call = owner_call
         self.watcher = self.new_watcher()
 
@@ -142,6 +143,7 @@ class Rig:
             now=self.clock,
             on_poll=lambda playing, resumed: self.polled.append((playing, resumed)),
             on_finished=self.ended.append,
+            on_started=self.started.append,
         )
 
     def poll(self, names: Iterable[str] | Exception, when: datetime | None = None) -> list[str]:
@@ -631,6 +633,171 @@ def test_the_closed_games_know_whether_a_game_was_open_at_the_last_poll():
     closes.observe(False, False)
 
     assert (before_any_poll, playing, closes.playing()) == (False, True, False)
+
+
+# --- a game just opened (on_started, v1.53) ------------------------------------------------------
+
+
+def test_a_game_opened_while_she_watches_is_told_once_at_the_poll_that_first_sees_it(tmp_path):
+    rig = Rig(tmp_path)
+    rig.poll(IDLE, at(20))
+
+    rig.poll(HSR, at(20) + MINUTE)
+    told_at_once = list(rig.started)
+    rig.polls(HSR, at(20) + 2 * MINUTE, 3)
+
+    assert told_at_once == ["hsr"]
+    assert rig.started == ["hsr"]
+
+
+def test_a_game_already_open_at_the_run_s_first_poll_is_never_told(tmp_path):
+    rig = Rig(tmp_path)
+
+    rig.polls(HSR, at(20), 4)
+
+    assert rig.started == []
+
+
+def test_a_game_resumed_by_a_restart_mid_game_is_never_told(tmp_path):
+    rig = Rig(tmp_path)
+    rig.poll(IDLE, at(20))
+    rig.polls(HSR, at(20) + MINUTE, 2)
+    rig.watcher.stop()
+
+    rig.watcher = rig.new_watcher()
+    rig.polls(HSR, at(20) + 4 * MINUTE, 3)
+
+    assert rig.started == ["hsr"]  # only its real start, before the restart
+
+
+def test_a_game_found_open_after_a_sleep_is_never_told(tmp_path):
+    rig = Rig(tmp_path)
+    rig.polls(IDLE, at(20), 2)
+
+    rig.polls(HSR, at(23), 3)  # the PC slept for hours: HSR may have been open before it
+
+    assert rig.started == []
+
+
+def test_a_game_found_open_after_the_clock_was_set_back_is_never_told(tmp_path):
+    rig = Rig(tmp_path)
+    rig.polls(IDLE, at(20), 5)
+
+    rig.poll(HSR, at(20) + 2 * MINUTE)  # the clock went back two minutes
+
+    assert rig.started == []
+
+
+def test_a_game_closed_and_opened_again_is_told_again(tmp_path):
+    rig = Rig(tmp_path)
+    rig.poll(IDLE, at(20))
+    rig.polls(HSR, at(20) + MINUTE, 2)
+    rig.polls(IDLE, at(20) + 3 * MINUTE, 2)  # gone two polls: the session ended
+
+    rig.poll(HSR, at(20) + 5 * MINUTE)
+
+    assert rig.started == ["hsr", "hsr"]
+
+
+def test_a_game_missed_at_one_poll_is_not_told_again_when_it_is_back(tmp_path):
+    rig = Rig(tmp_path)
+    rig.poll(IDLE, at(20))
+    rig.polls(HSR, at(20) + MINUTE, 2)
+
+    rig.poll(IDLE, at(20) + 3 * MINUTE)  # a launcher restart
+    rig.poll(HSR, at(20) + 4 * MINUTE)
+
+    assert rig.started == ["hsr"]
+
+
+def test_two_games_opened_at_one_poll_are_each_told_in_order(tmp_path):
+    rig = Rig(tmp_path)
+    rig.poll(IDLE, at(20))
+
+    rig.poll(GENSHIN, at(20) + MINUTE)  # HSR and Genshin
+
+    assert rig.started == ["genshin", "hsr"]
+
+
+def test_a_start_is_told_after_game_mode_and_the_planner_heard_the_poll(tmp_path):
+    rig = Rig(tmp_path)
+    heard: list[str] = []
+    rig.watcher = PlayTimeWatcher(
+        rig.listing,
+        rig.store,
+        rig.config,
+        announce=None,
+        owner_call="Master",
+        now=rig.clock,
+        on_poll=lambda playing, resumed: heard.append(f"poll {playing}"),
+        on_finished=lambda session: heard.append(f"closed {session.game}"),
+        on_started=lambda game: heard.append(f"opened {game}"),
+    )
+    rig.polls(IDLE | {"ZenlessZoneZero.exe"}, at(20), 2)
+    rig.poll(IDLE, at(20) + 2 * MINUTE)
+    heard.clear()
+
+    rig.poll(HSR, at(20) + 3 * MINUTE)  # ZZZ gone a second time, HSR opened
+
+    assert heard == ["poll True", "closed zzz", "opened hsr"]
+
+
+def test_a_start_found_by_a_poll_whose_write_failed_is_told_at_the_next_poll(tmp_path):
+    rig = Rig(tmp_path)
+    rig.poll(IDLE, at(20))
+
+    rig.store.failing_saves = 1
+    rig.poll(HSR, at(20) + MINUTE)
+    told_after_the_failure = list(rig.started)
+    rig.polls(HSR, at(20) + 2 * MINUTE, 2)
+
+    assert told_after_the_failure == []
+    assert rig.started == ["hsr"]
+
+
+def test_a_failed_listing_tells_no_start(tmp_path):
+    rig = Rig(tmp_path)
+    rig.poll(IDLE, at(20))
+
+    rig.poll(OSError("no snapshot"), at(20) + MINUTE)
+    rig.poll(HSR, at(20) + 2 * MINUTE)
+
+    assert rig.started == ["hsr"]
+
+
+def test_stopping_tells_no_start_and_a_poll_after_it_neither(tmp_path):
+    rig = Rig(tmp_path)
+    rig.poll(IDLE, at(20))
+
+    rig.watcher.stop()
+    rig.poll(HSR, at(20) + MINUTE)
+
+    assert rig.started == []
+
+
+def test_a_failing_start_listener_is_logged_and_the_play_time_goes_on(tmp_path, caplog):
+    rig = Rig(tmp_path)
+
+    def broken(game: str) -> None:
+        raise RuntimeError("the reminders are gone")
+
+    rig.watcher = PlayTimeWatcher(
+        rig.listing,
+        rig.store,
+        rig.config,
+        announce=None,
+        owner_call="Master",
+        now=rig.clock,
+        on_started=broken,
+    )
+    rig.poll(IDLE, at(20))
+    with caplog.at_level(logging.ERROR, logger="waifu.play_watch"):
+        rig.poll(HSR, at(20) + MINUTE)
+    rig.poll(HSR, at(20) + 2 * MINUTE)
+
+    assert rig.record().open == (Session("hsr", at(20) + MINUTE, at(20) + 2 * MINUTE),)
+    assert [record.exc_info is not None for record in caplog.records] == [True]
+    assert "Could not tell that a game was opened" in caplog.text
 
 
 # --- the bedtime nudge ---------------------------------------------------------------------------

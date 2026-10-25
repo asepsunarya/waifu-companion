@@ -8,7 +8,8 @@ the previous one by the wall clock, or before it, means the PC slept or the cloc
 open session ends at its last poll first, so a sleep is never counted. A session seen at one
 poll only has no length and is dropped. At a run's first poll a game whose newest session was
 last seen at most `RESUME_GAP` before goes on with that session, so a restart mid-game (which
-ends the session at its last poll) counts its gap as play.
+ends the session at its last poll) counts its gap as play. `opened_games` tells which games one
+poll after another saw start: never across a break, whose fresh sessions are no starts.
 
 Periods are WIB days (`period_window`), and totals are the union of the sessions' time inside a
 period: a session across midnight counts on each day, and two games open at once count once in
@@ -123,7 +124,7 @@ def follow_games(
     """The open sessions after a poll at `now` that saw the games `seen`, and the sessions
     that poll finished."""
     now = _stamp(now)
-    if now < tracking.last_poll or now - tracking.last_poll > SLEEP_POLLS * poll:
+    if _broken(tracking.last_poll, now, poll):
         return _fresh(seen, now), _lasting(tracking.sessions)
     still: list[Tracked] = []
     finished: list[Session] = []
@@ -137,6 +138,18 @@ def follow_games(
     followed = {tracked.session.game for tracked in still}
     new = [Tracked(Session(game, now, now)) for game in sorted(set(seen) - followed)]
     return Tracking((*still, *new), now), _lasting(finished)
+
+
+def opened_games(before: Tracking, after: Tracking, *, poll: timedelta) -> tuple[GameId, ...]:
+    """The games Master opened between two polls: those `after` follows and `before` did not.
+    None across a gap `follow_games` treats as a break (a sleep, the clock moved), after which
+    every running game starts afresh whether it was just opened or not."""
+    if _broken(before.last_poll, after.last_poll, poll):
+        return ()
+    followed = {tracked.session.game for tracked in before.open}
+    return tuple(
+        tracked.session.game for tracked in after.open if tracked.session.game not in followed
+    )
 
 
 def resume_games(
@@ -215,6 +228,12 @@ def playing_now(record: PlayRecord, now: datetime, *, poll: timedelta) -> frozen
 def whole_minutes(seconds: int) -> int:
     """`seconds` rounded to the nearest minute, a half minute up."""
     return (seconds + 30) // 60
+
+
+def _broken(last_poll: datetime, now: datetime, poll: timedelta) -> bool:
+    """Whether a poll at `now` comes before `last_poll` or more than `SLEEP_POLLS` polls after
+    it by the wall clock: the PC slept or the clock moved, so nothing went on between them."""
+    return now < last_poll or now - last_poll > SLEEP_POLLS * poll
 
 
 def _overlap(session: Session, since: datetime, until: datetime) -> timedelta:

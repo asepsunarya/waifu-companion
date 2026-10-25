@@ -23,6 +23,7 @@ from waifu.play_time import (
     Tracking,
     follow_games,
     games_running,
+    opened_games,
     period_window,
     play_totals,
     played_seconds,
@@ -199,6 +200,54 @@ def test_times_are_kept_to_the_second():
     tracking, _ = poll(idle(minute(0)), {"hsr"}, minute(1) + timedelta(microseconds=900))
 
     assert sessions_of(tracking) == [Session("hsr", minute(1), minute(1))]
+
+
+# --- which games a poll saw start (v1.53) --------------------------------------------------------
+
+
+def opened(before: Tracking, seen: set[str], when: datetime) -> tuple[str, ...]:
+    after, _ = poll(before, seen, when)
+    return opened_games(before, after, poll=POLL)
+
+
+def test_a_game_a_poll_starts_following_was_opened():
+    assert opened(idle(minute(0)), {"zzz", "hsr"}, minute(1)) == ("hsr", "zzz")
+
+
+def test_a_game_followed_before_the_poll_was_not_opened_by_it():
+    tracking, _ = poll(idle(minute(0)), {"hsr"}, minute(1))
+
+    assert opened(tracking, {"hsr", "genshin"}, minute(2)) == ("genshin",)
+
+
+def test_a_game_missed_at_one_poll_and_back_was_not_opened_again():
+    # A launcher restart, or one listing that missed it: the same session goes on.
+    tracking, _ = poll(idle(minute(0)), {"hsr"}, minute(1))
+    tracking, _ = poll(tracking, set(), minute(2))
+
+    assert opened(tracking, {"hsr"}, minute(3)) == ()
+
+
+def test_a_game_gone_two_polls_and_back_was_opened_again():
+    tracking, _ = poll(idle(minute(0)), {"hsr"}, minute(1))
+    tracking, _ = poll(tracking, set(), minute(2))
+    tracking, _ = poll(tracking, set(), minute(3))
+
+    assert opened(tracking, {"hsr"}, minute(4)) == ("hsr",)
+
+
+def test_nothing_was_opened_across_a_sleep_whatever_runs_after_it():
+    # The PC slept from 20:00 until 21:00: every game afterwards starts afresh, none was opened.
+    assert opened(idle(minute(0)), {"hsr", "zzz"}, at(21)) == ()
+
+
+def test_a_gap_of_three_polls_still_tells_a_start_and_a_longer_one_does_not():
+    assert opened(idle(minute(0)), {"hsr"}, minute(3)) == ("hsr",)
+    assert opened(idle(minute(0)), {"hsr"}, minute(3) + timedelta(seconds=1)) == ()
+
+
+def test_nothing_was_opened_by_a_poll_after_the_clock_was_set_back():
+    assert opened(idle(minute(5)), {"hsr"}, minute(4)) == ()
 
 
 # --- a run's first poll --------------------------------------------------------------------------

@@ -31,6 +31,12 @@ one finished by a poll whose write failed is told at the next poll that works. N
 `stop()`. `ClosedGames` carries those sessions, and `on_poll`'s word on whether a game is open,
 to the gacha watcher's thread.
 
+After each poll that worked, last, it tells `on_started` of every game Master just opened
+(`play_time.opened_games`), for the reminders he asked for at its next start (v1.53). Never at the
+run's first poll, which finds running whatever was opened while `waifu run` was off, nor after a
+sleep or a clock step, after which every running game starts afresh; a start found by a poll whose
+write failed is told at the next poll that works. Never from `stop()`.
+
 A failed listing, read, or write is never said: the first of a run of failures is logged at
 WARNING and the next poll tries again. What she sees is Master's own: sessions are logged only
 at DEBUG. Nothing is raised.
@@ -55,6 +61,7 @@ from waifu.play_time import (
     Tracking,
     follow_games,
     games_running,
+    opened_games,
     resume_games,
     wib_now,
 )
@@ -155,11 +162,13 @@ class PlayTimeWatcher:
         wait: Wait = threading.Event.wait,
         on_poll: Callable[[bool, bool], None] | None = None,
         on_finished: Callable[[Session], None] | None = None,
+        on_started: Callable[[GameId], None] | None = None,
     ) -> None:
         """`now` is aware WIB time, for the sessions and the night; `clock` monotonic seconds,
         only for the polls. `on_poll(playing, resumed)` hears after each poll that worked
         whether a tracked game is running and whether the run's first poll resumed one;
-        `on_finished(session)` each session of a game just closed."""
+        `on_finished(session)` each session of a game just closed; `on_started(game)` each game
+        just opened."""
         self._list_processes = list_processes
         self._store = store
         self._config = config
@@ -170,6 +179,7 @@ class PlayTimeWatcher:
         self._wait = wait
         self._on_poll = on_poll
         self._on_finished = on_finished
+        self._on_started = on_started
         self._poll = timedelta(seconds=config.poll_seconds)
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -184,6 +194,7 @@ class PlayTimeWatcher:
         self._written: tuple[Session, ...] = ()  # the open sessions the file holds
         self._unwritten: list[Session] = []  # finished, waiting for a write that works
         self._closed: list[Session] = []  # just finished, not told to on_finished yet
+        self._opened: list[GameId] = []  # just opened, not told to on_started yet
         self._told: date | None = None  # the night the nudge was told
         self._failing = False  # the last poll failed
 
@@ -203,6 +214,7 @@ class PlayTimeWatcher:
                 running = bool(tracking.open), self._resumed
                 self._resumed = False  # told below
                 closed, self._closed = self._closed, []
+                opened, self._opened = self._opened, []
         except Exception as exc:
             self._log_failure(exc)
             return []
@@ -211,6 +223,7 @@ class PlayTimeWatcher:
             logger.info("Play time can be followed again")
         self._tell(*running)
         self._tell_closed(closed)
+        self._tell_opened(opened)
         return said
 
     def start(self) -> None:
@@ -270,6 +283,17 @@ class PlayTimeWatcher:
             except Exception:
                 logger.exception("Could not tell that a game was closed")
 
+    def _tell_opened(self, games: list[GameId]) -> None:
+        """Tell `on_started` of the games just opened, outside the lock, unless the watcher is
+        stopping; a failure is logged, never raised."""
+        if self._on_started is None or self._stop.is_set():
+            return
+        for game in games:
+            try:
+                self._on_started(game)
+            except Exception:
+                logger.exception("Could not tell that a game was opened")
+
     def _follow(self, seen: Collection[GameId], now: datetime) -> Tracking:
         """Follow the games into sessions and write what changed; returns the open sessions
         after the poll."""
@@ -280,6 +304,9 @@ class PlayTimeWatcher:
             self._resumed = _resumed(tracking)
         else:
             tracking, finished = follow_games(self._tracking, seen, now, poll=self._poll)
+            # Kept before the write, which may fail; never at the run's first poll, which finds
+            # running whatever was opened while `waifu run` was off.
+            self._opened += opened_games(self._tracking, tracking, poll=self._poll)
         self._tracking = tracking
         if finished:
             logger.debug("Play sessions ended: %s", finished)
