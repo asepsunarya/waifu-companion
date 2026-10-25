@@ -120,6 +120,14 @@ def test_description_puts_a_japanese_copy_on_a_card_even_when_it_is_one_short_se
     assert description.index("For Japanese, always") < no_card
 
 
+def test_description_sends_a_word_to_japanese_lesson_only_when_that_tool_is_there():
+    # japanese_lesson exists only with japanese.enabled, which is off by default.
+    [spec] = ClipboardTools(read=FakeReader()).specs()
+
+    assert "use `japanese_lesson` with action `add` when you have that tool" in spec.description
+    assert "without it, say that the Japanese lessons are switched off" in spec.description
+
+
 def test_the_spec_stays_identical_across_turns_for_prompt_caching():
     tools = asked(FakeReader())
     first = tools.specs()

@@ -3822,6 +3822,10 @@ lengkap, cara bacanya dengan kana dan romaji, dan untuk frasa pendek daftar kata
 baca, arti), yang perlu sebelum "simpan kata itu". Terjemahan satu kalimat pendek bahasa Inggris
 atau bahasa lain cukup diucapkan, tanpa kartu. Yang diucapkan tetap tanpa romaji.
 
+"Simpan kata itu" hanya jalan kalau [belajar bahasa Jepang](#belajar-bahasa-jepang) menyala
+(`japanese.enabled: true`, mati dari awal); kalau belum, dia bilang latihannya belum dinyalakan.
+Lihat [Kata dari Master sendiri](#kata-dari-master-sendiri).
+
 ### Ctrl+Alt+T
 
 Di tengah game, tekan **Ctrl+Alt+T**: sama dengan bertanya "Artinya apa teks yang kucopy?" di PC,

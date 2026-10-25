@@ -177,7 +177,8 @@ def _spec() -> ToolSpec:
             "when the text is longer than one sentence; for one short sentence, only say its "
             "meaning, with no card. Never save it with `remember` unless Master asks. When "
             "Master asks to keep a Japanese word from it ('simpan kata itu', 'masukin ke "
-            "latihan'), use `japanese_lesson` with action `add`."
+            "latihan'), use `japanese_lesson` with action `add` when you have that tool; "
+            "without it, say that the Japanese lessons are switched off."
         ),
         input_schema={"type": "object", "properties": {}, "additionalProperties": False},
     )
