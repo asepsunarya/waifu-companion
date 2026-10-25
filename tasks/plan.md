@@ -1207,6 +1207,36 @@ strict tools, 17 of 24 optional parameters, and 0 of 16 unions stay. No dependen
 - [x] Fix pass (2026-10-25): a start kept from a poll whose play time write failed is told only while that poll's tracking still follows its session (it was told after a sleep, a clock step, or the game closing, and twice for a game reopened while the writes failed); `app_reminder` list takes an optional `game` and remove one that must be the reminder's own (both refused it, and the error ended her turn); her line drops an opening "jangan lupa", "inget", or "ingat", says a text once in any case, and says things not to do after "ingat ya"; the `schedule` and `list_schedules` descriptions point a game start reminder to `app_reminder`. By hand, a mktemp folder deleted afterwards: the real PlayTimeWatcher over a PlayTimeStore whose save failed once, the real AppReminderStore, AppReminderTeller, and AppReminderTools, a fake listing and clock: HSR first seen at the failed write, then closed and an 8 h sleep, said nothing; HSR opened later said "Master, kamu baru buka HSR, jangan lupa farming relic. Ingat ya, jangan top up dulu." once (the text kept as "jangan lupa farming relic") and kept only the every-time one; list with game hsr gave HSR's two; remove g3 with game hsr was refused and kept it. 11431 pytest passed, ruff check and format clean, no JS touched; the new arguments sit in the non-strict `app_reminder` and the descriptions are static, so 18 of 20 strict tools, 17 of 24 optional parameters, and 0 of 16 unions stay
 - [ ] On the owner's PC: "pas buka HSR nanti, ingetin aku ..." is said when HSR next starts, and not when `waifu run` starts with HSR open
 
+### Phase 58: Pemantau internet (v1.54, see SPEC → pemantau internet)
+Decision: probes with the standard library and ctypes only (an ICMP echo through iphlpapi, the
+route through GetBestRoute, DNS through DnsQuery_W past the cache, TCP connects), each on a daemon
+thread within one 3 s budget, injected everywhere and refused by tests/conftest.py. The watcher in
+`waifu run` polls the gateway and the anchors every minute (the HoYo hosts only while a game runs);
+an outage is two failed polls with both anchors silent by echo and TCP, never across a sleep, a clock
+step, or startup (a grace of two polls), kept a week in `data/network.json`, and its end said once
+after 3 minutes or more. "Internetnya kenapa?" is answered by a local phrase gate without Claude,
+spoken by the offline voice when edge-tts cannot be reached; Claude's connection apology names the
+outage. One non-strict tool, open in guest mode: 18 of 20 strict tools, 17 of 24 optional
+parameters, and 0 of 16 unions stay. No dependency.
+- [x] Task 320a: contract: SPEC, tasks
+- [ ] Task 320: the `network` settings
+- [ ] Task 321: the probes (`network_probe.py`) and the conftest refusals
+- [ ] Task 322: classification, the state, a check when asked, and her words (`network.py`)
+- [ ] Task 323: the history (`network_history.py`)
+- [ ] Task 324: the watcher (`network_watch.py`)
+- [ ] Task 325: asking without Claude (`network_ask.py`, the Assistant)
+- [ ] Task 326: Claude's connection apology names the outage
+- [ ] Task 327: the `network_status` tool
+- [ ] Task 328: the recap and weekly report sections
+- [ ] Task 329: `run`, `chat`, `waifu internet`, and `check`
+- [ ] Task 330: the speech router speaks offline at once while the internet is down
+- [ ] Task 331: README, CHANGELOG
+
+### Checkpoint: Pemantau internet
+- [ ] Python suite, ruff, and JS tests clean; no test pinged, resolved, connected beyond loopback, spoke, or read `data/`; the strict-tool budget unchanged (18 of 20 strict tools, 17 of 24 optional parameters, 0 of 16 unions)
+- [ ] By hand: in a scratch folder, the real watcher with fake probes and clocks: two failed polls start an outage, the poll that answers ends it and says the back line once, a sleep gap and startup failures say nothing
+- [ ] On the owner's PC (the lead): `waifu internet` with the real probes; unplugging the network for 4 minutes gives the back line; "internetnya kenapa?" is answered while it is down
+
 ## Risks and Mitigations
 
 | Risk | Impact | Mitigation |
@@ -1234,6 +1264,7 @@ strict tools, 17 of 24 optional parameters, and 0 of 16 unions stay. No dependen
 | `waifu setup` writes config.yaml wrongly or shows a secret | A config that no longer loads, another value changed, a lost comment, or a local key on screen | Only the targeted lines change, layouts it cannot read are refused, a backup goes to `data/` first, the file is reloaded and the whole config compared with the intended one, and any difference restores it and hands over a snippet with every local key hidden; the wizard's credential files are offered for deletion |
 | A filler overlaps her reply, comes after it, or sounds like another voice | Two voices at once, a filler after the answer, or a robotic "Hmm" before an anime-voiced reply | One voice lock for both, a per-turn begin/close handshake so no filler starts once the reply is ready, the filler picked inside the lock, and a filler made in a stand-in voice (Windows fallback, plain voice) left out of the bank |
 | A game reminder said at the wrong moment or lost | A reminder at login or after waking the PC for a game already open, twice for one start, or never | Starts come from the watcher's own tracking across one poll, never at a run's first poll or across a sleep gap or clock step; told once after the poll worked, kept through a failed write; a once reminder whose removal fails is still said; a separate file, so the schedule of older versions is never set aside |
+| The internet watcher cries wolf or hangs | A "nyambung lagi" after every sleep, a router blamed for dropped pings, a voice thread stuck on a lookup, or threads piling up | Two failed polls with both anchors silent by echo and TCP; a grace of two polls after a break (sleep, clock step, startup); the gateway blamed only once it answered; every probe on a daemon thread within a 3 s budget, at most one per target; tests refuse the real ICMP, route, and DNS calls |
 
 ## Open Questions
 
