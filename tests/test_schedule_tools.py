@@ -324,6 +324,25 @@ def test_schedule_sends_waking_master_to_the_alarm_tool(tmp_path):
     ) in spec(tools, "schedule").description
 
 
+def test_schedule_sends_a_reminder_for_a_game_s_start_to_app_reminder(tmp_path):
+    tools, _, _ = make_tools(tmp_path)
+
+    assert (
+        "For a reminder tied to Master opening a game rather than a clock time ('pas buka HSR "
+        "nanti, ingetin aku farming relic'), use the app_reminder tool when you have it, never "
+        "a guessed time."
+    ) in spec(tools, "schedule").description
+
+
+def test_list_schedules_says_where_the_reminders_for_a_game_s_start_are(tmp_path):
+    tools, _, _ = make_tools(tmp_path)
+
+    assert (
+        "Reminders for when Master opens a game are not here: list them with the app_reminder "
+        "tool when you have it."
+    ) in spec(tools, "list_schedules").description
+
+
 def test_schedule_without_routines_does_not_point_to_a_missing_tool(tmp_path):
     tools, _, _ = make_tools(tmp_path, routines={})
 

@@ -131,8 +131,11 @@ class ScheduleTools:
                 "Schedule something for later: a reminder you will say to Master, a device "
                 "command, or a routine. To wake Master up ('bangunkan aku jam 6', 'alarm jam "
                 "5'), use the alarm tool when you have it, not a reminder: an alarm rings again "
-                "and again until he is awake. Every user turn starts with a time stamp of the "
-                "current local time, [weekday, DD-MM-YYYY HH:MM]; turn relative times "
+                "and again until he is awake. For a reminder tied to Master opening a game "
+                "rather than a clock time ('pas buka HSR nanti, ingetin aku farming relic'), use "
+                "the app_reminder tool when you have it, never a guessed time. Every user turn "
+                "starts with a time stamp of the current local time, [weekday, DD-MM-YYYY "
+                "HH:MM]; turn relative times "
                 "('10 menit lagi', 'jam 3 sore', 'besok pagi') into a clock time from it and "
                 "pass `at` as YYYY-MM-DD HH:MM (local, 24-hour). A clock time that has "
                 "already passed today usually means tomorrow. `repeat`: daily, weekdays "
@@ -322,7 +325,8 @@ def _list_schedules_spec() -> ToolSpec:
             "entries in it yourself, repeating ones included: a yearly entry comes every year "
             "on the month and day of its next time, a monthly one every month on its `day`, "
             "a weekly one every week on its `weekday`. Summarise it for Master instead of "
-            "reading it out."
+            "reading it out. Reminders for when Master opens a game are not here: list them "
+            "with the app_reminder tool when you have it."
         ),
         input_schema={"type": "object", "properties": {}, "additionalProperties": False},
     )
