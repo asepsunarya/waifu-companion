@@ -12,7 +12,13 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from waifu import app_reminders
-from waifu.app_reminders import AppReminder, AppReminderError, AppReminderStore
+from waifu.app_reminders import (
+    AppReminder,
+    AppReminderError,
+    AppReminderStore,
+    AppReminderTeller,
+    reminder_line,
+)
 from waifu.finance.values import WIB
 
 NOW = datetime(2026, 10, 24, 20, 15, 30, 123456, tzinfo=WIB)  # a Saturday evening
@@ -398,3 +404,138 @@ def test_a_reminder_s_time_is_kept_with_its_offset(tmp_path):
 
     assert reminder.created == datetime(2026, 10, 24, 12, tzinfo=UTC)
     assert reminder.created.utcoffset() == timedelta(0)
+
+
+# --- what she says when a game starts ------------------------------------------------------------
+
+
+def test_the_line_names_the_game_she_saw_open_and_what_not_to_forget():
+    assert reminder_line("Master", "hsr", ["farming relic"]) == (
+        "Master, kamu baru buka HSR, jangan lupa farming relic."
+    )
+
+
+def test_she_calls_the_owner_as_asked_at_sentence_start():
+    assert reminder_line("sayang", "genshin", ["cek ekspedisi"]) == (
+        "Sayang, kamu baru buka Genshin, jangan lupa cek ekspedisi."
+    )
+
+
+def test_several_reminders_come_in_one_line_joined_as_she_says_them():
+    assert reminder_line("Master", "zzz", ["claim battle pass", "cek toko"]) == (
+        "Master, kamu baru buka ZZZ, jangan lupa claim battle pass dan cek toko."
+    )
+    assert reminder_line("Master", "zzz", ["claim battle pass", "cek toko", "beli bensin"]) == (
+        "Master, kamu baru buka ZZZ, jangan lupa claim battle pass, cek toko, dan beli bensin."
+    )
+
+
+def test_a_text_s_own_full_stop_is_dropped_and_a_repeat_is_said_once():
+    assert reminder_line("Master", "hsr", ["farming relic.", "daily!", "farming relic"]) == (
+        "Master, kamu baru buka HSR, jangan lupa farming relic dan daily."
+    )
+
+
+class Told:
+    """Stands in for her reminder path: what she would say, with its emotion."""
+
+    def __init__(self) -> None:
+        self.lines: list[tuple[str, str]] = []
+
+    def __call__(self, text: str, emotion: str) -> None:
+        self.lines.append((text, emotion))
+
+
+def make_teller(store: AppReminderStore, told: Told) -> AppReminderTeller:
+    return AppReminderTeller(store, tell=told, owner_call="Master")
+
+
+def test_a_start_tells_every_reminder_of_that_game_in_one_happy_line(tmp_path):
+    store, told = make_store(tmp_path), Told()
+    store.add("zzz", "claim battle pass")
+    store.add("hsr", "farming relic")
+    store.add("zzz", "cek toko", every_time=True)
+
+    make_teller(store, told).game_started("zzz")
+
+    assert told.lines == [
+        ("Master, kamu baru buka ZZZ, jangan lupa claim battle pass dan cek toko.", "happy")
+    ]
+
+
+def test_a_once_reminder_is_gone_after_its_start_and_an_every_time_one_stays(tmp_path):
+    store, told = make_store(tmp_path), Told()
+    store.add("zzz", "claim battle pass")
+    store.add("hsr", "farming relic")
+    store.add("zzz", "cek toko", every_time=True)
+    teller = make_teller(store, told)
+
+    teller.game_started("zzz")
+    teller.game_started("zzz")
+
+    assert [r.id for r in store.reminders()] == ["g2", "g3"]
+    assert told.lines[1] == ("Master, kamu baru buka ZZZ, jangan lupa cek toko.", "happy")
+
+
+def test_a_start_of_a_game_without_reminders_says_nothing_and_writes_nothing(tmp_path):
+    store, told = make_store(tmp_path), Told()
+    store.add("hsr", "farming relic")
+    before = store.path.read_bytes()
+
+    make_teller(store, told).game_started("genshin")
+
+    assert told.lines == []
+    assert store.path.read_bytes() == before
+
+
+class BrokenStore(AppReminderStore):
+    """A real store whose reads or drops fail, as a broken disk would."""
+
+    def __init__(self, path, *, failing_read=False, failing_drop=False) -> None:
+        super().__init__(path, now=Clock())
+        self.failing_read, self.failing_drop = failing_read, failing_drop
+
+    def for_game(self, game):
+        if self.failing_read:
+            raise OSError("the disk is gone")
+        return super().for_game(game)
+
+    def drop(self, reminder_ids) -> None:
+        if self.failing_drop:
+            raise OSError("the disk is full")
+        super().drop(reminder_ids)
+
+
+def test_a_failed_read_says_nothing_and_is_logged(tmp_path, caplog):
+    store, told = BrokenStore(tmp_path / "app_reminders.json", failing_read=True), Told()
+
+    with caplog.at_level(logging.WARNING, logger="waifu.app_reminders"):
+        make_teller(store, told).game_started("hsr")
+
+    assert told.lines == []
+    assert "Could not read the reminders for a game's start" in caplog.text
+
+
+def test_a_once_reminder_that_cannot_be_removed_is_still_said(tmp_path, caplog):
+    # Master asked to be reminded: a repeat at the next start is better than none at all.
+    store, told = BrokenStore(tmp_path / "app_reminders.json"), Told()
+    store.add("hsr", "farming relic")
+    store.failing_drop = True
+
+    with caplog.at_level(logging.WARNING, logger="waifu.app_reminders"):
+        make_teller(store, told).game_started("hsr")
+
+    assert told.lines == [("Master, kamu baru buka HSR, jangan lupa farming relic.", "happy")]
+    assert texts(store.reminders()) == ["farming relic"]
+    assert "may be said again at its next start" in caplog.text
+
+
+def test_the_log_counts_the_reminders_and_never_says_them_above_debug(tmp_path, caplog):
+    store, told = make_store(tmp_path), Told()
+    store.add("hsr", "beli hadiah buat Ayu")
+
+    with caplog.at_level(logging.INFO, logger="waifu.app_reminders"):
+        make_teller(store, told).game_started("hsr")
+
+    assert "Saying 1 reminder(s) at a game's start" in caplog.text
+    assert "Ayu" not in caplog.text

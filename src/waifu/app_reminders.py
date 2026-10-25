@@ -4,7 +4,8 @@ relic".
 A reminder belongs to one tracked game and is said when the play time watcher sees that game
 start (`play_watch.PlayTimeWatcher(on_started=...)`): once by default, then gone, or at every
 start (`every_time`) until Master removes it. Ids ("g1", "g2", ...) are never reused, also after a
-reminder is removed or said.
+reminder is removed or said. `AppReminderTeller` says a game's reminders in one line through the
+owner's reminder path; the texts are Master's own, so they are logged only at DEBUG.
 
 The file (`app_reminders.path`) follows the rules of `todo.py`: every call re-reads it, so a
 running Cyrene sees what `waifu pengingat-game` or `waifu chat` changed in another process. One
@@ -24,19 +25,21 @@ import logging
 import os
 import re
 import threading
-from collections.abc import Callable, Collection
+from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import cast, get_args
 
-from waifu.config import GameId
+from waifu.config import GameId, at_sentence_start
 from waifu.gacha.files import write_json_atomic
+from waifu.gacha.games import GAMES
 from waifu.memory import looks_secret
 from waifu.play_time import wib_now
 
 logger = logging.getLogger(__name__)
 
+REMINDER_EMOTION = "happy"  # as the reminders Master schedules
 FILE_VERSION = 1
 MAX_REMINDERS = 30
 MAX_CHARS = 200
@@ -194,6 +197,61 @@ class AppReminderStore:
                 "reminders": [_dump(reminder) for reminder in reminders],
             },
         )
+
+
+class AppReminderTeller:
+    """What she says when the play time watcher sees one of Master's games start
+    (`game_started`, given as its `on_started`): every reminder of that game in one line."""
+
+    def __init__(
+        self, store: AppReminderStore, *, tell: Callable[[str, str], None], owner_call: str
+    ) -> None:
+        """`tell(text, emotion)` is the owner's reminder path: `run` says it like the reminders
+        Master schedules, and pushes it with notifications on."""
+        self._store = store
+        self._tell = tell
+        self._owner_call = owner_call
+
+    def game_started(self, game: GameId) -> None:
+        """Tell `game`'s reminders and drop the once ones; a failure is logged, never raised.
+        A once reminder that cannot be dropped is said all the same."""
+        try:
+            due = self._store.for_game(game)
+        except Exception:
+            logger.warning("Could not read the reminders for a game's start", exc_info=True)
+            return
+        if not due:
+            return
+        once = [reminder.id for reminder in due if not reminder.every_time]
+        if once:
+            try:
+                self._store.drop(once)
+            except Exception:
+                logger.warning(
+                    "Could not remove %d once-only reminder(s); they may be said again at its "
+                    "next start",
+                    len(once),
+                    exc_info=True,
+                )
+        logger.info("Saying %d reminder(s) at a game's start", len(due))
+        logger.debug("Reminders at the start of %s: %s", game, [r.text for r in due])
+        self._tell(reminder_line(self._owner_call, game, [r.text for r in due]), REMINDER_EMOTION)
+
+
+def reminder_line(owner_call: str, game: GameId, texts: Sequence[str]) -> str:
+    """The line said at a game's start, "Master, kamu baru buka HSR, jangan lupa farming relic
+    dan daily.": the texts in order, each without its own full stop, one said twice said once."""
+    things = list(dict.fromkeys(text.rstrip(" .!?,;:") for text in texts))
+    return (
+        f"{at_sentence_start(owner_call)}, kamu baru buka {GAMES[game].short}, "
+        f"jangan lupa {_joined(things)}."
+    )
+
+
+def _joined(items: Sequence[str]) -> str:
+    if len(items) <= 2:
+        return " dan ".join(items)
+    return f"{', '.join(items[:-1])}, dan {items[-1]}"
 
 
 def _stamp(now: datetime) -> datetime:
