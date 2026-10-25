@@ -737,36 +737,53 @@ class Assistant:
         synthesised is played as it is."""
         synthesis_s = None
         with self._engaged(), self._voice:
-            mic, segmenter = self._mic, self._segmenter
-            if mic is not None:
-                mic.pause()
             try:
-                started = self._clock()
-                audio, sample_rate = self._speech.synthesize(text) if clip is None else clip
-                synthesis_s = self._clock() - started
-                self._show(lambda avatar: avatar.state("speaking"))
-                self._show(lambda avatar: avatar.speak(audio, sample_rate, emotion))
-                self._speaking = True
-                with self._held_level(level):
-                    played = self._player.play(audio, sample_rate)
-                if not played:
-                    logger.info("Speech was cut off before its end")
-                    self._hold_announcements()
+                with self._mic_off():
+                    started = self._clock()
+                    audio, sample_rate = self._speech.synthesize(text) if clip is None else clip
+                    synthesis_s = self._clock() - started
+                    self._play(audio, sample_rate, emotion, level)
             except TtsError as exc:
                 logger.warning("Could not synthesise the reply: %s", exc)
             except Exception:
                 logger.exception("Could not play the reply")
             finally:
-                self._speaking = False
-                if mic is not None:
-                    mic.resume()
-                if segmenter is not None:
-                    segmenter.reset()
                 if followup:
                     self._open_followup()
                 else:  # an announcement: only the wake word is heard
                     self._show(lambda avatar: avatar.state("idle"))
         return synthesis_s
+
+    @contextlib.contextmanager
+    def _mic_off(self) -> Iterator[None]:
+        """Keep the microphone paused through the block, under the voice lock, so she never
+        hears herself; afterwards, also after a failure, resume it (dropping what it caught)
+        and reset the segmenter."""
+        mic, segmenter = self._mic, self._segmenter
+        if mic is not None:
+            mic.pause()
+        try:
+            yield
+        finally:
+            self._speaking = False
+            if mic is not None:
+                mic.resume()
+            if segmenter is not None:
+                segmenter.reset()
+
+    def _play(
+        self, audio: np.ndarray, sample_rate: int, emotion: str, level: int | None = None
+    ) -> None:
+        """Play one clip with the avatar mouthing it, at `level` when given; a clip cut short
+        holds announcements back (`_hold_announcements`)."""
+        self._show(lambda avatar: avatar.state("speaking"))
+        self._show(lambda avatar: avatar.speak(audio, sample_rate, emotion))
+        self._speaking = True
+        with self._held_level(level):
+            played = self._player.play(audio, sample_rate)
+        if not played:
+            logger.info("Speech was cut off before its end")
+            self._hold_announcements()
 
     def speak_reaction(self, text: str, emotion: str) -> None:
         """Answer a touch on the avatar aloud, exactly like a reply (`speak`).
@@ -1188,12 +1205,7 @@ class Assistant:
         except LexiconError as problem:
             return self._refuse_reading(problem)
         text = TAUGHT.format(owner=self._owner_call, term=term, reading=reading)
-        started = self._clock()
-        try:
-            clip = self._speech.synthesize(text)
-        except Exception:  # `_speak` tries her voice again and logs why it fails
-            clip = None
-        synthesis_s = self._clock() - started
+        clip, synthesis_s = self._voice_ahead(text)
         try:
             lexicon.add(term, reading)
         except LexiconError as problem:
@@ -1207,6 +1219,17 @@ class Assistant:
             return text, self._speak(text)
         self._speak(text, clip=clip)
         return text, synthesis_s
+
+    def _voice_ahead(self, text: str) -> tuple[tuple[np.ndarray, int] | None, float]:
+        """Her voice for `text`, synthesised now rather than inside `_speak` (whose `clip` it
+        is), and how long that took; None when it cannot be: `_speak` then tries again and logs
+        why."""
+        started = self._clock()
+        try:
+            clip = self._speech.synthesize(text)
+        except Exception:
+            clip = None
+        return clip, self._clock() - started
 
     def _forget_reading(self, lexicon: Lexicon, term: str) -> tuple[str, float | None]:
         """Drop Master's reading of `term` and say so like a reply, without the brain; returns
