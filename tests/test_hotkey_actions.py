@@ -1,5 +1,6 @@
 """What each global hotkey does: talk and stop through the avatar's interaction handler, repeat
-and the listen pause on a worker of their own, never blocking the hotkey thread.
+and the listen pause on a worker of their own, translate as a question handed over at once,
+never blocking the hotkey thread.
 
 The handler is the real one over a fake voice; the pause is a real file under tmp_path."""
 
@@ -14,8 +15,10 @@ import pytest
 
 from waifu import hotkey_actions
 from waifu.avatar.interactions import InteractionHandler
+from waifu.brain.clipboard_tools import ClipboardTools
+from waifu.clipboard import TEXT, ClipboardRead
 from waifu.config import AvatarInteractionsConfig
-from waifu.hotkey_actions import QUEUE_SIZE, HotkeyActions
+from waifu.hotkey_actions import CLIPBOARD_QUESTION, QUEUE_SIZE, HotkeyActions
 from waifu.listen_pause import ListenPause
 
 NOW = datetime(2026, 10, 24, 14, 30)
@@ -32,6 +35,7 @@ class Voice:
         self.events: list[str] = []
         self.said: list[tuple[str, bool]] = []
         self.cuts: list[threading.Thread] = []
+        self.asked: list[tuple[str, threading.Thread]] = []
         self.repeat_gate = threading.Event()  # set: a repeat ends at once
         self.repeat_gate.set()
         self.repeat_error: Exception | None = None
@@ -66,6 +70,9 @@ class Voice:
         self.said.append((text, followup))
         self._note(f"speak {text}")
 
+    def ask(self, text: str) -> None:
+        self.asked.append((text, threading.current_thread()))
+
     def wait_for(self, count: int) -> list[str]:
         with self._changed:
             assert self._changed.wait_for(lambda: len(self.events) >= count, WAIT_S)
@@ -93,6 +100,7 @@ class Rig:
             interrupt=self.voice.interrupt,
             repeat=self.voice.repeat,
             speak=self.voice.speak,
+            ask=self.voice.ask,
             pause=self.pause,
             owner_call="Master",
         )
@@ -283,10 +291,10 @@ def test_after_stop_a_press_does_nothing(tmp_path):
         pass
     rig.voice.speaking = True
 
-    for action in ("talk", "stop", "repeat", "quiet"):
+    for action in ("talk", "stop", "repeat", "quiet", "translate"):
         rig.actions.press(action)
 
-    assert rig.voice.cuts == [] and rig.voice.events == []
+    assert rig.voice.cuts == [] and rig.voice.events == [] and rig.voice.asked == []
     assert not rig.pause.paused()
 
 
@@ -321,6 +329,7 @@ def test_repeat_and_quiet_never_run_on_the_calling_thread(tmp_path, action):
         interrupt=rig.voice.interrupt,
         repeat=record,
         speak=record,
+        ask=record,
         pause=rig.pause,
     )
     with actions:
@@ -328,3 +337,29 @@ def test_repeat_and_quiet_never_run_on_the_calling_thread(tmp_path, action):
         assert done.wait(WAIT_S)
 
     assert len(threads) == 1 and threads[0] is not threading.current_thread()
+
+
+def test_translate_asks_what_the_copied_text_means_at_once_on_the_calling_thread(tmp_path):
+    # Asking only hands the question over (`Assistant.ask_now` never waits), so the hotkey
+    # thread is free for Ctrl+Alt+X right after.
+    with Rig(tmp_path) as rig:
+        rig.actions.press("translate")
+        asked = list(rig.voice.asked)
+
+    assert asked == [(CLIPBOARD_QUESTION, threading.current_thread())]
+    assert CLIPBOARD_QUESTION == "Artinya apa teks yang kucopy?"
+    assert rig.voice.events == [] and rig.voice.said == []
+
+
+def test_the_translate_question_names_master_s_copy_so_she_may_read_the_clipboard():
+    reads: list[int] = []
+
+    def read(max_chars: int) -> ClipboardRead:
+        reads.append(max_chars)
+        return ClipboardRead(TEXT, "おはよう")
+
+    tools = ClipboardTools(read=read, names=["Cyrene", "Master"])
+    tools.begin_turn(CLIPBOARD_QUESTION)
+
+    assert tools.run("read_clipboard", {})[1] is False
+    assert reads == [2000]

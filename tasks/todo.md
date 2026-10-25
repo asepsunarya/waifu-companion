@@ -3257,12 +3257,12 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 340 · **Files:** `src/waifu/brain/clipboard_tools.py`, `src/waifu/brain/tools.py`, `src/waifu/guest.py`, `src/waifu/app.py`, `src/waifu/brain/ollama_brain.py`, `src/waifu/cli.py`, tests · **Scope:** M
 
-## Task 342: Ctrl+Alt+T
+## Task 342: Ctrl+Alt+T ✅
 
 **Acceptance criteria:**
-- [ ] `hotkeys.translate` (T) is an action of its own; an unwritten T that another hotkey already takes is switched off with a warning; the example block holds it; `waifu check` names it
-- [ ] The hotkey asks `CLIPBOARD_QUESTION` without blocking; `ask_now` is ignored while she is busy or a question waits, and `run` answers it on its thread like a voice turn (thinking, filler, card, remembered, follow-up window), before the hold after a cut and also while the listen pause holds
-- [ ] `run` wires the hotkey to `ask_now`
+- [x] `hotkeys.translate` (T) is an action of its own; an unwritten T that another hotkey already takes is switched off with a warning; the example block holds it; `waifu check` names it
+- [x] The hotkey asks `CLIPBOARD_QUESTION` without blocking; `ask_now` is ignored while she is busy or a question waits, and `run` answers it on its thread like a voice turn (thinking, filler, card, remembered, follow-up window), before the hold after a cut and also while the listen pause holds
+- [x] `run` wires the hotkey to `ask_now`
 
 **Dependencies:** 341 · **Files:** `src/waifu/hotkeys.py`, `src/waifu/hotkey_actions.py`, `src/waifu/config.py`, `config.example.yaml`, `src/waifu/app.py`, `src/waifu/cli.py`, tests · **Scope:** M
 

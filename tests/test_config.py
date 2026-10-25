@@ -1,3 +1,4 @@
+import logging
 import re
 from datetime import time
 from pathlib import Path
@@ -474,11 +475,17 @@ def test_alarm_settings_are_bounded_and_known(tmp_path, line):
         load_config(write_yaml(tmp_path, f"alarm:\n  {line}\n"))
 
 
-def test_the_global_hotkeys_are_on_by_default_with_c_x_r_and_q():
+def test_the_global_hotkeys_are_on_by_default_with_c_x_r_q_and_t():
     hotkeys = AppConfig().hotkeys
 
     assert hotkeys.enabled is True
-    assert hotkeys.bindings == {"talk": "C", "stop": "X", "repeat": "R", "quiet": "Q"}
+    assert hotkeys.bindings == {
+        "talk": "C",
+        "stop": "X",
+        "repeat": "R",
+        "quiet": "Q",
+        "translate": "T",
+    }
     assert hotkeys.quiet_hours == 2
     assert hotkeys.pause_path == Path("data/listen_pause.json")
 
@@ -486,7 +493,35 @@ def test_the_global_hotkeys_are_on_by_default_with_c_x_r_and_q():
 def test_a_hotkey_set_to_null_is_switched_off(tmp_path):
     hotkeys = load_config(write_yaml(tmp_path, "hotkeys:\n  repeat: null\n")).hotkeys
 
-    assert hotkeys.bindings == {"talk": "C", "stop": "X", "quiet": "Q"}
+    assert hotkeys.bindings == {"talk": "C", "stop": "X", "quiet": "Q", "translate": "T"}
+
+
+@pytest.mark.parametrize(("value", "key"), [("f8", "F8"), ("y", "Y"), ("null", None)])
+def test_the_translate_hotkey_takes_another_key_or_null(tmp_path, value, key):
+    hotkeys = load_config(write_yaml(tmp_path, f"hotkeys:\n  translate: {value}\n")).hotkeys
+
+    assert hotkeys.translate == key
+
+
+def test_an_unwritten_translate_key_that_another_hotkey_already_takes_is_switched_off(
+    tmp_path, caplog
+):
+    # A config.yaml written before v1.56 that gave T to another hotkey must still load.
+    with caplog.at_level(logging.WARNING, logger="waifu.config"):
+        hotkeys = load_config(write_yaml(tmp_path, "hotkeys:\n  repeat: t\n")).hotkeys
+
+    assert hotkeys.repeat == "T"
+    assert hotkeys.translate is None
+    assert hotkeys.bindings == {"talk": "C", "stop": "X", "repeat": "T", "quiet": "Q"}
+    assert (
+        "hotkeys: repeat already uses T, so the translate hotkey is off; set hotkeys.translate "
+        "to another key" in caplog.messages
+    )
+
+
+def test_a_written_translate_key_that_another_hotkey_takes_is_refused(tmp_path):
+    with pytest.raises(ConfigError, match="hotkeys: repeat and translate both use T"):
+        load_config(write_yaml(tmp_path, "hotkeys:\n  repeat: t\n  translate: T\n"))
 
 
 @pytest.mark.parametrize(
@@ -534,6 +569,7 @@ def test_the_example_hotkeys_block_written_out_holds_the_defaults(tmp_path):
     written_out = "\n".join(line.removeprefix("# ") for line in commented.splitlines())
 
     assert load_config(write_yaml(tmp_path, written_out)).hotkeys == HotkeysConfig()
+    assert "\n#   translate: T " in commented
 
 
 ROUTINE_DEVICES = """

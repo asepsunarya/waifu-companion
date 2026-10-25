@@ -548,6 +548,7 @@ def test_the_status_is_written_and_read_back(tmp_path):
     registrations = (
         Registration(Hotkey("talk", "C"), 0),
         Registration(Hotkey("quiet", "F9"), ERROR_HOTKEY_ALREADY_REGISTERED),
+        Registration(Hotkey("translate", "T"), 0),
     )
 
     write_status(path, 4242, registrations)
@@ -558,6 +559,7 @@ def test_the_status_is_written_and_read_back(tmp_path):
         "hotkeys": [
             {"action": "talk", "key": "C", "error": 0},
             {"action": "quiet", "key": "F9", "error": 1409},
+            {"action": "translate", "key": "T", "error": 0},
         ],
     }
     assert read_status(path) == HotkeyStatus(4242, registrations)

@@ -36,8 +36,9 @@ from waifu.gacha.files import write_json_atomic
 
 logger = logging.getLogger(__name__)
 
-# What a hotkey does: talk now, cut her off, repeat her last words, stop (or start) listening.
-ACTIONS = ("talk", "stop", "repeat", "quiet")
+# What a hotkey does: talk now, cut her off, repeat her last words, stop (or start) listening,
+# ask what the copied text means.
+ACTIONS = ("talk", "stop", "repeat", "quiet", "translate")
 # One key with Ctrl+Alt: a letter, a digit, or F1-F12.
 KEYS = (
     *(chr(code) for code in range(ord("A"), ord("Z") + 1)),

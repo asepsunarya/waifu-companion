@@ -7,6 +7,7 @@ config.yaml fails at startup with a clear message rather than mid-conversation.
 from __future__ import annotations
 
 import ipaddress
+import logging
 import re
 from datetime import time
 from pathlib import Path, PureWindowsPath
@@ -22,6 +23,8 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+
+logger = logging.getLogger(__name__)
 
 DEVICE_ID_PATTERN = re.compile(r"^[a-z0-9_]+$")
 GameId = Literal["hsr", "genshin", "zzz"]
@@ -1259,20 +1262,23 @@ class AlarmConfig(_Strict):
 
 class HotkeysConfig(_Strict):
     """Global hotkeys, Ctrl+Alt plus one key, that `waifu run` registers on Windows, heard
-    whichever window has the focus: talk now, cut her off, repeat her last words, and stop or
-    start listening (the pause ends by itself after `quiet_hours`). Each is one key, A-Z, 0-9, or
-    F1-F12, in any case; null switches that hotkey off."""
+    whichever window has the focus: talk now, cut her off, repeat her last words, stop or start
+    listening (the pause ends by itself after `quiet_hours`), and ask what the copied text means.
+    Each is one key, A-Z, 0-9, or F1-F12, in any case; null switches that hotkey off. Two hotkeys
+    on one key are refused, except that `translate` (new in v1.56) left unwritten gives way to
+    another hotkey that already takes its key, so an older config.yaml still loads."""
 
     enabled: bool = True
     talk: str | None = "C"
     stop: str | None = "X"
     repeat: str | None = "R"
     quiet: str | None = "Q"
+    translate: str | None = "T"
     quiet_hours: float = Field(default=2.0, ge=0.25, le=12)
     # The pause of the quiet hotkey, only while it holds.
     pause_path: Path = Path("data/listen_pause.json")
 
-    @field_validator("talk", "stop", "repeat", "quiet", mode="before")
+    @field_validator("talk", "stop", "repeat", "quiet", "translate", mode="before")
     @classmethod
     def _one_key(cls, value: object) -> object:
         if isinstance(value, bool):
@@ -1292,15 +1298,31 @@ class HotkeysConfig(_Strict):
     def _one_hotkey_per_key(self) -> HotkeysConfig:
         seen: dict[str, str] = {}
         for action, key in self.bindings.items():
-            if key in seen:
+            if key not in seen:
+                seen[key] = action
+            elif action == "translate" and "translate" not in self.model_fields_set:
+                logger.warning(
+                    "hotkeys: %s already uses %s, so the translate hotkey is off; set "
+                    "hotkeys.translate to another key",
+                    seen[key],
+                    key,
+                )
+                self.translate = None
+            else:
                 raise ValueError(f"hotkeys: {seen[key]} and {action} both use {key}")
-            seen[key] = action
         return self
 
     @property
     def bindings(self) -> dict[str, str]:
-        """Each hotkey switched on, by its action (talk, stop, repeat, quiet), with its key."""
-        keys = {"talk": self.talk, "stop": self.stop, "repeat": self.repeat, "quiet": self.quiet}
+        """Each hotkey switched on, by its action (talk, stop, repeat, quiet, translate), with
+        its key."""
+        keys = {
+            "talk": self.talk,
+            "stop": self.stop,
+            "repeat": self.repeat,
+            "quiet": self.quiet,
+            "translate": self.translate,
+        }
         return {action: key for action, key in keys.items() if key is not None}
 
 

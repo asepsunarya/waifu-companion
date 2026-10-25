@@ -299,6 +299,7 @@ schedule:
 #   stop: X                # Ctrl+Alt+X: memotong ucapannya
 #   repeat: R              # Ctrl+Alt+R: mengulang ucapan terakhirnya
 #   quiet: Q               # Ctrl+Alt+Q: berhenti mendengarkan; tekan lagi untuk mendengarkan lagi
+#   translate: T           # Ctrl+Alt+T: "artinya apa teks yang kucopy?" tanpa bicara
 #   quiet_hours: 2         # berhenti mendengarkan paling lama N jam (0.25-12)
 #   pause_path: data/listen_pause.json  # hanya selama dia berhenti mendengarkan
 

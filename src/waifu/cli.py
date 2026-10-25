@@ -422,6 +422,7 @@ HOTKEY_ACTION_TEXT = {
     "stop": "potong",
     "repeat": "ulangi",
     "quiet": "berhenti mendengarkan",
+    "translate": "artinya apa",
 }
 ALREADY_RUNNING = (
     "Cyrene sudah berjalan (mungkin dari autostart). Tutup jendelanya dulu, "
@@ -2472,6 +2473,7 @@ def _global_hotkeys(
         interrupt=assistant.interrupt,
         repeat=assistant.repeat_now,
         speak=assistant.speak,
+        ask=assistant.ask_now,
         pause=pause,
         owner_call=config.assistant.owner_call,
     )

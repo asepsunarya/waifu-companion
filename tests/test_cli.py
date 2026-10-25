@@ -2853,7 +2853,8 @@ class RecordingAssistant:
     `remind` queued (Master's own lines); `phone_messages`, `phone_photos`
     (None for a message without one), `phone_cameras` (whether each was sent through the
     camera), and `phone_recordings` what the phone asked. A hotkey's `speak` (`("say", text,
-    followup)`) and `repeat_now` (`("repeat",)`) count as reactions too."""
+    followup)`), `repeat_now` (`("repeat",)`), and `ask_now` (`("ask", text)`) count as
+    reactions too."""
 
     instances: list["RecordingAssistant"] = []
 
@@ -2905,6 +2906,10 @@ class RecordingAssistant:
 
     def repeat_now(self) -> None:
         self.reactions.append(("repeat",))
+        self.reacted.release()
+
+    def ask_now(self, text: str) -> None:
+        self.reactions.append(("ask", text))
         self.reacted.release()
 
     def await_reactions(self, count: int) -> None:
@@ -19698,6 +19703,7 @@ DEFAULT_HOTKEYS = [
     Hotkey("stop", "X"),
     Hotkey("repeat", "R"),
     Hotkey("quiet", "Q"),
+    Hotkey("translate", "T"),
 ]
 
 
@@ -19843,7 +19849,12 @@ def test_run_takes_the_hotkeys_and_the_pause_s_hours_from_the_config(
     assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
 
     [thread] = hotkey_threads
-    assert thread.hotkeys == [Hotkey("talk", "F9"), Hotkey("stop", "X"), Hotkey("quiet", "Q")]
+    assert thread.hotkeys == [
+        Hotkey("talk", "F9"),
+        Hotkey("stop", "X"),
+        Hotkey("quiet", "Q"),
+        Hotkey("translate", "T"),
+    ]
     assert RecordingAssistant.instances[0].collaborators["listen_pause"].hours == 0.5
 
 
@@ -19853,12 +19864,20 @@ def test_run_without_the_quiet_hotkey_has_no_listen_pause(home, run_fakes, hotke
     assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
 
     assert RecordingAssistant.instances[0].collaborators["listen_pause"] is None
-    assert [hotkey.action for hotkey in hotkey_threads[0].hotkeys] == ["talk", "stop", "repeat"]
+    assert [hotkey.action for hotkey in hotkey_threads[0].hotkeys] == [
+        "talk",
+        "stop",
+        "repeat",
+        "translate",
+    ]
 
 
 @pytest.mark.parametrize(
     "hotkeys",
-    ["  enabled: false\n", "  talk: null\n  stop: null\n  repeat: null\n  quiet: null\n"],
+    [
+        "  enabled: false\n",
+        "  talk: null\n  stop: null\n  repeat: null\n  quiet: null\n  translate: null\n",
+    ],
     ids=["off", "every-key-null"],
 )
 def test_run_with_the_hotkeys_off_registers_none_and_has_no_pause(
@@ -19939,6 +19958,20 @@ def test_the_repeat_and_quiet_hotkeys_repeat_her_and_pause_her_hearing(
     assert paused == [True]
 
 
+def test_the_translate_hotkey_asks_what_the_copied_text_means(
+    home, run_fakes, hotkey_threads, monkeypatch
+):
+    def run(self: RecordingAssistant, mic, segmenter) -> None:
+        hotkey_threads[0].on_press("translate")
+        self.await_reactions(1)
+
+    monkeypatch.setattr(RecordingAssistant, "run", run)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    assert RecordingAssistant.instances[0].reactions == [("ask", "Artinya apa teks yang kucopy?")]
+
+
 def test_tombol_shows_dengar_lagi_while_waifu_run_pauses_her_hearing(home, monkeypatch):
     pause_now(pause_file(home))
     browser = use_desk_browser(monkeypatch, presses=("mic.listen",))
@@ -19956,7 +19989,8 @@ def hotkeys_lines(out: str) -> list[str]:
 
 
 DEFAULT_COMBOS = (
-    "Ctrl+Alt+C bicara, Ctrl+Alt+X potong, Ctrl+Alt+R ulangi, Ctrl+Alt+Q berhenti mendengarkan"
+    "Ctrl+Alt+C bicara, Ctrl+Alt+X potong, Ctrl+Alt+R ulangi, Ctrl+Alt+Q berhenti mendengarkan, "
+    "Ctrl+Alt+T artinya apa"
 )
 
 
@@ -19992,7 +20026,8 @@ def test_check_trusts_what_the_running_waifu_run_registered(home, nothing_instal
         lock.release()
 
     assert hotkeys_lines(capsys.readouterr().out) == [
-        "✓ Hotkey global: Ctrl+Alt+C bicara, Ctrl+Alt+X potong; aktif di 'waifu run'",
+        "✓ Hotkey global: Ctrl+Alt+C bicara, Ctrl+Alt+X potong, Ctrl+Alt+T artinya apa; aktif di "
+        "'waifu run'",
         "! Hotkey Ctrl+Alt+R (ulangi) tidak bisa didaftarkan (Windows error 5); ganti "
         "hotkeys.repeat di config.yaml",
         "! Hotkey Ctrl+Alt+Q (berhenti mendengarkan) sudah dipakai program lain; ganti "
@@ -20015,7 +20050,9 @@ def test_check_warns_when_the_running_waifu_run_holds_no_hotkey(home, nothing_in
 
 
 def test_check_warns_when_other_programs_hold_every_hotkey(home, nothing_installed, capsys):
-    lock = running_with_hotkeys(home, os.getpid(), {"C": 1409, "X": 1409, "R": 1409, "Q": 1409})
+    lock = running_with_hotkeys(
+        home, os.getpid(), {"C": 1409, "X": 1409, "R": 1409, "Q": 1409, "T": 1409}
+    )
     try:
         cli.main(["check"])
     finally:
@@ -20023,7 +20060,7 @@ def test_check_warns_when_other_programs_hold_every_hotkey(home, nothing_install
 
     lines = hotkeys_lines(capsys.readouterr().out)
     assert lines[0] == "! Hotkey global tidak aktif di 'waifu run'"
-    assert len(lines) == 5
+    assert len(lines) == 6
     assert all("sudah dipakai program lain" in line for line in lines[1:])
 
 
@@ -20040,8 +20077,8 @@ def test_check_names_the_hotkeys_the_run_holds_and_asks_for_a_restart_after_a_co
     assert hotkeys_lines(capsys.readouterr().out) == [
         f"✓ Hotkey global: {DEFAULT_COMBOS}; aktif di 'waifu run'",
         "! Hotkey global di config.yaml (Ctrl+Alt+F9 bicara, Ctrl+Alt+X potong, Ctrl+Alt+R "
-        "ulangi, Ctrl+Alt+Q berhenti mendengarkan) baru dipakai setelah 'waifu run' dijalankan "
-        "ulang",
+        "ulangi, Ctrl+Alt+Q berhenti mendengarkan, Ctrl+Alt+T artinya apa) baru dipakai setelah "
+        "'waifu run' dijalankan ulang",
     ]
 
 
@@ -20083,7 +20120,7 @@ def test_check_says_until_when_she_does_not_listen(home, nothing_installed, caps
     [
         ("  enabled: false\n", "! Hotkey global mati (hotkeys.enabled: false)"),
         (
-            "  talk: null\n  stop: null\n  repeat: null\n  quiet: null\n",
+            "  talk: null\n  stop: null\n  repeat: null\n  quiet: null\n  translate: null\n",
             "! Hotkey global mati (semua tombolnya null)",
         ),
     ],
@@ -20103,7 +20140,7 @@ def test_check_lists_only_the_hotkeys_switched_on_with_their_keys(home, nothing_
 
     assert hotkeys_lines(capsys.readouterr().out) == [
         "✓ Hotkey global: Ctrl+Alt+F9 bicara, Ctrl+Alt+X potong, Ctrl+Alt+Q berhenti "
-        "mendengarkan; dicoba saat 'waifu run' jalan"
+        "mendengarkan, Ctrl+Alt+T artinya apa; dicoba saat 'waifu run' jalan"
     ]
 
 

@@ -1,4 +1,5 @@
-"""What each global hotkey (`waifu.hotkeys`) does: talk now, cut her off, repeat, stop listening.
+"""What each global hotkey (`waifu.hotkeys`) does: talk now, cut her off, repeat, stop listening,
+ask what the copied text means.
 
 `press` is the hotkey thread's `on_press` and never blocks, so Ctrl+Alt+X reaches her while she
 speaks. Talk (Ctrl+Alt+C) is a double-click on her avatar, pressed into the interaction handler
@@ -7,7 +8,10 @@ Stop (Ctrl+Alt+X) cuts her off right there (`interrupt` never waits for her voic
 did, she listens next like after a double-click that cut her; while the listen pause holds, a cut
 is only a cut, so cutting a reminder never quietly opens her mic again. Repeat (Ctrl+Alt+R) and
 quiet (Ctrl+Alt+Q) wait for her voice, so a worker of their own runs them: repeat says her last
-words again, quiet starts or ends the listen pause (`waifu.listen_pause`) and says so.
+words again, quiet starts or ends the listen pause (`waifu.listen_pause`) and says so. Translate
+(Ctrl+Alt+T) asks CLIPBOARD_QUESTION as if Master had said it at the PC: `ask` (the Assistant's
+`ask_now`) only hands the question to `run`, which answers it, so it runs right on the hotkey
+thread.
 """
 
 from __future__ import annotations
@@ -34,6 +38,8 @@ QUIET_ON = (
 )
 QUIET_OFF = "Oke {owner}, aku dengar lagi."
 QUIET_FAILED = "Maaf {owner}, aku belum bisa {done}. Coba lagi sebentar."
+# What Ctrl+Alt+T asks, as Master's own words: "kucopy" lets her read the clipboard in that turn.
+CLIPBOARD_QUESTION = "Artinya apa teks yang kucopy?"
 
 
 class Presses(Protocol):
@@ -50,16 +56,18 @@ class HotkeyActions:
         interrupt: Callable[[], bool],
         repeat: Callable[[], None],
         speak: Callable[..., None],
+        ask: Callable[[str], None],
         pause: ListenPause | None = None,
         owner_call: str = "Master",
     ) -> None:
-        """`reactions` is the avatar's interaction handler; `interrupt`, `repeat`, and `speak`
-        are the Assistant's `interrupt`, `repeat_now`, and `speak`; `pause` is the listen pause
-        quiet switches (None: quiet is not registered)."""
+        """`reactions` is the avatar's interaction handler; `interrupt`, `repeat`, `speak`, and
+        `ask` are the Assistant's `interrupt`, `repeat_now`, `speak`, and `ask_now`; `pause` is
+        the listen pause quiet switches (None: quiet is not registered)."""
         self._reactions = reactions
         self._interrupt = interrupt
         self._repeat = repeat
         self._speak = speak
+        self._ask = ask
         self._pause = pause
         self._owner_call = owner_call
         self._queue: queue.Queue[str | None] = queue.Queue(maxsize=QUEUE_SIZE)
@@ -77,6 +85,8 @@ class HotkeyActions:
                 self._reactions.press("double_click")
             elif action == "stop":
                 self._cut()
+            elif action == "translate":
+                self._ask(CLIPBOARD_QUESTION)
             elif action == "quiet" and self._pause is None:
                 logger.warning("The quiet hotkey has no listen pause to switch; ignoring it")
             elif action in ("repeat", "quiet"):
