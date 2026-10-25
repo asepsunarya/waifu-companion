@@ -1249,7 +1249,7 @@ nodes only; links open on a click through a loopback route that checks them agai
 shown. The phone bubble and `waifu chat` show it too; "tampilkan lagi kartunya" re-shows it
 without the brain; a turn that switches guest mode shows none and hides the one shown.
 - [x] Task 332a: contract: SPEC, tasks
-- [ ] Task 332: the parser (`card.py`)
+- [x] Task 332: the parser (`card.py`)
 - [ ] Task 333: the system-prompt note, the web note, the self-started prompts, and the gate's question before the card
 - [ ] Task 334: the voice loop: only the gist is spoken, the card shown, re-shown, and dropped on a guest switch (`card.show_seconds`)
 - [ ] Task 335: the bus's card event and `POST /open-link`
