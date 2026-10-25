@@ -1184,6 +1184,28 @@ optional parameters, and 0 of 16 unions stay.
 - [x] Fix pass (2026-10-25): a cut filler no longer invites Master to talk (`interrupt` returns False for it, so the double-click's and Ctrl+Alt+X's listening after a cut never opens the window while the voice thread waits for the brain, which lost his words); the bank stops at the first stand-in line, and `keep_preparing` tries the missing ones again just past `tts.fallback.retry_s` until all six are kept (one Edge blip at start cost all six for the run); two near-repeat lines replaced and `pick` avoids the last two; tests for a failed brain turn's timer and for the default daemon timer; README, CHANGELOG, config.example, and SPEC say the count starts at the brain call (about 2 to 3 s after Master stops talking) and that with Claude most brain turns get one. By hand, a mktemp folder deleted afterwards: the real SpeechRouter with an Edge fake failing once and a 0.3 s pause, NodBank, and the real `_prepare_nods` thread kept 6 of 6 after one retry (7 Edge calls, the thread then ended); the real Assistant with its own threading.Timer (600 ms), the real InteractionHandler's worker, a 1.5 s brain, and a player taking 0.4 s a clip: a double-click during the filler cut it, 1.2 s in the follow-up window was still closed and the avatar thinking, and the reply then played in full. 11261 pytest and 601 JS tests passed, ruff check and format clean; nothing under src/waifu/brain or config/ changed, so 18 of 20 strict tools, 17 of 24 optional parameters, and 0 of 16 unions stay
 - [ ] On the owner's PC: a slow question gets a filler in her RVC voice, right before the answer
 
+### Phase 57: Pengingat saat game dibuka (v1.53, see SPEC → pengingat saat game dibuka)
+Decision: "pas buka HSR nanti, ingetin aku ..." is kept in a store of its own
+(`data/app_reminders.json`; the schedule file cannot carry a new trigger without older versions
+setting it aside) and said when the play time watcher sees that game start: a game followed after
+a poll and not before it, never at a run's first poll, across a sleep gap, or after a clock step.
+Delivered through the owner's reminder path (`remind`, and a push with notify on, from a thread of
+its own), once by default or every time. One non-strict tool, private in guest mode: 18 of 20
+strict tools, 17 of 24 optional parameters, and 0 of 16 unions stay. No dependency.
+- [x] Task 313a: contract: SPEC, tasks
+- [ ] Task 313: the `app_reminders` settings
+- [ ] Task 314: the store (`app_reminders.py`)
+- [ ] Task 315: real game starts (`opened_games`, `PlayTimeWatcher(on_started=)`)
+- [ ] Task 316: telling the reminders at a start (`AppReminderTeller`)
+- [ ] Task 317: the `app_reminder` tool and guest mode
+- [ ] Task 318: `run`, `chat`, `waifu pengingat-game`, and `check`
+- [ ] Task 319: README, CHANGELOG
+
+### Checkpoint: Pengingat saat game dibuka
+- [ ] Python suite, ruff, and JS tests clean; no test listed the real processes, spoke, pushed, or read `data/`; the strict-tool budget unchanged (18 of 20 strict tools, 17 of 24 optional parameters, 0 of 16 unions)
+- [ ] By hand: in a scratch folder, a fake process listing opening HSR after the first poll says the reminder once, and one running from the first poll or across a fake sleep says nothing
+- [ ] On the owner's PC: "pas buka HSR nanti, ingetin aku ..." is said when HSR next starts, and not when `waifu run` starts with HSR open
+
 ## Risks and Mitigations
 
 | Risk | Impact | Mitigation |
@@ -1210,6 +1232,7 @@ optional parameters, and 0 of 16 unions stay.
 | A global hotkey that blocks or leaks keys, or a pause that leaves her deaf | Ctrl+Alt+X never reaches her while she speaks, Master's typing is seen, or she seems broken | `RegisterHotKey` sees only its combos; the message loop calls only `interrupt` and queues the rest; the pause is said aloud, shown on the avatar and in `waifu check`, and ends by Ctrl+Alt+Q, a double-click, Ctrl+Alt+C, the "Dengar lagi" button, a restart, or after 2 h; tests refuse the real user32 functions |
 | `waifu setup` writes config.yaml wrongly or shows a secret | A config that no longer loads, another value changed, a lost comment, or a local key on screen | Only the targeted lines change, layouts it cannot read are refused, a backup goes to `data/` first, the file is reloaded and the whole config compared with the intended one, and any difference restores it and hands over a snippet with every local key hidden; the wizard's credential files are offered for deletion |
 | A filler overlaps her reply, comes after it, or sounds like another voice | Two voices at once, a filler after the answer, or a robotic "Hmm" before an anime-voiced reply | One voice lock for both, a per-turn begin/close handshake so no filler starts once the reply is ready, the filler picked inside the lock, and a filler made in a stand-in voice (Windows fallback, plain voice) left out of the bank |
+| A game reminder said at the wrong moment or lost | A reminder at login or after waking the PC for a game already open, twice for one start, or never | Starts come from the watcher's own tracking across one poll, never at a run's first poll or across a sleep gap or clock step; told once after the poll worked, kept through a failed write; a once reminder whose removal fails is still said; a separate file, so the schedule of older versions is never set aside |
 
 ## Open Questions
 
