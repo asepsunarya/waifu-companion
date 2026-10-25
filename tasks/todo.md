@@ -3213,12 +3213,12 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 334, 336 · **Files:** `src/waifu/phone/server.py`, `src/waifu/avatar/web/phone/audio.js`, `phone.js`, `phone.css`, `sw.js`, tests · **Scope:** S
 
-## Task 338: `waifu chat`, the speech cut, and the wiring
+## Task 338: `waifu chat`, the speech cut, and the wiring ✅
 
 **Acceptance criteria:**
-- [ ] `waifu chat` prints the gist then the card indented, speaks only the gist, and re-shows the last card on the phrase (none after a guest switch)
-- [ ] `clean_for_speech` drops a card marker and everything after it
-- [ ] The avatar server opens links with `open_in_browser`
+- [x] `waifu chat` prints the gist then the card indented, speaks only the gist, and re-shows the last card on the phrase (none after a guest switch)
+- [x] `clean_for_speech` drops a card marker and everything after it
+- [x] The avatar server opens links with `open_in_browser`
 
 **Dependencies:** 334, 335 · **Files:** `src/waifu/cli.py`, `src/waifu/voice/tts.py`, tests · **Scope:** S
 

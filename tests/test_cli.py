@@ -2196,6 +2196,87 @@ def test_chat_without_speak_never_shows_the_avatar(home, brains, avatar, monkeyp
     assert f"Cyrene: {REPLY}" in capsys.readouterr().out
 
 
+# --- chat: text cards (v1.55) ------------------------------------------------------------------
+
+CARD_GIST = "Ini ramalan seminggu, Master."
+CARD_REPLY = f"[senang] {CARD_GIST}\n[[kartu: Cuaca 7 hari]]\n- Senin cerah\n\n- Rabu hujan"
+PRINTED_CARD = "  Kartu: Cuaca 7 hari\n    - Senin cerah\n\n    - Rabu hujan\n"
+
+
+def test_chat_prints_the_gist_then_the_card_indented(home, brains, monkeypatch, capsys):
+    monkeypatch.setattr(HouseBrain, "reply", CARD_REPLY)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("cuaca seminggu?\n"))
+
+    assert cli.main(["chat", "--dry-run"]) == 0
+
+    out = capsys.readouterr().out
+    assert f"Cyrene: {CARD_GIST}\n{PRINTED_CARD}" in out
+    assert "[[" not in out
+
+
+def test_chat_prints_an_untitled_card_under_a_bare_label(home, brains, monkeypatch, capsys):
+    monkeypatch.setattr(HouseBrain, "reply", f"{CARD_GIST}\n[[kartu]]\n- satu")
+    monkeypatch.setattr(sys, "stdin", io.StringIO("daftar?\n"))
+
+    assert cli.main(["chat", "--dry-run"]) == 0
+
+    assert f"Cyrene: {CARD_GIST}\n  Kartu\n    - satu\n" in capsys.readouterr().out
+
+
+def test_chat_speak_voices_only_the_gist(home, brains, player, speech, monkeypatch):
+    monkeypatch.setattr(HouseBrain, "reply", CARD_REPLY)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("cuaca seminggu?\n"))
+
+    assert cli.main(["chat", "--dry-run", "--speak"]) == 0
+
+    assert speech[0].texts == [CARD_GIST]
+
+
+def test_chat_prints_the_last_card_again_on_the_re_show_phrase_without_the_brain(
+    home, brains, monkeypatch, capsys
+):
+    monkeypatch.setattr(HouseBrain, "reply", CARD_REPLY)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("cuaca seminggu?\nCyrene, kartu tadi?\n"))
+
+    assert cli.main(["chat", "--dry-run"]) == 0
+
+    out = capsys.readouterr().out
+    assert f"Cyrene: Ini kartunya lagi, Master.\n{PRINTED_CARD}" in out
+    assert out.count(PRINTED_CARD) == 2
+    assert brains[0].heard == ["cuaca seminggu?"]
+
+
+def test_chat_has_no_card_to_print_again_before_the_first(home, brains, monkeypatch, capsys):
+    monkeypatch.setattr(sys, "stdin", io.StringIO("tampilkan lagi kartunya\n"))
+
+    assert cli.main(["chat", "--dry-run"]) == 0
+
+    assert "Cyrene: Belum ada kartu yang bisa kutampilkan lagi, Master." in capsys.readouterr().out
+    assert brains[0].heard == []
+
+
+def test_chat_forgets_the_card_once_a_turn_switched_guest_mode_and_prints_none_for_it(
+    home, brains, monkeypatch, capsys
+):
+    respond = HouseBrain.respond
+
+    def switching_guest_mode(self, user_text, *, now=None):
+        if "tamu" in user_text:  # as the guest_mode tool does
+            self.guest_mode.turn_on()
+        return respond(self, user_text, now=now)
+
+    monkeypatch.setattr(HouseBrain, "respond", switching_guest_mode)
+    monkeypatch.setattr(HouseBrain, "reply", CARD_REPLY)
+    lines = "cuaca seminggu?\nnyalakan mode tamu\nkartu tadi\n"
+    monkeypatch.setattr(sys, "stdin", io.StringIO(lines))
+
+    assert cli.main(["chat", "--dry-run"]) == 0
+
+    out = capsys.readouterr().out
+    assert out.count(PRINTED_CARD) == 1  # the first turn's; the switching turn prints only its gist
+    assert "Cyrene: Belum ada kartu yang bisa kutampilkan lagi, Master." in out
+
+
 # --- learn-ir --------------------------------------------------------------------------------
 
 

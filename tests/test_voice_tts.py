@@ -124,6 +124,20 @@ def test_clean_keeps_the_degree_sign_used_for_temperatures():
     assert clean_for_speech("AC sudah 24°C.") == "AC sudah 24°C."
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Ini ramalannya, Master.\n[[kartu: Cuaca 7 hari]]\n- Senin cerah\n- Rabu hujan",
+        "Ini ramalannya, Master. [[KARTU Cuaca]] - Senin cerah",
+        "Ini ramalannya, Master. ［［kartu：Cuaca］］\n- Senin cerah",
+        "Ini ramalannya, Master. [[kartu: Cuaca]]",
+    ],
+)
+def test_clean_never_says_a_text_card_or_its_marker(text):
+    # Only the gist before the card is spoken, on whatever path the text took (say, chat --speak).
+    assert clean_for_speech(text) == "Ini ramalannya, Master."
+
+
 # --- EdgeTts -----------------------------------------------------------------
 
 

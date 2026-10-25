@@ -27,6 +27,7 @@ from waifu.avatar.bus import AvatarBus
 from waifu.avatar.server import AvatarError, AvatarServer, file_under
 from waifu.card import Card
 from waifu.config import AvatarConfig, AvatarInteractionsConfig
+from waifu.music import open_in_browser
 
 CLIENT_TIMEOUT_S = 5.0
 MODEL_BYTES = bytes(range(256)) * 1200  # 300 KiB: more than one read chunk
@@ -1759,3 +1760,13 @@ def test_a_link_for_another_host_name_is_refused_even_with_the_token(serve: Serv
 
     assert status == 403
     assert opened.urls == []
+
+
+def test_a_server_opens_card_links_in_the_default_browser_unless_told_otherwise(
+    web_root: Path, model_file: Path
+) -> None:
+    server = AvatarServer(make_config(model_file), AvatarBus(), web_root=web_root)
+    try:
+        assert server.open_link is open_in_browser
+    finally:
+        server.server_close()

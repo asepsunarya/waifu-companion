@@ -28,6 +28,7 @@ from typing import Any, NamedTuple, Protocol
 import numpy as np
 import soundfile as sf
 
+from waifu.card import split_card
 from waifu.config import (
     EdgeVoiceConfig,
     FallbackPitchConfig,
@@ -127,7 +128,9 @@ def split_by_language(text: str, default: str = "id") -> list[tuple[str, str]]:
 
 
 def clean_for_speech(text: str) -> str:
-    """Strip what a voice cannot say: emoji, markdown, and *action* / (action) asides."""
+    """Strip what a voice cannot say: a text card and its marker (only the gist before it is
+    spoken, `waifu.card`), emoji, markdown, and *action* / (action) asides."""
+    text = split_card(text)[0]
     text = _LIST_MARKER.sub("", text)
     text = _STRONG.sub(r"\2", text)
     text = _ASIDE.sub(" ", text)

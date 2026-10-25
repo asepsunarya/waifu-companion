@@ -46,7 +46,7 @@ from pydantic import SecretStr, ValidationError
 
 from waifu import autostart, memory
 from waifu.alarm import AlarmBell
-from waifu.app import Assistant, AudioPlayer, PhoneAnswers, split_reply
+from waifu.app import CARD_AGAIN, NO_CARD, Assistant, AudioPlayer, PhoneAnswers, split_reply
 from waifu.app_reminders import AppReminderStore, AppReminderTeller
 from waifu.autostart import RunKey, WindowsRunKey
 from waifu.avatar.bus import STATES as AVATAR_STATES
@@ -92,6 +92,7 @@ from waifu.brain.weather_tools import (
 )
 from waifu.break_watch import BreakWatcher
 from waifu.briefing import DAILY_BRIEFING, BriefingTimer, BriefingTools
+from waifu.card import Card, is_card_request
 from waifu.config import (
     APP_URL_SCHEMES,
     TAILSCALE_HOST_PATTERN,
@@ -1920,12 +1921,17 @@ def _chat(args: argparse.Namespace) -> int:
     gacha = build_gacha(config) if config.gacha.enabled else None
     usage = _usage_recorder(config)
     name = config.assistant.name
+    owner_call = config.assistant.owner_call
+    # Left out of Master's words when they ask for her last card again (`is_card_request`).
+    names = (name, *config.assistant.wake_words, owner_call)
     # Her voice level is the file's, shared with a running `waifu run`, which hears a change
     # made here at its next clip.
     voice_level = _voice_level(config)
+    # This process's own guest mode: a running `waifu run` keeps its own.
+    guest_mode = GuestMode(max_hours=config.guest_mode.max_hours)
+    cards = _ChatCards(guest_mode)
     with _session_schedule(config, dry_run=args.dry_run) as schedule:
-        # Only the offers tool pushes from chat, when Master asks for a link. Its guest mode is
-        # this process's own: a running `waifu run` keeps its own.
+        # Only the offers tool pushes from chat, when Master asks for a link.
         brain = _companion_brain(
             config,
             registry,
@@ -1934,7 +1940,7 @@ def _chat(args: argparse.Namespace) -> int:
             usage,
             _session_pc_reader(config),
             build_notifier(config.notify),
-            guest_mode=GuestMode(max_hours=config.guest_mode.max_hours),
+            guest_mode=guest_mode,
             voice_level=voice_level,
             # Its tool stops or snoozes a ring of `waifu run` through the bell's file; nothing
             # rings in chat, whose scheduler says a due alarm once.
@@ -1993,16 +1999,66 @@ def _chat(args: argparse.Namespace) -> int:
                         continue
                     if line.lower() in EXIT_WORDS:
                         break
-                    emotion, reply, _ = split_reply(
-                        brain.respond(line), owner_call=config.assistant.owner_call
-                    )
+                    if is_card_request(line, names):
+                        _print_card_again(name, owner_call, cards.last())
+                        continue
+                    marker = cards.marker()
+                    emotion, reply, card = split_reply(brain.respond(line), owner_call=owner_call)
+                    card = cards.keep(card, marker)
                     if args.verbose:
                         for call in reply.tool_calls:
                             print(_describe_tool_call(call))
                     print(f"{name}: {reply.text}")
+                    if card is not None:
+                        _print_card(card)
                     if speech is not None and player is not None:
                         _speak(speech, player, reply.text, avatar=avatar, emotion=emotion)
     return 0
+
+
+class _ChatCards:
+    """The text card `waifu chat` printed last, for "tampilkan lagi kartunya", in memory only and
+    forgotten once guest mode switches; a turn that switched it prints none, as on the PC."""
+
+    def __init__(self, guest_mode: GuestMode) -> None:
+        self._guest_mode = guest_mode
+        self._last: tuple[Card, int] | None = None
+
+    def marker(self) -> int:
+        """Guest mode's generation now: read before each turn."""
+        return self._guest_mode.generation()
+
+    def keep(self, card: Card | None, marker: int) -> Card | None:
+        """The card to print of a turn that began at `marker`, kept as the last one; None, and
+        the last one forgotten, when the turn switched guest mode."""
+        if self._guest_mode.generation() != marker:
+            self._last = None
+            return None
+        if card is not None:
+            self._last = (card, marker)
+        return card
+
+    def last(self) -> Card | None:
+        """The last card kept, unless guest mode has switched since."""
+        last = self._last
+        return last[0] if last is not None and last[1] == self._guest_mode.generation() else None
+
+
+def _print_card(card: Card) -> None:
+    """Her text card under her words in `waifu chat`: its title, then its lines indented."""
+    print(f"  Kartu: {card.title}" if card.title else "  Kartu")
+    for line in card.body.split("\n"):
+        print(f"    {line}" if line else "")
+
+
+def _print_card_again(name: str, owner_call: str, card: Card | None) -> None:
+    """Her answer in `waifu chat` to "tampilkan lagi kartunya": `card` printed again, or that
+    there is none, without the brain."""
+    if card is None:
+        print(f"{name}: {NO_CARD.format(owner=owner_call)}")
+        return
+    print(f"{name}: {CARD_AGAIN.format(owner=owner_call)}")
+    _print_card(card)
 
 
 def _companion_brain(
