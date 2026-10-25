@@ -14,10 +14,12 @@ takes each probe injected, and tests pass fakes. Addresses go to Windows in netw
 
 `NetworkProbe.check` runs the probes of one check at once, each on a daemon thread of its own
 within one budget: what has not answered by then counted as failed. A probe of a target still
-running from an earlier check (a lookup the resolver holds for its own timeouts) counts as failed
-without starting another, so threads never pile up. Never a thread pool: Python joins a pool's
-workers at exit, so a stuck lookup would hold up the exit of `waifu run`. Addresses reach only the
-DEBUG log. Nothing here raises out of a check.
+running (another thread's check at the same moment: the watcher, her answers, and the tool share
+one probe; or a lookup the resolver holds for its own timeouts) is not started again: the check
+waits for that one's answer within its own budget, so threads never pile up and a check never
+finds a target silent only because another is probing it. Never a thread pool: Python joins a
+pool's workers at exit, so a stuck lookup would hold up the exit of `waifu run`. Addresses reach
+only the DEBUG log. Nothing here raises out of a check.
 """
 
 from __future__ import annotations
@@ -339,7 +341,7 @@ class NetworkProbe:
         self._clock = clock
         self._budget_s = budget_s
         self._lock = threading.Lock()
-        self._running: set[str] = set()  # the targets whose probe has not finished
+        self._running: dict[str, _Running] = {}  # by target, each probe that has not finished
 
     def check(self, *, dns: bool = False, hoyo: bool = False) -> Reading:
         """The route first, then at once the gateway's echo and each anchor's, with `dns` the
@@ -387,37 +389,39 @@ class NetworkProbe:
             return self._hosts.gateway
         return None if route is None else route.gateway
 
-    def _start_echo(self, address: str) -> _Running | None:
+    def _start_echo(self, address: str) -> _Running:
         return self._start(f"echo {address}", partial(self._echo, address, ECHO_TIMEOUT_MS))
 
-    def _start_connect(self, host: str) -> _Running | None:
+    def _start_connect(self, host: str) -> _Running:
         return self._start(
             f"connect {host}:{HTTPS_PORT}",
             partial(self._connect, host, HTTPS_PORT, CONNECT_TIMEOUT_S),
         )
 
-    def _start(self, target: str, probe: Callable[[], float | None]) -> _Running | None:
-        """`probe` on a daemon thread of its own; None, counted as failed, while the probe of the
-        same `target` from an earlier check is still running."""
+    def _start(self, target: str, probe: Callable[[], float | None]) -> _Running:
+        """`probe` on a daemon thread of its own; while the probe of the same `target` is still
+        running (another thread's check at the same moment, or a lookup the resolver holds), that
+        one, whose answer the caller waits for within its own budget."""
         with self._lock:
-            if target in self._running:
-                logger.debug("The probe %s is still running; counted as failed", target)
-                return None
-            self._running.add(target)
-        outcome: list[float | None] = [None]
+            running = self._running.get(target)
+            if running is not None:
+                logger.debug("The probe %s is already running; waiting for its answer", target)
+                return running
+            outcome: list[float | None] = [None]
 
-        def run() -> None:
-            try:
-                outcome[0] = probe()
-            except Exception:
-                logger.debug("The probe %s failed", target, exc_info=True)
-            finally:
-                with self._lock:
-                    self._running.discard(target)
+            def run() -> None:
+                try:
+                    outcome[0] = probe()
+                except Exception:
+                    logger.debug("The probe %s failed", target, exc_info=True)
+                finally:
+                    with self._lock:
+                        del self._running[target]
 
-        thread = threading.Thread(target=run, name="network-probe", daemon=True)
-        thread.start()
-        return _Running(thread, outcome)
+            thread = threading.Thread(target=run, name="network-probe", daemon=True)
+            thread.start()  # its end waits for this lock, so it is kept first
+            running = self._running[target] = _Running(thread, outcome)
+        return running
 
     def _result(self, running: _Running | None, deadline: float) -> float | None:
         return None if running is None else running.result(deadline, self._clock)

@@ -643,6 +643,32 @@ def test_a_probe_still_running_from_an_earlier_check_is_not_started_again():
     assert again.dns_ms is None
 
 
+def test_a_check_made_while_another_runs_waits_for_the_probes_they_share():
+    # The watcher, her answers, and the tool share one probe: Master asking during the watcher's
+    # HoYo poll must not find the HoYo hosts silent.
+    begun = threading.Semaphore(0)
+    probes = FakeProbes()
+
+    def slow_connect(host: str, port: int, timeout_s: float) -> float:
+        begun.release()
+        time.sleep(0.3)  # a slow server that answers
+        return 45.0
+
+    probe = NetworkProbe(
+        HOSTS, route=probes.route, echo=probes.echo, connect=slow_connect, resolve=probes.resolve
+    )
+    readings: dict[str, Reading] = {}
+    watcher = threading.Thread(target=lambda: readings.update(watcher=probe.check(hoyo=True)))
+    watcher.start()
+    assert all(begun.acquire(timeout=WAIT_S) for _ in HOYO)
+
+    asked = probe.check(hoyo=True)
+    watcher.join(WAIT_S)
+
+    assert asked.hoyo_ms == readings["watcher"].hoyo_ms == (45.0,) * len(HOYO)
+    assert asked.anchor_ms == 24.0
+
+
 def test_a_probe_that_raises_counts_as_failed():
     probes = FakeProbes(connects={("1.1.1.1", 443): 40.0})
 
