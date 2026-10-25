@@ -12195,6 +12195,154 @@ def test_the_app_reminder_tool_keeps_it_in_the_config_s_file_and_sees_the_game_o
     assert [r.text for r in app_reminders_of(home).reminders()] == ["daily"]
 
 
+def test_pengingat_game_lists_every_reminder_in_the_order_made(home, capsys):
+    reminders = app_reminders_of(home)
+    reminders.add("hsr", "farming relic")
+    reminders.add("genshin", "cek ekspedisi", every_time=True)
+
+    assert cli.main(["pengingat-game"]) == 0
+
+    assert capsys.readouterr().out.splitlines() == [
+        "ID  GAME     KAPAN        PENGINGAT",
+        "g1  HSR      sekali       farming relic",
+        "g2  Genshin  tiap dibuka  cek ekspedisi",
+    ]
+
+
+def test_pengingat_game_without_reminders_says_so_and_creates_no_file(home, capsys):
+    assert cli.main(["pengingat-game"]) == 0
+
+    assert capsys.readouterr().out == "Belum ada pengingat game.\n"
+    assert not (home / "data" / "app_reminders.json").exists()
+
+
+@pytest.mark.parametrize(
+    ("settings", "warning"),
+    [
+        (
+            "app_reminders:\n  enabled: false\n",
+            "! Pengingat saat game dibuka mati (app_reminders.enabled: false): tidak ada yang "
+            "diucapkan.",
+        ),
+        (
+            "play_time:\n  enabled: false\n",
+            "! Pengingat saat game dibuka mati: game yang dibuka dilihat dari play_time, yang "
+            "mati.",
+        ),
+    ],
+    ids=["off", "play-time-off"],
+)
+def test_pengingat_game_still_lists_with_the_feature_off_after_saying_so(
+    settings, warning, home, capsys
+):
+    append_config(home, settings)
+    app_reminders_of(home).add("zzz", "claim battle pass")
+
+    assert cli.main(["pengingat-game"]) == 0
+
+    assert capsys.readouterr().out.splitlines() == [
+        warning,
+        "ID  GAME  KAPAN   PENGINGAT",
+        "g1  ZZZ   sekali  claim battle pass",
+    ]
+
+
+def test_pengingat_game_fails_when_the_file_cannot_be_read(home, monkeypatch, capsys):
+    def unreadable(self):
+        raise PermissionError("access denied")
+
+    monkeypatch.setattr(AppReminderStore, "reminders", unreadable)
+
+    assert cli.main(["pengingat-game"]) == 1
+
+    assert capsys.readouterr().out == (
+        f"✗ File pengingat game {Path('data') / 'app_reminders.json'} tidak bisa dibaca: "
+        "access denied\n"
+    )
+
+
+@pytest.mark.parametrize("given", ["g2", "2"])
+def test_pengingat_game_hapus_removes_one_by_its_id_or_number(given, home, capsys):
+    reminders = app_reminders_of(home)
+    reminders.add("hsr", "farming relic")
+    reminders.add("genshin", "cek ekspedisi", every_time=True)
+
+    assert cli.main(["pengingat-game", "hapus", given]) == 0
+
+    assert capsys.readouterr().out == "✓ Dihapus g2: Genshin, cek ekspedisi\n"
+    assert [r.id for r in reminders.reminders()] == ["g1"]
+
+
+def test_pengingat_game_hapus_of_an_unknown_id_fails_with_the_reason(home, capsys):
+    assert cli.main(["pengingat-game", "hapus", "g9"]) == 1
+
+    assert capsys.readouterr().out == "✗ Tidak ada pengingat game dengan id g9.\n"
+    assert not (home / "data" / "app_reminders.json").exists()
+
+
+def app_reminder_line(out: str) -> str:
+    [line] = [
+        line for line in out.splitlines() if "game dibuka" in line or "pengingat game" in line
+    ]
+    return line
+
+
+@pytest.mark.parametrize(
+    ("settings", "expected"),
+    [
+        (None, "✓ Pengingat saat game dibuka: 1 tersimpan"),
+        ("app_reminders:\n  enabled: false\n", "! Pengingat saat game dibuka mati"),
+        (
+            "play_time:\n  enabled: false\n",
+            "! Pengingat saat game dibuka mati: game yang dibuka dilihat dari play_time, yang mati",
+        ),
+    ],
+    ids=["on", "off", "play-time-off"],
+)
+def test_check_says_how_many_game_reminders_are_kept_and_whether_she_says_them(
+    settings, expected, home, nothing_installed, capsys
+):
+    if settings is not None:
+        append_config(home, settings)
+    app_reminders_of(home).add("hsr", "farming relic")
+
+    cli.main(["check"])
+
+    assert app_reminder_line(capsys.readouterr().out) == expected
+
+
+def test_check_moves_a_broken_game_reminder_file_aside_and_points_at_it(
+    home, nothing_installed, capsys
+):
+    (home / "data").mkdir(exist_ok=True)
+    (home / "data" / "app_reminders.json").write_text("broken", encoding="utf-8")
+
+    cli.main(["check"])
+
+    line = app_reminder_line(capsys.readouterr().out)
+    [moved] = (home / "data").glob("app_reminders.json.corrupt-*")
+    assert line == (
+        f"! Pengingat saat game dibuka: 0 tersimpan; file pengingat game yang rusak dipindah ke "
+        f"{Path('data') / moved.name} (lihat README, bagian Pengingat saat game dibuka)"
+    )
+
+
+def test_check_fails_when_the_game_reminder_file_cannot_be_read(
+    home, nothing_installed, monkeypatch, capsys
+):
+    def unreadable(self):
+        raise PermissionError("access denied")
+
+    monkeypatch.setattr(AppReminderStore, "reminders", unreadable)
+
+    assert cli.main(["check"]) == 1
+
+    assert app_reminder_line(capsys.readouterr().out) == (
+        f"✗ File pengingat game {Path('data') / 'app_reminders.json'} tidak bisa dibaca: "
+        "access denied"
+    )
+
+
 def test_the_play_time_tool_reads_the_file_run_keeps(home, brains, played, monkeypatch):
     monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
     assert cli.main(["chat", "--dry-run"]) == 0

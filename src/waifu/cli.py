@@ -597,6 +597,12 @@ JOURNAL_DESCRIPTION = (
     "Menghapus catatan hanya bisa di sini, tidak lewat suara."
 )
 JOURNAL_PREVIEW_CHARS = 50
+APP_REMINDER_DESCRIPTION = (
+    'Pengingat yang Cyrene ucapkan saat Master baru membuka game, misalnya "pas buka HSR nanti, '
+    "ingetin aku farming relic\" (dibuat lewat suara atau chat). Tanpa aksi, 'waifu "
+    "pengingat-game' menampilkan semuanya. Perintah ini jalan walau app_reminders.enabled: false; "
+    "Cyrene yang sedang berjalan langsung melihat perubahannya."
+)
 TEPIRA_DESCRIPTION = (
     "Keuangan Master dari tepira (aplikasi keuangan Master) lewat API khusus Cyrene: ringkasan "
     "bulan ini, saldo dompet, tujuan tabungan, dan transaksi terbaru. Tanpa aksi, 'waifu tepira' "
@@ -1233,6 +1239,20 @@ def build_parser() -> argparse.ArgumentParser:
     )
     journal_forget.add_argument(
         "--yes", action="store_true", help="benar-benar hapus (tanpa ini hanya dihitung)"
+    )
+    app_reminder_command = commands.add_parser(
+        "pengingat-game",
+        parents=[shared],
+        help="Pengingat saat game dibuka: lihat dan hapus.",
+        description=APP_REMINDER_DESCRIPTION,
+    )
+    app_reminder_command.set_defaults(handler=_app_reminder_list)
+    app_reminder_actions = app_reminder_command.add_subparsers(dest="action", metavar="<aksi>")
+    app_reminder_remove = command(
+        "hapus", _app_reminder_remove, "Hapus satu pengingat game.", app_reminder_actions
+    )
+    app_reminder_remove.add_argument(
+        "reminder_id", metavar="id", help="id dari 'waifu pengingat-game', misalnya g2 (atau 2)"
     )
     tepira_command = commands.add_parser(
         "tepira",
@@ -5931,6 +5951,55 @@ def _app_reminder_teller(
     )
 
 
+APP_REMINDER_WHEN = {False: "sekali", True: "tiap dibuka"}
+APP_REMINDERS_OFF = "Pengingat saat game dibuka mati"
+APP_REMINDERS_WITHOUT_PLAY_TIME = (
+    f"{APP_REMINDERS_OFF}: game yang dibuka dilihat dari play_time, yang mati"
+)
+
+
+def _app_reminder_list(args: argparse.Namespace) -> int:
+    """Every game start reminder, in the order made, from the file alone: it works with them off
+    too, after saying so. Exit 1 when the file cannot be read."""
+    config = load_config(args.config)
+    store = _app_reminder_store(config)
+    try:
+        reminders = store.reminders()
+    except OSError as exc:
+        print(f"{FAIL} File pengingat game {store.path} tidak bisa dibaca: {exc}")
+        return 1
+    if not config.app_reminders.enabled:
+        print(
+            f"{WARN} {APP_REMINDERS_OFF} (app_reminders.enabled: false): tidak ada yang diucapkan."
+        )
+    elif not config.play_time.enabled:
+        print(f"{WARN} {APP_REMINDERS_WITHOUT_PLAY_TIME}.")
+    if not reminders:
+        print("Belum ada pengingat game.")
+        return 0
+    rows = [(r.id, GAMES[r.game].short, APP_REMINDER_WHEN[r.every_time], r.text) for r in reminders]
+    print(_format_table(("ID", "GAME", "KAPAN", "PENGINGAT"), rows))
+    return 0
+
+
+def _app_reminder_remove(args: argparse.Namespace) -> int:
+    """Remove one game start reminder by its id (`g2`, or just `2`); exit 1 when there is no such
+    reminder or the file cannot be read."""
+    store = _app_reminder_store(load_config(args.config))
+    given = args.reminder_id
+    reminder_id = f"g{given}" if given.isdecimal() else given
+    try:
+        removed = store.remove(reminder_id)
+    except OSError as exc:
+        print(f"{FAIL} File pengingat game {store.path} tidak bisa dibaca: {exc}")
+        return 1
+    if removed is None:
+        print(f"{FAIL} Tidak ada pengingat game dengan id {reminder_id}.")
+        return 1
+    print(f"{OK} Dihapus {removed.id}: {GAMES[removed.game].short}, {removed.text}")
+    return 0
+
+
 def _poll_listeners(
     *listeners: ClosedGames | GameMode | None,
 ) -> Callable[[bool, bool], None] | None:
@@ -7467,6 +7536,7 @@ def _checks(config_path: Path) -> Iterator[Check]:
     yield _usage_check(config)
     yield _pc_health_check(config)
     yield _play_time_check(config)
+    yield _app_reminders_check(config)
     yield _focus_check(config)
     yield _game_mode_check(config)
     yield _guest_mode_check(config)
@@ -7935,6 +8005,28 @@ def _play_time_check(config: AppConfig) -> Check:
     return OK, status
 
 
+def _app_reminders_check(config: AppConfig) -> Check:
+    """How many game start reminders are kept, whether she says them, and where a broken file
+    was moved, if one was."""
+    path = config.app_reminders.path
+    if not config.app_reminders.enabled:
+        return WARN, APP_REMINDERS_OFF
+    if not config.play_time.enabled:
+        return WARN, APP_REMINDERS_WITHOUT_PLAY_TIME
+    try:
+        count = len(_app_reminder_store(config).reminders())  # moves a broken file aside
+    except OSError as exc:
+        return FAIL, f"File pengingat game {path} tidak bisa dibaca: {exc}"
+    status = f"Pengingat saat game dibuka: {count} tersimpan"
+    moved = _set_aside_files(path)
+    if moved:
+        return WARN, (
+            f"{status}; file pengingat game yang rusak dipindah ke {', '.join(map(str, moved))} "
+            "(lihat README, bagian Pengingat saat game dibuka)"
+        )
+    return OK, status
+
+
 def _focus_check(config: AppConfig) -> Check:
     """Whether she keeps Master company while they focus, whether her focus lines go to the phone
     too, and where a broken focus log was moved, if one was."""
@@ -8117,7 +8209,8 @@ def _free_offers_check(config: AppConfig) -> Check:
 
 def _set_aside_files(path: Path) -> list[Path]:
     """The copies a broken memory, schedule, to-do, journal, Japanese lesson, usage, offers, play
-    time, focus, or voice volume file was renamed to (`<name>.corrupt-<time>`), oldest first.
+    time, game start reminder, focus, or voice volume file was renamed to
+    (`<name>.corrupt-<time>`), oldest first.
 
     They stay until the owner repairs or deletes them, so `check` points at them every time.
     """
