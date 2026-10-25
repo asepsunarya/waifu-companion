@@ -38,7 +38,9 @@ the segmenter, so voice chat in a game never wakes her; the mic keeps streaming 
 reminders, alarms, and announcements between frames, while her requests wait. While an alarm
 rings she hears through the pause, so a sleepy "aku sudah bangun" still stops it. A double-click
 or Ctrl+Alt+C ends the pause (`listen_now`); one that ends by itself is said once. Ctrl+Alt+R
-repeats her last words (`repeat_now`) from the hotkeys' thread, as "ulangi" does.
+repeats her last words (`repeat_now`) from the hotkeys' thread, as "ulangi" does. Ctrl+Alt+T asks
+"Artinya apa teks yang kucopy?" without the microphone (`ask_now`): `run` answers it on its own
+thread like Master's voice, also while the listen pause holds.
 
 When the brain has not answered Master's words after `nod.after_ms`, she says a short filler
 ("Hmm, bentar ya…", `waifu.voice.nod`) made ahead in her voice, from a timer's thread under the
@@ -543,6 +545,8 @@ class Assistant:
         # What Master asked for himself (`remind`): also said while `quiet` holds.
         self._reminders: queue.SimpleQueue[_Announcement] = queue.SimpleQueue()
         self._requests: queue.SimpleQueue[_Request] = queue.SimpleQueue()
+        # The question a hotkey asked (`ask_now`) until `run` answers it: one at a time.
+        self._questions: queue.Queue[str] = queue.Queue(maxsize=1)
         # What a game held, out of `_announcements` and `_patient_announcements` in the order
         # queued and marked `held_by_game` (`_note_game_hold`); only `run`'s thread uses them.
         self._game_held: list[_Announcement] = []
@@ -699,16 +703,22 @@ class Assistant:
         ):
             reply_text, hearing.tts_s = self._forget_reading(self._lexicon, forgotten)
         else:
-            self._show(lambda avatar: avatar.state("thinking"))
-            marker = self._guest_generation()
-            started = self._clock()
-            emotion, reply, card, nodded = self._think_with_nod(result.command)
-            hearing.brain_s = self._clock() - started
-            reply_text = reply.text
-            if card is not None:
-                self._show_card(card, marker)
-            hearing.tts_s = self._say_reply(reply_text, emotion, marker, nodded=nodded)
+            reply_text, hearing.brain_s, hearing.tts_s = self._answer_with_brain(result.command)
         return reply_text
+
+    def _answer_with_brain(self, command: str) -> tuple[str, float, float | None]:
+        """Answer Master's own words at the PC with the brain, aloud: thinking shown, a filler
+        when the reply is slow, its card shown, then the reply said and remembered (the follow-up
+        window opens). Returns what she said, how long the brain took, and how long the reply's
+        synthesis took."""
+        self._show(lambda avatar: avatar.state("thinking"))
+        marker = self._guest_generation()
+        started = self._clock()
+        emotion, reply, card, nodded = self._think_with_nod(command)
+        brain_s = self._clock() - started
+        if card is not None:
+            self._show_card(card, marker)
+        return reply.text, brain_s, self._say_reply(reply.text, emotion, marker, nodded=nodded)
 
     def handle_text(self, text: str) -> BrainReply:
         """Ask the brain directly: no wake word, no voice (text chat); the reply has no tag and
@@ -957,25 +967,46 @@ class Assistant:
         with self._engaged():
             self._repeat()
 
+    def ask_now(self, text: str) -> None:
+        """Ask `text` as Master's own words at the PC, without the microphone (Ctrl+Alt+T).
+
+        Only handed over: `run` answers it on its own thread like his voice (`_answer_question`).
+        Ignored while she is `busy`, like Ctrl+Alt+R, and while the question asked before still
+        waits. Never waits itself, so it is safe from the hotkey thread (or any other).
+        """
+        if self.busy:
+            logger.info("Not asking now: she is busy")
+            return
+        try:
+            self._questions.put_nowait(text)
+        except queue.Full:
+            logger.info("Not asking now: the question asked before still waits")
+
     def run(self, mic: Microphone, segmenter: Segmenter) -> None:
         """Listen until Ctrl+C.
 
         A failure inside one utterance is logged and listening goes on, except a
         missing package or an unusable Whisper: every utterance would fail the same
         way, so those are raised for the caller to report. While she does not hear
-        (`_hearing_now`), a frame only gives her the chance to speak up.
+        (`_hearing_now`), a frame only gives her the chance to answer a hotkey's question or speak
+        up. A question (`ask_now`) comes at the first frame Master is not speaking, before the hold
+        after a cut, and its frame says nothing else.
         """
         self.set_mic(mic, segmenter)
         logger.info("%s is listening (Ctrl+C to stop)", self._name)
         try:
             for frame in mic.frames():
                 if not self._hearing_now(segmenter):
-                    if not self._announcements_held():
+                    if not self._answer_question() and not self._announcements_held():
                         self._speak_up()
                     continue
                 utterance = segmenter.feed(frame)
                 if utterance is None:
-                    if not segmenter.busy and not self._announcements_held():
+                    if (
+                        not segmenter.busy
+                        and not self._answer_question()
+                        and not self._announcements_held()
+                    ):
                         self._speak_up()
                     continue
                 try:
@@ -988,6 +1019,26 @@ class Assistant:
             logger.info("Stopped listening")
         finally:
             self.set_mic(None)
+
+    def _answer_question(self) -> bool:
+        """Answer the question a hotkey asked (`ask_now`), if any, like Master's voice at the PC
+        (`_answer_with_brain`), also while the listen pause holds; True when there was one.
+
+        Master has asked, so the hold after a cut ends. No utterance is recorded for the
+        diagnosis. A failure is logged and listening goes on, as for an utterance.
+        """
+        try:
+            text = self._questions.get_nowait()
+        except queue.Empty:
+            return False
+        self._announcements_held_until = None
+        logger.info("Master asked by hotkey: %s", text)
+        try:
+            with self._engaged():
+                self._answer_with_brain(text)
+        except Exception:
+            logger.exception("Failed to answer Master's question; still listening")
+        return True
 
     def _hearing_now(self, segmenter: Segmenter) -> bool:
         """Whether this frame goes to the segmenter: not while the listen pause holds, unless an
@@ -1484,8 +1535,9 @@ class Assistant:
 
     def _think_with_nod(self, command: str) -> tuple[str, BrainReply, Card | None, bool]:
         """`_think` for Master's own words, with a filler (`_say_nod`) when the reply is not
-        ready after `nod.after_ms`; also whether one began. Only his voice turns come here: the
-        phone, the text chat, and her own requests use `_think` without one."""
+        ready after `nod.after_ms`; also whether one began. Only his own turns at the PC come
+        here, his voice and Ctrl+Alt+T's question: the phone, the text chat, and her own requests
+        use `_think` without one."""
         if self._nods is None:
             emotion, reply, card = self._think(command)
             return emotion, reply, card, False

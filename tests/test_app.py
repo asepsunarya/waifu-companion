@@ -5055,6 +5055,168 @@ def test_she_is_busy_while_repeat_now_speaks():
     assert while_playing == [True]
 
 
+# --- ask_now (Ctrl+Alt+T, v1.56) ---------------------------------------------------------------
+
+QUESTION = "Artinya apa teks yang kucopy?"
+TRANSLATION_GIST = "Artinya kurang lebih terima kasih atas kerja kerasnya, Master."
+TRANSLATION = "- お疲れ様でした: terima kasih atas kerja kerasnya\n- また明日ね: sampai besok ya"
+TRANSLATION_REPLY = f"[senang] {TRANSLATION_GIST}\n[[kartu: Terjemahan]]\n{TRANSLATION}"
+
+
+def test_ask_now_only_hands_the_question_over_and_run_answers_it_like_master_s_words(caplog):
+    rig = Rig(reply=TRANSLATION_REPLY, with_avatar=True)
+
+    with caplog.at_level(logging.INFO, logger="waifu.app"):
+        rig.assistant.ask_now(QUESTION)
+        before_run = asked(rig)
+        listen_once(rig)
+
+    assert before_run == []
+    assert rig.brain.turns == [(QUESTION, NOW)]
+    assert rig.speech.texts == [TRANSLATION_GIST]
+    assert rig.avatar.cards == [(Card("Terjemahan", TRANSLATION), 120)]
+    shown = rig.events.index("avatar.card Terjemahan 120")
+    assert rig.events.index("avatar.state thinking") < shown < rig.events.index("synthesize")
+    assert rig.events[-1] == "avatar.state listening 8"
+    assert f"Master asked by hotkey: {QUESTION}" in caplog.messages
+
+
+def test_after_the_question_master_answers_without_her_name():
+    rig = Rig("simpan kata itu")
+    rig.assistant.ask_now(QUESTION)
+    listen_once(rig)
+
+    rig.clock.now += 3
+    rig.assistant.handle_utterance(rig.utterance())
+
+    assert asked(rig) == [QUESTION, "simpan kata itu"]
+
+
+def test_the_answer_to_the_question_is_remembered_for_ulangi():
+    rig = Rig(reply=TRANSLATION_REPLY)
+    rig.assistant.ask_now(QUESTION)
+    listen_once(rig)
+
+    rig.assistant.repeat_now()
+
+    assert rig.speech.texts == [TRANSLATION_GIST, TRANSLATION_GIST]
+
+
+def test_a_slow_answer_to_the_question_comes_after_a_filler():
+    rig = slow_rig(with_avatar=True)
+    rig.assistant.ask_now(QUESTION)
+
+    listen_once(rig)
+
+    assert rig.player.played == [NOD_RATE, 24000]
+    assert len(fillers_said(rig)) == 1
+
+
+def test_ask_now_while_she_is_busy_is_ignored(caplog):
+    rig = Rig()
+    segmenter = FakeSegmenter(rig.events, [])
+    segmenter.busy = True  # Master is speaking
+    rig.assistant.set_mic(None, segmenter)
+
+    with caplog.at_level(logging.INFO, logger="waifu.app"):
+        rig.assistant.ask_now(QUESTION)
+    listen_once(rig)
+
+    assert asked(rig) == []
+    assert "Not asking now: she is busy" in caplog.messages
+
+
+def test_a_question_asked_while_the_last_one_still_waits_is_ignored(caplog):
+    rig = Rig()
+
+    with caplog.at_level(logging.INFO, logger="waifu.app"):
+        rig.assistant.ask_now(QUESTION)
+        rig.assistant.ask_now(QUESTION)
+    listen_once(rig, None, None)
+
+    assert asked(rig) == [QUESTION]
+    assert "Not asking now: the question asked before still waits" in caplog.messages
+
+
+def test_run_answers_the_question_at_the_first_frame_master_is_not_speaking():
+    rig = Rig()
+    rig.assistant.ask_now(QUESTION)
+    segmenter = FeedingSegmenter(rig.events, [None, None, None], busy=[True, False, False])
+
+    rig.assistant.run(FakeMic(rig.events, [SILENT_FRAME] * 3), segmenter)
+
+    assert rig.events == [
+        "segmenter.feed",  # Master is speaking: the question waits
+        "segmenter.feed",
+        "mic.pause",
+        "synthesize",
+        "play",
+        "mic.resume",
+        "segmenter.reset",
+        "segmenter.feed",
+    ]
+
+
+def test_a_question_after_a_cut_is_answered_at_once_and_ends_the_hold():
+    # Ctrl+Alt+X then Ctrl+Alt+T: no wait for the follow-up window the cut held things for.
+    rig = Rig()
+    rig.player.on_play = rig.assistant.interrupt
+    rig.assistant.speak("Master, ekspedisi HSR...")  # cut short: announcements are held
+    rig.player.on_play = lambda: None
+    rig.assistant.announce(ANNOUNCEMENT)
+    rig.assistant.ask_now(QUESTION)
+
+    listen_once(rig, None, None)
+
+    assert asked(rig) == [QUESTION]
+    assert rig.speech.texts == ["Master, ekspedisi HSR...", REPLY, ANNOUNCEMENT]
+
+
+def test_the_question_is_answered_while_the_listen_pause_holds(tmp_path):
+    rig = PauseRig(tmp_path)
+    rig.pause.start()
+    rig.assistant.ask_now(QUESTION)
+
+    rig.listen()
+
+    assert asked(rig) == [QUESTION]
+    assert rig.speech.texts == [REPLY]
+    assert "segmenter.feed" not in rig.events
+    assert rig.pause.paused()
+
+
+def test_a_question_is_never_recorded_for_the_diagnosis():
+    log = UtteranceLog(now=lambda: NOW)
+    rig = Rig(diagnosis=log)
+    rig.assistant.ask_now(QUESTION)
+
+    listen_once(rig)
+
+    assert asked(rig) == [QUESTION]
+    assert log.records() == ()
+
+
+def test_she_is_busy_while_she_answers_the_question():
+    rig = Rig()
+    while_playing: list[bool] = []
+    rig.player.on_play = lambda: while_playing.append(rig.assistant.busy)
+    rig.assistant.ask_now(QUESTION)
+
+    listen_once(rig)
+
+    assert while_playing == [True]
+
+
+def test_a_failed_question_is_logged_and_she_keeps_listening(caplog):
+    rig = Rig("Cyrene, nyalakan lampu kamar", brain=BrokenBrain)
+    rig.assistant.ask_now(QUESTION)
+
+    with caplog.at_level(logging.ERROR, logger="waifu.app"):
+        listen_once(rig, None, None)
+
+    assert "Failed to answer Master's question; still listening" in caplog.text
+
+
 # --- respons instan: a filler while a slow reply is thought up -----------------------------------
 
 SLOW_QUESTION = "Cyrene, besok hujan nggak?"
