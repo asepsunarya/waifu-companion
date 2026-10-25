@@ -1279,10 +1279,10 @@ is busy, like Ctrl+Alt+R). The answer follows v1.55: a spoken gist and the trans
 - [x] Task 341: the `read_clipboard` tool, its gate, its refusals, guest mode, and the logs
 - [x] Task 342: Ctrl+Alt+T: the config, the hotkey action, `Assistant.ask_now`, and the wiring
 - [x] Task 343: Master's own words in the Japanese lessons (`add`)
-- [ ] Task 344: README, CHANGELOG
+- [x] Task 344: README, CHANGELOG
 
 ### Checkpoint: Artinya apa
-- [ ] Python suite, ruff, and JS tests clean; no test read the real clipboard (the suite refuses it); the strict-tool budget unchanged
+- [x] Python suite, ruff, and JS tests clean; no test read the real clipboard (the suite refuses it); the strict-tool budget unchanged: 12206 pytest and 680 JS tests passed, ruff check and format clean; no schema gained `required`, so 18 of 20 strict tools, 17 of 24 optional parameters, and 0 of 16 unions stay
 - [ ] On the owner's PC (the lead): copy a Japanese line, "artinya apa yang kucopy?" and Ctrl+Alt+T give a short gist and a card; a copied password is refused without being said; "simpan kata itu" adds the word and a quiz asks it; `waifu check` lists Ctrl+Alt+T
 
 ## Risks and Mitigations

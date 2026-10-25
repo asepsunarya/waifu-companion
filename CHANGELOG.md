@@ -4,6 +4,29 @@ Ringkasan per versi, yang terbaru di atas. Rinciannya ada di README (bagian yang
 setiap versi) dan di SPEC.md. Setelah memperbarui, **mulai ulang `waifu run`** supaya semuanya
 aktif, lalu jalankan `waifu check`.
 
+## v1.56: artinya apa
+
+- Copy teks bahasa Jepang atau Inggris, lalu "Cyrene, artinya apa yang kucopy?" atau
+  "terjemahin yang barusan kucopy": dia membaca clipboard PC, mengucapkan intinya, dan
+  menampilkan terjemahan lengkapnya di kartu teks, untuk bahasa Jepang dengan cara baca kana dan
+  romaji dan, untuk frasa pendek, daftar katanya. Satu kalimat pendek cukup diucapkan. Dengan
+  Claude maupun Ollama.
+- **Ctrl+Alt+T** menanyakan hal yang sama tanpa mic, juga di tengah game: diabaikan selagi dia
+  mendengarkan, berpikir, atau bicara (seperti Ctrl+Alt+R), jalan juga selama dia tidak
+  mendengarkan. Ganti atau matikan dengan `hotkeys.translate`; kalau `config.yaml` lama sudah
+  memakai T untuk hotkey lain, Ctrl+Alt+T mati dengan peringatan di log dan Cyrene tetap jalan.
+- Clipboard hanya dibaca kalau kalimat Master sendiri menyebut yang dicopy ("kucopy", "salin",
+  "clipboard", ...), paling banyak sekali per kalimat dan 2000 karakter. Yang kelihatan seperti
+  kata sandi, token, kode OTP atau PIN, nomor kartu atau rekening, atau kunci privat, dan salinan
+  yang ditandai password manager, ditolak utuh tanpa dibacakan. Teksnya tidak pernah ditulis ke
+  log (hanya panjangnya), juga dengan `-v`, dan ditutup di mode tamu.
+- "Simpan kata itu" atau "masukin ke latihan" memasukkan kata Jepangnya ke latihan bahasa Jepang
+  sebagai kata Master sendiri (paling banyak 200), yang ikut kuis seperti kata dari daftar; kata
+  yang ada di daftar 300 kata dipelajari dari daftar itu. `waifu jepang progres` menyebutnya
+  terpisah. Tidak di mode tamu. Versi sebelum v1.56 memindahkan file latihan yang memuat kata
+  tambahan ke `japanese.json.corrupt-<waktu>`.
+- Tanpa paket baru. README: "Artinya apa", "Hotkey global", "Belajar bahasa Jepang".
+
 ## v1.55: kartu teks
 
 - Isi yang panjang (daftar, jadwal, tautan, kode, langkah-langkah, terjemahan panjang) tidak

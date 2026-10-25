@@ -3274,9 +3274,9 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 340a · **Files:** `src/waifu/japanese.py`, `src/waifu/brain/japanese_tools.py`, `src/waifu/cli.py`, tests · **Scope:** M
 
-## Task 344: Docs
+## Task 344: Docs ✅
 
 **Acceptance criteria:**
-- [ ] README "Artinya apa" (and in the table of contents), Ctrl+Alt+T in the hotkey section, the added words in the Japanese section, the guest-mode list; CHANGELOG v1.56; full suite, ruff, and JS tests clean
+- [x] README "Artinya apa" (and in the table of contents), Ctrl+Alt+T in the hotkey section, the added words in the Japanese section, the guest-mode list; CHANGELOG v1.56; full suite, ruff, and JS tests clean
 
 **Dependencies:** 342, 343 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S

@@ -48,6 +48,7 @@ Cyrene : "Komputer mau kumatikan sekarang, Master? Jawab iya kalau jadi." (minta
 - [Volume suaraku](#volume-suaraku)
 - [Lagu di YouTube](#lagu-di-youtube)
 - [Melihat layar](#melihat-layar)
+- [Artinya apa](#artinya-apa)
 - [Sapaan pagi dan ringkasan harian](#sapaan-pagi-dan-ringkasan-harian)
 - [Peringatan hujan](#peringatan-hujan)
 - [Cuaca beberapa hari](#cuaca-beberapa-hari)
@@ -3800,6 +3801,86 @@ lebih sulit dibaca. API Anthropic menerima paling besar 5 MB per gambar; di atas
 lagi dengan ukuran lebih kecil. Display scaling Windows (125%, 150%) tidak berpengaruh:
 seluruh layar tetap tertangkap. Jalankan ulang `waifu run` setelah mengubahnya.
 
+## Artinya apa
+
+Copy teks bahasa Jepang atau Inggris (dialog game, halaman web, tweet), lalu tanya Cyrene: dia
+membaca clipboard PC, mengucapkan intinya, dan menampilkan terjemahan lengkapnya di
+[kartu teks](#kartu-teks). Dengan otak Claude maupun Ollama, di `waifu run`, `waifu chat`, dan
+dari HP; sudah menyala dari awal, tanpa paket tambahan.
+
+```text
+(Master meng-copy 「お疲れ様でした！また明日ね」)
+Master : "Cyrene, artinya apa yang kucopy?"
+Cyrene : "Artinya kurang lebih terima kasih atas kerja kerasnya, sampai besok, Master."
+         [kartu Terjemahan: terjemahan lengkap, cara baca kana dan romaji, daftar kata]
+Master : "Simpan kata itu."                        (tanpa nama: jendela lanjutan terbuka)
+Master : "Cyrene, terjemahin yang barusan kucopy."  (teks bahasa Inggris)
+```
+
+Terjemahan satu kalimat pendek cukup diucapkan, tanpa kartu. Untuk teks bahasa Jepang, kartunya
+memuat terjemahan lengkap, cara bacanya dengan kana dan romaji, dan untuk frasa pendek daftar
+katanya (kata, cara baca, arti). Yang diucapkan tetap tanpa romaji.
+
+### Ctrl+Alt+T
+
+Di tengah game, tekan **Ctrl+Alt+T**: sama dengan bertanya "Artinya apa teks yang kucopy?" di PC,
+tanpa mic, lalu jendela lanjutan terbuka seperti biasa (jadi "simpan kata itu" cukup tanpa nama).
+Selagi dia mendengarkanmu, berpikir, atau bicara, tombolnya diabaikan tanpa suara, sama seperti
+Ctrl+Alt+R: tekan Ctrl+Alt+X dulu untuk memotongnya, lalu Ctrl+Alt+T. Jalan juga selama dia tidak
+mendengarkan (Ctrl+Alt+Q), mode fokus, dan mode game. Untuk mengganti atau mematikannya
+(`hotkeys.translate`), lihat [Hotkey global](#hotkey-global).
+
+### Hanya kalau diminta
+
+- Dia hanya membaca clipboard kalau **kalimat Master di giliran itu juga** menyebut yang
+  dicopy, yaitu memuat salah satu kata ini: `copy`, `copas`, `kopas`, `copyan`, `kucopy`,
+  `dicopy`, `kukopi`, `dikopi`, `salin`, `kusalin`, `disalin`, `salinan`, `clipboard`,
+  `klipboard`, `copied`, atau `コピー`. Kode Cyrene sendiri yang memeriksanya, apa pun keinginan
+  otaknya; namanya dan kata panggilannya tidak dihitung. Paling banyak sekali untuk setiap
+  kalimat.
+- Dia tidak pernah membaca clipboard sendiri: tidak mengawasinya, tidak menerjemahkan setiap
+  copy, tidak di sapaan pagi atau hal lain yang dia mulai sendiri, dan tidak karena isi halaman
+  web atau isi teks yang dicopy. Dia juga tidak pernah mengubah isi clipboard.
+- Teks yang dicopy dianggap data dari aplikasi lain, bukan perintah Master: perintah, tautan,
+  atau permintaan di dalamnya tidak dijalankan.
+- Hanya teks: gambar atau file yang dicopy tidak dibaca ("yang dicopy bukan teks"). Hanya 2000
+  karakter pertama yang dibaca, dan dia bilang kalau teksnya terpotong.
+- Pesan dari [HP](#cyrene-di-hp) juga membaca clipboard **PC**, bukan clipboard HP.
+- Clipboard yang sedang dipegang aplikasi lain dicoba lima kali; kalau masih dipakai, dia minta
+  Master mencoba lagi.
+
+### Yang tidak dibaca
+
+- Teks yang kelihatan seperti rahasia ditolak utuh: tidak dibacakan, tidak dikirim ke otaknya,
+  dan tidak ditulis ke log. Yaitu satu kata 8-128 huruf yang mencampur huruf besar, huruf kecil,
+  angka, atau simbol (kata sandi), 20 huruf dan angka berturut-turut (token, API key), 4-8 angka
+  (kode OTP atau PIN), nomor kartu, nomor rekening atau HP (hanya angka, 10 atau lebih), kunci
+  privat, dan kata seperti "password" atau "PIN" beserta isinya. Dia hanya bilang kelihatannya
+  rahasia, tanpa menebak isinya.
+- Salinan dari password manager yang menandainya sebagai privat (misalnya KeePass) tidak dibaca
+  sama sekali.
+- Karena itu teks biasa yang memuat 20 huruf dan angka berturut-turut di mana saja (misalnya link
+  panjang) juga ditolak utuh. Copy bagian teksnya saja.
+
+### Privasi artinya apa
+
+- Teks yang dicopy hanya dibaca di giliran yang memintanya. Dengan Claude, teks itu dikirim ke API
+  Anthropic sebagai bagian percakapan dan tetap di riwayat sesi itu seperti obrolan lain; dengan
+  Ollama, semuanya lokal.
+- Tidak pernah ditulis ke disk atau ke log, juga dengan `-v`, `--log-file`, dan `waifu chat -v`:
+  log hanya mencatat panjangnya. Dia tidak menyimpannya ke ingatannya kecuali Master memintanya.
+- Ditutup di [mode tamu](#mode-tamu).
+
+### Batasan artinya apa
+
+- Ctrl+Alt+T selagi dia sibuk diabaikan tanpa suara.
+- Selama `waifu run` jalan, Ctrl+Alt+T tidak sampai ke program lain, misalnya ™ di Word, dan di
+  keyboard dengan AltGr, AltGr+T tidak mengetik hurufnya. Ganti tombolnya atau matikan dengan
+  `hotkeys.translate: null`.
+- Kalau `config.yaml` lama sudah memakai T untuk hotkey lain dan `translate` belum ditulis,
+  Ctrl+Alt+T mati dengan peringatan di log; tulis `translate:` dengan tombol lain.
+- Dengan Ollama, mutu terjemahan, kana, dan romajinya sebatas model lokalnya.
+
 ## Sapaan pagi dan ringkasan harian
 
 Sekali sehari, saat `waifu run` menyala pertama kali di antara jam 07.00 dan 12.00, Cyrene
@@ -6088,7 +6169,8 @@ bilang singkat bahwa itu ditutup dulu selama ada tamu:
 - daftar jadwal dan membatalkan jadwal (isinya teks pengingat Master), juga daftar alarm dan
   membatalkan alarm;
 - biaya API Claude;
-- melihat layar PC.
+- melihat layar PC;
+- membaca clipboard PC ([Artinya apa](#artinya-apa)), juga lewat Ctrl+Alt+T.
 
 ### Yang tetap jalan
 
@@ -6100,7 +6182,8 @@ bilang singkat bahwa itu ditutup dulu selama ada tamu:
   yang jalan sebelum tamu datang tetap bisa dihentikan. Jawabannya bisa menyebut berapa lama
   Master fokus hari itu dan minggu itu.
 - [Belajar bahasa Jepang](#belajar-bahasa-jepang): kata hari ini, kuis, dan kemajuannya. Kata
-  pemula dan berapa kata yang Master hafal bukan hal pribadi.
+  pemula dan berapa kata yang Master hafal bukan hal pribadi. Hanya menyimpan kata baru ("simpan
+  kata itu") yang ditolak: kata tamu tidak masuk ke latihan Master.
 - [Pengingat istirahat](#pengingat-istirahat): kalimatnya tidak menyebut hal pribadi.
 - [Pemantau internet](#pemantau-internet): jawabannya, kalimat saat internet nyambung lagi, dan
   tool `network_status`. Kondisi internet bukan hal pribadi, dan alamat tidak pernah disebut.
@@ -6315,6 +6398,27 @@ japanese:
 - "Aku sudah belajar berapa kata?": berapa kata yang sudah dipelajari, yang dikuasai, dan yang
   perlu diulang hari ini.
 
+### Kata dari Master sendiri
+
+Kata Jepang yang Master temui sendiri (misalnya lewat [Artinya apa](#artinya-apa)) bisa ikut
+dilatih: "simpan kata itu" atau "masukin ke latihan" (sesudah terjemahannya cukup tanpa nama).
+
+- Dia menyimpan cara bacanya (1-20 huruf kana), tulisan kanjinya kalau ada (1-20 huruf, minimal
+  satu kanji), dan artinya (satu baris, paling banyak 80 huruf). Kata baru masuk kotak 1 dan
+  sudah bisa ditanya hari itu juga, lalu ikut kuis dan jadwal ulangan seperti kata dari daftar.
+- Kata yang ada di daftar 300 kata (cara baca sama, dan kanji sama atau salah satunya tanpa kanji)
+  dipelajari dari daftar itu, bukan disimpan dua kali; kata yang sudah pernah disimpan juga tidak
+  disimpan lagi.
+- Paling banyak 200 kata. Belum bisa dihapus atau diubah lewat suara: untuk itu, sunting
+  `data\japanese.json` (bagian `custom` dan kode kata `c1`, `c2`, ... di `words`) saat Cyrene
+  mati.
+- Kata hari ini tetap dari daftar 300 kata. "Aku sudah belajar berapa kata?" menyebut kata
+  tambahan Master terpisah.
+- Hanya atas permintaan Master: tidak di sapaan pagi atau hal lain yang dia mulai sendiri, dan
+  tidak selama [mode tamu](#mode-tamu).
+- Versi Cyrene sebelum v1.56 tidak mengenal kata tambahan: kalau Master kembali ke versi lama,
+  `data\japanese.json` dipindah ke `japanese.json.corrupt-<waktu>` (tidak dihapus).
+
 ### Melihat di terminal: `waifu jepang`
 
 ```powershell
@@ -6332,7 +6436,10 @@ Kata hari ini dihitung sudah dipelajari saat Cyrene menyebutnya, di sapaan pagi 
 ```text
 Dipelajari: 12 dari 300 kata, 2 dikuasai
 Perlu diulang hari ini: 3 kata
+Kata tambahanmu: 3 kata, 1 perlu diulang hari ini.
 ```
+
+Baris terakhir hanya muncul kalau Master sudah menyimpan kata sendiri.
 
 Perintah ini hanya membaca: tidak mencatat kata hari ini, tidak membuat file, dan tidak bisa
 menguji (tanya Cyrene saja). Jalan juga saat `japanese.enabled: false` (dengan peringatan di baris
@@ -6348,14 +6455,16 @@ Master memperbaiki atau menghapusnya.
 
 Tetap jalan di [mode tamu](#mode-tamu): kata pemula dan berapa kata yang Master hafal bukan hal
 pribadi, jadi belajar bersama teman juga boleh. Di mode tamu sapaan paginya cukup cuaca dan jadwal
-perangkat, jadi kata hari ini bisa terlewat di sapaan; tanyakan saja.
+perangkat, jadi kata hari ini bisa terlewat di sapaan; tanyakan saja. Hanya menyimpan kata baru
+yang ditolak selama mode tamu, supaya kata tamu tidak masuk ke latihan Master.
 
 ### Privasi belajar bahasa Jepang
 
-`data\japanese.json` hanya berisi kode kata (misalnya `w214`), kotaknya, dan tanggalnya, hanya di
-PC ini; `waifu run` dan `waifu chat` sama-sama mencatat ke file ini. Dengan Claude, kata dan
-jawaban Master ikut ke API Anthropic seperti obrolan biasa (dengan Ollama, semuanya lokal). Tidak
-ada notifikasi HP sendiri: kalau `briefing.push` menyala, teks sapaan pagi (dengan katanya) ikut
+`data\japanese.json` hanya berisi kode kata (misalnya `w214`), kotaknya, dan tanggalnya, ditambah
+kata yang Master simpan sendiri (cara baca, kanji, arti, dan tanggalnya), hanya di PC ini;
+`waifu run` dan `waifu chat` sama-sama mencatat ke file ini. Dengan Claude, kata dan jawaban
+Master ikut ke API Anthropic seperti obrolan biasa (dengan Ollama, semuanya lokal). Tidak ada
+notifikasi HP sendiri: kalau `briefing.push` menyala, teks sapaan pagi (dengan katanya) ikut
 dikirim seperti biasa.
 
 ## Pengingat istirahat
@@ -6791,7 +6900,7 @@ angka setelan.
 
 ## Hotkey global
 
-Saat game layar penuh sedang di depan, avatar tertutup dan namanya kalah oleh suara game. Empat
+Saat game layar penuh sedang di depan, avatar tertutup dan namanya kalah oleh suara game. Lima
 tombol pintas Ctrl+Alt tetap sampai ke Cyrene apa pun jendela yang sedang aktif, juga game layar
 penuh. Hanya di Windows dan selama `waifu run` jalan; sudah menyala tanpa pengaturan.
 
@@ -6801,6 +6910,7 @@ penuh. Hanya di Windows dan selama `waifu run` jalan; sudah menyala tanpa pengat
 | **Ctrl+Alt+X** | Memotong ucapannya saat itu juga, juga di tengah jawaban panjang, lalu dia mendengarkan seperti sesudah klik dua kali. Kalimat pendek selagi dia berpikir ([Respons instan](#respons-instan)) hanya dipotong: dia mendengarkan setelah jawabannya. Kalau dia sedang diam, tidak terjadi apa-apa. |
 | **Ctrl+Alt+R** | Mengulang ucapan terakhirnya, seperti "ulangi" (lihat [Ulangi](#ulangi)). Diabaikan selagi dia mendengarkanmu, berpikir, atau bicara. |
 | **Ctrl+Alt+Q** | Berhenti mendengarkan (lihat di bawah); tekan lagi untuk mendengarkan lagi. |
+| **Ctrl+Alt+T** | Seperti bertanya "Artinya apa teks yang kucopy?" tanpa mic: dia menerjemahkan teks yang dicopy (lihat [Artinya apa](#artinya-apa)). Diabaikan selagi dia mendengarkanmu, berpikir, atau bicara. |
 
 Hotkey tetap jalan walau avatar mati atau `avatar.interactions.double_click_listen: false`.
 
@@ -6839,17 +6949,21 @@ ucapannya, jadi konfirmasinya langsung terdengar.
 hotkeys:
   talk: F9        # Ctrl+Alt+F9 untuk langsung mendengarkan
   repeat: null    # tanpa Ctrl+Alt+R
+  translate: Y    # Ctrl+Alt+Y untuk "artinya apa"
 ```
 
 Tiap tombol satu huruf A-Z, angka 0-9, atau F1-F12 (Ctrl+Alt selalu ditambahkan); `null`
-mematikan satu hotkey, `enabled: false` mematikan semuanya. Semua pengaturannya ada di
-`config.example.yaml`, bagian `hotkeys`. Jalankan ulang `waifu run` sesudah mengubahnya.
+mematikan satu hotkey, `enabled: false` mematikan semuanya. Dua hotkey dengan tombol yang sama
+ditolak, kecuali `translate` yang belum ditulis di `config.yaml`: kalau T sudah dipakai hotkey
+lain (dari `config.yaml` sebelum v1.56), Ctrl+Alt+T mati dengan peringatan di log dan Cyrene tetap
+jalan. Semua pengaturannya ada di `config.example.yaml`, bagian `hotkeys`. Jalankan ulang
+`waifu run` sesudah mengubahnya.
 
-Selama `waifu run` jalan, keempat kombinasi ini tidak sampai ke program lain, juga yang sedang
-aktif: misalnya Ctrl+Alt+C (©) dan Ctrl+Alt+R (®) di Word, Ctrl+Alt+C di PyCharm, atau
-Ctrl+Alt+X dan Ctrl+Alt+Q di Visual Studio. `waifu check` tidak menganggapnya masalah, karena
-Cyrene memang memegangnya. Kalau kamu memakai salah satunya, ganti tombolnya (misalnya ke F9)
-atau matikan dengan `null`.
+Selama `waifu run` jalan, kelima kombinasi ini tidak sampai ke program lain, juga yang sedang
+aktif: misalnya Ctrl+Alt+C (©), Ctrl+Alt+R (®), dan Ctrl+Alt+T (™) di Word, Ctrl+Alt+C di
+PyCharm, atau Ctrl+Alt+X dan Ctrl+Alt+Q di Visual Studio. `waifu check` tidak menganggapnya
+masalah, karena Cyrene memang memegangnya. Kalau kamu memakai salah satunya, ganti tombolnya
+(misalnya ke F9) atau matikan dengan `null`.
 
 `waifu check` punya baris `Hotkey global`: kombinasi yang sedang aktif di `waifu run` yang jalan
 (tanpa `waifu run`, kombinasi di `config.yaml` yang akan dicoba), dan sampai jam berapa dia tidak
@@ -7546,6 +7660,20 @@ halaman tim di game atau sebuah error)
 - [ ] Dengan `vision.enabled: false`, `waifu check` menampilkan `! Melihat layar mati` dan
       "Cyrene, lihat layarku" tidak mengambil tangkapan layar.
 
+**Artinya apa** (lihat [Artinya apa](#artinya-apa))
+
+- [ ] Copy 「お疲れ様でした！また明日ね」, lalu "Cyrene, artinya apa yang kucopy?": dia mengucapkan
+      intinya tanpa romaji dan kartu Terjemahan tampil dengan kana, romaji, dan daftar kata; log
+      menampilkan `Read the clipboard (... characters)`, tanpa teksnya.
+- [ ] Di game borderless, copy teks lain lalu Ctrl+Alt+T: jawabannya sama tanpa mic; selagi dia
+      bicara Ctrl+Alt+T tidak melakukan apa pun, dan Ctrl+Alt+X lalu Ctrl+Alt+T langsung bertanya.
+- [ ] Copy sebuah kata sandi palsu (misalnya `Kucing123!`), lalu Ctrl+Alt+T: dia bilang
+      kelihatannya rahasia tanpa membacakannya, dan log serta `-v` tidak memuatnya.
+- [ ] Copy sebuah gambar, lalu "artinya apa yang kucopy?": dia bilang yang dicopy bukan teks.
+- [ ] Dengan belajar bahasa Jepang menyala, sesudah terjemahannya "simpan kata itu": kuis
+      berikutnya menanyakan kata itu, dan `waifu jepang progres` menampilkan `Kata tambahanmu`.
+- [ ] `waifu check` menampilkan `Ctrl+Alt+T artinya apa` di baris `Hotkey global`.
+
 **Sapaan pagi** (isi dulu `briefing.city` di `config.yaml`; lihat
 [Mengatur kota](#mengatur-kota))
 
@@ -7844,8 +7972,8 @@ di sampingnya)
 **Hotkey global** (lihat [Hotkey global](#hotkey-global))
 
 - [ ] Selagi `waifu run` jalan, `waifu check` menampilkan `✓ Hotkey global: Ctrl+Alt+C bicara,
-      Ctrl+Alt+X potong, Ctrl+Alt+R ulangi, Ctrl+Alt+Q berhenti mendengarkan; aktif di 'waifu
-      run'` tanpa baris `! Hotkey`.
+      Ctrl+Alt+X potong, Ctrl+Alt+R ulangi, Ctrl+Alt+Q berhenti mendengarkan, Ctrl+Alt+T artinya
+      apa; aktif di 'waifu run'` tanpa baris `! Hotkey`.
 - [ ] Di game layar penuh, Ctrl+Alt+C: dia bilang "はい, Master?", lalu "nyalakan lampu kamar"
       tanpa namanya dijawab.
 - [ ] Selagi dia membacakan jawaban panjang, Ctrl+Alt+X memotongnya seketika; sesudahnya
@@ -7934,9 +8062,10 @@ di sampingnya)
     bentuk teks), persona, daftar perangkat, hasil perintah perangkat, dan catatan
     ingatannya (di awal setiap sesi) dikirim ke API Anthropic, juga tangkapan layar
     monitor utama setiap kali Master memintanya melihat layar (tidak pernah disimpan ke
-    disk; lihat [Privasi layar](#privasi-layar)) dan foto kamera HP yang dikirim bersama
+    disk; lihat [Privasi layar](#privasi-layar)), foto kamera HP yang dikirim bersama
     pesan dari HP selama jendela kamera terbuka (tidak pernah disimpan ke disk; lihat
-    [Kamera HP](#kamera-hp)). Dengan Ollama, semuanya lokal;
+    [Kamera HP](#kamera-hp)), dan teks yang Master copy saat dia memintanya membaca clipboard
+    (lihat [Privasi artinya apa](#privasi-artinya-apa)). Dengan Ollama, semuanya lokal;
   - dengan engine `edge` di `tts`, teks jawaban Cyrene dikirim ke layanan edge-tts
     Microsoft untuk dijadikan suara. GPT-SoVITS, suara cadangan Windows, suara anime (RVC),
     dan avatar (VRM atau Live2D, termasuk elusan dan colekannya) berjalan lokal (halaman avatar hanya
@@ -8061,8 +8190,8 @@ di sampingnya)
   log; jawabannya juga tidak, tapi pengingat dan pengumuman memang sudah tercatat sebagai
   `Announcing: ...` saat pertama diucapkan. Lihat [Ulangi](#ulangi).
 - **Belajar bahasa Jepang:** `data\japanese.json` hanya berisi kode kata, kotaknya, dan tanggal,
-  hanya di PC ini. Dengan Claude, kata dan jawaban Master ikut ke API Anthropic seperti obrolan
-  biasa; tidak ada notifikasi HP sendiri. Lihat
+  ditambah kata yang Master simpan sendiri, hanya di PC ini. Dengan Claude, kata dan jawaban
+  Master ikut ke API Anthropic seperti obrolan biasa; tidak ada notifikasi HP sendiri. Lihat
   [Privasi belajar bahasa Jepang](#privasi-belajar-bahasa-jepang).
 - **Pengingat istirahat:** tidak menyimpan apa pun; yang dibaca hanya berapa lama sejak keyboard
   atau mouse terakhir disentuh, bukan tombolnya, layarnya, atau aplikasinya, dan hitungannya hanya
