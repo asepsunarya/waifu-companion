@@ -148,6 +148,14 @@ def test_the_page_has_a_hidden_card_panel_with_a_close_button() -> None:
     assert '<div id="card-content"></div>' in page
 
 
+def test_a_card_link_on_the_page_is_handed_to_cyrene_to_open() -> None:
+    # Without onLink a card link would open in this window's own browser, not the default one.
+    page = page_text()
+
+    assert re.search(r"buildCard\(document, card, \{ onLink: \(url\) => openLink\(", page)
+    assert "fetch(...linkRequest(token, url))" in page
+
+
 def test_the_card_panel_never_takes_the_focus() -> None:
     assert ".focus(" not in page_text()
 

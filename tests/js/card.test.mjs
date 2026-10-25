@@ -65,10 +65,15 @@ class FakeElement {
     this.listeners.set(type, listener);
   }
 
-  click() {
+  /** Fires a `type` event with `fields` at the element; whether a listener prevented its default. */
+  dispatch(type, fields = {}) {
     let prevented = false;
-    this.listeners.get("click")?.({ type: "click", preventDefault: () => (prevented = true) });
+    this.listeners.get(type)?.({ type, ...fields, preventDefault: () => (prevented = true) });
     return prevented;
+  }
+
+  click() {
+    return this.dispatch("click", { button: 0 });
   }
 }
 
@@ -356,6 +361,36 @@ describe("buildCard", () => {
 
     assert.equal(prevented, true);
     assert.deepEqual(opened, ["https://bmkg.go.id/cuaca"]);
+  });
+
+  it("hands a middle-clicked link to onLink instead of opening it in a new tab", () => {
+    const opened = [];
+    const [, , , , source] = elements(buildCard(fakeDocument, card, { onLink: (url) => opened.push(url) }));
+
+    const prevented = elements(source)[0].dispatch("auxclick", { button: 1 });
+
+    assert.equal(prevented, true);
+    assert.deepEqual(opened, ["https://bmkg.go.id/cuaca"]);
+  });
+
+  it("leaves the other extra mouse buttons alone", () => {
+    const opened = [];
+    const [, , , , source] = elements(buildCard(fakeDocument, card, { onLink: (url) => opened.push(url) }));
+
+    const prevented = elements(source)[0].dispatch("auxclick", { button: 3 });
+
+    assert.equal(prevented, false);
+    assert.deepEqual(opened, []);
+  });
+
+  it("offers no context menu to open a link apart from onLink", () => {
+    const opened = [];
+    const [, , , , source] = elements(buildCard(fakeDocument, card, { onLink: (url) => opened.push(url) }));
+    const [link] = elements(source);
+
+    assert.equal(link.dispatch("contextmenu", { button: 2 }), true);
+    assert.deepEqual(opened, []);
+    assert.equal(link.target, "");
   });
 
   it("follows a link like any other without onLink", () => {

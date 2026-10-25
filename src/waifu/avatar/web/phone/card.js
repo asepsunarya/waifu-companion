@@ -116,18 +116,31 @@ export function linkRequest(token, url) {
   ];
 }
 
+// The middle mouse button, whose click (an `auxclick`) would open the link in a new tab.
+const MIDDLE_BUTTON = 1;
+
+/**
+ * A link to `url`. With `onLink`, every way of opening it hands it to `onLink`: a click (with any key held), a middle
+ * click, and no context menu ("open in new tab"), so it never opens in the page's own browser.
+ */
 function linkElement(document, url, onLink) {
   const link = document.createElement("a");
   link.href = url;
   link.rel = "noopener noreferrer";
-  link.target = "_blank";
   link.textContent = url;
-  if (onLink) {
-    link.addEventListener("click", (event) => {
-      event.preventDefault();
-      onLink(url);
-    });
+  if (!onLink) {
+    link.target = "_blank";
+    return link;
   }
+  const open = (event) => {
+    event.preventDefault();
+    onLink(url);
+  };
+  link.addEventListener("click", open);
+  link.addEventListener("auxclick", (event) => {
+    if (event.button === MIDDLE_BUTTON) open(event);
+  });
+  link.addEventListener("contextmenu", (event) => event.preventDefault());
   return link;
 }
 
@@ -142,7 +155,7 @@ function lineElement(document, tagName, pieces, onLink) {
 /**
  * The card as a `div.card`: its title as `h2.card-title` (when it has one), its text lines as `p.card-line`, and each
  * run of bullets as a `ul.card-list`; a blank line ends a run. Built from elements and text nodes only. A link follows
- * the page's own way of opening links, or with `onLink` a click hands its URL to `onLink` instead.
+ * the page's own way of opening links, or with `onLink` a click or a middle click hands its URL to `onLink` instead.
  */
 export function buildCard(document, card, { onLink = null } = {}) {
   const root = document.createElement("div");
