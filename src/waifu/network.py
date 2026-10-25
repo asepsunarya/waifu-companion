@@ -43,6 +43,15 @@ MEANINGS: dict[Status, str] = {
     "offline": "internet putus",
     "router": "router tidak terjangkau",
 }
+# What Master can try for each problem he can act on, in her words and in `waifu internet`.
+ADVICE: dict[Status, str] = {
+    "router": "Coba cek Wi-Fi, kabel, atau routernya.",
+    "offline": (
+        "Coba restart modem atau routernya. Kalau tetap putus, mungkin ada gangguan dari provider."
+    ),
+    "dns": "Coba restart routernya, atau ganti DNS-nya ke Cloudflare atau Google.",
+    "slow": "Mungkin ada yang sedang download, atau jaringannya lagi padat.",
+}
 _HOYO = "Server HoYoLAB dan HoYoverse"
 # Only the round trip is measured, never the speed: a normal ping is no answer to "kok lemot?".
 _SPEED_UNMEASURED = (
@@ -230,11 +239,12 @@ def answer_line(finding: Finding, topic: Topic, owner_call: str) -> str:
     if finding.status == "dns":
         return (
             f"{owner}, internetnya tersambung, tapi DNS-nya bermasalah, jadi alamat situs tidak "
-            "bisa dicari."
+            f"bisa dicari. {ADVICE['dns']}"
         )
     took = _ms(finding.judged_ms or 0.0)
     if finding.status == "slow":
         said = [f"{owner}, internetnya lagi lambat, ping-nya sekitar {took} milidetik."]
+        said.append(ADVICE["slow"])
     else:
         said = [f"{owner}, ping internetnya normal, sekitar {took} milidetik."]
         if finding.status == "ok" and topic == "internet":
@@ -255,18 +265,20 @@ def back_line(owner_call: str, start: datetime, minutes: int) -> str:
 
 
 def _down_line(finding: Finding, owner: str) -> str:
+    """What is down, since when while an outage is open, and what Master can try."""
     if finding.status == "router":
-        said = f"{owner}, router tidak terjangkau: coba cek Wi-Fi, kabel, atau routernya."
+        said = [f"{owner}, router tidak terjangkau."]
     elif finding.reading.gateway_ms is not None:
-        said = (
+        said = [
             f"{owner}, internetnya putus: routernya tersambung, tapi internet di luar tidak bisa "
             "dihubungi."
-        )
+        ]
     else:
-        said = f"{owner}, internetnya putus: internet di luar tidak bisa dihubungi."
+        said = [f"{owner}, internetnya putus: internet di luar tidak bisa dihubungi."]
     if finding.outage is not None:
-        said += f" Putusnya sejak jam {finding.outage.start:%H.%M}."
-    return said
+        said.append(f"Putusnya sejak jam {finding.outage.start:%H.%M}.")
+    said.append(ADVICE[finding.status])
+    return " ".join(said)
 
 
 def _hoyo_sentence(hoyo: HoyoFinding) -> str:

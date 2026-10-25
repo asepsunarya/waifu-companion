@@ -343,21 +343,29 @@ def test_with_a_normal_round_trip_she_says_what_she_measured_and_what_else_may_b
 def test_she_says_a_slow_internet_with_the_round_trip_she_judged_by():
     said = answer_line(finding(FINE, "slow", 349.6), "internet", "Master")
 
-    assert said.startswith("Master, internetnya lagi lambat, ping-nya sekitar 350 milidetik.")
+    assert said == (
+        "Master, internetnya lagi lambat, ping-nya sekitar 350 milidetik. Mungkin ada yang sedang "
+        "download, atau jaringannya lagi padat."
+    )
 
 
-def test_she_says_the_router_is_out_of_reach():
+def test_she_says_the_router_is_out_of_reach_and_what_to_check():
     said = answer_line(finding(NO_INTERNET, "router"), "internet", "sayang")
 
-    assert said == "Sayang, router tidak terjangkau: coba cek Wi-Fi, kabel, atau routernya."
+    assert said == "Sayang, router tidak terjangkau. Coba cek Wi-Fi, kabel, atau routernya."
 
 
-def test_she_says_the_internet_is_cut_off_beyond_an_answering_router():
+OFFLINE_ADVICE = (
+    "Coba restart modem atau routernya. Kalau tetap putus, mungkin ada gangguan dari provider."
+)
+
+
+def test_she_says_the_internet_is_cut_off_beyond_an_answering_router_and_what_to_try():
     said = answer_line(finding(NO_INTERNET, "offline"), "internet", "Master")
 
     assert said == (
         "Master, internetnya putus: routernya tersambung, tapi internet di luar tidak bisa "
-        "dihubungi."
+        f"dihubungi. {OFFLINE_ADVICE}"
     )
 
 
@@ -366,15 +374,18 @@ def test_without_an_answering_router_she_says_only_that_the_internet_is_cut_off(
 
     said = answer_line(finding(reading, "offline"), "internet", "Master")
 
-    assert said == "Master, internetnya putus: internet di luar tidak bisa dihubungi."
+    assert (
+        said
+        == f"Master, internetnya putus: internet di luar tidak bisa dihubungi. {OFFLINE_ADVICE}"
+    )
 
 
-def test_with_an_outage_open_she_says_since_when():
+def test_with_an_outage_open_she_says_since_when_before_what_to_try():
     outage = CurrentOutage(SINCE, "offline")
 
     said = answer_line(finding(NO_INTERNET, "offline", outage=outage), "internet", "Master")
 
-    assert said.endswith("tidak bisa dihubungi. Putusnya sejak jam 21.03.")
+    assert said.endswith(f"tidak bisa dihubungi. Putusnya sejak jam 21.03. {OFFLINE_ADVICE}")
 
 
 def test_she_says_dns_is_failing_whatever_was_asked():
@@ -383,7 +394,7 @@ def test_she_says_dns_is_failing_whatever_was_asked():
     for topic in ("internet", "hoyo"):
         assert answer_line(finding(reading, "dns", 24.0), topic, "Master") == (
             "Master, internetnya tersambung, tapi DNS-nya bermasalah, jadi alamat situs tidak "
-            "bisa dicari."
+            "bisa dicari. Coba restart routernya, atau ganti DNS-nya ke Cloudflare atau Google."
         )
 
 

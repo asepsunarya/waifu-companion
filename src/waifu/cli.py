@@ -219,7 +219,7 @@ from waifu.lexicon import BUILT_IN_READINGS, Lexicon, LexiconError
 from waifu.listen_pause import ListenPause
 from waifu.memory import MemoryStore, memory_prompt_section
 from waifu.music import MusicService, open_in_browser, open_link, search_link, youtube_link
-from waifu.network import MEANINGS, Finding, NetworkCheck, NetworkState, Status
+from waifu.network import ADVICE, MEANINGS, Finding, NetworkCheck, NetworkState, Status
 from waifu.network_ask import NetworkAnswers
 from waifu.network_history import NetworkRecord, NetworkStore, outage_totals
 from waifu.network_probe import NetworkProbe, Reading
@@ -6274,7 +6274,8 @@ def _internet(args: argparse.Namespace) -> int:
 
 
 def _finding_lines(finding: Finding, hosts: NetworkHostsConfig) -> list[str]:
-    """The status, then how the router, the anchors, DNS, and the HoYo hosts answered."""
+    """The status, then how the router, the anchors, DNS, and the HoYo hosts answered, and what
+    Master can try for a problem he can act on."""
     reading = finding.reading
     lines = [
         f"{_STATUS_MARKS[finding.status]} Status: {MEANINGS[finding.status]}",
@@ -6290,6 +6291,9 @@ def _finding_lines(finding: Finding, hosts: NetworkHostsConfig) -> list[str]:
             else f"{hoyo.answered} dari {hoyo.of} menjawab, sekitar {_ms_text(hoyo.median_ms)}"
         )
         lines.append(f"  Server HoYoLAB/HoYoverse: {answered} (bukan ping server game)")
+    advice = ADVICE.get(finding.status)
+    if advice is not None:
+        lines.append(f"  Saran: {advice}")
     return lines
 
 

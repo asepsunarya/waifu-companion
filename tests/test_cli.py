@@ -13028,6 +13028,8 @@ def test_internet_says_what_is_down_and_an_outage_not_seen_to_end(
         "  Internet (1.1.1.1, 8.8.8.8): tidak menjawab",
         "  DNS (www.google.com): tidak menjawab",
         "  Server HoYoLAB/HoYoverse: tidak ada yang menjawab (bukan ping server game)",
+        "  Saran: Coba restart modem atau routernya. Kalau tetap putus, mungkin ada gangguan dari "
+        "provider.",
         "Hari ini: putus 2 kali, total 28 menit: 23.50-00.10, 22.40-22.58 (belum terlihat "
         "nyambung)",
         INTERNET_NOTE,
