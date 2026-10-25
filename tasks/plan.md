@@ -1193,17 +1193,17 @@ Delivered through the owner's reminder path (`remind`, and a push with notify on
 its own), once by default or every time. One non-strict tool, private in guest mode: 18 of 20
 strict tools, 17 of 24 optional parameters, and 0 of 16 unions stay. No dependency.
 - [x] Task 313a: contract: SPEC, tasks
-- [ ] Task 313: the `app_reminders` settings
-- [ ] Task 314: the store (`app_reminders.py`)
-- [ ] Task 315: real game starts (`opened_games`, `PlayTimeWatcher(on_started=)`)
-- [ ] Task 316: telling the reminders at a start (`AppReminderTeller`)
-- [ ] Task 317: the `app_reminder` tool
-- [ ] Task 318: `run`, `chat` (and guest mode), `waifu pengingat-game`, and `check`
-- [ ] Task 319: README, CHANGELOG
+- [x] Task 313: the `app_reminders` settings
+- [x] Task 314: the store (`app_reminders.py`)
+- [x] Task 315: real game starts (`opened_games`, `PlayTimeWatcher(on_started=)`)
+- [x] Task 316: telling the reminders at a start (`AppReminderTeller`)
+- [x] Task 317: the `app_reminder` tool
+- [x] Task 318: `run`, `chat` (and guest mode), `waifu pengingat-game`, and `check`
+- [x] Task 319: README, CHANGELOG
 
 ### Checkpoint: Pengingat saat game dibuka
-- [ ] Python suite, ruff, and JS tests clean; no test listed the real processes, spoke, pushed, or read `data/`; the strict-tool budget unchanged (18 of 20 strict tools, 17 of 24 optional parameters, 0 of 16 unions)
-- [ ] By hand: in a scratch folder, a fake process listing opening HSR after the first poll says the reminder once, and one running from the first poll or across a fake sleep says nothing
+- [x] Python suite, ruff, and JS tests clean; no test listed the real processes, spoke, pushed, or read `data/`; the strict-tool budget unchanged (18 of 20 strict tools, 17 of 24 optional parameters, 0 of 16 unions) (2026-10-25: 11409 pytest and 601 JS tests, ruff check and format clean; the watcher tests use a fake listing and a WIB clock the test moves, the teller a fake `tell`, the CLI tests the autouse fake PlayTimeWatcher and a FakeNotifier, every store under tmp_path; `app_reminder` has no `required`, so `to_anthropic` leaves it non-strict and the strict, optional, and union counts, taken over strict schemas only, do not move)
+- [x] By hand: in a scratch folder, a fake process listing opening HSR after the first poll says the reminder once, and one running from the first poll or across a fake sleep says nothing (2026-10-25, a mktemp folder deleted afterwards: the real PlayTimeWatcher, PlayTimeStore, AppReminderStore, and AppReminderTeller with a fake listing and clock: HSR open at the run's first poll said nothing; closed two polls and opened again said "Master, kamu baru buka HSR, jangan lupa farming relic dan daily." once and kept only the every-time one; Genshin found after a 2 h gap, HSR after the clock set back 5 minutes, and HSR at a restarted watcher's first poll said nothing; Genshin opened later said its line and was dropped; `python -m waifu pengingat-game` on a copy of config.example.yaml listed, `hapus 2` removed g2, `hapus g9` exited 1)
 - [ ] On the owner's PC: "pas buka HSR nanti, ingetin aku ..." is said when HSR next starts, and not when `waifu run` starts with HSR open
 
 ## Risks and Mitigations

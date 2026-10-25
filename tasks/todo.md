@@ -2989,58 +2989,58 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** none · **Files:** `SPEC.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
 
-## Task 313: The `app_reminders` settings
+## Task 313: The `app_reminders` settings ✅
 
 **Acceptance criteria:**
-- [ ] `app_reminders.enabled` (true) and `app_reminders.path` (`data/app_reminders.json`) load, an unknown key is refused; the example's commented block written out holds the defaults
+- [x] `app_reminders.enabled` (true) and `app_reminders.path` (`data/app_reminders.json`) load, an unknown key is refused; the example's commented block written out holds the defaults
 
 **Dependencies:** 313a · **Files:** `src/waifu/config.py`, `config.example.yaml`, `tests/test_config.py` · **Scope:** XS
 
-## Task 314: The app reminder store
+## Task 314: The app reminder store ✅
 
 **Acceptance criteria:**
-- [ ] `add` keeps a reminder with a new id (g1, g2, ..., never reused), the game, the collapsed text, once or every time, and an aware WIB time; `reminders()` in the order made, `for_game`, `remove` (None for an unknown id), `drop` (one write, none when nothing is there)
-- [ ] Refused with an Indonesian `AppReminderError`: an empty, too long, or secret-looking text, and a 31st reminder; a game that is not a GameId is a ValueError; a naive clock is a ValueError
-- [ ] Reading never creates the file; a file that is not an app reminder list (bad JSON, wrong keys, version, id, game, text, flag, time, a shared id) is moved aside and an empty list starts; an id at or beyond `next_id` is never handed out again; a Notepad BOM is read
+- [x] `add` keeps a reminder with a new id (g1, g2, ..., never reused), the game, the collapsed text, once or every time, and an aware WIB time; `reminders()` in the order made, `for_game`, `remove` (None for an unknown id), `drop` (one write, none when nothing is there)
+- [x] Refused with an Indonesian `AppReminderError`: an empty, too long, or secret-looking text, and a 31st reminder; a game that is not a GameId is a ValueError; a naive clock is a ValueError
+- [x] Reading never creates the file; a file that is not an app reminder list (bad JSON, wrong keys, version, id, game, text, flag, time, a shared id) is moved aside and an empty list starts; an id at or beyond `next_id` is never handed out again; a Notepad BOM is read
 
 **Dependencies:** 313a · **Files:** `src/waifu/app_reminders.py`, `tests/test_app_reminders.py` · **Scope:** S
 
-## Task 315: Real game starts in the play watcher
+## Task 315: Real game starts in the play watcher ✅
 
 **Acceptance criteria:**
-- [ ] `opened_games` gives the games followed after a poll and not before it; nothing across a sleep gap or a clock set back; a game missed at one poll and back is no start, one gone two polls and back is
-- [ ] `PlayTimeWatcher(on_started=...)` tells each start once, after `on_poll` and `on_finished`; never at the run's first poll (a game already running, resumed or not), after a sleep, or after a clock step; a start found by a poll whose write failed is told at the next poll that works; never from `stop()`; a failing listener is logged and play time goes on
+- [x] `opened_games` gives the games followed after a poll and not before it; nothing across a sleep gap or a clock set back; a game missed at one poll and back is no start, one gone two polls and back is
+- [x] `PlayTimeWatcher(on_started=...)` tells each start once, after `on_poll` and `on_finished`; never at the run's first poll (a game already running, resumed or not), after a sleep, or after a clock step; a start found by a poll whose write failed is told at the next poll that works; never from `stop()`; a failing listener is logged and play time goes on
 
 **Dependencies:** 313a · **Files:** `src/waifu/play_time.py`, `src/waifu/play_watch.py`, `tests/test_play_time.py`, `tests/test_play_watch.py` · **Scope:** S
 
-## Task 316: Telling the reminders at a start
+## Task 316: Telling the reminders at a start ✅
 
 **Acceptance criteria:**
-- [ ] `reminder_line` says the owner word at sentence start, the game's short name, and the texts joined (a dan b, a, b, dan c), each without trailing punctuation, a repeat said once
-- [ ] `game_started` tells one line with "happy" for every reminder of that game, drops the once ones and keeps the every-time ones; nothing for a game without reminders; a failed read says nothing; a failed drop still says the line; no text in the INFO log
+- [x] `reminder_line` says the owner word at sentence start, the game's short name, and the texts joined (a dan b, a, b, dan c), each without trailing punctuation, a repeat said once
+- [x] `game_started` tells one line with "happy" for every reminder of that game, drops the once ones and keeps the every-time ones; nothing for a game without reminders; a failed read says nothing; a failed drop still says the line; no text in the INFO log
 
 **Dependencies:** 314 · **Files:** `src/waifu/app_reminders.py`, `tests/test_app_reminders.py` · **Scope:** S
 
-## Task 317: The `app_reminder` tool
+## Task 317: The `app_reminder` tool ✅
 
 **Acceptance criteria:**
-- [ ] Non-strict spec (no `required`) with the configured games, byte-identical across calls; add (the default), list, and remove with JSON results; `game_open_now` and its message when the game's session is open now in the play time file
-- [ ] Bad arguments (unknown key, a key the action does not take, a game not tracked, a text that is not a string, a flag that is not a boolean, a missing game or text or id) and store refusals are error results; an unreadable file is logged; `run` never raises; refused in her own turns
+- [x] Non-strict spec (no `required`) with the configured games, byte-identical across calls; add (the default), list, and remove with JSON results; `game_open_now` and its message when the game's session is open now in the play time file
+- [x] Bad arguments (unknown key, a key the action does not take, a game not tracked, a text that is not a string, a flag that is not a boolean, a missing game or text or id) and store refusals are error results; an unreadable file is logged; `run` never raises; refused in her own turns
 
 **Dependencies:** 314 · **Files:** `src/waifu/brain/app_reminder_tools.py`, `tests/test_app_reminder_tools.py` · **Scope:** S
 
-## Task 318: `waifu run`, `chat`, `pengingat-game`, and `check`
+## Task 318: `waifu run`, `chat`, `pengingat-game`, and `check` ✅
 
 **Acceptance criteria:**
-- [ ] `run` gives the play watcher `on_started` with app reminders on (none with them off): a start reminds through `assistant.remind` and, with notify on, pushes from a daemon thread with the schedule tag; no new `with` item
-- [ ] `run` and `chat` offer `app_reminder` after `play_time` when play time and app reminders are on; it joins guest mode's `PRIVATE_TOOLS` (with the registration, so a full chat request carries every private tool at every commit); a full Claude chat request still holds 18 of 20 strict tools, 17 of 24 optional parameters, and 0 of 16 unions, with `app_reminder` not strict
-- [ ] `waifu pengingat-game` lists, `hapus <id>` removes (exit 1 for an unknown id); `check` says how many are kept, off, off without play time, unreadable, or a broken file moved
+- [x] `run` gives the play watcher `on_started` with app reminders on (none with them off): a start reminds through `assistant.remind` and, with notify on, pushes from a daemon thread with the schedule tag; no new `with` item
+- [x] `run` and `chat` offer `app_reminder` after `play_time` when play time and app reminders are on; it joins guest mode's `PRIVATE_TOOLS` (with the registration, so a full chat request carries every private tool at every commit); a full Claude chat request still holds 18 of 20 strict tools, 17 of 24 optional parameters, and 0 of 16 unions, with `app_reminder` not strict
+- [x] `waifu pengingat-game` lists, `hapus <id>` removes (exit 1 for an unknown id); `check` says how many are kept, off, off without play time, unreadable, or a broken file moved
 
 **Dependencies:** 315, 316, 317 · **Files:** `src/waifu/cli.py`, `src/waifu/guest.py`, `tests/test_cli.py`, `tests/test_guest.py` · **Scope:** M
 
-## Task 319: Docs
+## Task 319: Docs ✅
 
 **Acceptance criteria:**
-- [ ] README "Pengingat saat game dibuka" (and in the table of contents), the command row, the guest-mode list, and the Privasi bullet; CHANGELOG v1.53; full suite, ruff, and JS tests clean
+- [x] README "Pengingat saat game dibuka" (and in the table of contents), the command row, the guest-mode list, and the Privasi bullet; CHANGELOG v1.53; full suite, ruff, and JS tests clean
 
 **Dependencies:** 318 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S

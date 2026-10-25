@@ -56,6 +56,7 @@ Cyrene : "Komputer mau kumatikan sekarang, Master? Jawab iya kalau jadi." (minta
 - [Jam main](#jam-main)
 - [Teman fokus](#teman-fokus)
 - [Mode game](#mode-game)
+- [Pengingat saat game dibuka](#pengingat-saat-game-dibuka)
 - [Jurnal harian](#jurnal-harian)
 - [Rekap hari ini](#rekap-hari-ini)
 - [Pencarian web dan promo gratis](#pencarian-web-dan-promo-gratis)
@@ -755,6 +756,7 @@ waifu speaker-test    # skor kecocokan langsung, Ctrl+C untuk berhenti
 | `waifu phone setup` / `pair` / `devices` / `forget <id>` | Siapkan Cyrene di HP lewat Tailscale, pasangkan HP dengan kode, lihat dan lupakan HP (lihat [Cyrene di HP](#cyrene-di-hp)) |
 | `waifu pc` | Tampilkan kondisi PC saat ini: beban CPU, RAM, sisa disk, GPU NVIDIA, dan waktu sejak Windows terakhir di-restart (lihat [Kesehatan PC](#kesehatan-pc)) |
 | `waifu playtime` / `playtime yesterday` / `week` / `month` | Berapa lama HSR, Genshin, dan ZZZ terbuka hari ini, kemarin, minggu ini, atau bulan ini, dari catatan Cyrene selama `waifu run` menyala (lihat [Jam main](#jam-main)) |
+| `waifu pengingat-game` / `pengingat-game hapus <id>` | Lihat dan hapus pengingat yang dia ucapkan saat game dibuka, misalnya "pas buka HSR nanti, ingetin aku farming relic" (lihat [Pengingat saat game dibuka](#pengingat-saat-game-dibuka)) |
 | `waifu focus` | Waktu fokus hari ini dan minggu ini dari catatan teman fokus (pomodoro) Cyrene selama `waifu run` menyala (lihat [Teman fokus](#teman-fokus)) |
 | `waifu jurnal` / `jurnal show <tanggal>` / `add <teks> [--date YYYY-MM-DD]` / `forget <tanggal> [--yes]` | Lihat hari yang ada catatannya, catatan satu hari, tambah catatan, dan hapus catatan satu hari di jurnal harian (lihat [Jurnal harian](#jurnal-harian)) |
 | `waifu rekap` / `rekap kemarin` / `rekap YYYY-MM-DD` | Rekap hari ini sampai sekarang, kemarin, atau tanggal lain sampai 30 hari ke belakang dari catatan di PC ini (tugas, fokus, jam main, pull, kata Jepang, jumlah catatan jurnal, jadwal), tanpa otak (lihat [Rekap hari ini](#rekap-hari-ini)) |
@@ -764,7 +766,7 @@ waifu speaker-test    # skor kecocokan langsung, Ctrl+C untuk berhenti
 | `waifu tepira` / `tepira dompet` / `tujuan [nama]` / `transaksi [-n N]` / `token` | Keuangan dari tepira: ringkasan bulan ini, saldo dompet, tujuan tabungan, dan transaksi terbaru; `token` membuat token API Cyrene baru tanpa internet (lihat [Keuangan dari tepira](#keuangan-dari-tepira)) |
 | `waifu sholat` / `sholat YYYY-MM-DD` | Waktu sholat hari ini atau tanggal lain untuk tempat Master, dihitung tanpa internet dengan metode Kemenag RI, juga saat fiturnya mati (lihat [Waktu sholat](#waktu-sholat)) |
 | `waifu tombol` | Buka tombol cepat (lampu, AC, colokan, rutinitas) di browser default PC ini, tanpa otak; tutup dengan Ctrl+C (lihat [Tombol cepat di PC](#tombol-cepat-di-pc)) |
-| `waifu check` | Periksa config, versi `waifu run` yang berjalan, kabar versi baru, kode IR, aplikasi PC, rutinitas, tombol cepat di PC, voiceprint, otak, ingatan, jadwal, daftar tugas, jurnal, belajar bahasa Jepang, lagu YouTube, sapaan pagi, peringatan hujan, biaya API, kesehatan PC, jam main, teman fokus, mode game, mode tamu, volume suaranya, waktu sholat, pencarian web, promo gratis, paket suara, CUDA, mic, suara cadangan offline, suara anime, avatar, keuangan tepira, dan Cyrene di HP |
+| `waifu check` | Periksa config, versi `waifu run` yang berjalan, kabar versi baru, kode IR, aplikasi PC, rutinitas, tombol cepat di PC, voiceprint, otak, ingatan, jadwal, daftar tugas, jurnal, belajar bahasa Jepang, lagu YouTube, sapaan pagi, peringatan hujan, biaya API, kesehatan PC, jam main, pengingat saat game dibuka, teman fokus, mode game, mode tamu, volume suaranya, waktu sholat, pencarian web, promo gratis, paket suara, CUDA, mic, suara cadangan offline, suara anime, avatar, keuangan tepira, dan Cyrene di HP |
 
 Opsi untuk semua perintah: `--config <file>` (default `config.yaml`), `--dry-run`
 (perangkat simulasi), `-v` (log lebih rinci), `--log-file <file>` (log juga ditulis
@@ -4954,7 +4956,7 @@ Jalankan ulang `waifu run` setelah mengubahnya. `waifu chat` tidak punya mode ga
 ### Yang tetap berbunyi
 
 - **Pengingat dan jadwal yang Master pasang sendiri**, tepat waktu, juga kalimat
-  [Teman fokus](#teman-fokus).
+  [Teman fokus](#teman-fokus) dan [pengingat saat game dibuka](#pengingat-saat-game-dibuka).
 - **Pengingat tidur jam main** (`play_time.bedtime`): hanya muncul selagi game terbuka, jadi
   dengan `hold` atau `phone` dia mengucapkannya seperti pengingat Master, tanpa menunggu game
   ditutup (juga selagi jendela lanjutan terbuka atau di tengah blok fokus).
@@ -5061,6 +5063,98 @@ yang memang sudah dikirim fitur lain.
 
 Untuk mematikannya, hapus bagian `game_mode` atau tulis `announcements: normal` tanpa
 `on_start` dan `on_stop`.
+
+## Pengingat saat game dibuka
+
+Kadang yang perlu diingat bukan jamnya, tapi saat main berikutnya. Cyrene menyimpan pengingat
+seperti itu dan mengucapkannya saat game itu benar-benar baru dibuka. Fitur ini sudah menyala
+dari awal (`app_reminders.enabled: true`), dengan otak Ollama maupun Claude. Dia tahu game dibuka
+dari [Jam main](#jam-main), jadi `play_time.enabled` harus menyala (bawaannya menyala), dan hanya
+game di `play_time.games` (HSR, Genshin, ZZZ) yang bisa.
+
+```text
+Master : "Cyrene, pas buka HSR nanti, ingetin aku farming relic."
+Cyrene : "Oke, nanti pas kamu buka HSR kuingatkan ya."
+          ... malamnya HSR dibuka ...
+Cyrene : "Master, kamu baru buka HSR, jangan lupa farming relic."
+Master : "Cyrene, tiap buka Genshin ingetin cek ekspedisi."
+Master : "Cyrene, nanti kalau buka ZZZ ingetin claim battle pass."
+Master : "Cyrene, pengingat gameku apa aja?"
+Master : "Cyrene, hapus pengingat Genshin yang ekspedisi."
+```
+
+### Sekali atau tiap kali
+
+- **Sekali** (bawaan): diucapkan saat game itu dibuka berikutnya, lalu hilang.
+- **Tiap kali**: kalau Master bilang "tiap" atau "setiap kali", diucapkan setiap game itu dibuka
+  sampai Master menghapusnya.
+- Beberapa pengingat untuk game yang sama diucapkan dalam satu kalimat: "Master, kamu baru buka
+  ZZZ, jangan lupa claim battle pass dan cek toko."
+- Kalau game-nya sedang terbuka saat Master memintanya, pengingatnya disimpan untuk saat game itu
+  dibuka lagi nanti, dan dia bilang begitu; tidak diucapkan sekarang.
+- Paling banyak 30 pengingat; yang ke-31 ditolak sampai ada yang dihapus. Pengingat yang terlihat
+  seperti rahasia (kata sandi, PIN, token, nomor kartu) tidak disimpan.
+- Untuk jam tertentu ("ingetin aku jam 9 malam") tetap pakai
+  [pengingat biasa](#jadwal-pengingat-dan-rutinitas).
+
+### Kapan diucapkan
+
+- **Hanya saat game benar-benar baru dibuka** selagi `waifu run` menyala: paling lama
+  `play_time.poll_seconds` (60 detik) sesudah programnya muncul, jadi biasanya selagi layar
+  loading.
+- **Bukan untuk game yang sudah terbuka** saat `waifu run` mulai (misalnya autostart sesudah
+  login, atau restart Cyrene di tengah main), dan bukan saat PC bangun dari sleep atau jam PC
+  berubah: pengingatnya menunggu pembukaan berikutnya. Game yang dibuka selagi `waifu run` masih
+  memuat model suaranya, atau tepat sesudah PC bangun, juga dianggap sudah terbuka.
+- Game yang ditutup lalu dibuka lagi dalam sekitar 1-2 menit (misalnya launcher yang restart)
+  masih sesi yang sama: tidak diucapkan lagi.
+- Diucapkan **seperti pengingat yang Master pasang sendiri**: di sela kalimat, juga selama blok
+  [Teman fokus](#teman-fokus) dan selama [Mode game](#mode-game) menahan pengumumannya (`hold`
+  maupun `phone`). Kalau notifikasi HP menyala, kalimatnya juga dikirim ke HP, seperti pengingat
+  jadwal.
+- Dengan [Mode tamu](#mode-tamu), pengingat yang jatuh waktunya tetap diucapkan (seperti
+  pengingat lain yang Master pasang), tapi daftar, menambah, dan menghapusnya lewat suara
+  ditolak.
+- Pengingat sekali dihapus begitu dia mengantrekannya: kalau `waifu run` dihentikan sebelum dia
+  sempat bicara, pengingatnya hilang (yang dikirim ke HP tetap ada). Kalau filenya tidak bisa
+  ditulis saat itu, pengingatnya tetap diucapkan dan bisa terulang di pembukaan berikutnya.
+
+### Dari terminal: `waifu pengingat-game`
+
+```powershell
+waifu pengingat-game            # semua pengingat game, yang paling lama dibuat dulu
+waifu pengingat-game hapus g2   # hapus satu (boleh juga: hapus 2)
+```
+
+```text
+ID  GAME     KAPAN        PENGINGAT
+g1  HSR      sekali       farming relic
+g2  Genshin  tiap dibuka  cek ekspedisi
+```
+
+Menambah pengingat hanya lewat suara atau `waifu chat`. Kedua perintah jalan juga saat fiturnya
+mati, dan Cyrene yang sedang berjalan langsung melihat perubahannya. `waifu check` menampilkan
+`✓ Pengingat saat game dibuka: 2 tersimpan`, atau `! Pengingat saat game dibuka mati` (juga
+kalau `play_time` mati). File `data\app_reminders.json` yang rusak dipindah ke
+`app_reminders.json.corrupt-<waktu>` (daftar baru dimulai dari kosong), dan `check` menunjuknya
+sampai Master memperbaiki atau menghapusnya.
+
+Untuk mematikannya, tulis di `config.yaml`:
+
+```yaml
+app_reminders:
+  enabled: false           # tanpa tool dan tidak ada yang diucapkan (`waifu pengingat-game` tetap jalan)
+  path: data/app_reminders.json
+```
+
+### Privasi pengingat game
+
+`data\app_reminders.json` hanya berisi game, teks pengingatnya, sekali atau tiap kali, dan kapan
+dibuat, hanya di PC ini. Kalau notifikasi HP menyala, pengingat yang jatuh waktunya dikirim ke
+`ntfy.sh` seperti pengingat jadwal (siapa pun yang tahu nama topiknya bisa membacanya). Dengan
+Claude, teksnya ikut ke API Anthropic saat Master membuat, melihat, atau menghapusnya (dengan
+Ollama, semuanya lokal). Seperti pengingat jadwal, log biasa mencatat teksnya saat Master
+membuatnya (baris panggilan tool), tapi saat diucapkan hanya berapa pengingatnya, bukan isinya.
 
 ## Jurnal harian
 
@@ -5728,6 +5822,8 @@ bilang singkat bahwa itu ditutup dulu selama ada tamu:
   catatan Master tidak bisa dihapus;
 - daftar tugas (semuanya);
 - jam main;
+- [pengingat saat game dibuka](#pengingat-saat-game-dibuka) (membuat, melihat, dan menghapus;
+  yang jatuh waktunya tetap diucapkan, seperti pengingat lain yang Master pasang);
 - [rekap hari ini](#rekap-hari-ini);
 - akun game: status, riwayat pull, pendapatan, karakter, endgame, jadwal banner dan event
   (jawabannya memuat progres event dan bintang endgame Master), laporan mingguan, dan kode
@@ -7334,6 +7430,20 @@ halaman tim di game atau sebuah error)
       `waifu run` dengan game terbuka: dia mengingatkan sekali; restart `waifu run`: tidak
       diulang malam itu. Setelah itu kosongkan lagi.
 
+**Pengingat saat game dibuka** (lihat [Pengingat saat game dibuka](#pengingat-saat-game-dibuka))
+
+- [ ] Dengan HSR tertutup, "Cyrene, pas buka HSR nanti, ingetin aku farming relic": dia bilang
+      akan mengingatkan; `waifu pengingat-game` menampilkannya. Buka HSR: dalam semenit dia
+      bilang "kamu baru buka HSR, jangan lupa farming relic", sekali, lalu pengingatnya hilang
+      dari `waifu pengingat-game`.
+- [ ] "Tiap buka Genshin ingetin cek ekspedisi", lalu buka dan tutup Genshin dua kali (tutup
+      lebih dari 2 menit): diucapkan di kedua pembukaan.
+- [ ] Dengan pengingat "tiap kali" untuk HSR yang sudah diucapkan saat HSR dibuka, restart
+      `waifu run` dengan HSR tetap terbuka: tidak diucapkan lagi; sleep PC beberapa menit dengan
+      HSR terbuka: tidak diucapkan juga.
+- [ ] Selagi HSR terbuka, "nanti kalau buka HSR lagi ingetin daily": dia bilang HSR sedang
+      terbuka dan akan mengingatkan di pembukaan berikutnya.
+
 **Teman fokus** (lihat [Teman fokus](#teman-fokus))
 
 - [ ] `waifu check` menampilkan `✓ Teman fokus: aktif`.
@@ -7643,6 +7753,10 @@ di sampingnya)
   main ke `ntfy.sh` kalau notifikasi HP dan `weekly_report.push` menyala; dengan Claude, totalnya
   ke API Anthropic saat Master bertanya dan di laporan game mingguan. Lihat
   [Privasi jam main](#privasi-jam-main).
+- **Pengingat saat game dibuka:** `data\app_reminders.json` (game, teks, sekali atau tiap kali)
+  hanya di PC ini. Pengingat yang jatuh waktunya ke `ntfy.sh` kalau notifikasi HP menyala, seperti
+  pengingat jadwal; dengan Claude, teksnya ke API Anthropic saat Master membuat, melihat, atau
+  menghapusnya. Lihat [Privasi pengingat game](#privasi-pengingat-game).
 - **Teman fokus:** `data\focus.json` hanya berisi kapan tiap blok fokus mulai dan selesai, hanya
   di PC ini (90 hari). Dengan Claude, waktunya ke API Anthropic saat Master bertanya; kalimatnya
   ke `ntfy.sh` hanya dengan `focus.push` dan notifikasi HP menyala. Lihat
