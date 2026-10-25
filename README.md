@@ -3855,15 +3855,19 @@ mendengarkan (Ctrl+Alt+Q), mode fokus, dan mode game. Untuk mengganti atau memat
   dan tidak ditulis ke log. Yaitu satu kata 8-128 huruf yang mencampur paling sedikit tiga dari
   huruf besar, huruf kecil, angka, dan simbol (kata sandi; tanda baca di awal atau akhir kata yang
   isinya huruf saja, seperti "Welcome!" atau "#HonkaiStarRail", tidak dihitung sebagai simbol),
-  20 huruf dan angka berturut-turut (token, API key), 4-8 angka
-  (kode OTP atau PIN), nomor kartu, nomor rekening atau HP (hanya angka, 10 atau lebih), kunci
-  privat, dan kata seperti "password" atau "PIN" beserta isinya. Dia hanya bilang kelihatannya
-  rahasia, tanpa menebak isinya.
+  20 huruf dan angka berturut-turut (token, API key), 4-8 angka (kode OTP atau PIN), nomor kartu,
+  nomor rekening atau HP (hanya angka, 10 atau lebih), kunci privat, kata seperti "password" atau
+  "PIN" beserta isinya, pesan kode verifikasi beserta kodenya ("482910 adalah kode OTP Anda",
+  "【認証コード】482910", "Your verification code is 482910"), dan baris seperti "pass: ..." atau
+  "pw: ...". Dia hanya bilang kelihatannya rahasia, tanpa menebak isinya.
 - Salinan dari password manager yang menandainya sebagai privat (misalnya KeePass) tidak dibaca
   sama sekali.
 - Karena itu teks biasa yang memuat 20 huruf dan angka berturut-turut di mana saja (misalnya link
   panjang) juga ditolak utuh, begitu juga satu kata dengan angka atau simbol di dalamnya seperti
-  "COVID-19". Copy bagian teksnya saja, atau beberapa kata bersama kalimatnya.
+  "COVID-19", dan teks yang menyebut OTP atau kode verifikasi di dekat angka 4-8 digit (misalnya
+  tahun). Copy bagian teksnya saja, atau beberapa kata bersama kalimatnya.
+- Pesan kode yang hanya menyebutnya "code" ("482910 is your Instagram code") tidak dikenali:
+  jangan copy pesan kode untuk diterjemahkan.
 
 ### Privasi artinya apa
 

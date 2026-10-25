@@ -395,6 +395,7 @@ def test_the_real_reader_never_reaches_the_owner_s_clipboard_in_the_suite(refuse
         "Hunter2!x",
         "Pass!word",  # a symbol inside letters
         "482910",  # an OTP
+        "４８２９１０",  # in full-width digits
         "1234",  # a PIN
         "482 910",
         "4829-1035",
@@ -403,6 +404,24 @@ def test_the_real_reader_never_reaches_the_owner_s_clipboard_in_the_suite(refuse
         "123 456 7890 12",
         "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAA\n",
         "my PRIVATE KEY is here",
+        # A message with its code: OTP or verification wording near 4-8 digits, either side.
+        "<#> 482910 adalah kode OTP Anda. JANGAN BERIKAN kode ini kepada siapapun.",
+        "Kode verifikasi: 482910",
+        "【認証コード】482910 このコードを他人に教えないでください。",
+        "認証コード: 482910",
+        "認証コード：４８２９１０",  # full-width digits
+        "確認コードは 482 910 です",
+        "ワンタイムパスワード 48291035",
+        "Your verification code is 482910. It expires in 10 minutes.",
+        "Your HoYoverse verification code is: 482910",
+        "482910 is your verification code",
+        "G-482910 is your Google verification code.",
+        "Login code: 482910",
+        "Use 4829-1035 as your Microsoft account security code",
+        "Your one-time passcode: 482910 5 minutes",
+        # A password under a short label at the start of a line.
+        "user: budi\npass: Kucing123",
+        "pw = kucing",
     ],
 )
 def test_secret_looking_copies_look_private(text):
@@ -436,6 +455,13 @@ def test_secret_looking_copies_look_private(text):
         "#HonkaiStarRail",
         '"Trailblazer"',
         "(HoYoverse)",
+        # Numbers beside a code word that is no OTP's, or OTP wording without its code.
+        "kode pos 40115",
+        "Promo code 2024: diskon 50%",
+        "Kode OTP dikirim lewat SMS, jangan berikan ke siapa pun.",
+        "2024年にISO認証を取得しました",  # certification, not a code
+        "Battle Pass: 2 days left",
+        "Nameless Honor\nPass: 1280 Oneiric Shards",
     ],
 )
 def test_ordinary_copies_do_not_look_private(text):

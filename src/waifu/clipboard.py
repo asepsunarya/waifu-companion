@@ -25,6 +25,7 @@ import logging
 import re
 import string
 import time
+import unicodedata
 from collections.abc import Callable, Mapping
 from ctypes import wintypes
 from dataclasses import dataclass
@@ -61,6 +62,26 @@ _PIN_DIGITS = range(4, 9)
 _NUMBER = re.compile(r"[0-9 -]+")
 _NUMBER_DIGITS = 10
 _KEY_MARKS = ("-----BEGIN", "PRIVATE KEY")
+# What a message sending a one-time code calls it, in any case: never a bare "kode", "code", or
+# "コード", which a postcode or a promo code is too.
+_CODE_WORDS = re.compile(
+    r"(?<![a-z])(?:otp|passcode|one[\s-]*time[\s-]*(?:pass(?:word|code)?|code|pin)"
+    r"|(?:verification|verify|log[\s-]*in|sign[\s-]*in|security|auth(?:entication)?"
+    r"|confirmation)[\s-]*code"
+    r"|kode[\s-]+(?:verifikasi|keamanan|login|masuk|konfirmasi|autentikasi)"
+    r"|認証コード|認証番号|確認コード|確認番号|ワンタイム|暗証|セキュリティコード|ログインコード)"
+    r"(?:-?(?:nya|ku|mu))?(?![a-z])",
+    re.IGNORECASE,
+)
+# Digits in one or two groups split by a space or a dash, as a code is written ("482 910").
+_CODE_DIGITS = re.compile(r"(?<![0-9])[0-9]+(?:[ -][0-9]+)?(?![0-9])")
+_CODE_GROUP_SPLIT = re.compile(r"[ -]")
+# How far from its code a message's code word may be, on either side.
+_CODE_NEAR_CHARS = 40
+# A line holding a short password label and one word ("pass: Kucing123").
+_PASSWORD_LINE = re.compile(
+    r"^[ \t]*(?:pass|pw|pwd)[ \t]*[:=][ \t]*\S+[ \t]*$", re.IGNORECASE | re.MULTILINE
+)
 _SURROGATE = re.compile("[\ud800-\udfff]")
 
 _Signature = tuple[list[Any], Any]
@@ -140,8 +161,17 @@ def looks_private(text: str) -> bool:
     and symbols (a password) unless it is letters alone with punctuation around them
     ("Welcome!", "#HonkaiStarRail"), 4-8 digits with at most one space or dash among them (an
     OTP or a PIN), only digits, spaces, and dashes with 10 or more digits (an account or phone
-    number), or a text holding a private key."""
-    if looks_secret(text) or any(mark in text for mark in _KEY_MARKS):
+    number), or a text holding a private key, a message with its one-time code (OTP or
+    verification wording within _CODE_NEAR_CHARS characters of 4-8 digits, on either side), or a
+    line "pass: <one word>" ("pw", "pwd", ":" or "="). Full-width characters count as their
+    ASCII forms (NFKC)."""
+    text = unicodedata.normalize("NFKC", text)
+    if (
+        looks_secret(text)
+        or any(mark in text for mark in _KEY_MARKS)
+        or _PASSWORD_LINE.search(text) is not None
+        or _holds_a_code_with_its_words(text)
+    ):
         return True
     whole = text.strip()
     digits = sum(character.isascii() and character.isdigit() for character in whole)
@@ -158,6 +188,27 @@ def _looks_like_password(whole: str) -> bool:
     if _LONE_WORD.fullmatch(whole) is None or whole.strip(string.punctuation).isalpha():
         return False
     return sum(kind.search(whole) is not None for kind in _CHARACTER_KINDS) >= _PASSWORD_KINDS
+
+
+def _holds_a_code_with_its_words(text: str) -> bool:
+    """Whether a one-time code's wording comes near a code of 4-8 digits in `text`."""
+    words = [match.span() for match in _CODE_WORDS.finditer(text)]
+    if not words:
+        return False
+    codes = [match.span() for match in _CODE_DIGITS.finditer(text) if _is_code(match.group())]
+    return any(
+        max(code_start - word_end, word_start - code_end) <= _CODE_NEAR_CHARS
+        for word_start, word_end in words
+        for code_start, code_end in codes
+    )
+
+
+def _is_code(digits: str) -> bool:
+    """Whether a run of digit groups is a code: 4-8 digits in all, or a group of 4-8 alone."""
+    groups = _CODE_GROUP_SPLIT.split(digits)
+    return sum(map(len, groups)) in _PIN_DIGITS or any(
+        len(group) in _PIN_DIGITS for group in groups
+    )
 
 
 def _marked(name: str) -> bool:
