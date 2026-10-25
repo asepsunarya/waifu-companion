@@ -23,6 +23,7 @@ from __future__ import annotations
 import ctypes
 import logging
 import re
+import string
 import time
 from collections.abc import Callable, Mapping
 from ctypes import wintypes
@@ -136,21 +137,27 @@ def looks_private(text: str) -> bool:
     """Whether a copy looks like a secret: what `memory.looks_secret` catches (a secret word with
     its value, a long run of letters and digits, a card number), or, the whole text stripped,
     one word of 8-128 ASCII characters mixing at least three of lower case, upper case, digits,
-    and symbols (a password), 4-8 digits with at most one space or dash among them (an OTP or a
-    PIN), only digits, spaces, and dashes with 10 or more digits (an account or phone number), or
-    a text holding a private key."""
+    and symbols (a password) unless it is letters alone with punctuation around them
+    ("Welcome!", "#HonkaiStarRail"), 4-8 digits with at most one space or dash among them (an
+    OTP or a PIN), only digits, spaces, and dashes with 10 or more digits (an account or phone
+    number), or a text holding a private key."""
     if looks_secret(text) or any(mark in text for mark in _KEY_MARKS):
         return True
     whole = text.strip()
     digits = sum(character.isascii() and character.isdigit() for character in whole)
     return (
-        (
-            _LONE_WORD.fullmatch(whole) is not None
-            and sum(kind.search(whole) is not None for kind in _CHARACTER_KINDS) >= _PASSWORD_KINDS
-        )
+        _looks_like_password(whole)
         or (_PIN.fullmatch(whole) is not None and digits in _PIN_DIGITS)
         or (_NUMBER.fullmatch(whole) is not None and digits >= _NUMBER_DIGITS)
     )
+
+
+def _looks_like_password(whole: str) -> bool:
+    """Whether `whole` is one word mixing at least _PASSWORD_KINDS kinds of characters; the
+    punctuation around a word of letters alone is no symbol of it."""
+    if _LONE_WORD.fullmatch(whole) is None or whole.strip(string.punctuation).isalpha():
+        return False
+    return sum(kind.search(whole) is not None for kind in _CHARACTER_KINDS) >= _PASSWORD_KINDS
 
 
 def _marked(name: str) -> bool:

@@ -390,6 +390,10 @@ def test_the_real_reader_never_reaches_the_owner_s_clipboard_in_the_suite(refuse
         "correcthorse9!",  # lower, digits, symbols
         "Kucing123",  # lower, upper, digits
         "  Kucing123\n",  # stripped first
+        "kucing123!",  # lower, digits, and a symbol at its end: not letters alone
+        "Kucing123!",
+        "Hunter2!x",
+        "Pass!word",  # a symbol inside letters
         "482910",  # an OTP
         "1234",  # a PIN
         "482 910",
@@ -422,6 +426,16 @@ def test_secret_looking_copies_look_private(text):
         "1234 5678 9",  # three groups: neither
         "Kucing1",  # seven characters: too short for a password
         "https://example.com/page",  # lower case and symbols: two kinds
+        # One word of letters with punctuation around it, as a game or a tweet writes it.
+        "Welcome!",
+        "Congratulations!",
+        "Mesmerizing.",
+        "Otsukaresama!",
+        "Sorry...",
+        "Seriously?!",
+        "#HonkaiStarRail",
+        '"Trailblazer"',
+        "(HoYoverse)",
     ],
 )
 def test_ordinary_copies_do_not_look_private(text):

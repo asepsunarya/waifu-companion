@@ -3852,15 +3852,18 @@ mendengarkan (Ctrl+Alt+Q), mode fokus, dan mode game. Untuk mengganti atau memat
 ### Yang tidak dibaca
 
 - Teks yang kelihatan seperti rahasia ditolak utuh: tidak dibacakan, tidak dikirim ke otaknya,
-  dan tidak ditulis ke log. Yaitu satu kata 8-128 huruf yang mencampur huruf besar, huruf kecil,
-  angka, atau simbol (kata sandi), 20 huruf dan angka berturut-turut (token, API key), 4-8 angka
+  dan tidak ditulis ke log. Yaitu satu kata 8-128 huruf yang mencampur paling sedikit tiga dari
+  huruf besar, huruf kecil, angka, dan simbol (kata sandi; tanda baca di awal atau akhir kata yang
+  isinya huruf saja, seperti "Welcome!" atau "#HonkaiStarRail", tidak dihitung sebagai simbol),
+  20 huruf dan angka berturut-turut (token, API key), 4-8 angka
   (kode OTP atau PIN), nomor kartu, nomor rekening atau HP (hanya angka, 10 atau lebih), kunci
   privat, dan kata seperti "password" atau "PIN" beserta isinya. Dia hanya bilang kelihatannya
   rahasia, tanpa menebak isinya.
 - Salinan dari password manager yang menandainya sebagai privat (misalnya KeePass) tidak dibaca
   sama sekali.
 - Karena itu teks biasa yang memuat 20 huruf dan angka berturut-turut di mana saja (misalnya link
-  panjang) juga ditolak utuh. Copy bagian teksnya saja.
+  panjang) juga ditolak utuh, begitu juga satu kata dengan angka atau simbol di dalamnya seperti
+  "COVID-19". Copy bagian teksnya saja, atau beberapa kata bersama kalimatnya.
 
 ### Privasi artinya apa
 
