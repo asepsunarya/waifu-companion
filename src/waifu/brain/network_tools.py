@@ -36,8 +36,9 @@ _DESCRIPTION = (
     "so sites do not open), hoyo (the HoYoLAB and HoYoverse servers are silent or slow), offline "
     "(the internet beyond the router is cut off), or router (the PC cannot reach the router: the "
     "Wi-Fi, the cable, or the router itself); `meaning` says it in Indonesian. `internet_ms` is "
-    "the round trip she judged slowness by. `router` is answered, no_reply (many routers ignore "
-    "pings, so that alone is no problem), or none. The HoYo servers are HoYoLAB's and HoYoverse's "
+    'the round trip to the internet right now, which slowness is judged by: say it for "ping-ku '
+    'berapa?". `router` is answered, no_reply (many routers ignore pings, so that alone is no '
+    "problem), or none. The HoYo servers are HoYoLAB's and HoYoverse's "
     "web servers, not the game server, so never call their time the game's ping. `outage_now` is "
     "an outage your internet watcher confirmed: since when and how many minutes; "
     "`outages_today` is there only when the internet was down today while `waifu run` was on. "

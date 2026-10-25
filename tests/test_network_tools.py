@@ -103,6 +103,26 @@ def test_it_checks_now_with_the_lookup_and_the_hoyo_hosts():
     }
 
 
+def test_the_round_trip_told_is_this_check_s_whatever_the_watcher_s_polls_found():
+    state = NetworkState(slow_window=5)
+    for took in (20.0, 21.0, 22.0, 23.0):
+        state.note(replace(FINE, anchor_ms=took), "ok")
+    tools, _ = make_tools(FakeProbe(replace(FINE, anchor_ms=450.0)), state=state)
+
+    data, _ = result(tools)
+
+    assert (data["status"], data["internet_ms"]) == ("slow", 450)
+
+
+def test_the_description_says_the_round_trip_is_now_and_for_the_ping_question():
+    tools, _ = make_tools()
+
+    [spec] = tools.specs()
+
+    assert "`internet_ms` is the round trip to the internet right now" in spec.description
+    assert 'say it for "ping-ku berapa?"' in spec.description
+
+
 def test_a_cut_off_internet_says_what_answered_and_never_an_address():
     reading = replace(
         FINE, anchor_ms=None, gateway_ms=None, dns_ms=None, hoyo_ms=(None, None, None)

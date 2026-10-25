@@ -4,13 +4,15 @@
 `router` (no anchor answered, and Windows had no route or a gateway that answered earlier in this
 run is silent now: many routers ignore pings, so one that never answered is never blamed),
 `offline` (no anchor answered), `dns` (the lookup was made and failed), `slow` (the median of the
-recent round trips with this one is above `slow_ms`), `hoyo` (a HoYo host checked is silent, or
-those that answered are slow by their median), else `ok`. `router` and `offline` are `DOWN`.
+recent round trips given with this one is above `slow_ms`), `hoyo` (a HoYo host checked is
+silent, or those that answered are slow by their median), else `ok`. `router` and `offline` are
+`DOWN`.
 
 `NetworkState` is one per `waifu run`, shared by the watcher, her answers, the tool, the brain,
 and the speech router: the gateways that answered, the last round trips, whether the last check
 failed, whether a HoYo game runs (from the play time watcher's polls), and the outage the watcher
-confirmed. `NetworkCheck` makes a check, classifies it with what the state knows, and notes it.
+confirmed. `NetworkCheck` makes a check, classifies it with what the state knows, and notes it:
+the watcher's poll is slow by the median with the last round trips, a check when asked by its own.
 
 Her words name no address: `answer_line` for Master's question, `back_line` once the internet is
 back, and `outage_note` for Claude's connection apology. They never use parentheses, which her
@@ -110,7 +112,9 @@ class Finding:
 
     reading: Reading
     status: Status
-    judged_ms: float | None  # the median she judged slow by; None without the internet
+    # The round trip she judged slowness by (a poll's median with the recent ones, an asked
+    # check's own); None without the internet.
+    judged_ms: float | None
     outage: CurrentOutage | None  # the watcher's, when one is open
     hoyo: HoyoFinding | None = None  # None: the HoYo hosts were not checked
 
@@ -195,11 +199,18 @@ class NetworkCheck:
         self._state = state
         self._slow_ms = slow_ms
 
-    def now(self, *, dns: bool = True, hoyo: bool) -> Finding:
-        """Check now, with the lookup unless `dns` is false (the watcher's polls)."""
-        reading = self._probe.check(dns=dns, hoyo=hoyo)
+    def now(self, *, hoyo: bool) -> Finding:
+        """A check when asked, with the lookup, slow by its own round trip: "kok lemot?" and
+        "ping-ku berapa?" ask about now, which the last minutes' polls must not outvote."""
+        return self._made(self._probe.check(dns=True, hoyo=hoyo), recent=())
+
+    def poll(self, *, hoyo: bool) -> Finding:
+        """The watcher's check, without the lookup, slow by the median of the recent round trips
+        with its own, so one slow poll is no slow internet."""
+        return self._made(self._probe.check(dns=False, hoyo=hoyo), self._state.recent_ms())
+
+    def _made(self, reading: Reading, recent: Sequence[float]) -> Finding:
         state = self._state
-        recent = state.recent_ms()
         seen = reading.gateway is not None and state.gateway_answered(reading.gateway)
         status = classify(reading, recent_ms=recent, slow_ms=self._slow_ms, gateway_seen=seen)
         state.note(reading, status)

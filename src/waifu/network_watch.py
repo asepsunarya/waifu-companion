@@ -147,7 +147,7 @@ class NetworkWatcher:
             if first:
                 self._end_crashed()
         hoyo = self._hoyo_due(mono)
-        finding = self._check.now(dns=False, hoyo=hoyo)
+        finding = self._check.poll(hoyo=hoyo)
         if hoyo:
             self._last_hoyo = mono
             self._log_hoyo(finding)

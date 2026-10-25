@@ -118,6 +118,17 @@ def test_her_answer_comes_from_a_check_made_now_with_the_lookup():
     assert probe.asked == [{"dns": True, "hoyo": False}]
 
 
+def test_asked_kok_lemot_after_quick_polls_she_says_the_slow_round_trip_of_now():
+    state = NetworkState(slow_window=5)
+    for took in (20.0, 21.0, 22.0, 23.0):  # the watcher's polls of the last minutes
+        state.note(replace(FINE, anchor_ms=took), "ok")
+    check = NetworkCheck(FakeProbe(replace(FINE, anchor_ms=450.0)), state, slow_ms=200)
+
+    said = NetworkAnswers(check, owner_call="master").answer("internet")
+
+    assert said.startswith("Master, internetnya lagi lambat, sekitar 450 milidetik.")
+
+
 def test_asked_about_hoyo_she_checks_the_hoyo_hosts_too():
     probe = FakeProbe(replace(FINE, hoyo_ms=(45.0, 40.0, 52.0)))
 

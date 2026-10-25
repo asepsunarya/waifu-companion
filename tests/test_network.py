@@ -232,26 +232,54 @@ class FakeProbe:
         return self.readings.pop(0)
 
 
-def test_a_check_asked_for_looks_up_the_name_classifies_with_the_state_and_notes_it():
+def test_a_check_asked_for_looks_up_the_name_and_is_noted_in_the_state():
     state = NetworkState(slow_window=3)
-    state.note(replace(FINE, anchor_ms=300.0), "ok")
-    state.note(replace(FINE, anchor_ms=260.0), "ok")
     reading = replace(FINE, anchor_ms=20.0, dns_checked=True, dns_ms=12.0)
     probe = FakeProbe(reading)
 
     found = NetworkCheck(probe, state, slow_ms=200).now(hoyo=True)
 
     assert probe.asked == [{"dns": True, "hoyo": True}]
-    assert found == Finding(reading, "slow", 260.0, None)  # the median with the recent ones
-    assert state.recent_ms() == (260.0, 20.0)
+    assert found == Finding(reading, "ok", 20.0, None)
+    assert state.recent_ms() == (20.0,)
 
 
-def test_a_check_without_the_lookup_is_for_the_watcher():
-    probe = FakeProbe(FINE)
+def quick_polls(state: NetworkState, *took: float) -> None:
+    for each in took:
+        state.note(replace(FINE, anchor_ms=each), "ok")
 
-    NetworkCheck(probe, NetworkState(slow_window=5), slow_ms=200).now(dns=False, hoyo=False)
+
+def test_a_check_asked_for_is_slow_by_its_own_round_trip_after_quick_polls():
+    # "Kok lemot?" asks about now: four quick polls must not outvote it.
+    state = NetworkState(slow_window=5)
+    quick_polls(state, 20.0, 21.0, 22.0, 23.0)
+    reading = replace(FINE, anchor_ms=450.0, dns_checked=True, dns_ms=12.0)
+
+    found = NetworkCheck(FakeProbe(reading), state, slow_ms=200).now(hoyo=False)
+
+    assert (found.status, found.judged_ms) == ("slow", 450.0)
+
+
+def test_a_check_asked_for_is_quick_by_its_own_round_trip_once_a_slow_spell_ended():
+    state = NetworkState(slow_window=5)
+    quick_polls(state, 400.0, 420.0, 450.0, 430.0)
+    reading = replace(FINE, anchor_ms=20.0, dns_checked=True, dns_ms=12.0)
+
+    found = NetworkCheck(FakeProbe(reading), state, slow_ms=200).now(hoyo=False)
+
+    assert (found.status, found.judged_ms) == ("ok", 20.0)
+
+
+def test_the_watcher_s_poll_makes_no_lookup_and_is_slow_by_the_median_with_the_recent_ones():
+    state = NetworkState(slow_window=3)
+    quick_polls(state, 300.0, 260.0)
+    probe = FakeProbe(replace(FINE, anchor_ms=20.0))
+
+    found = NetworkCheck(probe, state, slow_ms=200).poll(hoyo=False)
 
     assert probe.asked == [{"dns": False, "hoyo": False}]
+    assert (found.status, found.judged_ms) == ("slow", 260.0)
+    assert state.recent_ms() == (260.0, 20.0)
 
 
 def test_a_check_blames_the_router_only_once_its_gateway_answered_in_this_run():
