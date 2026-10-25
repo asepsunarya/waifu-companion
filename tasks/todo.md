@@ -2928,10 +2928,10 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** none · **Files:** `SPEC.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
 
-## Task 307: The stand-in flag of her voice
+## Task 307: The stand-in flag of her voice ✅
 
 **Acceptance criteria:**
-- [ ] `SpeechRouter.degraded` is false for a working voice, true after a run fell back to its Windows voice until the engine works again, true while the converter fails until it converts again, and false with `fallback_only`
+- [x] `SpeechRouter.degraded` is false for a working voice, true after a run fell back to its Windows voice until the engine works again, true while the converter fails until it converts again, and false with `fallback_only`
 
 **Dependencies:** 307a · **Files:** `src/waifu/voice/tts.py`, `tests/test_voice_tts.py` · **Scope:** XS
 

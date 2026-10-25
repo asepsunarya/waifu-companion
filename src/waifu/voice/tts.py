@@ -338,6 +338,14 @@ class SpeechRouter:
         self._conversion_failing = False
         self._skip_conversion_until = -math.inf
 
+    @property
+    def degraded(self) -> bool:
+        """Whether her voice is a stand-in right now: a language's fallback speaks for its
+        failing engine, or the plain voice for a failing converter. Read right after a clip, it
+        tells whether that clip had her own voice. Never with `fallback_only`, whose fallback
+        is her voice by choice."""
+        return bool(self._engine_errors) or self._conversion_failing
+
     def synthesize(self, text: str) -> tuple[np.ndarray, int]:
         """Return one mono float32 clip; runs that fail are skipped, all failing is a TtsError."""
         runs = split_by_language(clean_for_speech(text), self.default_language)

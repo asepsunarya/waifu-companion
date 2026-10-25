@@ -1136,6 +1136,69 @@ def test_fallback_only_has_nothing_for_a_language_without_a_fallback():
         router.synthesize("はい")
 
 
+# --- SpeechRouter stand-in voice (respons instan) ----------------------------
+
+
+def test_her_voice_is_not_degraded_while_it_works():
+    router = converting_router(FakeConverter(CONVERTED))
+
+    before = router.degraded
+    router.synthesize(MIXED_TEXT)
+
+    assert (before, router.degraded) == (False, False)
+
+
+def test_her_voice_is_degraded_while_a_fallback_speaks_for_a_failing_voice():
+    setup = falling_back()
+
+    setup.router.synthesize("Halo")
+    after_failure = setup.router.degraded
+    setup.clock.now += 300
+    setup.router.synthesize("Halo")  # the fallback speaks without trying the voice
+
+    assert (after_failure, setup.router.degraded) == (True, True)
+
+
+def test_her_voice_is_no_longer_degraded_once_the_voice_works_again():
+    setup = falling_back()
+    setup.router.synthesize("Halo")
+
+    setup.clock.now += 600
+    setup.primary.fail = False
+    setup.router.synthesize("Halo")
+
+    assert setup.router.degraded is False
+
+
+def test_her_voice_is_degraded_while_the_converter_fails_until_it_converts_again():
+    clock = FakeClock()
+    router = converting_router(FakeConverter(RvcUnavailableError("mati"), CONVERTED), clock)
+
+    router.synthesize(MIXED_TEXT)
+    failing = router.degraded
+    clock.now += 30
+    router.synthesize(MIXED_TEXT)  # the plain voice without trying the converter
+    skipping = router.degraded
+    clock.now += 60
+    router.synthesize(MIXED_TEXT)
+
+    assert (failing, skipping, router.degraded) == (True, True, False)
+
+
+def test_her_voice_is_never_degraded_when_only_the_fallback_is_wanted():
+    router = SpeechRouter(
+        {"id": FakeEngine(fail=True)},
+        default_language="id",
+        fallbacks={"id": FakeFallback()},
+        fallback_only=True,
+        clock=FakeClock(),
+    )
+
+    router.synthesize("Halo")
+
+    assert router.degraded is False
+
+
 # --- SpeechRouter pronunciation (kamus cyrene) -------------------------------
 
 
