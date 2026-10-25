@@ -64,8 +64,8 @@ _SHOW_VERBS = frozenset(
 # Words that point at the card already shown; "kartu" alone needs one ("buka kartu" is an idiom).
 # "Mana" is not one: "kartu yang mana?" asks which card (a credit card, say), "mana kartunya?" asks
 # for hers.
-_POINTING = frozenset({"lagi", "tadi", "itu"})
-_REQUEST_WORDS = _SHOW_VERBS | _POINTING | {"yang", "mana"}
+_POINTING = frozenset({"lagi", "tadi", "itu", "terakhir"})
+_REQUEST_WORDS = _SHOW_VERBS | _POINTING | {"yang", "mana", "sekali"}
 _MAX_REQUEST_WORDS = 4
 
 
@@ -127,7 +127,8 @@ def is_card_request(text: str, names: Iterable[str] = ()) -> bool:
 
     `names` (her names, wake words, and what she calls the owner) are left out with "master"
     and the softeners; what is left is one card word and one to four words that show or point
-    at it, and "kartu" (unlike "kartunya") needs one that points ("lagi", "tadi", "itu").
+    at it, and "kartu" (unlike "kartunya") needs one that points ("lagi", "tadi", "itu",
+    "terakhir").
     """
     skipped = _SKIPPED | {word for name in names for word in _words(name)}
     left = [word for word in _words(text) if word not in skipped]

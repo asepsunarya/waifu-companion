@@ -297,6 +297,9 @@ def test_a_card_allows_only_links_written_in_it():
         "lihat kartu itu lagi",
         "Sairin, tolong munculin kartunya lagi",
         "ＫＡＲＴＵ tadi",
+        "tampilkan lagi kartu terakhir",
+        "kartu terakhir",
+        "tampilkan kartunya sekali lagi",
     ],
 )
 def test_a_whole_re_show_phrase_is_a_card_request(text):

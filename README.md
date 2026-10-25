@@ -898,7 +898,8 @@ maupun Ollama.
 - **`waifu chat`:** intinya dicetak seperti biasa, lalu kartunya menjorok di bawahnya; dengan
   `--speak` hanya intinya yang diucapkan.
 - **"Ulangi"** mengulang intinya saja. **"Tampilkan lagi kartunya"**, "kartu tadi", "mana
-  kartunya?", atau "tunjukin kartunya lagi" menampilkan kartu terakhir sekali lagi, seketika
+  kartunya?", "tunjukin kartunya lagi", "tampilkan lagi kartu terakhir", atau "tampilkan
+  kartunya sekali lagi" menampilkan kartu terakhir sekali lagi, seketika
   dan tanpa bertanya ke otaknya: "Ini kartunya lagi, Master." Kalau belum ada kartu: "Belum ada
   kartu yang bisa kutampilkan lagi, Master." Kalimat lain yang menyebut kartu ("kartu tadi
   isinya apa?", "kartu yang mana?") tetap dijawab otaknya.
