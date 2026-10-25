@@ -901,7 +901,7 @@ maupun Ollama.
   kartunya?", atau "tunjukin kartunya lagi" menampilkan kartu terakhir sekali lagi, seketika
   dan tanpa bertanya ke otaknya: "Ini kartunya lagi, Master." Kalau belum ada kartu: "Belum ada
   kartu yang bisa kutampilkan lagi, Master." Kalimat lain yang menyebut kartu ("kartu tadi
-  isinya apa?") tetap dijawab otaknya.
+  isinya apa?", "kartu yang mana?") tetap dijawab otaknya.
 - Kalau jawabannya hanya kartu, dia bilang "Kutampilkan di layar ya, Master."
 - Laporan game mingguan boleh menaruh rinciannya di kartu; notifikasinya ke HP berisi intinya
   lalu isi kartunya sebagai teks biasa. Sapaan pagi dan pertanyaan jurnal tetap diucapkan, tanpa

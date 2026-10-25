@@ -318,6 +318,9 @@ def test_a_whole_re_show_phrase_is_a_card_request(text):
         "tampilkan lagi lagi lagi lagi kartunya",
         "simpan kartunya",
         "tampilkan cuaca seminggu",
+        "Kartu yang mana?",
+        "kartu mana",
+        "kartu mana yang",
     ],
 )
 def test_other_words_are_no_card_request(text):
