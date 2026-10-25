@@ -17889,7 +17889,7 @@ def test_jepang_progres_names_master_s_own_words_also_without_a_word_of_the_list
     assert cli.main(["jepang", "progres"]) == 0
 
     assert capsys.readouterr().out.splitlines() == [
-        f"Belum ada kata yang dipelajari (0 dari {len(WORDS)}).",
+        f"Belum ada kata dari daftar yang dipelajari (0 dari {len(WORDS)}).",
         "Kata tambahanmu: 1 kata, tidak ada yang perlu diulang hari ini.",
     ]
 

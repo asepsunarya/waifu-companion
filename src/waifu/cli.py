@@ -4701,7 +4701,9 @@ def _japanese_progress(config: AppConfig, today: date) -> int:
     _warn_when_japanese_is_off(config)
     counts = lesson_counts(load_words(), progress, today)
     if not counts.learned:
-        print(f"Belum ada kata yang dipelajari (0 dari {counts.total}).")
+        # With words of his own kept, "no word" names the list, or the next line contradicts it.
+        of_the_list = " dari daftar" if custom else ""
+        print(f"Belum ada kata{of_the_list} yang dipelajari (0 dari {counts.total}).")
     else:
         print(f"Dipelajari: {counts.learned} dari {counts.total} kata, {counts.mastered} dikuasai")
         if counts.due:
