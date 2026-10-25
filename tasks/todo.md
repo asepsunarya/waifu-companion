@@ -2941,6 +2941,8 @@ named `tests/test_<package>_<module>.py`.
 - [x] `NodBank.prepare` synthesises each line once, in order, with `{owner}` filled, and keeps it; a `TtsError` (warned once per call), any other exception (logged with its traceback), or a stand-in voice leaves that line out; a second `prepare` makes only the missing lines
 - [x] `pick` gives None before `prepare`, a random kept filler other than the last one picked, and None when only the last one is kept
 - [x] Every built-in filler is one Indonesian speech run
+- [x] Fix pass: `prepare` stops at the first line in a stand-in voice (the router keeps it for `tts.fallback.retry_s`, so the rest would come in it too) and tells whether every filler is kept; `keep_preparing` sleeps `retry_s` and tries again until they are, and `retry_after_s` is past the router's pauses; with the real SpeechRouter, one Edge blip costs the bank only until the retry
+- [x] Fix pass: "Tunggu sebentar ya, {owner}." and "Sebentar ya, {owner}…" became "Iya, aku dengar kok, {owner}…" and "Aku cari tahu dulu ya." (at most two say "bentar", at most two open alike, one names the owner); `pick` avoids the last two while three are kept
 
 **Dependencies:** 307 · **Files:** `src/waifu/voice/nod.py`, `tests/test_voice_nod.py` · **Scope:** S
 
@@ -2959,6 +2961,8 @@ named `tests/test_<package>_<module>.py`.
 - [x] The reply never overlaps the filler (threaded test), and a filler whose reply became ready while it waited for the voice is skipped
 - [x] No timer for alarm words, the bare wake word, "ulangi", the heard request, a reading asked, confirmed, or forgotten, `ask_aloud`, the phone, or `handle_text`; a filler also while `quiet` holds
 - [x] Never the same filler twice in a row, never repeated by "ulangi", not in `tts_s`; a cut filler still lets the reply play; no bank, no timer
+- [x] Fix pass: `interrupt` stops a filler but returns False for it (a flag read under a lock held from the player's stop), so a double-click or Ctrl+Alt+X on it opens no follow-up window while she still thinks and nothing he says is dropped; the avatar stays thinking
+- [x] Fix pass: a brain turn that raises cancels the timer and closes the turn (a late fire says nothing); the default `_daemon_timer` makes a daemon `threading.Timer` of `after_ms` that says the filler, and a reply ready in time cancels it and its thread ends
 
 **Dependencies:** 308, 309 · **Files:** `src/waifu/app.py`, `tests/test_app.py` · **Scope:** M
 
@@ -2966,6 +2970,7 @@ named `tests/test_<package>_<module>.py`.
 
 **Acceptance criteria:**
 - [x] With `nod.enabled` the Assistant gets a NodBank voiced by the run's one speech router, prepared on a daemon "nod-voice" thread after the `--announce` line; with it off, `nods=None` and nothing is prepared; the CLI tests replace the preparation
+- [x] Fix pass: the thread runs `keep_preparing`, and the bank's `retry_s` is `retry_after_s(tts.fallback.retry_s)`
 
 **Dependencies:** 310 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** S
 
@@ -2973,5 +2978,6 @@ named `tests/test_<package>_<module>.py`.
 
 **Acceptance criteria:**
 - [x] README "Respons instan" (and in the table of contents); CHANGELOG v1.52; full suite, ruff, and JS tests clean
+- [x] Fix pass: the owner checkpoint and the README, CHANGELOG, and config.example say the count starts when she starts thinking (about 2 to 3 s after he stops talking) and that with Claude most brain turns get a filler unless `nod.after_ms` is raised; SPEC story 2 is a realistic case; the retries, the new lines, and the cut are described
 
 **Dependencies:** 311 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
