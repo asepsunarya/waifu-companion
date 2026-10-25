@@ -11,6 +11,7 @@ from waifu.brain.confirm import (
     is_yes,
     needs_confirmation,
 )
+from waifu.card import Card, split_card
 from waifu.devices.mock import MockDevice
 from waifu.devices.registry import DeviceRegistry
 
@@ -251,6 +252,21 @@ def test_the_reply_ends_with_the_codes_own_question_naming_the_action(device_id,
 
     assert gate.with_question("Lampu meja sudah mati, Master.") == (
         f"Lampu meja sudah mati, Master. {question}"
+    )
+
+
+def test_with_a_card_the_question_is_asked_before_it_so_it_is_still_spoken():
+    registry = house()
+    gate = ConfirmationGate(clock=FakeClock())
+    gate.begin_turn("matikan komputer, terus kasih daftar lagunya")
+    gate.check(registry, "komputer", "shutdown", None)
+
+    reply = gate.with_question("[santai] Ini daftarnya.\n[[kartu: Lagu]]\n- satu\n- dua")
+
+    assert reply == f"[santai] Ini daftarnya. {SHUTDOWN_QUESTION}\n[[kartu: Lagu]]\n- satu\n- dua"
+    assert split_card(reply) == (
+        f"[santai] Ini daftarnya. {SHUTDOWN_QUESTION}",
+        Card("Lagu", "- satu\n- dua"),
     )
 
 

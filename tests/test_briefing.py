@@ -668,6 +668,10 @@ def test_the_prompt_ends_with_the_japanese_word_of_the_day_when_there_is_one():
     assert "kata Jepang hari ini kalau ada" in BRIEFING_PROMPT
 
 
+def test_the_greeting_stays_spoken_without_a_card():
+    assert BRIEFING_PROMPT.endswith("Jawab tanpa kartu.")
+
+
 def test_the_prompt_never_counts_as_master_saying_yes():
     # The brain hands the prompt to the confirmation gate as this turn's words: a yes here
     # could confirm a PC shutdown Master was asked about just before the greeting.

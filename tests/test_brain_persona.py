@@ -313,6 +313,53 @@ def test_time_note_does_not_forbid_the_emotion_tag_brackets():
     assert "tanda waktu" in prompt.split("\n\n")[-1]
 
 
+def card_note(prompt: str) -> str:
+    [note] = [section for section in prompt.split("\n\n") if section.startswith("Kartu teks:")]
+    return note
+
+
+def test_the_card_note_comes_after_the_devices_and_before_the_time_note():
+    prompt = build_system_prompt("Kamu adalah {name}.", "Cyrene", house())
+
+    note = card_note(prompt)
+
+    sections = prompt.split("\n\n")
+    assert sections.index(note) == len(sections) - 2
+    assert prompt.index("Perangkat di rumah:") < prompt.index(note)
+
+
+def test_the_card_note_asks_for_the_spoken_gist_first_then_the_marker_and_the_body():
+    note = card_note(build_system_prompt("Kamu adalah {name}.", "Cyrene", house()))
+
+    assert "1-2 kalimat pendek" in note
+    assert "[[kartu: judul pendek]]" in note
+    assert "Hanya teks sebelum [[kartu: ...]] yang dibacakan" in note
+    for long_content in ("daftar lebih dari tiga hal", "jadwal", "tautan", "kode", "terjemahan"):
+        assert long_content in note
+    assert "paling banyak satu kartu" in note
+    assert "jangan memakai kartu untuk jawaban yang pendek" in note
+
+
+def test_the_card_note_lifts_the_persona_s_rules_only_inside_the_card():
+    # persona.md forbids lists and romaji and allows only the emotion tag in brackets.
+    note = card_note(build_system_prompt("Kamu adalah {name}.", "Cyrene", house()))
+
+    assert "aturan cara bicaramu berlaku untuk bagian yang dibacakan" in note
+    for allowed in ('daftar dengan "- " di awal baris', "URL lengkap", "romaji", "kana"):
+        assert allowed in note
+    assert "[[kartu: ...]] adalah satu-satunya kurung siku lain" in note
+    assert "Tag ekspresi tetap di awal jawabanmu" in note
+
+
+def test_with_web_search_urls_go_only_into_the_card():
+    prompt = build_system_prompt("Kamu.", "Cyrene", house(), web_search=True)
+
+    web = prompt.split("\n\n")[-1]
+
+    assert "jangan pernah membacakan atau menulis URL di bagian yang dibacakan" in web
+    assert "tulis URL lengkapnya di dalam kartu" in web
+
+
 def test_with_web_search_the_prompt_ends_with_the_web_data_section_after_the_time_note():
     registry = house()
     without = build_system_prompt("Kamu adalah {name}.", "Cyrene", registry)

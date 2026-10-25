@@ -24,6 +24,7 @@ import unicodedata
 from collections.abc import Callable, Hashable, Iterable
 from dataclasses import dataclass
 
+from waifu.card import before_card
 from waifu.devices.base import Device
 from waifu.devices.ir_device import resolve_command
 from waifu.devices.registry import DeviceRegistry
@@ -264,12 +265,13 @@ class ConfirmationGate:
         )
 
     def with_question(self, reply: str) -> str:
-        """The reply Master hears: `reply`, then the question for this turn's request, if any."""
+        """The reply Master hears: `reply`, then the question for this turn's request, if any,
+        at the end of its spoken part, so a text card after it never swallows the question."""
         with self._lock:
             request = self._recorded
         if request is None:
             return reply
-        return f"{reply} {request.question}" if reply else request.question
+        return before_card(reply, request.question)
 
     def discard_turn(self) -> None:
         """Drop this turn's request: the turn was rolled back, so its question is never heard."""

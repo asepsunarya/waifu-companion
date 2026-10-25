@@ -61,7 +61,8 @@ JOURNAL_PROMPT = (
     "catatan, tanyakan apakah ada yang mau ditambahkan. Jangan membacakan catatannya dan "
     "jangan menulis apa pun dulu. Kalau Master menjawab pertanyaan ini di ucapan berikutnya, "
     "simpan jawabannya dengan kata-kata Master sendiri lewat journal_write, lalu balas dengan "
-    "satu kalimat pendek; kalau Master tidak mau bercerita, jangan simpan apa pun."
+    "satu kalimat pendek; kalau Master tidak mau bercerita, jangan simpan apa pun. Jawab tanpa "
+    "kartu."
 )
 
 FILE_VERSION = 1

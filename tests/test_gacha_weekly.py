@@ -1594,6 +1594,11 @@ def test_the_prompt_names_the_week_s_play_time_once():
     assert WEEKLY_REPORT_PROMPT.count("jam main") == 1
 
 
+def test_the_report_may_put_its_details_on_a_card_after_its_spoken_sentences():
+    assert "3-4 kalimat pendek" in WEEKLY_REPORT_PROMPT
+    assert "Rincian per game boleh kamu taruh di kartu sesudahnya." in WEEKLY_REPORT_PROMPT
+
+
 def test_the_prompt_names_this_month_s_income_once():
     assert WEEKLY_REPORT_PROMPT.count("pendapatan bulan ini") == 1
 

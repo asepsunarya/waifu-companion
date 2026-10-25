@@ -3163,20 +3163,20 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** none · **Files:** `SPEC.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
 
-## Task 332: The parser
+## Task 332: The parser ✅
 
 **Acceptance criteria:**
-- [ ] `split_card` splits at the first marker in any of its shapes (case, spaces, one or two brackets, full width, no title, unclosed, mid-line); text without one comes back unchanged; the body keeps its lines and indentation, loses emotion tags, blank runs, and a second marker's syntax; an empty body is no card; the caps cut with "…"
-- [ ] `before_card` puts an addition before the marker, as before without one; `card_message` joins the gist and the card within 3800 UTF-8 bytes; `Card.allows_link` only for a URL in the body; `is_card_request` takes the whole re-show phrases and nothing with another word
+- [x] `split_card` splits at the first marker in any of its shapes (case, spaces, one or two brackets, full width, no title, unclosed, mid-line); text without one comes back unchanged; the body keeps its lines and indentation, loses emotion tags, blank runs, and a second marker's syntax; an empty body is no card; the caps cut with "…"
+- [x] `before_card` puts an addition before the marker, as before without one; `card_message` joins the gist and the card within 3800 UTF-8 bytes; `Card.allows_link` only for a URL in the body; `is_card_request` takes the whole re-show phrases and nothing with another word
 
 **Dependencies:** 332a · **Files:** `src/waifu/card.py`, `tests/test_card.py` · **Scope:** S
 
-## Task 333: The prompt note and the gate's question
+## Task 333: The prompt note and the gate's question ✅
 
 **Acceptance criteria:**
-- [ ] The system prompt holds the card note between the devices and the time note (never "web"), naming the marker as the one other bracket and allowing bullets, URLs, romaji, and kana in the card; the web note forbids URLs only in the spoken part
-- [ ] The briefing and journal prompts say "Jawab tanpa kartu.", the weekly report allows a card for its details, and none of them opens a tool gate
-- [ ] `with_question` places the question before a card, as before without one
+- [x] The system prompt holds the card note between the devices and the time note (never "web"), naming the marker as the one other bracket and allowing bullets, URLs, romaji, and kana in the card; the web note forbids URLs only in the spoken part
+- [x] The briefing and journal prompts say "Jawab tanpa kartu.", the weekly report allows a card for its details, and none of them opens a tool gate
+- [x] `with_question` places the question before a card, as before without one
 
 **Dependencies:** 332 · **Files:** `src/waifu/brain/persona.py`, `src/waifu/brain/confirm.py`, `src/waifu/briefing.py`, `src/waifu/gacha/weekly.py`, `src/waifu/journal.py`, tests · **Scope:** S
 

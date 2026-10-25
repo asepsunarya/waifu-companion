@@ -585,6 +585,10 @@ def test_the_question_says_it_is_hers_and_how_the_answer_is_written():
         assert guidance in JOURNAL_PROMPT
 
 
+def test_the_question_stays_spoken_without_a_card():
+    assert JOURNAL_PROMPT.endswith("Jawab tanpa kartu.")
+
+
 def test_the_question_never_counts_as_master_saying_yes():
     # The brain hands the prompt to the confirmation gate as this turn's words: a yes here
     # could confirm a PC shutdown Master was asked about just before the question.

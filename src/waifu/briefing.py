@@ -56,7 +56,7 @@ BRIEFING_PROMPT = (
     "cuaca, jadwal dan pengingat hari ini, tugas yang tenggatnya hari ini atau sudah "
     "terlewat, game kalau ada, kata Jepang hari ini kalau ada, dan hal dari ingatanmu yang "
     "penting untuk hari ini, misalnya ulang tahun atau ujian. Jangan membacakan datanya satu "
-    "per satu."
+    "per satu. Jawab tanpa kartu."
 )
 
 _NO_WEATHER = "cuaca belum diatur (isi briefing.city di config.yaml)"

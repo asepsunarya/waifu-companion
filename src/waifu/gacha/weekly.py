@@ -110,7 +110,7 @@ WEEKLY_REPORT_PROMPT = (
     "pull minggu ini dan 50/50-nya, pity yang sudah dekat hard pity, progres endgame, jam main "
     "dan pendapatan bulan ini kalau ada, dan yang berakhir dalam 7 hari ke depan. Itu hanya "
     "kabar, jadi jangan pernah menyarankan pull, belanja, atau top up. Jangan membacakan datanya "
-    "satu per satu."
+    "satu per satu. Rincian per game boleh kamu taruh di kartu sesudahnya."
 )
 
 
