@@ -755,6 +755,56 @@ def test_a_start_found_by_a_poll_whose_write_failed_is_told_at_the_next_poll(tmp
     assert rig.started == ["hsr"]
 
 
+@pytest.mark.parametrize(
+    ("names", "when"),
+    [
+        (IDLE, at(23) + MINUTE),  # the PC slept for hours, and HSR was closed meanwhile
+        (HSR, at(23) + MINUTE),  # the PC slept for hours with HSR open
+        (HSR, at(20) - 5 * MINUTE),  # the clock was set back
+    ],
+    ids=["sleep_game_closed", "sleep_game_open", "clock_set_back"],
+)
+def test_a_start_found_by_a_poll_whose_write_failed_is_never_told_across_a_gap(
+    tmp_path, names, when
+):
+    rig = Rig(tmp_path)
+    rig.poll(IDLE, at(20))
+    rig.store.failing_saves = 1
+    rig.poll(HSR, at(20) + MINUTE)
+
+    rig.poll(names, when)
+
+    assert rig.started == []
+
+
+def test_a_start_found_by_a_poll_whose_write_failed_is_never_told_once_the_game_closed(tmp_path):
+    rig = Rig(tmp_path)
+    rig.poll(IDLE, at(20))
+    rig.store.failing_saves = 99
+    rig.polls(HSR, at(20) + MINUTE, 2)
+    rig.poll(IDLE, at(20) + 3 * MINUTE)
+
+    rig.store.failing_saves = 0
+    rig.poll(IDLE, at(20) + 4 * MINUTE)  # gone a second poll: the session ended, and written
+
+    assert rig.record().sessions == (Session("hsr", at(20) + MINUTE, at(20) + 2 * MINUTE),)
+    assert rig.started == []
+
+
+def test_a_game_closed_and_opened_again_while_writes_fail_is_told_once(tmp_path):
+    rig = Rig(tmp_path)
+    rig.poll(IDLE, at(20))
+    rig.store.failing_saves = 99
+    rig.polls(HSR, at(20) + MINUTE, 2)
+    rig.polls(IDLE, at(20) + 3 * MINUTE, 2)  # gone two polls: that session ended
+    rig.poll(HSR, at(20) + 5 * MINUTE)
+
+    rig.store.failing_saves = 0
+    rig.poll(HSR, at(20) + 6 * MINUTE)
+
+    assert rig.started == ["hsr"]
+
+
 def test_a_failed_listing_tells_no_start(tmp_path):
     rig = Rig(tmp_path)
     rig.poll(IDLE, at(20))
