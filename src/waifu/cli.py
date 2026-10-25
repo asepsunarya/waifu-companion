@@ -69,6 +69,7 @@ from waifu.brain.japanese_tools import JapaneseTools
 from waifu.brain.journal_tools import JournalTools
 from waifu.brain.memory_tools import MemoryTools
 from waifu.brain.music_tools import MusicTools
+from waifu.brain.network_tools import NetworkTools
 from waifu.brain.offers_tools import OffersTools
 from waifu.brain.pc_tools import PcTools
 from waifu.brain.persona import WEEKDAYS_ID
@@ -216,7 +217,11 @@ from waifu.lexicon import BUILT_IN_READINGS, Lexicon, LexiconError
 from waifu.listen_pause import ListenPause
 from waifu.memory import MemoryStore, memory_prompt_section
 from waifu.music import MusicService, open_in_browser, open_link, search_link, youtube_link
+from waifu.network import NetworkCheck, NetworkState
+from waifu.network_ask import NetworkAnswers
 from waifu.network_history import NetworkStore
+from waifu.network_probe import NetworkProbe
+from waifu.network_watch import NetworkWatcher
 from waifu.notify import Notifier, build_notifier
 from waifu.offers.checks import official_link
 from waifu.offers.errors import OffersError
@@ -1621,6 +1626,9 @@ def _listen(args: argparse.Namespace) -> int:
     # The games Master closes, and whether one is still open, from the play time watcher to the
     # gacha planner's overnight line.
     closed_games = _closed_games(config)
+    # What this run knows of the internet while the watcher is on: one probe and one state for
+    # the watcher, her answers, her tool, and Claude's apology naming an outage.
+    internet = _internet_watch(config)
     with _session_schedule(config, dry_run=args.dry_run) as schedule:
         # One bell for the alarms: the scheduler starts it, she rings it, and her tool and the
         # phone's buttons stop it.
@@ -1645,6 +1653,7 @@ def _listen(args: argparse.Namespace) -> int:
             prayer=prayer,
             alarm=alarm,
             game_data=game_data,
+            internet=internet,
         )
         stt = WhisperStt(config.stt, name, hotwords=vocabulary.text)
         gate = WakeGate(config.assistant.wake_words, config.assistant.followup_seconds)
@@ -1707,6 +1716,11 @@ def _listen(args: argparse.Namespace) -> int:
                 listen_pause=pause,
                 lexicon=lexicon,
                 nods=nods,
+                network=(
+                    None
+                    if internet is None
+                    else NetworkAnswers(internet.check, owner_call=config.assistant.owner_call)
+                ),
             )
             reactions = InteractionHandler(
                 config.avatar.interactions,
@@ -1770,7 +1784,13 @@ def _listen(args: argparse.Namespace) -> int:
                         ),
                         _code_watcher(config, gacha, assistant, notifier, game_mode),
                         _pc_watcher(config, pc, assistant, notifier, game_mode),
-                        _play_time_watcher(config, assistant, game_mode, closed_games, notifier),
+                        # One item: this block is at Python's limit of nested blocks.
+                        _together(
+                            _play_time_watcher(
+                                config, assistant, game_mode, closed_games, notifier, internet
+                            ),
+                            _network_watcher(config, internet, assistant, game_mode),
+                        ),
                         _focus_session(config, focus, assistant, notifier),
                         _break_watcher(config, focus, assistant, notifier, game_mode),
                         _rain_watcher(config, assistant, notifier, game_mode),
@@ -1870,6 +1890,16 @@ def _announcer(
         )
 
     return announce
+
+
+@contextmanager
+def _together(*managers: AbstractContextManager[object]) -> Iterator[None]:
+    """`managers` entered in order as one item of a `with` statement, and left in reverse, as
+    their own items would be."""
+    with ExitStack() as stack:
+        for manager in managers:
+            stack.enter_context(manager)
+        yield
 
 
 def _chat(args: argparse.Namespace) -> int:
@@ -1980,6 +2010,7 @@ def _companion_brain(
     prayer: PrayerPlace | None = None,
     alarm: AlarmBell | None = None,
     game_data: GameDataTools | None = None,
+    internet: _InternetWatch | None = None,
 ) -> Brain:
     """The brain with `guest_mode`'s tool first, her own voice volume (`voice_level`), then the
     game tools when they are on, her long-term memory when it is on, her schedule when it is on
@@ -1990,6 +2021,8 @@ def _companion_brain(
     weather of the days ahead whenever the weather has a place (with the briefing's client), the
     prayer times when they are on (at `prayer`, the place `run`
     shares with the reminders, else a place of their own), with `pc` how the PC is doing, how
+    the internet is when its watcher is on (through `internet`, `run`'s view, whose outage
+    Claude's apology also names, else a view of its own), how
     long Master's games were open when play time is on (and with app reminders on, his reminders
     for a game's next start), the free offers when they are on (their
     links pushed through `notifier`), Master's money from tepira when it is on, songs on YouTube
@@ -2070,6 +2103,10 @@ def _companion_brain(
         )
     if pc is not None:
         providers.append(PcTools(pc, owner_call=owner_call))
+    # `chat` checks with a view of its own: only `run` watches.
+    network = internet or _internet_watch(config)
+    if network is not None:
+        providers.append(NetworkTools(network.check, _network_store(config)))
     if config.play_time.enabled:
         providers.append(PlayTimeTools(_play_time_store(config), config.play_time, now=wib_now))
         if config.app_reminders.enabled:
@@ -2112,6 +2149,7 @@ def _companion_brain(
     if usage is not None:
         providers.append(UsageTools(usage.ledger, idr_per_usd=config.usage.idr_per_usd))
     on_usage = None if usage is None else usage.record
+    network_note = None if internet is None else internet.state.outage_note
     if notes is None:
         return build_brain(
             config,
@@ -2121,6 +2159,7 @@ def _companion_brain(
             turn_images=turn_images,
             confirmations=confirmations,
             guest_mode=guest_mode,
+            network_note=network_note,
         )
     return build_brain(
         config,
@@ -2131,6 +2170,7 @@ def _companion_brain(
         turn_images=turn_images,
         confirmations=confirmations,
         guest_mode=guest_mode,
+        network_note=network_note,
     )
 
 
@@ -5921,9 +5961,11 @@ def _play_time_watcher(
     game_mode: GameMode | None,
     closed_games: ClosedGames | None,
     notifier: Notifier | None,
+    internet: _InternetWatch | None,
 ) -> Iterator[None]:
     """Counting how long Master's games are open while the block runs, from the process list's
-    names only, telling game mode after each poll whether a game runs, and with
+    names only, telling game mode (and with `internet`, the internet watcher's state, which checks
+    the HoYo hosts only while a game runs) after each poll whether a game runs, and with
     `play_time.bedtime` the once-a-night nudge, said once the follow-up window has closed, so a
     conversation is never interrupted; nothing with play time off. Stopping ends the open
     sessions at their last poll. While game mode holds her announcements, the nudge is said
@@ -5944,7 +5986,9 @@ def _play_time_watcher(
         config.play_time,
         announce=assistant.remind if holds else _announcer(assistant, None, patient=True),
         owner_call=config.assistant.owner_call,
-        on_poll=_poll_listeners(closed_games, game_mode),
+        on_poll=_poll_listeners(
+            closed_games, game_mode, None if internet is None else internet.state
+        ),
         on_finished=None if closed_games is None else closed_games.put,
         on_started=None if teller is None else teller.game_started,
     )
@@ -6032,7 +6076,7 @@ def _app_reminder_remove(args: argparse.Namespace) -> int:
 
 
 def _poll_listeners(
-    *listeners: ClosedGames | GameMode | None,
+    *listeners: ClosedGames | GameMode | NetworkState | None,
 ) -> Callable[[bool, bool], None] | None:
     """Each play time poll's word (whether a game is open, whether the first poll resumed one)
     for every listener given, in order; None without any."""
@@ -6126,6 +6170,55 @@ def _network_store(config: AppConfig) -> NetworkStore:
     tool, the recap, the weekly report, `waifu internet`, and `check` read it)."""
     network = config.network
     return NetworkStore(network.path, keep_days=network.keep_days, now=wib_now)
+
+
+@dataclass(frozen=True)
+class _InternetWatch:
+    """What one command knows of the internet: one probe, so a check never starts a probe of a
+    target still running from another, and one state, which the checks note."""
+
+    probe: NetworkProbe
+    state: NetworkState
+    check: NetworkCheck  # the probe's checks, classified with the state and noted in it
+
+
+def _internet_watch(config: AppConfig) -> _InternetWatch | None:
+    """A new view of the internet with the watcher on; None with it off."""
+    network = config.network
+    if not network.enabled:
+        return None
+    probe = NetworkProbe(network.hosts)
+    state = NetworkState(network.slow_window)
+    return _InternetWatch(probe, state, NetworkCheck(probe, state, slow_ms=network.slow_ms))
+
+
+@contextmanager
+def _network_watcher(
+    config: AppConfig,
+    internet: _InternetWatch | None,
+    assistant: Assistant,
+    game_mode: GameMode | None,
+) -> Iterator[None]:
+    """Watching the internet while the block runs, with `internet` (the watcher on): an outage
+    kept in `network.path` and in the state, and her line once it is back, said once the
+    follow-up window has closed and held like her other notices (never pushed). Stopping ends an
+    open outage at its last failed poll."""
+    if internet is None:
+        yield
+        return
+    watcher = NetworkWatcher(
+        internet.probe,
+        _network_store(config),
+        config.network,
+        internet.state,
+        announce=_announcer(assistant, game_mode, patient=True),
+        owner_call=config.assistant.owner_call,
+    )
+    watcher.start()
+    try:
+        yield
+    finally:
+        watcher.stop()
 
 
 # --- focus companion -------------------------------------------------------------------------

@@ -58,6 +58,7 @@ from waifu.brain.japanese_tools import JapaneseTools
 from waifu.brain.journal_tools import JournalTools
 from waifu.brain.memory_tools import MemoryTools
 from waifu.brain.music_tools import MusicTools
+from waifu.brain.network_tools import NetworkTools
 from waifu.brain.offers_tools import OffersTools
 from waifu.brain.pc_tools import PcTools
 from waifu.brain.persona import WEEKDAYS_ID
@@ -80,6 +81,7 @@ from waifu.config import (
     JapaneseConfig,
     JournalConfig,
     MusicConfig,
+    NetworkConfig,
     PcHealthConfig,
     PlayTimeConfig,
     RainAlertConfig,
@@ -168,6 +170,7 @@ from waifu.journal import JOURNAL_PROMPT, JournalStore, JournalTimer
 from waifu.lexicon import Lexicon
 from waifu.memory import MemoryStore, memory_prompt_section
 from waifu.network_history import NetworkStore
+from waifu.network_probe import Reading
 from waifu.offers.errors import OffersError
 from waifu.offers.store import OffersStore
 from waifu.offers.values import AiOffer, GameGiveaway
@@ -757,6 +760,80 @@ def prayer_watchers(events, monkeypatch) -> list[FakePrayerWatcher]:
     return built
 
 
+class FakeNetworkProbe:
+    """Stands in for NetworkProbe: every check finds the router, the internet (24 ms), DNS, and
+    the HoYo hosts answering, and is remembered (`checks`, as `(dns, hoyo)`). Nothing is
+    pinged, looked up, or connected to."""
+
+    def __init__(self, hosts) -> None:
+        self.hosts = hosts
+        self.checks: list[tuple[bool, bool]] = []
+
+    def check(self, *, dns: bool = False, hoyo: bool = False) -> Reading:
+        self.checks.append((dns, hoyo))
+        return Reading(
+            at=datetime.now(WIB),
+            route=True,
+            gateway="192.168.1.1",
+            gateway_ms=1.0,
+            anchor_ms=24.0,
+            dns_checked=dns,
+            dns_ms=12.0 if dns else None,
+            hoyo_ms=(45.0, 50.0, 40.0) if hoyo else None,
+        )
+
+
+@pytest.fixture(autouse=True)
+def network_probes(monkeypatch) -> list[FakeNetworkProbe]:
+    """The real probe would ping the router and the internet, look a name up, and connect to the
+    HoYo hosts (the watcher is on by default), so every test gets the fake."""
+    built: list[FakeNetworkProbe] = []
+
+    def build(hosts) -> FakeNetworkProbe:
+        built.append(FakeNetworkProbe(hosts))
+        return built[-1]
+
+    monkeypatch.setattr(cli, "NetworkProbe", build)
+    return built
+
+
+class FakeNetworkWatcher:
+    """Stands in for NetworkWatcher without a thread, remembering what it was given, whether
+    `waifu run` listened when it started and stopped, and the test's `events` up to then."""
+
+    def __init__(
+        self, probe, store, config, state, *, announce, owner_call, events: list[str]
+    ) -> None:
+        self.probe, self.store, self.config, self.state = probe, store, config, state
+        self.announce, self.owner_call = announce, owner_call
+        self._events = events
+        self.listening: list[bool] = []
+        self.events_when_started: list[str] | None = None
+        self.events_when_stopped: list[str] | None = None
+
+    def start(self) -> None:
+        self.listening.append(listening())
+        self.events_when_started = list(self._events)
+
+    def stop(self) -> None:
+        self.listening.append(listening())
+        self.events_when_stopped = list(self._events)
+
+
+@pytest.fixture(autouse=True)
+def network_watchers(events, monkeypatch) -> list[FakeNetworkWatcher]:
+    """The real watcher would probe the internet in a thread through every `run` (it is on by
+    default), so every test gets the fake."""
+    built: list[FakeNetworkWatcher] = []
+
+    def build(probe, store, config, state, **arguments) -> FakeNetworkWatcher:
+        built.append(FakeNetworkWatcher(probe, store, config, state, **arguments, events=events))
+        return built[-1]
+
+    monkeypatch.setattr(cli, "NetworkWatcher", build)
+    return built
+
+
 @pytest.fixture(autouse=True)
 def no_real_play_time(tmp_path, monkeypatch):
     """Every play time store a command builds lives under tmp_path: a test that leaves the
@@ -1100,6 +1177,7 @@ class HouseBrain(Brain):
         turn_images=None,
         confirmations=None,
         guest_mode=None,
+        network_note=None,
     ) -> None:
         self.registry = registry
         self.providers = list(providers)
@@ -1108,6 +1186,7 @@ class HouseBrain(Brain):
         self.turn_images = turn_images
         self.confirmations = confirmations
         self.guest_mode = guest_mode
+        self.network_note = network_note
         self.heard: list[str] = []
 
     def respond(self, user_text: str, *, now: datetime | None = None) -> BrainReply:
@@ -1891,6 +1970,7 @@ def brains(monkeypatch) -> list[HouseBrain]:
         turn_images=None,
         confirmations=None,
         guest_mode=None,
+        network_note=None,
     ):
         built.append(
             HouseBrain(
@@ -1901,6 +1981,7 @@ def brains(monkeypatch) -> list[HouseBrain]:
                 turn_images,
                 confirmations,
                 guest_mode,
+                network_note,
             )
         )
         return built[-1]
@@ -5804,6 +5885,7 @@ def test_run_with_the_games_on_gives_the_brain_the_game_tools_and_watches_while_
         recap,
         briefing,
         pc,
+        network,
         play_time,
         app_reminder,
         offers,
@@ -5822,6 +5904,7 @@ def test_run_with_the_games_on_gives_the_brain_the_game_tools_and_watches_while_
         type(recap),
         type(briefing),
         type(pc),
+        type(network),
         type(play_time),
         type(app_reminder),
         type(offers),
@@ -5839,6 +5922,7 @@ def test_run_with_the_games_on_gives_the_brain_the_game_tools_and_watches_while_
         DailyRecapTools,
         BriefingTools,
         PcTools,
+        NetworkTools,
         PlayTimeTools,
         AppReminderTools,
         OffersTools,
@@ -5979,6 +6063,7 @@ def test_run_without_a_cookie_has_the_game_tools_but_no_watcher(
         DailyRecapTools,
         BriefingTools,
         PcTools,
+        NetworkTools,
         PlayTimeTools,
         AppReminderTools,
         OffersTools,
@@ -6003,6 +6088,7 @@ def test_run_with_the_games_off_builds_none_of_it(home, run_fakes, brains, games
         DailyRecapTools,
         BriefingTools,
         PcTools,
+        NetworkTools,
         PlayTimeTools,
         AppReminderTools,
         OffersTools,
@@ -6032,6 +6118,7 @@ def test_chat_with_the_games_on_gives_the_brain_the_game_tools(home, brains, gam
         DailyRecapTools,
         BriefingTools,
         PcTools,
+        NetworkTools,
         PlayTimeTools,
         AppReminderTools,
         OffersTools,
@@ -7061,8 +7148,9 @@ def test_run_gives_the_brain_her_memory_tools_and_the_notes_at_each_session_star
 
     brain = brains[0]
     # After guest mode's and the voice volume's tools, then the schedule, to-do, journal,
-    # focus, recap, briefing, PC, play time, game start reminders, offers, and music.
-    [_, _, tools, _, _, _, _, _, _, _, _, _, _, _, _] = brain.providers
+    # focus, recap, briefing, PC, the internet, play time, game start reminders, offers, and
+    # music.
+    [_, _, tools, _, _, _, _, _, _, _, _, _, _, _, _, _] = brain.providers
     assert isinstance(tools, MemoryTools)
     assert brain.memory_section() == memory_prompt_section([])
     assert tools.run("remember", {"text": "Master alergi udang."})[1] is False
@@ -7090,6 +7178,7 @@ def test_chat_gives_the_brain_the_notes_saved_in_data_memory_json(home, brains, 
         DailyRecapTools,
         BriefingTools,
         PcTools,
+        NetworkTools,
         PlayTimeTools,
         AppReminderTools,
         OffersTools,
@@ -7118,6 +7207,7 @@ def test_with_the_memory_off_the_brain_gets_neither_the_tools_nor_the_notes(
         DailyRecapTools,
         BriefingTools,
         PcTools,
+        NetworkTools,
         PlayTimeTools,
         AppReminderTools,
         OffersTools,
@@ -7545,6 +7635,7 @@ def test_run_gives_the_brain_the_schedule_tools_and_fires_her_schedule_while_she
         DailyRecapTools,
         BriefingTools,
         PcTools,
+        NetworkTools,
         PlayTimeTools,
         AppReminderTools,
         OffersTools,
@@ -7840,6 +7931,7 @@ def test_with_the_schedule_off_she_gets_neither_the_tools_nor_a_scheduler(
         DailyRecapTools,
         BriefingTools,
         PcTools,
+        NetworkTools,
         PlayTimeTools,
         AppReminderTools,
         OffersTools,
@@ -8519,6 +8611,7 @@ def test_with_claude_she_may_look_at_the_screen_at_the_configured_size(
         DailyRecapTools,
         BriefingTools,
         PcTools,
+        NetworkTools,
         PlayTimeTools,
         AppReminderTools,
         OffersTools,
@@ -8676,6 +8769,7 @@ def test_without_claude_or_with_vision_off_the_brain_gets_no_screen_tool(
         DailyRecapTools,
         BriefingTools,
         PcTools,
+        NetworkTools,
         PlayTimeTools,
         AppReminderTools,
         OffersTools,
@@ -8871,9 +8965,10 @@ def test_run_greets_once_a_day_while_she_listens_and_pushes_the_greeting_to_the_
 
     assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
 
-    assert [type(tools) for tools in brains[0].providers][-6:] == [
+    assert [type(tools) for tools in brains[0].providers][-7:] == [
         BriefingTools,
         PcTools,
+        NetworkTools,
         PlayTimeTools,
         AppReminderTools,
         OffersTools,
@@ -8943,9 +9038,10 @@ def test_chat_gives_the_brain_the_briefing_tool_but_never_greets_by_herself(
 
     assert cli.main(["chat", "--dry-run"]) == 0
 
-    assert [type(tools) for tools in brains[0].providers][-6:] == [
+    assert [type(tools) for tools in brains[0].providers][-7:] == [
         BriefingTools,
         PcTools,
+        NetworkTools,
         PlayTimeTools,
         AppReminderTools,
         OffersTools,
@@ -8975,6 +9071,7 @@ def test_with_the_briefing_off_she_gets_neither_the_tool_nor_the_greeting(
         DailyRecapTools,
         WeatherForecastTools,  # the days ahead need only the place, as the rain alerts
         PcTools,
+        NetworkTools,
         PlayTimeTools,
         AppReminderTools,
         OffersTools,
@@ -9501,10 +9598,11 @@ def test_run_gives_the_brain_the_forecast_right_after_the_briefing_and_asks_noth
 
     assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
 
-    assert [type(tools) for tools in brains[0].providers][-7:] == [
+    assert [type(tools) for tools in brains[0].providers][-8:] == [
         BriefingTools,
         WeatherForecastTools,
         PcTools,
+        NetworkTools,
         PlayTimeTools,
         AppReminderTools,
         OffersTools,
@@ -12664,6 +12762,172 @@ def test_check_fails_when_the_play_time_file_cannot_be_read(
     )
 
 
+# --- pemantau internet (v1.54) ------------------------------------------------------------------
+
+DROPPED_AT = datetime(2026, 10, 25, 21, 3, tzinfo=WIB)
+BACK = "Master, internetnya sudah nyambung lagi, tadi putus sekitar 12 menit, sejak jam 21.03."
+
+
+def network_tools(brain: HouseBrain) -> NetworkTools:
+    [tools] = [provider for provider in brain.providers if isinstance(provider, NetworkTools)]
+    return tools
+
+
+def network_status(brain: HouseBrain) -> dict:
+    result, is_error = network_tools(brain).run("network_status", {})
+    assert is_error is False, result
+    return json.loads(result)
+
+
+def test_run_watches_the_internet_while_she_listens_and_says_it_is_back_between_conversations(
+    home, run_fakes, brains, network_watchers, network_probes
+):
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    [watcher] = network_watchers
+    assert watcher.config == NetworkConfig()  # the example config's settings
+    assert (watcher.store.path, watcher.store.keep_days) == (Path("data") / "network.json", 7)
+    assert watcher.owner_call == "Master"
+    assert watcher.listening == [False, True]
+    assert "mic opened" in watcher.events_when_started  # once she is ready to listen
+    assert "mic closed" not in watcher.events_when_stopped
+    # One probe for the watcher, her answers, and the tool, so their probes never pile up.
+    [probe] = network_probes
+    assert watcher.probe is probe
+    assert probe.hosts == NetworkConfig().hosts
+    until = DROPPED_AT + timedelta(minutes=42)
+    watcher.announce(BACK, "happy", expires_at=until, game_expires_at=until)
+    assistant = RecordingAssistant.instances[0]
+    assert assistant.announced == [(BACK, "happy")]
+    # Never inside a conversation, and dropped when still unsaid half an hour later.
+    assert assistant.waiting_for_followup == [BACK]
+    assert (assistant.announced_until, assistant.game_held_until) == ([until], [until])
+
+
+@pytest.mark.parametrize("announcements", ["hold", "phone"])
+def test_in_game_mode_the_back_line_is_held_like_her_other_notices_never_dropped(
+    announcements, home, run_fakes, brains, network_watchers, play_time_watchers
+):
+    append_config(home, f"game_mode:\n  announcements: {announcements}\n")
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+    play_time_watchers[0].on_poll(True, False)  # a game runs
+    network_watchers[0].announce(BACK, "happy")
+
+    assistant = RecordingAssistant.instances[0]
+    assert assistant.announced == [(BACK, "happy")]  # queued: her quiet holds it
+    assert assistant.reminded == []
+
+
+def test_one_state_tells_the_watcher_s_outage_to_claude_s_apology_and_her_answer(
+    home, run_fakes, brains, network_watchers
+):
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+    [watcher] = network_watchers
+    [brain] = brains
+    answers = RecordingAssistant.instances[0].collaborators["network"]
+
+    assert brain.network_note() is None
+    assert answers.answer("internet") == "Master, internetnya lancar kok, sekitar 24 milidetik."
+
+    watcher.state.open_outage(DROPPED_AT, "offline")
+
+    assert brain.network_note() == "Internetnya lagi putus sejak jam 21.03."
+    assert network_status(brain)["outage_now"]["since"] == "21:03"
+
+
+def test_her_answer_about_the_hoyo_servers_checks_them_now(home, run_fakes, brains, network_probes):
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+    answers = RecordingAssistant.instances[0].collaborators["network"]
+
+    said = answers.answer("hoyo")
+
+    assert network_probes[0].checks == [(True, True)]
+    assert said.endswith("Itu server HoYoLAB dan HoYoverse, bukan server game-nya.")
+
+
+def test_the_internet_state_hears_the_play_time_polls_so_the_hoyo_hosts_follow_the_game(
+    home, run_fakes, brains, network_watchers, play_time_watchers
+):
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+    state = network_watchers[0].state
+
+    play_time_watchers[0].on_poll(True, False)
+    assert state.hoyo_playing() is True
+
+    play_time_watchers[0].on_poll(False, False)
+    assert state.hoyo_playing() is False
+
+
+def test_with_play_time_off_the_internet_is_still_watched(
+    home, run_fakes, brains, network_watchers, play_time_watchers
+):
+    append_config(home, "play_time:\n  enabled: false\n")
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    assert play_time_watchers == []
+    assert network_watchers[0].state.hoyo_playing() is False
+
+
+@pytest.mark.parametrize("argv", [["run", "--no-speaker-check"], ["chat"]])
+def test_run_and_chat_offer_network_status_right_after_the_pc_tool(
+    argv, home, run_fakes, brains, network_probes, monkeypatch
+):
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main([*argv, "--dry-run"]) == 0
+
+    kinds = [type(provider) for provider in brains[0].providers]
+    assert kinds[kinds.index(PcTools) + 1] is NetworkTools
+    assert to_anthropic(network_tools(brains[0]).specs()[0])["strict"] is False
+    status = network_status(brains[0])
+    assert (status["status"], status["internet_ms"], status["router"]) == ("ok", 24, "answered")
+    assert network_probes[-1].checks == [(True, True)]
+
+
+def test_chat_checks_the_internet_with_a_state_of_its_own_and_no_apology_note(
+    home, brains, network_watchers, network_probes, monkeypatch
+):
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main(["chat", "--dry-run"]) == 0
+
+    assert network_watchers == []  # only `run` watches
+    assert brains[0].network_note is None
+    assert len(network_probes) == 1
+
+
+@pytest.mark.parametrize("argv", [["run", "--no-speaker-check"], ["chat"]])
+def test_with_the_network_off_there_is_no_watcher_answer_tool_or_note(
+    argv, home, run_fakes, brains, network_watchers, network_probes, monkeypatch
+):
+    append_config(home, "network:\n  enabled: false\n")
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main([*argv, "--dry-run"]) == 0
+
+    assert (network_watchers, network_probes) == ([], [])
+    assert not any(isinstance(tools, NetworkTools) for tools in brains[0].providers)
+    assert brains[0].network_note is None
+    if argv[0] == "run":
+        assert RecordingAssistant.instances[0].collaborators["network"] is None
+
+
+def test_run_starts_the_internet_watcher_with_play_time_and_stops_it_however_listening_ends(
+    home, run_fakes, brains, network_watchers, monkeypatch
+):
+    def listen_until_it_fails(self, mic, segmenter) -> None:
+        self.ran_with = (mic, segmenter)
+        raise SttError("Whisper berhenti.")
+
+    monkeypatch.setattr(RecordingAssistant, "run", listen_until_it_fails)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 1
+
+    assert network_watchers[0].listening == [False, True]
+
+
 # --- focus companion ---------------------------------------------------------------------------
 
 # Saturday 17 October 2026, 22:00 WIB: `run`'s focus timer and `waifu focus` read this clock.
@@ -13019,6 +13283,8 @@ def while_listening(monkeypatch, play: Callable[[RecordingAssistant], None]) -> 
 def test_run_without_a_game_mode_tells_game_mode_nothing_and_keeps_the_focus_quiet(
     home, run_fakes, brains, play_time_watchers, focus_timers
 ):
+    append_config(home, "network:\n  enabled: false\n")  # its state would hear the polls
+
     assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
 
     [watcher] = play_time_watchers
@@ -13916,6 +14182,7 @@ def test_run_gives_the_brain_the_prayer_tool_right_after_the_briefing(
         BriefingTools,
         PrayerTools,
         PcTools,
+        NetworkTools,
         PlayTimeTools,
         AppReminderTools,
         OffersTools,
@@ -14440,8 +14707,9 @@ def test_run_gives_the_brain_the_offers_tools_and_watches_for_offers_while_she_l
 
     assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
 
-    assert [type(tools) for tools in brains[0].providers][-5:] == [
+    assert [type(tools) for tools in brains[0].providers][-6:] == [
         PcTools,
+        NetworkTools,
         PlayTimeTools,
         AppReminderTools,
         OffersTools,
@@ -16294,6 +16562,7 @@ def test_run_gives_the_brain_her_to_do_tools_and_the_tasks_due_today_in_the_brie
         DailyRecapTools,
         BriefingTools,
         PcTools,
+        NetworkTools,
         PlayTimeTools,
         AppReminderTools,
         OffersTools,
@@ -16335,6 +16604,7 @@ def test_chat_gives_the_brain_the_tasks_saved_in_data_todo_json_with_either_back
         DailyRecapTools,
         BriefingTools,
         PcTools,
+        NetworkTools,
         PlayTimeTools,
         AppReminderTools,
         OffersTools,
@@ -16370,6 +16640,7 @@ def test_with_the_todo_list_off_the_brain_gets_neither_the_tools_nor_the_tasks(
         DailyRecapTools,
         BriefingTools,
         PcTools,
+        NetworkTools,
         PlayTimeTools,
         AppReminderTools,
         OffersTools,
@@ -16657,6 +16928,7 @@ def test_run_gives_the_brain_her_journal_tools_right_after_the_to_do_tools(
         DailyRecapTools,
         BriefingTools,
         PcTools,
+        NetworkTools,
         PlayTimeTools,
         AppReminderTools,
         OffersTools,
@@ -17071,6 +17343,7 @@ def test_run_gives_the_brain_the_lesson_tool_right_after_the_focus_timer(
         DailyRecapTools,
         BriefingTools,
         PcTools,
+        NetworkTools,
         PlayTimeTools,
         AppReminderTools,
         OffersTools,
@@ -17358,6 +17631,9 @@ OPEN_TO_GUESTS = frozenset(
         # Setting, stopping, or snoozing an alarm is a control, and an alarm rings in any mode;
         # the tool itself closes its list and cancel while guest mode is on.
         "alarm",
+        # How the internet is right now and today's outage count: no address, nothing of
+        # Master's.
+        "network_status",
     }
 )
 
@@ -17419,6 +17695,7 @@ def test_the_claude_request_with_every_tool_on_stays_within_the_strict_tool_limi
         "daily_recap",
         "alarm",
         "app_reminder",
+        "network_status",
         *FINANCE_TOOLS,
     } <= names
     # Every tool is either closed in guest mode or still open: a new one must be sorted.
@@ -17459,6 +17736,7 @@ def test_the_claude_request_with_every_tool_on_stays_within_the_strict_tool_limi
         "daily_recap",
         "alarm",
         "app_reminder",
+        "network_status",
     }
     assert not not_strict & {tool["name"] for tool in strict}
 
@@ -17529,6 +17807,7 @@ def test_run_and_chat_give_the_brain_the_music_tool_with_either_backend(
         DailyRecapTools,
         BriefingTools,
         PcTools,
+        NetworkTools,
         PlayTimeTools,
         AppReminderTools,
         OffersTools,
@@ -17631,6 +17910,7 @@ def test_with_music_off_the_brain_gets_no_music_tool(
         DailyRecapTools,
         BriefingTools,
         PcTools,
+        NetworkTools,
         PlayTimeTools,
         AppReminderTools,
         OffersTools,
@@ -17985,8 +18265,9 @@ def test_run_with_tepira_on_reads_master_s_money_after_the_free_offers(
 
     assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
 
-    assert [type(tools) for tools in brains[0].providers][-6:] == [
+    assert [type(tools) for tools in brains[0].providers][-7:] == [
         PcTools,
+        NetworkTools,
         PlayTimeTools,
         AppReminderTools,
         OffersTools,
