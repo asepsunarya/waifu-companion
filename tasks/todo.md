@@ -2920,3 +2920,58 @@ named `tests/test_<package>_<module>.py`.
 - [x] README "Setup pertama" (and in the table of contents), "Lampu dan colokan Tuya" and the Privasi line about the wizard's files corrected; CHANGELOG v1.51; full suite, ruff, and JS tests clean
 
 **Dependencies:** 305 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
+
+## Task 307a: Respons instan contract ✅
+
+**Acceptance criteria:**
+- [x] SPEC "respons instan (v1.52)" (the problem, stories, non-goals, the fillers, the router's flag, the voice loop, config, CLI, docs, decisions, known limits, privacy, safety) and the app contract lines; phase 56 and a risk row in the plan; tasks 307a-312 here
+
+**Dependencies:** none · **Files:** `SPEC.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
+
+## Task 307: The stand-in flag of her voice
+
+**Acceptance criteria:**
+- [ ] `SpeechRouter.degraded` is false for a working voice, true after a run fell back to its Windows voice until the engine works again, true while the converter fails until it converts again, and false with `fallback_only`
+
+**Dependencies:** 307a · **Files:** `src/waifu/voice/tts.py`, `tests/test_voice_tts.py` · **Scope:** XS
+
+## Task 308: The filler bank
+
+**Acceptance criteria:**
+- [ ] `NodBank.prepare` synthesises each line once, in order, with `{owner}` filled, and keeps it; a `TtsError` (warned once per call), any other exception (logged with its traceback), or a stand-in voice leaves that line out; a second `prepare` makes only the missing lines
+- [ ] `pick` gives None before `prepare`, a random kept filler other than the last one picked, and None when only the last one is kept
+- [ ] Every built-in filler is one Indonesian speech run
+
+**Dependencies:** 307 · **Files:** `src/waifu/voice/nod.py`, `tests/test_voice_nod.py` · **Scope:** S
+
+## Task 309: The `nod` settings
+
+**Acceptance criteria:**
+- [ ] `nod.enabled` (true) and `nod.after_ms` (1200, 600-5000) load and are refused outside their range, naming the setting; the example's commented block written out holds the defaults
+
+**Dependencies:** 307a · **Files:** `src/waifu/config.py`, `config.example.yaml`, `tests/test_config.py` · **Scope:** XS
+
+## Task 310: Fillers in the voice turn
+
+**Acceptance criteria:**
+- [ ] `_speak`'s pausing and playing are shared helpers (a refactor, no test changes), and `_teach_reading`'s early synthesis is the shared `_voice_ahead`
+- [ ] A brain turn slower than `nod.after_ms` says a filler first: the timer waits `after_ms`, the avatar goes speaking then back to thinking, the mic is paused and resumed, and the reply follows, its voice synthesised while the filler played; a fast turn cancels the timer and a late call says nothing
+- [ ] The reply never overlaps the filler (threaded test), and a filler whose reply became ready while it waited for the voice is skipped
+- [ ] No timer for alarm words, the bare wake word, "ulangi", the heard request, a reading asked, confirmed, or forgotten, `ask_aloud`, the phone, or `handle_text`; a filler also while `quiet` holds
+- [ ] Never the same filler twice in a row, never repeated by "ulangi", not in `tts_s`; a cut filler still lets the reply play; no bank, no timer
+
+**Dependencies:** 308, 309 · **Files:** `src/waifu/app.py`, `tests/test_app.py` · **Scope:** M
+
+## Task 311: `waifu run` prepares the fillers
+
+**Acceptance criteria:**
+- [ ] With `nod.enabled` the Assistant gets a NodBank voiced by the run's one speech router, prepared on a daemon "nod-voice" thread after the `--announce` line; with it off, `nods=None` and nothing is prepared; the CLI tests replace the preparation
+
+**Dependencies:** 310 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** S
+
+## Task 312: Docs
+
+**Acceptance criteria:**
+- [ ] README "Respons instan" (and in the table of contents); CHANGELOG v1.52; full suite, ruff, and JS tests clean
+
+**Dependencies:** 311 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S

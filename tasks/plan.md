@@ -1161,6 +1161,28 @@ name with the owner's confirmation, and offers to delete the files holding the c
 - [x] Fix pass (2026-10-25): with a topic present but notify off, n to setup notify writes nothing (it turned notify on with a new random topic), a new topic is its own question, and turning it on with the kept topic shows the subscribe steps; the import reads devices.json only when the wizard wrote it in this run, so a Tuya cloud error (exit 0) imports nothing and never an older list with a re-paired lamp's old key, and the wizard's English errors are explained; Ctrl+C in the wizard stops setup; a second import of the same list writes nothing (no backup, no restart reminder); a write before the test push or the delete offer still counts when the input ends there, and a stopped tuya step says the credential files stay; setup ends with a recap and the next steps; the wizard list names kinds in Indonesian; the Tuya steps warn of the data center and the IoT Core renewal; `.gitignore` covers config.yaml's temp copy. By hand, mktemp folders deleted afterwards, `python -m waifu setup` with piped answers on a copy of config.example.yaml: notify with a topic and `enabled: false` answered n left config.yaml byte-identical with no backup, answered Enter, Enter, n wrote only `enabled: true` and showed the subscribe steps with the kept topic; `setup tuya` over a made-up devices.json wrote the lamp and the plug (lampu, colokan, IR blaster in the list), and a second run said "sudah sama dengan devices.json" twice, "Tidak ada yang diubah.", and left the file and the single backup as they were; a fake runner exiting 0 without writing printed the no-list explanation. 11185 pytest passed, ruff check and format clean; JS untouched; nothing under src/waifu/brain or in a tool spec changed, so 18 of 20 strict tools, 17 of 24 optional parameters, and 0 of 16 unions stay
 - [ ] On the owner's PC: `waifu setup` fills the mic, the Tuya devices, the blaster, and notify, and `waifu check` shows no placeholder line
 
+### Phase 56: Respons instan (v1.52, see SPEC → respons instan)
+Decision: when the brain has not answered Master's own words after `nod.after_ms` (1200 ms), she
+says one short Indonesian filler ("Hmm, bentar ya…") from a small bank synthesised once at start
+in the background through her own voice (RVC included) and kept in memory; a filler made in a
+stand-in voice is left out. A timer per turn and a begin/close handshake under the voice lock keep
+it from ever overlapping the reply or starting once the reply is ready; the reply's voice is made
+while the filler plays. Only the voice turn's brain branch has one: fast paths, self-started turns,
+the phone, and the text chat never do. No tool or dependency: 18 of 20 strict tools, 17 of 24
+optional parameters, and 0 of 16 unions stay.
+- [x] Task 307a: contract: SPEC, tasks
+- [ ] Task 307: the stand-in flag of her voice (`SpeechRouter.degraded`)
+- [ ] Task 308: the filler bank (`voice/nod.py`)
+- [ ] Task 309: the `nod` settings
+- [ ] Task 310: fillers in the voice turn (`_think_with_nod`, `_say_nod`, the reply's voice made ahead)
+- [ ] Task 311: `waifu run` prepares the fillers in the background
+- [ ] Task 312: README, CHANGELOG
+
+### Checkpoint: Respons instan
+- [ ] Python suite, ruff, and JS tests clean; no test spoke, played audio, opened a mic, or reached the network; the strict-tool budget unchanged
+- [ ] By hand: in a scratch folder with a slow fake brain over the real Assistant, SpeechRouter, and NodBank, a slow turn says a filler before the reply, a fast one none, and two slow turns differ
+- [ ] On the owner's PC: a slow question gets a filler in her RVC voice, right before the answer
+
 ## Risks and Mitigations
 
 | Risk | Impact | Mitigation |
@@ -1186,6 +1208,7 @@ name with the owner's confirmation, and offers to delete the files holding the c
 | A mic switch or a PortAudio restart while audio runs | A crash inside PortAudio, a cut clip, or a deaf Cyrene | Every open, close, and restart on `run`'s thread between frames, a restart only with the mic closed, the player's lock and the listing's lock held, and never with a numbered device; a mic that does not open is rolled back; with none, silent frames keep rings and reminders going while she retries every 5 s |
 | A global hotkey that blocks or leaks keys, or a pause that leaves her deaf | Ctrl+Alt+X never reaches her while she speaks, Master's typing is seen, or she seems broken | `RegisterHotKey` sees only its combos; the message loop calls only `interrupt` and queues the rest; the pause is said aloud, shown on the avatar and in `waifu check`, and ends by Ctrl+Alt+Q, a double-click, Ctrl+Alt+C, the "Dengar lagi" button, a restart, or after 2 h; tests refuse the real user32 functions |
 | `waifu setup` writes config.yaml wrongly or shows a secret | A config that no longer loads, another value changed, a lost comment, or a local key on screen | Only the targeted lines change, layouts it cannot read are refused, a backup goes to `data/` first, the file is reloaded and the whole config compared with the intended one, and any difference restores it and hands over a snippet with every local key hidden; the wizard's credential files are offered for deletion |
+| A filler overlaps her reply, comes after it, or sounds like another voice | Two voices at once, a filler after the answer, or a robotic "Hmm" before an anime-voiced reply | One voice lock for both, a per-turn begin/close handshake so no filler starts once the reply is ready, the filler picked inside the lock, and a filler made in a stand-in voice (Windows fallback, plain voice) left out of the bank |
 
 ## Open Questions
 
