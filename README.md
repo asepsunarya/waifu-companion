@@ -31,6 +31,7 @@ Cyrene : "Komputer mau kumatikan sekarang, Master? Jawab iya kalau jadi." (minta
 - [Menyambungkan perangkat](#menyambungkan-perangkat)
 - [Mendaftarkan suara Master](#mendaftarkan-suara-master)
 - [Pemakaian sehari-hari](#pemakaian-sehari-hari)
+- [Respons instan](#respons-instan)
 - [Jalan otomatis saat login](#jalan-otomatis-saat-login)
 - [Versi baru](#versi-baru)
 - [Suara anime (つくよみちゃん)](#suara-anime-つくよみちゃん)
@@ -799,6 +800,56 @@ Contoh kalimat saat `waifu run`:
 Obrolan dilupakan setelah 10 menit tanpa percakapan atau 40 giliran
 (`assistant.session_idle_minutes`, `assistant.max_session_turns`). Hal penting tentang
 Master tetap diingat lewat catatannya (lihat [Ingatan Cyrene](#ingatan-cyrene)).
+
+## Respons instan
+
+Jawaban dari Claude butuh 2 sampai 5 detik, lebih lama kalau dia memakai tool, dan selama itu
+dia diam: kamu tidak tahu apakah dia mendengar. Karena itu, kalau otaknya belum menjawab setelah
+1,2 detik, Cyrene bilang satu kalimat pendek dulu dengan suaranya sendiri, lalu jawabannya
+menyusul begitu siap:
+
+> "Cyrene, besok hujan nggak?"
+>
+> "Sebentar, kucek dulu ya."
+>
+> "Besok pagi cerah, Master, tapi sore ada hujan ringan."
+
+Kalimat pendeknya dipilih acak dari enam: "Hmm, bentar ya…", "Sebentar, kucek dulu ya.", "Oke,
+kupikirkan dulu…", "Tunggu sebentar ya, Master.", "Hmm, coba kulihat dulu ya.", dan "Sebentar
+ya, Master…" (dengan panggilanmu dari `assistant.owner_call`), tidak pernah sama dua kali
+berturut-turut. Jawaban yang siap dalam 1,2 detik datang tanpa kalimat itu, seperti biasa.
+
+- Kalimat-kalimat itu disiapkan sekali di latar belakang setelah `waifu run` siap (sesudah
+  "Cyrene siap, Master." kalau dengan `--announce`) dan disimpan di memori, jadi tidak pernah
+  menunggu edge-tts atau suara anime. Satu-dua pertanyaan pertama tepat setelah mulai mungkin
+  belum mendapatkannya.
+- Kalimat yang saat disiapkan keluar dengan suara cadangan Windows (edge-tts gagal, misalnya
+  internet belum tersambung saat login) atau tanpa suara anime (RVC gagal) tidak dipakai sampai
+  `waifu run` dijalankan ulang, supaya tidak ada "Hmm" dengan suara lain sebelum jawaban dengan
+  suara anime. Kalau semuanya begitu, dia diam menunggu jawaban seperti sebelum v1.52.
+- Hanya untuk kalimatmu sendiri yang dijawab otak. Tidak untuk yang dijawab seketika tanpa otak
+  ("Cyrene?", "ulangi", "tadi kamu denger apa?", "cara baca ...", "aku sudah bangun"), sapaan
+  pagi, pertanyaan jurnal, laporan game mingguan, pesan dari HP, atau `waifu chat`. Selama teman
+  fokus atau mode game menahan pengumuman, pertanyaanmu tetap mendapatkannya: kamu sedang bicara
+  dengannya.
+- Avatar bergerak seperti bicara, lalu kembali berpose berpikir sampai jawabannya datang. Kalimat
+  itu tidak membuka jendela 8 detik dan tidak diulang oleh "ulangi" (yang diulang jawabannya).
+  Volume suaranya dan mode bisik juga berlaku untuknya.
+- Klik dua kali atau Ctrl+Alt+X di tengah kalimat itu hanya memotong kalimat itu; jawabannya
+  tetap datang, dan avatar bisa tampak mendengarkan sampai jawabannya datang.
+
+Sudah menyala tanpa ditulis. Untuk mengubahnya, tulis di `config.yaml` (berlaku setelah
+`waifu run` dijalankan ulang):
+
+```yaml
+nod:
+  enabled: true      # false: dia diam sampai jawabannya siap, seperti sebelum v1.52
+  after_ms: 1200     # setelah N milidetik tanpa jawaban (600-5000)
+```
+
+Tes otomatis tidak bisa mendengar bagaimana suara Indonesia edge-tts mengucapkan "Hmm". Coba
+sendiri dengan `waifu say "Hmm, bentar ya…"` (butuh internet dan speaker); kalau terdengar aneh,
+`nod.enabled: false` mematikannya.
 
 ## Jalan otomatis saat login
 
@@ -6827,6 +6878,10 @@ mendengarkan"; jawaban pertama bisa lebih lama karena model Ollama baru dimuat)
       menjawab bertambah kira-kira 0,3–1 detik dibanding `tts.rvc.enabled: false`.
 - [ ] Dengan `tts.rvc.model` sementara menunjuk file yang tidak ada, `waifu say` tetap
       bicara dengan suara biasa dan menampilkan "Suara anime tidak tersedia".
+- [ ] Respons instan (lihat [Respons instan](#respons-instan)): dengan Claude, "Cyrene, besok
+      hujan nggak?" membuatnya bilang kalimat pendek seperti "Sebentar, kucek dulu ya." sekitar
+      1,2 detik setelah kamu selesai bicara, dengan suara つくよみちゃん, lalu jawabannya
+      menyusul tanpa bertumpuk; pertanyaan berikutnya yang lambat mendapat kalimat lain.
 - [ ] Setelah `waifu run` bilang siap, menutup jendelanya juga mematikan server RVC:
       `netstat -ano | findstr :9881` tidak menampilkan apa-apa lagi.
 

@@ -2969,9 +2969,9 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 310 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** S
 
-## Task 312: Docs
+## Task 312: Docs ✅
 
 **Acceptance criteria:**
-- [ ] README "Respons instan" (and in the table of contents); CHANGELOG v1.52; full suite, ruff, and JS tests clean
+- [x] README "Respons instan" (and in the table of contents); CHANGELOG v1.52; full suite, ruff, and JS tests clean
 
 **Dependencies:** 311 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S

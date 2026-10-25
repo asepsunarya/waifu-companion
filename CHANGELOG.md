@@ -4,6 +4,21 @@ Ringkasan per versi, yang terbaru di atas. Rinciannya ada di README (bagian yang
 setiap versi) dan di SPEC.md. Setelah memperbarui, **mulai ulang `waifu run`** supaya semuanya
 aktif, lalu jalankan `waifu check`.
 
+## v1.52: respons instan
+
+- Kalau otaknya belum menjawab kalimatmu setelah 1,2 detik (`nod.after_ms`), Cyrene bilang satu
+  kalimat pendek dulu dengan suaranya sendiri ("Hmm, bentar ya…", "Sebentar, kucek dulu ya.", dan
+  empat lainnya, tidak pernah sama dua kali berturut-turut), lalu jawabannya menyusul begitu
+  selesai, tanpa jeda tambahan. Jawaban yang cepat datang tanpa kalimat itu, seperti biasa.
+- Kalimat-kalimat itu disiapkan sekali di latar belakang setelah dia siap dan disimpan di
+  memori, jadi tidak pernah menunggu edge-tts atau suara anime. Yang saat disiapkan keluar dengan
+  suara cadangan Windows atau tanpa suara anime tidak dipakai sampai `waifu run` dijalankan ulang.
+- Hanya untuk kalimatmu sendiri yang dijawab otak: tidak untuk "ulangi", alarm, "cara baca",
+  sapaan pagi, pertanyaan jurnal, laporan mingguan, pesan dari HP, atau `waifu chat`. "Ulangi"
+  mengulang jawabannya, bukan kalimat itu.
+- Matikan dengan `nod.enabled: false`. Tidak ada tool baru.
+- README: "Respons instan".
+
 ## v1.51: panduan setup
 
 - `waifu setup` memandumu mengisi yang masih contoh di `config.yaml`, langsung di terminal, lalu

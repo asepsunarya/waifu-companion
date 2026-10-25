@@ -536,7 +536,8 @@ class Assistant:
         Safe from any thread and never waits for her voice: it only stops the player.
         The interrupted `speak` finishes as usual (microphone resumed, segmenter reset,
         follow-up window opened after a reply) and holds queued announcements back so
-        Master can talk. A reply still being thought up is not cut.
+        Master can talk. A reply still being thought up is not cut: a filler said meanwhile
+        (`_say_nod`) is, and the reply still comes.
         """
         return self._player.stop()
 

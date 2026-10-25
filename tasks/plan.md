@@ -1176,11 +1176,11 @@ optional parameters, and 0 of 16 unions stay.
 - [x] Task 309: the `nod` settings
 - [x] Task 310: fillers in the voice turn (`_think_with_nod`, `_say_nod`, the reply's voice made ahead)
 - [x] Task 311: `waifu run` prepares the fillers in the background
-- [ ] Task 312: README, CHANGELOG
+- [x] Task 312: README, CHANGELOG
 
 ### Checkpoint: Respons instan
-- [ ] Python suite, ruff, and JS tests clean; no test spoke, played audio, opened a mic, or reached the network; the strict-tool budget unchanged
-- [ ] By hand: in a scratch folder with a slow fake brain over the real Assistant, SpeechRouter, and NodBank, a slow turn says a filler before the reply, a fast one none, and two slow turns differ
+- [x] Python suite, ruff, and JS tests clean; no test spoke, played audio, opened a mic, or reached the network; the strict-tool budget unchanged (2026-10-25: 11245 pytest and 601 JS tests, ruff check and format clean; the timers are fakes the tests fire, the brains, voices, and player fakes, and the CLI tests replace the background preparation; nothing under src/waifu/brain or config/ changed, so 18 of 20 strict tools, 17 of 24 optional parameters, and 0 of 16 unions stay)
+- [x] By hand: in a scratch folder with a slow fake brain over the real Assistant, SpeechRouter, and NodBank, a slow turn says a filler before the reply, a fast one none, and two slow turns differ (2026-10-25, a mktemp folder deleted afterwards, the real Assistant, WakeGate, SpeechRouter, NodBank, and threading.Timer with a 0.2 s fake Edge engine, a Windows fallback fake, a brain taking 1.5 s, 0.3 s, and 1.5 s, and a player that sleeps each clip: the bank kept 6 of 6; the first slow turn said "Sebentar, kucek dulu ya." 1.21 s after it began and the reply after it, never at once; the 0.3 s turn had no filler and its cancelled timer never picked; the second slow turn said "Sebentar ya, Master…"; no timer thread was left; with the engine failing, all 6 came in the fallback voice and were left out, and `pick` gave None)
 - [ ] On the owner's PC: a slow question gets a filler in her RVC voice, right before the answer
 
 ## Risks and Mitigations
