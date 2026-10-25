@@ -123,6 +123,14 @@ def test_the_description_says_the_round_trip_is_now_and_for_the_ping_question():
     assert 'say it for "ping-ku berapa?"' in spec.description
 
 
+def test_the_description_says_a_normal_round_trip_is_no_answer_to_a_slow_download():
+    tools, _ = make_tools()
+
+    [spec] = tools.specs()
+
+    assert "It measures delay, not download speed" in spec.description
+
+
 def test_a_cut_off_internet_says_what_answered_and_never_an_address():
     reading = replace(
         FINE, anchor_ms=None, gateway_ms=None, dns_ms=None, hoyo_ms=(None, None, None)

@@ -329,16 +329,21 @@ def finding(reading: Reading, status: str, judged: float | None = None, outage=N
     return Finding(reading, status, judged, outage, hoyo)
 
 
-def test_she_says_an_answering_internet_is_fine_with_its_round_trip():
+def test_with_a_normal_round_trip_she_says_what_she_measured_and_what_else_may_be_slow():
+    # "Kok lemot?" with a normal ping: the speed or the app may still be slow, which she cannot
+    # measure, so she never says flatly that the internet is fine.
     said = answer_line(finding(FINE, "ok", 24.4), "internet", "master")
 
-    assert said == "Master, internetnya lancar kok, sekitar 24 milidetik."
+    assert said == (
+        "Master, ping internetnya normal, sekitar 24 milidetik. Kalau masih terasa lemot, mungkin "
+        "kecepatannya yang turun, atau dari aplikasinya."
+    )
 
 
-def test_she_says_a_slow_internet_with_the_median_she_judged_by():
+def test_she_says_a_slow_internet_with_the_round_trip_she_judged_by():
     said = answer_line(finding(FINE, "slow", 349.6), "internet", "Master")
 
-    assert said == "Master, internetnya lagi lambat, sekitar 350 milidetik."
+    assert said.startswith("Master, internetnya lagi lambat, ping-nya sekitar 350 milidetik.")
 
 
 def test_she_says_the_router_is_out_of_reach():
@@ -388,7 +393,7 @@ def test_asked_about_hoyo_she_says_its_hosts_answer_and_that_they_are_not_the_ga
     said = answer_line(finding(reading, "ok", 24.0), "hoyo", "Master")
 
     assert said == (
-        "Master, internetnya lancar kok, sekitar 24 milidetik. Server HoYoLAB dan HoYoverse "
+        "Master, ping internetnya normal, sekitar 24 milidetik. Server HoYoLAB dan HoYoverse "
         "menjawab, sekitar 45 milidetik. Itu server HoYoLAB dan HoYoverse, bukan server game-nya."
     )
 
@@ -410,7 +415,7 @@ def test_she_says_how_the_hoyo_hosts_are_failing(hoyo, told):
     said = answer_line(finding(reading, "hoyo", 24.0), "hoyo", "Master")
 
     assert said == (
-        f"Master, internetnya lancar kok, sekitar 24 milidetik. {told} Itu server HoYoLAB dan "
+        f"Master, ping internetnya normal, sekitar 24 milidetik. {told} Itu server HoYoLAB dan "
         "HoYoverse, bukan server game-nya."
     )
 
@@ -428,7 +433,7 @@ def test_hoyo_hosts_checked_for_the_internet_question_are_said_without_the_game_
     said = answer_line(finding(reading, "hoyo", 24.0), "internet", "Master")
 
     assert said == (
-        "Master, internetnya lancar kok, sekitar 24 milidetik. Server HoYoLAB dan HoYoverse "
+        "Master, ping internetnya normal, sekitar 24 milidetik. Server HoYoLAB dan HoYoverse "
         "tidak menjawab."
     )
 

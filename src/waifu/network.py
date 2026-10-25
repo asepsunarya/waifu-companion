@@ -44,6 +44,10 @@ MEANINGS: dict[Status, str] = {
     "router": "router tidak terjangkau",
 }
 _HOYO = "Server HoYoLAB dan HoYoverse"
+# Only the round trip is measured, never the speed: a normal ping is no answer to "kok lemot?".
+_SPEED_UNMEASURED = (
+    "Kalau masih terasa lemot, mungkin kecepatannya yang turun, atau dari aplikasinya."
+)
 
 
 class Probe(Protocol):
@@ -228,8 +232,13 @@ def answer_line(finding: Finding, topic: Topic, owner_call: str) -> str:
             f"{owner}, internetnya tersambung, tapi DNS-nya bermasalah, jadi alamat situs tidak "
             "bisa dicari."
         )
-    pace = "lagi lambat" if finding.status == "slow" else "lancar kok"
-    said = [f"{owner}, internetnya {pace}, sekitar {_ms(finding.judged_ms or 0.0)} milidetik."]
+    took = _ms(finding.judged_ms or 0.0)
+    if finding.status == "slow":
+        said = [f"{owner}, internetnya lagi lambat, ping-nya sekitar {took} milidetik."]
+    else:
+        said = [f"{owner}, ping internetnya normal, sekitar {took} milidetik."]
+        if finding.status == "ok" and topic == "internet":
+            said.append(_SPEED_UNMEASURED)
     if finding.hoyo is not None:
         said.append(_hoyo_sentence(finding.hoyo))
     if topic == "hoyo":

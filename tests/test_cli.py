@@ -12835,7 +12835,9 @@ def test_one_state_tells_the_watcher_s_outage_to_claude_s_apology_and_her_answer
     answers = RecordingAssistant.instances[0].collaborators["network"]
 
     assert brain.network_note() is None
-    assert answers.answer("internet") == "Master, internetnya lancar kok, sekitar 24 milidetik."
+    assert answers.answer("internet").startswith(
+        "Master, ping internetnya normal, sekitar 24 milidetik."
+    )
 
     watcher.state.open_outage(DROPPED_AT, "offline")
 

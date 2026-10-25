@@ -112,9 +112,9 @@ def answers(probe: FakeProbe) -> NetworkAnswers:
 def test_her_answer_comes_from_a_check_made_now_with_the_lookup():
     probe = FakeProbe()
 
-    assert answers(probe).answer("internet") == (
-        "Master, internetnya lancar kok, sekitar 24 milidetik."
-    )
+    said = answers(probe).answer("internet")
+
+    assert said.startswith("Master, ping internetnya normal, sekitar 24 milidetik.")
     assert probe.asked == [{"dns": True, "hoyo": False}]
 
 
@@ -126,7 +126,7 @@ def test_asked_kok_lemot_after_quick_polls_she_says_the_slow_round_trip_of_now()
 
     said = NetworkAnswers(check, owner_call="master").answer("internet")
 
-    assert said.startswith("Master, internetnya lagi lambat, sekitar 450 milidetik.")
+    assert said.startswith("Master, internetnya lagi lambat, ping-nya sekitar 450 milidetik.")
 
 
 def test_asked_about_hoyo_she_checks_the_hoyo_hosts_too():
