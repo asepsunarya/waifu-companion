@@ -76,6 +76,11 @@ MEDIA_TOGGLES = frozenset({"play_pause", "mute"})
 # The device types the phone page's quick buttons may show: switches, not the PC, media keys, or
 # apps (a `powers_pc` plug is refused on its own).
 QUICK_BUTTON_TYPES = frozenset({"tuya_light", "tuya_plug", "ir", "mock"})
+# A host the internet watcher looks up or connects to: a bare DNS name with a top-level domain of
+# letters, no scheme, port, or path (read in lower case).
+HOST_NAME_PATTERN = re.compile(
+    r"(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]([a-z0-9-]{0,61}[a-z0-9])?"
+)
 
 
 def cookie_names(cookie: str) -> set[str]:
@@ -830,6 +835,108 @@ class PcHealthConfig(_Strict):
     gpu_warn_minutes: int = Field(default=3, ge=1, le=60)
 
 
+def _default_hoyo_hosts() -> list[str]:
+    """HoYoLAB's and HoYoverse's web hosts the gacha buddy reaches: the installed genshin
+    library's records and check-ins (genshin/client/routes.py) and the pull history (gacha/
+    games.py). They sit behind CDNs: their timing is not the in-game server's ping."""
+    return [
+        "sg-public-api.hoyolab.com",
+        "bbs-api-os.hoyolab.com",
+        "public-operation-hk4e-sg.hoyoverse.com",
+    ]
+
+
+class NetworkHostsConfig(_Strict):
+    """What the internet watcher probes: the gateway (`auto`: the one Windows routes through),
+    the anchors pinged on the internet, the name looked up, and the HoYo hosts connected to."""
+
+    gateway: str = "auto"
+    anchors: list[str] = Field(
+        default_factory=lambda: ["1.1.1.1", "8.8.8.8"], min_length=1, max_length=4
+    )
+    dns: str = "www.google.com"
+    hoyo: list[str] = Field(default_factory=_default_hoyo_hosts, min_length=1, max_length=8)
+
+    @field_validator("gateway")
+    @classmethod
+    def _auto_or_an_ipv4_address(cls, value: str) -> str:
+        if value == "auto":
+            return value
+        try:
+            address = ipaddress.IPv4Address(value)
+        except ValueError:
+            raise ValueError("must be auto or an IPv4 address such as 192.168.1.1") from None
+        if address.is_loopback or address.is_unspecified or address.is_multicast:
+            raise ValueError("must be the router's IPv4 address, such as 192.168.1.1")
+        return value
+
+    @field_validator("anchors")
+    @classmethod
+    def _public_ipv4_addresses_listed_once(cls, value: list[str]) -> list[str]:
+        for anchor in value:
+            try:
+                address = ipaddress.IPv4Address(anchor)
+            except ValueError:
+                raise ValueError(f"'{anchor}' must be an IPv4 address such as 1.1.1.1") from None
+            if not address.is_global:
+                raise ValueError(f"'{anchor}' must be a public address on the internet")
+        if len(set(value)) != len(value):
+            raise ValueError("an anchor is listed more than once")
+        return value
+
+    @field_validator("dns", mode="before")
+    @classmethod
+    def _dns_in_lower_case(cls, value: object) -> object:
+        return value.lower() if isinstance(value, str) else value
+
+    @field_validator("hoyo", mode="before")
+    @classmethod
+    def _hoyo_in_lower_case(cls, value: object) -> object:
+        if isinstance(value, list):
+            return [host.lower() if isinstance(host, str) else host for host in value]
+        return value
+
+    @field_validator("dns")
+    @classmethod
+    def _a_host_name(cls, value: str) -> str:
+        return _host_name(value)
+
+    @field_validator("hoyo")
+    @classmethod
+    def _host_names_listed_once(cls, value: list[str]) -> list[str]:
+        for host in value:
+            _host_name(host)
+        if len(set(value)) != len(value):
+            raise ValueError("a host is listed more than once")
+        return value
+
+
+def _host_name(value: str) -> str:
+    if HOST_NAME_PATTERN.fullmatch(value) is None:
+        raise ValueError(f"'{value}' must be a host name such as www.google.com, without https://")
+    return value
+
+
+class NetworkConfig(_Strict):
+    """The internet watcher inside `waifu run`, her answers about the internet, and the week of
+    outages it keeps."""
+
+    enabled: bool = True
+    poll_seconds: int = Field(default=60, ge=30, le=600)
+    # The HoYo hosts are checked only while a tracked game runs, at most this often.
+    hoyo_poll_seconds: int = Field(default=150, ge=60, le=1800)
+    # Slow: the median round trip of the last `slow_window` checks above this.
+    slow_ms: int = Field(default=200, ge=50, le=5000)
+    slow_window: int = Field(default=5, ge=1, le=30)
+    # Her line once the internet is back after an outage of at least `back_after_minutes`.
+    announce_back: bool = True
+    back_after_minutes: int = Field(default=3, ge=1, le=120)
+    max_back_per_day: int = Field(default=3, ge=1, le=24)
+    keep_days: int = Field(default=7, ge=1, le=90)
+    path: Path = Path("data/network.json")
+    hosts: NetworkHostsConfig = Field(default_factory=NetworkHostsConfig)
+
+
 def _default_game_executables() -> dict[GameId, list[str]]:
     """The games' executable names: StarRail.exe seen running on the owner's PC; the others
     from the Unity data folders gacha/games.py names (Unity names the folder after the
@@ -1335,6 +1442,7 @@ class AppConfig(_Strict):
     todo: TodoConfig = Field(default_factory=TodoConfig)
     music: MusicConfig = Field(default_factory=MusicConfig)
     pc_health: PcHealthConfig = Field(default_factory=PcHealthConfig)
+    network: NetworkConfig = Field(default_factory=NetworkConfig)
     play_time: PlayTimeConfig = Field(default_factory=PlayTimeConfig)
     focus: FocusConfig = Field(default_factory=FocusConfig)
     game_mode: GameModeConfig = Field(default_factory=GameModeConfig)

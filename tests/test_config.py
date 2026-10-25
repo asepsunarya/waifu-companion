@@ -16,6 +16,7 @@ from waifu.config import (
     HotkeysConfig,
     JapaneseConfig,
     JournalConfig,
+    NetworkConfig,
     NodConfig,
     PlayTimeConfig,
     PrayerConfig,
@@ -1468,6 +1469,134 @@ def test_the_example_app_reminders_block_written_out_holds_the_defaults(tmp_path
     written_out = "\n".join(line.removeprefix("# ") for line in commented.splitlines())
 
     assert load_config(write_yaml(tmp_path, written_out)).app_reminders == AppRemindersConfig()
+
+
+HOYO_HOSTS = [
+    "sg-public-api.hoyolab.com",
+    "bbs-api-os.hoyolab.com",
+    "public-operation-hk4e-sg.hoyoverse.com",
+]
+
+
+def test_the_internet_watcher_is_on_by_default_with_its_hosts():
+    network = AppConfig().network
+
+    assert (network.enabled, network.poll_seconds, network.hoyo_poll_seconds) == (True, 60, 150)
+    assert (network.slow_ms, network.slow_window) == (200, 5)
+    assert (network.announce_back, network.back_after_minutes, network.max_back_per_day) == (
+        True,
+        3,
+        3,
+    )
+    assert (network.keep_days, network.path) == (7, Path("data/network.json"))
+    hosts = network.hosts
+    assert (hosts.gateway, hosts.anchors, hosts.dns) == (
+        "auto",
+        ["1.1.1.1", "8.8.8.8"],
+        "www.google.com",
+    )
+    assert hosts.hoyo == HOYO_HOSTS
+
+
+def test_internet_watcher_settings_load_from_yaml(tmp_path):
+    text = (
+        "network:\n  enabled: false\n  poll_seconds: 120\n  slow_ms: 400\n"
+        "  hosts:\n    gateway: 192.168.1.1\n    anchors: [9.9.9.9]\n    dns: one.one.one.one\n"
+        "    hoyo: [sg-public-api.hoyolab.com]\n"
+    )
+
+    network = load_config(write_yaml(tmp_path, text)).network
+
+    assert (network.enabled, network.poll_seconds, network.slow_ms) == (False, 120, 400)
+    assert (network.hosts.gateway, network.hosts.anchors) == ("192.168.1.1", ["9.9.9.9"])
+    assert (network.hosts.dns, network.hosts.hoyo) == ("one.one.one.one", [HOYO_HOSTS[0]])
+
+
+@pytest.mark.parametrize(
+    ("setting", "value"),
+    [
+        ("poll_seconds", 20),
+        ("poll_seconds", 601),
+        ("hoyo_poll_seconds", 59),
+        ("slow_ms", 40),
+        ("slow_window", 0),
+        ("back_after_minutes", 0),
+        ("max_back_per_day", 25),
+        ("keep_days", 91),
+        ("max_outages", 5),  # unknown
+    ],
+)
+def test_an_internet_watcher_setting_out_of_bounds_is_refused_naming_it(tmp_path, setting, value):
+    with pytest.raises(ConfigError, match=re.escape(f"network.{setting}")):
+        load_config(write_yaml(tmp_path, f"network:\n  {setting}: {value}\n"))
+
+
+@pytest.mark.parametrize(
+    "anchors",
+    ["[192.168.1.1]", "[127.0.0.1]", "['::1']", "[one.one.one.one]", "[]", "[1.1.1.1, 1.1.1.1]"],
+)
+def test_an_anchor_must_be_a_public_ipv4_address_listed_once(tmp_path, anchors):
+    text = f"network:\n  hosts:\n    anchors: {anchors}\n"
+
+    with pytest.raises(ConfigError, match=re.escape("network.hosts.anchors")):
+        load_config(write_yaml(tmp_path, text))
+
+
+def test_at_most_four_anchors_are_pinged(tmp_path):
+    text = "network:\n  hosts:\n    anchors: [1.1.1.1, 1.0.0.1, 8.8.8.8, 8.8.4.4, 9.9.9.9]\n"
+
+    with pytest.raises(ConfigError, match=re.escape("network.hosts.anchors")):
+        load_config(write_yaml(tmp_path, text))
+
+
+@pytest.mark.parametrize("gateway", ["router.local", "0.0.0.0", "127.0.0.1", "fe80::1", "Auto"])
+def test_the_gateway_is_auto_or_an_ipv4_address(tmp_path, gateway):
+    text = f"network:\n  hosts:\n    gateway: '{gateway}'\n"
+
+    with pytest.raises(ConfigError, match=re.escape("network.hosts.gateway")):
+        load_config(write_yaml(tmp_path, text))
+
+
+@pytest.mark.parametrize(
+    "host", ["https://www.google.com", "www.google.com:443", "localhost", "1.1.1.1", "a b.com"]
+)
+def test_the_dns_name_is_a_host_name(tmp_path, host):
+    text = f"network:\n  hosts:\n    dns: '{host}'\n"
+
+    with pytest.raises(ConfigError, match=re.escape("network.hosts.dns")):
+        load_config(write_yaml(tmp_path, text))
+
+
+@pytest.mark.parametrize(
+    "hosts",
+    [
+        "[]",
+        "['https://sg-public-api.hoyolab.com']",
+        "[sg-public-api.hoyolab.com, sg-public-api.hoyolab.com]",
+        "[a.com, b.com, c.com, d.com, e.com, f.com, g.com, h.com, i.com]",
+    ],
+)
+def test_the_hoyo_hosts_are_one_to_eight_host_names_listed_once(tmp_path, hosts):
+    text = f"network:\n  hosts:\n    hoyo: {hosts}\n"
+
+    with pytest.raises(ConfigError, match=re.escape("network.hosts.hoyo")):
+        load_config(write_yaml(tmp_path, text))
+
+
+def test_a_host_name_is_read_in_lower_case(tmp_path):
+    text = "network:\n  hosts:\n    dns: WWW.Google.COM\n    hoyo: [SG-Public-API.HoYoLAB.com]\n"
+
+    hosts = load_config(write_yaml(tmp_path, text)).network.hosts
+
+    assert (hosts.dns, hosts.hoyo) == ("www.google.com", [HOYO_HOSTS[0]])
+
+
+def test_the_example_network_block_written_out_holds_the_defaults(tmp_path):
+    example = (ROOT / "config.example.yaml").read_text(encoding="utf-8")
+    commented = example[example.index("\n# network:\n") + 1 :].split("\n\n", 1)[0]
+    written_out = "\n".join(line.removeprefix("# ") for line in commented.splitlines())
+
+    assert load_config(write_yaml(tmp_path, written_out)).network == NetworkConfig()
 
 
 def test_the_journal_is_on_without_the_nightly_question_by_default():

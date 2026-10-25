@@ -463,6 +463,31 @@ schedule:
 #   gpu_warn_c: 85         # GPU di N °C atau lebih (60-100) ...
 #   gpu_warn_minutes: 3    # ... selama N menit berturut-turut: diberi tahu paling sering sekali per jam (1-60)
 
+# Pemantau internet (README, bagian "Pemantau internet"): selama `waifu run` dia mengecek router
+# dan internet tiap menit (ping, dan koneksi ke port 443 kalau ping diblokir), dan server
+# HoYoLAB/HoYoverse hanya selama game dimainkan. Internet putus = dua kali cek berturut-turut
+# gagal; sesudah sleep, jam berubah, atau baru mulai, dua cek pertama tidak dihitung. Kalau
+# sudah nyambung lagi sesudah putus beberapa menit, dia bilang sekali. "Internetnya kenapa?",
+# "kok lemot?", atau "server HoYo down?" dijawab tanpa Claude, juga saat internet mati.
+# Riwayat putusnya disimpan di PC ini (path). Lihat sekarang dengan `waifu internet`.
+# Sudah menyala tanpa ditulis; untuk mengubahnya, tulis bagian ini tanpa tanda # di depannya.
+# network:
+#   enabled: true          # false: tanpa pemantau, tanpa jawaban lokal, dan tanpa tool (`waifu internet` tetap jalan)
+#   poll_seconds: 60       # cek router dan internet tiap N detik (30-600)
+#   hoyo_poll_seconds: 150 # cek server HoYo paling sering tiap N detik, hanya selama game dimainkan (60-1800)
+#   slow_ms: 200           # lambat: median ping beberapa cek terakhir di atas N milidetik (50-5000)
+#   slow_window: 5         # ... dari N cek terakhir (1-30)
+#   announce_back: true    # false: tidak bilang saat internet nyambung lagi
+#   back_after_minutes: 3  # bilang hanya kalau putusnya paling sedikit N menit (1-120)
+#   max_back_per_day: 3    # paling banyak N kali sehari (1-24)
+#   keep_days: 7           # riwayat putus disimpan N hari (1-90)
+#   path: data/network.json
+#   hosts:
+#     gateway: auto        # router; auto = yang dipakai Windows, atau alamat IPv4 seperti 192.168.1.1
+#     anchors: [1.1.1.1, 8.8.8.8]  # alamat IPv4 publik yang di-ping (1-4)
+#     dns: www.google.com  # nama yang dicari untuk mengecek DNS
+#     hoyo: [sg-public-api.hoyolab.com, bbs-api-os.hoyolab.com, public-operation-hk4e-sg.hoyoverse.com]
+
 # Jam main (README, bagian "Jam main"): selama `waifu run` dia mencatat berapa lama HSR, Genshin,
 # dan ZZZ terbuka, dari nama program di daftar proses Windows saja (tidak pernah membuka atau
 # menyentuh proses game, yang memakai anti-cheat). "Hari ini aku main berapa lama?" atau
