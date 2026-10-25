@@ -1,4 +1,7 @@
-"""Songs on YouTube: the only pages Cyrene ever opens in the default browser.
+"""Songs on YouTube: the only pages Cyrene opens in the default browser by herself.
+
+The only other pages opened are the links on her text card that Master clicks (v1.55), which
+the avatar server checks and hands to `open_in_browser`.
 
 `youtube_link` turns the URL of a YouTube video or playlist (from her web search, or typed in
 the terminal) into its canonical link on www.youtube.com or music.youtube.com and refuses

@@ -3,15 +3,17 @@
 The mascot window loads `index.html` from here, reads `/config.json` (which engine
 and model to show, and the token for interactions), fetches the model (`/model.vrm`,
 or the Live2D model folder under `/model/` and the owner's Cubism Core), listens to
-`/events`, a Server-Sent Events stream fed by the `AvatarBus`, and posts the owner's
-pats, pokes, and double-clicks to `/interact`. Every connection gets its own daemon
-thread, so a long-lived event stream never holds up the page or the model, and none
-of them keep Cyrene alive.
+`/events`, a Server-Sent Events stream fed by the `AvatarBus`, posts the owner's
+pats, pokes, and double-clicks to `/interact`, and a link the owner clicked on her text
+card to `/open-link`, which opens it in the default browser. Every connection gets its
+own daemon thread, so a long-lived event stream never holds up the page or the model,
+and none of them keep Cyrene alive.
 
 Only Cyrene's own page may use it: every request must name the server's own address
-as Host (DNS rebinding), an interaction must come from the page's origin and carry
-the token that only `/config.json` reveals, and every response tells the browser that
-no other website may embed it or show it in a frame.
+as Host (DNS rebinding), an interaction or a link must come from the page's origin and
+carry the token that only `/config.json` reveals, a link must be a plain http(s) link on
+the card shown, and every response tells the browser that no other website may embed it
+or show it in a frame.
 """
 
 from __future__ import annotations
@@ -48,6 +50,8 @@ from waifu.avatar.bus import (
     viewer_settings,
 )
 from waifu.config import AvatarConfig
+from waifu.music import open_in_browser
+from waifu.notify import is_web_link
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +60,8 @@ INDEX = "index.html"
 EVENTS_URL = "/events"
 CONFIG_URL = "/config.json"
 INTERACT_URL = "/interact"
+OPEN_LINK_URL = "/open-link"
+POST_URLS = (INTERACT_URL, OPEN_LINK_URL)
 MODEL_CONTENT_TYPE = "model/gltf-binary"
 CONTENT_TYPES = {
     ".html": "text/html; charset=utf-8",
@@ -76,8 +82,11 @@ LIVE2D_CONTENT_TYPES = {
     ".moc3": "application/octet-stream",
 }
 INTERACTION_KINDS = ("head_pat", "body_touch", "double_click", "welcome_back")
+# The JSON body of each POST route, exactly these keys with string values.
+INTERACTION_FIELDS = frozenset({"token", "kind"})
+LINK_FIELDS = frozenset({"token", "url"})
 INTERACT_MAX_BYTES = 4096
-# At most this many interactions per rolling second, from every client together.
+# At most this many interactions and links per rolling second, from every client together.
 INTERACT_RATE_LIMIT = 10
 INTERACT_RATE_WINDOW_S = 1.0
 TOKEN_BYTES = 24
@@ -102,6 +111,8 @@ BAD_INTERACTION_TEXT = "Interaksi tidak valid."
 LENGTH_REQUIRED_TEXT = "Interaksi harus menyertakan Content-Length."
 TOO_LARGE_TEXT = "Interaksi terlalu besar."
 TOO_MANY_TEXT = "Terlalu banyak interaksi. Coba lagi sebentar."
+LINK_NOT_ON_CARD_TEXT = "Tautan itu tidak ada di kartu."
+LINK_FAILED_TEXT = "Tautan tidak bisa dibuka."
 
 # Sent with every response. The Host check stops DNS rebinding, but a page elsewhere can
 # still embed http://127.0.0.1:<port>/... (its requests name this server as Host): the
@@ -218,7 +229,9 @@ class AvatarServer(ThreadingHTTPServer):
     """Serves the viewer on `config.host:config.port`; bind failures raise AvatarError.
 
     `on_interact(kind)` receives each accepted interaction on a request thread, so it
-    must return quickly; its exceptions are logged.
+    must return quickly; its exceptions are logged. `open_link(url)` opens a link the
+    owner clicked on the card shown (Windows' own "open" by default); an OSError from it
+    is answered and logged.
     """
 
     daemon_threads = True
@@ -237,11 +250,13 @@ class AvatarServer(ThreadingHTTPServer):
         *,
         web_root: Path = WEB_ROOT,
         on_interact: Callable[[str], None] | None = None,
+        open_link: Callable[[str], None] = open_in_browser,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.bus = bus
         self.files = AvatarFiles(config, web_root)
         self.on_interact = on_interact
+        self.open_link = open_link
         self.interaction_limit = RollingLimit(INTERACT_RATE_LIMIT, INTERACT_RATE_WINDOW_S, clock)
         self._token = secrets.token_urlsafe(TOKEN_BYTES)
         self._viewer: Event = viewer_settings(config, bus.name)
@@ -263,7 +278,8 @@ class AvatarServer(ThreadingHTTPServer):
 
     @property
     def token(self) -> str:
-        """The secret the page sends with every interaction; only /config.json reveals it."""
+        """The secret the page sends with every interaction and link; only /config.json
+        reveals it."""
         return self._token
 
     def page_config(self) -> Event:
@@ -355,19 +371,22 @@ class _AvatarRequestHandler(BaseHTTPRequestHandler):
             self._stream_events()
         elif path == CONFIG_URL:
             self._send_json(HTTPStatus.OK, self.server.page_config())
-        elif path == INTERACT_URL:
+        elif path in POST_URLS:
             self._refuse_method()
         else:
             self._send_found(self.server.files.find(path))
 
     def do_POST(self) -> None:
-        if urlsplit(self.path).path == INTERACT_URL:
+        path = urlsplit(self.path).path
+        if path == INTERACT_URL:
             self._interact()
+        elif path == OPEN_LINK_URL:
+            self._open_link()
         else:
             self._refuse_method()
 
     def _refuse_method(self) -> None:
-        if urlsplit(self.path).path == INTERACT_URL:
+        if urlsplit(self.path).path in POST_URLS:
             allowed, text = "POST", POST_ONLY_TEXT
         else:
             allowed, text = "GET", METHOD_NOT_ALLOWED_TEXT
@@ -420,19 +439,58 @@ class _AvatarRequestHandler(BaseHTTPRequestHandler):
     # --- interactions -------------------------------------------------------------------------
 
     def _interact(self) -> None:
-        """Hands one pat, poke, double-click, or welcome-back of the page to `on_interact`.
+        """Hands one pat, poke, double-click, or welcome-back of the page to `on_interact`."""
+        fields = self._page_fields(INTERACTION_FIELDS)
+        if fields is None:
+            return
+        kind = fields["kind"]
+        if kind not in INTERACTION_KINDS:
+            self._refuse_interaction(HTTPStatus.BAD_REQUEST, BAD_INTERACTION_TEXT, "unknown kind")
+            return
+        self._hand_on(kind)
+        self._send_json(HTTPStatus.ACCEPTED, {"ok": True})
+
+    def _open_link(self) -> None:
+        """Opens a link the owner clicked on the card shown with `open_link`.
+
+        Only a plain http or https link (`is_web_link`) written on the card the bus shows is
+        opened, so even a script on the page could open nothing else. The link is never logged.
+        """
+        fields = self._page_fields(LINK_FIELDS)
+        if fields is None:
+            return
+        url = fields["url"]
+        card = self.server.bus.shown_card()
+        if card is None or not card.allows_link(url) or not is_web_link(url):
+            logger.warning("Refused to open a link that is not on the card shown")
+            self._send_text(HTTPStatus.NOT_FOUND, LINK_NOT_ON_CARD_TEXT)
+            return
+        try:
+            self.server.open_link(url)
+        except OSError as exc:
+            logger.warning(
+                "Could not open a link from the card: %s", exc.strerror or type(exc).__name__
+            )
+            self._send_text(HTTPStatus.INTERNAL_SERVER_ERROR, LINK_FAILED_TEXT)
+            return
+        logger.info("Opened a link from the card")
+        self._send_json(HTTPStatus.ACCEPTED, {"ok": True})
+
+    def _page_fields(self, keys: frozenset[str]) -> dict[str, str] | None:
+        """The fields of a POST from the page whose JSON body has exactly `keys`, all strings,
+        once its size, origin, rate, and token have passed; None once refused.
 
         The body (at most 4 KB) is read before anything else is checked: Windows resets a
         connection closed with unread data, and the page would get no answer at all.
         """
         body = self._read_interaction_body()
         if body is None:
-            return
+            return None
         origins = self.headers.get_all("Origin") or []
         own_origins = {f"http://{host}" for host in self.server.own_hosts()}
         if len(origins) != 1 or origins[0] not in own_origins:
             self._refuse_interaction(HTTPStatus.FORBIDDEN, FOREIGN_ORIGIN_TEXT, "foreign origin")
-            return
+            return None
         if not self.server.interaction_limit.admit():
             logger.debug(
                 "Refused an avatar interaction: more than %d a second", INTERACT_RATE_LIMIT
@@ -440,21 +498,16 @@ class _AvatarRequestHandler(BaseHTTPRequestHandler):
             self._send_text(
                 HTTPStatus.TOO_MANY_REQUESTS, TOO_MANY_TEXT, headers={"Retry-After": "1"}
             )
-            return
-        fields = _interaction_fields(self.headers.get("Content-Type", ""), body)
+            return None
+        fields = _json_fields(self.headers.get("Content-Type", ""), body, keys)
         if fields is None:
             self._refuse_interaction(HTTPStatus.BAD_REQUEST, BAD_INTERACTION_TEXT, "malformed body")
-            return
-        token, kind = fields
+            return None
         expected = self.server.token.encode("ascii")
-        if not hmac.compare_digest(token.encode("utf-8", "surrogatepass"), expected):
+        if not hmac.compare_digest(fields["token"].encode("utf-8", "surrogatepass"), expected):
             self._refuse_interaction(HTTPStatus.FORBIDDEN, WRONG_TOKEN_TEXT, "wrong token")
-            return
-        if kind not in INTERACTION_KINDS:
-            self._refuse_interaction(HTTPStatus.BAD_REQUEST, BAD_INTERACTION_TEXT, "unknown kind")
-            return
-        self._hand_on(kind)
-        self._send_json(HTTPStatus.ACCEPTED, {"ok": True})
+            return None
+        return fields
 
     def _read_interaction_body(self) -> bytes | None:
         """The body, read only when its Content-Length allows; None once refused."""
@@ -631,8 +684,8 @@ def _unchanged_since(headers: Message, modified: datetime) -> bool:
     return modified <= date
 
 
-def _interaction_fields(content_type: str, body: bytes) -> tuple[str, str] | None:
-    """The token and kind of a JSON body `{"token": str, "kind": str}`; None otherwise."""
+def _json_fields(content_type: str, body: bytes, keys: frozenset[str]) -> dict[str, str] | None:
+    """The fields of a JSON body that holds exactly `keys`, each a string; None otherwise."""
     media_type, _, parameters = content_type.partition(";")
     if media_type.strip().lower() != "application/json":
         return None
@@ -642,9 +695,8 @@ def _interaction_fields(content_type: str, body: bytes) -> tuple[str, str] | Non
         data = json.loads(body.decode("utf-8"))
     except (ValueError, RecursionError):  # also UnicodeDecodeError; deep nesting on 3.11-3.13
         return None
-    if not isinstance(data, dict) or data.keys() != {"token", "kind"}:
+    if not isinstance(data, dict) or data.keys() != keys:
         return None
-    token, kind = data["token"], data["kind"]
-    if not isinstance(token, str) or not isinstance(kind, str):
+    if not all(isinstance(value, str) for value in data.values()):
         return None
-    return token, kind
+    return data

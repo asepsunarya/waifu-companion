@@ -8,7 +8,7 @@ import urllib.error
 import pytest
 
 from waifu.config import NotifyConfig
-from waifu.notify import NtfyNotifier, build_notifier, post_json
+from waifu.notify import NtfyNotifier, build_notifier, is_web_link, post_json
 
 TOPIC = "cyrene-AbCdEf123456_-x"
 
@@ -174,3 +174,39 @@ def test_post_json_sends_utf8_json_over_http():
     path, content_type, body = _Recorder.received[-1]
     assert (path, content_type) == ("/", "application/json")
     assert json.loads(body.decode("utf-8")) == {"message": "がんばって"}
+
+
+# --- is_web_link (v1.55: links on her text card) ---------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "link",
+    [
+        "https://www.anthropic.com/claim",
+        "http://example.com/plain",
+        "HTTPS://example.com/caps",
+        "https://ja.wikipedia.org/wiki/東京",
+    ],
+)
+def test_a_plain_http_or_https_link_is_a_web_link(link):
+    assert is_web_link(link)
+
+
+@pytest.mark.parametrize(
+    "link",
+    [
+        "javascript:alert(1)",
+        "file:///C:/Windows/System32/calc.exe",
+        "ftp://example.com/file",
+        "https://",
+        "example.com/no-scheme",
+        "https://www.anthropic.com@evil.example/claim",
+        "https://www.anthropic.com:8443/claim",
+        "https://claude-credits.example\\.anthropic.com/claim",
+        "https://www.anthropic.com/claim‮moc.elpmaxe",
+        "https://www.anthropic.com/claim free",
+        "https://[::1/",
+    ],
+)
+def test_anything_else_is_no_web_link(link):
+    assert not is_web_link(link)

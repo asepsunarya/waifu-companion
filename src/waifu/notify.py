@@ -47,19 +47,25 @@ def post_json(url: str, body: bytes, timeout_s: float) -> int:
 
 
 def is_https_link(url: str) -> bool:
-    """Whether `url` is an https link whose host Python and every browser read alike: the only
-    links a notification may open. The host holds only ASCII letters, digits, dots, and
-    hyphens, so no user name or port hides the real host (https://anthropic.com@evil.example/
-    opens evil.example), and the link holds no backslash, space, or invisible character: a
-    browser reads the backslash in https://evil.example\\.anthropic.com/ as a slash and opens
-    evil.example, where Python sees a host under anthropic.com."""
+    """Whether `url` is an https link whose host Python and every browser read alike
+    (`is_web_link`): the only links a notification may open."""
+    return is_web_link(url) and urlsplit(url).scheme == "https"
+
+
+def is_web_link(url: str) -> bool:
+    """Whether `url` is an http or https link whose host Python and every browser read alike.
+    The host holds only ASCII letters, digits, dots, and hyphens, so no user name or port
+    hides the real host (https://anthropic.com@evil.example/ opens evil.example), and the link
+    holds no backslash, space, or invisible character: a browser reads the backslash in
+    https://evil.example\\.anthropic.com/ as a slash and opens evil.example, where Python
+    sees a host under anthropic.com."""
     if "\\" in url or " " in url or not url.isprintable():
         return False
     try:
         parts = urlsplit(url)
     except ValueError:  # such as an unclosed IPv6 bracket
         return False
-    return parts.scheme == "https" and _PLAIN_HOST.fullmatch(parts.netloc) is not None
+    return parts.scheme in ("http", "https") and _PLAIN_HOST.fullmatch(parts.netloc) is not None
 
 
 class NtfyNotifier:

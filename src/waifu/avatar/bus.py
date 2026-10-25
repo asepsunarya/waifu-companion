@@ -8,7 +8,8 @@ A new subscriber first gets `hello` and the last `state`, so a viewer that
 `hearing` (once it has changed: whether she hears Master, off while the listen
 pause of Ctrl+Alt+Q holds), then the reply she is still speaking, if any, with
 how far into it she is (`elapsed`), so its mouth joins in on time instead of
-staying shut.
+staying shut, and last the text card still showing beside her, if any, with how
+long it has shown (`elapsed`), so a page reloaded after a GPU reset shows it again.
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
 from waifu.avatar.emotion import EMOTIONS
+from waifu.card import Card
 from waifu.config import AvatarConfig
 
 if TYPE_CHECKING:
@@ -137,6 +139,9 @@ class AvatarBus:
         self._last_hearing: Event | None = None  # none until it first changed
         # The last speak event and when it was published, while it may still be playing.
         self._last_speak: tuple[Event, float] | None = None
+        # The card shown and when it was published, until a hide; replayed while it shows.
+        self._last_card: tuple[Event, float] | None = None
+        self._shown_card: Card | None = None
         self._closed = False
 
     @property
@@ -149,8 +154,8 @@ class AvatarBus:
             self._hello = {"type": "hello", **settings}
 
     def subscribe(self) -> Subscription:
-        """A new subscription that starts with hello, the last state and hearing, and the speech
-        in progress.
+        """A new subscription that starts with hello, the last state and hearing, the speech in
+        progress, and the card still showing.
 
         After `close()` the subscription comes back already closed.
         """
@@ -165,6 +170,8 @@ class AvatarBus:
                 subscription._put(dict(self._last_hearing))
             if (speech := self._speech_in_progress()) is not None:
                 subscription._put(speech)
+            if (card := self._card_still_showing()) is not None:
+                subscription._put(card)
             self._subscriptions.append(subscription)
             self._viewer_joined.notify_all()
         return subscription
@@ -193,6 +200,8 @@ class AvatarBus:
                 self._last_speak = (event, self._clock())
             elif event.get("type") == "hearing":
                 self._last_hearing = event
+            elif event.get("type") == "card":
+                self._note_card(event)
             for subscription in self._subscriptions:
                 subscription._put(event)
 
@@ -229,6 +238,21 @@ class AvatarBus:
             }
         )
 
+    def card(self, card: Card | None, show_s: float = 0) -> None:
+        """Publishes `card` to show beside her for `show_s` s (0: until it is closed), replacing
+        the one shown; None hides it."""
+        if card is None:
+            self.publish({"type": "card", "card": None})
+            return
+        shown = {"title": card.title, "body": card.body}
+        self.publish({"type": "card", "card": shown, "show_s": show_s})
+
+    def shown_card(self) -> Card | None:
+        """The card published last, also once its time has passed (a late click on its link),
+        until a hide."""
+        with self._lock:
+            return self._shown_card
+
     def close(self) -> None:
         """Closes every subscription, waking their readers; later subscriptions start closed."""
         with self._lock:
@@ -246,6 +270,27 @@ class AvatarBus:
         elapsed = self._clock() - published_at
         if elapsed >= event.get("duration", 0):
             self._last_speak = None
+            return None
+        return {**event, "elapsed": round(elapsed, 3)}
+
+    def _note_card(self, event: Event) -> None:
+        """Keep a card event as the card shown, or forget it for a hide; call locked."""
+        card = event.get("card")
+        if card is None:
+            self._last_card, self._shown_card = None, None
+            return
+        self._last_card = (event, self._clock())
+        self._shown_card = Card(card["title"], card["body"])
+
+    def _card_still_showing(self) -> Event | None:
+        """The last card event with `elapsed` (s since it was shown) while it still shows: for
+        good with `show_s` 0, else for `show_s` s; call locked."""
+        if self._last_card is None:
+            return None
+        event, shown_at = self._last_card
+        elapsed = self._clock() - shown_at
+        show_s = event.get("show_s", 0)
+        if show_s and elapsed >= show_s:
             return None
         return {**event, "elapsed": round(elapsed, 3)}
 

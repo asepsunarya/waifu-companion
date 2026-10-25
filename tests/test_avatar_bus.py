@@ -12,6 +12,7 @@ import numpy as np
 import pytest
 
 from waifu.avatar.bus import EVENT_QUEUE_SIZE, AvatarBus, Subscription, viewer_settings
+from waifu.card import Card
 from waifu.config import AvatarConfig, AvatarInteractionsConfig
 
 WAIT_S = 5.0
@@ -615,3 +616,112 @@ def test_wait_for_viewer_returns_false_at_once_when_the_bus_closes() -> None:
     timer.join()
     assert not connected
     assert time.monotonic() - started < 1.0
+
+
+# --- text cards (v1.55) -----------------------------------------------------------------------
+
+FORECAST = Card("Cuaca 7 hari", "- Senin cerah\n- Rabu hujan")
+CARD_EVENT = {
+    "type": "card",
+    "card": {"title": "Cuaca 7 hari", "body": "- Senin cerah\n- Rabu hujan"},
+    "show_s": 120,
+}
+HIDE_CARD = {"type": "card", "card": None}
+
+
+def test_card_publishes_the_card_and_how_long_it_shows() -> None:
+    bus = AvatarBus()
+    viewer = bus.subscribe()
+    drain(viewer)
+
+    bus.card(FORECAST, 120)
+
+    assert drain(viewer) == [CARD_EVENT]
+    assert json.loads(json.dumps(CARD_EVENT)) == CARD_EVENT
+
+
+def test_card_none_publishes_the_hide() -> None:
+    bus = AvatarBus()
+    viewer = bus.subscribe()
+    drain(viewer)
+
+    bus.card(None)
+
+    assert drain(viewer) == [HIDE_CARD]
+
+
+def test_a_viewer_that_connects_while_a_card_shows_gets_it_with_how_long_it_has_shown() -> None:
+    clock = FakeClock()
+    bus = AvatarBus(clock=clock)
+    bus.card(FORECAST, 120)
+
+    clock.now += 30.0004
+
+    assert drain(bus.subscribe()) == [HELLO, IDLE, {**CARD_EVENT, "elapsed": 30.0}]
+
+
+def test_the_card_comes_after_the_speech_in_progress() -> None:
+    clock = FakeClock()
+    bus = AvatarBus(viseme_track=FakeTrack(TRACK), clock=clock)
+    bus.card(FORECAST, 120)
+    bus.state("speaking")
+    bus.speak(TWO_SECONDS, 16_000, "happy")
+
+    clock.now += 0.5
+
+    assert [event["type"] for event in drain(bus.subscribe())] == [
+        "hello",
+        "state",
+        "speak",
+        "card",
+    ]
+
+
+def test_a_card_whose_time_has_passed_is_not_replayed() -> None:
+    clock = FakeClock()
+    bus = AvatarBus(clock=clock)
+    bus.card(FORECAST, 120)
+
+    clock.now += 120
+
+    assert drain(bus.subscribe()) == [HELLO, IDLE]
+
+
+def test_a_card_shown_until_closed_is_replayed_however_long_ago_it_came() -> None:
+    clock = FakeClock()
+    bus = AvatarBus(clock=clock)
+    bus.card(FORECAST, 0)
+
+    clock.now += 3600
+
+    assert drain(bus.subscribe())[-1] == {**CARD_EVENT, "show_s": 0, "elapsed": 3600.0}
+
+
+def test_a_hidden_card_is_not_replayed_and_no_longer_shown() -> None:
+    bus = AvatarBus()
+    bus.card(FORECAST, 120)
+
+    bus.card(None)
+
+    assert drain(bus.subscribe()) == [HELLO, IDLE]
+    assert bus.shown_card() is None
+
+
+def test_the_card_shown_is_the_last_one_published() -> None:
+    bus = AvatarBus()
+    assert bus.shown_card() is None
+
+    bus.card(Card("Lama", "- satu"), 120)
+    bus.card(FORECAST, 120)
+
+    assert bus.shown_card() == FORECAST
+
+
+def test_the_card_shown_stays_known_after_its_time_for_a_late_click() -> None:
+    clock = FakeClock()
+    bus = AvatarBus(clock=clock)
+    bus.card(FORECAST, 120)
+
+    clock.now += 600
+
+    assert bus.shown_card() == FORECAST

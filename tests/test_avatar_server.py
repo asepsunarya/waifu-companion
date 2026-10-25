@@ -25,6 +25,7 @@ import pytest
 
 from waifu.avatar.bus import AvatarBus
 from waifu.avatar.server import AvatarError, AvatarServer, file_under
+from waifu.card import Card
 from waifu.config import AvatarConfig, AvatarInteractionsConfig
 
 CLIENT_TIMEOUT_S = 5.0
@@ -149,6 +150,7 @@ def serve(web_root: Path, model_file: Path) -> Iterator[Serve]:
         config: AvatarConfig | None = None,
         ping_interval_s: float | None = None,
         on_interact: Callable[[str], None] | None = None,
+        open_link: Callable[[str], None] | None = None,
         clock: Callable[[], float] = time.monotonic,
     ) -> AvatarServer:
         server = AvatarServer(
@@ -156,6 +158,7 @@ def serve(web_root: Path, model_file: Path) -> Iterator[Serve]:
             bus or AvatarBus(),
             web_root=web_root,
             on_interact=on_interact,
+            open_link=open_link or Opened(),
             clock=clock,
         )
         started.append(server)
@@ -1506,3 +1509,253 @@ def test_a_refused_method_s_body_is_read_so_the_refusal_always_arrives(serve: Se
             server, "/config.json", "POST", headers={"Content-Type": "application/json"}, body=body
         )
         assert status == 405
+
+
+# --- POST /open-link: a link on the card, opened on Master's click (v1.55) ---------------------
+
+LINK = "https://example.com/docs?a=1"
+HTTP_LINK = "http://example.com/plain"
+LINK_CARD = Card("Tautan", f"- Docs: {LINK}.\n- Lama: {HTTP_LINK}")
+
+
+class Opened:
+    """Stands in for the default browser's opener: records each link, or fails like Windows."""
+
+    def __init__(self, error: Exception | None = None) -> None:
+        self.urls: list[str] = []
+        self.error = error
+
+    def __call__(self, url: str) -> None:
+        self.urls.append(url)
+        if self.error is not None:
+            raise self.error
+
+
+def open_link(
+    server: AvatarServer,
+    payload: Mapping[str, Any] | bytes,
+    *,
+    headers: Mapping[str, str | None] | None = None,
+) -> tuple[int, http.client.HTTPMessage, bytes]:
+    """POSTs /open-link as the page does (own Origin, JSON); `headers` overrides, None removes."""
+    sent: dict[str, str] = {"Origin": own_origin(server), "Content-Type": "application/json"}
+    for name, value in (headers or {}).items():
+        if value is None:
+            sent.pop(name, None)
+        else:
+            sent[name] = value
+    body = payload if isinstance(payload, bytes) else json.dumps(payload).encode()
+    return request(server, "/open-link", "POST", headers=sent, body=body)
+
+
+def showing(card: Card | None = LINK_CARD) -> AvatarBus:
+    bus = AvatarBus()
+    if card is not None:
+        bus.card(card, 120)
+    return bus
+
+
+@pytest.mark.parametrize("url", [LINK, HTTP_LINK])
+def test_a_link_on_the_card_shown_is_opened_once(serve: Serve, url: str) -> None:
+    opened = Opened()
+    server = serve(bus=showing(), open_link=opened)
+
+    status, headers, body = open_link(server, {"token": server.token, "url": url})
+
+    assert status == 202
+    assert headers.get_content_type() == "application/json"
+    assert json.loads(body) == {"ok": True}
+    assert opened.urls == [url]
+
+
+def test_a_link_from_a_card_already_hidden_by_its_time_still_opens(serve: Serve) -> None:
+    clock = FakeClock()
+    bus = AvatarBus(clock=clock)
+    bus.card(LINK_CARD, 120)
+    clock.now += 600
+    opened = Opened()
+    server = serve(bus=bus, open_link=opened)
+
+    assert open_link(server, {"token": server.token, "url": LINK})[0] == 202
+    assert opened.urls == [LINK]
+
+
+@pytest.mark.parametrize(
+    "card",
+    [None, Card("Lain", "- https://example.org/other")],
+    ids=["no_card", "another_card"],
+)
+def test_a_link_not_on_the_card_shown_is_refused_and_never_opened(
+    serve: Serve, card: Card | None
+) -> None:
+    opened = Opened()
+    server = serve(bus=showing(card), open_link=opened)
+
+    status, _, body = open_link(server, {"token": server.token, "url": LINK})
+
+    assert status == 404
+    assert body.decode("utf-8").strip() == "Tautan itu tidak ada di kartu."
+    assert opened.urls == []
+
+
+def test_a_hidden_card_s_link_is_refused(serve: Serve) -> None:
+    bus = showing()
+    bus.card(None)
+    opened = Opened()
+    server = serve(bus=bus, open_link=opened)
+
+    assert open_link(server, {"token": server.token, "url": LINK})[0] == 404
+    assert opened.urls == []
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "javascript:alert(1)",
+        "file:///C:/Windows/System32/calc.exe",
+        "ftp://example.com/file",
+        "https://user@evil.example/",
+        "https://example.com:8080/",
+        "https://evil.example\\.example.com/",
+        "https://example.com/a b",
+        "https://example.com/\u202e",
+        "https:///nohost",
+    ],
+)
+def test_only_a_plain_http_or_https_link_is_opened_even_when_the_card_holds_it(
+    serve: Serve, url: str
+) -> None:
+    opened = Opened()
+    server = serve(bus=showing(Card("Aneh", f"- {url}")), open_link=opened)
+
+    status, _, _ = open_link(server, {"token": server.token, "url": url})
+
+    assert status == 404
+    assert opened.urls == []
+
+
+def test_a_link_from_another_origin_is_refused(serve: Serve) -> None:
+    opened = Opened()
+    server = serve(bus=showing(), open_link=opened)
+
+    status, _, _ = open_link(
+        server, {"token": server.token, "url": LINK}, headers={"Origin": "http://evil.example"}
+    )
+
+    assert status == 403
+    assert opened.urls == []
+
+
+def test_a_link_with_the_wrong_token_is_refused(serve: Serve) -> None:
+    opened = Opened()
+    server = serve(bus=showing(), open_link=opened)
+
+    status, _, _ = open_link(server, {"token": server.token + "x", "url": LINK})
+
+    assert status == 403
+    assert opened.urls == []
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        b"not json",
+        b"[]",
+        {"url": LINK},
+        {"token": "t"},
+        {"token": "t", "url": LINK, "kind": "head_pat"},
+        {"token": "t", "url": 5},
+        {"token": "t", "kind": "head_pat"},
+    ],
+)
+def test_a_malformed_link_request_is_a_bad_request(serve: Serve, payload: Any) -> None:
+    opened = Opened()
+    server = serve(bus=showing(), open_link=opened)
+    if isinstance(payload, dict) and "token" in payload:
+        payload = {**payload, "token": server.token}
+
+    assert open_link(server, payload)[0] == 400
+    assert opened.urls == []
+
+
+def test_a_link_request_without_json_is_a_bad_request(serve: Serve) -> None:
+    opened = Opened()
+    server = serve(bus=showing(), open_link=opened)
+
+    status, _, _ = open_link(
+        server, {"token": server.token, "url": LINK}, headers={"Content-Type": "text/plain"}
+    )
+
+    assert status == 400
+    assert opened.urls == []
+
+
+def test_a_link_windows_cannot_open_is_said_without_the_url_in_the_log(
+    serve: Serve, caplog: pytest.LogCaptureFixture
+) -> None:
+    server = serve(bus=showing(), open_link=Opened(error=OSError(2, "not found", LINK)))
+
+    with caplog.at_level(logging.DEBUG):
+        status, _, body = open_link(server, {"token": server.token, "url": LINK})
+
+    assert status == 500
+    assert body.decode("utf-8").strip() == "Tautan tidak bisa dibuka."
+    assert "example.com" not in caplog.text
+
+
+def test_a_link_is_never_logged(serve: Serve, caplog: pytest.LogCaptureFixture) -> None:
+    server = serve(bus=showing(), open_link=Opened())
+
+    with caplog.at_level(logging.DEBUG):
+        open_link(server, {"token": server.token, "url": LINK})
+        open_link(server, {"token": server.token, "url": "https://example.com/elsewhere"})
+        open_link(server, {"token": server.token + "x", "url": LINK})
+
+    assert "example.com" not in caplog.text
+    assert "Opened a link from the card" in caplog.text
+
+
+def test_links_count_towards_the_interaction_limit(serve: Serve) -> None:
+    clock = FakeClock()
+    interactions = Interactions()
+    opened = Opened()
+    server = serve(bus=showing(), on_interact=interactions, open_link=opened, clock=clock)
+
+    accepted = [interact(server, valid(server))[0] for _ in range(9)]
+    accepted.append(open_link(server, {"token": server.token, "url": LINK})[0])
+    status, headers, _ = open_link(server, {"token": server.token, "url": LINK})
+
+    assert accepted == [202] * 10
+    assert status == 429
+    assert headers["Retry-After"] == "1"
+    assert opened.urls == [LINK]
+
+
+@pytest.mark.parametrize("method", ["GET", "PUT", "DELETE", "OPTIONS", "HEAD"])
+def test_open_link_takes_only_post(serve: Serve, method: str) -> None:
+    opened = Opened()
+    server = serve(bus=showing(), open_link=opened)
+
+    status, headers, _ = request(server, "/open-link", method=method)
+
+    assert status == 405
+    assert headers["Allow"] == "POST"
+    assert opened.urls == []
+
+
+def test_a_link_for_another_host_name_is_refused_even_with_the_token(serve: Serve) -> None:
+    opened = Opened()
+    server = serve(bus=showing(), open_link=opened)
+    rebound = f"rebind.attacker.example:{address(server)[1]}"
+
+    status, _, _ = request(
+        server,
+        "/open-link",
+        "POST",
+        host=rebound,
+        headers={"Origin": f"http://{rebound}", "Content-Type": "application/json"},
+        body=json.dumps({"token": server.token, "url": LINK}).encode(),
+    )
+
+    assert status == 403
+    assert opened.urls == []

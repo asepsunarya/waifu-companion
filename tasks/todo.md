@@ -3190,11 +3190,11 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 332 · **Files:** `src/waifu/app.py`, `src/waifu/config.py`, `config.example.yaml`, `src/waifu/phone/server.py`, `tests/test_app.py`, `tests/test_config.py` · **Scope:** M
 
-## Task 335: The bus's card event and the link route
+## Task 335: The bus's card event and the link route ✅
 
 **Acceptance criteria:**
-- [ ] `AvatarBus.card` publishes the card or its hide; a new subscriber gets the card shown with `elapsed` while it still shows; `shown_card` gives it until hidden
-- [ ] `POST /open-link` opens a URL on the card shown through the injected opener, refusing a foreign origin, a wrong token, a malformed body, too many requests, a URL not on the card or not a plain http(s) link, and saying when Windows cannot open it; the URL is never logged
+- [x] `AvatarBus.card` publishes the card or its hide; a new subscriber gets the card shown with `elapsed` while it still shows; `shown_card` gives it until hidden
+- [x] `POST /open-link` opens a URL on the card shown through the injected opener, refusing a foreign origin, a wrong token, a malformed body, too many requests, a URL not on the card or not a plain http(s) link, and saying when Windows cannot open it; the URL is never logged
 
 **Dependencies:** 332 · **Files:** `src/waifu/avatar/bus.py`, `src/waifu/avatar/server.py`, `src/waifu/notify.py`, `src/waifu/music.py`, tests · **Scope:** M
 
