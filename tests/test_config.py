@@ -15,6 +15,7 @@ from waifu.config import (
     HotkeysConfig,
     JapaneseConfig,
     JournalConfig,
+    NodConfig,
     PlayTimeConfig,
     PrayerConfig,
     RainAlertConfig,
@@ -1394,6 +1395,48 @@ def test_the_example_voice_block_written_out_holds_the_defaults(tmp_path):
     written_out = "\n".join(line.removeprefix("# ") for line in commented.splitlines())
 
     assert load_config(write_yaml(tmp_path, written_out)).voice == VoiceVolumeConfig()
+
+
+def test_her_fillers_come_after_1200_ms_by_default():
+    nod = AppConfig().nod
+
+    assert (nod.enabled, nod.after_ms) == (True, 1200)
+
+
+def test_filler_settings_load_from_yaml(tmp_path):
+    text = "nod:\n  enabled: false\n  after_ms: 2500\n"
+
+    nod = load_config(write_yaml(tmp_path, text)).nod
+
+    assert (nod.enabled, nod.after_ms) == (False, 2500)
+
+
+@pytest.mark.parametrize("after_ms", [600, 5000])
+def test_a_filler_may_wait_from_600_ms_to_5_s(tmp_path, after_ms):
+    text = f"nod:\n  after_ms: {after_ms}\n"
+
+    assert load_config(write_yaml(tmp_path, text)).nod.after_ms == after_ms
+
+
+@pytest.mark.parametrize(
+    ("lines", "named"),
+    [
+        ("  after_ms: 599\n", "nod.after_ms"),
+        ("  after_ms: 5001\n", "nod.after_ms"),
+        ("  lines: [hmm]\n", "nod.lines"),  # the fillers are hers, not written in config.yaml
+    ],
+)
+def test_bad_filler_settings_are_refused_naming_the_setting(tmp_path, lines, named):
+    with pytest.raises(ConfigError, match=re.escape(named)):
+        load_config(write_yaml(tmp_path, "nod:\n" + lines))
+
+
+def test_the_example_nod_block_written_out_holds_the_defaults(tmp_path):
+    example = (ROOT / "config.example.yaml").read_text(encoding="utf-8")
+    commented = example[example.index("\n# nod:\n") + 1 :].split("\n\n", 1)[0]
+    written_out = "\n".join(line.removeprefix("# ") for line in commented.splitlines())
+
+    assert load_config(write_yaml(tmp_path, written_out)).nod == NodConfig()
 
 
 def test_the_journal_is_on_without_the_nightly_question_by_default():

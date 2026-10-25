@@ -2944,10 +2944,10 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 307 · **Files:** `src/waifu/voice/nod.py`, `tests/test_voice_nod.py` · **Scope:** S
 
-## Task 309: The `nod` settings
+## Task 309: The `nod` settings ✅
 
 **Acceptance criteria:**
-- [ ] `nod.enabled` (true) and `nod.after_ms` (1200, 600-5000) load and are refused outside their range, naming the setting; the example's commented block written out holds the defaults
+- [x] `nod.enabled` (true) and `nod.after_ms` (1200, 600-5000) load and are refused outside their range, naming the setting; the example's commented block written out holds the defaults
 
 **Dependencies:** 307a · **Files:** `src/waifu/config.py`, `config.example.yaml`, `tests/test_config.py` · **Scope:** XS
 

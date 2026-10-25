@@ -967,6 +967,14 @@ class VoiceVolumeConfig(_Strict):
     night: VoiceNightConfig = Field(default_factory=VoiceNightConfig)
 
 
+class NodConfig(_Strict):
+    """Her filler ("Hmm, bentar ya…") when the brain has not answered Master's words after
+    `after_ms`; the fillers themselves are hers (`waifu.voice.nod.NODS`)."""
+
+    enabled: bool = True
+    after_ms: int = Field(default=1200, ge=600, le=5000)
+
+
 class JournalConfig(_Strict):
     """Master's daily journal, and her optional question about the day once a night."""
 
@@ -1324,6 +1332,7 @@ class AppConfig(_Strict):
     game_mode: GameModeConfig = Field(default_factory=GameModeConfig)
     guest_mode: GuestModeConfig = Field(default_factory=GuestModeConfig)
     voice: VoiceVolumeConfig = Field(default_factory=VoiceVolumeConfig)
+    nod: NodConfig = Field(default_factory=NodConfig)
     journal: JournalConfig = Field(default_factory=JournalConfig)
     japanese: JapaneseConfig = Field(default_factory=JapaneseConfig)
     breaks: BreaksConfig = Field(default_factory=BreaksConfig)
