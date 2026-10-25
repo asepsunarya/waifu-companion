@@ -20,7 +20,7 @@ import time
 import unicodedata
 import urllib.parse
 import urllib.request
-from collections.abc import Callable, Coroutine, Iterable, Mapping
+from collections.abc import Callable, Collection, Coroutine, Iterable, Mapping
 from http import HTTPStatus
 from itertools import groupby
 from typing import Any, NamedTuple, Protocol
@@ -296,7 +296,10 @@ class SpeechRouter:
     When a language's engine fails and that language has a fallback (a Windows voice,
     which works offline), the fallback speaks the run instead, and the engine is then
     skipped for `fallback_retry_s` before it is tried again: edge-tts may take its whole
-    10 s connect timeout to fail, on every run of every reply.
+    10 s connect timeout to fail, on every run of every reply. While the internet watcher
+    finds the internet down (`internet_changed`), the engines of `online_languages` (the
+    edge voices) are not tried at all where a fallback can speak, and once it answers again
+    they are tried at the next run, the pause after a failure ended.
 
     With a `converter`, the joined clip is then converted into one voice (the RVC
     anime voice); when conversion fails the plain clip is spoken instead, so a
@@ -321,6 +324,7 @@ class SpeechRouter:
         converter: VoiceConverter | None = None,
         clock: Callable[[], float] = time.monotonic,
         lexicon: Callable[[], Mapping[str, str]] | None = None,
+        online_languages: Collection[str] = (),
     ) -> None:
         if default_language not in engines:
             raise ValueError(f"no TTS engine for the default language '{default_language}'")
@@ -328,6 +332,7 @@ class SpeechRouter:
         self.default_language = default_language
         self.fallbacks = dict(fallbacks or {})
         self.fallback_only = fallback_only
+        self.online_languages = frozenset(online_languages)  # whose engine needs the internet
         self.converter = converter
         self.fallback_retry_s = fallback_retry_s
         self.lexicon = lexicon
@@ -337,14 +342,27 @@ class SpeechRouter:
         self._skip_engine_until: dict[str, float] = {}
         self._conversion_failing = False
         self._skip_conversion_until = -math.inf
+        self._internet_down = False
+        self._offline_stand_in = False  # a fallback spoke for an online voice while it was down
 
     @property
     def degraded(self) -> bool:
         """Whether her voice is a stand-in right now: a language's fallback speaks for its
-        failing engine, or the plain voice for a failing converter. Read right after a clip, it
-        tells whether that clip had her own voice. Never with `fallback_only`, whose fallback
-        is her voice by choice."""
-        return bool(self._engine_errors) or self._conversion_failing
+        failing engine or while the internet is down, or the plain voice for a failing
+        converter. Read right after a clip, it tells whether that clip had her own voice. Never
+        with `fallback_only`, whose fallback is her voice by choice."""
+        return bool(self._engine_errors) or self._conversion_failing or self._offline_stand_in
+
+    def internet_changed(self, down: bool) -> None:
+        """The internet watcher's word at a check that changed it: whether the internet is down.
+        Once it answers again the online voices are tried at their next run, also inside their
+        pause after a failure."""
+        self._internet_down = down
+        if down:
+            return
+        self._offline_stand_in = False
+        for language in self.online_languages:
+            self._skip_engine_until.pop(language, None)
 
     def synthesize(self, text: str) -> tuple[np.ndarray, int]:
         """Return one mono float32 clip; runs that fail are skipped, all failing is a TtsError."""
@@ -387,6 +405,15 @@ class SpeechRouter:
         engine = self.engines.get(language, self.engines[self.default_language])
         if fallback is None:
             return _Piece(*engine.synthesize(text, language))
+        if self._internet_down and language in self.online_languages:
+            try:
+                piece = _fallback_piece(fallback, text, language)
+            except TtsError as exc:  # a check wrongly finding it down must never silence her
+                logger.debug("No %s fallback while the internet is down: %s", language, exc)
+            else:
+                logger.debug("The internet is down; speaking %s with its fallback", language)
+                self._offline_stand_in = True
+                return piece
         if self._clock() < self._skip_engine_until.get(language, -math.inf):
             logger.debug("The %s voice failed a moment ago; speaking with its fallback", language)
             return self._stand_in(fallback, text, language)
@@ -471,6 +498,7 @@ def build_speech_router(
         language: EdgeTts(voice) if isinstance(voice, EdgeVoiceConfig) else GptSovitsTts(voice)
         for language, voice in config.voices.items()
     }
+    online = [language for language, engine in engines.items() if isinstance(engine, EdgeTts)]
     fallback = config.fallback
     fallbacks = {
         language: WindowsTts(language, wanted, pitches=fallback.rvc_pitch)
@@ -485,6 +513,7 @@ def build_speech_router(
         fallback_only=fallback_only,
         converter=converter,
         lexicon=lexicon,
+        online_languages=online,
     )
 
 

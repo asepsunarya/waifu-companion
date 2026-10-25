@@ -1209,10 +1209,14 @@ class FakeRouter:
 
     def __init__(self) -> None:
         self.texts: list[str] = []
+        self.internet_down: list[bool] = []  # what the internet watcher's state told it
 
     def synthesize(self, text: str) -> tuple[np.ndarray, int]:
         self.texts.append(text)
         return np.ones(240, dtype=np.float32), 24000
+
+    def internet_changed(self, down: bool) -> None:
+        self.internet_down.append(down)
 
 
 class FakePlayer:
@@ -12929,6 +12933,29 @@ def test_run_starts_the_internet_watcher_with_play_time_and_stops_it_however_lis
     assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 1
 
     assert network_watchers[0].listening == [False, True]
+
+
+def test_run_s_speech_router_hears_when_the_internet_goes_down_and_comes_back(
+    home, run_fakes, brains, speech, network_watchers
+):
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+    [router] = speech
+    state = network_watchers[0].state
+    fine = Reading(DROPPED_AT, route=True, gateway=None, gateway_ms=None, anchor_ms=20.0)
+
+    state.note(replace(fine, anchor_ms=None), "offline")
+    state.note(fine, "ok")
+
+    # So her offline voice speaks at once while it is down, and edge-tts again once it is back.
+    assert router.internet_down == [True, False]
+
+
+def test_with_the_network_off_the_speech_router_hears_nothing(home, run_fakes, brains, speech):
+    append_config(home, "network:\n  enabled: false\n")
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    assert speech[0].internet_down == []
 
 
 INTERNET_NOW = datetime(2026, 10, 25, 23, 0, tzinfo=WIB)

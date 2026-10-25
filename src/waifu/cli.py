@@ -1689,6 +1689,10 @@ def _listen(args: argparse.Namespace) -> int:
             _voice_converter(config) as converter,
         ):
             speech = build_speech_router(config.tts, converter=converter, lexicon=lexicon.readings)
+            if internet is not None:
+                # While the internet is down her offline voice speaks at once, without waiting
+                # for edge-tts to fail; once it is back edge-tts speaks again.
+                internet.state.follow(speech.internet_changed)
             # Her fillers for a slow reply, in the same voice as her replies (RVC and Master's
             # readings included); made in the background once she is ready, the ones left out
             # tried again once the router's pause on a failing voice has passed.

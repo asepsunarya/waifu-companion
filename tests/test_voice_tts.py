@@ -1059,6 +1059,94 @@ def test_the_fallback_says_once_when_the_voice_works_again_and_warns_on_a_new_ou
     assert len(router_logs(caplog, logging.WARNING)) == 2
 
 
+# --- the internet down --------------------------------------------------------------------------
+
+
+def online_router(primary: FakeEngine, fallback: FakeFallback, **router_options) -> SpeechRouter:
+    """A router whose Indonesian voice needs the internet, with an Indonesian fallback."""
+    return SpeechRouter(
+        {"id": primary, "ja": FakeEngine()},
+        default_language="id",
+        fallbacks={"id": fallback},
+        online_languages={"id"},
+        clock=FakeClock(),
+        **router_options,
+    )
+
+
+def test_while_the_internet_is_down_the_fallback_speaks_without_trying_the_online_voice():
+    # Each try would wait for edge-tts's connect timeout before the fallback spoke.
+    primary, fallback = FakeEngine(), FakeFallback()
+    router = online_router(primary, fallback)
+
+    router.internet_changed(True)
+    audio, _ = router.synthesize("Halo, はい")
+
+    assert primary.calls == []
+    assert fallback.calls == [("Halo,", "id")]
+    assert np.all(audio[:50] == 0.25)
+    assert router.degraded is True  # a stand-in spoke: her fillers wait for her own voice
+
+
+def test_once_the_internet_answers_the_online_voice_is_tried_at_once_also_inside_its_pause():
+    setup = falling_back(online_languages={"id"})
+    setup.router.synthesize("Halo")  # it fails: the fallback speaks for ten minutes
+    setup.router.internet_changed(True)
+    setup.router.synthesize("Halo")
+
+    setup.router.internet_changed(False)
+    setup.primary.fail = False
+    audio, _ = setup.router.synthesize("Master")
+
+    assert len(setup.primary.calls) == 2
+    assert np.all(audio == 1)
+    assert setup.router.degraded is False
+
+
+def test_a_voice_that_needs_no_internet_is_tried_as_before_while_it_is_down():
+    local = FakeEngine()
+    router = SpeechRouter(
+        {"id": FakeEngine(), "ja": local},
+        default_language="id",
+        fallbacks={"id": FakeFallback(), "ja": FakeFallback()},
+        online_languages={"id"},
+        clock=FakeClock(),
+    )
+
+    router.internet_changed(True)
+    router.synthesize("はい")
+
+    assert local.calls == [("はい", "ja")]
+
+
+def test_an_online_voice_without_a_fallback_is_tried_as_before_while_it_is_down():
+    japanese = FakeEngine()
+    router = SpeechRouter(
+        {"id": FakeEngine(), "ja": japanese},
+        default_language="id",
+        fallbacks={"id": FakeFallback()},
+        online_languages={"id", "ja"},
+        clock=FakeClock(),
+    )
+
+    router.internet_changed(True)
+    router.synthesize("はい")
+
+    assert japanese.calls == [("はい", "ja")]
+
+
+def test_a_fallback_that_cannot_speak_while_the_internet_is_down_leaves_the_voice_tried():
+    # A check that wrongly finds it down must never silence her without a Windows voice.
+    primary = FakeEngine()
+    router = online_router(primary, FakeFallback(fail=True))
+
+    router.internet_changed(True)
+    audio, _ = router.synthesize("Halo")
+
+    assert primary.calls == [("Halo", "id")]
+    assert np.all(audio == 1)
+
+
 def test_a_fallback_clip_is_converted_with_its_voice_s_pitch():
     converter = FakeConverter(CONVERTED)
 
@@ -1295,6 +1383,15 @@ def test_build_speech_router_uses_gpt_sovits_where_configured():
 
     assert isinstance(router.engines["id"], EdgeTts)
     assert isinstance(router.engines["ja"], GptSovitsTts)
+
+
+def test_build_speech_router_marks_the_edge_voices_as_needing_the_internet():
+    config = TtsConfig(
+        voices={"id": EdgeVoiceConfig(voice="id-ID-GadisNeural"), "ja": sovits_voice()}
+    )
+
+    assert build_speech_router(config).online_languages == frozenset({"id"})
+    assert build_speech_router(TtsConfig()).online_languages == frozenset({"id", "ja"})
 
 
 def test_build_speech_router_passes_the_converter_through():

@@ -153,6 +153,23 @@ def test_the_state_says_down_while_the_last_check_failed():
     assert not state.down()
 
 
+def test_a_follower_hears_each_check_that_changes_whether_the_internet_is_down():
+    state = NetworkState(slow_window=5)
+    heard: list[bool] = []
+    state.follow(heard.append)
+
+    for reading, status in [
+        (FINE, "ok"),
+        (NO_INTERNET, "offline"),
+        (NO_INTERNET, "router"),
+        (FINE, "dns"),
+        (FINE, "ok"),
+    ]:
+        state.note(reading, status)
+
+    assert heard == [True, False]
+
+
 def test_the_state_hears_from_the_play_time_polls_whether_a_hoyo_game_runs():
     state = NetworkState(slow_window=5)
     assert not state.hoyo_playing()

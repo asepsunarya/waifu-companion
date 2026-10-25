@@ -22,7 +22,7 @@ from __future__ import annotations
 import statistics
 import threading
 from collections import deque
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal, Protocol
@@ -123,6 +123,7 @@ class NetworkState:
         self._recent: deque[float] = deque(maxlen=slow_window - 1)
         self._gateways: set[str] = set()
         self._down = False
+        self._followers: list[Callable[[bool], None]] = []
         self._hoyo_playing = False
         self._outage: CurrentOutage | None = None
 
@@ -133,15 +134,26 @@ class NetworkState:
     def hoyo_playing(self) -> bool:
         return self._hoyo_playing
 
+    def follow(self, follower: Callable[[bool], None]) -> None:
+        """Have `follower` hear whether the internet is down at each check that changes it (the
+        speech router, whose online voices wait while it is down)."""
+        with self._lock:
+            self._followers.append(follower)
+
     def note(self, reading: Reading, status: Status) -> None:
         """Keep what a check found: a gateway that answered, its round trip, and whether it
-        failed."""
+        failed, told to the followers when that changed."""
+        down = status in DOWN
         with self._lock:
             if reading.gateway is not None and reading.gateway_ms is not None:
                 self._gateways.add(reading.gateway)
             if reading.anchor_ms is not None:
                 self._recent.append(reading.anchor_ms)
-            self._down = status in DOWN
+            changed = down != self._down
+            self._down = down
+            followers = list(self._followers) if changed else []
+        for follower in followers:
+            follower(down)
 
     def gateway_answered(self, address: str) -> bool:
         with self._lock:
