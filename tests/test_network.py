@@ -483,3 +483,11 @@ def test_the_back_line_says_how_long_and_since_when_without_parentheses():
     assert back_line("master", SINCE, 12) == (
         "Master, internetnya sudah nyambung lagi, tadi putus sekitar 12 menit, sejak jam 21.03."
     )
+
+
+def test_the_back_line_says_a_long_outage_in_hours_and_minutes_like_the_recap():
+    assert back_line("master", SINCE, 125) == (
+        "Master, internetnya sudah nyambung lagi, tadi putus sekitar 2 jam 5 menit, sejak jam "
+        "21.03."
+    )
+    assert "sekitar 1 jam, sejak" in back_line("master", SINCE, 60)

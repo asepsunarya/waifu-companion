@@ -30,6 +30,7 @@ from datetime import datetime
 from typing import Literal, Protocol
 
 from waifu.config import at_sentence_start
+from waifu.gacha.reminders import duration_text
 from waifu.network_probe import Reading
 
 Status = Literal["ok", "slow", "dns", "hoyo", "offline", "router"]
@@ -262,10 +263,11 @@ def answer_line(finding: Finding, topic: Topic, owner_call: str) -> str:
 
 
 def back_line(owner_call: str, start: datetime, minutes: int) -> str:
-    """Her line once the internet is back after an outage of `minutes` since `start`."""
+    """Her line once the internet is back after an outage of `minutes` since `start`, its length
+    as the recap and `waifu internet` say it ("2 jam 5 menit")."""
     return (
         f"{at_sentence_start(owner_call)}, internetnya sudah nyambung lagi, tadi putus sekitar "
-        f"{minutes} menit, sejak jam {start:%H.%M}."
+        f"{duration_text(minutes)}, sejak jam {start:%H.%M}."
     )
 
 
