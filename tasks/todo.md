@@ -3010,6 +3010,7 @@ named `tests/test_<package>_<module>.py`.
 **Acceptance criteria:**
 - [x] `opened_games` gives the games followed after a poll and not before it; nothing across a sleep gap or a clock set back; a game missed at one poll and back is no start, one gone two polls and back is
 - [x] `PlayTimeWatcher(on_started=...)` tells each start once, after `on_poll` and `on_finished`; never at the run's first poll (a game already running, resumed or not), after a sleep, or after a clock step; a start found by a poll whose write failed is told at the next poll that works; never from `stop()`; a failing listener is logged and play time goes on
+- [x] Fix pass: a start kept from a poll whose write failed is kept as its new session and told only while the tracking still follows it: nothing after a sleep (the game closed or still open) or a clock set back, nothing once the game closed while the writes failed, and a game closed and opened again meanwhile told once
 
 **Dependencies:** 313a · **Files:** `src/waifu/play_time.py`, `src/waifu/play_watch.py`, `tests/test_play_time.py`, `tests/test_play_watch.py` · **Scope:** S
 
@@ -3018,6 +3019,7 @@ named `tests/test_<package>_<module>.py`.
 **Acceptance criteria:**
 - [x] `reminder_line` says the owner word at sentence start, the game's short name, and the texts joined (a dan b, a, b, dan c), each without trailing punctuation, a repeat said once
 - [x] `game_started` tells one line with "happy" for every reminder of that game, drops the once ones and keeps the every-time ones; nothing for a game without reminders; a failed read says nothing; a failed drop still says the line; no text in the INFO log
+- [x] Fix pass: `reminder_line` drops an opening "jangan lupa", "inget", or "ingat" (any case, a comma or colon after it; kept when that is all the text holds), says a text once in any case as first made, and says texts opening with "jangan" after "ingat ya", alone or in a sentence of their own after the things to do
 
 **Dependencies:** 314 · **Files:** `src/waifu/app_reminders.py`, `tests/test_app_reminders.py` · **Scope:** S
 
@@ -3026,8 +3028,10 @@ named `tests/test_<package>_<module>.py`.
 **Acceptance criteria:**
 - [x] Non-strict spec (no `required`) with the configured games, byte-identical across calls; add (the default), list, and remove with JSON results; `game_open_now` and its message when the game's session is open now in the play time file
 - [x] Bad arguments (unknown key, a key the action does not take, a game not tracked, a text that is not a string, a flag that is not a boolean, a missing game or text or id) and store refusals are error results; an unreadable file is logged; `run` never raises; refused in her own turns
+- [x] Fix pass: list takes an optional `game` (only that game's reminders, an empty list for one without); remove takes one too and removes only the reminder of that game ("Pengingat g2 untuk Genshin, bukan HSR, jadi tidak dihapus.", nothing removed); a game not tracked is still refused; the description says both, that the text is said after "jangan lupa", and that a thing not to do keeps its "jangan"
+- [x] Fix pass: the `schedule` description sends a reminder tied to opening a game to `app_reminder` when she has it, never a guessed time; `list_schedules` says those are listed with `app_reminder`
 
-**Dependencies:** 314 · **Files:** `src/waifu/brain/app_reminder_tools.py`, `tests/test_app_reminder_tools.py` · **Scope:** S
+**Dependencies:** 314 · **Files:** `src/waifu/brain/app_reminder_tools.py`, `src/waifu/brain/schedule_tools.py`, `tests/test_app_reminder_tools.py`, `tests/test_schedule_tools.py` · **Scope:** S
 
 ## Task 318: `waifu run`, `chat`, `pengingat-game`, and `check` ✅
 
