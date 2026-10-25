@@ -44,6 +44,8 @@ def test_the_marker_line_splits_the_gist_from_the_card():
         "[[kartu: Cuaca 7 hari",
         "[[kartu: Cuaca 7 hari]",
         "[[kartu Cuaca 7 hari]]",
+        "[kartu Cuaca 7 hari]",
+        "  [Kartu Cuaca 7 hari]  ",
     ],
 )
 def test_every_shape_of_the_marker_is_read(marker):
@@ -117,8 +119,9 @@ def test_the_body_keeps_its_indentation_and_one_blank_line_between_parts():
     )
 
 
-def test_windows_line_breaks_and_trailing_spaces_are_cleaned():
-    _, card = split_card(f"{GIST}\r\n[[kartu: Cuaca]]\r\n- Senin cerah   \r\n- Rabu hujan\r\n")
+@pytest.mark.parametrize("marker", ["[[kartu: Cuaca]]", "[kartu Cuaca]"])
+def test_windows_line_breaks_and_trailing_spaces_are_cleaned(marker):
+    _, card = split_card(f"{GIST}\r\n{marker}\r\n- Senin cerah   \r\n- Rabu hujan\r\n")
 
     assert card == Card("Cuaca", "- Senin cerah\n- Rabu hujan")
 
@@ -166,6 +169,45 @@ def test_a_bracket_that_is_not_a_card_stays_in_the_speech():
     text = "[senang] Lihat catatan [1] dan [[catatan]] di sana, kartunya bagus."
 
     assert split_card(text) == (text, None)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Kamu bisa bayar pakai [kartu kredit] atau transfer bank.",
+        "[Kartu Keluarga] dibawa ya, Master.",
+        "Buka https://example.com/a?q=[kartu]&x=1 saja.",
+    ],
+)
+def test_one_bracket_around_a_kartu_phrase_in_a_sentence_is_no_marker(text):
+    assert split_card(text) == (text, None)
+
+
+def test_a_kartu_phrase_in_brackets_before_the_marker_stays_in_the_speech():
+    gist = "Ini syarat daftar [Kartu Prakerja], kutampilkan di layar ya."
+
+    speech, card = split_card(f"{gist}\n[[kartu: Syarat Prakerja]]\n- KTP\n- NIK")
+
+    assert speech == gist
+    assert card == Card("Syarat Prakerja", "- KTP\n- NIK")
+
+
+def test_a_kartu_phrase_in_brackets_inside_the_body_stays_as_written():
+    body = (
+        "- Daftar di [Kartu Prakerja](https://www.prakerja.go.id/)\n"
+        "- [kartu nama] = meishi\n"
+        "[kartu kredit]"
+    )
+
+    _, card = split_card(f"{GIST}\n[[kartu: Kosakata]]\n{body}")
+
+    assert card == Card("Kosakata", body)
+
+
+def test_a_later_marker_with_one_bracket_and_a_colon_becomes_a_line_of_its_title():
+    _, card = split_card(f"{GIST}\n[[kartu: Cuaca]]\n- Senin cerah\n[kartu: Udara]\n- Baik")
+
+    assert card == Card("Cuaca", "- Senin cerah\nUdara\n- Baik")
 
 
 # --- before_card -------------------------------------------------------------------------------

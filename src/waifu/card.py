@@ -29,13 +29,19 @@ ELLIPSIS = "…"
 _OPEN = re.escape("[［")
 _CLOSE = re.escape("]］")
 # "[[kartu: Judul]]" in any case, with spaces anywhere, full-width brackets or colon, and no
-# title. Two opening brackets close with two, or with one or none at the end of the line; one
-# opening bracket closes with one, or none at the end of the line.
-_MARKER = re.compile(
-    rf"[{_OPEN}](?P<double>[{_OPEN}])?[ \t]*kartu\b[ \t]*[:：]?(?P<title>[^\n]*?)"
-    rf"(?(double)(?:[{_CLOSE}]{{2}}|[{_CLOSE}]?[ \t]*(?=\n|$))|(?:[{_CLOSE}]|[ \t]*(?=\n|$)))",
-    re.IGNORECASE,
+# title; two opening brackets close with two, or with one or none at the end of the line.
+_DOUBLE = (
+    rf"[{_OPEN}]{{2}}[ \t]*kartu\b[ \t]*[:：]?(?P<double>[^\n]*?)"
+    rf"(?:[{_CLOSE}]{{2}}|[{_CLOSE}]?[ \t]*(?=\n|$))"
 )
+# One opening bracket is a marker only with the colon ("[kartu: Judul]", closed with one bracket
+# or none at the end of the line), or as a whole line ("[kartu Judul]"): "[kartu kredit]" in a
+# sentence, "[kartu nama] = meishi", or "[Kartu Prakerja](url)" is what she wrote.
+_COLON = rf"[{_OPEN}][ \t]*kartu[ \t]*[:：](?P<colon>[^\n]*?)(?:[{_CLOSE}]|[ \t]*(?=\n|$))"
+_LINE = rf"^[ \t]*[{_OPEN}][ \t]*kartu\b[ \t]*(?P<line>[^\n{_CLOSE}]*)[{_CLOSE}][ \t\r]*$"
+_MARKER = re.compile(f"{_DOUBLE}|{_COLON}|{_LINE}", re.IGNORECASE | re.MULTILINE)
+# A marker inside the body: a whole line in one bracket stays there as written.
+_LATER_MARKER = re.compile(f"{_DOUBLE}|{_COLON}", re.IGNORECASE)
 
 # Runs of letters and digits in any script, as `waifu.repeat` splits Master's words.
 _WORD = re.compile(r"[^\W_]+")
@@ -85,7 +91,7 @@ def split_card(text: str) -> tuple[str, Card | None]:
         return text, None
     speech = text[: marker.start()].strip()
     body = _body(text[marker.end() :].lstrip(" \t"))
-    return speech, Card(_title(marker.group("title")), body) if body else None
+    return speech, Card(_title(marker), body) if body else None
 
 
 def before_card(text: str, addition: str) -> str:
@@ -132,18 +138,19 @@ def is_card_request(text: str, names: Iterable[str] = ()) -> bool:
     return cards[0] == "kartunya" or not _POINTING.isdisjoint(others)
 
 
-def _title(raw: str) -> str:
+def _title(marker: re.Match[str]) -> str:
     """The marker's title without emotion tags or runs of spaces, cut to MAX_TITLE_CHARS."""
+    raw = next(title for title in marker.groupdict().values() if title is not None)
     return _cut(" ".join(split_emotion(raw)[1].split()), MAX_TITLE_CHARS)
 
 
 def _body(raw: str) -> str:
     """The card's lines: emotion tags removed and indentation kept, a later marker's syntax
-    replaced by its title, one blank line at most between lines and none at either end, cut to
-    MAX_BODY_LINES and MAX_BODY_CHARS."""
+    (`_LATER_MARKER`) replaced by its title, one blank line at most between lines and none at
+    either end, cut to MAX_BODY_LINES and MAX_BODY_CHARS."""
     kept: list[str] = []
     for raw_line in raw.splitlines():
-        line = _without_tags(_MARKER.sub(lambda later: _title(later.group("title")), raw_line))
+        line = _without_tags(_LATER_MARKER.sub(_title, raw_line))
         if line or (kept and kept[-1]):
             kept.append(line)
     while kept and not kept[-1]:
