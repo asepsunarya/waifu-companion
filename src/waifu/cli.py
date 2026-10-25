@@ -47,6 +47,7 @@ from pydantic import SecretStr, ValidationError
 from waifu import autostart, memory
 from waifu.alarm import AlarmBell
 from waifu.app import Assistant, AudioPlayer, PhoneAnswers, split_reply
+from waifu.app_reminders import AppReminderStore, AppReminderTeller
 from waifu.autostart import RunKey, WindowsRunKey
 from waifu.avatar.bus import STATES as AVATAR_STATES
 from waifu.avatar.bus import AvatarBus
@@ -56,6 +57,7 @@ from waifu.avatar.lipsync import SHAPE_CENTRE_HZ
 from waifu.avatar.server import AvatarError, AvatarServer, file_under
 from waifu.avatar.window import AvatarWindow
 from waifu.brain.alarm_tools import AlarmTools
+from waifu.brain.app_reminder_tools import AppReminderTools
 from waifu.brain.attachments import CameraTurn, TurnImages
 from waifu.brain.base import Brain, ToolCallRecord
 from waifu.brain.confirm import ConfirmationGate
@@ -268,7 +270,7 @@ from waifu.schedule import (
     ScheduleError,
     ScheduleStore,
 )
-from waifu.scheduler import MONTHS_ID, Scheduler
+from waifu.scheduler import MONTHS_ID, SCHEDULE_TAG, Scheduler
 from waifu.screen import capture_screen
 from waifu.single_instance import InstanceLock
 from waifu.todo import Task, TodoError, TodoStore
@@ -1746,7 +1748,7 @@ def _listen(args: argparse.Namespace) -> int:
                         ),
                         _code_watcher(config, gacha, assistant, notifier, game_mode),
                         _pc_watcher(config, pc, assistant, notifier, game_mode),
-                        _play_time_watcher(config, assistant, game_mode, closed_games),
+                        _play_time_watcher(config, assistant, game_mode, closed_games, notifier),
                         _focus_session(config, focus, assistant, notifier),
                         _break_watcher(config, focus, assistant, notifier, game_mode),
                         _rain_watcher(config, assistant, notifier, game_mode),
@@ -1966,7 +1968,8 @@ def _companion_brain(
     weather of the days ahead whenever the weather has a place (with the briefing's client), the
     prayer times when they are on (at `prayer`, the place `run`
     shares with the reminders, else a place of their own), with `pc` how the PC is doing, how
-    long Master's games were open when play time is on, the free offers when they are on (their
+    long Master's games were open when play time is on (and with app reminders on, his reminders
+    for a game's next start), the free offers when they are on (their
     links pushed through `notifier`), Master's money from tepira when it is on, songs on YouTube
     when they are on, with Claude her eyes on the screen when vision is on, and with `usage`
     what her requests cost. With `game_data` (only `run` has one), the game data tools are that
@@ -2047,6 +2050,15 @@ def _companion_brain(
         providers.append(PcTools(pc, owner_call=owner_call))
     if config.play_time.enabled:
         providers.append(PlayTimeTools(_play_time_store(config), config.play_time, now=wib_now))
+        if config.app_reminders.enabled:
+            providers.append(
+                AppReminderTools(
+                    _app_reminder_store(config),
+                    _play_time_store(config),
+                    config.play_time,
+                    now=wib_now,
+                )
+            )
     if config.free_offers.enabled:
         providers.append(_offers_tools(config, notifier))
     if config.tepira.enabled:
@@ -5857,6 +5869,7 @@ def _play_time_watcher(
     assistant: Assistant,
     game_mode: GameMode | None,
     closed_games: ClosedGames | None,
+    notifier: Notifier | None,
 ) -> Iterator[None]:
     """Counting how long Master's games are open while the block runs, from the process list's
     names only, telling game mode after each poll whether a game runs, and with
@@ -5865,11 +5878,15 @@ def _play_time_watcher(
     sessions at their last poll. While game mode holds her announcements, the nudge is said
     like Master's reminders: it is due only while a game is open, so held until the game has
     closed it would come too late. Each game just closed goes into `closed_games`, when
-    given, and each poll's word goes to it as to game mode."""
+    given, and each poll's word goes to it as to game mode. With app reminders on, each game
+    Master just opened gets his reminders for its start (`_app_reminder_teller`)."""
     if not config.play_time.enabled:
         yield
         return
     holds = config.game_mode.announcements != "normal"
+    teller = (
+        _app_reminder_teller(config, assistant, notifier) if config.app_reminders.enabled else None
+    )
     watcher = PlayTimeWatcher(
         running_executables,
         _play_time_store(config),
@@ -5878,12 +5895,40 @@ def _play_time_watcher(
         owner_call=config.assistant.owner_call,
         on_poll=_poll_listeners(closed_games, game_mode),
         on_finished=None if closed_games is None else closed_games.put,
+        on_started=None if teller is None else teller.game_started,
     )
     watcher.start()
     try:
         yield
     finally:
         watcher.stop()
+
+
+def _app_reminder_store(config: AppConfig) -> AppReminderStore:
+    """Master's game start reminders, in the file `app_reminders.path` names (`run`'s teller, the
+    tool, `waifu pengingat-game`, and `check`), whether they are on or not."""
+    return AppReminderStore(config.app_reminders.path, now=wib_now)
+
+
+def _app_reminder_teller(
+    config: AppConfig, assistant: Assistant, notifier: Notifier | None
+) -> AppReminderTeller:
+    """Says a game's reminders at its start as Master's own (`remind`: also in a focus block or a
+    game hold, whatever `game_mode.announcements`) and, with notifications on, pushes them as a
+    schedule reminder is pushed, from a thread of its own: the play time watcher's thread must
+    never wait for a push."""
+    push = None if notifier is None else _phone_push(notifier, config.assistant.name, SCHEDULE_TAG)
+
+    def tell(text: str, emotion: str) -> None:
+        assistant.remind(text, emotion)
+        if push is not None:
+            threading.Thread(
+                target=push, args=(text,), name="app-reminder-push", daemon=True
+            ).start()
+
+    return AppReminderTeller(
+        _app_reminder_store(config), tell=tell, owner_call=config.assistant.owner_call
+    )
 
 
 def _poll_listeners(

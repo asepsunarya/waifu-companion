@@ -39,6 +39,7 @@ from tinytuya.core.XenonDevice import XenonDevice
 from waifu import cli
 from waifu.alarm import AlarmBell
 from waifu.app import Assistant
+from waifu.app_reminders import AppReminderStore
 from waifu.autostart import DEFAULT_DELAY_S, build_command
 from waifu.avatar.bus import STATES
 from waifu.avatar.emotion import EMOTIONS
@@ -47,6 +48,7 @@ from waifu.avatar.server import AvatarError
 from waifu.avatar.window import AvatarWindow
 from waifu.brain import claude as claude_module
 from waifu.brain.alarm_tools import AlarmTools
+from waifu.brain.app_reminder_tools import AppReminderTools
 from waifu.brain.attachments import CameraTurn, TurnImages
 from waifu.brain.base import Brain, BrainReply, ToolCallRecord
 from waifu.brain.finance_tools import FinanceTools
@@ -625,7 +627,8 @@ def rain_watchers(events, monkeypatch) -> list[FakeRainWatcher]:
 class FakePlayTimeWatcher:
     """Stands in for PlayTimeWatcher without a thread, remembering what it was given, whether
     `waifu run` listened when it started and stopped, and the test's `events` up to then. A test
-    plays a poll's word to game mode through `on_poll(playing, resumed)`."""
+    plays a poll's word to game mode through `on_poll(playing, resumed)`, and a game's start
+    through `on_started(game)`."""
 
     def __init__(
         self,
@@ -637,11 +640,12 @@ class FakePlayTimeWatcher:
         owner_call,
         on_poll=None,
         on_finished=None,
+        on_started=None,
         events: list[str],
     ) -> None:
         self.list_processes, self.store, self.config = list_processes, store, config
         self.announce, self.owner_call, self.on_poll = announce, owner_call, on_poll
-        self.on_finished = on_finished
+        self.on_finished, self.on_started = on_finished, on_started
         self._events = events
         self.listening: list[bool] = []
         self.events_when_started: list[str] | None = None
@@ -5792,6 +5796,7 @@ def test_run_with_the_games_on_gives_the_brain_the_game_tools_and_watches_while_
         briefing,
         pc,
         play_time,
+        app_reminder,
         offers,
         music,
     ] = brains[0].providers
@@ -5809,6 +5814,7 @@ def test_run_with_the_games_on_gives_the_brain_the_game_tools_and_watches_while_
         type(briefing),
         type(pc),
         type(play_time),
+        type(app_reminder),
         type(offers),
         type(music),
     ) == (
@@ -5825,6 +5831,7 @@ def test_run_with_the_games_on_gives_the_brain_the_game_tools_and_watches_while_
         BriefingTools,
         PcTools,
         PlayTimeTools,
+        AppReminderTools,
         OffersTools,
         MusicTools,
     )
@@ -5964,6 +5971,7 @@ def test_run_without_a_cookie_has_the_game_tools_but_no_watcher(
         BriefingTools,
         PcTools,
         PlayTimeTools,
+        AppReminderTools,
         OffersTools,
         MusicTools,
     ]
@@ -5987,6 +5995,7 @@ def test_run_with_the_games_off_builds_none_of_it(home, run_fakes, brains, games
         BriefingTools,
         PcTools,
         PlayTimeTools,
+        AppReminderTools,
         OffersTools,
         MusicTools,
     ]
@@ -6015,6 +6024,7 @@ def test_chat_with_the_games_on_gives_the_brain_the_game_tools(home, brains, gam
         BriefingTools,
         PcTools,
         PlayTimeTools,
+        AppReminderTools,
         OffersTools,
         MusicTools,
     ]
@@ -7042,8 +7052,8 @@ def test_run_gives_the_brain_her_memory_tools_and_the_notes_at_each_session_star
 
     brain = brains[0]
     # After guest mode's and the voice volume's tools, then the schedule, to-do, journal,
-    # focus, recap, briefing, PC, play time, offers, and music.
-    [_, _, tools, _, _, _, _, _, _, _, _, _, _, _] = brain.providers
+    # focus, recap, briefing, PC, play time, game start reminders, offers, and music.
+    [_, _, tools, _, _, _, _, _, _, _, _, _, _, _, _] = brain.providers
     assert isinstance(tools, MemoryTools)
     assert brain.memory_section() == memory_prompt_section([])
     assert tools.run("remember", {"text": "Master alergi udang."})[1] is False
@@ -7072,6 +7082,7 @@ def test_chat_gives_the_brain_the_notes_saved_in_data_memory_json(home, brains, 
         BriefingTools,
         PcTools,
         PlayTimeTools,
+        AppReminderTools,
         OffersTools,
         MusicTools,
     ]
@@ -7099,6 +7110,7 @@ def test_with_the_memory_off_the_brain_gets_neither_the_tools_nor_the_notes(
         BriefingTools,
         PcTools,
         PlayTimeTools,
+        AppReminderTools,
         OffersTools,
         MusicTools,
     ]
@@ -7525,6 +7537,7 @@ def test_run_gives_the_brain_the_schedule_tools_and_fires_her_schedule_while_she
         BriefingTools,
         PcTools,
         PlayTimeTools,
+        AppReminderTools,
         OffersTools,
         MusicTools,
     ]
@@ -7819,6 +7832,7 @@ def test_with_the_schedule_off_she_gets_neither_the_tools_nor_a_scheduler(
         BriefingTools,
         PcTools,
         PlayTimeTools,
+        AppReminderTools,
         OffersTools,
         MusicTools,
     ]
@@ -8497,6 +8511,7 @@ def test_with_claude_she_may_look_at_the_screen_at_the_configured_size(
         BriefingTools,
         PcTools,
         PlayTimeTools,
+        AppReminderTools,
         OffersTools,
         MusicTools,
         ScreenTools,
@@ -8653,6 +8668,7 @@ def test_without_claude_or_with_vision_off_the_brain_gets_no_screen_tool(
         BriefingTools,
         PcTools,
         PlayTimeTools,
+        AppReminderTools,
         OffersTools,
         MusicTools,
         *([UsageTools] if claude else []),  # what her requests cost, with Claude only
@@ -8846,10 +8862,11 @@ def test_run_greets_once_a_day_while_she_listens_and_pushes_the_greeting_to_the_
 
     assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
 
-    assert [type(tools) for tools in brains[0].providers][-5:] == [
+    assert [type(tools) for tools in brains[0].providers][-6:] == [
         BriefingTools,
         PcTools,
         PlayTimeTools,
+        AppReminderTools,
         OffersTools,
         MusicTools,
     ]
@@ -8917,10 +8934,11 @@ def test_chat_gives_the_brain_the_briefing_tool_but_never_greets_by_herself(
 
     assert cli.main(["chat", "--dry-run"]) == 0
 
-    assert [type(tools) for tools in brains[0].providers][-5:] == [
+    assert [type(tools) for tools in brains[0].providers][-6:] == [
         BriefingTools,
         PcTools,
         PlayTimeTools,
+        AppReminderTools,
         OffersTools,
         MusicTools,
     ]
@@ -8949,6 +8967,7 @@ def test_with_the_briefing_off_she_gets_neither_the_tool_nor_the_greeting(
         WeatherForecastTools,  # the days ahead need only the place, as the rain alerts
         PcTools,
         PlayTimeTools,
+        AppReminderTools,
         OffersTools,
         MusicTools,
     ]
@@ -9473,11 +9492,12 @@ def test_run_gives_the_brain_the_forecast_right_after_the_briefing_and_asks_noth
 
     assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
 
-    assert [type(tools) for tools in brains[0].providers][-6:] == [
+    assert [type(tools) for tools in brains[0].providers][-7:] == [
         BriefingTools,
         WeatherForecastTools,
         PcTools,
         PlayTimeTools,
+        AppReminderTools,
         OffersTools,
         MusicTools,
     ]
@@ -12061,6 +12081,120 @@ def test_with_play_time_off_there_is_neither_the_tool_nor_the_watcher(
     assert play_time_watchers == []
 
 
+# --- game start reminders (v1.53) ---------------------------------------------------------------
+
+APP_REMINDER_PUSH = "app-reminder-push"
+FARMING = "Master, kamu baru buka HSR, jangan lupa farming relic."
+
+
+def app_reminders_of(home: Path) -> AppReminderStore:
+    """The example config's game start reminders, inside the test's working directory."""
+    return AppReminderStore(home / "data" / "app_reminders.json")
+
+
+def await_app_reminder_pushes() -> None:
+    for thread in threading.enumerate():
+        if thread.name == APP_REMINDER_PUSH:
+            thread.join(WAIT_S)
+
+
+def app_reminder_tools(brain: HouseBrain) -> AppReminderTools:
+    [tools] = [p for p in brain.providers if isinstance(p, AppReminderTools)]
+    return tools
+
+
+@pytest.mark.parametrize("announcements", ["normal", "hold", "phone"])
+def test_run_says_a_game_s_reminders_as_master_s_own_when_the_watcher_sees_it_start(
+    announcements, home, run_fakes, brains, play_time_watchers
+):
+    if announcements != "normal":
+        append_config(home, f"game_mode:\n  announcements: {announcements}\n")
+    app_reminders_of(home).add("hsr", "farming relic")
+    app_reminders_of(home).add("zzz", "claim battle pass")
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+    [watcher] = play_time_watchers
+    watcher.on_started("hsr")
+
+    assistant = RecordingAssistant.instances[0]
+    # Master's own reminder: said in a focus block or a game hold too, never diverted.
+    assert assistant.reminded == [(FARMING, "happy")]
+    assert assistant.announced == []
+    assert [r.game for r in app_reminders_of(home).reminders()] == ["zzz"]
+
+
+@pytest.mark.parametrize("notify", [True, False], ids=["notify", "no-notify"])
+def test_run_pushes_a_game_reminder_from_a_thread_of_its_own_with_notifications_on(
+    notify, home, run_fakes, brains, play_time_watchers, monkeypatch
+):
+    threads: list[str] = []
+
+    class ThreadNotingNotifier(FakeNotifier):
+        def send(self, title: str, message: str, *, tags=(), click=None) -> bool:
+            threads.append(threading.current_thread().name)
+            return super().send(title, message, tags=tags, click=click)
+
+    if notify:
+        enable_notify(home)
+    notifier = ThreadNotingNotifier()
+    use_notifier(monkeypatch, notifier)
+    app_reminders_of(home).add("hsr", "farming relic", every_time=True)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+    play_time_watchers[0].on_started("hsr")
+    await_app_reminder_pushes()
+
+    # As a schedule reminder is pushed: the assistant's name and the alarm clock tag.
+    assert notifier.sent == ([("Cyrene", FARMING, ("alarm_clock",))] if notify else [])
+    assert threads == ([APP_REMINDER_PUSH] if notify else [])
+    assert len(app_reminders_of(home).reminders()) == 1  # every time: kept
+
+
+@pytest.mark.parametrize("argv", [["run", "--no-speaker-check"], ["chat"]])
+def test_run_and_chat_offer_the_app_reminder_tool_right_after_play_time(
+    argv, home, run_fakes, brains, play_time_watchers, monkeypatch
+):
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main([*argv, "--dry-run"]) == 0
+
+    kinds = [type(provider) for provider in brains[0].providers]
+    assert kinds[kinds.index(PlayTimeTools) + 1] is AppReminderTools
+
+
+@pytest.mark.parametrize("argv", [["run", "--no-speaker-check"], ["chat"]])
+@pytest.mark.parametrize(
+    "settings",
+    ["app_reminders:\n  enabled: false\n", "play_time:\n  enabled: false\n"],
+    ids=["app-reminders-off", "play-time-off"],
+)
+def test_without_app_reminders_or_play_time_there_is_no_tool_and_no_start_told(
+    settings, argv, home, run_fakes, brains, play_time_watchers, monkeypatch
+):
+    append_config(home, settings)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+
+    assert cli.main([*argv, "--dry-run"]) == 0
+
+    assert not any(isinstance(tools, AppReminderTools) for tools in brains[0].providers)
+    assert all(watcher.on_started is None for watcher in play_time_watchers)
+
+
+def test_the_app_reminder_tool_keeps_it_in_the_config_s_file_and_sees_the_game_open(
+    home, brains, played, monkeypatch
+):
+    monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
+    assert cli.main(["chat", "--dry-run"]) == 0
+
+    result, is_error = app_reminder_tools(brains[0]).run(
+        "app_reminder", {"game": "hsr", "text": "daily"}
+    )
+
+    assert is_error is False
+    assert json.loads(result)["game_open_now"] is True  # HSR last seen at 21:59
+    assert [r.text for r in app_reminders_of(home).reminders()] == ["daily"]
+
+
 def test_the_play_time_tool_reads_the_file_run_keeps(home, brains, played, monkeypatch):
     monkeypatch.setattr(sys, "stdin", io.StringIO("keluar\n"))
     assert cli.main(["chat", "--dry-run"]) == 0
@@ -13528,6 +13662,7 @@ def test_run_gives_the_brain_the_prayer_tool_right_after_the_briefing(
         PrayerTools,
         PcTools,
         PlayTimeTools,
+        AppReminderTools,
         OffersTools,
         MusicTools,
     ]
@@ -14050,9 +14185,10 @@ def test_run_gives_the_brain_the_offers_tools_and_watches_for_offers_while_she_l
 
     assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
 
-    assert [type(tools) for tools in brains[0].providers][-4:] == [
+    assert [type(tools) for tools in brains[0].providers][-5:] == [
         PcTools,
         PlayTimeTools,
+        AppReminderTools,
         OffersTools,
         MusicTools,
     ]
@@ -15904,6 +16040,7 @@ def test_run_gives_the_brain_her_to_do_tools_and_the_tasks_due_today_in_the_brie
         BriefingTools,
         PcTools,
         PlayTimeTools,
+        AppReminderTools,
         OffersTools,
         MusicTools,
     ]
@@ -15944,6 +16081,7 @@ def test_chat_gives_the_brain_the_tasks_saved_in_data_todo_json_with_either_back
         BriefingTools,
         PcTools,
         PlayTimeTools,
+        AppReminderTools,
         OffersTools,
         MusicTools,
         *([ScreenTools, UsageTools] if claude else []),
@@ -15978,6 +16116,7 @@ def test_with_the_todo_list_off_the_brain_gets_neither_the_tools_nor_the_tasks(
         BriefingTools,
         PcTools,
         PlayTimeTools,
+        AppReminderTools,
         OffersTools,
         MusicTools,
     ]
@@ -16264,6 +16403,7 @@ def test_run_gives_the_brain_her_journal_tools_right_after_the_to_do_tools(
         BriefingTools,
         PcTools,
         PlayTimeTools,
+        AppReminderTools,
         OffersTools,
         MusicTools,
     ]
@@ -16677,6 +16817,7 @@ def test_run_gives_the_brain_the_lesson_tool_right_after_the_focus_timer(
         BriefingTools,
         PcTools,
         PlayTimeTools,
+        AppReminderTools,
         OffersTools,
         MusicTools,
     ]
@@ -17022,6 +17163,7 @@ def test_the_claude_request_with_every_tool_on_stays_within_the_strict_tool_limi
         "weather_forecast",
         "daily_recap",
         "alarm",
+        "app_reminder",
         *FINANCE_TOOLS,
     } <= names
     # Every tool is either closed in guest mode or still open: a new one must be sorted.
@@ -17061,6 +17203,7 @@ def test_the_claude_request_with_every_tool_on_stays_within_the_strict_tool_limi
         "weather_forecast",
         "daily_recap",
         "alarm",
+        "app_reminder",
     }
     assert not not_strict & {tool["name"] for tool in strict}
 
@@ -17132,6 +17275,7 @@ def test_run_and_chat_give_the_brain_the_music_tool_with_either_backend(
         BriefingTools,
         PcTools,
         PlayTimeTools,
+        AppReminderTools,
         OffersTools,
         MusicTools,
         *([ScreenTools, UsageTools] if claude else []),
@@ -17233,6 +17377,7 @@ def test_with_music_off_the_brain_gets_no_music_tool(
         BriefingTools,
         PcTools,
         PlayTimeTools,
+        AppReminderTools,
         OffersTools,
     ]
     assert opener.links == []
@@ -17585,9 +17730,10 @@ def test_run_with_tepira_on_reads_master_s_money_after_the_free_offers(
 
     assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
 
-    assert [type(tools) for tools in brains[0].providers][-5:] == [
+    assert [type(tools) for tools in brains[0].providers][-6:] == [
         PcTools,
         PlayTimeTools,
+        AppReminderTools,
         OffersTools,
         FinanceTools,
         MusicTools,
