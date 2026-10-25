@@ -1274,11 +1274,11 @@ class TepiraLedger:
 COFFEE = {"amount": 18000, "description": "jajan kopi"}
 
 
-def finance_brain(client: FakeAnthropic, ledger: TepiraLedger) -> ClaudeBrain:
+def finance_brain(client: FakeAnthropic, ledger: TepiraLedger, **options: object) -> ClaudeBrain:
     """A brain that records expenses in `ledger` on Master's yes, as `waifu run` wires it."""
     gate = ConfirmationGate(clock=FakeClock())
     tools = FinanceTools(ledger, writes=True, default_wallet="GoPay", confirmations=gate)
-    return make_brain(client, confirmations=gate, providers=[tools])
+    return make_brain(client, confirmations=gate, providers=[tools], **options)
 
 
 def record_coffee(block_id: str) -> SimpleNamespace:
@@ -1352,6 +1352,98 @@ def test_a_rolled_back_turn_that_only_asked_about_an_expense_says_just_its_apolo
 
     assert ledger.expenses == {}
     assert reply.text == "Maaf Master, aku tidak bisa terhubung ke server Claude."
+
+
+# The internet watcher's outage note (v1.54)
+
+OUTAGE_NOTE = "Internetnya lagi putus sejak jam 21.03."
+
+
+def test_a_connection_failure_names_the_outage_the_watcher_knows():
+    brain = make_brain(FakeAnthropic(connection_error()), network_note=lambda: OUTAGE_NOTE)
+
+    reply = brain.respond("halo", now=NOW)
+
+    assert reply.text == (
+        "Maaf Master, aku tidak bisa terhubung ke server Claude. "
+        "Internetnya lagi putus sejak jam 21.03."
+    )
+
+
+def test_a_stalled_answer_names_the_outage_the_watcher_knows():
+    brain = make_brain(
+        FakeAnthropic(httpx2.ReadTimeout("stalled")), network_note=lambda: OUTAGE_NOTE
+    )
+
+    reply = brain.respond("halo", now=NOW)
+
+    assert reply.text == (
+        "Maaf Master, jawaban dari Claude terlalu lama, jadi aku berhenti dulu. "
+        "Internetnya lagi putus sejak jam 21.03."
+    )
+
+
+def test_the_outage_note_comes_before_what_the_turn_changed_in_tepira():
+    ledger = TepiraLedger()
+    client = FakeAnthropic(
+        record_coffee("call_1"),
+        message([text("Baik, Master.")], "end_turn"),
+        record_coffee("call_2"),
+        message([text("Sudah kucatat, Master.")], "end_turn"),
+        message([tool_use("call_3", "undo_expense", {})], "tool_use"),
+        connection_error(),
+    )
+    brain = finance_brain(client, ledger, network_note=lambda: OUTAGE_NOTE)
+
+    brain.respond("catat jajan kopi 18 ribu", now=NOW)
+    brain.respond("iya", now=NOW)
+    reply = brain.respond("batalkan yang tadi", now=NOW)
+
+    assert reply.text == (
+        "Maaf Master, aku tidak bisa terhubung ke server Claude. "
+        "Internetnya lagi putus sejak jam 21.03. "
+        "Tapi catatan delapan belas ribu untuk jajan kopi sudah dibatalkan di tepira."
+    )
+
+
+def test_without_an_outage_the_connection_apology_is_alone():
+    brain = make_brain(FakeAnthropic(connection_error()), network_note=lambda: None)
+
+    assert brain.respond("halo", now=NOW).text == (
+        "Maaf Master, aku tidak bisa terhubung ke server Claude."
+    )
+
+
+def test_the_outage_note_is_never_formatted():
+    brain = make_brain(FakeAnthropic(connection_error()), network_note=lambda: "Putus {owner}.")
+
+    assert brain.respond("halo", now=NOW).text.endswith(" Putus {owner}.")
+
+
+def test_a_note_that_fails_is_logged_and_left_out(caplog):
+    def broken() -> str:
+        raise RuntimeError("state gone")
+
+    brain = make_brain(FakeAnthropic(connection_error()), network_note=broken)
+
+    with caplog.at_level(logging.ERROR, logger="waifu.brain.claude"):
+        reply = brain.respond("halo", now=NOW)
+
+    assert reply.text == "Maaf Master, aku tidak bisa terhubung ke server Claude."
+    assert "Could not read the internet watcher's note" in caplog.text
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        request_error(anthropic.RateLimitError, 429),
+        request_error(anthropic.InternalServerError, 500),
+    ],
+)
+def test_other_failures_never_name_the_outage(error):
+    brain = make_brain(FakeAnthropic(error), network_note=lambda: OUTAGE_NOTE)
+
+    assert OUTAGE_NOTE not in brain.respond("halo", now=NOW).text
 
 
 # Master's yes before the PC turns off

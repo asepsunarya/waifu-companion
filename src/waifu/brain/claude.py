@@ -209,7 +209,10 @@ class ClaudeBrain(Brain):
         web_search: WebSearchTool | None = None,
         tool_refusal: Callable[[str], str | None] | None = None,
         session_marker: Callable[[], object] | None = None,
+        network_note: Callable[[], str | None] | None = None,
     ) -> None:
+        """`network_note` (the internet watcher's `outage_note`) names an outage it knows of
+        after the apology for a turn that could not reach Claude."""
         self._max_tool_rounds = config.max_tool_rounds
         self._registry = registry
         self._providers = tuple(providers)
@@ -225,6 +228,7 @@ class ClaudeBrain(Brain):
         self._session_system = ""
         self._tool_refusal = tool_refusal
         self._session_marker = session_marker
+        self._network_note = network_note
         self._session_mark: object = None  # the marker as the session's prompt was read
         self._history: list[dict[str, Any]] = []
 
@@ -266,7 +270,7 @@ class ClaudeBrain(Brain):
             # A streamed answer that stalled (the SDK wraps a timeout before an answer starts). The
             # server may bill what it did already, so it is not asked again.
             logger.warning("Claude's streamed answer stalled past the read timeout")
-            return self._roll_back(turn_start, _TOO_SLOW, tool_calls)
+            return self._roll_back(turn_start, _TOO_SLOW, tool_calls, note=self._outage_note())
         except (anthropic.AuthenticationError, anthropic.CredentialsError) as exc:
             logger.error("Claude credentials missing or rejected (%s)", type(exc).__name__)
             return self._roll_back(turn_start, _BAD_CREDENTIALS, tool_calls)
@@ -275,7 +279,7 @@ class ClaudeBrain(Brain):
             return self._roll_back(turn_start, _RATE_LIMITED, tool_calls)
         except anthropic.APIConnectionError as exc:
             logger.warning("Could not reach Claude: %s", exc.message)
-            return self._roll_back(turn_start, _NO_CONNECTION, tool_calls)
+            return self._roll_back(turn_start, _NO_CONNECTION, tool_calls, note=self._outage_note())
         except anthropic.APIStatusError as exc:
             logger.error(
                 "Claude returned HTTP %s (request id %s): %s",
@@ -428,11 +432,28 @@ class ClaudeBrain(Brain):
         results = [_tool_result(call.id, payload, True) for call in calls]
         self._history.append({"role": "user", "content": results})
 
+    def _outage_note(self) -> str | None:
+        """The internet watcher's word on an outage, if it knows of one; a failure is logged and
+        leaves it out, so the apology is still said."""
+        if self._network_note is None:
+            return None
+        try:
+            return self._network_note()
+        except Exception:
+            logger.exception("Could not read the internet watcher's note")
+            return None
+
     def _roll_back(
-        self, turn_start: int, apology: str, tool_calls: list[ToolCallRecord]
+        self,
+        turn_start: int,
+        apology: str,
+        tool_calls: list[ToolCallRecord],
+        *,
+        note: str | None = None,
     ) -> BrainReply:
-        """Undo the turn and apologise with `apology`, one of the canned replies above, followed
-        by what the turn changed in tepira all the same (a recorded or undone expense)."""
+        """Undo the turn and apologise with `apology`, one of the canned replies above, then
+        `note` as it is (an outage the internet watcher knows of), then what the turn changed in
+        tepira all the same (a recorded or undone expense)."""
         if self._confirmations is not None:
             self._confirmations.discard_turn()
         if changed_memory(tool_calls):
@@ -442,9 +463,8 @@ class ClaudeBrain(Brain):
             self.reset()
         else:
             del self._history[turn_start:]
-        text = " ".join(
-            filter(None, (apology.format(owner=self._owner_call), finance_changes(tool_calls)))
-        )
+        apologised = apology.format(owner=self._owner_call)
+        text = " ".join(filter(None, (apologised, note, finance_changes(tool_calls))))
         return BrainReply(text, tool_calls)
 
     def _client_or_create(self) -> anthropic.Anthropic:

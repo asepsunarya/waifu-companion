@@ -81,7 +81,9 @@ class FakeClaudeBrain(Brain):
         web_search=None,
         tool_refusal=None,
         session_marker=None,
+        network_note=None,
     ):
+        self.network_note = network_note
         self.config, self.registry, self.system_prompt = config, registry, system_prompt
         self.session_idle_minutes, self.max_session_turns = session_idle_minutes, max_session_turns
         self.providers = providers
@@ -241,6 +243,28 @@ def test_the_usage_hook_reaches_the_claude_brain(monkeypatch):
 
     assert observed.on_usage is recorder
     assert unobserved.on_usage is None
+
+
+def test_the_outage_note_reaches_the_claude_brain(monkeypatch):
+    monkeypatch.setattr("waifu.brain.claude.ClaudeBrain", FakeClaudeBrain)
+
+    def note() -> str:
+        return "Internetnya lagi putus sejak jam 21.03."
+
+    noted = build_brain(claude_config(), house(), persona_text=PERSONA, network_note=note)
+    unnoted = build_brain(claude_config(), house(), persona_text=PERSONA)
+
+    assert noted.network_note is note
+    assert unnoted.network_note is None
+
+
+def test_the_ollama_brain_is_local_and_takes_no_outage_note(ollama_clients):
+    brain = build_brain(
+        AppConfig(), house(), persona_text=PERSONA, network_note=lambda: "Internetnya putus."
+    )
+
+    assert isinstance(brain, OllamaBrain)
+    assert brain.respond("halo", now=NOW).text == "Halo!"
 
 
 def test_the_ollama_brain_ignores_the_usage_hook_because_ollama_is_free(ollama_clients):

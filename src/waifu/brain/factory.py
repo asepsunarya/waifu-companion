@@ -53,6 +53,7 @@ def build_brain(
     turn_images: TurnImages | None = None,
     confirmations: ConfirmationGate | None = None,
     guest_mode: GuestMode | None = None,
+    network_note: Callable[[], str | None] | None = None,
 ) -> Brain:
     """The configured backend; the persona comes from `assistant.persona_file` unless given.
 
@@ -67,7 +68,8 @@ def build_brain(
     Ollama has no such tool. With `guest_mode`, the brain refuses the private tools
     while it is on and starts a new session after each switch, and a session begun
     while it is on gets GUEST_SECTION in the memory section's place (also without
-    memory), its notes never read.
+    memory), its notes never read. `network_note` (the internet watcher's) names an outage in
+    Claude's apology for a turn that could not reach it; Ollama is local and never needs it.
     """
     persona = load_persona(config.assistant.persona_file) if persona_text is None else persona_text
     uses_claude = config.brain.backend == "claude"
@@ -118,6 +120,7 @@ def build_brain(
             on_usage=on_usage,
             turn_images=turn_images,
             web_search=web_search,
+            network_note=network_note,
         )
     return OllamaBrain(config.brain, registry, system_prompt, **options)
 
