@@ -156,6 +156,14 @@ def test_a_card_link_on_the_page_is_handed_to_cyrene_to_open() -> None:
     assert "fetch(...linkRequest(token, url))" in page
 
 
+def test_the_card_waits_to_hide_while_the_pointer_is_on_it() -> None:
+    page = page_text()
+
+    assert 'cardElement.addEventListener("pointerenter", () => cardTimer.hold());' in page
+    assert 'cardElement.addEventListener("pointerleave", () => cardTimer.release());' in page
+    assert "setTimeout(hideCard" not in page
+
+
 def test_the_card_panel_never_takes_the_focus() -> None:
     assert ".focus(" not in page_text()
 

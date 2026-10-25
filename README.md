@@ -887,8 +887,9 @@ maupun Ollama.
 - **Di PC:** kartu tampil di bagian bawah jendela avatar (maskot Electron maupun jendela Edge),
   di atas baris kredit. Isinya bisa digulir dengan mouse dan dipilih untuk disalin. Kartu hilang
   sendiri setelah 2 menit (`card.show_seconds`), saat × diklik, atau saat kartu berikutnya
-  datang. Kartu tidak pernah mengambil fokus dari aplikasi yang sedang kamu pakai, dan klik di
-  luar kartu tetap tembus ke desktop seperti biasa.
+  datang. Selama kursor ada di atas kartu, waktunya berhenti; setelah kursor pergi, kartu masih
+  tampil sisa waktunya, paling sedikit 10 detik. Kartu tidak pernah mengambil fokus dari
+  aplikasi yang sedang kamu pakai, dan klik di luar kartu tetap tembus ke desktop seperti biasa.
 - **Tautan:** tautan http atau https di kartu bergaris bawah; klik untuk membukanya di browser
   default. Tautan tidak pernah terbuka sendiri, dan hanya tautan yang tertulis di kartu yang
   sedang tampil yang bisa dibuka.

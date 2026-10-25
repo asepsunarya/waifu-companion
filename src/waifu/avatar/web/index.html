@@ -314,7 +314,7 @@
     -->
     <script id="avatar-script" type="module">
       import { avatarTitle, hearingBadgeShown, maxFpsFor } from "./logic.js";
-      import { buildCard, cardHideMs, linkRequest, parseCard } from "./phone/card.js";
+      import { buildCard, cardHideMs, hideTimer, linkRequest, parseCard } from "./phone/card.js";
       import {
         DIAGNOSTICS,
         reportDiagnostic,
@@ -342,13 +342,12 @@
       const creditElement = document.getElementById("credit");
       const cardElement = document.getElementById("card");
       const cardContent = document.getElementById("card-content");
-      let cardTimer = null;
+      const cardTimer = hideTimer(hideCard);
 
       class CoreMissingError extends Error {}
 
       function hideCard() {
-        clearTimeout(cardTimer);
-        cardTimer = null;
+        cardTimer.stop();
         cardElement.hidden = true;
         cardContent.replaceChildren();
       }
@@ -362,22 +361,23 @@
         }
       }
 
-      // A card replaces the one shown and hides by itself after its time (cardHideMs); `card: null` hides it.
+      // A card replaces the one shown and hides by itself after its time (cardHideMs), which waits while the pointer
+      // is on the card (hideTimer); `card: null` hides it.
       function showCard(event, config) {
         const card = parseCard(event.card);
         if (card === null) {
           hideCard();
           return;
         }
-        clearTimeout(cardTimer);
         cardContent.replaceChildren(buildCard(document, card, { onLink: (url) => openLink(config.token, url) }));
         cardContent.scrollTop = 0;
         cardElement.hidden = false;
-        const hideMs = cardHideMs(event);
-        cardTimer = hideMs === null ? null : setTimeout(hideCard, hideMs);
+        cardTimer.show(cardHideMs(event));
       }
 
       document.getElementById("card-close").addEventListener("click", hideCard);
+      cardElement.addEventListener("pointerenter", () => cardTimer.hold());
+      cardElement.addEventListener("pointerleave", () => cardTimer.release());
 
       function showMessage(text) {
         messageElement.textContent = text;

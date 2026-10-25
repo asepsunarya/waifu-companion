@@ -10,6 +10,8 @@ export const MAX_BODY_LINES = 60;
 export const MAX_LINK_CHARS = 2000;
 // Where the avatar page posts a clicked link, which Cyrene opens in the default browser.
 export const OPEN_LINK_URL = "/open-link";
+// Once the pointer leaves a card on the avatar, it shows at least this much longer, to finish reading or copying.
+export const CARD_GRACE_MS = 10_000;
 
 const ELLIPSIS = "…";
 // http:// or https:// and what may follow in a link here: no whitespace, quotes, angle brackets, or backtick, no
@@ -51,6 +53,52 @@ export function cardHideMs(event) {
   const elapsed = event.elapsed;
   const shownS = typeof elapsed === "number" && Number.isFinite(elapsed) && elapsed > 0 ? elapsed : 0;
   return Math.max(0, showS - shownS) * 1000;
+}
+
+/**
+ * The avatar card's hide timer, which calls `onHide` when the card's time is up: `show(ms)` starts a new card's time
+ * (`cardHideMs`, null to keep it until it is closed), `hold()` stops it while the pointer is on the card, `release()`
+ * gives what was left of it, at least CARD_GRACE_MS, and `stop()` forgets the card. The clock and timers are injected.
+ */
+export function hideTimer(
+  onHide,
+  {
+    now = () => Date.now(),
+    setTimer = (callback, ms) => setTimeout(callback, ms),
+    clearTimer = (id) => clearTimeout(id),
+  } = {},
+) {
+  let deadline = null;
+  let held = false;
+  let timer = null;
+  const cancel = () => {
+    if (timer !== null) clearTimer(timer);
+    timer = null;
+  };
+  const schedule = (ms) => {
+    cancel();
+    timer = setTimer(onHide, ms);
+  };
+  return {
+    show(ms) {
+      cancel();
+      deadline = ms === null ? null : now() + ms;
+      if (deadline !== null && !held) schedule(ms);
+    },
+    hold() {
+      held = true;
+      cancel();
+    },
+    release() {
+      held = false;
+      if (deadline !== null) schedule(Math.max(deadline - now(), CARD_GRACE_MS));
+    },
+    stop() {
+      cancel();
+      deadline = null;
+      held = false;
+    },
+  };
 }
 
 /** Whether `url` is a link the card may make: http or https with a plain host, parsed alike by `URL`. */

@@ -6,6 +6,7 @@ import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
 import {
+  CARD_GRACE_MS,
   MAX_BODY_CHARS,
   MAX_BODY_LINES,
   MAX_LINK_CHARS,
@@ -14,6 +15,7 @@ import {
   buildCard,
   cardHideMs,
   cardLines,
+  hideTimer,
   isOpenableLink,
   linkPieces,
   linkRequest,
@@ -162,6 +164,147 @@ describe("cardHideMs", () => {
       assert.equal(cardHideMs(event), null);
     });
   }
+});
+
+// --- hideTimer --------------------------------------------------------------------------------------------------------
+
+/** A clock and timers that move only when the test says: `advance(ms)` runs every timer that falls due. */
+function fakeTime() {
+  let time = 0;
+  let next = 1;
+  const timers = new Map();
+  return {
+    now: () => time,
+    setTimer: (callback, ms) => {
+      timers.set(next, { callback, at: time + ms });
+      return next++;
+    },
+    clearTimer: (id) => timers.delete(id),
+    advance(ms) {
+      time += ms;
+      for (const [id, { callback, at }] of [...timers]) {
+        if (at <= time && timers.delete(id)) callback();
+      }
+    },
+  };
+}
+
+function timerRig() {
+  const time = fakeTime();
+  const rig = { time, hidden: 0 };
+  rig.timer = hideTimer(() => (rig.hidden += 1), time);
+  return rig;
+}
+
+describe("hideTimer", () => {
+  it("hides a card after its time", () => {
+    const rig = timerRig();
+
+    rig.timer.show(120_000);
+    rig.time.advance(119_999);
+    assert.equal(rig.hidden, 0);
+    rig.time.advance(1);
+
+    assert.equal(rig.hidden, 1);
+  });
+
+  it("never hides a card shown until it is closed", () => {
+    const rig = timerRig();
+
+    rig.timer.show(null);
+    rig.time.advance(3_600_000);
+
+    assert.equal(rig.hidden, 0);
+  });
+
+  it("waits while the pointer is on the card, however long Master reads", () => {
+    const rig = timerRig();
+
+    rig.timer.show(120_000);
+    rig.time.advance(60_000);
+    rig.timer.hold();
+    rig.time.advance(600_000);
+
+    assert.equal(rig.hidden, 0);
+  });
+
+  it("gives the time that was left once the pointer leaves", () => {
+    const rig = timerRig();
+
+    rig.timer.show(120_000);
+    rig.time.advance(60_000);
+    rig.timer.hold();
+    rig.time.advance(30_000);
+    rig.timer.release();
+    rig.time.advance(29_999);
+    assert.equal(rig.hidden, 0);
+    rig.time.advance(1);
+
+    assert.equal(rig.hidden, 1);
+  });
+
+  it("gives at least the grace time once the pointer leaves after the card's time", () => {
+    const rig = timerRig();
+
+    rig.timer.show(120_000);
+    rig.timer.hold();
+    rig.time.advance(300_000);
+    rig.timer.release();
+    rig.time.advance(CARD_GRACE_MS - 1);
+    assert.equal(rig.hidden, 0);
+    rig.time.advance(1);
+
+    assert.equal(rig.hidden, 1);
+  });
+
+  it("starts the time of a card that arrives under the pointer once it leaves", () => {
+    const rig = timerRig();
+
+    rig.timer.hold();
+    rig.timer.show(120_000);
+    rig.time.advance(200_000);
+    assert.equal(rig.hidden, 0);
+    rig.timer.release();
+    rig.time.advance(CARD_GRACE_MS);
+
+    assert.equal(rig.hidden, 1);
+  });
+
+  it("forgets the time of a card that was replaced", () => {
+    const rig = timerRig();
+
+    rig.timer.show(10_000);
+    rig.time.advance(5_000);
+    rig.timer.show(120_000);
+    rig.time.advance(119_999);
+
+    assert.equal(rig.hidden, 0);
+  });
+
+  it("starts nothing when the pointer leaves a card already closed", () => {
+    const rig = timerRig();
+
+    rig.timer.show(120_000);
+    rig.timer.hold();
+    rig.timer.stop();
+    rig.timer.release();
+    rig.time.advance(600_000);
+
+    assert.equal(rig.hidden, 0);
+  });
+
+  it("times the next card after one closed under a pointer that never left", () => {
+    // A hidden card may get no pointerleave.
+    const rig = timerRig();
+
+    rig.timer.show(120_000);
+    rig.timer.hold();
+    rig.timer.stop();
+    rig.timer.show(1_000);
+    rig.time.advance(1_000);
+
+    assert.equal(rig.hidden, 1);
+  });
 });
 
 // --- links ------------------------------------------------------------------------------------------------------------
