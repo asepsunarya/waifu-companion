@@ -68,8 +68,9 @@ def build_brain(
     Ollama has no such tool. With `guest_mode`, the brain refuses the private tools
     while it is on and starts a new session after each switch, and a session begun
     while it is on gets GUEST_SECTION in the memory section's place (also without
-    memory), its notes never read. `network_note` (the internet watcher's) names an outage in
-    Claude's apology for a turn that could not reach it; Ollama is local and never needs it.
+    memory), its notes never read. `network_note` (the internet watcher's) names an outage, or a
+    failed last check, in Claude's apology for a turn that could not reach it; Ollama is local
+    and never needs it.
     """
     persona = load_persona(config.assistant.persona_file) if persona_text is None else persona_text
     uses_claude = config.brain.backend == "claude"

@@ -211,8 +211,9 @@ class ClaudeBrain(Brain):
         session_marker: Callable[[], object] | None = None,
         network_note: Callable[[], str | None] | None = None,
     ) -> None:
-        """`network_note` (the internet watcher's `outage_note`) names an outage it knows of
-        after the apology for a turn that could not reach Claude."""
+        """`network_note` (the internet watcher's `outage_note`) names an outage it knows of,
+        or hedges while its last check failed, after the apology for a turn that could not
+        reach Claude."""
         self._max_tool_rounds = config.max_tool_rounds
         self._registry = registry
         self._providers = tuple(providers)

@@ -139,7 +139,7 @@ class NetworkState:
         self._lock = threading.Lock()
         self._recent: deque[float] = deque(maxlen=slow_window - 1)
         self._gateways: set[str] = set()
-        self._down = False
+        self._failed: Status | None = None  # the last check's status when it failed
         self._followers: list[Callable[[bool], None]] = []
         self._hoyo_playing = False
         self._outage: CurrentOutage | None = None
@@ -166,8 +166,8 @@ class NetworkState:
                 self._gateways.add(reading.gateway)
             if reading.anchor_ms is not None:
                 self._recent.append(reading.anchor_ms)
-            changed = down != self._down
-            self._down = down
+            changed = down != (self._failed is not None)
+            self._failed = status if down else None
             followers = list(self._followers) if changed else []
         for follower in followers:
             follower(down)
@@ -182,7 +182,7 @@ class NetworkState:
 
     def down(self) -> bool:
         """Whether the last check found the internet out of reach."""
-        return self._down
+        return self._failed is not None
 
     def open_outage(self, start: datetime, kind: Status) -> None:
         self._outage = CurrentOutage(start, kind)
@@ -194,14 +194,19 @@ class NetworkState:
         return self._outage
 
     def outage_note(self) -> str | None:
-        """What Claude's connection apology adds while an outage is open."""
+        """What Claude's connection apology adds: the outage the watcher confirmed, else a hedge
+        while the last check failed (the first minutes of a drop, before two failed polls)."""
         outage = self._outage
-        if outage is None:
-            return None
-        since = f"Internetnya lagi putus sejak jam {outage.start:%H.%M}"
-        if outage.kind == "router":
-            return f"{since}: PC tidak tersambung ke router."
-        return f"{since}."
+        if outage is not None:
+            said, kind = f"Internetnya lagi putus sejak jam {outage.start:%H.%M}", outage.kind
+        else:
+            kind = self._failed
+            if kind is None:
+                return None
+            said = "Sepertinya internetnya lagi putus"
+        if kind == "router":
+            return f"{said}: PC tidak tersambung ke router."
+        return f"{said}."
 
 
 class NetworkCheck:

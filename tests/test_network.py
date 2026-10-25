@@ -202,6 +202,29 @@ def test_the_brain_s_note_names_an_open_outage_and_its_start():
     )
 
 
+def test_before_an_outage_is_confirmed_the_brain_s_note_hedges_on_the_last_failed_check():
+    # A failed Claude connect is fresh evidence too: the first minutes are when Master notices.
+    state = NetworkState(slow_window=5)
+
+    state.note(NO_INTERNET, "offline")
+    assert state.outage_note() == "Sepertinya internetnya lagi putus."
+    state.note(NO_INTERNET, "router")
+    assert state.outage_note() == (
+        "Sepertinya internetnya lagi putus: PC tidak tersambung ke router."
+    )
+    state.note(FINE, "ok")
+    assert state.outage_note() is None
+
+
+def test_a_confirmed_outage_s_note_wins_over_the_hedge():
+    state = NetworkState(slow_window=5)
+    state.note(NO_INTERNET, "router")
+
+    state.open_outage(SINCE, "offline")
+
+    assert state.outage_note() == "Internetnya lagi putus sejak jam 21.03."
+
+
 def test_the_state_is_safe_from_many_threads():
     state = NetworkState(slow_window=5)
 
