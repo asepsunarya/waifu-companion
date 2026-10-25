@@ -509,6 +509,10 @@ class Assistant:
         self._engaged_lock = threading.Lock()
         self._engaged_count = 0
         self._speaking = False
+        # Whether a filler is playing (`_say_nod`); guarded by the lock, which `interrupt` holds
+        # from its stop until it has read it, so a filler cut never passes for a reply cut.
+        self._nodding = False
+        self._nodding_lock = threading.Lock()
         # Her last words on the PC, for "ulangi": only `run`'s thread writes it (`_say_remembered`);
         # `repeat_now` reads it from the hotkeys' thread.
         self._last_said: _Said | None = None
@@ -531,15 +535,23 @@ class Assistant:
         return self._speaking
 
     def interrupt(self) -> bool:
-        """Stop what she is saying (a double-click on the avatar); True when something was playing.
+        """Stop what she is saying (a double-click on the avatar); True when something was
+        playing, so Master may talk now.
 
         Safe from any thread and never waits for her voice: it only stops the player.
         The interrupted `speak` finishes as usual (microphone resumed, segmenter reset,
         follow-up window opened after a reply) and holds queued announcements back so
         Master can talk. A reply still being thought up is not cut: a filler said meanwhile
-        (`_say_nod`) is, and the reply still comes.
+        (`_say_nod`) is, and the reply still comes, but that gives False. Nothing hears
+        Master until the reply has been said, so nothing may invite him to talk (the
+        double-click's and Ctrl+Alt+X's listening after a cut).
         """
-        return self._player.stop()
+        with self._nodding_lock:
+            cut = self._player.stop()
+            if cut and self._nodding:
+                logger.info("Cut a filler short; she listens once the reply has been said")
+                return False
+        return cut
 
     def set_mic(self, mic: Microphone | None, segmenter: Segmenter | None = None) -> None:
         """The microphone to pause, and the segmenter to reset, while she speaks."""
@@ -1366,19 +1378,23 @@ class Assistant:
         Under the voice lock, so it never overlaps anything she says, and picked there, so a
         filler skipped because the reply is ready (`turn.begin`) never uses up the no-repeat
         slot. Played like a reply with the microphone paused, but afterwards she is back to
-        thinking: no follow-up window, nothing remembered for "ulangi". Failures are logged.
+        thinking: no follow-up window, nothing remembered for "ulangi", and a cut of it is no
+        cut for `interrupt`'s callers to listen after. Failures are logged.
         """
         with self._engaged(), self._voice:
             nod = turn.begin(nods.pick)
             if nod is None:
                 return
             logger.info("Saying a filler while the reply is thought up")
+            self._nodding = True
             try:
                 with self._mic_off():
                     self._play(nod.audio, nod.sample_rate, NEUTRAL)
             except Exception:
                 logger.exception("Could not say a filler")
             finally:
+                with self._nodding_lock:
+                    self._nodding = False
                 self._show(lambda avatar: avatar.state("thinking"))
 
     def _guest_generation(self) -> object:

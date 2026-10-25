@@ -18,6 +18,7 @@ import pytest
 
 from waifu.alarm import AlarmBell
 from waifu.app import GAME_HELD, Assistant, PhoneAnswers, Speech
+from waifu.avatar.interactions import InteractionHandler
 from waifu.avatar.lipsync import viseme_track
 from waifu.brain.attachments import CameraTurn, TurnImages
 from waifu.brain.base import Brain, BrainReply, ToolCallRecord, ToolImage
@@ -28,6 +29,7 @@ from waifu.config import (
     AppConfig,
     AssistantConfig,
     AvatarConfig,
+    AvatarInteractionsConfig,
     BrainConfig,
     ClaudeConfig,
     GachaConfig,
@@ -5173,6 +5175,57 @@ def test_cutting_the_filler_short_still_lets_the_reply_come_and_holds_announceme
     assert reply == REPLY
     assert rig.player.played == [NOD_RATE, 24000]
     assert rig.speech.texts == [REPLY]  # Master cut her off to talk: the announcement waits
+
+
+def test_a_cut_filler_tells_no_one_to_listen_and_she_goes_on_thinking(caplog):
+    # Nothing hears Master while the reply is thought up: a follow-up window opened after the
+    # cut (the double-click's and Ctrl+Alt+X's listen_now) would lose what he says.
+    rig = slow_rig(with_avatar=True)
+    cuts: list[bool] = []
+    while_thinking: list[tuple[bool, str]] = []
+    rig.player.on_play = lambda: cuts.append(rig.assistant.interrupt()) if not cuts else None
+
+    def think_past_the_filler() -> None:
+        rig.timers.fire()
+        while_thinking.append((rig.gate.check("matikan TV").accepted, rig.events[-1]))
+
+    rig.brain.while_thinking = think_past_the_filler
+
+    with caplog.at_level(logging.INFO, logger="waifu.app"):
+        reply = rig.assistant.handle_utterance(rig.utterance())
+
+    assert cuts == [False]
+    assert "cut off" in caplog.text  # the filler itself did stop
+    assert while_thinking == [(False, "avatar.state thinking")]
+    assert reply == REPLY
+    assert rig.player.played == [NOD_RATE, 24000]
+
+
+def test_a_double_click_on_her_filler_cuts_it_without_opening_the_follow_up_window():
+    rig = slow_rig(with_avatar=True)
+    reactions = InteractionHandler(
+        AvatarInteractionsConfig(),
+        speak=rig.assistant.speak_reaction,
+        listen=rig.assistant.listen_now,
+        is_busy=lambda: rig.assistant.busy,
+        interrupt=rig.assistant.interrupt,
+    )
+    rig.player.on_play = lambda: reactions.handle("double_click") if not rig.player.played else None
+    while_thinking: list[tuple[bool, str]] = []
+
+    def think_past_the_filler() -> None:
+        rig.timers.fire()
+        reactions.drain()  # the worker's turn, while she still thinks
+        while_thinking.append((rig.gate.check("matikan TV").accepted, rig.events[-1]))
+
+    rig.brain.while_thinking = think_past_the_filler
+
+    reply = rig.assistant.handle_utterance(rig.utterance())
+
+    assert while_thinking == [(False, "avatar.state thinking")]
+    assert reply == REPLY
+    assert rig.speech.texts == [REPLY]  # no "listen" line either
+    assert rig.events.count("avatar.state listening 8") == 1  # after the reply only
 
 
 def test_a_filler_that_cannot_be_played_is_logged_and_the_reply_still_comes(caplog):

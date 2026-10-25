@@ -835,8 +835,10 @@ berturut-turut. Jawaban yang siap dalam 1,2 detik datang tanpa kalimat itu, sepe
 - Avatar bergerak seperti bicara, lalu kembali berpose berpikir sampai jawabannya datang. Kalimat
   itu tidak membuka jendela 8 detik dan tidak diulang oleh "ulangi" (yang diulang jawabannya).
   Volume suaranya dan mode bisik juga berlaku untuknya.
-- Klik dua kali atau Ctrl+Alt+X di tengah kalimat itu hanya memotong kalimat itu; jawabannya
-  tetap datang, dan avatar bisa tampak mendengarkan sampai jawabannya datang.
+- Klik dua kali atau Ctrl+Alt+X di tengah kalimat itu hanya memotong kalimat itu: dia tetap
+  berpikir (avatar tetap berpose berpikir) dan jawabannya tetap datang. Selama itu dia belum
+  mendengar, jadi tunggu jawabannya dulu; setelah jawabannya, jendela 8 detik terbuka seperti
+  biasa.
 
 Sudah menyala tanpa ditulis. Untuk mengubahnya, tulis di `config.yaml` (berlaku setelah
 `waifu run` dijalankan ulang):
@@ -6432,7 +6434,7 @@ penuh. Hanya di Windows dan selama `waifu run` jalan; sudah menyala tanpa pengat
 | Tombol | Yang terjadi |
 |---|---|
 | **Ctrl+Alt+C** | Langsung mendengarkan tanpa dipanggil namanya, seperti klik dua kali avatar: dia bilang "はい, Master?" lalu menunggu 8 detik. Kalau dia sedang bicara, ucapannya dipotong dan dia langsung mendengarkan. Verifikasi suara tetap berlaku. |
-| **Ctrl+Alt+X** | Memotong ucapannya saat itu juga, juga di tengah jawaban panjang, lalu dia mendengarkan seperti sesudah klik dua kali. Kalau dia sedang diam, tidak terjadi apa-apa. |
+| **Ctrl+Alt+X** | Memotong ucapannya saat itu juga, juga di tengah jawaban panjang, lalu dia mendengarkan seperti sesudah klik dua kali. Kalimat pendek selagi dia berpikir ([Respons instan](#respons-instan)) hanya dipotong: dia mendengarkan setelah jawabannya. Kalau dia sedang diam, tidak terjadi apa-apa. |
 | **Ctrl+Alt+R** | Mengulang ucapan terakhirnya, seperti "ulangi" (lihat [Ulangi](#ulangi)). Diabaikan selagi dia mendengarkanmu, berpikir, atau bicara. |
 | **Ctrl+Alt+Q** | Berhenti mendengarkan (lihat di bawah); tekan lagi untuk mendengarkan lagi. |
 
