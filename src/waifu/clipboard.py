@@ -3,14 +3,16 @@
 `read_clipboard` reads the clipboard's `CF_UNICODETEXT` once, when the clipboard tool asks, and
 nothing more: no watching, no other format, never writing it. A copy a password manager marked
 (it registers "ExcludeClipboardContentFromMonitorProcessing" or "Clipboard Viewer Ignore" beside
-a secret it copies, so clipboard history and monitors leave it out) is never read at all. Another
-program may hold the clipboard open for a moment (an Office program, a clipboard manager, a
-remote desktop), so opening it is tried a few times. The memory behind the text belongs to
+a secret it copies, so clipboard history and monitors leave it out) is never read at all: the
+marks are looked for before opening the clipboard and again once it is open. Another program may
+hold the clipboard open for a moment (an Office program, a clipboard manager, a remote desktop),
+so opening it is tried a few times. The memory behind the text belongs to
 Windows: it is locked and unlocked, never freed, and read only up to the cap, so a huge copy
 costs nothing. The text is never logged, only its length.
 
-`looks_private` tells a copy that looks like a secret (a password, a token, an OTP or PIN, a card
-or account number, a private key), which the tool refuses whole.
+`looks_private` tells a copy that looks like a secret (a password, a token, an OTP or PIN, a
+message carrying its one-time code, a card or account number, a private key), which the tool
+refuses whole.
 
 user32 and kernel32 come through ctypes with Microsoft's documented signatures (winuser.h,
 winbase.h): `GetClipboardData` gives a HANDLE and `GlobalLock` a pointer, so a 64-bit value is
