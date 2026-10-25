@@ -19,7 +19,9 @@ sounddevice first, and so is winmm's list of the microphones plugged in, which t
 reads. Nor global hotkeys: registering a Ctrl+Alt combo would take it from the owner's other
 programs while the suite runs, and waiting on a real message queue would hang the test. Nor
 tinytuya: `waifu setup tuya` runs its wizard, which asks for the owner's Tuya cloud keys, reaches
-the cloud, and scans the LAN.
+the cloud, and scans the LAN. Nor Windows' pings, routes, and DNS queries: the internet watcher's
+probes would ping the owner's router and the internet, read his routes, and ask his DNS server, so
+a test would pass or fail by whether his internet is up.
 """
 
 import ctypes
@@ -49,6 +51,15 @@ except ImportError:  # not Windows
 os.environ["WAIFU_DISABLE_POWER"] = "1"
 
 _POWER_PROGRAMS = {"shutdown", "rundll32"}
+# The echo functions of iphlpapi and of the older icmp library that forwards to it.
+_ICMP_FUNCTIONS = {
+    "icmpcreatefile": "send real pings",
+    "icmp6createfile": "send real pings",
+    "icmpsendecho": "send real pings",
+    "icmpsendecho2": "send real pings",
+    "icmpsendecho2ex": "send real pings",
+    "icmp6sendecho2": "send real pings",
+}
 # Functions refused per library, each with what a test was trying to do.
 _REFUSED_FUNCTIONS = {
     "user32": {
@@ -68,6 +79,24 @@ _REFUSED_FUNCTIONS = {
     "winmm": {
         "waveingetnumdevs": "list the owner's real microphones",
         "waveingetdevcapsw": "list the owner's real microphones",
+    },
+    # Only what reaches the network or reads its routes: closing an echo handle stays allowed.
+    "iphlpapi": {
+        **_ICMP_FUNCTIONS,
+        "getbestroute": "read the real network routes",
+        "getbestroute2": "read the real network routes",
+        "getipforwardtable": "read the real network routes",
+        "getipforwardtable2": "read the real network routes",
+        "sendarp": "reach the real network",
+        "getnetworkparams": "read the real network settings",
+    },
+    "icmp": _ICMP_FUNCTIONS,  # the old library that forwards to iphlpapi
+    # Only the queries: freeing an answer stays allowed.
+    "dnsapi": {
+        "dnsquery_w": "ask a real DNS server",
+        "dnsquery_a": "ask a real DNS server",
+        "dnsquery_utf8": "ask a real DNS server",
+        "dnsqueryex": "ask a real DNS server",
     },
 }
 # sounddevice's functions that reach the owner's microphone, speakers, or the PortAudio every
@@ -282,8 +311,15 @@ def _is_loopback(host: str | None) -> bool:
         return False
 
 
+# The hosts beyond this PC the running test tried to reach, while it asks for
+# `nothing_beyond_this_pc`; None otherwise.
+_reached_beyond_this_pc: list[str] | None = None
+
+
 def _refuse_beyond_this_pc(host: str | None) -> None:
     if not _is_loopback(host):
+        if _reached_beyond_this_pc is not None:
+            _reached_beyond_this_pc.append(str(host))
         raise AssertionError(f"a test tried to reach the internet ({host})")
 
 
@@ -377,6 +413,21 @@ def _refuse_the_internet(monkeypatch):
     monkeypatch.setattr(socket, "getaddrinfo", _guarded_getaddrinfo)
     monkeypatch.setattr(socket.socket, "connect", _guarded_socket_connect)
     monkeypatch.setattr(socket.socket, "connect_ex", _guarded_socket_connect_ex)
+
+
+@pytest.fixture
+def nothing_beyond_this_pc():
+    """Fails the test afterwards if it tried to look up or connect beyond this PC, even when the
+    code under test caught the refusal: the network probes count any failure as no answer, so a
+    forgotten fake would pass quietly. Yields the hosts it tried."""
+    global _reached_beyond_this_pc
+    _reached_beyond_this_pc = []
+    reached = _reached_beyond_this_pc
+    try:
+        yield reached
+    finally:
+        _reached_beyond_this_pc = None
+    assert not reached, f"a test tried to reach beyond this PC: {reached}"
 
 
 @pytest.fixture(autouse=True)

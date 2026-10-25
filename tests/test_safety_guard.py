@@ -334,6 +334,73 @@ def test_other_kernel32_functions_still_work():
     assert process_alive(os.getpid())  # OpenProcess on this process, as `waifu check` does
 
 
+@pytest.mark.parametrize(
+    ("library", "function"),
+    [
+        ("iphlpapi", "IcmpCreateFile"),
+        ("iphlpapi", "Icmp6CreateFile"),
+        ("iphlpapi", "IcmpSendEcho"),
+        ("iphlpapi", "IcmpSendEcho2"),
+        ("iphlpapi", "IcmpSendEcho2Ex"),
+        ("iphlpapi", "Icmp6SendEcho2"),
+        ("iphlpapi", "GetBestRoute"),
+        ("iphlpapi", "GetBestRoute2"),
+        ("iphlpapi", "GetIpForwardTable"),
+        ("iphlpapi", "GetIpForwardTable2"),
+        ("iphlpapi", "SendARP"),
+        ("iphlpapi", "GetNetworkParams"),
+        ("icmp", "IcmpCreateFile"),
+        ("icmp", "IcmpSendEcho"),
+        ("dnsapi", "DnsQuery_W"),
+        ("dnsapi", "DnsQuery_A"),
+        ("dnsapi", "DnsQuery_UTF8"),
+        ("dnsapi", "DnsQueryEx"),
+    ],
+)
+def test_pinging_routing_and_dns_queries_through_windows_are_refused(
+    library, function, refused_system_calls
+):
+    if not hasattr(ctypes, "WinDLL"):
+        pytest.skip(f"{library} only exists on Windows")
+    # Refused as soon as the function is looked up: the internet watcher's tests would otherwise
+    # ping the owner's router and the internet, read his routes, or ask his DNS server, and pass
+    # or fail by whether his internet is up.
+    with pytest.raises(AssertionError, match=function):
+        getattr(ctypes.WinDLL(library, use_last_error=True), function)
+    with pytest.raises(AssertionError, match=function):
+        getattr(getattr(ctypes.windll, library), function)
+    assert refused_system_calls == [f"{library}.{function}"] * 2
+    refused_system_calls.clear()  # these were on purpose
+
+
+def test_closing_an_echo_handle_and_freeing_a_dns_answer_still_load():
+    if not hasattr(ctypes, "WinDLL"):
+        pytest.skip("iphlpapi and dnsapi only exist on Windows")
+    # Neither reaches the network: the probes release what the refused calls would have given.
+    assert ctypes.WinDLL("iphlpapi", use_last_error=True).IcmpCloseHandle is not None
+    assert ctypes.WinDLL("dnsapi", use_last_error=True).DnsRecordListFree is not None
+
+
+def test_a_test_asking_for_it_fails_on_a_lookup_beyond_this_pc_its_code_swallowed(
+    nothing_beyond_this_pc,
+):
+    # The network probes count any failure as no answer, so a forgotten fake would pass quietly.
+    with contextlib.suppress(AssertionError):
+        socket.getaddrinfo("sg-public-api.hoyolab.com", 443)
+    with contextlib.suppress(AssertionError):
+        socket.create_connection(("203.0.113.7", 443), timeout=1)
+
+    assert nothing_beyond_this_pc == ["sg-public-api.hoyolab.com", "203.0.113.7"]
+    nothing_beyond_this_pc.clear()  # these were on purpose
+
+
+def test_a_test_asking_for_it_may_still_reach_loopback(nothing_beyond_this_pc):
+    with pytest.raises(OSError):
+        socket.create_connection(("127.0.0.1", 9), timeout=0.5)
+
+    assert nothing_beyond_this_pc == []
+
+
 @pytest.mark.parametrize("function", ["waveInGetNumDevs", "waveInGetDevCapsW"])
 def test_listing_the_owner_s_real_microphones_through_winmm_is_refused(
     function, refused_system_calls
