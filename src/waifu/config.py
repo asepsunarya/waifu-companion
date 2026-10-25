@@ -1091,6 +1091,13 @@ class NodConfig(_Strict):
     after_ms: int = Field(default=1200, ge=600, le=5000)
 
 
+class CardConfig(_Strict):
+    """Her text cards (`waifu.card`): how long one stays beside her on the avatar; 0 keeps it
+    until it is closed or the next one replaces it."""
+
+    show_seconds: int = Field(default=120, ge=0, le=3600)
+
+
 class JournalConfig(_Strict):
     """Master's daily journal, and her optional question about the day once a night."""
 
@@ -1451,6 +1458,7 @@ class AppConfig(_Strict):
     guest_mode: GuestModeConfig = Field(default_factory=GuestModeConfig)
     voice: VoiceVolumeConfig = Field(default_factory=VoiceVolumeConfig)
     nod: NodConfig = Field(default_factory=NodConfig)
+    card: CardConfig = Field(default_factory=CardConfig)
     journal: JournalConfig = Field(default_factory=JournalConfig)
     japanese: JapaneseConfig = Field(default_factory=JapaneseConfig)
     breaks: BreaksConfig = Field(default_factory=BreaksConfig)

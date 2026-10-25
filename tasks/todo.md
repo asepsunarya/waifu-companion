@@ -3180,13 +3180,13 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 332 · **Files:** `src/waifu/brain/persona.py`, `src/waifu/brain/confirm.py`, `src/waifu/briefing.py`, `src/waifu/gacha/weekly.py`, `src/waifu/journal.py`, tests · **Scope:** S
 
-## Task 334: The voice loop
+## Task 334: The voice loop ✅
 
 **Acceptance criteria:**
-- [ ] `split_reply` gives the gist and the card; a card-only reply says `CARD_ONLY`; only the gist is synthesised, repeated, voiced for the phone, and passed on (with the card as plain text for a request's push)
-- [ ] A voice turn and a request show the card on the avatar before speaking (`card.show_seconds`), never its text in the log; a phone turn puts it in `PhoneReply.card` and shows nothing on the PC; turns without a card show the avatar the same events as before
-- [ ] "Tampilkan lagi kartunya" re-shows the last card without the brain, or says there is none (also after a guest switch) or that the avatar is not showing; a turn that switches guest mode shows no card and hides the one shown
-- [ ] `card.show_seconds` (120, 0-3600), the example block written out holds the default
+- [x] `split_reply` gives the gist and the card; a card-only reply says `CARD_ONLY`; only the gist is synthesised, repeated, voiced for the phone, and passed on (with the card as plain text for a request's push)
+- [x] A voice turn and a request show the card on the avatar before speaking (`card.show_seconds`), never its text in the log; a phone turn puts it in `PhoneReply.card` and shows nothing on the PC; turns without a card show the avatar the same events as before
+- [x] "Tampilkan lagi kartunya" re-shows the last card without the brain, or says there is none (also after a guest switch) or that the avatar is not showing; a turn that switches guest mode shows no card and hides the one shown
+- [x] `card.show_seconds` (120, 0-3600), the example block written out holds the default
 
 **Dependencies:** 332 · **Files:** `src/waifu/app.py`, `src/waifu/config.py`, `config.example.yaml`, `src/waifu/phone/server.py`, `tests/test_app.py`, `tests/test_config.py` · **Scope:** M
 

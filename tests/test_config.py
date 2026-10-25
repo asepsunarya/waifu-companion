@@ -8,6 +8,7 @@ from waifu.config import (
     AppConfig,
     AppRemindersConfig,
     BreaksConfig,
+    CardConfig,
     ConfigError,
     FallbackTtsConfig,
     FocusConfig,
@@ -2141,3 +2142,30 @@ def test_the_voice_override_file_can_live_elsewhere(tmp_path):
     text = "audio:\n  override_path: data/suara_hp.json\n"
 
     assert load_config(write_yaml(tmp_path, text)).audio.override_path == Path("data/suara_hp.json")
+
+
+def test_a_text_card_shows_for_two_minutes_by_default():
+    assert AppConfig().card.show_seconds == 120
+
+
+@pytest.mark.parametrize("seconds", [0, 3600])
+def test_a_card_may_show_until_closed_or_up_to_an_hour(tmp_path, seconds):
+    text = f"card:\n  show_seconds: {seconds}\n"
+
+    assert load_config(write_yaml(tmp_path, text)).card.show_seconds == seconds
+
+
+@pytest.mark.parametrize(
+    "lines", ["  show_seconds: -1\n", "  show_seconds: 3601\n", "  width: 3\n"]
+)
+def test_bad_card_settings_are_refused_naming_the_setting(tmp_path, lines):
+    with pytest.raises(ConfigError, match=r"card\."):
+        load_config(write_yaml(tmp_path, "card:\n" + lines))
+
+
+def test_the_example_card_block_written_out_holds_the_defaults(tmp_path):
+    example = (ROOT / "config.example.yaml").read_text(encoding="utf-8")
+    commented = example[example.index("\n# card:\n") + 1 :].split("\n\n", 1)[0]
+    written_out = "\n".join(line.removeprefix("# ") for line in commented.splitlines())
+
+    assert load_config(write_yaml(tmp_path, written_out)).card == CardConfig()

@@ -77,6 +77,7 @@ from waifu.avatar.server import (
     send_file,
     web_file,
 )
+from waifu.card import Card
 from waifu.config import AvatarConfig, PhoneConfig
 from waifu.phone.actions import (
     ACTION_BUSY_TEXT,
@@ -239,7 +240,8 @@ class PhoneError(Exception):
 
 @dataclass(frozen=True)
 class PhoneReply:
-    """Her answer for the phone: what she says, with her voice and its mouth track."""
+    """Her answer for the phone: what she says, with her voice and its mouth track, and the
+    text card she shows with it, if any."""
 
     text: str  # without the emotion tag
     emotion: str  # one of avatar.emotion.EMOTIONS
@@ -247,6 +249,7 @@ class PhoneReply:
     fps: int  # frames per second of `visemes`
     visemes: Sequence[Sequence[float]]  # per frame (aa, ih, ou, ee, oh), each 0..1
     duration: float  # seconds of audio
+    card: Card | None = None  # shown with `text`, never voiced
 
 
 class PhoneBackend(Protocol):

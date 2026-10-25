@@ -590,6 +590,14 @@ schedule:
 #   enabled: true          # false: dia diam sampai jawabannya siap, seperti sebelum v1.52
 #   after_ms: 1200         # setelah N milidetik berpikir tanpa jawaban (600-5000)
 
+# Kartu teks (README, bagian "Kartu teks"): isi yang panjang (daftar, jadwal, tautan, langkah,
+# terjemahan) tidak dibacakan semuanya. Dia mengucapkan intinya saja dan menampilkan sisanya
+# sebagai kartu di samping avatar, di gelembung chat HP, dan di `waifu chat`. Kartu di avatar
+# hilang sendiri setelah show_seconds, saat diklik ×, atau saat kartu berikutnya datang.
+# Sudah menyala tanpa ditulis; untuk mengubahnya, tulis bagian ini tanpa tanda # di depannya.
+# card:
+#   show_seconds: 120      # berapa detik kartu tampil di avatar (0-3600; 0 = sampai ditutup)
+
 # Jurnal harian (README, bagian "Jurnal harian"): "Cyrene, catat di jurnal: hari ini laporannya
 # selesai" menyimpan catatan hari itu dengan kata-kata Master sendiri, dan "kemarin aku nulis apa
 # di jurnal?" dia rangkum singkat. Hanya kalau Master minta: tidak pernah di sapaan pagi, laporan

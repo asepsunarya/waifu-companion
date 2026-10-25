@@ -51,6 +51,13 @@ how long Whisper, the brain, and her voice took, for the phone's Suara page. Whe
 utterance asks what she heard ("tadi kamu denger apa?": `waifu.heard`), she tells the last one
 and why she did or did not act on it, like "ulangi" without the brain.
 
+A reply may end in a text card (`waifu.card`): only its gist before the card is said, repeated,
+voiced for the phone, or passed on as spoken, and the card is shown on the avatar right before
+she says it (a phone turn's card goes back to the phone instead). Master's whole "tampilkan lagi
+kartunya" shows the last one again without the brain, like "ulangi". A turn that switches guest
+mode shows no card and hides the one shown, and the last card is forgotten once guest mode has
+switched.
+
 With `network` (the internet watcher, `waifu.network_ask`), Master's whole question about the
 internet or the HoYo servers ("internetnya kenapa?", "server HoYo down?") is answered from a check
 made then, like "ulangi" without the brain, so also while Claude is out of reach; her offline
@@ -91,6 +98,7 @@ from waifu.brain.attachments import CameraTurn, TurnImages
 from waifu.brain.base import Brain, BrainReply, ToolCallRecord, ToolImage
 from waifu.brain.confirm import AFFIRMATIVE_WORDS, RECORD_ORDER_WORDS, is_yes
 from waifu.brain.tools import logged_arguments
+from waifu.card import Card, card_message, is_card_request, split_card
 from waifu.config import AppConfig
 from waifu.gate import WakeGate
 from waifu.heard import heard_answer, is_heard_request
@@ -140,6 +148,13 @@ ACKNOWLEDGEMENT_EMOTION = "happy"
 TAG_ONLY_DONE = "Sudah, {owner}."
 TAG_ONLY_FAILED = "Maaf {owner}, ada perintah yang gagal dijalankan."
 TAG_ONLY_NO_ANSWER = "Maaf {owner}, aku belum bisa menjawab itu."
+# A reply that was only a text card still gets spoken words.
+CARD_ONLY = "Kutampilkan di layar ya, {owner}."
+# Her answers to "tampilkan lagi kartunya" (`Assistant._show_card_again`): the last card shown
+# again, none to show (or guest mode has switched since), or no avatar to show it on.
+CARD_AGAIN = "Ini kartunya lagi, {owner}."
+NO_CARD = "Belum ada kartu yang bisa kutampilkan lagi, {owner}."
+NO_CARD_WINDOW = "Maaf {owner}, avatarku sedang tidak tampil, jadi kartunya tidak bisa kutunjukkan."
 # Her voice on the phone: a mono 16-bit PCM WAV at this rate.
 PHONE_SAMPLE_RATE = 24000
 # What the phone page's camera sends: one JPEG per message.
@@ -173,12 +188,17 @@ READING_AFFIRMATIVE_WORDS = AFFIRMATIVE_WORDS | {"bener"}
 READING_ORDER_WORDS = RECORD_ORDER_WORDS | {"banget", "sekali"}
 
 
-def split_reply(reply: BrainReply, *, owner_call: str = "Master") -> tuple[str, BrainReply]:
-    """The reply's emotion and the reply without its tags, never left without words."""
-    emotion, text = split_emotion(reply.text)
+def split_reply(
+    reply: BrainReply, *, owner_call: str = "Master"
+) -> tuple[str, BrainReply, Card | None]:
+    """The reply's emotion, the reply with only what she says (its gist before a text card,
+    without its tags, never left without words), and its card, if any."""
+    speech, card = split_card(reply.text)
+    emotion, text = split_emotion(speech)
     if not text:
-        text = _tag_only_fallback(reply.tool_calls).format(owner=owner_call)
-    return emotion, dataclasses.replace(reply, text=text)
+        fallback = CARD_ONLY if card is not None else _tag_only_fallback(reply.tool_calls)
+        text = fallback.format(owner=owner_call)
+    return emotion, dataclasses.replace(reply, text=text), card
 
 
 def _tag_only_fallback(tool_calls: list[ToolCallRecord]) -> str:
@@ -306,6 +326,11 @@ class Avatar(Protocol):
         """Whether she hears Master: not while the listen pause holds."""
         ...
 
+    def card(self, card: Card | None, show_s: float = 0) -> None:
+        """Show `card` beside her for `show_s` s (0: until closed), replacing the one shown;
+        None hides it."""
+        ...
+
 
 # Gets what she said aloud in answer to `ask_aloud` (e.g. to push it to the phone), on a
 # thread of its own.
@@ -338,6 +363,14 @@ class _Announcement:
     expires_at: datetime | None
     game_expires_at: datetime | None  # counted only when a game held it
     held_by_game: bool = False  # a game held it (`Assistant._note_game_hold`)
+
+
+@dataclasses.dataclass(frozen=True)
+class _ShownCard:
+    """The card she showed last on the PC, for Master's "tampilkan lagi kartunya"."""
+
+    card: Card
+    marker: object  # `guest_marker` before the turn that thought it up (None without one)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -490,6 +523,7 @@ class Assistant:
         self._lexicon = lexicon
         self._nods = nods
         self._nod_after_s = config.nod.after_ms / 1000
+        self._card_show_s = config.card.show_seconds
         self._network = network
         self._timer = timer
         # The reading she last asked Master about, until his next turn takes it (`_ask_reading`).
@@ -535,6 +569,10 @@ class Assistant:
         # Her last words on the PC, for "ulangi": only `run`'s thread writes it (`_say_remembered`);
         # `repeat_now` reads it from the hotkeys' thread.
         self._last_said: _Said | None = None
+        # The card shown last on the PC, and whether one may still be on the avatar (shown and
+        # not hidden since; it also hides by itself, which the Assistant does not hear).
+        self._last_card: _ShownCard | None = None
+        self._card_on_screen = False
 
     @property
     def busy(self) -> bool:
@@ -648,6 +686,8 @@ class Assistant:
         elif is_heard_request(result.command, self._names):
             hearing.heard_request = True
             reply_text, hearing.tts_s = self._tell_heard()
+        elif is_card_request(result.command, self._names):
+            reply_text, hearing.tts_s = self._show_card_again()
         elif self._network is not None and (topic := network_question(result.command, self._names)):
             reply_text, hearing.tts_s = self._tell_network(self._network, topic)
         elif self._lexicon is not None and (
@@ -662,14 +702,17 @@ class Assistant:
             self._show(lambda avatar: avatar.state("thinking"))
             marker = self._guest_generation()
             started = self._clock()
-            emotion, reply, nodded = self._think_with_nod(result.command)
+            emotion, reply, card, nodded = self._think_with_nod(result.command)
             hearing.brain_s = self._clock() - started
             reply_text = reply.text
+            if card is not None:
+                self._show_card(card, marker)
             hearing.tts_s = self._say_reply(reply_text, emotion, marker, nodded=nodded)
         return reply_text
 
     def handle_text(self, text: str) -> BrainReply:
-        """Ask the brain directly: no wake word, no voice (text chat); the reply has no tag."""
+        """Ask the brain directly: no wake word, no voice (text chat); the reply has no tag and
+        no card."""
         return self._think(text)[1]
 
     def reply_for_phone(
@@ -687,11 +730,12 @@ class Assistant:
         follow-up window, and avatar stay as they are, but `ask_aloud` requests wait until
         `session_idle_minutes` after the message (`_speak_up`). Her voice comes back as a
         16-bit WAV at PHONE_SAMPLE_RATE with the avatar's mouth track; when it cannot be made
-        (the logs say why), the reply is only its text. Safe from any thread.
+        (the logs say why), the reply is only its text. Its text card, if any, goes back with
+        it, never shown on the PC; only the gist before it is voiced. Safe from any thread.
         """
         logger.info("Phone message: %s", text)
         self._phone_chat_until = self._clock() + self._session_idle_s
-        emotion, reply = self._think(text, photo=image, camera=camera or image is not None)
+        emotion, reply, card = self._think(text, photo=image, camera=camera or image is not None)
         try:
             audio, sample_rate = self._speech.synthesize(reply.text)
         except Exception as exc:
@@ -699,7 +743,7 @@ class Assistant:
                 logger.warning("Could not synthesise the phone reply: %s", exc)
             else:
                 logger.exception("Could not synthesise the phone reply")
-            return PhoneReply(reply.text, emotion, None, SPEAK_FPS, [], 0.0)
+            return PhoneReply(reply.text, emotion, None, SPEAK_FPS, [], 0.0, card)
         voice = resample(audio, sample_rate, PHONE_SAMPLE_RATE)
         return PhoneReply(
             reply.text,
@@ -708,6 +752,7 @@ class Assistant:
             SPEAK_FPS,
             viseme_track(voice, PHONE_SAMPLE_RATE, SPEAK_FPS),
             len(voice) / PHONE_SAMPLE_RATE,
+            card,
         )
 
     def transcribe_for_phone(self, wav_bytes: bytes) -> str:
@@ -1164,7 +1209,7 @@ class Assistant:
             with self._engaged():
                 self._show(lambda avatar: avatar.state("thinking"))
                 marker = self._guest_generation()
-                emotion, reply = self._think(request.prompt, new_session=request.new_session)
+                emotion, reply, card = self._think(request.prompt, new_session=request.new_session)
                 tool = request.required_tool
                 if tool is not None and not _called_successfully(reply, tool):
                     logger.warning(
@@ -1174,15 +1219,21 @@ class Assistant:
                     )
                     self._show(lambda avatar: avatar.state("idle"))
                     return
+                if card is not None:
+                    self._show_card(card, marker)
                 self._say_remembered(reply.text, emotion, marker)
         except Exception:
             logger.exception("Failed to answer a request aloud; still listening")
             return
         if request.on_reply is not None:
             # A push to the phone may take its whole timeout: never on this thread, which must
-            # be back at the microphone while the follow-up window is open.
+            # be back at the microphone while the follow-up window is open. Its card goes with
+            # it as plain text, since only the gist was said.
             threading.Thread(
-                target=_pass_on, args=(request.on_reply, reply.text), name="pass-on", daemon=True
+                target=_pass_on,
+                args=(request.on_reply, card_message(reply.text, card)),
+                name="pass-on",
+                daemon=True,
             ).start()
 
     def _next_request_due(self) -> _Request | None:
@@ -1257,6 +1308,49 @@ class Assistant:
             return text, self._speak(text)
         logger.info("Repeating what she said last")
         return said.text, self._speak(said.text, said.emotion)
+
+    def _show_card(self, card: Card, marker: object) -> None:
+        """Show `card` on the avatar for `card.show_seconds`, kept as the last card with the guest
+        `marker` read before the turn that thought it up; its text is never logged."""
+        logger.info(
+            "Showing a card (%d lines, %d characters)", card.body.count("\n") + 1, len(card.body)
+        )
+        self._last_card = _ShownCard(card, marker)
+        if self._avatar is not None:
+            self._card_on_screen = True
+            self._show(lambda avatar: avatar.card(card, self._card_show_s))
+
+    def _drop_card(self) -> None:
+        """Forget the last card and hide one that may still be on the avatar: a turn switched
+        guest mode."""
+        self._last_card = None
+        if self._card_on_screen:
+            logger.info("Hiding the card shown: guest mode switched")
+            self._card_on_screen = False
+            self._show(lambda avatar: avatar.card(None))
+
+    def _show_card_again(self) -> tuple[str, float | None]:
+        """Show the last card again on the avatar and say so like a reply, without the brain;
+        returns what she said and how long its synthesis took.
+
+        No turn is taken, and it is never remembered for "ulangi". With no card kept, also once
+        guest mode has switched since it was shown, she says NO_CARD; without an avatar,
+        NO_CARD_WINDOW.
+        """
+        shown = self._last_card
+        if shown is not None and shown.marker != self._guest_generation():
+            shown = None
+        if self._avatar is None:
+            logger.info("Not showing the card again: no avatar")
+            text = NO_CARD_WINDOW
+        elif shown is None:
+            logger.info("No card to show again")
+            text = NO_CARD
+        else:
+            self._show_card(shown.card, shown.marker)
+            text = CARD_AGAIN
+        text = text.format(owner=self._owner_call)
+        return text, self._speak(text)
 
     def _tell_heard(self) -> tuple[str, float | None]:
         """Say what she heard last and what she did with it (`heard_answer`) like a reply,
@@ -1388,22 +1482,22 @@ class Assistant:
         text = TEACH_REFUSED.format(owner=self._owner_call, problem=problem)
         return text, self._speak(text)
 
-    def _think_with_nod(self, command: str) -> tuple[str, BrainReply, bool]:
+    def _think_with_nod(self, command: str) -> tuple[str, BrainReply, Card | None, bool]:
         """`_think` for Master's own words, with a filler (`_say_nod`) when the reply is not
         ready after `nod.after_ms`; also whether one began. Only his voice turns come here: the
         phone, the text chat, and her own requests use `_think` without one."""
         if self._nods is None:
-            emotion, reply = self._think(command)
-            return emotion, reply, False
+            emotion, reply, card = self._think(command)
+            return emotion, reply, card, False
         nods, turn = self._nods, _NodTurn()
         timer = self._timer(self._nod_after_s, lambda: self._say_nod(nods, turn))
         timer.start()
         try:
-            emotion, reply = self._think(command)
+            emotion, reply, card = self._think(command)
         finally:
             timer.cancel()
             nodded = turn.close()
-        return emotion, reply, nodded
+        return emotion, reply, card, nodded
 
     def _say_nod(self, nods: NodBank, turn: _NodTurn) -> None:
         """Say a filler while the brain still thinks up Master's reply; on the timer's thread.
@@ -1440,21 +1534,28 @@ class Assistant:
         photo: bytes | None = None,
         camera: bool = False,
         new_session: bool = False,
-    ) -> tuple[str, BrainReply]:
-        """The brain's reply to `text`, split into its emotion and the reply without the tag.
+    ) -> tuple[str, BrainReply, Card | None]:
+        """The brain's reply to `text`, split into its emotion, what she says (`split_reply`),
+        and its text card.
 
         Waits while another thread's turn is thought up: the history takes one turn at a time.
         `photo` (a JPEG from the phone camera) goes with this turn only (`_showing`), and with
         `camera` only this turn is a camera turn (`_through_camera`). With `new_session` the
         brain forgets the conversation first, under the same lock. Any brain turn drops the
-        reading she asked about: a later yes may answer the brain instead.
+        reading she asked about: a later yes may answer the brain instead. A turn that switched
+        guest mode has no card, and the card shown before it is dropped (`_drop_card`): guest
+        mode refuses per tool call, so the turn may have fetched something private first.
         """
         self._reading_asked = None
         with self._turn, self._through_camera(camera), self._showing(photo):
             if new_session:
                 logger.info("Starting a new conversation for a request she answers by herself")
                 self._brain.reset()
+            marker = self._guest_generation()
             reply = self._brain.respond(text, now=self._now())
+            switched = self._guest_generation() != marker
+            if switched:
+                self._drop_card()
         for call in reply.tool_calls:
             # The result itself only at DEBUG: the INFO log (logs\waifu.log under autostart)
             # must not collect the owner's pull history, nor a finance or journal call's arguments.
@@ -1462,7 +1563,8 @@ class Assistant:
             arguments = logged_arguments(call.name, call.arguments)
             logger.info("Tool %s(%s) -> %s", call.name, arguments, outcome)
             logger.debug("Tool %s result: %s", call.name, call.result)
-        return split_reply(reply, owner_call=self._owner_call)
+        emotion, said, card = split_reply(reply, owner_call=self._owner_call)
+        return emotion, said, None if switched else card
 
     @contextlib.contextmanager
     def _showing(self, photo: bytes | None) -> Iterator[None]:

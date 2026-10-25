@@ -1993,7 +1993,7 @@ def _chat(args: argparse.Namespace) -> int:
                         continue
                     if line.lower() in EXIT_WORDS:
                         break
-                    emotion, reply = split_reply(
+                    emotion, reply, _ = split_reply(
                         brain.respond(line), owner_call=config.assistant.owner_call
                     )
                     if args.verbose:

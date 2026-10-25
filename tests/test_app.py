@@ -25,12 +25,14 @@ from waifu.brain.base import Brain, BrainReply, ToolCallRecord, ToolImage
 from waifu.brain.claude import ClaudeBrain
 from waifu.brain.confirm import ConfirmationGate
 from waifu.brain.screen_tools import ScreenTools
+from waifu.card import Card
 from waifu.config import (
     AppConfig,
     AssistantConfig,
     AvatarConfig,
     AvatarInteractionsConfig,
     BrainConfig,
+    CardConfig,
     ClaudeConfig,
     GachaConfig,
     PcHealthConfig,
@@ -219,6 +221,7 @@ class FakeAvatar:
         self.error = error
         self.spoken: list[tuple[int, int, str]] = []
         self.peaks: list[float] = []  # the loudest sample of each clip it mouths
+        self.cards: list[tuple[Card | None, float]] = []  # each card shown, or None hidden
 
     def state(self, name: str, followup_s: float | None = None) -> None:
         followup = "" if followup_s is None else f" {followup_s:g}"
@@ -237,6 +240,14 @@ class FakeAvatar:
         self.events.append(f"avatar.hearing {'on' if on else 'off'}")
         if self.error is not None:
             raise self.error
+
+    def card(self, card: Card | None, show_s: float = 0) -> None:
+        self.events.append(
+            "avatar.card hide" if card is None else f"avatar.card {card.title} {show_s:g}"
+        )
+        if self.error is not None:
+            raise self.error
+        self.cards.append((card, show_s))
 
 
 class FakeTimer:
@@ -5455,3 +5466,307 @@ def test_a_phone_message_and_the_text_chat_have_no_filler():
     assert len(rig.brain.turns) == 2
     assert rig.timers.made == []
     assert rig.player.played == []
+
+
+# --- Kartu teks (v1.55): the gist is spoken, the card is shown -----------------------------------
+
+CARD_GIST = "Ini ramalan seminggu, kutampilkan di layar ya. Intinya hujan Rabu dan Kamis."
+FORECAST = "- Senin cerah\n- Selasa berawan\n- Rabu hujan"
+FORECAST_CARD = Card("Cuaca 7 hari", FORECAST)
+CARD_REPLY = f"[senang] {CARD_GIST}\n[[kartu: Cuaca 7 hari]]\n{FORECAST}"
+CARD_ONLY = "Kutampilkan di layar ya, Master."
+CARD_AGAIN = "Ini kartunya lagi, Master."
+NO_CARD = "Belum ada kartu yang bisa kutampilkan lagi, Master."
+NO_CARD_WINDOW = "Maaf Master, avatarku sedang tidak tampil, jadi kartunya tidak bisa kutunjukkan."
+
+
+def card_events(rig: Rig) -> list[str]:
+    return [event for event in rig.events if event.startswith("avatar.card")]
+
+
+class GuestSwitchingBrain(FakeBrain):
+    """Moves guest mode's generation in a turn whose words ask for guest mode, as the tool does."""
+
+    def __init__(self, reply: str, marker: GuestMarker) -> None:
+        super().__init__(reply)
+        self.marker = marker
+
+    def respond(self, user_text: str, *, now: datetime | None = None) -> BrainReply:
+        if "mode tamu" in user_text:
+            self.marker.generation += 1
+        return super().respond(user_text, now=now)
+
+
+def test_only_the_gist_of_a_reply_with_a_card_is_spoken_and_the_card_is_shown_before_it():
+    rig = Rig("Cyrene, cuaca seminggu gimana?", reply=CARD_REPLY, with_avatar=True)
+
+    said = rig.assistant.handle_utterance(rig.utterance())
+
+    assert said == CARD_GIST
+    assert rig.speech.texts == [CARD_GIST]
+    assert rig.avatar.cards == [(FORECAST_CARD, 120)]
+    assert rig.events.index("avatar.card Cuaca 7 hari 120") < rig.events.index("synthesize")
+    assert "avatar.speak happy" in rig.events
+
+
+def test_the_card_stays_as_long_as_card_show_seconds_says():
+    config = AppConfig(card=CardConfig(show_seconds=0))
+    rig = Rig("Cyrene, cuaca seminggu?", reply=CARD_REPLY, config=config, with_avatar=True)
+
+    rig.assistant.handle_utterance(rig.utterance())
+
+    assert rig.avatar.cards == [(FORECAST_CARD, 0)]
+
+
+def test_a_reply_without_a_card_shows_the_avatar_no_card():
+    rig = Rig("Cyrene, nyalakan lampu kamar", with_avatar=True)
+
+    rig.assistant.handle_utterance(rig.utterance())
+
+    assert card_events(rig) == []
+
+
+def test_a_reply_that_is_only_a_card_says_it_shows_it():
+    rig = Rig("Cyrene, daftar banner?", reply=f"[senang] [[kartu: Banner]]\n{FORECAST}")
+
+    assert rig.assistant.handle_utterance(rig.utterance()) == CARD_ONLY
+    assert rig.speech.texts == [CARD_ONLY]
+
+
+def test_a_marker_without_a_body_is_dropped_and_never_spoken():
+    rig = Rig("Cyrene, cuaca?", reply="[santai] Besok cerah, Master. [[kartu: Cuaca]]")
+
+    assert rig.assistant.handle_utterance(rig.utterance()) == "Besok cerah, Master."
+    assert rig.speech.texts == ["Besok cerah, Master."]
+
+
+def test_the_card_s_text_never_reaches_the_info_log(caplog):
+    rig = Rig("Cyrene, cuaca seminggu?", reply=CARD_REPLY, with_avatar=True)
+
+    with caplog.at_level(logging.INFO, logger="waifu.app"):
+        rig.assistant.handle_utterance(rig.utterance())
+
+    assert f"Showing a card (3 lines, {len(FORECAST)} characters)" in caplog.text
+    assert "Cuaca 7 hari" not in caplog.text
+    assert "Selasa" not in caplog.text
+
+
+def test_a_broken_avatar_never_stops_the_gist_from_being_said():
+    rig = Rig("Cyrene, cuaca seminggu?", reply=CARD_REPLY, avatar_error=RuntimeError("closed"))
+
+    assert rig.assistant.handle_utterance(rig.utterance()) == CARD_GIST
+    assert rig.player.played == [24000]
+
+
+def test_ulangi_after_a_card_repeats_only_the_gist():
+    rig = Rig("Cyrene, cuaca seminggu?", "Cyrene, ulangi", reply=CARD_REPLY, with_avatar=True)
+    rig.assistant.handle_utterance(rig.utterance())
+
+    assert rig.assistant.handle_utterance(rig.utterance()) == CARD_GIST
+    assert rig.speech.texts == [CARD_GIST, CARD_GIST]
+    assert len(rig.avatar.cards) == 1
+
+
+def test_the_text_chat_gets_only_the_gist():
+    rig = Rig(reply=CARD_REPLY)
+
+    assert rig.assistant.handle_text("cuaca seminggu?").text == CARD_GIST
+
+
+def test_her_answer_to_a_request_shows_its_card_and_passes_on_the_gist_with_the_card():
+    rig = Rig(reply=CARD_REPLY, with_avatar=True)
+    replies = PassedOn()
+    rig.assistant.ask_aloud(GREETING_PROMPT, on_reply=replies)
+
+    listen_once(rig)
+
+    assert rig.speech.texts == [CARD_GIST]
+    assert rig.avatar.cards == [(FORECAST_CARD, 120)]
+    assert rig.events.index("avatar.card Cuaca 7 hari 120") < rig.events.index("synthesize")
+    assert replies.wait() == [f"{CARD_GIST}\n\nCuaca 7 hari\n{FORECAST}"]
+
+
+def test_an_answer_to_a_request_that_is_not_said_shows_no_card():
+    rig = Rig(reply=CARD_REPLY, with_avatar=True)
+    rig.assistant.ask_aloud(GREETING_PROMPT, required_tool="daily_briefing")
+
+    listen_once(rig)
+
+    assert rig.speech.texts == []
+    assert card_events(rig) == []
+
+
+def test_a_phone_reply_carries_the_card_and_voices_only_the_gist_with_nothing_on_the_pc():
+    rig = Rig(reply=CARD_REPLY, with_avatar=True)
+
+    reply = rig.assistant.reply_for_phone("cuaca seminggu?")
+
+    assert (reply.text, reply.card) == (CARD_GIST, FORECAST_CARD)
+    assert rig.speech.texts == [CARD_GIST]
+    assert rig.events == ["synthesize"]
+
+
+def test_a_phone_reply_without_a_card_or_a_voice_carries_none():
+    rig = Rig(speech_error=TtsError("offline"))
+
+    reply = rig.assistant.reply_for_phone(PHONE_TEXT)
+
+    assert (reply.text, reply.audio_wav, reply.card) == (REPLY, None, None)
+
+
+def test_a_phone_reply_she_cannot_voice_still_carries_its_card():
+    rig = Rig(reply=CARD_REPLY, speech_error=TtsError("offline"))
+
+    reply = rig.assistant.reply_for_phone("cuaca seminggu?")
+
+    assert (reply.text, reply.audio_wav, reply.card) == (CARD_GIST, None, FORECAST_CARD)
+
+
+@pytest.mark.parametrize(
+    "phrase", ["tampilkan lagi kartunya", "Cyrene, kartu tadi?", "mana kartunya", "kartunya tadi"]
+)
+def test_the_re_show_phrase_shows_the_last_card_again_without_the_brain(phrase):
+    rig = Rig("Cyrene, cuaca seminggu?", phrase, reply=CARD_REPLY, with_avatar=True)
+    rig.assistant.handle_utterance(rig.utterance())
+    rig.clock.now += 2
+
+    said = rig.assistant.handle_utterance(rig.utterance())
+
+    assert said == CARD_AGAIN
+    assert asked(rig) == ["cuaca seminggu?"]
+    assert rig.avatar.cards == [(FORECAST_CARD, 120), (FORECAST_CARD, 120)]
+    assert rig.speech.texts == [CARD_GIST, CARD_AGAIN]
+
+
+def test_the_re_show_phrase_without_a_card_says_there_is_none():
+    rig = Rig("Cyrene, nyalakan lampu kamar", "Cyrene, tampilkan lagi kartunya", with_avatar=True)
+    rig.assistant.handle_utterance(rig.utterance())
+
+    assert rig.assistant.handle_utterance(rig.utterance()) == NO_CARD
+    assert asked(rig) == ["nyalakan lampu kamar"]
+    assert card_events(rig) == []
+
+
+def test_the_re_show_phrase_without_an_avatar_says_it_cannot_show_it():
+    rig = Rig("Cyrene, cuaca seminggu?", "Cyrene, kartu tadi", reply=CARD_REPLY)
+    rig.assistant.handle_utterance(rig.utterance())
+
+    assert rig.assistant.handle_utterance(rig.utterance()) == NO_CARD_WINDOW
+    assert asked(rig) == ["cuaca seminggu?"]
+
+
+def test_a_phone_turn_s_card_is_never_shown_again_on_the_pc():
+    rig = Rig("Cyrene, kartu tadi", reply=CARD_REPLY, with_avatar=True)
+    rig.assistant.reply_for_phone("cuaca seminggu?")
+
+    assert rig.assistant.handle_utterance(rig.utterance()) == NO_CARD
+    assert card_events(rig) == []
+
+
+def test_once_guest_mode_has_switched_the_last_card_is_not_shown_again():
+    marker = GuestMarker()
+    rig = Rig(
+        "Cyrene, cuaca seminggu?",
+        "Cyrene, kartu tadi",
+        reply=CARD_REPLY,
+        with_avatar=True,
+        guest_marker=marker,
+    )
+    rig.assistant.handle_utterance(rig.utterance())
+    marker.generation += 1  # ended by itself: nothing said on the PC
+
+    assert rig.assistant.handle_utterance(rig.utterance()) == NO_CARD
+    assert len(rig.avatar.cards) == 1
+
+
+def test_the_re_show_line_is_never_what_ulangi_repeats():
+    rig = Rig(
+        "Cyrene, cuaca seminggu?",
+        "Cyrene, kartu tadi",
+        "Cyrene, ulangi",
+        reply=CARD_REPLY,
+        with_avatar=True,
+    )
+    rig.assistant.handle_utterance(rig.utterance())
+    rig.assistant.handle_utterance(rig.utterance())
+
+    assert rig.assistant.handle_utterance(rig.utterance()) == CARD_GIST
+
+
+def test_the_re_show_phrase_in_the_follow_up_window_takes_no_turn():
+    rig = Rig("Cyrene, cuaca seminggu?", "kartu tadi", reply=CARD_REPLY, with_avatar=True)
+    rig.assistant.handle_utterance(rig.utterance())
+    rig.clock.now += 2  # inside the follow-up window
+
+    assert rig.assistant.handle_utterance(rig.utterance()) == CARD_AGAIN
+    assert asked(rig) == ["cuaca seminggu?"]
+
+
+def test_a_turn_that_switches_guest_mode_hides_the_card_shown_and_shows_none():
+    marker = GuestMarker()
+    rig = Rig(
+        "Cyrene, cuaca seminggu?",
+        "Cyrene, nyalakan mode tamu",
+        "Cyrene, kartu tadi",
+        reply=CARD_REPLY,
+        brain=lambda reply: GuestSwitchingBrain(reply, marker),
+        with_avatar=True,
+        guest_marker=marker,
+    )
+    rig.assistant.handle_utterance(rig.utterance())
+
+    switched = rig.assistant.handle_utterance(rig.utterance())
+    again = rig.assistant.handle_utterance(rig.utterance())
+
+    assert switched == CARD_GIST  # the gist is still said
+    assert rig.avatar.cards == [(FORECAST_CARD, 120), (None, 0)]
+    assert again == NO_CARD
+
+
+def test_a_phone_turn_that_switches_guest_mode_hides_the_card_on_the_pc():
+    marker = GuestMarker()
+    rig = Rig(
+        "Cyrene, cuaca seminggu?",
+        reply=CARD_REPLY,
+        brain=lambda reply: GuestSwitchingBrain(reply, marker),
+        with_avatar=True,
+        guest_marker=marker,
+    )
+    rig.assistant.handle_utterance(rig.utterance())
+
+    reply = rig.assistant.reply_for_phone("nyalakan mode tamu")
+
+    assert (reply.text, reply.card) == (CARD_GIST, None)
+    assert rig.avatar.cards == [(FORECAST_CARD, 120), (None, 0)]
+
+
+def test_a_guest_switch_without_a_card_shown_hides_nothing():
+    marker = GuestMarker()
+    rig = Rig(
+        "Cyrene, nyalakan mode tamu",
+        brain=lambda reply: GuestSwitchingBrain(reply, marker),
+        with_avatar=True,
+        guest_marker=marker,
+    )
+
+    rig.assistant.handle_utterance(rig.utterance())
+
+    assert card_events(rig) == []
+
+
+def test_a_card_hidden_by_a_guest_switch_is_hidden_once():
+    marker = GuestMarker()
+    rig = Rig(
+        "Cyrene, cuaca seminggu?",
+        "Cyrene, nyalakan mode tamu",
+        "Cyrene, matikan mode tamu",
+        reply=CARD_REPLY,
+        brain=lambda reply: GuestSwitchingBrain(reply, marker),
+        with_avatar=True,
+        guest_marker=marker,
+    )
+
+    for _ in range(3):
+        rig.assistant.handle_utterance(rig.utterance())
+
+    assert rig.avatar.cards == [(FORECAST_CARD, 120), (None, 0)]
