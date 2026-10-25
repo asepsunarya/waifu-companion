@@ -1238,6 +1238,30 @@ parameters, and 0 of 16 unions stay. No dependency.
 - [x] Fix pass (2026-10-25): the HoYo connects resolve IPv4 only (a broken IPv6 path made the HoYo hosts look down); a check made while another probes the same target waits for that probe within its budget (a question during the watcher's HoYo poll found the HoYo hosts silent); a check when asked is slow by its own round trip and tells it (four quick polls outvoted a 450 ms reading, so "kok lemot?" got "lancar, sekitar 22 milidetik"), the watcher's poll keeps the median; she says "ping internetnya normal" and that the speed or the app may be slow, never a flat "lancar"; router, offline, DNS, and slow end with one piece of advice, also as `waifu internet`'s "Saran:" line; "WiFi-nya", "Internet-nya", and a trailing "lagi" are heard; Claude's apology hedges "Sepertinya internetnya lagi putus." before an outage is confirmed; the back line says "2 jam 5 menit". By hand, a mktemp folder deleted afterwards: the real NetworkProbe with fake route, echo, connect, and lookup, NetworkState, NetworkCheck, and NetworkAnswers: four polls at 20-23 ms, then "kok lemot?" at 450 ms said "Master, internetnya lagi lambat, ping-nya sekitar 450 milidetik. Mungkin ada yang sedang download, atau jaringannya lagi padat."; at 24 ms "Master, ping internetnya normal, sekitar 24 milidetik. Kalau masih terasa lemot, mungkin kecepatannya yang turun, atau dari aplikasinya."; "server HoYo down?" asked 50 ms into the watcher's HoYo poll with 300 ms connects told the hosts answering at 48 ms, both checks read (48, 48, 48) from 3 connects in all; with the anchors silent and no outage the note was "Sepertinya internetnya lagi putus.", once confirmed "Internetnya lagi putus sejak jam 21.03."; "WiFi-nya mati ya?", "Internetnya putus lagi?", and "kok lemot lagi" were internet questions and "mati lagi?" none; the back line for 125 minutes said "sekitar 2 jam 5 menit". 11790 pytest passed, ruff check and format clean, no JS touched; `network_status` still has no `required` and a static description, so 18 of 20 strict tools, 17 of 24 optional parameters, and 0 of 16 unions stay
 - [ ] On the owner's PC (the lead): `waifu internet` with the real probes; unplugging the network for 4 minutes gives the back line; "internetnya kenapa?" is answered while it is down
 
+### Phase 59: Kartu teks (v1.55, see SPEC → kartu teks)
+Decision: the card travels in the reply text: a static system-prompt note asks for the spoken gist
+first, then a line "[[kartu: judul]]" and the body; a pure, tolerant parser (`card.py`) splits the
+reply after `respond`, so only the gist reaches TTS, "ulangi", and the phone's voice note, the
+history keeps the whole reply, and no tool, `BrainReply` field, or dependency is added (18 of 20
+strict tools, 17 of 24 optional parameters, and 0 of 16 unions stay). The avatar shows the card in
+a bottom panel of her window through a new bus event (replayed after a reload), rendered with text
+nodes only; links open on a click through a loopback route that checks them against the card
+shown. The phone bubble and `waifu chat` show it too; "tampilkan lagi kartunya" re-shows it
+without the brain; a turn that switches guest mode shows none and hides the one shown.
+- [x] Task 332a: contract: SPEC, tasks
+- [ ] Task 332: the parser (`card.py`)
+- [ ] Task 333: the system-prompt note, the web note, the self-started prompts, and the gate's question before the card
+- [ ] Task 334: the voice loop: only the gist is spoken, the card shown, re-shown, and dropped on a guest switch (`card.show_seconds`)
+- [ ] Task 335: the bus's card event and `POST /open-link`
+- [ ] Task 336: the avatar page's card panel (`phone/card.js`, `index.html`)
+- [ ] Task 337: the phone's card in her bubble
+- [ ] Task 338: `waifu chat`, the speech cut, and the CLI wiring
+- [ ] Task 339: README, CHANGELOG
+
+### Checkpoint: Kartu teks
+- [ ] Python suite, ruff, and JS tests clean; no test opened a browser, spoke, or read `data/`; the strict-tool budget unchanged
+- [ ] On the owner's PC (the lead): a long answer shows a card beside the mascot without taking focus, a link opens in the default browser on a click, the card hides after 2 minutes, "tampilkan lagi kartunya" shows it again; the phone shows the card in her bubble
+
 ## Risks and Mitigations
 
 | Risk | Impact | Mitigation |
@@ -1266,6 +1290,7 @@ parameters, and 0 of 16 unions stay. No dependency.
 | A filler overlaps her reply, comes after it, or sounds like another voice | Two voices at once, a filler after the answer, or a robotic "Hmm" before an anime-voiced reply | One voice lock for both, a per-turn begin/close handshake so no filler starts once the reply is ready, the filler picked inside the lock, and a filler made in a stand-in voice (Windows fallback, plain voice) left out of the bank |
 | A game reminder said at the wrong moment or lost | A reminder at login or after waking the PC for a game already open, twice for one start, or never | Starts come from the watcher's own tracking across one poll, never at a run's first poll or across a sleep gap or clock step; told once after the poll worked, kept through a failed write; a once reminder whose removal fails is still said; a separate file, so the schedule of older versions is never set aside |
 | The internet watcher cries wolf or hangs | A "nyambung lagi" after every sleep, a router blamed for dropped pings, a voice thread stuck on a lookup, or threads piling up | Two failed polls with both anchors silent by echo and TCP; a grace of two polls after a break (sleep, clock step, startup); the gateway blamed only once it answered; every probe on a daemon thread within a 3 s budget, at most one per target; tests refuse the real ICMP, route, and DNS calls |
+| A text card leaks into her voice, runs as HTML, or opens links by itself | The card body or the marker read aloud, model output running script on the avatar page (which holds the interaction token), or a page opened without a click | Only the text before the marker reaches TTS, also cut again in `clean_for_speech`; the gate's question placed before the card; the card built from text nodes only, with a test against `innerHTML`; links checked as http(s) and opened only on a click through a route that checks the token, the origin, and the card shown |
 
 ## Open Questions
 

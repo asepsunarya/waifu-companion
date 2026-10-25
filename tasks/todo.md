@@ -3155,3 +3155,76 @@ named `tests/test_<package>_<module>.py`.
 - [x] README "Pemantau internet" (and in the table of contents), the command row, the guest-mode list, and the Privasi bullet; CHANGELOG v1.54; full suite, ruff, and JS tests clean
 
 **Dependencies:** 330 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
+
+## Task 332a: Kartu teks contract ✅
+
+**Acceptance criteria:**
+- [x] SPEC "kartu teks (v1.55)" (the problem, stories, non-goals, the reply shape, the parser, the voice loop, the avatar event and link route, the shared card module, the panel, the phone, chat, the speech cut, the gate's question, the self-started prompts, config, guest mode, docs, decisions, known limits, privacy, safety) and the card event in the protocol list; phase 59 and a risk row in the plan; tasks 332a-339 here
+
+**Dependencies:** none · **Files:** `SPEC.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
+
+## Task 332: The parser
+
+**Acceptance criteria:**
+- [ ] `split_card` splits at the first marker in any of its shapes (case, spaces, one or two brackets, full width, no title, unclosed, mid-line); text without one comes back unchanged; the body keeps its lines and indentation, loses emotion tags, blank runs, and a second marker's syntax; an empty body is no card; the caps cut with "…"
+- [ ] `before_card` puts an addition before the marker, as before without one; `card_message` joins the gist and the card within 3800 UTF-8 bytes; `Card.allows_link` only for a URL in the body; `is_card_request` takes the whole re-show phrases and nothing with another word
+
+**Dependencies:** 332a · **Files:** `src/waifu/card.py`, `tests/test_card.py` · **Scope:** S
+
+## Task 333: The prompt note and the gate's question
+
+**Acceptance criteria:**
+- [ ] The system prompt holds the card note between the devices and the time note (never "web"), naming the marker as the one other bracket and allowing bullets, URLs, romaji, and kana in the card; the web note forbids URLs only in the spoken part
+- [ ] The briefing and journal prompts say "Jawab tanpa kartu.", the weekly report allows a card for its details, and none of them opens a tool gate
+- [ ] `with_question` places the question before a card, as before without one
+
+**Dependencies:** 332 · **Files:** `src/waifu/brain/persona.py`, `src/waifu/brain/confirm.py`, `src/waifu/briefing.py`, `src/waifu/gacha/weekly.py`, `src/waifu/journal.py`, tests · **Scope:** S
+
+## Task 334: The voice loop
+
+**Acceptance criteria:**
+- [ ] `split_reply` gives the gist and the card; a card-only reply says `CARD_ONLY`; only the gist is synthesised, repeated, voiced for the phone, and passed on (with the card as plain text for a request's push)
+- [ ] A voice turn and a request show the card on the avatar before speaking (`card.show_seconds`), never its text in the log; a phone turn puts it in `PhoneReply.card` and shows nothing on the PC; turns without a card show the avatar the same events as before
+- [ ] "Tampilkan lagi kartunya" re-shows the last card without the brain, or says there is none (also after a guest switch) or that the avatar is not showing; a turn that switches guest mode shows no card and hides the one shown
+- [ ] `card.show_seconds` (120, 0-3600), the example block written out holds the default
+
+**Dependencies:** 332 · **Files:** `src/waifu/app.py`, `src/waifu/config.py`, `config.example.yaml`, `src/waifu/phone/server.py`, `tests/test_app.py`, `tests/test_config.py` · **Scope:** M
+
+## Task 335: The bus's card event and the link route
+
+**Acceptance criteria:**
+- [ ] `AvatarBus.card` publishes the card or its hide; a new subscriber gets the card shown with `elapsed` while it still shows; `shown_card` gives it until hidden
+- [ ] `POST /open-link` opens a URL on the card shown through the injected opener, refusing a foreign origin, a wrong token, a malformed body, too many requests, a URL not on the card or not a plain http(s) link, and saying when Windows cannot open it; the URL is never logged
+
+**Dependencies:** 332 · **Files:** `src/waifu/avatar/bus.py`, `src/waifu/avatar/server.py`, `src/waifu/notify.py`, `src/waifu/music.py`, tests · **Scope:** M
+
+## Task 336: The avatar page's card panel
+
+**Acceptance criteria:**
+- [ ] `phone/card.js` parses and caps a card, tells when it hides, splits lines into bullets and text, links only http(s) URLs, and builds the card with text nodes; a link click hands the URL on
+- [ ] `index.html` shows the card in a bottom panel that scrolls, closes, hides by itself, and is replaced by the next; a link click posts `/open-link` with the token; no `innerHTML` anywhere in the pages; the module graph reaches `card.js`
+
+**Dependencies:** 335 · **Files:** `src/waifu/avatar/web/phone/card.js`, `src/waifu/avatar/web/index.html`, `tests/js/card.test.mjs`, `tests/test_avatar_web.py` · **Scope:** M
+
+## Task 337: The phone's card
+
+**Acceptance criteria:**
+- [ ] `/chat` and `/talk` carry the card; `parseChatReply` keeps a valid one; her bubble shows the gist and the card with tappable links; the shell caches `card.js`
+
+**Dependencies:** 334, 336 · **Files:** `src/waifu/phone/server.py`, `src/waifu/avatar/web/phone/audio.js`, `phone.js`, `phone.css`, `sw.js`, tests · **Scope:** S
+
+## Task 338: `waifu chat`, the speech cut, and the wiring
+
+**Acceptance criteria:**
+- [ ] `waifu chat` prints the gist then the card indented, speaks only the gist, and re-shows the last card on the phrase (none after a guest switch)
+- [ ] `clean_for_speech` drops a card marker and everything after it
+- [ ] The avatar server opens links with `open_in_browser`
+
+**Dependencies:** 334, 335 · **Files:** `src/waifu/cli.py`, `src/waifu/voice/tts.py`, tests · **Scope:** S
+
+## Task 339: Docs
+
+**Acceptance criteria:**
+- [ ] README "Kartu teks" (and in the table of contents); CHANGELOG v1.55; full suite, ruff, and JS tests clean
+
+**Dependencies:** 338 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
