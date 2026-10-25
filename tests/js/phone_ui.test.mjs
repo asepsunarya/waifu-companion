@@ -176,6 +176,20 @@ let timeline = [];
 // The element the page last gave the focus to.
 let focused = null;
 
+class FakeText {
+  constructor(text) {
+    this.textContent = String(text);
+    this.parentElement = null;
+  }
+
+  remove() {
+    if (this.parentElement === null) return;
+    const siblings = this.parentElement.children;
+    siblings.splice(siblings.indexOf(this), 1);
+    this.parentElement = null;
+  }
+}
+
 class FakeElement {
   constructor(tagName, id = "") {
     this.tagName = tagName.toUpperCase();
@@ -488,8 +502,8 @@ let loads = 0;
 const saved = {};
 const savedObjectUrls = { create: URL.createObjectURL, revoke: URL.revokeObjectURL };
 
-function chatAnswer(text) {
-  return { text, emotion: "happy", audio: "UklGRg==", fps: 0, visemes: [], duration: 2 };
+function chatAnswer(text, card = null) {
+  return { text, emotion: "happy", audio: "UklGRg==", fps: 0, visemes: [], duration: 2, card };
 }
 
 /**
@@ -501,6 +515,7 @@ function chatAnswer(text) {
 async function openPage({
   config = LIVE2D_CONFIG,
   replyText = SHORT_REPLY,
+  replyCard = null,
   chatStatus = 200,
   talkStatus = 200,
   actions = null,
@@ -534,6 +549,7 @@ async function openPage({
       head,
       getElementById: (id) => elements.get(id) ?? null,
       createElement: (tagName) => (tagName === "canvas" ? new FakeCanvas() : new FakeElement(tagName)),
+      createTextNode: (text) => new FakeText(text),
     }),
     window: new FakeElement("window"),
     navigator: { mediaDevices: devices },
@@ -546,8 +562,8 @@ async function openPage({
     fetch: async (route, init) => {
       requests.push({ route, init });
       if (route === "/config.json") return jsonResponse(config);
-      if (route === "/chat") return jsonResponse(chatAnswer(replyText), chatStatus);
-      if (route === "/talk") return jsonResponse({ heard: HEARD, ...chatAnswer(replyText) }, talkStatus);
+      if (route === "/chat") return jsonResponse(chatAnswer(replyText, replyCard), chatStatus);
+      if (route === "/talk") return jsonResponse({ heard: HEARD, ...chatAnswer(replyText, replyCard) }, talkStatus);
       if (route === "/actions" && actions !== null) return jsonResponse(actions);
       if (route === "/action") return jsonResponse(actionReply, actionStatus);
       if (route === "/voice" && voice !== null) return jsonResponse(voice, voiceStatus);
@@ -621,6 +637,71 @@ describe("phone page without a model on the PC", () => {
 
     const texts = page.element("bubbles").children.map((item) => item.textContent);
     assert.deepEqual(texts, ["halo", SHORT_REPLY]);
+  });
+});
+
+describe("phone text card", () => {
+  const FORECAST = { title: "Cuaca 7 hari", body: "- Senin cerah\n- Rabu hujan\nSumber: https://bmkg.go.id/cuaca" };
+  const GIST = "Ini ramalan seminggu, kutampilkan di layar ya.";
+  const cardOf = (bubble) => bubble.children.find((child) => child.className === "card") ?? null;
+  const theirBubbles = (page) => page.element("bubbles").children.filter((item) => item.className === "bubble from-cyrene");
+  const flatten = (node) => [node, ...(node.children ?? []).flatMap(flatten)];
+
+  it("shows her card under the gist in her bubble", async () => {
+    const page = await openPage({ replyText: GIST, replyCard: FORECAST });
+
+    await send(page, "cuaca seminggu?");
+
+    const [bubble] = theirBubbles(page);
+    assert.equal(bubble.textContent, GIST);
+    const card = cardOf(bubble);
+    assert.ok(card, "her bubble holds the card");
+    assert.equal(bubble.children.at(-1), card, "after her words");
+    const [title, list, source] = card.children;
+    assert.equal(title.textContent, "Cuaca 7 hari");
+    assert.deepEqual(
+      list.children.map((item) => item.children.map((piece) => piece.textContent).join("")),
+      ["Senin cerah", "Rabu hujan"],
+    );
+    const link = source.children.find((piece) => piece.tagName === "A");
+    assert.equal(link.href, "https://bmkg.go.id/cuaca");
+    assert.equal(link.target, "_blank");
+    assert.equal(link.rel, "noopener noreferrer");
+  });
+
+  it("shows the card of an answer to a recording too", async () => {
+    const page = await openPage({ replyText: GIST, replyCard: FORECAST });
+
+    await talk(page);
+
+    assert.ok(cardOf(theirBubbles(page).at(-1)));
+  });
+
+  it("keeps her card when the chat strip is drawn again for the next message", async () => {
+    const page = await openPage({ replyText: GIST, replyCard: FORECAST });
+    await send(page, "cuaca seminggu?");
+
+    await send(page, "makasih");
+
+    assert.equal(theirBubbles(page).filter(cardOf).length, 2);
+  });
+
+  it("shows no card for a reply without one", async () => {
+    const page = await openPage();
+
+    await send(page, "halo");
+
+    assert.equal(cardOf(theirBubbles(page)[0]), null);
+  });
+
+  it("shows markup in a card as text", async () => {
+    const hostile = { title: "<b>x</b>", body: '- <img src=x onerror="alert(1)">' };
+    const page = await openPage({ replyText: GIST, replyCard: hostile });
+
+    await send(page, "halo");
+
+    const created = flatten(cardOf(theirBubbles(page)[0])).map((node) => node.tagName).filter(Boolean);
+    assert.deepEqual(created, ["DIV", "H2", "UL", "LI"]);
   });
 });
 

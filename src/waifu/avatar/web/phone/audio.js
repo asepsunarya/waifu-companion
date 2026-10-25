@@ -1,6 +1,7 @@
 // Pure helpers of Cyrene's phone page: the owner's voice as the 16 kHz mono 16-bit WAV that POST /talk takes, her
 // reply's base64 WAV back to bytes, and the server's answers (/config.json, /chat, /talk, /pair, /action) read into
 // what the page shows. No DOM or Web Audio here, so `node --test` covers them; `fetch` is passed in.
+import { parseCard } from "./card.js";
 
 export const TALK_RATE = 16000;
 // The server's limits (SPEC, Cyrene on the phone): 2000 characters of text, 60 s of audio. At 16 kHz mono 16-bit,
@@ -186,9 +187,10 @@ function visemeFrame(frame) {
 }
 
 /**
- * A /chat answer `{text, emotion, audio, fps, visemes, duration}` made safe for the page and the renderer: an unknown
- * emotion is neutral, audio is a base64 string or null, the mouth track is dropped without a positive fps and its
- * frames are repaired, an unknown duration is 0. Null when there is no text to show.
+ * A /chat answer `{text, emotion, audio, fps, visemes, duration, card}` made safe for the page and the renderer: an
+ * unknown emotion is neutral, audio is a base64 string or null, the mouth track is dropped without a positive fps and
+ * its frames are repaired, an unknown duration is 0, and her text card is a checked `{title, body}` or null
+ * (card.js). Null when there is no text to show.
  */
 export function parseChatReply(data) {
   if (!isPlainObject(data) || typeof data.text !== "string") return null;
@@ -200,6 +202,7 @@ export function parseChatReply(data) {
     fps,
     visemes: fps > 0 && Array.isArray(data.visemes) ? data.visemes.map(visemeFrame) : [],
     duration: isPositiveNumber(data.duration) ? data.duration : 0,
+    card: parseCard(data.card),
   };
 }
 

@@ -165,6 +165,7 @@ describe("phone service worker", () => {
       "/phone/camera.js",
       "/phone/actions.js",
       "/phone/voice.js",
+      "/phone/card.js",
       "/phone/phone.css",
     ];
     for (const path of shell) await settled(dispatchFetch(path));
@@ -205,6 +206,7 @@ describe("phone service worker", () => {
       "/phone/camera.js",
       "/phone/actions.js",
       "/phone/voice.js",
+      "/phone/card.js",
       "/phone/phone.css",
       "/manifest.webmanifest",
       "/icon-192.png",

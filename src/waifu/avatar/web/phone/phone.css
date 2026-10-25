@@ -465,6 +465,36 @@ body[data-state="speaking"] #status::before {
   object-fit: cover;
 }
 
+/* Her text card (v1.55) under the gist in her bubble, built by card.js; its links open as the phone's own. */
+.bubble .card {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: rgba(111, 91, 211, 0.08);
+  font-size: 14px;
+  line-height: 1.45;
+  white-space: normal;
+}
+
+.bubble .card-title {
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.bubble .card-line,
+.bubble .card-list {
+  margin: 0 0 4px;
+}
+
+.bubble .card-list {
+  padding-left: 18px;
+}
+
+.bubble .card a {
+  color: var(--accent);
+}
+
 /* --- The quick buttons ---------------------------------------------------------------------------- */
 
 #quick-toggle {

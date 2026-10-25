@@ -1297,7 +1297,8 @@ def _ask(backend: PhoneBackend, text: str, photo: bytes | None, camera: bool) ->
 
 
 def _reply_fields(reply: PhoneReply) -> dict[str, Any]:
-    """The /chat answer; the mouth track rounded like the avatar's speak events."""
+    """The /chat answer; the mouth track rounded like the avatar's speak events, and the text
+    card as its title and body (null without one)."""
     audio = None if reply.audio_wav is None else base64.b64encode(reply.audio_wav).decode("ascii")
     return {
         "text": reply.text,
@@ -1306,6 +1307,9 @@ def _reply_fields(reply: PhoneReply) -> dict[str, Any]:
         "fps": reply.fps,
         "visemes": [[round(float(weight), 2) for weight in frame] for frame in reply.visemes],
         "duration": round(float(reply.duration), 3),
+        "card": None
+        if reply.card is None
+        else {"title": reply.card.title, "body": reply.card.body},
     }
 
 

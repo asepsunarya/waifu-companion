@@ -3206,10 +3206,10 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 335 · **Files:** `src/waifu/avatar/web/phone/card.js`, `src/waifu/avatar/web/index.html`, `tests/js/card.test.mjs`, `tests/test_avatar_web.py` · **Scope:** M
 
-## Task 337: The phone's card
+## Task 337: The phone's card ✅
 
 **Acceptance criteria:**
-- [ ] `/chat` and `/talk` carry the card; `parseChatReply` keeps a valid one; her bubble shows the gist and the card with tappable links; the shell caches `card.js`
+- [x] `/chat` and `/talk` carry the card; `parseChatReply` keeps a valid one; her bubble shows the gist and the card with tappable links; the shell caches `card.js`
 
 **Dependencies:** 334, 336 · **Files:** `src/waifu/phone/server.py`, `src/waifu/avatar/web/phone/audio.js`, `phone.js`, `phone.css`, `sw.js`, tests · **Scope:** S
 

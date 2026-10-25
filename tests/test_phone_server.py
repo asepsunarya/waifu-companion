@@ -32,6 +32,7 @@ import numpy as np
 import pytest
 
 from waifu.alarm import AlarmBell
+from waifu.card import Card
 from waifu.config import AvatarConfig, PhoneConfig, RoutineConfig, RoutineStep
 from waifu.devices.base import DeviceError, DeviceResult
 from waifu.devices.mock import MockDevice
@@ -102,8 +103,13 @@ REPLY_JSON = {
     "fps": 60,
     "visemes": [[0.12, 0.46, 0.0, 0.25, 1.0], [0.0, 0.0, 0.0, 0.0, 0.0]],
     "duration": 1.235,
+    "card": None,
 }
 HEARD = "nyalakan lampu kamar"
+# A reply with a text card (v1.55): the gist is her text and voice, the card goes along.
+FORECAST = Card("Cuaca 7 hari", "- Senin cerah\n- Rabu hujan\n- https://bmkg.go.id")
+CARD_REPLY = PhoneReply("Ini ramalan seminggu, Master.", "happy", REPLY_WAV, 60, [], 1.5, FORECAST)
+CARD_JSON = {"title": "Cuaca 7 hari", "body": "- Senin cerah\n- Rabu hujan\n- https://bmkg.go.id"}
 
 
 class FakeBackend:
@@ -1525,7 +1531,27 @@ def test_a_reply_without_audio_has_null_audio(serve: Serve, auth: PhoneAuth) -> 
         "fps": 60,
         "visemes": [],
         "duration": 0.0,
+        "card": None,
     }
+
+
+def test_a_reply_with_a_text_card_carries_its_title_and_body(serve: Serve, auth: PhoneAuth) -> None:
+    server = serve(backend=FakeBackend(reply=CARD_REPLY))
+
+    status, _, body = chat(server, pair_device(auth))
+
+    assert status == 200
+    answer = json.loads(body)
+    assert (answer["text"], answer["card"]) == ("Ini ramalan seminggu, Master.", CARD_JSON)
+
+
+def test_a_talk_reply_with_a_text_card_carries_it_too(serve: Serve, auth: PhoneAuth) -> None:
+    server = serve(backend=FakeBackend(reply=CARD_REPLY))
+
+    status, _, body = talk(server, pair_device(auth), recording(1.5))
+
+    assert status == 200
+    assert json.loads(body)["card"] == CARD_JSON
 
 
 @pytest.mark.parametrize("text", ["a" * 2000, "😀" * 2000, "あ" * 2000])

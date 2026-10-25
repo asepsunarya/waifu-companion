@@ -7,7 +7,8 @@
 // the button is held and sent to POST /talk as a 16 kHz mono 16-bit WAV (audio.js). Her reply, from /chat or /talk,
 // shows as a bubble and plays through an AudioContext, which Chrome lets make sound only after a touch on the page
 // (its autoplay policy), so the context is created and resumed on the owner's first touch; the renderer moves her
-// mouth with the reply's visemes from the moment the audio starts.
+// mouth with the reply's visemes from the moment the audio starts. Her text card (SPEC, "kartu teks (v1.55)") shows
+// in her bubble under the gist she says, built by card.js from text nodes, its links opening as the phone's own.
 //
 // When the PC offers the camera (SPEC, "seeing through the phone camera (v1.15)"), the camera button opens a
 // viewfinder over the lower part of the page. While it is open, each message, typed or said, says it was sent through
@@ -44,6 +45,7 @@ import {
   speakEventFor,
   talkWav,
 } from "./audio.js";
+import { buildCard } from "./card.js";
 import {
   BACK_CAMERA,
   CAMERA_IDLE_MS,
@@ -260,11 +262,12 @@ function thumbnailImage({ url, width, height }) {
 
 /** Puts the bubbles in the chat list, the typing dots (if any) after them; returns their items, oldest first. */
 function renderBubbles() {
-  const items = bubbles.map(({ from, text, thumbnail }) => {
+  const items = bubbles.map(({ from, text, thumbnail, card }) => {
     const item = document.createElement("li");
     item.className = `bubble from-${from}`;
     item.textContent = text;
     if (thumbnail) item.prepend(thumbnailImage(thumbnail));
+    if (card) item.append(buildCard(document, card));
     return item;
   });
   page.bubbles.replaceChildren(...items);
@@ -280,13 +283,13 @@ function forgetBubbles(gone) {
 }
 
 /**
- * Adds a bubble, with the thumbnail of `photo` (a photo taken for it) when given, and scrolls to it: the owner's to
- * the end of the list, hers to her first line, below the list's faded top edge, so a reply taller than the list is
- * read from its start.
+ * Adds a bubble, with the thumbnail of `photo` (a photo taken for it) or her text `card` under the text when given, and
+ * scrolls to it: the owner's to the end of the list, hers to her first line, below the list's faded top edge, so a
+ * reply taller than the list is read from its start.
  */
-function addBubble(from, text, photo = null) {
+function addBubble(from, text, photo = null, card = null) {
   const thumbnail = photo && { url: URL.createObjectURL(photo.blob), width: photo.width, height: photo.height };
-  const bubble = { from, text, thumbnail };
+  const bubble = { from, text, thumbnail, card };
   bubbles.push(bubble);
   forgetBubbles(bubbles.splice(0, bubbles.length - MAX_BUBBLES));
   const item = renderBubbles().at(-1);
@@ -587,7 +590,7 @@ async function answer(reply) {
     showNotice("bad_reply");
     return;
   }
-  if (reply.text) addBubble("cyrene", reply.text);
+  if (reply.text) addBubble("cyrene", reply.text, null, reply.card);
   await playReply(reply);
 }
 

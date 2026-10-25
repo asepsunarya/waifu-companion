@@ -54,6 +54,7 @@ function reply(fields = {}) {
       [0.5, 0.2, 0, 0, 0.1],
     ],
     duration: 0.03,
+    card: null,
     ...fields,
   };
 }
@@ -255,6 +256,18 @@ describe("parseChatReply", () => {
   it("reads a missing or negative duration as unknown (0)", () => {
     assert.equal(parseChatReply(reply({ duration: undefined })).duration, 0);
     assert.equal(parseChatReply(reply({ duration: -1 })).duration, 0);
+  });
+
+  it("keeps her text card", () => {
+    const card = { title: "Cuaca 7 hari", body: "- Senin cerah\n- https://bmkg.go.id" };
+
+    assert.deepEqual(parseChatReply(reply({ card })).card, card);
+  });
+
+  it("reads a missing or malformed card as none", () => {
+    for (const card of [undefined, "kartu", { title: "Judul" }, { title: 1, body: "- satu" }, { title: "", body: " " }]) {
+      assert.equal(parseChatReply(reply({ card })).card, null);
+    }
   });
 
   it("refuses a reply without text", () => {

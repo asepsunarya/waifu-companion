@@ -13,6 +13,7 @@ const SHELL = new Set([
   "/phone/camera.js",
   "/phone/actions.js",
   "/phone/voice.js",
+  "/phone/card.js",
   "/phone/phone.css",
   "/manifest.webmanifest",
   "/icon-192.png",
