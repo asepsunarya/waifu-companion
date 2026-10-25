@@ -38,8 +38,8 @@ ACTIONS = ("add", "list", "remove")
 # The arguments each action takes besides `action`; null counts as left out.
 _ACTION_KEYS: dict[str, frozenset[str]] = {
     "add": frozenset({"game", "text", "every_time"}),
-    "list": frozenset(),
-    "remove": frozenset({"id"}),
+    "list": frozenset({"game"}),
+    "remove": frozenset({"id", "game"}),
 }
 _KEYS = frozenset({"action"}).union(*_ACTION_KEYS.values())
 _REFUSAL = "Pengingat game hanya diatur atas permintaan Master, bukan untuk {turn}."
@@ -53,6 +53,7 @@ _OPEN_NOW = (
     "{game} sedang terbuka sekarang; pengingat ini disimpan untuk saat {game} dibuka berikutnya."
 )
 _UNKNOWN_ID = "Tidak ada pengingat game dengan id {id}."
+_OTHER_GAME = "Pengingat {id} untuk {game}, bukan {given}, jadi tidak dihapus."
 _FAILED = "Pengingat game tidak bisa dibuka saat ini."
 
 
@@ -115,31 +116,49 @@ class AppReminderTools:
                 raise _InvalidArguments(f"'{key}' tidak dipakai untuk {action}.")
         if action == "add":
             return self._add(given)
+        # A game is optional here: the reminders of one game, or the one it must remove.
+        game = self._game(given) if "game" in given else None
         if action == "list":
-            reminders = [_reminder_json(reminder) for reminder in self._store.reminders()]
+            kept = self._store.reminders() if game is None else self._store.for_game(game)
+            reminders = [_reminder_json(reminder) for reminder in kept]
             return _to_json({"ok": True, "reminders": reminders}), False
-        reminder_id = _text(given, "id")
-        removed = self._store.remove(reminder_id)
-        if removed is None:
-            return _error(_UNKNOWN_ID.format(id=reminder_id))
-        return _to_json({"ok": True, "removed": _reminder_json(removed)}), False
+        return self._remove(_text(given, "id"), game)
 
     def _add(self, given: Mapping[str, object]) -> tuple[str, bool]:
-        game = given.get("game")
-        if not isinstance(game, str) or game not in self._games:
-            raise _InvalidArguments(f"'game' harus salah satu dari: {', '.join(self._games)}.")
+        game_id = self._game(given)
         # The persona tags every text for Master, but a reminder is said as it is.
         text = split_emotion(_text(given, "text"))[1]
         every_time = given.get("every_time", False)
         if not isinstance(every_time, bool):
             raise _InvalidArguments("'every_time' harus true atau false.")
-        game_id = cast(GameId, game)
         open_now = game_id in playing_now(self._play.record(), self._now(), poll=self._poll)
         reminder = self._store.add(game_id, text, every_time=every_time)
         result = {"ok": True, **_reminder_json(reminder), "game_open_now": open_now}
         if open_now:
             result["message"] = _OPEN_NOW.format(game=GAMES[game_id].short)
         return _to_json(result), False
+
+    def _remove(self, reminder_id: str, game: GameId | None) -> tuple[str, bool]:
+        """Remove `reminder_id`; with `game`, only when it is that game's, so a mixed-up id
+        never removes another game's reminder."""
+        if game is not None:
+            found = next((r for r in self._store.reminders() if r.id == reminder_id), None)
+            if found is not None and found.game != game:
+                return _error(
+                    _OTHER_GAME.format(
+                        id=reminder_id, game=GAMES[found.game].short, given=GAMES[game].short
+                    )
+                )
+        removed = self._store.remove(reminder_id)
+        if removed is None:
+            return _error(_UNKNOWN_ID.format(id=reminder_id))
+        return _to_json({"ok": True, "removed": _reminder_json(removed)}), False
+
+    def _game(self, given: Mapping[str, object]) -> GameId:
+        game = given.get("game")
+        if not isinstance(game, str) or game not in self._games:
+            raise _InvalidArguments(f"'game' harus salah satu dari: {', '.join(self._games)}.")
+        return cast(GameId, game)
 
 
 def _spec(games: Sequence[GameId]) -> ToolSpec:
@@ -156,15 +175,16 @@ def _spec(games: Sequence[GameId]) -> ToolSpec:
             "Indonesian phrase of what to do as Master said it, without 'ingetin aku' (such as "
             "'farming relic'), and `every_time` true only when Master says every time ('tiap', "
             "'setiap kali'); otherwise it is said at the next start only, then dropped; list "
-            "for Master's game reminders; remove with the `id` from add or list: when Master "
-            "names one by its text, list first and pick it by its text; never guess an id. You "
-            "say a game's reminders when you see it start while `waifu run` is on, never for a "
-            "game already open when you start or when the PC wakes from sleep. When the result "
-            "has `game_open_now` true, the game is open right now: tell Master you will remind "
-            "him the next time he opens it. Only when Master asks, never in a greeting or "
-            "anything you start yourself. Answer in one short sentence: no lists and no "
-            "parentheses, because your voice drops whatever is in parentheses. After an error "
-            "result, say its message briefly and do not call again in this turn."
+            "for Master's game reminders, with `game` for one game's only; remove with the `id` "
+            "from add or list (a `game` given with remove must be that reminder's game): when "
+            "Master names one by its text, list first and pick it by its text; never guess an "
+            "id. You say a game's reminders when you see it start while `waifu run` is on, "
+            "never for a game already open when you start or when the PC wakes from sleep. When "
+            "the result has `game_open_now` true, the game is open right now: tell Master you "
+            "will remind him the next time he opens it. Only when Master asks, never in a "
+            "greeting or anything you start yourself. Answer in one short sentence: no lists "
+            "and no parentheses, because your voice drops whatever is in parentheses. After an "
+            "error result, say its message briefly and do not call again in this turn."
         ),
         input_schema={
             "type": "object",

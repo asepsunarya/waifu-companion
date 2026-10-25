@@ -104,6 +104,8 @@ def test_the_description_steers_game_start_reminders_away_from_the_schedule(tmp_
         "`every_time` true only when Master says every time",
         "never for a game already open when you start or when the PC wakes from sleep",
         "`game_open_now`",
+        "list for Master's game reminders, with `game` for one game's only",
+        "a `game` given with remove must be that reminder's game",
         "never guess an id",
         "Only when Master asks",
         "no lists and no parentheses",
@@ -230,6 +232,29 @@ def test_list_gives_every_reminder_in_the_order_made(tmp_path):
     }
 
 
+def test_list_with_a_game_gives_only_that_game_s_reminders(tmp_path):
+    store = make_store(tmp_path)
+    store.add("zzz", "claim battle pass")
+    store.add("genshin", "cek ekspedisi", every_time=True)
+    store.add("zzz", "cek toko")
+
+    result = ask(make_tools(tmp_path, store=store), {"action": "list", "game": "zzz"})
+
+    assert [(r["id"], r["text"]) for r in result["reminders"]] == [
+        ("g1", "claim battle pass"),
+        ("g3", "cek toko"),
+    ]
+
+
+def test_list_with_a_game_without_reminders_gives_an_empty_list(tmp_path):
+    store = make_store(tmp_path)
+    store.add("zzz", "claim battle pass")
+
+    result = ask(make_tools(tmp_path, store=store), {"action": "list", "game": "hsr"})
+
+    assert result == {"ok": True, "reminders": []}
+
+
 def test_remove_deletes_the_reminder_with_the_id_given(tmp_path):
     store = make_store(tmp_path)
     store.add("zzz", "claim battle pass")
@@ -248,6 +273,32 @@ def test_remove_deletes_the_reminder_with_the_id_given(tmp_path):
         },
     }
     assert [r.id for r in store.reminders()] == ["g1"]
+
+
+def test_remove_with_the_reminder_s_own_game_deletes_it(tmp_path):
+    store = make_store(tmp_path)
+    store.add("zzz", "claim battle pass")
+    store.add("genshin", "cek ekspedisi", every_time=True)
+
+    result = ask(
+        make_tools(tmp_path, store=store), {"action": "remove", "id": "g2", "game": "genshin"}
+    )
+
+    assert result["removed"]["id"] == "g2"
+    assert [r.id for r in store.reminders()] == ["g1"]
+
+
+def test_remove_with_another_game_is_refused_and_keeps_the_reminder(tmp_path):
+    store = make_store(tmp_path)
+    store.add("zzz", "claim battle pass")
+    store.add("genshin", "cek ekspedisi", every_time=True)
+
+    message = failed(
+        make_tools(tmp_path, store=store), {"action": "remove", "id": "g2", "game": "hsr"}
+    )
+
+    assert message == "Pengingat g2 untuk Genshin, bukan HSR, jadi tidak dihapus."
+    assert [r.id for r in store.reminders()] == ["g1", "g2"]
 
 
 def test_removing_an_unknown_id_is_an_error_result(tmp_path):
@@ -270,7 +321,9 @@ def test_removing_an_unknown_id_is_an_error_result(tmp_path):
         ({"game": "hsr", "text": 42}, "'text' wajib diisi dengan teks"),
         ({"game": "hsr", "text": "daily", "every_time": "ya"}, "'every_time' harus true"),
         ({"action": "remove"}, "'id' wajib diisi dengan teks"),
-        ({"action": "list", "game": "hsr"}, "'game' tidak dipakai untuk list"),
+        ({"action": "list", "text": "daily"}, "'text' tidak dipakai untuk list"),
+        ({"action": "list", "game": "wuwa"}, "'game' harus salah satu dari: hsr, genshin, zzz"),
+        ({"action": "remove", "id": "g1", "game": "wuwa"}, "'game' harus salah satu dari"),
         ({"action": "remove", "id": "g1", "text": "x"}, "'text' tidak dipakai untuk remove"),
         ({"game": "hsr", "text": "daily", "at": "21:00"}, "argumen tidak dikenal: at"),
     ],
