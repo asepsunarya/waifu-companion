@@ -223,9 +223,15 @@
       }
 
       #card .card-title {
-        margin: 0 26px 6px 0;
+        margin: 0 0 6px;
         font-size: 14px;
         font-weight: 600;
+      }
+
+      /* The close button sits over the top right corner: the first line of a card, a title or (untitled) its first
+         line or list, keeps clear of it. */
+      #card .card > :first-child {
+        margin-right: 26px;
       }
 
       #card .card-line,

@@ -427,6 +427,13 @@ describe("the card styles", () => {
       assert.ok(selectors.includes(`${scope} .card-list li`));
     });
   }
+
+  it("index.html keeps the first line of any card, titled or not, clear of the close button", () => {
+    const source = readFileSync(new URL("index.html", WEB), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+
+    assert.match(source, /#card \.card > :first-child\s*\{[^}]*margin-right:\s*26px;[^}]*\}/);
+    assert.doesNotMatch(source, /#card \.card-title\s*\{[^}]*margin:\s*0 26px/);
+  });
 });
 
 // --- No HTML is ever parsed from text on the pages ----------------------------------------------------------------------
