@@ -32,6 +32,7 @@ Cyrene : "Komputer mau kumatikan sekarang, Master? Jawab iya kalau jadi." (minta
 - [Mendaftarkan suara Master](#mendaftarkan-suara-master)
 - [Pemakaian sehari-hari](#pemakaian-sehari-hari)
 - [Respons instan](#respons-instan)
+- [Kartu teks](#kartu-teks)
 - [Jalan otomatis saat login](#jalan-otomatis-saat-login)
 - [Versi baru](#versi-baru)
 - [Suara anime (つくよみちゃん)](#suara-anime-つくよみちゃん)
@@ -867,6 +868,66 @@ nod:
 Tes otomatis tidak bisa mendengar bagaimana suara Indonesia edge-tts mengucapkan "Hmm". Coba
 sendiri dengan `waifu say "Hmm, bentar ya…"` (butuh internet dan speaker); kalau terdengar aneh,
 `nod.enabled: false` mematikannya.
+
+## Kartu teks
+
+Isi yang panjang (daftar lebih dari tiga hal, jadwal, tabel, tautan, kode, langkah-langkah,
+terjemahan yang lebih dari satu kalimat) sulit diikuti kalau dibacakan semuanya. Karena itu
+Cyrene hanya mengucapkan intinya dalam satu-dua kalimat, lalu menampilkan sisanya sebagai kartu
+teks:
+
+> "Cyrene, cuaca seminggu ke depan gimana?"
+>
+> "Ini ramalan seminggu, kutampilkan di layar ya. Intinya hujan Rabu dan Kamis."
+
+dan di bawah avatarnya muncul kartu "Cuaca 7 hari" dengan satu baris per hari. Otaknya menulis
+intinya dan kartunya dalam satu jawaban, jadi tidak ada panggilan API tambahan; dengan Claude
+maupun Ollama.
+
+- **Di PC:** kartu tampil di bagian bawah jendela avatar (maskot Electron maupun jendela Edge),
+  di atas baris kredit. Isinya bisa digulir dengan mouse dan dipilih untuk disalin. Kartu hilang
+  sendiri setelah 2 menit (`card.show_seconds`), saat × diklik, atau saat kartu berikutnya
+  datang. Kartu tidak pernah mengambil fokus dari aplikasi yang sedang kamu pakai, dan klik di
+  luar kartu tetap tembus ke desktop seperti biasa.
+- **Tautan:** tautan http atau https di kartu bergaris bawah; klik untuk membukanya di browser
+  default. Tautan tidak pernah terbuka sendiri, dan hanya tautan yang tertulis di kartu yang
+  sedang tampil yang bisa dibuka.
+- **Di HP:** kalau kamu bertanya lewat HP, gelembung jawabannya berisi intinya lalu kartunya
+  (judul, daftar, dan tautan yang bisa diketuk), dan pesan suaranya hanya intinya. Pertanyaan
+  lewat suara di PC tidak mengirim apa pun ke HP.
+- **`waifu chat`:** intinya dicetak seperti biasa, lalu kartunya menjorok di bawahnya; dengan
+  `--speak` hanya intinya yang diucapkan.
+- **"Ulangi"** mengulang intinya saja. **"Tampilkan lagi kartunya"**, "kartu tadi", "mana
+  kartunya?", atau "tunjukin kartunya lagi" menampilkan kartu terakhir sekali lagi, seketika
+  dan tanpa bertanya ke otaknya: "Ini kartunya lagi, Master." Kalau belum ada kartu: "Belum ada
+  kartu yang bisa kutampilkan lagi, Master." Kalimat lain yang menyebut kartu ("kartu tadi
+  isinya apa?") tetap dijawab otaknya.
+- Kalau jawabannya hanya kartu, dia bilang "Kutampilkan di layar ya, Master."
+- Laporan game mingguan boleh menaruh rinciannya di kartu; notifikasinya ke HP berisi intinya
+  lalu isi kartunya sebagai teks biasa. Sapaan pagi dan pertanyaan jurnal tetap diucapkan, tanpa
+  kartu.
+- **Mode tamu:** kartu tetap berjalan seperti biasa. Giliran yang menyalakan atau mematikan mode
+  tamu tidak menampilkan kartu, dan kartu yang sedang tampil langsung disembunyikan; kartu dari
+  sebelum mode tamu berganti tidak bisa ditampilkan lagi.
+
+Sudah menyala tanpa ditulis. Untuk mengubah lamanya, tulis di `config.yaml` (berlaku setelah
+`waifu run` dijalankan ulang):
+
+```yaml
+card:
+  show_seconds: 120   # berapa detik kartu tampil di avatar (0-3600; 0 = sampai ditutup)
+```
+
+Batasannya:
+
+- Tanpa avatar (`avatar.enabled: false` atau `avatar.window: none`), dia tetap bilang
+  "kutampilkan di layar" tetapi di PC tidak ada yang tampil, dan "tampilkan lagi kartunya"
+  dijawab bahwa avatarnya sedang tidak tampil. Lewat HP dan `waifu chat` kartunya tetap tampil.
+- Kartu yang ditutup dengan × muncul lagi kalau halaman avatar dimuat ulang (misalnya sesudah
+  GPU reset saat game fullscreen) selagi waktunya belum habis.
+- Tautan hanya dikenali kalau ditulis lengkap dengan `http://` atau `https://`.
+- Ollama (`qwen3:8b`) kadang menulis tanda kartunya kurang rapi. Tanda `[[kartu: ...]]` dan isi
+  kartu tetap tidak pernah dibacakan, paling buruk kartunya tidak tampil.
 
 ## Jalan otomatis saat login
 
@@ -7918,6 +7979,10 @@ di sampingnya)
   pernah tombol lain yang kamu ketik. `data\listen_pause.json` ada hanya selama dia tidak
   mendengarkan, dan `data\hotkeys.json` selama `waifu run` jalan. Lihat
   [Privasi hotkey](#privasi-hotkey).
+- **Kartu teks:** kartu hanya ada di memori (avatar, `waifu run`, dan `waifu chat`), tidak
+  pernah di disk atau log (log hanya mencatat jumlah baris dan karakternya), dan disembunyikan
+  saat mode tamu berganti. Tautannya hanya dibuka saat kamu mengkliknya. Lihat
+  [Kartu teks](#kartu-teks).
 - **Kamus Cyrene:** cara baca kata ada di `data\tts_lexicon.json`, hanya di PC ini; nama
   karakter untuk Whisper hanya di memori selama `waifu run` jalan. Lihat
   [Privasi kamus](#privasi-kamus).

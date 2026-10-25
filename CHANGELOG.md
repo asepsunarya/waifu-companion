@@ -4,6 +4,24 @@ Ringkasan per versi, yang terbaru di atas. Rinciannya ada di README (bagian yang
 setiap versi) dan di SPEC.md. Setelah memperbarui, **mulai ulang `waifu run`** supaya semuanya
 aktif, lalu jalankan `waifu check`.
 
+## v1.55: kartu teks
+
+- Isi yang panjang (daftar, jadwal, tautan, kode, langkah-langkah, terjemahan panjang) tidak
+  lagi dibacakan semuanya: Cyrene mengucapkan intinya dalam satu-dua kalimat ("Ini ramalan
+  seminggu, kutampilkan di layar ya. Intinya hujan Rabu dan Kamis.") dan menampilkan sisanya
+  sebagai kartu teks. Tanpa panggilan API tambahan, dengan Claude maupun Ollama.
+- Di PC, kartunya tampil di bagian bawah jendela avatar, bisa digulir dan disalin, hilang
+  sendiri setelah 2 menit (`card.show_seconds`), saat × diklik, atau saat kartu berikutnya
+  datang, tanpa mengambil fokus. Tautan di kartu dibuka di browser default hanya saat diklik.
+- Di HP, gelembung jawabannya berisi intinya lalu kartunya dengan tautan yang bisa diketuk;
+  pesan suaranya hanya intinya. `waifu chat` mencetak kartunya menjorok di bawah jawabannya.
+- "Ulangi" mengulang intinya saja; "tampilkan lagi kartunya" atau "kartu tadi" menampilkan kartu
+  terakhir lagi tanpa bertanya ke otaknya. Laporan game mingguan boleh menaruh rinciannya di
+  kartu (notifikasi HP-nya ikut memuatnya); sapaan pagi dan pertanyaan jurnal tetap tanpa kartu.
+- Mode tamu: giliran yang mengganti mode tamu tidak menampilkan kartu dan menyembunyikan kartu
+  yang sedang tampil. Tanpa paket baru dan tanpa tool baru.
+- README: "Kartu teks".
+
 ## v1.54: pemantau internet
 
 - Selama `waifu run` menyala, Cyrene mengecek router dan internet tiap menit, dan selagi HSR,

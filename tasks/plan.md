@@ -1256,10 +1256,11 @@ without the brain; a turn that switches guest mode shows none and hides the one 
 - [x] Task 336: the avatar page's card panel (`phone/card.js`, `index.html`)
 - [x] Task 337: the phone's card in her bubble
 - [x] Task 338: `waifu chat`, the speech cut, and the CLI wiring
-- [ ] Task 339: README, CHANGELOG
+- [x] Task 339: README, CHANGELOG
 
 ### Checkpoint: Kartu teks
-- [ ] Python suite, ruff, and JS tests clean; no test opened a browser, spoke, or read `data/`; the strict-tool budget unchanged
+- [x] Python suite, ruff, and JS tests clean; no test opened a browser, spoke, or read `data/`; the strict-tool budget unchanged (2026-10-25: 11971 pytest and 654 JS tests, ruff check and format clean; every AvatarServer in the tests gets a fake opener, and tests/conftest.py still refuses `os.startfile`; no tool or tool parameter was added, so 18 of 20 strict tools, 17 of 24 optional parameters, and 0 of 16 unions stay, as the full Claude chat request test measures)
+- [x] By hand: the real avatar page served by the real AvatarServer on a spare loopback port, with a card published on the real AvatarBus and a fake opener, in a browser at 360x640 (2026-10-25, a mktemp folder deleted afterwards): the card showed at the bottom with its title, seven bullets, the link underlined and its full stop left as text, the markup line and "javascript:alert(1)" as plain text, and a 120-character link wrapped inside the window; a real click on each link reached the fake opener with the exact URL and the page stayed where it was, focus on the page body; a reload replayed the card; × hid it (display none, `elementFromPoint` found her canvas again); at 160x200 the panel was 110 px high and scrolled by itself with no sideways scroll; a card published with show_s 6 hid itself on time after a late connect, and a reload after that showed none. Found and fixed: the panel covered the credit line, now 22 px up. The phone's card style seen at 375x812 in a scratch page with phone.css and card.js
 - [ ] On the owner's PC (the lead): a long answer shows a card beside the mascot without taking focus, a link opens in the default browser on a click, the card hides after 2 minutes, "tampilkan lagi kartunya" shows it again; the phone shows the card in her bubble
 
 ## Risks and Mitigations

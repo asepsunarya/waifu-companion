@@ -3222,9 +3222,9 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 334, 335 · **Files:** `src/waifu/cli.py`, `src/waifu/voice/tts.py`, tests · **Scope:** S
 
-## Task 339: Docs
+## Task 339: Docs ✅
 
 **Acceptance criteria:**
-- [ ] README "Kartu teks" (and in the table of contents); CHANGELOG v1.55; full suite, ruff, and JS tests clean
+- [x] README "Kartu teks" (and in the table of contents); CHANGELOG v1.55; full suite, ruff, and JS tests clean
 
 **Dependencies:** 338 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
