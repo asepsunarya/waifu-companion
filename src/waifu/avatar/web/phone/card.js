@@ -15,7 +15,7 @@ const ELLIPSIS = "…";
 // http:// or https:// and what may follow in a link here: no whitespace, quotes, angle brackets, or backtick, no
 // control or invisible formatting characters, and no CJK punctuation or full-width forms (Japanese text around a link).
 const LINK =
-  /https?:\/\/[^\s<>"'`\u0000-\u001f\u007f​-‏‪-‮⁠-⁩﻿　-〿＀-￯]+/gi;
+  /https?:\/\/[^\s<>"'`\u0000-\u001f\u007f\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff\u3000-\u303f\uff00-\uffef]+/gi;
 // The host as written: ASCII letters, digits, dots, and hyphens only, so no user name or port hides the real host (as
 // waifu.notify.is_web_link checks it before the PC opens a link).
 const PLAIN_HOST = /^https?:\/\/[a-z0-9.-]+(?:[/?#]|$)/i;

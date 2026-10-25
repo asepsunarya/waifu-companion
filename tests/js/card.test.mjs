@@ -191,6 +191,22 @@ describe("linkPieces", () => {
     ]);
   });
 
+  for (const [name, char] of [
+    ["a zero-width space", "\u200b"],
+    ["a right-to-left override", "\u202e"],
+    ["a word joiner", "\u2060"],
+    ["a byte order mark", "\ufeff"],
+    ["an ideographic space", "\u3000"],
+    ["a full-width letter", "\uff41"],
+  ]) {
+    it(`ends a link at ${name}`, () => {
+      assert.deepEqual(linkPieces(`https://example.com/a${char}b`), [
+        { text: "https://example.com/a", url: "https://example.com/a" },
+        { text: `${char}b` },
+      ]);
+    });
+  }
+
   it("ends a link at a quote, so nothing can follow it into an attribute", () => {
     assert.deepEqual(linkPieces('https://example.com"onclick=alert(1)'), [
       { text: "https://example.com", url: "https://example.com" },
@@ -386,6 +402,12 @@ describe("the pages that show cards", () => {
       const source = readFileSync(new URL(file, WEB), "utf8");
 
       assert.doesNotMatch(source, /innerHTML|outerHTML|insertAdjacentHTML|document\.write/);
+    });
+
+    it(`${file} holds no invisible or bidi control character a reviewer could not see`, () => {
+      const source = readFileSync(new URL(file, WEB), "utf8");
+
+      assert.doesNotMatch(source, /[\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]/);
     });
   }
 });
