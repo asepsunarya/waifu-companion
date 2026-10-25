@@ -107,6 +107,19 @@ def test_description_asks_for_a_spoken_gist_and_the_translation_on_a_card():
         assert guidance in spec.description
 
 
+def test_description_puts_a_japanese_copy_on_a_card_even_when_it_is_one_short_sentence():
+    [spec] = ClipboardTools(read=FakeReader()).specs()
+    description = spec.description
+
+    assert "For Japanese, always put a text card ([[kartu: Terjemahan]]), even for one short" in (
+        description
+    )
+    assert "for a short phrase a word list (each word, its reading, its meaning)" in description
+    no_card = description.index("with no card")
+    assert "For English or another language" in description[:no_card]
+    assert description.index("For Japanese, always") < no_card
+
+
 def test_the_spec_stays_identical_across_turns_for_prompt_caching():
     tools = asked(FakeReader())
     first = tools.specs()

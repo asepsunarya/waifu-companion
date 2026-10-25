@@ -9,8 +9,8 @@ aktif, lalu jalankan `waifu check`.
 - Copy teks bahasa Jepang atau Inggris, lalu "Cyrene, artinya apa yang kucopy?" atau
   "terjemahin yang barusan kucopy": dia membaca clipboard PC, mengucapkan intinya, dan
   menampilkan terjemahan lengkapnya di kartu teks, untuk bahasa Jepang dengan cara baca kana dan
-  romaji dan, untuk frasa pendek, daftar katanya. Satu kalimat pendek cukup diucapkan. Dengan
-  Claude maupun Ollama.
+  romaji dan, untuk frasa pendek, daftar katanya, juga kalau hanya satu kalimat. Satu kalimat
+  pendek bahasa Inggris cukup diucapkan. Dengan Claude maupun Ollama.
 - **Ctrl+Alt+T** menanyakan hal yang sama tanpa mic, juga di tengah game: diabaikan selagi dia
   mendengarkan, berpikir, atau bicara (seperti Ctrl+Alt+R), jalan juga selama dia tidak
   mendengarkan. Ganti atau matikan dengan `hotkeys.translate`; kalau `config.yaml` lama sudah

@@ -3817,9 +3817,10 @@ Master : "Simpan kata itu."                        (tanpa nama: jendela lanjutan
 Master : "Cyrene, terjemahin yang barusan kucopy."  (teks bahasa Inggris)
 ```
 
-Terjemahan satu kalimat pendek cukup diucapkan, tanpa kartu. Untuk teks bahasa Jepang, kartunya
-memuat terjemahan lengkap, cara bacanya dengan kana dan romaji, dan untuk frasa pendek daftar
-katanya (kata, cara baca, arti). Yang diucapkan tetap tanpa romaji.
+Teks bahasa Jepang selalu mendapat kartu, juga kalau hanya satu kalimat pendek: terjemahan
+lengkap, cara bacanya dengan kana dan romaji, dan untuk frasa pendek daftar katanya (kata, cara
+baca, arti), yang perlu sebelum "simpan kata itu". Terjemahan satu kalimat pendek bahasa Inggris
+atau bahasa lain cukup diucapkan, tanpa kartu. Yang diucapkan tetap tanpa romaji.
 
 ### Ctrl+Alt+T
 
@@ -7678,6 +7679,8 @@ halaman tim di game atau sebuah error)
       bicara Ctrl+Alt+T tidak melakukan apa pun, dan Ctrl+Alt+X lalu Ctrl+Alt+T langsung bertanya.
 - [ ] Copy sebuah kata sandi palsu (misalnya `Kucing123!`), lalu Ctrl+Alt+T: dia bilang
       kelihatannya rahasia tanpa membacakannya, dan log serta `-v` tidak memuatnya.
+- [ ] Copy satu kalimat pendek 「よろしくお願いします」, lalu "artinya apa yang kucopy?": kartunya
+      tetap tampil dengan kana, romaji, dan daftar kata.
 - [ ] Copy sebuah gambar, lalu "artinya apa yang kucopy?": dia bilang yang dicopy bukan teks.
 - [ ] Dengan belajar bahasa Jepang menyala, sesudah terjemahannya "simpan kata itu": kuis
       berikutnya menanyakan kata itu, dan `waifu jepang progres` menampilkan `Kata tambahanmu`.
