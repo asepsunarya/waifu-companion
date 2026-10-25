@@ -25,15 +25,18 @@ from waifu.voice.tts import CONVERSION_RETRY_S, FALLBACK_RETRY_S, TtsError
 logger = logging.getLogger(__name__)
 
 # Indonesian only, so each is one speech run and one RVC conversion; `{owner}` is what she
-# calls the owner (owner_call).
+# calls the owner (owner_call). Most of Claude's turns get one, so they differ in their words:
+# the first three are the owner's own.
 NODS = (
     "Hmm, bentar ya…",
     "Sebentar, kucek dulu ya.",
     "Oke, kupikirkan dulu…",
-    "Tunggu sebentar ya, {owner}.",
+    "Iya, aku dengar kok, {owner}…",
     "Hmm, coba kulihat dulu ya.",
-    "Sebentar ya, {owner}…",
+    "Aku cari tahu dulu ya.",
 )
+# How many of the last picks `pick` avoids, while enough others are kept.
+AVOIDED_PICKS = 2
 # Past the end of the router's pause, against clock steps.
 RETRY_MARGIN_S = 5.0
 
@@ -86,7 +89,7 @@ class NodBank:
         self._rng = rng or random.Random()
         self._lock = threading.Lock()  # guards the two below
         self._kept: dict[str, Nod] = {}
-        self._last: str | None = None
+        self._recent: list[str] = []  # the last picks, the latest last
 
     def keep_preparing(self) -> None:
         """`prepare`, then again every `retry_s` until every filler is kept, on the calling
@@ -129,11 +132,15 @@ class NodBank:
         return kept_all
 
     def pick(self) -> Nod | None:
-        """A random kept filler other than the last one picked; None when there is none."""
+        """A random kept filler other than the last AVOIDED_PICKS picked, or with too few kept,
+        other than the last one; None when there is none."""
         with self._lock:
-            choices = [nod for text, nod in self._kept.items() if text != self._last]
+            kept = self._kept.items()
+            choices = [nod for text, nod in kept if text not in self._recent]
+            if not choices:  # too few kept to avoid them all: never the last one, at least
+                choices = [nod for text, nod in kept if text not in self._recent[-1:]]
             if not choices:
                 return None
             nod = self._rng.choice(choices)
-            self._last = nod.text
+            self._recent = [*self._recent, nod.text][-AVOIDED_PICKS:]
             return nod

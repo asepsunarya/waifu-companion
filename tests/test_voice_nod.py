@@ -85,6 +85,27 @@ def test_a_filler_is_never_picked_twice_in_a_row():
     assert set(texts) == {HMM, CHECKING, THINKING}
 
 
+def test_with_three_kept_a_filler_is_never_one_of_the_two_picked_before_it():
+    # Back-to-back slow turns are common with Claude: A, B, A sounds as repetitive as A, A.
+    bank = NodBank(FakeVoice(), lines=(HMM, CHECKING, THINKING), rng=random.Random(7))
+    bank.prepare()
+
+    texts = [bank.pick().text for _ in range(60)]
+
+    assert all(len({a, b, c}) == 3 for a, b, c in zip(texts, texts[1:], texts[2:], strict=False))
+
+
+def test_with_two_kept_the_fillers_take_turns():
+    bank = NodBank(FakeVoice(), lines=(HMM, CHECKING), rng=random.Random(7))
+    bank.prepare()
+
+    texts = [bank.pick().text for _ in range(6)]
+
+    assert texts[0::2] == [texts[0]] * 3
+    assert texts[1::2] == [texts[1]] * 3
+    assert texts[0] != texts[1]
+
+
 def test_with_only_the_last_picked_filler_kept_there_is_none_to_say():
     bank = NodBank(FakeVoice(), lines=(HMM,))
     bank.prepare()
@@ -273,3 +294,16 @@ def test_every_built_in_filler_is_one_indonesian_speech_run(line):
 def test_the_built_in_fillers_are_several_and_all_different():
     assert len(NODS) >= 4
     assert len(set(NODS)) == len(NODS)
+
+
+def test_the_built_in_fillers_vary_their_words():
+    # Most of Claude's turns get one: lines alike ("Tunggu sebentar ya", "Sebentar ya") sound
+    # like the same filler again. Two of the owner's own three say "bentar"; no more do.
+    openings = [line.split()[0].strip(",").lower() for line in NODS]
+
+    assert len([line for line in NODS if "bentar" in line.lower()]) <= 2
+    assert max(openings.count(opening) for opening in openings) <= 2
+
+
+def test_one_built_in_filler_names_the_owner():
+    assert len([line for line in NODS if "{owner}" in line]) == 1

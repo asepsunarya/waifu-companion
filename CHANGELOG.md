@@ -8,8 +8,9 @@ aktif, lalu jalankan `waifu check`.
 
 - Kalau otaknya belum menjawab kalimatmu setelah 1,2 detik (`nod.after_ms`), Cyrene bilang satu
   kalimat pendek dulu dengan suaranya sendiri ("Hmm, bentar ya…", "Sebentar, kucek dulu ya.", dan
-  empat lainnya, tidak pernah sama dua kali berturut-turut), lalu jawabannya menyusul begitu
-  selesai, tanpa jeda tambahan. Jawaban yang cepat datang tanpa kalimat itu, seperti biasa.
+  empat lainnya, tidak pernah sama dengan salah satu dari dua sebelumnya), lalu jawabannya
+  menyusul begitu selesai, tanpa jeda tambahan. Jawaban yang cepat datang tanpa kalimat itu,
+  seperti biasa.
 - Kalimat-kalimat itu disiapkan sekali di latar belakang setelah dia siap dan disimpan di
   memori, jadi tidak pernah menunggu edge-tts atau suara anime. Yang saat disiapkan keluar dengan
   suara cadangan Windows atau tanpa suara anime tidak dipakai dulu, lalu dicoba lagi sekitar 10

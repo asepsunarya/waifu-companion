@@ -13085,7 +13085,7 @@ def test_run_names_the_owner_in_her_fillers_as_she_calls_him(home, run_fakes, sp
     assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
 
     RecordingAssistant.instances[0].collaborators["nods"].prepare()
-    assert "Tunggu sebentar ya, Sayang." in speech[0].texts
+    assert "Iya, aku dengar kok, Sayang…" in speech[0].texts
 
 
 @pytest.mark.parametrize(

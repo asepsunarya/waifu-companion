@@ -815,9 +815,10 @@ menyusul begitu siap:
 > "Besok pagi cerah, Master, tapi sore ada hujan ringan."
 
 Kalimat pendeknya dipilih acak dari enam: "Hmm, bentar ya…", "Sebentar, kucek dulu ya.", "Oke,
-kupikirkan dulu…", "Tunggu sebentar ya, Master.", "Hmm, coba kulihat dulu ya.", dan "Sebentar
-ya, Master…" (dengan panggilanmu dari `assistant.owner_call`), tidak pernah sama dua kali
-berturut-turut. Jawaban yang siap dalam 1,2 detik datang tanpa kalimat itu, seperti biasa.
+kupikirkan dulu…", "Iya, aku dengar kok, Master…" (dengan panggilanmu dari
+`assistant.owner_call`), "Hmm, coba kulihat dulu ya.", dan "Aku cari tahu dulu ya.", tidak
+pernah sama dengan salah satu dari dua kalimat sebelumnya. Jawaban yang siap dalam 1,2 detik
+datang tanpa kalimat itu, seperti biasa.
 
 - Kalimat-kalimat itu disiapkan sekali di latar belakang setelah `waifu run` siap (sesudah
   "Cyrene siap, Master." kalau dengan `--announce`) dan disimpan di memori, jadi tidak pernah
