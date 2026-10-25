@@ -4,8 +4,14 @@ import random
 import numpy as np
 import pytest
 
-from waifu.voice.nod import NODS, Nod, NodBank
-from waifu.voice.tts import TtsError, clean_for_speech, split_by_language
+from waifu.voice.nod import NODS, Nod, NodBank, retry_after_s
+from waifu.voice.tts import (
+    CONVERSION_RETRY_S,
+    SpeechRouter,
+    TtsError,
+    clean_for_speech,
+    split_by_language,
+)
 
 HMM = "Hmm, bentar ya…"
 CHECKING = "Sebentar, kucek dulu ya."
@@ -115,16 +121,123 @@ def test_an_unexpected_failure_is_logged_with_its_traceback_and_left_out(caplog)
     assert bank.pick() is None
 
 
-def test_a_filler_made_in_a_stand_in_voice_is_left_out(caplog):
-    # A Windows voice "Hmm" before a reply in her RVC voice sounds like someone else.
-    bank = NodBank(FakeVoice(stand_in=(HMM,)), lines=(HMM, CHECKING))
+def test_a_stand_in_voice_leaves_that_filler_and_the_rest_out_for_a_later_prepare(caplog):
+    # A Windows voice "Hmm" before a reply in her RVC voice sounds like someone else, and the
+    # router keeps the stand-in for a while: the next lines would come in it too.
+    voice = FakeVoice(stand_in=(HMM,))
+    bank = NodBank(voice, lines=(HMM, CHECKING))
 
     with caplog.at_level(logging.INFO, logger="waifu.voice.nod"):
-        bank.prepare()
+        kept_all = bank.prepare()
 
-    assert bank.pick().text == CHECKING
+    assert kept_all is False
+    assert voice.texts == [HMM]
     assert bank.pick() is None
     assert any("stand-in" in record.getMessage() for record in nod_logs(caplog, logging.INFO))
+    voice.stand_in = ()
+    assert bank.prepare() is True
+    assert {bank.pick().text, bank.pick().text} == {HMM, CHECKING}
+
+
+def test_prepare_tells_whether_every_filler_is_kept():
+    voice = FakeVoice({CHECKING: TtsError("edge mati")})
+    bank = NodBank(voice, lines=(HMM, CHECKING))
+
+    first = bank.prepare()
+    voice.failures.clear()
+
+    assert (first, bank.prepare()) == (False, True)
+
+
+class Sleeps:
+    """Notes each wait instead of waiting, then runs `meanwhile` (the time passing)."""
+
+    def __init__(self, meanwhile=lambda seconds: None) -> None:
+        self.waits: list[float] = []
+        self.meanwhile = meanwhile
+
+    def __call__(self, seconds: float) -> None:
+        self.waits.append(seconds)
+        self.meanwhile(seconds)
+
+
+def test_keep_preparing_tries_the_missing_fillers_again_after_retry_s_until_all_are_kept():
+    voice = FakeVoice(stand_in=(HMM,))
+    sleeps = Sleeps(meanwhile=lambda seconds: setattr(voice, "stand_in", ()))
+    bank = NodBank(voice, lines=(HMM, CHECKING), retry_s=605.0, sleep=sleeps)
+
+    bank.keep_preparing()
+
+    assert sleeps.waits == [605.0]
+    assert voice.texts == [HMM, HMM, CHECKING]
+    assert {bank.pick().text, bank.pick().text} == {HMM, CHECKING}
+
+
+def test_keep_preparing_waits_for_nothing_once_every_filler_is_kept():
+    sleeps = Sleeps()
+    bank = NodBank(FakeVoice(), lines=(HMM, CHECKING), sleep=sleeps)
+
+    bank.keep_preparing()
+
+    assert sleeps.waits == []
+
+
+def test_a_retry_waits_past_her_voices_pauses_on_a_failing_engine_and_converter():
+    assert retry_after_s(600.0) > 600.0
+    assert retry_after_s(30.0) > CONVERSION_RETRY_S
+
+
+class FakeClock:
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+class BlippingEdge:
+    """Edge failing only on its first call (a short outage), at 24 kHz."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def synthesize(self, text: str, language: str) -> tuple[np.ndarray, int]:
+        self.calls += 1
+        if self.calls == 1:
+            raise TtsError("koneksi edge-tts terputus")
+        return np.full(len(text), 0.5, dtype=np.float32), 24000
+
+
+class WindowsVoice:
+    """The offline fallback: always works."""
+
+    rvc_pitch = None
+
+    def synthesize(self, text: str, language: str) -> tuple[np.ndarray, int]:
+        return np.full(len(text), 0.25, dtype=np.float32), 16000
+
+
+def test_one_edge_blip_while_preparing_costs_the_fillers_only_until_the_retry():
+    clock, edge = FakeClock(), BlippingEdge()
+    router = SpeechRouter(
+        {"id": edge}, "id", fallbacks={"id": WindowsVoice()}, fallback_retry_s=600.0, clock=clock
+    )
+
+    def time_passes(seconds: float) -> None:
+        clock.now += seconds
+
+    bank = NodBank(
+        router,
+        retry_s=retry_after_s(600.0),
+        sleep=Sleeps(meanwhile=time_passes),
+        rng=random.Random(3),
+    )
+
+    bank.keep_preparing()
+
+    assert edge.calls == 1 + len(NODS)  # the blip, then each filler once in her own voice
+    picked = {bank.pick().text for _ in range(40)}
+    assert len(picked) == len(NODS)
 
 
 def test_prepare_again_voices_only_the_fillers_still_missing():

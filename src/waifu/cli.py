@@ -317,7 +317,7 @@ from waifu.voice.mic_check import (
     windows_default_input,
 )
 from waifu.voice.mic_source import DeviceList, MicSource, windows_input_names
-from waifu.voice.nod import NodBank
+from waifu.voice.nod import NodBank, retry_after_s
 from waifu.voice.panel import VoicePanel
 from waifu.voice.rvc import (
     SERVER_SCRIPT,
@@ -1649,9 +1649,14 @@ def _listen(args: argparse.Namespace) -> int:
         ):
             speech = build_speech_router(config.tts, converter=converter, lexicon=lexicon.readings)
             # Her fillers for a slow reply, in the same voice as her replies (RVC and Master's
-            # readings included); made in the background once she is ready.
+            # readings included); made in the background once she is ready, the ones left out
+            # tried again once the router's pause on a failing voice has passed.
             nods = (
-                NodBank(speech, owner_call=config.assistant.owner_call)
+                NodBank(
+                    speech,
+                    owner_call=config.assistant.owner_call,
+                    retry_s=retry_after_s(config.tts.fallback.retry_s),
+                )
                 if config.nod.enabled
                 else None
             )
@@ -2143,8 +2148,9 @@ def _await_avatar_viewer(avatar: AvatarBus, timeout_s: float) -> None:
 
 def _prepare_nods(nods: NodBank) -> None:
     """Make her fillers on a daemon thread of their own, so neither her start nor Master's
-    first words wait for them; one not made yet is simply not said."""
-    threading.Thread(target=nods.prepare, name="nod-voice", daemon=True).start()
+    first words wait for them; one not made yet is simply not said. The thread tries the ones
+    left out again until every filler is made."""
+    threading.Thread(target=nods.keep_preparing, name="nod-voice", daemon=True).start()
 
 
 @contextmanager

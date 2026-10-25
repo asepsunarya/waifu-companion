@@ -824,9 +824,10 @@ berturut-turut. Jawaban yang siap dalam 1,2 detik datang tanpa kalimat itu, sepe
   menunggu edge-tts atau suara anime. Satu-dua pertanyaan pertama tepat setelah mulai mungkin
   belum mendapatkannya.
 - Kalimat yang saat disiapkan keluar dengan suara cadangan Windows (edge-tts gagal, misalnya
-  internet belum tersambung saat login) atau tanpa suara anime (RVC gagal) tidak dipakai sampai
-  `waifu run` dijalankan ulang, supaya tidak ada "Hmm" dengan suara lain sebelum jawaban dengan
-  suara anime. Kalau semuanya begitu, dia diam menunggu jawaban seperti sebelum v1.52.
+  internet belum tersambung saat login) atau tanpa suara anime (RVC gagal) tidak dipakai, supaya
+  tidak ada "Hmm" dengan suara lain sebelum jawaban dengan suara anime. Yang belum siap dicoba
+  lagi di latar belakang sekitar 10 menit kemudian (sedikit lewat `tts.fallback.retry_s`), terus
+  sampai keenamnya siap; sementara itu dia diam menunggu jawaban seperti sebelum v1.52.
 - Hanya untuk kalimatmu sendiri yang dijawab otak. Tidak untuk yang dijawab seketika tanpa otak
   ("Cyrene?", "ulangi", "tadi kamu denger apa?", "cara baca ...", "aku sudah bangun"), sapaan
   pagi, pertanyaan jurnal, laporan game mingguan, pesan dari HP, atau `waifu chat`. Selama teman

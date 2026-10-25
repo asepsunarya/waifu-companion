@@ -12,7 +12,9 @@ aktif, lalu jalankan `waifu check`.
   selesai, tanpa jeda tambahan. Jawaban yang cepat datang tanpa kalimat itu, seperti biasa.
 - Kalimat-kalimat itu disiapkan sekali di latar belakang setelah dia siap dan disimpan di
   memori, jadi tidak pernah menunggu edge-tts atau suara anime. Yang saat disiapkan keluar dengan
-  suara cadangan Windows atau tanpa suara anime tidak dipakai sampai `waifu run` dijalankan ulang.
+  suara cadangan Windows atau tanpa suara anime tidak dipakai dulu, lalu dicoba lagi sekitar 10
+  menit kemudian sampai semuanya siap, jadi gangguan edge-tts sebentar saat login tidak
+  menghilangkannya sampai `waifu run` dijalankan ulang.
 - Hanya untuk kalimatmu sendiri yang dijawab otak: tidak untuk "ulangi", alarm, "cara baca",
   sapaan pagi, pertanyaan jurnal, laporan mingguan, pesan dari HP, atau `waifu chat`. "Ulangi"
   mengulang jawabannya, bukan kalimat itu.
