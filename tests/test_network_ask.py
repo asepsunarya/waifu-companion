@@ -42,6 +42,17 @@ FINE = Reading(
         "kenapa internetnya",
         "Master, internet aman?",
         "internetnya gimana?",
+        # Whisper writes a loanword's -nya hyphenated, and "lagi" after the question is natural
+        # right after an outage.
+        "WiFi-nya mati ya?",
+        "wifi-nya kenapa",
+        "Internet-nya kenapa?",
+        "Koneksi-nya putus?",
+        "Jaringan-nya gangguan?",
+        "Internetnya putus lagi?",
+        "internet mati lagi ya",
+        "kok lemot lagi",
+        "Kok internetnya lemot lagi sih?",
     ],
 )
 def test_a_whole_question_about_the_internet_is_one(said):
@@ -60,6 +71,8 @@ def test_a_whole_question_about_the_internet_is_one(said):
         "server HoYo?",
         "HoYo down?",
         "hoyolab lagi gangguan ya",
+        "HoYoLAB-nya error?",
+        "server HoYo-nya down lagi?",
     ],
 )
 def test_a_whole_question_about_the_hoyo_servers_is_one(said):
@@ -81,6 +94,8 @@ def test_a_whole_question_about_the_hoyo_servers_is_one(said):
         "putar lagu internet mati",
         "internetnya kenapa terus restart router",
         "HoYo",
+        "mati lagi?",  # what is off again: the lights, the AC, the internet?
+        "lemot lagi",
     ],
 )
 def test_anything_else_is_not_a_question_about_the_internet(said):

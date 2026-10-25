@@ -5,10 +5,12 @@ answers these from a check made right then (`NetworkAnswers`), without the brain
 also while the internet, and so Claude, is out of reach. Like "ulangi" (`waifu.repeat`), only
 whole phrases count: left out are her names and wake words, what she calls the owner, "master",
 and a few softeners, and what is left must be one of the phrases exactly. A subject (internet,
-wifi, koneksi, jaringan) and a question word ("lagi" between them allowed), after "kok", "apa",
-"apakah", "kenapa", or nothing, or "kenapa" or "cek" and a subject; "kok lemot"; for the HoYo
-servers the same with a HoYo word (Whisper's spellings too), "server" before it or not. Anything
-with another word ("internetnya kenapa terus restart router") goes to the brain as always.
+wifi, koneksi, jaringan, with "-nya" or not, joined or as Whisper splits "Internet-nya") and a
+question word ("lagi" between them or after it allowed), after "kok", "apa", "apakah", "kenapa",
+or nothing, or "kenapa" or "cek" and a subject; "kok lemot" ("lagi" after it allowed); for the
+HoYo servers the same with a HoYo word (Whisper's spellings too), "server" before it or not.
+Anything with another word ("internetnya kenapa terus restart router"), or a question without a
+subject ("mati lagi?"), goes to the brain as always.
 """
 
 from __future__ import annotations
@@ -28,18 +30,19 @@ _WORD = re.compile(r"[^\W_]+")
 _SKIPPED = frozenset(
     {"master", "dong", "deh", "ya", "sih", "nih", "kah", "coba", "tolong", "banget"}
 )
-_SUBJECTS = (
-    ("internet",),
-    ("internetnya",),
-    ("wifi",),
-    ("wifinya",),
-    ("wi", "fi"),  # "Wi-Fi"
-    ("wi", "fi", "nya"),
-    ("koneksi",),
-    ("koneksinya",),
-    ("jaringan",),
-    ("jaringannya",),
-)
+
+
+def _with_nya(subjects: Sequence[tuple[str, ...]]) -> tuple[tuple[str, ...], ...]:
+    """Each subject bare, with "-nya" joined ("internetnya"), and with it split off, as Whisper
+    writes it after a loanword ("Internet-nya", "Wi-Fi-nya")."""
+    return tuple(
+        form
+        for words in subjects
+        for form in (words, (*words[:-1], f"{words[-1]}nya"), (*words, "nya"))
+    )
+
+
+_SUBJECTS = _with_nya((("internet",), ("wifi",), ("wi", "fi"), ("koneksi",), ("jaringan",)))
 _QUESTIONS = (
     "kenapa",
     "mati",
@@ -64,25 +67,31 @@ _HOYO_WORDS = (
     ("hoyo", "lab"),
     ("mihoyo",),
 )
-_HOYO_SUBJECTS = tuple((*server, *word) for server in ((), ("server",)) for word in _HOYO_WORDS)
+_HOYO_SUBJECTS = tuple(
+    (*server, *word) for server in ((), ("server",)) for word in _with_nya(_HOYO_WORDS)
+)
+_AGAIN = ((), ("lagi",))
 
 
 def _questions(subjects: Sequence[tuple[str, ...]]) -> frozenset[tuple[str, ...]]:
-    """Each subject with a question word, "lagi" between them or not, after an opener or not;
-    and "kenapa" or "cek" with the subject."""
+    """Each subject with a question word, "lagi" between them, after them, or not, after an
+    opener or not; and "kenapa" or "cek" with the subject."""
     asked = {
-        (*opener, *subject, *between, question)
+        (*opener, *subject, *between, question, *after)
         for opener in _OPENERS
         for subject in subjects
-        for between in ((), ("lagi",))
+        for between in _AGAIN
         for question in _QUESTIONS
+        for after in _AGAIN
     }
     return frozenset(
         asked | {(verb, *subject) for verb in ("kenapa", "cek") for subject in subjects}
     )
 
 
-INTERNET_PHRASES = _questions(_SUBJECTS) | {("kok", "lemot"), ("kok", "lambat")}
+INTERNET_PHRASES = _questions(_SUBJECTS) | {
+    ("kok", slow, *after) for slow in ("lemot", "lambat") for after in _AGAIN
+}
 HOYO_PHRASES = _questions(_HOYO_SUBJECTS) | {("server", *word) for word in _HOYO_WORDS}
 
 
