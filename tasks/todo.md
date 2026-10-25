@@ -3266,11 +3266,11 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 341 · **Files:** `src/waifu/hotkeys.py`, `src/waifu/hotkey_actions.py`, `src/waifu/config.py`, `config.example.yaml`, `src/waifu/app.py`, `src/waifu/cli.py`, tests · **Scope:** M
 
-## Task 343: Master's own Japanese words
+## Task 343: Master's own Japanese words ✅
 
 **Acceptance criteria:**
-- [ ] The lesson store keeps added words under an optional `custom` key, validated, deduplicated, capped at 200, and still reads a v1.39 file
-- [ ] `japanese_lesson` `add` learns a built-in word, adds a new one, or says it is there already; refused in her own turns and in guest mode; quizzes and grades take added words; progress counts them apart; `waifu jepang progres` names them
+- [x] The lesson store keeps added words under an optional `custom` key, validated, deduplicated, capped at 200, and still reads a v1.39 file
+- [x] `japanese_lesson` `add` learns a built-in word, adds a new one, or says it is there already; refused in her own turns and in guest mode; quizzes and grades take added words; progress counts them apart; `waifu jepang progres` names them
 
 **Dependencies:** 340a · **Files:** `src/waifu/japanese.py`, `src/waifu/brain/japanese_tools.py`, `src/waifu/cli.py`, tests · **Scope:** M
 

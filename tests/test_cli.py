@@ -17682,6 +17682,13 @@ def lesson(brain: HouseBrain, arguments: dict) -> dict:
     return json.loads(result)
 
 
+def lesson_result(brain: HouseBrain, arguments: dict) -> str:
+    return japanese_tools(brain).run("japanese_lesson", arguments)[0]
+
+
+ISEKAI_ADD = {"action": "add", "kana": "いせかい", "kanji": "異世界", "meaning": "dunia lain"}
+
+
 def first_day_from(start: datetime, *, with_kanji: bool) -> datetime:
     """The first day from `start` whose word of the day has a kanji form, or has none."""
     days = (start + timedelta(days=offset) for offset in range(len(WORDS)))
@@ -17849,6 +17856,56 @@ def test_jepang_progres_says_when_no_word_is_due_today(home, japanese_clock, cap
         f"Dipelajari: 1 dari {len(WORDS)} kata, 0 dikuasai",
         "Tidak ada kata yang perlu diulang hari ini.",
     ]
+
+
+def test_jepang_progres_names_master_s_own_words_apart(home, japanese_clock, capsys):
+    turn_on_japanese(home)
+    store = japanese_store(japanese_file(home))
+    today = JAPANESE_NOW.date()
+    store.learn(WORDS[0].id, today)
+    store.add_custom("いせかい", "異世界", "dunia lain", today)
+    store.add_custom("すし", "寿司", "sushi", today)
+    store.add_custom("たこやき", None, "takoyaki", today)
+    store.grade("c1", True, today)
+    store.grade("c2", True, today)
+
+    assert cli.main(["jepang", "progres"]) == 0
+
+    assert capsys.readouterr().out.splitlines() == [
+        f"Dipelajari: 1 dari {len(WORDS)} kata, 0 dikuasai",
+        "Perlu diulang hari ini: 1 kata",
+        "Kata tambahanmu: 3 kata, 1 perlu diulang hari ini.",
+    ]
+
+
+def test_jepang_progres_names_master_s_own_words_also_without_a_word_of_the_list(
+    home, japanese_clock, capsys
+):
+    turn_on_japanese(home)
+    store = japanese_store(japanese_file(home))
+    store.add_custom("いせかい", "異世界", "dunia lain", JAPANESE_NOW.date())
+    store.grade("c1", True, JAPANESE_NOW.date())
+
+    assert cli.main(["jepang", "progres"]) == 0
+
+    assert capsys.readouterr().out.splitlines() == [
+        f"Belum ada kata yang dipelajari (0 dari {len(WORDS)}).",
+        "Kata tambahanmu: 1 kata, tidak ada yang perlu diulang hari ini.",
+    ]
+
+
+def test_run_keeps_no_word_for_the_lessons_while_guest_mode_is_on(
+    home, run_fakes, brains, japanese_clock
+):
+    turn_on_japanese(home)
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    brains[0].providers[0].run("guest_mode", {"on": True})
+    result = json.loads(lesson_result(brains[0], ISEKAI_ADD))
+    assert result["message"].startswith("Mode tamu sedang aktif")
+    brains[0].providers[0].run("guest_mode", {"on": False})
+    assert json.loads(lesson_result(brains[0], ISEKAI_ADD))["added"] is True
 
 
 def test_jepang_progres_exits_1_when_the_file_cannot_be_read(

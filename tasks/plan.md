@@ -1278,7 +1278,7 @@ is busy, like Ctrl+Alt+R). The answer follows v1.55: a spoken gist and the trans
 - [x] Task 340: the clipboard reader (`clipboard.py`) and the suite's refusals
 - [x] Task 341: the `read_clipboard` tool, its gate, its refusals, guest mode, and the logs
 - [x] Task 342: Ctrl+Alt+T: the config, the hotkey action, `Assistant.ask_now`, and the wiring
-- [ ] Task 343: Master's own words in the Japanese lessons (`add`)
+- [x] Task 343: Master's own words in the Japanese lessons (`add`)
 - [ ] Task 344: README, CHANGELOG
 
 ### Checkpoint: Artinya apa

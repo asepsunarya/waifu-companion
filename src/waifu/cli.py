@@ -2145,7 +2145,7 @@ def _companion_brain(
     if focus is not None:
         providers.append(FocusTools(focus, now=wib_now))
     if japanese is not None:
-        providers.append(JapaneseTools(words, japanese, now=wib_now))
+        providers.append(JapaneseTools(words, japanese, now=wib_now, guest_mode=guest_mode.is_on))
     recap = _daily_recap(config, schedule, focus)
     if recap.parts:
         providers.append(DailyRecapTools(recap))
@@ -4689,9 +4689,12 @@ def _japanese(args: argparse.Namespace) -> int:
 
 
 def _japanese_progress(config: AppConfig, today: date) -> int:
+    """The words of the list Master learned, mastered, and has due today, then the words he
+    kept himself, when there are any."""
     store = _japanese_store(config)
     try:
         progress = store.progress()
+        custom = store.custom_words()
     except OSError as exc:
         print(f"{FAIL} File belajar bahasa Jepang {store.path} tidak bisa dibaca: {exc}")
         return 1
@@ -4699,12 +4702,16 @@ def _japanese_progress(config: AppConfig, today: date) -> int:
     counts = lesson_counts(load_words(), progress, today)
     if not counts.learned:
         print(f"Belum ada kata yang dipelajari (0 dari {counts.total}).")
-        return 0
-    print(f"Dipelajari: {counts.learned} dari {counts.total} kata, {counts.mastered} dikuasai")
-    if counts.due:
-        print(f"Perlu diulang hari ini: {counts.due} kata")
     else:
-        print("Tidak ada kata yang perlu diulang hari ini.")
+        print(f"Dipelajari: {counts.learned} dari {counts.total} kata, {counts.mastered} dikuasai")
+        if counts.due:
+            print(f"Perlu diulang hari ini: {counts.due} kata")
+        else:
+            print("Tidak ada kata yang perlu diulang hari ini.")
+    if custom:
+        due = sum(progress[word_id].due <= today for word_id in custom if word_id in progress)
+        when = f"{due} perlu diulang" if due else "tidak ada yang perlu diulang"
+        print(f"Kata tambahanmu: {len(custom)} kata, {when} hari ini.")
     return 0
 
 

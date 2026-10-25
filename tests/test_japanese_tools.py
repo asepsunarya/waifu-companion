@@ -1,5 +1,6 @@
 """The japanese_lesson tool: what it does with the shipped word list and a real store in
-tmp_path, at a WIB clock moved by the test, and when it refuses."""
+tmp_path, at a WIB clock moved by the test, with guest mode a switch the test flips, and when it
+refuses."""
 
 import json
 import logging
@@ -14,7 +15,14 @@ from waifu.brain.tools import to_anthropic, to_ollama
 from waifu.briefing import BRIEFING_PROMPT
 from waifu.finance.values import WIB
 from waifu.gacha.weekly import WEEKLY_REPORT_PROMPT
-from waifu.japanese import JapaneseStore, WordProgress, load_words, word_of_the_day
+from waifu.japanese import (
+    MAX_CUSTOM_WORDS,
+    CustomWord,
+    JapaneseStore,
+    WordProgress,
+    load_words,
+    word_of_the_day,
+)
 from waifu.journal import JOURNAL_PROMPT
 
 WORDS = load_words()
@@ -36,8 +44,11 @@ class Rig:
 
     def __init__(self, tmp_path) -> None:
         self.clock = Clock(NOW)
+        self.guests = False
         self.store = JapaneseStore(tmp_path / "japanese.json", now=self.clock)
-        self.tools = JapaneseTools(WORDS, self.store, now=self.clock)
+        self.tools = JapaneseTools(
+            WORDS, self.store, now=self.clock, guest_mode=lambda: self.guests
+        )
 
     def on(self, day: date) -> None:
         self.clock.now = NOW.replace(year=day.year, month=day.month, day=day.day)
@@ -74,9 +85,12 @@ def test_one_tool_whose_arguments_may_all_be_left_out_so_it_needs_no_strict(rig)
     assert spec.input_schema == {
         "type": "object",
         "properties": {
-            "action": {"type": "string", "enum": ["today", "quiz", "grade", "progress"]},
+            "action": {"type": "string", "enum": ["today", "quiz", "grade", "progress", "add"]},
             "word_id": {"type": "string"},
             "correct": {"type": "boolean"},
+            "kana": {"type": "string"},
+            "kanji": {"type": "string"},
+            "meaning": {"type": "string"},
         },
         "additionalProperties": False,
     }
@@ -298,6 +312,8 @@ def test_progress_counts_the_learned_the_mastered_and_the_due_words(rig):
         "mastered": 1,
         "due_today": 2,
         "total": len(WORDS),
+        "custom_words": 0,
+        "custom_due_today": 0,
     }
 
 
@@ -321,7 +337,10 @@ def test_a_null_argument_counts_as_left_out(rig):
     ("arguments", "reason"),
     [
         ([], "objek JSON"),
-        ({"action": "lesson"}, "'action' harus salah satu dari: today, quiz, grade, progress"),
+        (
+            {"action": "lesson"},
+            "'action' harus salah satu dari: today, quiz, grade, progress, add",
+        ),
         ({"action": "grade", "correct": True}, "wajib untuk action grade"),
         ({"action": "grade", "word_id": "w001"}, "wajib untuk action grade"),
         ({"action": "today", "word_id": "w001"}, "hanya untuk action grade"),
@@ -332,9 +351,26 @@ def test_a_null_argument_counts_as_left_out(rig):
         ({"action": "grade", "word_id": 1, "correct": True}, "'word_id' harus teks"),
         ({"action": "grade", "word_id": "", "correct": True}, "'word_id' harus teks"),
         ({"answer": "makan"}, "argumen tidak dikenal: answer"),
+        ({"action": "add", "kana": "すし"}, "'kana' dan 'meaning' wajib untuk action add"),
+        ({"action": "add", "meaning": "sushi"}, "'kana' dan 'meaning' wajib untuk action add"),
+        ({"action": "quiz", "kana": "すし"}, "hanya untuk action add"),
+        ({"kana": "すし", "meaning": "sushi"}, "hanya untuk action add"),
+        ({"action": "grade", "word_id": "w001", "correct": True, "kanji": "寿司"}, "action add"),
+        ({"action": "add", "kana": "sushi", "meaning": "sushi"}, "'kana' harus"),
+        ({"action": "add", "kana": "す" * 21, "meaning": "sushi"}, "'kana' harus"),
+        ({"action": "add", "kana": 1, "meaning": "sushi"}, "'kana' harus"),
+        ({"action": "add", "kana": "すし", "kanji": "sushi", "meaning": "sushi"}, "'kanji' harus"),
+        ({"action": "add", "kana": "すし", "kanji": "すし", "meaning": "sushi"}, "'kanji' harus"),
+        ({"action": "add", "kana": "すし", "meaning": "m" * 81}, "'meaning' harus"),
+        ({"action": "add", "kana": "すし", "meaning": "nasi\nikan"}, "'meaning' harus"),
+        ({"action": "add", "kana": "すし", "meaning": "word_id"}, None),
+        ({"action": "add", "kana": "すし", "meaning": "sushi", "word_id": "c1"}, "action grade"),
     ],
 )
 def test_bad_arguments_are_an_error_result(rig, arguments, reason):
+    if reason is None:  # a meaning that only looks like a key is fine
+        assert rig.ask(arguments)["added"] is True
+        return
     message = rig.failed(arguments)
 
     assert message.startswith("Argumen japanese_lesson tidak valid:")
@@ -398,3 +434,150 @@ def test_her_own_turns_may_still_name_today_s_word_and_the_progress(rig):
 
     assert rig.ask({"action": "today"})["new"] is True
     assert rig.ask({"action": "progress"})["learned"] == 1
+
+
+# --- Master's own words (v1.56) ------------------------------------------------------------------
+
+NEKO = next(word for word in WORDS if word.kana == "ねこ")  # in the list, with 猫
+ISEKAI = {"action": "add", "kana": "いせかい", "kanji": "異世界", "meaning": "dunia lain"}
+
+
+def test_the_description_says_how_to_keep_master_s_own_word(rig):
+    [spec] = rig.tools.specs()
+
+    for guidance in [
+        "`add` keeps a Japanese word Master asks to keep",
+        "'simpan kata itu', 'masukin ke latihan'",
+        "`kana`",
+        "`kanji`",
+        "`meaning`",
+        "`built_in`",
+        "`added`",
+        "`already`",
+        "comes in his quizzes",
+        "only when Master asks",
+    ]:
+        assert guidance in spec.description
+
+
+def test_a_word_not_in_the_list_is_added_as_master_s_own_and_waits_from_today(rig):
+    assert ISEKAI["kana"] not in {word.kana for word in WORDS}
+
+    answer = rig.ask(ISEKAI)
+
+    assert answer == {
+        "added": True,
+        "word_id": "c1",
+        "kana": "いせかい",
+        "kanji": "異世界",
+        "meaning": "dunia lain",
+    }
+    assert rig.store.custom_words() == {"c1": CustomWord("いせかい", "異世界", "dunia lain", TODAY)}
+    assert rig.store.progress() == {"c1": WordProgress(1, TODAY, TODAY)}
+
+
+def test_a_word_added_twice_is_there_already(rig):
+    rig.ask(ISEKAI)
+
+    answer = rig.ask({"action": "add", "kana": "いせかい", "meaning": "isekai"})
+
+    assert answer == {
+        "already": True,
+        "word_id": "c1",
+        "kana": "いせかい",
+        "kanji": "異世界",
+        "meaning": "dunia lain",
+    }
+
+
+@pytest.mark.parametrize("kanji", ["猫", None], ids=["with-kanji", "without-kanji"])
+def test_a_word_of_the_list_is_learned_from_the_list_instead(rig, kanji):
+    answer = rig.ask({"action": "add", "kana": "ねこ", "kanji": kanji, "meaning": "kucing"})
+
+    assert answer == {
+        "built_in": True,
+        "new": True,
+        "word_id": NEKO.id,
+        "kana": NEKO.kana,
+        "kanji": NEKO.kanji,
+        "meaning": NEKO.meaning,
+    }
+    assert rig.store.custom_words() == {}
+    assert rig.store.progress() == {NEKO.id: WordProgress(1, TODAY, TODAY)}
+    assert rig.ask({"action": "add", "kana": "ねこ", "meaning": "kucing"})["new"] is False
+
+
+def test_the_words_are_taken_as_written_with_their_spaces_trimmed(rig):
+    answer = rig.ask({"action": "add", "kana": " ｲｾｶｲ ", "kanji": "", "meaning": " isekai "})
+
+    assert (answer["kana"], answer["kanji"], answer["meaning"]) == ("イセカイ", None, "isekai")
+
+
+def test_an_added_word_comes_in_the_quiz_and_is_graded_like_the_list_s(rig):
+    rig.ask(ISEKAI)
+
+    quiz = rig.ask({"action": "quiz"})
+    graded = rig.ask({"action": "grade", "word_id": "c1", "correct": True})
+
+    assert quiz == {
+        "quiz": {"word_id": "c1", "kana": "いせかい", "kanji": "異世界", "meaning": "dunia lain"},
+        "due_today": 1,
+    }
+    assert graded["box"] == 2 and graded["due_today"] == 0
+    assert rig.store.progress()["c1"] == WordProgress(2, TODAY + days(2), TODAY)
+
+
+def test_progress_counts_master_s_own_words_apart(rig):
+    rig.store.learn(FIRST, TODAY)
+    rig.ask(ISEKAI)
+    rig.ask({"action": "add", "kana": "すし", "kanji": "寿司", "meaning": "sushi"})
+    rig.ask({"action": "grade", "word_id": "c2", "correct": True})
+
+    assert rig.ask({"action": "progress"}) == {
+        "learned": 1,
+        "mastered": 0,
+        "due_today": 1,
+        "total": len(WORDS),
+        "custom_words": 2,
+        "custom_due_today": 1,
+    }
+
+
+def test_today_s_word_stays_one_of_the_list(rig):
+    rig.ask(ISEKAI)
+
+    assert rig.ask({"action": "today"})["word"]["word_id"] == word_of_the_day(WORDS, TODAY).id
+
+
+def test_no_word_is_added_in_the_turns_she_starts_herself(rig):
+    rig.tools.begin_turn(BRIEFING_PROMPT)
+
+    message = rig.failed(ISEKAI)
+
+    assert message == "Kata hanya disimpan ke latihan atas permintaan Master sendiri."
+    assert not rig.store.path.exists()
+
+
+def test_no_word_is_added_while_guest_mode_is_on_but_the_quiz_goes_on(rig):
+    rig.store.learn(FIRST, TODAY)
+    rig.guests = True
+
+    message = rig.failed(ISEKAI)
+
+    assert message == "Mode tamu sedang aktif: kata tamu tidak disimpan ke latihan Master."
+    assert rig.store.custom_words() == {}
+    assert rig.ask({"action": "quiz"})["quiz"]["word_id"] == FIRST
+
+
+def test_a_full_deck_is_said(rig):
+    custom = {
+        f"c{number}": {"kana": "いせかい", "kanji": None, "meaning": "x", "added": "2026-10-24"}
+        for number in range(1, MAX_CUSTOM_WORDS + 1)
+    }
+    rig.store.path.write_text(
+        json.dumps({"version": 1, "words": {}, "custom": custom}), encoding="utf-8"
+    )
+
+    message = rig.failed({"action": "add", "kana": "すし", "meaning": "sushi"})
+
+    assert message == "Kata tambahan Master sudah 200, jadi kata baru tidak bisa disimpan."
