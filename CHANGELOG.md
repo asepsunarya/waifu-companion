@@ -12,11 +12,14 @@ aktif, lalu jalankan `waifu check`.
   sebagai kartu teks. Tanpa panggilan API tambahan, dengan Claude maupun Ollama.
 - Di PC, kartunya tampil di bagian bawah jendela avatar, bisa digulir dan disalin, hilang
   sendiri setelah 2 menit (`card.show_seconds`), saat × diklik, atau saat kartu berikutnya
-  datang, tanpa mengambil fokus. Tautan di kartu dibuka di browser default hanya saat diklik.
+  datang, tanpa mengambil fokus. Selama kursor ada di atas kartu, waktunya berhenti. Tautan di
+  kartu dibuka di browser default hanya saat diklik (juga klik tengah).
 - Di HP, gelembung jawabannya berisi intinya lalu kartunya dengan tautan yang bisa diketuk;
   pesan suaranya hanya intinya. `waifu chat` mencetak kartunya menjorok di bawah jawabannya.
-- "Ulangi" mengulang intinya saja; "tampilkan lagi kartunya" atau "kartu tadi" menampilkan kartu
-  terakhir lagi tanpa bertanya ke otaknya. Laporan game mingguan boleh menaruh rinciannya di
+  Kode dan langkah bertingkat di kartu tetap dengan indentasinya, di PC maupun di HP.
+- "Ulangi" mengulang intinya saja; "tampilkan lagi kartunya", "kartu tadi", atau "kartu
+  terakhir" menampilkan kartu terakhir lagi tanpa bertanya ke otaknya, sedangkan "kartu yang
+  mana?" tetap dijawab otaknya. Laporan game mingguan boleh menaruh rinciannya di
   kartu (notifikasi HP-nya ikut memuatnya); sapaan pagi dan pertanyaan jurnal tetap tanpa kartu.
 - Mode tamu: giliran yang mengganti mode tamu tidak menampilkan kartu dan menyembunyikan kartu
   yang sedang tampil. Tanpa paket baru dan tanpa tool baru.
