@@ -197,7 +197,8 @@ def split_reply(
     without its tags, never left without words), and its card, if any."""
     speech, card = split_card(reply.text)
     emotion, text = split_emotion(speech)
-    if not text:
+    # Markdown left around a marker ("**[[kartu: X]]**") is no speech either.
+    if not any(char.isalnum() for char in text):
         fallback = CARD_ONLY if card is not None else _tag_only_fallback(reply.tool_calls)
         text = fallback.format(owner=owner_call)
     return emotion, dataclasses.replace(reply, text=text), card

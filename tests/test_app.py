@@ -5718,6 +5718,13 @@ def test_a_reply_that_is_only_a_card_says_it_shows_it():
     assert rig.speech.texts == [CARD_ONLY]
 
 
+def test_markdown_around_a_card_marker_is_not_her_whole_speech():
+    rig = Rig("Cyrene, daftar banner?", reply=f"[senang] **[[kartu: Banner]]**\n{FORECAST}")
+
+    assert rig.assistant.handle_utterance(rig.utterance()) == CARD_ONLY
+    assert rig.speech.texts == [CARD_ONLY]
+
+
 def test_a_marker_without_a_body_is_dropped_and_never_spoken():
     rig = Rig("Cyrene, cuaca?", reply="[santai] Besok cerah, Master. [[kartu: Cuaca]]")
 
