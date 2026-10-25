@@ -3069,6 +3069,7 @@ named `tests/test_<package>_<module>.py`.
 - [x] `icmp_echo`, `default_route`, `dns_query_ms`, and `tcp_connect_ms` read Windows' answers as documented (against fake libraries and sockets): a reply only with status 0 from the address asked, the ICMP handle and the DNS answer always released, the next hop or None for a direct route, None for no route; they look the functions up at the call
 - [x] `NetworkProbe.check` runs the gateway, the anchors, and with `dns` and `hoyo` the lookup and the HoYo hosts at once, falls back to TCP on 443 when no anchor echoes, counts what has not answered within the budget as failed, never starts a probe of a target still running, and never raises
 - [x] tests/conftest.py refuses and records the iphlpapi ICMP and route functions and the dnsapi queries; the probe tests fail on any non-loopback lookup or connect
+- [x] Fix pass: `tcp_connect_ms` resolves IPv4 only, like the echoes, so a broken IPv6 path never makes a host that answers over IPv4 look down; a check that finds a target's probe still running (another thread's check at the same moment, or a held lookup) waits for its answer within its own budget instead of counting it failed, and still starts no second thread
 
 **Dependencies:** 320 · **Files:** `src/waifu/network_probe.py`, `tests/conftest.py`, `tests/test_network_probe.py` · **Scope:** M
 
@@ -3078,8 +3079,9 @@ named `tests/test_<package>_<module>.py`.
 - [x] `classify` gives router, offline, dns, slow, hoyo, and ok in that order (a gateway never seen answering is never blamed; slow by the median with the recent round trips)
 - [x] `NetworkState` keeps the answered gateways, the recent round trips, whether the last check failed, whether a HoYo game runs, and the confirmed outage with its note; `NetworkCheck.now` checks with DNS, classifies, and notes
 - [x] `answer_line` and `back_line` say each case in Indonesian with the owner word, never an address, the HoYo answers saying they are not the game's server
+- [x] Fix pass: `NetworkCheck.now` (a check when asked) is slow by its own round trip and tells that number, while the watcher's `NetworkCheck.poll` keeps the median; `answer_line` says "ping internetnya normal" for ok and hoyo (for an ok internet question adding that the speed or the app may be slow) and "ping-nya" when slow, and ends router, offline, dns, and slow with their `ADVICE` after the since-when; `back_line` says the length with `duration_text`; `outage_note` hedges "Sepertinya internetnya lagi putus." while the last check failed and no outage is confirmed
 
-**Dependencies:** 321 · **Files:** `src/waifu/network.py`, `tests/test_network.py` · **Scope:** M
+**Dependencies:** 321 · **Files:** `src/waifu/network.py`, `src/waifu/network_watch.py`, `tests/test_network.py` · **Scope:** M
 
 ## Task 323: The history ✅
 
@@ -3102,6 +3104,7 @@ named `tests/test_<package>_<module>.py`.
 
 **Acceptance criteria:**
 - [x] `network_question` takes the whole internet and HoYo phrases (with her names, the owner word, and softeners left out) and nothing with another word
+- [x] Fix pass: every subject, the HoYo words too, takes "-nya" joined or split off ("WiFi-nya", "Internet-nya"), and "lagi" may follow the question word and "kok lemot"; a question without a subject ("mati lagi?") is still none
 - [x] The Assistant answers them with `network` without a brain turn, said like a reply and repeated by "ulangi"; without `network` they reach the brain; `NetworkAnswers` checks with HoYo for the HoYo topic
 
 **Dependencies:** 322 · **Files:** `src/waifu/network_ask.py`, `src/waifu/app.py`, `tests/test_network_ask.py`, `tests/test_app.py` · **Scope:** S
@@ -3117,6 +3120,7 @@ named `tests/test_<package>_<module>.py`.
 
 **Acceptance criteria:**
 - [x] Non-strict spec without arguments, byte-identical across calls; the result has the status, its meaning, the round trip, the router, DNS, the HoYo hosts, an open outage, and today's outages only when there were any, never an address; an argument is an error; an unreadable history is left out; `run` never raises
+- [x] Fix pass: `internet_ms` is this check's round trip; the description says it answers "ping-ku berapa?" and measures delay, not download speed, so an ok check is never called a fine internet when Master finds it slow
 
 **Dependencies:** 322, 323 · **Files:** `src/waifu/brain/network_tools.py`, `tests/test_network_tools.py` · **Scope:** S
 
@@ -3134,6 +3138,7 @@ named `tests/test_<package>_<module>.py`.
 - [x] `run` with the network on builds one state, gives the brain its note, the Assistant `NetworkAnswers`, starts the watcher with the play time watcher in one item, and the state hears the play time polls; nothing with it off
 - [x] `run` and `chat` offer `network_status`; it is open in guest mode; a full Claude chat request still holds 18 of 20 strict tools, 17 of 24 optional parameters, and 0 of 16 unions
 - [x] `waifu internet` prints the check and today's outages, also with the watcher off, exit 1 for an unreadable file; `check` says on, off, unreadable, or a broken file moved
+- [x] Fix pass: `waifu internet` prints the advice as "  Saran: ..." after the check for a status that has one
 
 **Dependencies:** 324, 325, 326, 327, 328 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** M
 
