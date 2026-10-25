@@ -2899,12 +2899,12 @@ Docs: README "Kartu teks" (in the table of contents), CHANGELOG "## v1.55: kartu
 
 Decisions:
 - The card travels in the reply text, split after `respond`, rather than through a tool (a round trip and maybe a strict slot) or a widened `BrainReply` (a `base.py` contract): the history keeps the whole reply, and both backends get it from one prompt note.
-- The parser is tolerant (Ollama formats loosely) and degrades safely: the marker syntax and the card body are never spoken, and a marker without a body is only dropped.
+- The parser is tolerant (Ollama formats loosely) and degrades safely: a recognised marker's syntax and the card body are never spoken, and a marker without a body is only dropped. A marker it cannot recognise at all (a "Kartu: Cuaca" line without brackets) gives no card, so the whole reply is spoken as before v1.55.
 - Links open through a loopback route that checks the URL against the card shown, not through Electron's `shell.openExternal`: it works for the Electron mascot and the Edge app window alike, and even a script on the page could only open what the card holds. The card is built from text nodes only, so model output never runs as HTML.
 - The card sits inside her fixed-size window (it cannot grow it): a bottom panel with its own scroll, which fits down to the smallest window.
 - Re-showing is a whole-phrase gate like "ulangi", so it never costs a turn; a card from a turn that switched guest mode is never shown.
 
-Known limits: without the avatar (off, `window: none`, or no viewer) the gist still says "kutampilkan di layar" while nothing shows on the PC (`waifu chat` and the phone show it); a card closed with × comes back if the page reloads within its time (the bus does not hear the close); a URL is linked only when written in full with http or https; the card is scrolled by the mouse, not the keyboard.
+Known limits: with the avatar off, the gist still says "kutampilkan di layar" while nothing shows on the PC and the re-show phrase gets `NO_CARD_WINDOW`; with `window: none` the card shows in the browser tab that has the avatar page open; with no page open anywhere (the mascot closed, or no such tab), she still says "kutampilkan di layar" and `CARD_AGAIN` while nothing shows (`waifu chat` and the phone show it); a card closed with × comes back if the page reloads within its time (the bus does not hear the close); a URL is linked only when written in full with http or https; the card is scrolled by the mouse, not the keyboard.
 
 Privacy: a card is kept in memory only (the bus, the Assistant, the chat loop) and never logged (line and character counts only); it stays on screen for at most `show_seconds` unless that is 0; it is hidden when a turn switches guest mode; links open only on Master's click.
 

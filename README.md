@@ -922,14 +922,22 @@ card:
 
 Batasannya:
 
-- Tanpa avatar (`avatar.enabled: false` atau `avatar.window: none`), dia tetap bilang
-  "kutampilkan di layar" tetapi di PC tidak ada yang tampil, dan "tampilkan lagi kartunya"
-  dijawab bahwa avatarnya sedang tidak tampil. Lewat HP dan `waifu chat` kartunya tetap tampil.
+- Dengan `avatar.enabled: false`, dia tetap bilang "kutampilkan di layar" tetapi di PC tidak
+  ada yang tampil, dan "tampilkan lagi kartunya" dijawab bahwa avatarnya sedang tidak tampil.
+  Dengan `avatar.window: none`, kartunya tampil di tab browser yang membuka halaman avatar
+  (alamatnya ada di `waifu check`).
+- Kalau halaman avatar sedang tidak terbuka di mana pun (maskotnya sudah ditutup, atau dengan
+  `window: none` tidak ada tab yang membukanya), dia tetap bilang "kutampilkan di layar" dan
+  "Ini kartunya lagi, Master." walaupun tidak ada yang tampil. Lewat HP dan `waifu chat`
+  kartunya tetap tampil.
 - Kartu yang ditutup dengan × muncul lagi kalau halaman avatar dimuat ulang (misalnya sesudah
   GPU reset saat game fullscreen) selagi waktunya belum habis.
 - Tautan hanya dikenali kalau ditulis lengkap dengan `http://` atau `https://`.
-- Ollama (`qwen3:8b`) kadang menulis tanda kartunya kurang rapi. Tanda `[[kartu: ...]]` dan isi
-  kartu tetap tidak pernah dibacakan, paling buruk kartunya tidak tampil.
+- Ollama (`qwen3:8b`) kadang menulis tanda kartunya kurang rapi. Tanda yang dikenali
+  (`[[kartu: ...]]` dengan berbagai variasinya, `[kartu: ...]`, atau `[kartu ...]` sebaris
+  sendiri) dan isi kartunya tidak pernah dibacakan. Tanda yang tidak dikenali sama sekali,
+  misalnya baris "Kartu: Cuaca" tanpa kurung siku, tidak membuat kartu: seluruh jawabannya
+  dibacakan seperti sebelum ada kartu teks.
 
 ## Jalan otomatis saat login
 
