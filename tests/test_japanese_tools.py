@@ -479,7 +479,7 @@ def test_a_word_not_in_the_list_is_added_as_master_s_own_and_waits_from_today(ri
 def test_a_word_added_twice_is_there_already(rig):
     rig.ask(ISEKAI)
 
-    answer = rig.ask({"action": "add", "kana": "いせかい", "meaning": "isekai"})
+    answer = rig.ask({"action": "add", "kana": "いせかい", "meaning": "dunia lain"})
 
     assert answer == {
         "already": True,
@@ -505,6 +505,41 @@ def test_a_word_of_the_list_is_learned_from_the_list_instead(rig, kanji):
     assert rig.store.custom_words() == {}
     assert rig.store.progress() == {NEKO.id: WordProgress(1, TODAY, TODAY)}
     assert rig.ask({"action": "add", "kana": "ねこ", "meaning": "kucing"})["new"] is False
+
+
+@pytest.mark.parametrize(
+    ("kana", "kanji", "meaning", "listed_id"),
+    [
+        ("はい", "肺", "paru-paru", "w016"),  # はい "ya", no kanji in the list
+        ("いる", "要る", "perlu", "w174"),  # いる "ada, untuk makhluk hidup"
+        ("いる", None, "perlu", "w174"),
+        ("かえる", None, "katak", "w159"),  # 帰る "pulang"
+    ],
+    ids=["hai-lung", "iru-need", "iru-need-in-kana", "kaeru-frog-in-kana"],
+)
+def test_a_word_sharing_only_its_reading_with_one_of_the_list_is_master_s_own(
+    rig, kana, kanji, meaning, listed_id
+):
+    assert next(word for word in WORDS if word.id == listed_id).kana == kana
+
+    answer = rig.ask({"action": "add", "kana": kana, "kanji": kanji, "meaning": meaning})
+
+    assert answer == {
+        "added": True,
+        "word_id": "c1",
+        "kana": kana,
+        "kanji": kanji,
+        "meaning": meaning,
+    }
+    assert rig.store.custom_words() == {"c1": CustomWord(kana, kanji, meaning, TODAY)}
+    assert rig.store.progress() == {"c1": WordProgress(1, TODAY, TODAY)}
+
+
+def test_a_word_of_the_list_given_in_kana_with_its_meaning_is_learned_from_the_list(rig):
+    answer = rig.ask({"action": "add", "kana": "かえる", "meaning": "Pulang"})
+
+    assert (answer["built_in"], answer["word_id"]) == (True, "w159")
+    assert rig.store.custom_words() == {}
 
 
 def test_the_words_are_taken_as_written_with_their_spaces_trimmed(rig):

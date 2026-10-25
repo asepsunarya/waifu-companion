@@ -175,7 +175,7 @@ class JapaneseTools:
         if self._guest_mode is not None and self._guest_mode():
             raise _LessonError(_ADD_IN_GUEST_MODE)
         for word in self._words:
-            if same_word(kana, kanji, word.kana, word.kanji):
+            if same_word(kana, kanji, meaning, word):
                 new = self._store.learn(word.id, today)
                 logger.info("Kept a word of the list for Master's lessons (%s)", word.id)
                 return {"built_in": True, "new": new, **_quiz_json(word.id, word)}

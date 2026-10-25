@@ -69,6 +69,8 @@ _KANJI_FORM = re.compile(
     rf"[{_IDEOGRAPH}\u3005\u3041-\u3096\u30a1-\u30fa\u30fc]{{1,{MAX_KANJI_CHARS}}}"
 )
 _HAS_IDEOGRAPH = re.compile(f"[{_IDEOGRAPH}]")
+# Runs of letters and digits in a meaning.
+_MEANING_WORD = re.compile(r"[^\W_]+")
 
 # One lock for every store: two stores on the same file in this process must not lose each
 # other's words.
@@ -126,10 +128,20 @@ def is_meaning(text: str) -> bool:
     return 0 < len(text) <= MAX_MEANING_CHARS and text.isprintable()
 
 
-def same_word(kana: str, kanji: str | None, other_kana: str, other_kanji: str | None) -> bool:
-    """Whether two words are one: the same reading, and the same written form unless one of
-    them was given without it."""
-    return kana == other_kana and (kanji is None or other_kanji is None or kanji == other_kanji)
+def same_word(kana: str, kanji: str | None, meaning: str, other: Word | CustomWord) -> bool:
+    """Whether a word is `other`: the same reading, and the same written form; when either of
+    them was given without one, the same meaning instead (the words of one, ignoring case, all
+    among the other's), since words read alike may be others (はい "ya", 肺 "paru-paru")."""
+    if kana != other.kana:
+        return False
+    if kanji is not None and other.kanji is not None:
+        return kanji == other.kanji
+    words, other_words = _meaning_words(meaning), _meaning_words(other.meaning)
+    return bool(words and other_words) and (words <= other_words or other_words <= words)
+
+
+def _meaning_words(meaning: str) -> set[str]:
+    return set(_MEANING_WORD.findall(meaning.casefold()))
 
 
 def load_words(path: Path = WORDS_FILE) -> tuple[Word, ...]:
@@ -268,7 +280,7 @@ class JapaneseStore:
         with _LOCK:
             words, custom = self._read(now)
             for word_id, word in custom.items():
-                if same_word(kana, kanji, word.kana, word.kanji):
+                if same_word(kana, kanji, meaning, word):
                     return word_id, False
             if len(custom) >= MAX_CUSTOM_WORDS:
                 raise DeckFull(f"Master already kept {MAX_CUSTOM_WORDS} words")

@@ -6406,9 +6406,10 @@ dilatih: "simpan kata itu" atau "masukin ke latihan" (sesudah terjemahannya cuku
 - Dia menyimpan cara bacanya (1-20 huruf kana), tulisan kanjinya kalau ada (1-20 huruf, minimal
   satu kanji), dan artinya (satu baris, paling banyak 80 huruf). Kata baru masuk kotak 1 dan
   sudah bisa ditanya hari itu juga, lalu ikut kuis dan jadwal ulangan seperti kata dari daftar.
-- Kata yang ada di daftar 300 kata (cara baca sama, dan kanji sama atau salah satunya tanpa kanji)
-  dipelajari dari daftar itu, bukan disimpan dua kali; kata yang sudah pernah disimpan juga tidak
-  disimpan lagi.
+- Kata yang ada di daftar 300 kata (cara baca sama, dan kanji sama; kalau salah satunya tanpa
+  kanji, artinya yang sama) dipelajari dari daftar itu, bukan disimpan dua kali; kata yang sudah
+  pernah disimpan juga tidak disimpan lagi. Kata yang bunyinya sama tapi artinya lain (いる
+  "perlu" dan いる "ada", はし "sumpit" dan 橋 "jembatan") disimpan sebagai kata Master sendiri.
 - Paling banyak 200 kata. Belum bisa dihapus atau diubah lewat suara: untuk itu, sunting
   `data\japanese.json` (bagian `custom` dan kode kata `c1`, `c2`, ... di `words`) saat Cyrene
   mati.

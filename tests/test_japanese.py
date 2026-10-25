@@ -547,17 +547,17 @@ def test_each_added_word_takes_one_more_than_the_highest_id(tmp_path):
 
 
 @pytest.mark.parametrize(
-    ("kana", "kanji"),
-    [("いせかい", "異世界"), ("いせかい", None)],
-    ids=["same-kanji", "without-kanji"],
+    ("kana", "kanji", "meaning"),
+    [("いせかい", "異世界", "isekai"), ("いせかい", None, "dunia lain")],
+    ids=["same-kanji", "without-kanji-same-meaning"],
 )
-def test_a_word_added_already_is_that_word_and_nothing_is_written(tmp_path, kana, kanji):
+def test_a_word_added_already_is_that_word_and_nothing_is_written(tmp_path, kana, kanji, meaning):
     path = tmp_path / "japanese.json"
     store = make_store(path)
     store.add_custom("いせかい", "異世界", "dunia lain", DAY)
     before = stored_state(path)
 
-    assert store.add_custom(kana, kanji, "isekai", DAY + timedelta(days=2)) == ("c1", False)
+    assert store.add_custom(kana, kanji, meaning, DAY + timedelta(days=2)) == ("c1", False)
 
     assert stored_state(path) == before
 
@@ -574,6 +574,39 @@ def test_the_same_reading_with_another_kanji_form_is_another_word(tmp_path):
     store.add_custom("はし", "橋", "jembatan", DAY)
 
     assert store.add_custom("はし", "箸", "sumpit", DAY) == ("c2", True)
+
+
+@pytest.mark.parametrize(
+    ("first", "second"),
+    [
+        (("はし", None, "sumpit"), ("はし", "橋", "jembatan")),
+        (("はし", "橋", "jembatan"), ("はし", None, "sumpit")),
+        (("かえる", None, "katak"), ("かえる", None, "pulang")),
+    ],
+    ids=["first-without-kanji", "second-without-kanji", "both-without-kanji"],
+)
+def test_the_same_reading_without_a_kanji_form_and_another_meaning_is_another_word(
+    tmp_path, first, second
+):
+    store = make_store(tmp_path / "japanese.json")
+    store.add_custom(*first, DAY)
+
+    assert store.add_custom(*second, DAY) == ("c2", True)
+    assert [word.meaning for word in store.custom_words().values()] == [first[2], second[2]]
+
+
+@pytest.mark.parametrize(
+    "meaning",
+    ["Dunia Lain", "dunia lain (isekai)", "dunia"],
+    ids=["other-case", "more-words", "fewer-words"],
+)
+def test_without_a_kanji_form_a_meaning_holding_the_other_s_words_is_the_same_word(
+    tmp_path, meaning
+):
+    store = make_store(tmp_path / "japanese.json")
+    store.add_custom("いせかい", "異世界", "dunia lain", DAY)
+
+    assert store.add_custom("いせかい", None, meaning, DAY) == ("c1", False)
 
 
 def test_at_most_200_words_are_added(tmp_path):
