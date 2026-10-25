@@ -351,6 +351,17 @@ def test_the_card_note_lifts_the_persona_s_rules_only_inside_the_card():
     assert "Tag ekspresi tetap di awal jawabanmu" in note
 
 
+def test_the_card_note_asks_for_plain_lines_on_the_card_without_markdown():
+    # The avatar and the phone show the body as written: markdown would come out as raw symbols.
+    note = card_note(build_system_prompt("Kamu adalah {name}.", "Cyrene", house()))
+
+    assert "Di kartu juga jangan pakai markdown" in note
+    for symbol in ("tanda bintang", "#", "```", "tabel dengan |"):
+        assert symbol in note
+    assert '"- Rabu: hujan, 27°C"' in note
+    assert "kode tulis apa adanya, satu baris kode per baris dengan indentasinya" in note
+
+
 def test_with_web_search_urls_go_only_into_the_card():
     prompt = build_system_prompt("Kamu.", "Cyrene", house(), web_search=True)
 

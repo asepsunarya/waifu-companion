@@ -25,7 +25,8 @@ _TIME_NOTE = (
 )
 # Long content is shown, not read aloud (waifu.card splits the reply at the marker). It lifts the
 # persona's speaking rules (no list, no romaji, the emotion tag as the only bracket) only inside
-# the card, and never says "web", which only the web search note may.
+# the card, keeps markdown out of it too (the pages show its lines as written), and never says
+# "web", which only the web search note may.
 _CARD_NOTE = (
     "Kartu teks: jawabanmu diubah menjadi suara, jadi isi yang panjang jangan dibacakan "
     "semuanya. Kalau jawabanmu memuat daftar lebih dari tiga hal, jadwal, tabel, tautan, kode, "
@@ -36,7 +37,10 @@ _CARD_NOTE = (
     "sebelum [[kartu: ...]] yang dibacakan; isi kartu hanya ditampilkan di layar. Jadi aturan "
     "cara bicaramu berlaku untuk bagian yang dibacakan, sedangkan di dalam kartu kamu boleh "
     'menulis baris biasa, daftar dengan "- " di awal baris, URL lengkap, romaji, dan cara baca '
-    "dengan kana. Tag ekspresi tetap di awal jawabanmu, dan [[kartu: ...]] adalah satu-satunya "
+    "dengan kana. Di kartu juga jangan pakai markdown (tanda bintang, #, ```, atau tabel dengan "
+    '|): tulis tabel sebagai satu baris per hal, misalnya "- Rabu: hujan, 27°C", dan kode tulis '
+    "apa adanya, satu baris kode per baris dengan indentasinya. "
+    "Tag ekspresi tetap di awal jawabanmu, dan [[kartu: ...]] adalah satu-satunya "
     "kurung siku lain yang boleh kamu tulis. Tulis paling banyak satu kartu, dan jangan memakai "
     "kartu untuk jawaban yang pendek."
 )
