@@ -51,6 +51,7 @@ from waifu.brain.alarm_tools import AlarmTools
 from waifu.brain.app_reminder_tools import AppReminderTools
 from waifu.brain.attachments import CameraTurn, TurnImages
 from waifu.brain.base import Brain, BrainReply, ToolCallRecord
+from waifu.brain.clipboard_tools import ClipboardTools
 from waifu.brain.finance_tools import FinanceTools
 from waifu.brain.focus_tools import FocusTools
 from waifu.brain.guest_tools import GuestTools
@@ -2030,6 +2031,15 @@ def test_chat_ends_at_end_of_input_and_shows_tool_calls_when_verbose(
     assert "control_device" in out
     assert '"device": "lampu_kamar"' in out
     assert "berhasil (simulasi)" in out
+
+
+def test_chat_verbose_shows_what_master_copied_only_as_a_length():
+    result = '{"ok":true,"text":"COPIEDSENTINEL","chars":14,"cut":false,"note":"data"}'
+
+    line = cli._describe_tool_call(ToolCallRecord("read_clipboard", {}, result, False))
+
+    assert "COPIEDSENTINEL" not in line
+    assert line == f"  [read_clipboard] {{}} -> … ({len(result)} characters)"
 
 
 def test_chat_reads_piped_japanese_as_utf8(home, brains, monkeypatch):
@@ -5987,6 +5997,7 @@ def test_run_with_the_games_on_gives_the_brain_the_game_tools_and_watches_while_
         app_reminder,
         offers,
         music,
+        clipboard,
     ] = brains[0].providers
     assert (
         type(guest),
@@ -6006,6 +6017,7 @@ def test_run_with_the_games_on_gives_the_brain_the_game_tools_and_watches_while_
         type(app_reminder),
         type(offers),
         type(music),
+        type(clipboard),
     ) == (
         GuestTools,
         VoiceVolumeTools,
@@ -6024,6 +6036,7 @@ def test_run_with_the_games_on_gives_the_brain_the_game_tools_and_watches_while_
         AppReminderTools,
         OffersTools,
         MusicTools,
+        ClipboardTools,
     )
     assert (type(data_tools), type(income), type(code_tools), type(weekly)) == (
         GameDataTools,
@@ -6165,6 +6178,7 @@ def test_run_without_a_cookie_has_the_game_tools_but_no_watcher(
         AppReminderTools,
         OffersTools,
         MusicTools,
+        ClipboardTools,
     ]
     assert watchers == []
 
@@ -6190,6 +6204,7 @@ def test_run_with_the_games_off_builds_none_of_it(home, run_fakes, brains, games
         AppReminderTools,
         OffersTools,
         MusicTools,
+        ClipboardTools,
     ]
 
 
@@ -6220,6 +6235,7 @@ def test_chat_with_the_games_on_gives_the_brain_the_game_tools(home, brains, gam
         AppReminderTools,
         OffersTools,
         MusicTools,
+        ClipboardTools,
     ]
 
 
@@ -7245,9 +7261,9 @@ def test_run_gives_the_brain_her_memory_tools_and_the_notes_at_each_session_star
 
     brain = brains[0]
     # After guest mode's and the voice volume's tools, then the schedule, to-do, journal,
-    # focus, recap, briefing, PC, the internet, play time, game start reminders, offers, and
-    # music.
-    [_, _, tools, _, _, _, _, _, _, _, _, _, _, _, _, _] = brain.providers
+    # focus, recap, briefing, PC, the internet, play time, game start reminders, offers, music,
+    # and the clipboard.
+    [_, _, tools, _, _, _, _, _, _, _, _, _, _, _, _, _, _] = brain.providers
     assert isinstance(tools, MemoryTools)
     assert brain.memory_section() == memory_prompt_section([])
     assert tools.run("remember", {"text": "Master alergi udang."})[1] is False
@@ -7280,6 +7296,7 @@ def test_chat_gives_the_brain_the_notes_saved_in_data_memory_json(home, brains, 
         AppReminderTools,
         OffersTools,
         MusicTools,
+        ClipboardTools,
     ]
     assert "Master suka kopi." in brains[0].memory_section()
 
@@ -7309,6 +7326,7 @@ def test_with_the_memory_off_the_brain_gets_neither_the_tools_nor_the_notes(
         AppReminderTools,
         OffersTools,
         MusicTools,
+        ClipboardTools,
     ]
     assert brains[0].memory_section is None
     assert not memory_file(home).exists()
@@ -7737,6 +7755,7 @@ def test_run_gives_the_brain_the_schedule_tools_and_fires_her_schedule_while_she
         AppReminderTools,
         OffersTools,
         MusicTools,
+        ClipboardTools,
     ]
     [scheduler] = schedulers
     assert scheduler.states == ["started", "stopped"]
@@ -8033,6 +8052,7 @@ def test_with_the_schedule_off_she_gets_neither_the_tools_nor_a_scheduler(
         AppReminderTools,
         OffersTools,
         MusicTools,
+        ClipboardTools,
     ]
     assert schedulers == []
     assert not schedule_file(home).exists()
@@ -8714,6 +8734,7 @@ def test_with_claude_she_may_look_at_the_screen_at_the_configured_size(
         OffersTools,
         MusicTools,
         ScreenTools,
+        ClipboardTools,
         UsageTools,
     ]
     screen = screen_tools(brains[0])
@@ -8871,6 +8892,7 @@ def test_without_claude_or_with_vision_off_the_brain_gets_no_screen_tool(
         AppReminderTools,
         OffersTools,
         MusicTools,
+        ClipboardTools,
         *([UsageTools] if claude else []),  # what her requests cost, with Claude only
     ]
     assert capture.sizes == []
@@ -9062,7 +9084,7 @@ def test_run_greets_once_a_day_while_she_listens_and_pushes_the_greeting_to_the_
 
     assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
 
-    assert [type(tools) for tools in brains[0].providers][-7:] == [
+    assert [type(tools) for tools in brains[0].providers][-8:] == [
         BriefingTools,
         PcTools,
         NetworkTools,
@@ -9070,6 +9092,7 @@ def test_run_greets_once_a_day_while_she_listens_and_pushes_the_greeting_to_the_
         AppReminderTools,
         OffersTools,
         MusicTools,
+        ClipboardTools,
     ]
     [timer] = briefing_timers
     assert timer.listening == [False, True]
@@ -9135,7 +9158,7 @@ def test_chat_gives_the_brain_the_briefing_tool_but_never_greets_by_herself(
 
     assert cli.main(["chat", "--dry-run"]) == 0
 
-    assert [type(tools) for tools in brains[0].providers][-7:] == [
+    assert [type(tools) for tools in brains[0].providers][-8:] == [
         BriefingTools,
         PcTools,
         NetworkTools,
@@ -9143,6 +9166,7 @@ def test_chat_gives_the_brain_the_briefing_tool_but_never_greets_by_herself(
         AppReminderTools,
         OffersTools,
         MusicTools,
+        ClipboardTools,
     ]
     assert briefing_timers == []
 
@@ -9173,6 +9197,7 @@ def test_with_the_briefing_off_she_gets_neither_the_tool_nor_the_greeting(
         AppReminderTools,
         OffersTools,
         MusicTools,
+        ClipboardTools,
     ]
     assert briefing_timers == []
 
@@ -9695,7 +9720,7 @@ def test_run_gives_the_brain_the_forecast_right_after_the_briefing_and_asks_noth
 
     assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
 
-    assert [type(tools) for tools in brains[0].providers][-8:] == [
+    assert [type(tools) for tools in brains[0].providers][-9:] == [
         BriefingTools,
         WeatherForecastTools,
         PcTools,
@@ -9704,6 +9729,7 @@ def test_run_gives_the_brain_the_forecast_right_after_the_briefing_and_asks_noth
         AppReminderTools,
         OffersTools,
         MusicTools,
+        ClipboardTools,
     ]
     assert open_meteo.urls == []
 
@@ -14521,6 +14547,7 @@ def test_run_gives_the_brain_the_prayer_tool_right_after_the_briefing(
         AppReminderTools,
         OffersTools,
         MusicTools,
+        ClipboardTools,
     ]
     answer = ask_prayer_times(brains[0])
     # Without briefing.city the place has no name, and its coordinates are never told.
@@ -15041,13 +15068,14 @@ def test_run_gives_the_brain_the_offers_tools_and_watches_for_offers_while_she_l
 
     assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
 
-    assert [type(tools) for tools in brains[0].providers][-6:] == [
+    assert [type(tools) for tools in brains[0].providers][-7:] == [
         PcTools,
         NetworkTools,
         PlayTimeTools,
         AppReminderTools,
         OffersTools,
         MusicTools,
+        ClipboardTools,
     ]
     [watcher] = offers_watchers
     assert watcher.config == FreeOffersConfig()  # the example config's settings
@@ -16901,6 +16929,7 @@ def test_run_gives_the_brain_her_to_do_tools_and_the_tasks_due_today_in_the_brie
         AppReminderTools,
         OffersTools,
         MusicTools,
+        ClipboardTools,
     ]
     tools = todo_tools(brain)
     today = date.today()
@@ -16943,7 +16972,9 @@ def test_chat_gives_the_brain_the_tasks_saved_in_data_todo_json_with_either_back
         AppReminderTools,
         OffersTools,
         MusicTools,
-        *([ScreenTools, UsageTools] if claude else []),
+        *([ScreenTools] if claude else []),
+        ClipboardTools,
+        *([UsageTools] if claude else []),
     ]
     listed = json.loads(todo_tools(brains[0]).run("list_tasks", {})[0])
     assert listed["open"] == [
@@ -16979,6 +17010,7 @@ def test_with_the_todo_list_off_the_brain_gets_neither_the_tools_nor_the_tasks(
         AppReminderTools,
         OffersTools,
         MusicTools,
+        ClipboardTools,
     ]
     assert "tasks" not in daily_briefing(brains[0])
     assert not todo_file(home).exists()
@@ -17267,6 +17299,7 @@ def test_run_gives_the_brain_her_journal_tools_right_after_the_to_do_tools(
         AppReminderTools,
         OffersTools,
         MusicTools,
+        ClipboardTools,
     ]
     tools = journal_tools(brains[0])
     result, is_error = tools.run("journal_write", {"text": "Laporannya selesai"})
@@ -17682,6 +17715,7 @@ def test_run_gives_the_brain_the_lesson_tool_right_after_the_focus_timer(
         AppReminderTools,
         OffersTools,
         MusicTools,
+        ClipboardTools,
     ]
     today = JAPANESE_NOW.date()
     word = word_of_the_day(WORDS, today)
@@ -18030,6 +18064,7 @@ def test_the_claude_request_with_every_tool_on_stays_within_the_strict_tool_limi
         "alarm",
         "app_reminder",
         "network_status",
+        "read_clipboard",
         *FINANCE_TOOLS,
     } <= names
     # Every tool is either closed in guest mode or still open: a new one must be sorted.
@@ -18071,6 +18106,7 @@ def test_the_claude_request_with_every_tool_on_stays_within_the_strict_tool_limi
         "alarm",
         "app_reminder",
         "network_status",
+        "read_clipboard",
     }
     assert not not_strict & {tool["name"] for tool in strict}
 
@@ -18146,7 +18182,9 @@ def test_run_and_chat_give_the_brain_the_music_tool_with_either_backend(
         AppReminderTools,
         OffersTools,
         MusicTools,
-        *([ScreenTools, UsageTools] if claude else []),
+        *([ScreenTools] if claude else []),
+        ClipboardTools,
+        *([UsageTools] if claude else []),
     ]
     tools = music_tools(brains[0])
     tools.begin_turn("Cyrene, putar lagu Hope Is the Thing With Feathers")
@@ -18248,6 +18286,7 @@ def test_with_music_off_the_brain_gets_no_music_tool(
         PlayTimeTools,
         AppReminderTools,
         OffersTools,
+        ClipboardTools,
     ]
     assert opener.links == []
 
@@ -18599,7 +18638,7 @@ def test_run_with_tepira_on_reads_master_s_money_after_the_free_offers(
 
     assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
 
-    assert [type(tools) for tools in brains[0].providers][-7:] == [
+    assert [type(tools) for tools in brains[0].providers][-8:] == [
         PcTools,
         NetworkTools,
         PlayTimeTools,
@@ -18607,6 +18646,7 @@ def test_run_with_tepira_on_reads_master_s_money_after_the_free_offers(
         OffersTools,
         FinanceTools,
         MusicTools,
+        ClipboardTools,
     ]
     [(http, url, token)] = tepira.built
     assert isinstance(http, httpx.Client)

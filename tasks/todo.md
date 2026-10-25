@@ -3249,11 +3249,11 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 340a · **Files:** `src/waifu/clipboard.py`, `tests/test_clipboard.py`, `tests/conftest.py` · **Scope:** M
 
-## Task 341: The `read_clipboard` tool
+## Task 341: The `read_clipboard` tool ✅
 
 **Acceptance criteria:**
-- [ ] The tool reads only in a turn whose own words name the copy (her names left out), once per turn, takes no argument, and is not strict; its result holds the text (at most 2000 characters, `cut`) and a note that it is data; every refusal leaves the content out
-- [ ] It is in guest mode's `PRIVATE_TOOLS`, in the full chat request, and not strict; `logged_result` keeps its text out of the DEBUG lines and `waifu chat --verbose`
+- [x] The tool reads only in a turn whose own words name the copy (her names left out), once per turn, takes no argument, and is not strict; its result holds the text (at most 2000 characters, `cut`) and a note that it is data; every refusal leaves the content out
+- [x] It is in guest mode's `PRIVATE_TOOLS`, in the full chat request, and not strict; `logged_result` keeps its text out of the DEBUG lines and `waifu chat --verbose`
 
 **Dependencies:** 340 · **Files:** `src/waifu/brain/clipboard_tools.py`, `src/waifu/brain/tools.py`, `src/waifu/guest.py`, `src/waifu/app.py`, `src/waifu/brain/ollama_brain.py`, `src/waifu/cli.py`, tests · **Scope:** M
 

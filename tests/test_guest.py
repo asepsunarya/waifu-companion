@@ -4,6 +4,7 @@ from datetime import datetime
 import pytest
 
 from waifu.brain.app_reminder_tools import APP_REMINDER
+from waifu.brain.clipboard_tools import READ_CLIPBOARD
 from waifu.brain.focus_tools import FOCUS_TIMER
 from waifu.brain.japanese_tools import JAPANESE_LESSON
 from waifu.brain.memory_tools import FORGET, REMEMBER
@@ -248,4 +249,5 @@ def test_the_private_tools_are_master_s_own_records_and_accounts():
         CANCEL_SCHEDULE,
         API_USAGE,
         LOOK_AT_SCREEN,
+        READ_CLIPBOARD,
     } == PRIVATE_TOOLS

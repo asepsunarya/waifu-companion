@@ -73,6 +73,8 @@ PRIVATE_TOOLS = frozenset(
         "api_usage",
         # Screen: the PC may show private things
         "look_at_screen",
+        # Clipboard: what Master copied may be private too
+        "read_clipboard",
     }
 )
 _LOG_TIME = "%Y-%m-%d %H:%M"

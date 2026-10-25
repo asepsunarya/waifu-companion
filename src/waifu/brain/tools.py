@@ -17,6 +17,7 @@ from collections.abc import Callable, Mapping, Sequence
 from typing import Any, Protocol
 
 from waifu.brain.base import ToolCallRecord, ToolSpec
+from waifu.brain.clipboard_tools import READ_CLIPBOARD
 from waifu.brain.confirm import ConfirmationGate
 from waifu.devices.base import Device
 from waifu.devices.registry import KIND_VALUE_RANGES, DeviceRegistry
@@ -31,6 +32,9 @@ TOOL_NAMES = (CONTROL_DEVICE, LIST_DEVICES)
 # Tools whose arguments are Master's money (an amount, what it was for, a wallet, a goal) or
 # Master's journal: the INFO log, logs\waifu.log under autostart, shows them as "…".
 PRIVATE_ARGUMENT_TOOLS = frozenset(FINANCE_TOOLS + JOURNAL_TOOLS)
+# Tools whose result is whatever Master copied (maybe a password a check missed): every log,
+# DEBUG and `waifu chat --verbose` included, shows only its length.
+PRIVATE_RESULT_TOOLS = frozenset({READ_CLIPBOARD})
 
 # A trailing number without leading zeros, so command `temp` + value 24 selects `temp_24`.
 _NUMBERED_COMMAND = re.compile(r"^(?P<base>.+)_(?P<value>0|[1-9][0-9]*)$")
@@ -133,6 +137,12 @@ def logged_arguments(name: str, arguments: object) -> object:
     """What the INFO line of a tool call shows of its arguments: "…" for a tool in
     PRIVATE_ARGUMENT_TOOLS, else the arguments themselves. Results are logged only at DEBUG."""
     return "…" if name in PRIVATE_ARGUMENT_TOOLS else arguments
+
+
+def logged_result(name: str, result: str) -> str:
+    """What a DEBUG line of a tool call (and `waifu chat --verbose`) shows of its result:
+    "… (N characters)" for a tool in PRIVATE_RESULT_TOOLS, else the result itself."""
+    return f"… ({len(result)} characters)" if name in PRIVATE_RESULT_TOOLS else result
 
 
 def held_for_yes(record: ToolCallRecord) -> bool:

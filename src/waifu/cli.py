@@ -60,6 +60,7 @@ from waifu.brain.alarm_tools import AlarmTools
 from waifu.brain.app_reminder_tools import AppReminderTools
 from waifu.brain.attachments import CameraTurn, TurnImages
 from waifu.brain.base import Brain, ToolCallRecord
+from waifu.brain.clipboard_tools import ClipboardTools
 from waifu.brain.confirm import ConfirmationGate
 from waifu.brain.factory import build_brain, confirmation_gate
 from waifu.brain.finance_tools import FinanceTools
@@ -79,7 +80,7 @@ from waifu.brain.recap_tools import DailyRecapTools
 from waifu.brain.schedule_tools import ScheduleTools
 from waifu.brain.screen_tools import ScreenTools
 from waifu.brain.todo_tools import TodoTools
-from waifu.brain.tools import ToolProvider
+from waifu.brain.tools import ToolProvider, logged_result
 from waifu.brain.usage_tools import UsageTools
 from waifu.brain.voice_volume_tools import VoiceVolumeTools
 from waifu.brain.weather_tools import (
@@ -2094,9 +2095,10 @@ def _companion_brain(
     long Master's games were open when play time is on (and with app reminders on, his reminders
     for a game's next start), the free offers when they are on (their
     links pushed through `notifier`), Master's money from tepira when it is on, songs on YouTube
-    when they are on, with Claude her eyes on the screen when vision is on, and with `usage`
-    what her requests cost. With `game_data` (only `run` has one), the game data tools are that
-    one, whose rosters join Whisper's hotwords and whose calendars the gacha planner shares.
+    when they are on, with Claude her eyes on the screen when vision is on, what Master copied on
+    the PC when his own words name it, and with `usage` what her requests cost. With `game_data`
+    (only `run` has one), the game data tools are that one, whose rosters join Whisper's hotwords
+    and whose calendars the gacha planner shares.
 
     With memory, every new session lists the notes as they are in the file at that moment.
     The to-do list is the real one also in a dry run (it moves no device), and the briefing
@@ -2214,6 +2216,11 @@ def _companion_brain(
                 camera_turn=camera_turn,
             )
         )
+    # What Master copied on the PC, read only when his own words name it, with her names, wake
+    # words, and what she calls the owner left out; both brains, no switch: guest mode closes it.
+    providers.append(
+        ClipboardTools(names=[config.assistant.name, *config.assistant.wake_words, owner_call])
+    )
     if usage is not None:
         providers.append(UsageTools(usage.ledger, idr_per_usd=config.usage.idr_per_usd))
     on_usage = None if usage is None else usage.record
@@ -2245,7 +2252,7 @@ def _companion_brain(
 def _describe_tool_call(call: ToolCallRecord) -> str:
     arguments = json.dumps(call.arguments, ensure_ascii=False)
     failed = " (gagal)" if call.is_error else ""
-    return f"  [{call.name}] {arguments} -> {call.result}{failed}"
+    return f"  [{call.name}] {arguments} -> {logged_result(call.name, call.result)}{failed}"
 
 
 def _speak(

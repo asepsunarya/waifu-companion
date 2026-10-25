@@ -97,7 +97,7 @@ from waifu.avatar.lipsync import viseme_track
 from waifu.brain.attachments import CameraTurn, TurnImages
 from waifu.brain.base import Brain, BrainReply, ToolCallRecord, ToolImage
 from waifu.brain.confirm import AFFIRMATIVE_WORDS, RECORD_ORDER_WORDS, is_yes
-from waifu.brain.tools import logged_arguments
+from waifu.brain.tools import logged_arguments, logged_result
 from waifu.card import Card, card_message, is_card_request, split_card
 from waifu.config import AppConfig
 from waifu.gate import WakeGate
@@ -1558,11 +1558,12 @@ class Assistant:
                 self._drop_card()
         for call in reply.tool_calls:
             # The result itself only at DEBUG: the INFO log (logs\waifu.log under autostart)
-            # must not collect the owner's pull history, nor a finance or journal call's arguments.
+            # must not collect the owner's pull history, nor a finance or journal call's arguments;
+            # what Master copied reaches no log at all.
             outcome = "error" if call.is_error else "ok"
             arguments = logged_arguments(call.name, call.arguments)
             logger.info("Tool %s(%s) -> %s", call.name, arguments, outcome)
-            logger.debug("Tool %s result: %s", call.name, call.result)
+            logger.debug("Tool %s result: %s", call.name, logged_result(call.name, call.result))
         emotion, said, card = split_reply(reply, owner_call=self._owner_call)
         return emotion, said, None if switched else card
 

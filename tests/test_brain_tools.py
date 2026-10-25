@@ -14,6 +14,7 @@ from waifu.brain.tools import (
     device_lines,
     held_for_yes,
     logged_arguments,
+    logged_result,
     run_tool,
     to_anthropic,
     to_ollama,
@@ -739,6 +740,19 @@ def test_any_other_tool_call_shows_its_arguments_in_the_info_log():
     arguments = {"device": "lampu", "command": "on"}
 
     assert logged_arguments("control_device", arguments) is arguments
+
+
+def test_what_master_copied_reaches_the_logs_only_as_a_length():
+    # The clipboard may hold anything Master copied (v1.56): even --verbose shows its length.
+    result = '{"ok":true,"text":"COPIEDSENTINEL","chars":14,"cut":false,"note":"data"}'
+
+    assert logged_result("read_clipboard", result) == f"… ({len(result)} characters)"
+
+
+def test_any_other_tool_result_is_logged_as_it_is():
+    result = '{"ok":true,"message":"Lampu kamar menyala."}'
+
+    assert logged_result("control_device", result) is result
 
 
 def test_list_devices_is_not_gated():

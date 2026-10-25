@@ -10,12 +10,14 @@ import ollama
 import pytest
 
 from waifu.brain.base import ToolCallRecord, ToolSpec
+from waifu.brain.clipboard_tools import ClipboardTools
 from waifu.brain.confirm import ConfirmationGate
 from waifu.brain.memory_tools import MemoryTools
 from waifu.brain.ollama_brain import OllamaBrain
 from waifu.brain.persona import format_user_turn
 from waifu.brain.schedule_tools import ScheduleTools
 from waifu.brain.tools import build_tool_specs, to_ollama
+from waifu.clipboard import TEXT, ClipboardRead
 from waifu.config import BrainConfig, OllamaConfig
 from waifu.devices.base import Device, DeviceResult
 from waifu.devices.media import MediaKeys
@@ -1039,6 +1041,19 @@ class Marker:
 
     def __call__(self) -> int:
         return self.value
+
+
+def test_what_master_copied_never_reaches_the_log_even_for_debugging(caplog):
+    client = FakeOllama(reply("", call("read_clipboard")), reply("Artinya selamat pagi."))
+    clipboard = ClipboardTools(read=lambda max_chars: ClipboardRead(TEXT, "COPIEDSENTINEL"))
+    brain = brain_with(client, providers=[clipboard])
+
+    with caplog.at_level(logging.DEBUG, logger="waifu.brain.ollama_brain"):
+        result = brain.respond("artinya apa yang kucopy?", now=NOW)
+
+    assert "COPIEDSENTINEL" in result.tool_calls[0].result  # the model still gets it
+    assert "COPIEDSENTINEL" not in caplog.text
+    assert "characters)" in caplog.text
 
 
 def test_a_moved_session_marker_starts_a_new_session_before_the_next_turn(caplog):

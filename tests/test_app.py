@@ -907,6 +907,29 @@ def test_a_finance_tool_result_is_logged_only_for_debugging(caplog):
     assert [record.levelno for record in debug] == [logging.DEBUG]
 
 
+CLIPBOARD_RESULT = '{"ok":true,"text":"COPIEDSENTINEL","chars":14,"cut":false,"note":"data"}'
+
+
+class ClipboardBrain(FakeBrain):
+    """Answers with one read_clipboard call (v1.56) whose text is a sentinel."""
+
+    def respond(self, user_text: str, *, now: datetime | None = None) -> BrainReply:
+        call = ToolCallRecord("read_clipboard", {}, CLIPBOARD_RESULT, False)
+        return BrainReply("[senang] Artinya selamat pagi, Master.", [call])
+
+
+def test_what_master_copied_never_reaches_the_log_even_for_debugging(caplog):
+    rig = Rig(brain=ClipboardBrain)
+
+    with caplog.at_level(logging.DEBUG, logger="waifu.app"):
+        rig.assistant.handle_text("artinya apa yang kucopy?")
+
+    assert "COPIEDSENTINEL" not in caplog.text
+    assert f"Tool read_clipboard result: … ({len(CLIPBOARD_RESULT)} characters)" in (
+        caplog.messages
+    )
+
+
 # The avatar's interactions: busy, spoken reactions, and listening on a double-click
 
 

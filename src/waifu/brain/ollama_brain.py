@@ -38,7 +38,14 @@ from waifu.brain.confirm import ConfirmationGate
 from waifu.brain.memory_tools import changed_memory
 from waifu.brain.persona import format_user_turn
 from waifu.brain.session import SessionClock
-from waifu.brain.tools import ToolProvider, build_tool_specs, held_for_yes, run_tool, to_ollama
+from waifu.brain.tools import (
+    ToolProvider,
+    build_tool_specs,
+    held_for_yes,
+    logged_result,
+    run_tool,
+    to_ollama,
+)
 from waifu.config import AssistantConfig, BrainConfig
 from waifu.devices.registry import DeviceRegistry
 
@@ -207,7 +214,7 @@ class OllamaBrain(Brain):
                 confirmations=self._confirmations,
                 refusal=self._tool_refusal,
             )
-            logger.debug("Tool %s(%s) -> %s", name, arguments, result)
+            logger.debug("Tool %s(%s) -> %s", name, arguments, logged_result(name, result))
             records.append(ToolCallRecord(name, _as_dict(arguments), result, is_error))
             self._history.append({"role": "tool", "content": result, "tool_name": name})
 
