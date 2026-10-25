@@ -299,10 +299,12 @@ class Rig:
         speech: Speech | None = None,
         nods: NodBank | None = None,
         real_timers: bool = False,
+        network: Callable[[list[str]], object] | None = None,
     ) -> None:
         """`speech` voices her words in place of the rig's FakeSpeech (`self.speech`). Her
         filler timers are fakes (`self.timers`) that only the test fires, or with
-        `real_timers` the Assistant's own."""
+        `real_timers` the Assistant's own. `network` makes her answers about the internet from
+        the rig's event log (`self.network`)."""
         config = config or AppConfig()
         self.events: list[str] = []
         self.clock = FakeClock()
@@ -321,6 +323,7 @@ class Rig:
         played_through = volume is not None or alarm is not None
         self.timers = FakeTimers()
         timers = {} if real_timers else {"timer": self.timers}
+        self.network = None if network is None else network(self.events)
         self.assistant = Assistant(
             config,
             brain=self.brain,
@@ -347,6 +350,7 @@ class Rig:
             listen_pause=listen_pause,
             lexicon=lexicon,
             nods=nods,
+            network=self.network,
             **timers,
         )
 
@@ -4084,6 +4088,113 @@ def test_her_answer_never_reaches_the_info_log(caplog):
 
     assert "Telling what she heard last" in caplog.text
     assert UNADDRESSED not in caplog.text
+
+
+# --- "internetnya kenapa?" (pemantau internet) -------------------------------------------------
+
+NETWORK_ANSWER = "Master, internetnya putus: internet di luar tidak bisa dihubungi."
+
+
+class FakeNetwork:
+    """Her answers about the internet: records each topic asked, also in the rig's event log."""
+
+    def __init__(self, events: list[str], answer: str = NETWORK_ANSWER) -> None:
+        self.events = events
+        self.answer_text = answer
+        self.topics: list[str] = []
+
+    def answer(self, topic: str) -> str:
+        self.topics.append(topic)
+        self.events.append(f"network.answer {topic}")
+        return self.answer_text
+
+
+def test_she_answers_a_question_about_the_internet_from_a_check_without_the_brain():
+    rig = Rig("Cyrene, internetnya kenapa?", network=FakeNetwork)
+
+    said = rig.assistant.handle_utterance(rig.utterance())
+
+    assert said == NETWORK_ANSWER
+    assert rig.network.topics == ["internet"]
+    assert rig.speech.texts == [NETWORK_ANSWER]
+    assert rig.brain.turns == []
+    assert rig.gate.check("terus?").accepted is True  # said like a reply: the window opened
+
+
+def test_she_answers_a_question_about_the_hoyo_servers_with_their_topic():
+    rig = Rig("Cyrene, server HoYo down?", network=FakeNetwork)
+
+    rig.assistant.handle_utterance(rig.utterance())
+
+    assert rig.network.topics == ["hoyo"]
+    assert rig.brain.turns == []
+
+
+def test_she_looks_thinking_while_she_checks():
+    rig = Rig("Cyrene, kok lemot?", with_avatar=True, network=FakeNetwork)
+
+    rig.assistant.handle_utterance(rig.utterance())
+
+    thinking = rig.events.index("avatar.state thinking")
+    assert thinking < rig.events.index("network.answer internet") < rig.events.index("synthesize")
+
+
+def test_ulangi_repeats_her_answer_about_the_internet():
+    rig = Rig("Cyrene, internet mati ya?", "ulangi", network=FakeNetwork)
+    rig.assistant.handle_utterance(rig.utterance())
+    rig.clock.now += 2
+
+    assert rig.assistant.handle_utterance(rig.utterance()) == NETWORK_ANSWER
+    assert rig.network.topics == ["internet"]  # repeated, not checked again
+
+
+class UnreachableVoice(TextToSpeech):
+    """edge-tts without the internet: every text fails."""
+
+    def synthesize(self, text: str, language: str) -> tuple[np.ndarray, int]:
+        raise TtsError("Tidak bisa terhubung ke layanan suara Edge.")
+
+
+class OfflineVoice(TextToSpeech):
+    """The Windows fallback voice: records each text it speaks."""
+
+    rvc_pitch = None  # its voice needs no pitch of its own
+
+    def __init__(self) -> None:
+        self.texts: list[str] = []
+
+    def synthesize(self, text: str, language: str) -> tuple[np.ndarray, int]:
+        self.texts.append(text)
+        return np.zeros(240, dtype=np.float32), 24000
+
+
+def test_without_the_internet_her_answer_is_spoken_by_the_offline_fallback_voice():
+    offline = OfflineVoice()
+    router = SpeechRouter(
+        {"id": UnreachableVoice()}, default_language="id", fallbacks={"id": offline}
+    )
+    rig = Rig("Cyrene, internet mati ya?", network=FakeNetwork, speech=router)
+
+    rig.assistant.handle_utterance(rig.utterance())
+
+    assert offline.texts == [NETWORK_ANSWER]
+    assert rig.player.played == [24000]
+
+
+def test_without_the_watcher_a_question_about_the_internet_goes_to_the_brain():
+    rig = Rig("Cyrene, internetnya kenapa?")
+
+    assert rig.assistant.handle_utterance(rig.utterance()) == REPLY
+    assert asked(rig) == ["internetnya kenapa?"]
+
+
+def test_words_beyond_a_question_about_the_internet_go_to_the_brain():
+    rig = Rig("Cyrene, internetnya kenapa terus restart router", network=FakeNetwork)
+
+    rig.assistant.handle_utterance(rig.utterance())
+
+    assert rig.network.topics == []
+    assert asked(rig) == ["internetnya kenapa terus restart router"]
 
 
 # --- "cara baca X itu Y" (kamus cyrene) ---------------------------------------------------------

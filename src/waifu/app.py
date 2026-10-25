@@ -51,6 +51,11 @@ how long Whisper, the brain, and her voice took, for the phone's Suara page. Whe
 utterance asks what she heard ("tadi kamu denger apa?": `waifu.heard`), she tells the last one
 and why she did or did not act on it, like "ulangi" without the brain.
 
+With `network` (the internet watcher, `waifu.network_ask`), Master's whole question about the
+internet or the HoYo servers ("internetnya kenapa?", "server HoYo down?") is answered from a check
+made then, like "ulangi" without the brain, so also while Claude is out of reach; her offline
+fallback voice says it when edge-tts cannot be reached.
+
 The owner's paired phone (`waifu.phone`) talks to her from the phone server's threads:
 `reply_for_phone` and `transcribe_for_phone`, handed to the server as `PhoneAnswers`. Brain
 turns, the voice loop's and the phone's, are taken one at a time (the history is
@@ -105,6 +110,8 @@ from waifu.lexicon import (
     reading_request,
 )
 from waifu.listen_pause import ListenPause
+from waifu.network import Topic
+from waifu.network_ask import network_question
 from waifu.phone.server import PhoneReply
 from waifu.repeat import is_repeat_request
 from waifu.schedule import ScheduleError
@@ -280,6 +287,14 @@ class Segmenter(Protocol):
         ...
 
 
+class NetworkAnswer(Protocol):
+    """Her answer to Master's question about the internet (`NetworkAnswers`)."""
+
+    def answer(self, topic: Topic) -> str:
+        """What she says about `topic`, from a check made now; never raises."""
+        ...
+
+
 class Avatar(Protocol):
     """What the voice loop shows on the avatar (the `AvatarBus`)."""
 
@@ -427,6 +442,7 @@ class Assistant:
         lexicon: Lexicon | None = None,
         nods: NodBank | None = None,
         timer: TimerFactory = _daemon_timer,
+        network: NetworkAnswer | None = None,
     ) -> None:
         """`quiet` (the focus timer's `in_block`, in game mode also whether a game holds her
         announcements) says when what she would say by herself must wait: only `remind` is
@@ -439,7 +455,9 @@ class Assistant:
         each utterance she handles. While `listen_pause` holds, she does not hear Master.
         `lexicon` keeps the readings Master teaches with "cara baca X itu Y" and confirms.
         `nods` are her fillers, one of which she says when the brain has not answered Master's
-        words after `nod.after_ms` (counted by a `timer`); None: she waits silently."""
+        words after `nod.after_ms` (counted by a `timer`); None: she waits silently. With
+        `network` (the internet watcher on) she answers Master's whole question about the internet
+        or the HoYo servers ("internetnya kenapa?") herself, from a check made then."""
         self._name = config.assistant.name
         self._owner_call = config.assistant.owner_call
         # Left out around Master's "cara baca X itu Y" (`reading_request`).
@@ -472,6 +490,7 @@ class Assistant:
         self._lexicon = lexicon
         self._nods = nods
         self._nod_after_s = config.nod.after_ms / 1000
+        self._network = network
         self._timer = timer
         # The reading she last asked Master about, until his next turn takes it (`_ask_reading`).
         # Set and taken on the voice thread; any brain turn, also the phone's, drops it.
@@ -629,6 +648,8 @@ class Assistant:
         elif is_heard_request(result.command, self._names):
             hearing.heard_request = True
             reply_text, hearing.tts_s = self._tell_heard()
+        elif self._network is not None and (topic := network_question(result.command, self._names)):
+            reply_text, hearing.tts_s = self._tell_network(self._network, topic)
         elif self._lexicon is not None and (
             taught := reading_request(result.command, self._her_names, (self._owner_call,))
         ):
@@ -1249,6 +1270,18 @@ class Assistant:
         logger.info("Telling what she heard last")
         text = heard_answer(heard, self._owner_call)
         return text, self._speak(text)
+
+    def _tell_network(self, network: NetworkAnswer, topic: Topic) -> tuple[str, float | None]:
+        """Check the internet now and say how it is (`network.answer`) like a reply, without the
+        brain, so also while Claude is out of reach; returns what she said and how long its
+        synthesis took.
+
+        She looks thinking during the check (about 3 s at most). No turn is taken, so a question
+        waiting for Master's yes still waits; her words are her own, so "ulangi" repeats them.
+        """
+        self._show(lambda avatar: avatar.state("thinking"))
+        text = network.answer(topic)
+        return text, self._say_remembered(text, NEUTRAL, self._guest_generation())
 
     def _ask_reading(self, term: str, reading: str) -> tuple[str, float | None]:
         """Ask Master whether `term` is to be read as `reading`, naming both like a reply,
