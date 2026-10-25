@@ -16,6 +16,12 @@ The store of Master's words (`japanese.path`) follows the rules of `todo.py`: ev
 re-reads it, one lock serialises the calls of every store in this process, a write replaces it
 atomically, reading never creates it, and a file that is not such a store is moved aside, never
 overwritten. `waifu run` and `waifu chat` write it; `waifu jepang` only reads.
+
+Master may also keep words of his own ("simpan kata itu", v1.56): up to MAX_CUSTOM_WORDS, each
+its kana, its kanji form or none, and its Indonesian meaning, under the store's optional
+"custom" key with ids "c1", "c2", ...; their Leitner progress sits in "words" with the list's.
+A store without them is written exactly as v1.39 wrote it. An older build moves a store with
+them aside as broken (renamed, never deleted).
 """
 
 from __future__ import annotations
@@ -24,6 +30,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import threading
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
@@ -45,7 +52,23 @@ EPOCH = date(2026, 1, 1)
 MASTERED_BOX = 5
 STORE_VERSION = 1
 _STORE_KEYS = {"version", "words"}
+_CUSTOM_KEY = "custom"
 _PROGRESS_KEYS = {"box", "due", "learned"}
+_CUSTOM_WORD_KEYS = {"kana", "kanji", "meaning", "added"}
+_CUSTOM_ID = re.compile(r"c[1-9][0-9]*")
+MAX_CUSTOM_WORDS = 200
+MAX_KANA_CHARS = 20
+MAX_KANJI_CHARS = 20
+MAX_MEANING_CHARS = 80
+# A reading: hiragana, katakana, and the long vowel mark.
+_KANA_READING = re.compile(rf"[\u3041-\u3096\u30a1-\u30fa\u30fc]{{1,{MAX_KANA_CHARS}}}")
+# A written form: CJK ideographs (with extension A and the compatibility block), kana, the long
+# vowel mark, and the iteration mark 々; at least one ideograph.
+_IDEOGRAPH = "\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff"
+_KANJI_FORM = re.compile(
+    rf"[{_IDEOGRAPH}\u3005\u3041-\u3096\u30a1-\u30fa\u30fc]{{1,{MAX_KANJI_CHARS}}}"
+)
+_HAS_IDEOGRAPH = re.compile(f"[{_IDEOGRAPH}]")
 
 # One lock for every store: two stores on the same file in this process must not lose each
 # other's words.
@@ -70,6 +93,43 @@ class WordProgress:
     box: int  # 1 to MASTERED_BOX
     due: date
     learned: date
+
+
+@dataclass(frozen=True)
+class CustomWord:
+    """A word Master kept himself: its reading, its usual written form (None for kana alone),
+    its Indonesian meaning, and the day he added it."""
+
+    kana: str
+    kanji: str | None
+    meaning: str
+    added: date
+
+
+class DeckFull(Exception):
+    """Master already kept MAX_CUSTOM_WORDS words of his own."""
+
+
+def is_kana_reading(text: str) -> bool:
+    """Whether `text` is a reading: 1 to MAX_KANA_CHARS hiragana, katakana, or "ー"."""
+    return _KANA_READING.fullmatch(text) is not None
+
+
+def is_kanji_form(text: str) -> bool:
+    """Whether `text` is a written form: 1 to MAX_KANJI_CHARS characters, at least one of them
+    a CJK ideograph and the others kana, "ー", or "々"."""
+    return _KANJI_FORM.fullmatch(text) is not None and _HAS_IDEOGRAPH.search(text) is not None
+
+
+def is_meaning(text: str) -> bool:
+    """Whether `text` is a meaning: 1 to MAX_MEANING_CHARS characters on one line."""
+    return 0 < len(text) <= MAX_MEANING_CHARS and text.isprintable()
+
+
+def same_word(kana: str, kanji: str | None, other_kana: str, other_kanji: str | None) -> bool:
+    """Whether two words are one: the same reading, and the same written form unless one of
+    them was given without it."""
+    return kana == other_kana and (kanji is None or other_kanji is None or kanji == other_kanji)
 
 
 def load_words(path: Path = WORDS_FILE) -> tuple[Word, ...]:
@@ -167,33 +227,67 @@ class JapaneseStore:
         self._now = now
 
     def progress(self) -> dict[str, WordProgress]:
-        """Every learned word by id; a missing file is nothing learned and stays missing."""
+        """Every learned word by id, Master's own too; a missing file is nothing learned and
+        stays missing."""
         now = self._clock()
         with _LOCK:
-            return self._read(now)
+            return self._read(now)[0]
+
+    def custom_words(self) -> dict[str, CustomWord]:
+        """The words Master kept himself, by id in the order added."""
+        now = self._clock()
+        with _LOCK:
+            return self._read(now)[1]
 
     def learn(self, word_id: str, today: date) -> bool:
         """Put a word not learned yet into box 1, due `today`; True when it was new. A word
         already learned changes nothing and nothing is written."""
         now = self._clock()
         with _LOCK:
-            words = self._read(now)
+            words, custom = self._read(now)
             if word_id in words:
                 return False
             words[word_id] = WordProgress(1, today, today)
-            self._write(words)
+            self._write(words, custom)
             return True
+
+    def add_custom(
+        self, kana: str, kanji: str | None, meaning: str, today: date
+    ) -> tuple[str, bool]:
+        """Keep a word of Master's own in box 1, due `today`: (its id, whether it was new). A
+        word he kept already (`same_word`) is that word, and nothing is written. ValueError for
+        a word outside the rules (`is_kana_reading`, `is_kanji_form`, `is_meaning`); DeckFull
+        once he kept MAX_CUSTOM_WORDS."""
+        if not (
+            is_kana_reading(kana)
+            and (kanji is None or is_kanji_form(kanji))
+            and is_meaning(meaning)
+        ):
+            raise ValueError("not a word: a kana reading, a kanji form or None, and a meaning")
+        now = self._clock()
+        with _LOCK:
+            words, custom = self._read(now)
+            for word_id, word in custom.items():
+                if same_word(kana, kanji, word.kana, word.kanji):
+                    return word_id, False
+            if len(custom) >= MAX_CUSTOM_WORDS:
+                raise DeckFull(f"Master already kept {MAX_CUSTOM_WORDS} words")
+            word_id = f"c{max((int(known[1:]) for known in custom), default=0) + 1}"
+            custom[word_id] = CustomWord(kana, kanji, meaning, today)
+            words[word_id] = WordProgress(1, today, today)
+            self._write(words, custom)
+            return word_id, True
 
     def grade(self, word_id: str, correct: bool, today: date) -> WordProgress | None:
         """Write the `review` of Master's answer on `today`; None, writing nothing, for a word
         never learned."""
         now = self._clock()
         with _LOCK:
-            words = self._read(now)
+            words, custom = self._read(now)
             if word_id not in words:
                 return None
             words[word_id] = reviewed = review(words[word_id], correct, today)
-            self._write(words)
+            self._write(words, custom)
             return reviewed
 
     def _clock(self) -> datetime:
@@ -202,15 +296,15 @@ class JapaneseStore:
             raise ValueError("the Japanese lesson store's clock must give aware times")
         return now
 
-    def _read(self, now: datetime) -> dict[str, WordProgress]:
+    def _read(self, now: datetime) -> tuple[dict[str, WordProgress], dict[str, CustomWord]]:
         try:
             # utf-8-sig: Notepad may save the file with a byte order mark.
-            return _parse_progress(json.loads(self.path.read_text(encoding="utf-8-sig")))
+            return _parse_store(json.loads(self.path.read_text(encoding="utf-8-sig")))
         except FileNotFoundError:
-            return {}
+            return {}, {}
         except ValueError as problem:  # also bad JSON and bad UTF-8
             self._set_aside(problem, now)
-            return {}
+            return {}, {}
 
     def _set_aside(self, problem: ValueError, now: datetime) -> None:
         """Rename a file that is not a Japanese lesson file, so that no write ever replaces it."""
@@ -239,14 +333,14 @@ class JapaneseStore:
             target,
         )
 
-    def _write(self, words: Mapping[str, WordProgress]) -> None:
-        write_json_atomic(
-            self.path,
-            {
-                "version": STORE_VERSION,
-                "words": {word_id: _dump(words[word_id]) for word_id in sorted(words)},
-            },
-        )
+    def _write(self, words: Mapping[str, WordProgress], custom: Mapping[str, CustomWord]) -> None:
+        stored: dict[str, object] = {
+            "version": STORE_VERSION,
+            "words": {word_id: _dump(words[word_id]) for word_id in sorted(words)},
+        }
+        if custom:
+            stored[_CUSTOM_KEY] = {word_id: _dump_custom(word) for word_id, word in custom.items()}
+        write_json_atomic(self.path, stored)
 
 
 def learn_word_of_the_day(
@@ -265,10 +359,50 @@ def _dump(progress: WordProgress) -> dict[str, object]:
     }
 
 
-def _parse_progress(raw: object) -> dict[str, WordProgress]:
+def _dump_custom(word: CustomWord) -> dict[str, object]:
+    return {
+        "kana": word.kana,
+        "kanji": word.kanji,
+        "meaning": word.meaning,
+        "added": word.added.isoformat(),
+    }
+
+
+def _parse_store(raw: object) -> tuple[dict[str, WordProgress], dict[str, CustomWord]]:
+    """The words in `raw` and Master's own words; ValueError says what is wrong."""
+    if not isinstance(raw, dict) or raw.keys() - {_CUSTOM_KEY} != _STORE_KEYS:
+        raise ValueError(
+            f"expected an object with exactly the keys {sorted(_STORE_KEYS)}, and maybe "
+            f"{_CUSTOM_KEY!r}"
+        )
+    return _parse_progress(raw), _parse_custom(raw.get(_CUSTOM_KEY, {}))
+
+
+def _parse_custom(entries: object) -> dict[str, CustomWord]:
+    if not isinstance(entries, dict):
+        raise ValueError(f"{_CUSTOM_KEY} must be an object of word ids")
+    words: dict[str, CustomWord] = {}
+    for word_id, entry in entries.items():
+        at = f"{_CUSTOM_KEY}[{word_id!r}]"
+        if _CUSTOM_ID.fullmatch(word_id) is None:
+            raise ValueError(f"{at}: an added word's id must be c1, c2, ...")
+        if not isinstance(entry, dict) or entry.keys() != _CUSTOM_WORD_KEYS:
+            raise ValueError(
+                f"{at} must be an object with exactly the keys {sorted(_CUSTOM_WORD_KEYS)}"
+            )
+        kana, kanji, meaning = entry["kana"], entry["kanji"], entry["meaning"]
+        if not isinstance(kana, str) or not is_kana_reading(kana):
+            raise ValueError(f"{at}.kana must be 1-{MAX_KANA_CHARS} kana")
+        if kanji is not None and (not isinstance(kanji, str) or not is_kanji_form(kanji)):
+            raise ValueError(f"{at}.kanji must be 1-{MAX_KANJI_CHARS} characters with a kanji")
+        if not isinstance(meaning, str) or not is_meaning(meaning):
+            raise ValueError(f"{at}.meaning must be 1-{MAX_MEANING_CHARS} characters on a line")
+        words[word_id] = CustomWord(kana, kanji, meaning, _parse_day(entry["added"], f"{at}.added"))
+    return words
+
+
+def _parse_progress(raw: dict[str, object]) -> dict[str, WordProgress]:
     """The words in `raw`; ValueError says what is wrong."""
-    if not isinstance(raw, dict) or raw.keys() != _STORE_KEYS:
-        raise ValueError(f"expected an object with exactly the keys {sorted(_STORE_KEYS)}")
     version = raw["version"]
     if type(version) is not int or version != STORE_VERSION:
         raise ValueError(f"version must be {STORE_VERSION}")

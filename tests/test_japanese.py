@@ -19,7 +19,10 @@ import pytest
 import waifu
 from waifu.finance.values import WIB
 from waifu.japanese import (
+    MAX_CUSTOM_WORDS,
     WORDS_FILE,
+    CustomWord,
+    DeckFull,
     JapaneseStore,
     LessonCounts,
     Word,
@@ -484,3 +487,199 @@ def test_a_naive_clock_is_refused(tmp_path):
 
     with pytest.raises(ValueError, match="aware"):
         store.progress()
+
+
+# --- Master's own words (v1.56) ----------------------------------------------------------------
+
+ISEKAI = CustomWord("いせかい", "異世界", "dunia lain", DAY)
+ISEKAI_ENTRY = {
+    "kana": "いせかい",
+    "kanji": "異世界",
+    "meaning": "dunia lain",
+    "added": "2026-10-24",
+}
+
+
+def test_a_file_without_added_words_is_read_and_written_without_the_key(tmp_path):
+    path = tmp_path / "japanese.json"
+    store = make_store(path)
+    store.learn("w001", DAY)
+
+    assert store.custom_words() == {}
+    assert "custom" not in json.loads(path.read_text(encoding="utf-8"))
+
+
+def test_an_added_word_is_kept_with_its_day_and_waits_in_box_one_from_today(tmp_path):
+    path = tmp_path / "data" / "japanese.json"
+    store = make_store(path)
+
+    assert store.add_custom("いせかい", "異世界", "dunia lain", DAY) == ("c1", True)
+
+    assert json.loads(path.read_text(encoding="utf-8")) == {
+        "version": 1,
+        "words": {"c1": {"box": 1, "due": "2026-10-24", "learned": "2026-10-24"}},
+        "custom": {"c1": ISEKAI_ENTRY},
+    }
+    assert store.custom_words() == {"c1": ISEKAI}
+    assert store.progress() == {"c1": WordProgress(1, DAY, DAY)}
+
+
+def test_a_word_without_a_kanji_form_is_added_with_null(tmp_path):
+    store = make_store(tmp_path / "japanese.json")
+
+    store.add_custom("ガチャ", None, "undian berhadiah di game", DAY)
+
+    assert store.custom_words() == {
+        "c1": CustomWord("ガチャ", None, "undian berhadiah di game", DAY)
+    }
+
+
+def test_each_added_word_takes_one_more_than_the_highest_id(tmp_path):
+    path = tmp_path / "japanese.json"
+    path.write_text(
+        json.dumps({"version": 1, "words": {}, "custom": {"c7": ISEKAI_ENTRY}}), encoding="utf-8"
+    )
+    store = make_store(path)
+
+    assert store.add_custom("たこやき", "たこ焼き", "takoyaki", DAY) == ("c8", True)
+    assert store.add_custom("すし", "寿司", "sushi", DAY) == ("c9", True)
+    assert list(store.custom_words()) == ["c7", "c8", "c9"]
+
+
+@pytest.mark.parametrize(
+    ("kana", "kanji"),
+    [("いせかい", "異世界"), ("いせかい", None)],
+    ids=["same-kanji", "without-kanji"],
+)
+def test_a_word_added_already_is_that_word_and_nothing_is_written(tmp_path, kana, kanji):
+    path = tmp_path / "japanese.json"
+    store = make_store(path)
+    store.add_custom("いせかい", "異世界", "dunia lain", DAY)
+    before = stored_state(path)
+
+    assert store.add_custom(kana, kanji, "isekai", DAY + timedelta(days=2)) == ("c1", False)
+
+    assert stored_state(path) == before
+
+
+def test_a_word_added_without_kanji_is_the_same_word_given_with_one(tmp_path):
+    store = make_store(tmp_path / "japanese.json")
+    store.add_custom("いせかい", None, "dunia lain", DAY)
+
+    assert store.add_custom("いせかい", "異世界", "dunia lain", DAY) == ("c1", False)
+
+
+def test_the_same_reading_with_another_kanji_form_is_another_word(tmp_path):
+    store = make_store(tmp_path / "japanese.json")
+    store.add_custom("はし", "橋", "jembatan", DAY)
+
+    assert store.add_custom("はし", "箸", "sumpit", DAY) == ("c2", True)
+
+
+def test_at_most_200_words_are_added(tmp_path):
+    path = tmp_path / "japanese.json"
+    custom = {f"c{number}": ISEKAI_ENTRY for number in range(1, MAX_CUSTOM_WORDS + 1)}
+    path.write_text(json.dumps({"version": 1, "words": {}, "custom": custom}), encoding="utf-8")
+    before = stored_state(path)
+
+    with pytest.raises(DeckFull):
+        make_store(path).add_custom("すし", "寿司", "sushi", DAY)
+
+    assert MAX_CUSTOM_WORDS == 200
+    assert stored_state(path) == before
+
+
+def test_learning_and_grading_keep_the_added_words(tmp_path):
+    store = make_store(tmp_path / "japanese.json")
+    store.add_custom("いせかい", "異世界", "dunia lain", DAY)
+
+    store.learn("w001", DAY)
+    store.grade("c1", True, DAY)
+
+    assert store.custom_words() == {"c1": ISEKAI}
+    assert store.progress()["c1"] == WordProgress(2, DAY + timedelta(days=2), DAY)
+
+
+@pytest.mark.parametrize(
+    ("kana", "kanji", "meaning"),
+    [
+        ("たべもの", "食べ物", "makanan"),  # kana inside a kanji form
+        ("ひとびと", "人々", "orang-orang"),  # the iteration mark
+        ("ラーメン", None, "ramen"),  # katakana and the long vowel mark
+        ("あ" * 20, "亜" * 20, "m" * 80),  # the longest
+    ],
+)
+def test_added_words_take_kana_kanji_forms_and_meanings_within_their_limits(
+    tmp_path, kana, kanji, meaning
+):
+    store = make_store(tmp_path / "japanese.json")
+
+    store.add_custom(kana, kanji, meaning, DAY)
+
+    assert store.custom_words()["c1"] == CustomWord(kana, kanji, meaning, DAY)
+
+
+@pytest.mark.parametrize(
+    ("kana", "kanji", "meaning"),
+    [
+        ("", None, "kosong"),
+        ("neko", None, "kucing"),  # romaji
+        ("ねこ1", None, "kucing"),
+        ("ね こ", None, "kucing"),
+        ("猫", None, "kucing"),  # a kanji in the reading
+        ("あ" * 21, None, "terlalu panjang"),
+        ("ねこ", "", "kucing"),
+        ("ねこ", "ねこ", "kucing"),  # no kanji in the kanji form
+        ("ねこ", "猫cat", "kucing"),
+        ("ねこ", "亜" * 21, "kucing"),
+        ("ねこ", "猫", ""),
+        ("ねこ", "猫", "kucing\nanjing"),
+        ("ねこ", "猫", "m" * 81),
+    ],
+)
+def test_an_added_word_outside_the_rules_is_refused_and_nothing_is_written(
+    tmp_path, kana, kanji, meaning
+):
+    path = tmp_path / "japanese.json"
+
+    with pytest.raises(ValueError):
+        make_store(path).add_custom(kana, kanji, meaning, DAY)
+
+    assert not path.exists()
+
+
+def added(**changes) -> str:
+    return json.dumps(
+        {"version": 1, "words": {}, "custom": {"c1": {**ISEKAI_ENTRY, **changes}}},
+        ensure_ascii=False,
+    )
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        json.dumps({"version": 1, "words": {}, "custom": []}),
+        json.dumps({"version": 1, "words": {}, "custom": {"w1": ISEKAI_ENTRY}}),
+        json.dumps({"version": 1, "words": {}, "custom": {"c0": ISEKAI_ENTRY}}),
+        json.dumps({"version": 1, "words": {}, "custom": {"c01": ISEKAI_ENTRY}}),
+        json.dumps({"version": 1, "words": {}, "custom": {"c1": ["いせかい"]}}),
+        added(extra=1),
+        added(kana="isekai"),
+        added(kana=""),
+        added(kana=1),
+        added(kanji="isekai"),
+        added(kanji=""),
+        added(meaning=""),
+        added(meaning="dunia\nlain"),
+        added(meaning="m" * 81),
+        added(added="24-10-2026"),
+    ],
+)
+def test_a_file_whose_added_words_break_the_rules_is_moved_aside(tmp_path, content):
+    path = tmp_path / "japanese.json"
+    path.write_text(content, encoding="utf-8")
+
+    assert make_store(path).custom_words() == {}
+
+    [moved] = tmp_path.glob("japanese.json.corrupt-*")
+    assert moved.read_text(encoding="utf-8") == content
