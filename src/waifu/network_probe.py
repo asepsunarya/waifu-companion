@@ -6,7 +6,7 @@ iphlpapi.h, windns.h), so there is no new dependency and no administrator right 
 - `icmp_echo`: one ICMP echo through IcmpCreateFile, IcmpSendEcho, and IcmpCloseHandle;
 - `dns_query_ms`: DnsQuery_W for an A record past the Windows DNS cache, which would hide a DNS
   server that stopped answering, freed with DnsRecordListFree;
-- `tcp_connect_ms`: a TCP connect, timed without its lookup; no TLS, nothing sent.
+- `tcp_connect_ms`: a TCP connect over IPv4, timed without its lookup; no TLS, nothing sent.
 
 Every Windows function, `socket.getaddrinfo`, and `socket.socket` is looked up when it is called,
 never at import or as a default argument, so the test suite's guards always apply; `NetworkProbe`
@@ -271,11 +271,13 @@ def tcp_connect_ms(
     *,
     clock: Callable[[], float] = time.perf_counter,
 ) -> float | None:
-    """How long a TCP connect to `host` on `port` took in milliseconds, without its lookup;
-    None when it failed. Nothing is sent: the connection is closed at once."""
+    """How long a TCP connect to `host` on `port` over IPv4 took in milliseconds, without its
+    lookup; None when it failed. IPv4 like the echoes: Windows sorts IPv6 addresses first, and a
+    broken IPv6 path must not make a host that answers look down. Nothing is sent: the connection
+    is closed at once."""
     try:
         family, kind, protocol, _, address = socket.getaddrinfo(
-            host, port, type=socket.SOCK_STREAM
+            host, port, family=socket.AF_INET, type=socket.SOCK_STREAM
         )[0]
         with socket.socket(family, kind, protocol) as connection:
             connection.settimeout(timeout_s)

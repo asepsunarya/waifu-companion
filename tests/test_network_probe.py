@@ -377,6 +377,27 @@ def test_a_connect_to_a_listening_port_gives_how_long_it_took():
     assert took is not None and took >= 0
 
 
+def test_a_connect_goes_over_ipv4_like_the_echoes_so_a_broken_ipv6_path_is_no_outage(
+    monkeypatch,
+):
+    # Windows sorts a host's IPv6 addresses first; this one's IPv6 path leads nowhere.
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
+        server.bind(("127.0.0.1", 0))
+        server.listen()
+        port = server.getsockname()[1]
+        ipv4 = (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", port))
+        ipv6 = (socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("::1", port, 0, 0))
+
+        def getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+            return [ipv4] if family == socket.AF_INET else [ipv6, ipv4]
+
+        monkeypatch.setattr(socket, "getaddrinfo", getaddrinfo)
+
+        took = tcp_connect_ms("hoyo.example", port, 0.5)
+
+    assert took is not None and took >= 0
+
+
 def test_a_connect_nothing_answers_is_no_answer():
     # Port 9 (discard) is closed: refused, or timed out (Windows retries a closed loopback port).
     assert tcp_connect_ms("127.0.0.1", 9, 0.5) is None
