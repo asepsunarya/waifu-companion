@@ -5080,6 +5080,7 @@ Cyrene : "Master, kamu baru buka HSR, jangan lupa farming relic."
 Master : "Cyrene, tiap buka Genshin ingetin cek ekspedisi."
 Master : "Cyrene, nanti kalau buka ZZZ ingetin claim battle pass."
 Master : "Cyrene, pengingat gameku apa aja?"
+Master : "Cyrene, pengingat HSR-ku apa aja?"
 Master : "Cyrene, hapus pengingat Genshin yang ekspedisi."
 ```
 
@@ -5090,6 +5091,8 @@ Master : "Cyrene, hapus pengingat Genshin yang ekspedisi."
   sampai Master menghapusnya.
 - Beberapa pengingat untuk game yang sama diucapkan dalam satu kalimat: "Master, kamu baru buka
   ZZZ, jangan lupa claim battle pass dan cek toko."
+- Hal yang jangan dilakukan diucapkan sesudah "ingat ya": "pas buka Genshin nanti ingetin aku
+  jangan top up dulu" jadi "Master, kamu baru buka Genshin, ingat ya, jangan top up dulu."
 - Kalau game-nya sedang terbuka saat Master memintanya, pengingatnya disimpan untuk saat game itu
   dibuka lagi nanti, dan dia bilang begitu; tidak diucapkan sekarang.
 - Paling banyak 30 pengingat; yang ke-31 ditolak sampai ada yang dihapus. Pengingat yang terlihat

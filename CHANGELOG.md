@@ -10,8 +10,8 @@ aktif, lalu jalankan `waifu check`.
   benar-benar baru dibuka selagi `waifu run` menyala, bilang "Master, kamu baru buka HSR, jangan
   lupa farming relic." Sekali saja, lalu hilang; dengan "tiap buka Genshin ingetin cek
   ekspedisi" diucapkan setiap Genshin dibuka sampai dihapus. Beberapa pengingat untuk game yang
-  sama diucapkan dalam satu kalimat. Hanya untuk game di `play_time.games` (HSR, Genshin, ZZZ),
-  dan butuh jam main menyala.
+  sama diucapkan dalam satu kalimat, dan "jangan top up dulu" diucapkan sesudah "ingat ya". Hanya
+  untuk game di `play_time.games` (HSR, Genshin, ZZZ), dan butuh jam main menyala.
 - Tidak pernah untuk game yang sudah terbuka saat `waifu run` mulai (autostart sesudah login,
   restart Cyrene), sesudah PC bangun dari sleep, atau sesudah jam PC berubah: pengingatnya
   menunggu pembukaan berikutnya. Kalau game-nya sedang terbuka saat Master memintanya, dia
@@ -20,9 +20,10 @@ aktif, lalu jalankan `waifu check`.
   game menahan pengumumannya, dan dikirim ke HP kalau notifikasi HP menyala. Dengan mode tamu,
   yang jatuh waktunya tetap diucapkan, tapi membuat, melihat, dan menghapusnya lewat suara
   ditolak.
-- "Pengingat gameku apa aja?" dan "hapus pengingat Genshin yang ekspedisi" lewat suara;
-  `waifu pengingat-game` menampilkan semuanya dan `waifu pengingat-game hapus g2` menghapus
-  satu. Paling banyak 30. `waifu check` menyebut berapa yang tersimpan.
+- "Pengingat gameku apa aja?" (atau "pengingat HSR-ku apa aja?") dan "hapus pengingat Genshin
+  yang ekspedisi" lewat suara; `waifu pengingat-game` menampilkan semuanya dan
+  `waifu pengingat-game hapus g2` menghapus satu. Paling banyak 30. `waifu check` menyebut berapa
+  yang tersimpan.
 - Disimpan di `data\app_reminders.json`, terpisah dari jadwal. Matikan dengan
   `app_reminders.enabled: false`. Satu tool baru yang tidak memakai slot strict.
 - README: "Pengingat saat game dibuka".
