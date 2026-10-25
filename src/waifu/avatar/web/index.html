@@ -37,6 +37,11 @@
         --ink-soft: rgba(59, 51, 80, 0.72);
         --ok: #4caf7a;
         --down: #d9534f;
+        /* Her text card (v1.55): change these to theme it. */
+        --card-bg: rgba(255, 255, 255, 0.95);
+        --card-ink: #3b3350;
+        --card-link: #5a46c8;
+        --card-shadow: 0 4px 18px rgba(40, 32, 56, 0.28);
       }
 
       html,
@@ -164,6 +169,78 @@
         display: none;
       }
 
+      /* Her text card: a panel at the bottom of her window, which cannot grow, so it scrolls by itself. It keeps the
+         mouse (click-through sees it is not her canvas) and its text can be selected; hidden, it is display: none. */
+      #card {
+        position: fixed;
+        left: 8px;
+        right: 8px;
+        bottom: 8px;
+        display: flex;
+        flex-direction: column;
+        max-height: 55%;
+        border-radius: 12px;
+        background: var(--card-bg);
+        color: var(--card-ink);
+        box-shadow: var(--card-shadow);
+        font-size: 13px;
+        line-height: 1.45;
+        user-select: text;
+        pointer-events: auto;
+      }
+
+      #card[hidden] {
+        display: none;
+      }
+
+      #card-close {
+        position: absolute;
+        top: 4px;
+        right: 4px;
+        width: 24px;
+        height: 24px;
+        padding: 0;
+        border: none;
+        border-radius: 50%;
+        background: rgba(40, 32, 56, 0.12);
+        color: var(--card-ink);
+        font-size: 16px;
+        line-height: 24px;
+        cursor: pointer;
+      }
+
+      #card-close:hover {
+        background: rgba(200, 60, 80, 0.9);
+        color: #fff;
+      }
+
+      #card-content {
+        min-height: 0;
+        overflow-y: auto;
+        padding: 10px 12px;
+        overflow-wrap: anywhere;
+      }
+
+      #card .card-title {
+        margin: 0 26px 6px 0;
+        font-size: 14px;
+        font-weight: 600;
+      }
+
+      #card .card-line,
+      #card .card-list {
+        margin: 0 0 4px;
+      }
+
+      #card .card-list {
+        padding-left: 18px;
+      }
+
+      #card a {
+        color: var(--card-link);
+        cursor: pointer;
+      }
+
       #credit {
         position: fixed;
         left: 6px;
@@ -191,6 +268,10 @@
     <p id="hearing" role="status" hidden>Tidak mendengarkan</p>
     <p id="message" role="alert">Memuat avatar…</p>
     <p id="credit"></p>
+    <section id="card" aria-label="Kartu" hidden>
+      <button id="card-close" type="button" title="Tutup kartu" aria-label="Tutup kartu">×</button>
+      <div id="card-content"></div>
+    </section>
     <script>
       document.getElementById("close").addEventListener("click", () => window.close());
       window.addEventListener(
@@ -213,10 +294,14 @@
       subscribed can show the first words. A lost WebGL context (a fullscreen game's display-mode switch, a GPU
       reset) reloads the page once it is restored or after 3 s (recovery.js): a fresh renderer, and the stream
       reconnects by itself. The mascot reports that and every visibility change to Cyrene's log, and a renderer
-      that got no WebGL at all, which its main process answers with a reload or a fresh mascot.
+      that got no WebGL at all, which its main process answers with a reload or a fresh mascot. Her text card
+      (phone/card.js, shared with the phone page) shows in #card, built from text nodes only; a click on one of its
+      links asks Cyrene to open it in the default browser (POST /open-link), never this window. Nothing here ever
+      takes the focus.
     -->
     <script id="avatar-script" type="module">
       import { avatarTitle, hearingBadgeShown, maxFpsFor } from "./logic.js";
+      import { buildCard, cardHideMs, linkRequest, parseCard } from "./phone/card.js";
       import {
         DIAGNOSTICS,
         reportDiagnostic,
@@ -242,8 +327,44 @@
       const statusElement = document.getElementById("status");
       const hearingElement = document.getElementById("hearing");
       const creditElement = document.getElementById("credit");
+      const cardElement = document.getElementById("card");
+      const cardContent = document.getElementById("card-content");
+      let cardTimer = null;
 
       class CoreMissingError extends Error {}
+
+      function hideCard() {
+        clearTimeout(cardTimer);
+        cardTimer = null;
+        cardElement.hidden = true;
+        cardContent.replaceChildren();
+      }
+
+      async function openLink(token, url) {
+        try {
+          const response = await fetch(...linkRequest(token, url));
+          if (!response.ok) console.warn(`Cyrene did not open the link (HTTP ${response.status})`);
+        } catch (error) {
+          console.warn("The link did not reach Cyrene", error);
+        }
+      }
+
+      // A card replaces the one shown and hides by itself after its time (cardHideMs); `card: null` hides it.
+      function showCard(event, config) {
+        const card = parseCard(event.card);
+        if (card === null) {
+          hideCard();
+          return;
+        }
+        clearTimeout(cardTimer);
+        cardContent.replaceChildren(buildCard(document, card, { onLink: (url) => openLink(config.token, url) }));
+        cardContent.scrollTop = 0;
+        cardElement.hidden = false;
+        const hideMs = cardHideMs(event);
+        cardTimer = hideMs === null ? null : setTimeout(hideCard, hideMs);
+      }
+
+      document.getElementById("card-close").addEventListener("click", hideCard);
 
       function showMessage(text) {
         messageElement.textContent = text;
@@ -318,13 +439,14 @@
         }
       }
 
-      function handleEvent(event, renderer, interactions) {
+      function handleEvent(event, renderer, interactions, config) {
         switch (event.type) {
           case "hello":
             showViewerSettings(event);
-            // A new connection, maybe to a new run that cleared the pause without a word: the bus
-            // replays a pause still holding right after hello.
+            // A new connection, maybe to a new run that cleared the pause and the card without a word: the bus
+            // replays a pause still holding and a card still showing after hello.
             hearingElement.hidden = true;
+            hideCard();
             break;
           case "state":
             renderer?.setState(event.state, event.followup_s);
@@ -337,6 +459,9 @@
             break;
           case "hearing":
             hearingElement.hidden = !hearingBadgeShown(event);
+            break;
+          case "card":
+            showCard(event, config);
             break;
           default:
             break;
@@ -388,7 +513,7 @@
         showViewerSettings(config);
         const renderer = await startRenderer(config);
         const interactions = renderer ? await startInteractions(renderer, config) : null;
-        connectEvents((event) => handleEvent(event, renderer, interactions));
+        connectEvents((event) => handleEvent(event, renderer, interactions, config));
       }
 
       boot();

@@ -136,6 +136,22 @@ def test_the_page_loads_the_interaction_layer() -> None:
     assert "/interaction.js" in loaded_paths()
 
 
+def test_the_page_loads_the_text_card_module_it_shares_with_the_phone() -> None:
+    assert "/phone/card.js" in loaded_paths()
+
+
+def test_the_page_has_a_hidden_card_panel_with_a_close_button() -> None:
+    page = page_text()
+
+    assert re.search(r'<section id="card"[^>]*\bhidden\b', page)
+    assert '<button id="card-close" type="button"' in page
+    assert '<div id="card-content"></div>' in page
+
+
+def test_the_card_panel_never_takes_the_focus() -> None:
+    assert ".focus(" not in page_text()
+
+
 def test_the_page_never_references_a_cubism_core_file_in_the_repository() -> None:
     # Live2D's proprietary Cubism Core is never committed: the page loads it from the URL
     # in /config.json, which Cyrene serves from avatar.live2d_core outside the repository.

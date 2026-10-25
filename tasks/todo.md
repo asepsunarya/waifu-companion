@@ -3198,11 +3198,11 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 332 · **Files:** `src/waifu/avatar/bus.py`, `src/waifu/avatar/server.py`, `src/waifu/notify.py`, `src/waifu/music.py`, tests · **Scope:** M
 
-## Task 336: The avatar page's card panel
+## Task 336: The avatar page's card panel ✅
 
 **Acceptance criteria:**
-- [ ] `phone/card.js` parses and caps a card, tells when it hides, splits lines into bullets and text, links only http(s) URLs, and builds the card with text nodes; a link click hands the URL on
-- [ ] `index.html` shows the card in a bottom panel that scrolls, closes, hides by itself, and is replaced by the next; a link click posts `/open-link` with the token; no `innerHTML` anywhere in the pages; the module graph reaches `card.js`
+- [x] `phone/card.js` parses and caps a card, tells when it hides, splits lines into bullets and text, links only http(s) URLs, and builds the card with text nodes; a link click hands the URL on
+- [x] `index.html` shows the card in a bottom panel that scrolls, closes, hides by itself, and is replaced by the next; a link click posts `/open-link` with the token; no `innerHTML` anywhere in the pages; the module graph reaches `card.js`
 
 **Dependencies:** 335 · **Files:** `src/waifu/avatar/web/phone/card.js`, `src/waifu/avatar/web/index.html`, `tests/js/card.test.mjs`, `tests/test_avatar_web.py` · **Scope:** M
 

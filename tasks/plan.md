@@ -1253,7 +1253,7 @@ without the brain; a turn that switches guest mode shows none and hides the one 
 - [x] Task 333: the system-prompt note, the web note, the self-started prompts, and the gate's question before the card
 - [x] Task 334: the voice loop: only the gist is spoken, the card shown, re-shown, and dropped on a guest switch (`card.show_seconds`)
 - [x] Task 335: the bus's card event and `POST /open-link`
-- [ ] Task 336: the avatar page's card panel (`phone/card.js`, `index.html`)
+- [x] Task 336: the avatar page's card panel (`phone/card.js`, `index.html`)
 - [ ] Task 337: the phone's card in her bubble
 - [ ] Task 338: `waifu chat`, the speech cut, and the CLI wiring
 - [ ] Task 339: README, CHANGELOG
