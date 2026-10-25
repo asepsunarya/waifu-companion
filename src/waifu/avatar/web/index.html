@@ -170,12 +170,13 @@
       }
 
       /* Her text card: a panel at the bottom of her window, which cannot grow, so it scrolls by itself. It keeps the
-         mouse (click-through sees it is not her canvas) and its text can be selected; hidden, it is display: none. */
+         mouse (click-through sees it is not her canvas) and its text can be selected; hidden, it is display: none.
+         It sits above the credit line, which the model's terms want shown at all times. */
       #card {
         position: fixed;
         left: 8px;
         right: 8px;
-        bottom: 8px;
+        bottom: 22px;
         display: flex;
         flex-direction: column;
         max-height: 55%;
