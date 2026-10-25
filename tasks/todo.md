@@ -3240,12 +3240,12 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** none · **Files:** `SPEC.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
 
-## Task 340: The clipboard reader
+## Task 340: The clipboard reader ✅
 
 **Acceptance criteria:**
-- [ ] `read_clipboard` reads `CF_UNICODETEXT` through user32 and kernel32 loaded with `use_last_error=True` at each call and the documented signatures; a password manager's mark gives `PRIVATE` without reading; no text gives `NOT_TEXT`; a held clipboard is tried five times, then `BUSY`; the clipboard is closed and the memory unlocked whatever happens; a text over the cap is cut without a lone surrogate
-- [ ] `looks_private` catches the secrets `looks_secret` does, a lone password-like word, an OTP or PIN, an account number, and a private key, and leaves ordinary Japanese and English text alone
-- [ ] `tests/conftest.py` refuses the clipboard functions of user32 and the global memory functions of kernel32; the real reader trips it in the suite
+- [x] `read_clipboard` reads `CF_UNICODETEXT` through user32 and kernel32 loaded with `use_last_error=True` at each call and the documented signatures; a password manager's mark gives `PRIVATE` without reading; no text gives `NOT_TEXT`; a held clipboard is tried five times, then `BUSY`; the clipboard is closed and the memory unlocked whatever happens; a text over the cap is cut without a lone surrogate
+- [x] `looks_private` catches the secrets `looks_secret` does, a lone password-like word, an OTP or PIN, an account number, and a private key, and leaves ordinary Japanese and English text alone
+- [x] `tests/conftest.py` refuses the clipboard functions of user32 and the global memory functions of kernel32; the real reader trips it in the suite
 
 **Dependencies:** 340a · **Files:** `src/waifu/clipboard.py`, `tests/test_clipboard.py`, `tests/conftest.py` · **Scope:** M
 

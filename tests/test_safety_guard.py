@@ -311,6 +311,37 @@ def test_global_hotkeys_and_message_queues_through_user32_are_refused(
     refused_system_calls.clear()  # these were on purpose
 
 
+@pytest.mark.parametrize(
+    ("library", "function"),
+    [
+        ("user32", "OpenClipboard"),
+        ("user32", "CloseClipboard"),
+        ("user32", "GetClipboardData"),
+        ("user32", "SetClipboardData"),
+        ("user32", "EmptyClipboard"),
+        ("user32", "EnumClipboardFormats"),
+        ("user32", "IsClipboardFormatAvailable"),
+        ("user32", "RegisterClipboardFormatW"),
+        ("kernel32", "GlobalLock"),
+        ("kernel32", "GlobalUnlock"),
+        ("kernel32", "GlobalSize"),
+    ],
+)
+def test_reading_or_changing_the_owner_s_real_clipboard_is_refused(
+    library, function, refused_system_calls
+):
+    if not hasattr(ctypes, "WinDLL"):
+        pytest.skip("user32 and kernel32 only exist on Windows")
+    # Refused as soon as the function is looked up: a forgotten fake would read what the owner
+    # copied (maybe a password), or change it under him.
+    with pytest.raises(AssertionError, match=function):
+        getattr(ctypes.WinDLL(library, use_last_error=True), function)
+    with pytest.raises(AssertionError, match=function):
+        getattr(getattr(ctypes.windll, library), function)
+    assert refused_system_calls == [f"{library}.{function}"] * 2
+    refused_system_calls.clear()  # these were on purpose
+
+
 def test_listing_the_real_processes_through_kernel32_is_refused(refused_system_calls):
     if not hasattr(ctypes, "WinDLL"):
         pytest.skip("kernel32 only exists on Windows")

@@ -1275,7 +1275,7 @@ is busy, like Ctrl+Alt+R). The answer follows v1.55: a spoken gist and the trans
 `japanese_lesson`. No strict tool, strict parameter, or dependency (18 of 20 strict tools, 17 of
 24 optional parameters, and 0 of 16 unions stay).
 - [x] Task 340a: contract: SPEC, tasks
-- [ ] Task 340: the clipboard reader (`clipboard.py`) and the suite's refusals
+- [x] Task 340: the clipboard reader (`clipboard.py`) and the suite's refusals
 - [ ] Task 341: the `read_clipboard` tool, its gate, its refusals, guest mode, and the logs
 - [ ] Task 342: Ctrl+Alt+T: the config, the hotkey action, `Assistant.ask_now`, and the wiring
 - [ ] Task 343: Master's own words in the Japanese lessons (`add`)

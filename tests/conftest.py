@@ -21,7 +21,10 @@ programs while the suite runs, and waiting on a real message queue would hang th
 tinytuya: `waifu setup tuya` runs its wizard, which asks for the owner's Tuya cloud keys, reaches
 the cloud, and scans the LAN. Nor Windows' pings, routes, and DNS queries: the internet watcher's
 probes would ping the owner's router and the internet, read his routes, and ask his DNS server, so
-a test would pass or fail by whether his internet is up.
+a test would pass or fail by whether his internet is up. Nor the owner's clipboard: "artinya apa
+yang kucopy?" reads it, so a forgotten fake would read what he copied (maybe a password), and
+nothing may change it under him either; neither may kernel32's global memory functions that
+reading it takes.
 """
 
 import ctypes
@@ -72,10 +75,24 @@ _REFUSED_FUNCTIONS = {
         "getmessagew": "wait on a real Windows message queue",
         "peekmessagew": "read a real Windows message queue",
         "postthreadmessagew": "post to a real thread's message queue",
+        "openclipboard": "open the owner's real clipboard",
+        "closeclipboard": "close the owner's real clipboard",
+        "getclipboarddata": "read the owner's real clipboard",
+        "setclipboarddata": "change the owner's real clipboard",
+        "emptyclipboard": "change the owner's real clipboard",
+        "enumclipboardformats": "read the owner's real clipboard",
+        "isclipboardformatavailable": "read the owner's real clipboard",
+        "registerclipboardformatw": "read the owner's real clipboard",
     },
     "gdi32": {"bitblt": "capture the real screen", "stretchblt": "capture the real screen"},
-    # Only the process snapshot: pc_health and process_alive need the rest of kernel32.
-    "kernel32": {"createtoolhelp32snapshot": "list the real processes"},
+    # Only the process snapshot and the global memory a clipboard's text is read through:
+    # pc_health and process_alive need the rest of kernel32.
+    "kernel32": {
+        "createtoolhelp32snapshot": "list the real processes",
+        "globallock": "read the owner's real clipboard's memory",
+        "globalunlock": "read the owner's real clipboard's memory",
+        "globalsize": "read the owner's real clipboard's memory",
+    },
     "winmm": {
         "waveingetnumdevs": "list the owner's real microphones",
         "waveingetdevcapsw": "list the owner's real microphones",
