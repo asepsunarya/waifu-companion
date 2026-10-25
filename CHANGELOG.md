@@ -16,15 +16,18 @@ aktif, lalu jalankan `waifu check`.
   mendengarkan. Ganti atau matikan dengan `hotkeys.translate`; kalau `config.yaml` lama sudah
   memakai T untuk hotkey lain, Ctrl+Alt+T mati dengan peringatan di log dan Cyrene tetap jalan.
 - Clipboard hanya dibaca kalau kalimat Master sendiri menyebut yang dicopy ("kucopy", "salin",
-  "clipboard", ...), paling banyak sekali per kalimat dan 2000 karakter. Yang kelihatan seperti
-  kata sandi, token, kode OTP atau PIN, nomor kartu atau rekening, atau kunci privat, dan salinan
-  yang ditandai password manager, ditolak utuh tanpa dibacakan. Teksnya tidak pernah ditulis ke
-  log (hanya panjangnya), juga dengan `-v`, dan ditutup di mode tamu.
+  "kucopas", "clipboard", ...), paling banyak sekali per kalimat dan 2000 karakter. Yang
+  kelihatan seperti kata sandi, token, kode OTP atau PIN (juga pesan kode verifikasi beserta
+  kodenya), nomor kartu atau rekening, atau kunci privat, dan salinan yang ditandai password
+  manager, ditolak utuh tanpa dibacakan; satu kata dengan tanda baca seperti "Welcome!" tetap
+  diterjemahkan. Teksnya tidak pernah ditulis ke log (hanya panjangnya), juga dengan `-v`, dan
+  ditutup di mode tamu.
 - "Simpan kata itu" atau "masukin ke latihan" memasukkan kata Jepangnya ke latihan bahasa Jepang
   sebagai kata Master sendiri (paling banyak 200), yang ikut kuis seperti kata dari daftar; kata
-  yang ada di daftar 300 kata dipelajari dari daftar itu. `waifu jepang progres` menyebutnya
-  terpisah. Tidak di mode tamu. Versi sebelum v1.56 memindahkan file latihan yang memuat kata
-  tambahan ke `japanese.json.corrupt-<waktu>`.
+  yang ada di daftar 300 kata dipelajari dari daftar itu, tapi kata yang bunyinya sama dengan
+  arti lain (いる "perlu") tetap disimpan sebagai kata Master. Perlu belajar bahasa Jepang
+  menyala. `waifu jepang progres` menyebutnya terpisah. Tidak di mode tamu. Versi sebelum v1.56
+  memindahkan file latihan yang memuat kata tambahan ke `japanese.json.corrupt-<waktu>`.
 - Tanpa paket baru. README: "Artinya apa", "Hotkey global", "Belajar bahasa Jepang".
 
 ## v1.55: kartu teks
