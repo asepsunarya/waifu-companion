@@ -1264,6 +1264,27 @@ without the brain; a turn that switches guest mode shows none and hides the one 
 - [x] Fix pass (2026-10-25): one bracket is a card marker only with the colon or as a whole line ("[kartu kredit]" in a sentence cut her speech there; "[kartu nama] = meishi" and "[Kartu Prakerja](url)" lost words in a body); "kartu yang mana?" reaches the brain and "kartu terakhir" / "sekali lagi" re-show the card; the card note keeps markdown out of the card; card lines keep their indentation and runs of spaces on the avatar and the phone (`white-space: pre-wrap`, an indented bullet stays a line); the card's hide timer holds while the pointer is on it and gives what was left, at least 10 s; a middle click on a card link goes through `/open-link`, with no target and no context menu; an untitled card's first line keeps clear of ×; the link pattern's invisible characters are escape sequences; README's limits corrected for `window: none`, a closed mascot, and an unrecognised marker. By hand: the parser and `clean_for_speech` probed in the venv with the finding's shapes; the real web folder served on 127.0.0.1 by `http.server` in the Browser pane at 420x640: an untitled card with indented code, a nested step, a wrapped bullet, and an aligned row kept its shape with its first line 10 px clear of ×; `hideTimer` with the browser's own timers held while hovered and gave the 10 s grace; a dispatched middle click and context menu on a card link were both prevented; a phone bubble with phone.css kept the code's indentation. 11989 pytest and 680 JS tests passed, ruff check and format clean; no tool or tool parameter changed, so 18 of 20 strict tools, 17 of 24 optional parameters, and 0 of 16 unions stay
 - [ ] On the owner's PC (the lead): a long answer shows a card beside the mascot without taking focus, a link opens in the default browser on a click, the card hides after 2 minutes, "tampilkan lagi kartunya" shows it again; the phone shows the card in her bubble
 
+### Phase 60: Artinya apa (v1.56, see SPEC → artinya apa)
+Decision: a non-strict private tool `read_clipboard` reads the PC's clipboard text through ctypes
+(looked up at each call, refused by the suite's guard), only in a turn whose own words name the
+copy, at most once, capped at 2000 characters, and refuses a secret-looking copy whole without
+returning it; its text is logged only as a length. Ctrl+Alt+T queues the fixed question "Artinya
+apa teks yang kucopy?" for `run`'s thread, which answers it like a voice turn (ignored while she
+is busy, like Ctrl+Alt+R). The answer follows v1.55: a spoken gist and the translation on a card.
+"Simpan kata itu" adds a custom word to the v1.39 lesson store through a new `add` action of
+`japanese_lesson`. No strict tool, strict parameter, or dependency (18 of 20 strict tools, 17 of
+24 optional parameters, and 0 of 16 unions stay).
+- [x] Task 340a: contract: SPEC, tasks
+- [ ] Task 340: the clipboard reader (`clipboard.py`) and the suite's refusals
+- [ ] Task 341: the `read_clipboard` tool, its gate, its refusals, guest mode, and the logs
+- [ ] Task 342: Ctrl+Alt+T: the config, the hotkey action, `Assistant.ask_now`, and the wiring
+- [ ] Task 343: Master's own words in the Japanese lessons (`add`)
+- [ ] Task 344: README, CHANGELOG
+
+### Checkpoint: Artinya apa
+- [ ] Python suite, ruff, and JS tests clean; no test read the real clipboard (the suite refuses it); the strict-tool budget unchanged
+- [ ] On the owner's PC (the lead): copy a Japanese line, "artinya apa yang kucopy?" and Ctrl+Alt+T give a short gist and a card; a copied password is refused without being said; "simpan kata itu" adds the word and a quiz asks it; `waifu check` lists Ctrl+Alt+T
+
 ## Risks and Mitigations
 
 | Risk | Impact | Mitigation |
@@ -1293,6 +1314,7 @@ without the brain; a turn that switches guest mode shows none and hides the one 
 | A game reminder said at the wrong moment or lost | A reminder at login or after waking the PC for a game already open, twice for one start, or never | Starts come from the watcher's own tracking across one poll, never at a run's first poll or across a sleep gap or clock step; told once after the poll worked, kept through a failed write; a once reminder whose removal fails is still said; a separate file, so the schedule of older versions is never set aside |
 | The internet watcher cries wolf or hangs | A "nyambung lagi" after every sleep, a router blamed for dropped pings, a voice thread stuck on a lookup, or threads piling up | Two failed polls with both anchors silent by echo and TCP; a grace of two polls after a break (sleep, clock step, startup); the gateway blamed only once it answered; every probe on a daemon thread within a 3 s budget, at most one per target; tests refuse the real ICMP, route, and DNS calls |
 | A text card leaks into her voice, runs as HTML, or opens links by itself | The card body or the marker read aloud, model output running script on the avatar page (which holds the interaction token), or a page opened without a click | Only the text before the marker reaches TTS, also cut again in `clean_for_speech`; the gate's question placed before the card; the card built from text nodes only, with a test against `innerHTML`; links checked as http(s) and opened only on a click through a route that checks the token, the origin, and the card shown |
+| Reading the clipboard leaks a secret or obeys copied text | A password or token sent to the API, logged, or said aloud; copied text steering her tools | Only when Master's own words in that turn name the copy, once per turn; a secret-looking or password-manager-marked copy is refused whole without its content; the text is logged only as a length; the result and the description call it data, never instructions; closed in guest mode; tests refuse the real clipboard calls |
 
 ## Open Questions
 

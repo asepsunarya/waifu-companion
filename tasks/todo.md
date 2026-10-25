@@ -3232,3 +3232,51 @@ named `tests/test_<package>_<module>.py`.
 - [x] Fix pass: README's limits say the card shows in the browser tab with `window: none`, that with no page open she still says "kutampilkan di layar" and "Ini kartunya lagi", and that a marker the parser cannot recognise makes the whole reply spoken; the new re-show phrases, the hover pause, the middle click, and the kept indentation are in README, CHANGELOG, and SPEC
 
 **Dependencies:** 338 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
+
+## Task 340a: Artinya apa contract ✅
+
+**Acceptance criteria:**
+- [x] SPEC "artinya apa (v1.56)" (the problem, stories, non-goals, the reader, the private check, the tool and its gate, the logs, the hotkey and `ask_now`, the Japanese added words, docs, decisions, known limits, privacy, safety); phase 60 and a risk row in the plan; tasks 340a-344 here
+
+**Dependencies:** none · **Files:** `SPEC.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
+
+## Task 340: The clipboard reader
+
+**Acceptance criteria:**
+- [ ] `read_clipboard` reads `CF_UNICODETEXT` through user32 and kernel32 loaded with `use_last_error=True` at each call and the documented signatures; a password manager's mark gives `PRIVATE` without reading; no text gives `NOT_TEXT`; a held clipboard is tried five times, then `BUSY`; the clipboard is closed and the memory unlocked whatever happens; a text over the cap is cut without a lone surrogate
+- [ ] `looks_private` catches the secrets `looks_secret` does, a lone password-like word, an OTP or PIN, an account number, and a private key, and leaves ordinary Japanese and English text alone
+- [ ] `tests/conftest.py` refuses the clipboard functions of user32 and the global memory functions of kernel32; the real reader trips it in the suite
+
+**Dependencies:** 340a · **Files:** `src/waifu/clipboard.py`, `tests/test_clipboard.py`, `tests/conftest.py` · **Scope:** M
+
+## Task 341: The `read_clipboard` tool
+
+**Acceptance criteria:**
+- [ ] The tool reads only in a turn whose own words name the copy (her names left out), once per turn, takes no argument, and is not strict; its result holds the text (at most 2000 characters, `cut`) and a note that it is data; every refusal leaves the content out
+- [ ] It is in guest mode's `PRIVATE_TOOLS`, in the full chat request, and not strict; `logged_result` keeps its text out of the DEBUG lines and `waifu chat --verbose`
+
+**Dependencies:** 340 · **Files:** `src/waifu/brain/clipboard_tools.py`, `src/waifu/brain/tools.py`, `src/waifu/guest.py`, `src/waifu/app.py`, `src/waifu/brain/ollama_brain.py`, `src/waifu/cli.py`, tests · **Scope:** M
+
+## Task 342: Ctrl+Alt+T
+
+**Acceptance criteria:**
+- [ ] `hotkeys.translate` (T) is an action of its own; an unwritten T that another hotkey already takes is switched off with a warning; the example block holds it; `waifu check` names it
+- [ ] The hotkey asks `CLIPBOARD_QUESTION` without blocking; `ask_now` is ignored while she is busy or a question waits, and `run` answers it on its thread like a voice turn (thinking, filler, card, remembered, follow-up window), before the hold after a cut and also while the listen pause holds
+- [ ] `run` wires the hotkey to `ask_now`
+
+**Dependencies:** 341 · **Files:** `src/waifu/hotkeys.py`, `src/waifu/hotkey_actions.py`, `src/waifu/config.py`, `config.example.yaml`, `src/waifu/app.py`, `src/waifu/cli.py`, tests · **Scope:** M
+
+## Task 343: Master's own Japanese words
+
+**Acceptance criteria:**
+- [ ] The lesson store keeps added words under an optional `custom` key, validated, deduplicated, capped at 200, and still reads a v1.39 file
+- [ ] `japanese_lesson` `add` learns a built-in word, adds a new one, or says it is there already; refused in her own turns and in guest mode; quizzes and grades take added words; progress counts them apart; `waifu jepang progres` names them
+
+**Dependencies:** 340a · **Files:** `src/waifu/japanese.py`, `src/waifu/brain/japanese_tools.py`, `src/waifu/cli.py`, tests · **Scope:** M
+
+## Task 344: Docs
+
+**Acceptance criteria:**
+- [ ] README "Artinya apa" (and in the table of contents), Ctrl+Alt+T in the hotkey section, the added words in the Japanese section, the guest-mode list; CHANGELOG v1.56; full suite, ruff, and JS tests clean
+
+**Dependencies:** 342, 343 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
