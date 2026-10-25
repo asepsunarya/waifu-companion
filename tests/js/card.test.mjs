@@ -241,9 +241,11 @@ describe("linkRequest", () => {
 
 // --- lines ------------------------------------------------------------------------------------------------------------
 
+const shown = (lines) => lines.map(({ kind, pieces }) => [kind, pieces.map((piece) => piece.text).join("")]);
+
 describe("cardLines", () => {
   it("tells bullets, text, and blank lines apart", () => {
-    const lines = cardLines("- Senin\n* Selasa\n• Rabu\nCatatan: -5 derajat\n\n  - masuk");
+    const lines = cardLines("- Senin\n* Selasa\n• Rabu\nCatatan: -5 derajat\n\n- masuk");
 
     assert.deepEqual(
       lines.map(({ kind, pieces }) => [kind, pieces.map((piece) => piece.text).join("")]),
@@ -256,6 +258,28 @@ describe("cardLines", () => {
         ["bullet", "masuk"],
       ],
     );
+  });
+
+  it("keeps a line's indentation and its runs of spaces, as code and aligned rows need", () => {
+    const lines = cardLines("def sapa(nama):\n    if nama:\n        return nama   \nNama    Harga");
+
+    assert.deepEqual(shown(lines), [
+      ["text", "def sapa(nama):"],
+      ["text", "    if nama:"],
+      ["text", "        return nama"],
+      ["text", "Nama    Harga"],
+    ]);
+  });
+
+  it("keeps an indented bullet as written under the line above it", () => {
+    const lines = cardLines("1. Buka Pengaturan\n   - pilih Jaringan\n- induk\n  - anak");
+
+    assert.deepEqual(shown(lines), [
+      ["text", "1. Buka Pengaturan"],
+      ["text", "   - pilih Jaringan"],
+      ["bullet", "induk"],
+      ["text", "  - anak"],
+    ]);
   });
 
   it("finds the links in each line", () => {
@@ -333,6 +357,25 @@ describe("buildCard", () => {
     assert.deepEqual(created, ["DIV", "H2", "UL", "LI"]);
     assert.equal(root.textContent, `<b>Judul</b>${hostile}`);
   });
+});
+
+// --- The pages keep a card line's spaces ---------------------------------------------------------------------------------
+
+describe("the card styles", () => {
+  for (const [file, scope] of [
+    ["index.html", "#card"],
+    ["phone/phone.css", ".bubble"],
+  ]) {
+    it(`${file} shows a card line's indentation and runs of spaces`, () => {
+      const source = readFileSync(new URL(file, WEB), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+
+      const rule = source.match(/([^{}]*\.card-line[^{}]*)\{([^}]*white-space:\s*pre-wrap;[^}]*)\}/);
+      assert.ok(rule, "a .card-line rule with white-space: pre-wrap");
+      const selectors = rule[1].split(",").map((selector) => selector.trim());
+      assert.ok(selectors.includes(`${scope} .card-line`));
+      assert.ok(selectors.includes(`${scope} .card-list li`));
+    });
+  }
 });
 
 // --- No HTML is ever parsed from text on the pages ----------------------------------------------------------------------

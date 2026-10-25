@@ -237,6 +237,12 @@
         padding-left: 18px;
       }
 
+      /* A line keeps its indentation and runs of spaces (code, a step under a step) and still wraps. */
+      #card .card-line,
+      #card .card-list li {
+        white-space: pre-wrap;
+      }
+
       #card a {
         color: var(--card-link);
         cursor: pointer;

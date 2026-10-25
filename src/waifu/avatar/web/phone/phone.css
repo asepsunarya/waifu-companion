@@ -491,6 +491,12 @@ body[data-state="speaking"] #status::before {
   padding-left: 18px;
 }
 
+/* A line keeps its indentation and runs of spaces (code, a step under a step) and still wraps. */
+.bubble .card-line,
+.bubble .card-list li {
+  white-space: pre-wrap;
+}
+
 .bubble .card a {
   color: var(--accent);
 }

@@ -22,7 +22,8 @@ const PLAIN_HOST = /^https?:\/\/[a-z0-9.-]+(?:[/?#]|$)/i;
 // Sentence punctuation after a link is not part of it, nor a closing bracket it never opened.
 const TRAILING = new Set([".", ",", ";", ":", "!", "?"]);
 const OPENERS = { ")": "(", "]": "[" };
-const BULLET = /^\s*[-*•]\s+/;
+// A bullet starts its line; an indented one (a step under a step) stays a line as written.
+const BULLET = /^[-*•]\s+/;
 
 const isPlainObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 
@@ -93,14 +94,17 @@ export function linkPieces(text) {
   return pieces;
 }
 
-/** The card's lines: `{kind: "blank" | "bullet" | "text", pieces}`, a bullet ("- ", "* ", "• ") without its mark. */
+/**
+ * The card's lines: `{kind: "blank" | "bullet" | "text", pieces}`, a bullet ("- ", "* ", "• ") without its mark, and
+ * a text line with its indentation and runs of spaces (code, aligned rows), which the pages show (white-space).
+ */
 export function cardLines(body) {
   return body.split("\n").map((line) => {
     if (line.trim() === "") return { kind: "blank", pieces: [] };
     const bullet = BULLET.exec(line);
     return bullet
       ? { kind: "bullet", pieces: linkPieces(line.slice(bullet[0].length).trimEnd()) }
-      : { kind: "text", pieces: linkPieces(line.trim()) };
+      : { kind: "text", pieces: linkPieces(line.trimEnd()) };
   });
 }
 
