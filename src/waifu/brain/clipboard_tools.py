@@ -39,6 +39,13 @@ CLIPBOARD_WORDS = frozenset(
         "dicopy",
         "kukopi",
         "dikopi",
+        "kucopas",
+        "dicopas",
+        "kukopas",
+        "dikopas",
+        "copi",  # never "kopi": that is coffee
+        "kucopi",
+        "dicopi",
         "salin",
         "kusalin",
         "disalin",
@@ -50,6 +57,8 @@ CLIPBOARD_WORDS = frozenset(
     }
 )
 
+# Japanese runs its words together, so these copy words are looked for inside a word too.
+_RUN_TOGETHER_WORDS = frozenset(word for word in CLIPBOARD_WORDS if not word.isascii())
 # Runs of letters and digits in any script, as in brain.confirm.
 _WORD = re.compile(r"[^\W_]+")
 _NOTE = (
@@ -98,7 +107,10 @@ class ClipboardTools:
 
     def begin_turn(self, user_text: str) -> None:
         """Start a turn with Master's words as heard; only these can name his copy."""
-        self._asked = not CLIPBOARD_WORDS.isdisjoint(set(_words(user_text)) - self._names)
+        words = set(_words(user_text)) - self._names
+        self._asked = not CLIPBOARD_WORDS.isdisjoint(words) or any(
+            copy in word for word in words for copy in _RUN_TOGETHER_WORDS
+        )
         self._read_once = False
 
     def run(self, name: str, arguments: object) -> tuple[str, bool]:

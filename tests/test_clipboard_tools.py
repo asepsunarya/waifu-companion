@@ -142,6 +142,15 @@ def test_the_spec_stays_identical_across_turns_for_prompt_caching():
         "what does what I copied mean?",
         "what I COPY means",
         "これ コピー した",
+        "terjemahin yang barusan kucopas",
+        "yang barusan dicopas artinya apa",
+        "yang kukopas tadi apa",
+        "yang dikopas tadi apa",
+        "artinya apa yang tadi kucopi",
+        "yang dicopi barusan",
+        "yang aku copi tadi apa artinya",
+        "これコピーしたやつ何？",  # Japanese runs its words together
+        "ｺﾋﾟｰしたやつ",  # half-width katakana
     ],
 )
 def test_master_naming_his_copy_lets_her_read_it_once(words):
@@ -165,6 +174,13 @@ def test_every_copy_word_is_listed():
         "dicopy",
         "kukopi",
         "dikopi",
+        "kucopas",
+        "dicopas",
+        "kukopas",
+        "dikopas",
+        "copi",
+        "kucopi",
+        "dicopi",
         "salin",
         "kusalin",
         "disalin",
@@ -184,6 +200,8 @@ def test_every_copy_word_is_listed():
         "nyalakan lampu kamar",
         "ngopi yuk",  # coffee, not a copy
         "kopi susu satu",
+        "kopinya enak",
+        "ngopi di kafe コーヒー",
         "",
     ],
 )

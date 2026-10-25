@@ -3834,10 +3834,11 @@ mendengarkan (Ctrl+Alt+Q), mode fokus, dan mode game. Untuk mengganti atau memat
 
 - Dia hanya membaca clipboard kalau **kalimat Master di giliran itu juga** menyebut yang
   dicopy, yaitu memuat salah satu kata ini: `copy`, `copas`, `kopas`, `copyan`, `kucopy`,
-  `dicopy`, `kukopi`, `dikopi`, `salin`, `kusalin`, `disalin`, `salinan`, `clipboard`,
-  `klipboard`, `copied`, atau `コピー`. Kode Cyrene sendiri yang memeriksanya, apa pun keinginan
-  otaknya; namanya dan kata panggilannya tidak dihitung. Paling banyak sekali untuk setiap
-  kalimat.
+  `dicopy`, `kukopi`, `dikopi`, `kucopas`, `dicopas`, `kukopas`, `dikopas`, `copi`, `kucopi`,
+  `dicopi`, `salin`, `kusalin`, `disalin`, `salinan`, `clipboard`, `klipboard`, `copied`, atau
+  `コピー` (juga di tengah kalimat Jepang tanpa spasi). `kopi` tidak dihitung: itu minuman. Kode
+  Cyrene sendiri yang memeriksanya, apa pun keinginan otaknya; namanya dan kata panggilannya tidak
+  dihitung. Paling banyak sekali untuk setiap kalimat.
 - Dia tidak pernah membaca clipboard sendiri: tidak mengawasinya, tidak menerjemahkan setiap
   copy, tidak di sapaan pagi atau hal lain yang dia mulai sendiri, dan tidak karena isi halaman
   web atau isi teks yang dicopy. Dia juga tidak pernah mengubah isi clipboard.
