@@ -545,11 +545,13 @@ schedule:
 # setelah after_ms, dia bilang satu kalimat pendek dulu ("Hmm, bentar ya…", "Sebentar, kucek
 # dulu ya.") dengan suaranya sendiri, lalu jawabannya menyusul begitu selesai. Kalimat-kalimat
 # itu disiapkan sekali saat `waifu run` mulai, jadi tidak pernah menunggu. Tidak untuk perintah
-# cepat ("ulangi", alarm), sapaan yang dia mulai sendiri, atau pesan dari HP.
+# cepat ("ulangi", alarm), sapaan yang dia mulai sendiri, atau pesan dari HP. Hitungannya mulai
+# saat dia mulai berpikir; Claude butuh 2-5 detik, jadi hampir setiap jawaban otak didahuluinya:
+# naikkan after_ms (misalnya 2500) kalau terasa terlalu sering.
 # Sudah menyala tanpa ditulis; untuk mengubahnya, tulis bagian ini tanpa tanda # di depannya.
 # nod:
 #   enabled: true          # false: dia diam sampai jawabannya siap, seperti sebelum v1.52
-#   after_ms: 1200         # setelah N milidetik tanpa jawaban (600-5000)
+#   after_ms: 1200         # setelah N milidetik berpikir tanpa jawaban (600-5000)
 
 # Jurnal harian (README, bagian "Jurnal harian"): "Cyrene, catat di jurnal: hari ini laporannya
 # selesai" menyimpan catatan hari itu dengan kata-kata Master sendiri, dan "kemarin aku nulis apa

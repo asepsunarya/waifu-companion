@@ -820,6 +820,13 @@ kupikirkan dulu…", "Iya, aku dengar kok, Master…" (dengan panggilanmu dari
 pernah sama dengan salah satu dari dua kalimat sebelumnya. Jawaban yang siap dalam 1,2 detik
 datang tanpa kalimat itu, seperti biasa.
 
+- Hitungan 1,2 detik dimulai saat dia mulai berpikir, bukan saat kamu selesai bicara: sebelum
+  itu dia menunggu jeda 0,7 detik untuk tahu kalimatmu selesai (`audio.vad.silence_ms`), lalu
+  Whisper menulisnya. Jadi dari selesai bicara, kalimat pendek itu datang kira-kira 2 sampai 3
+  detik kemudian.
+- Dengan Claude, yang butuh 2 sampai 5 detik, hampir setiap kalimatmu yang dijawab otak
+  mendapatkannya, juga "makasih" atau "nyalakan lampu". Kalau terasa terlalu sering, naikkan
+  `nod.after_ms` (misalnya 2500): hanya jawaban yang lebih lambat dari itu yang mendapatkannya.
 - Kalimat-kalimat itu disiapkan sekali di latar belakang setelah `waifu run` siap (sesudah
   "Cyrene siap, Master." kalau dengan `--announce`) dan disimpan di memori, jadi tidak pernah
   menunggu edge-tts atau suara anime. Satu-dua pertanyaan pertama tepat setelah mulai mungkin
@@ -848,7 +855,7 @@ Sudah menyala tanpa ditulis. Untuk mengubahnya, tulis di `config.yaml` (berlaku 
 ```yaml
 nod:
   enabled: true      # false: dia diam sampai jawabannya siap, seperti sebelum v1.52
-  after_ms: 1200     # setelah N milidetik tanpa jawaban (600-5000)
+  after_ms: 1200     # setelah N milidetik berpikir tanpa jawaban (600-5000)
 ```
 
 Tes otomatis tidak bisa mendengar bagaimana suara Indonesia edge-tts mengucapkan "Hmm". Coba
@@ -6884,8 +6891,9 @@ mendengarkan"; jawaban pertama bisa lebih lama karena model Ollama baru dimuat)
       bicara dengan suara biasa dan menampilkan "Suara anime tidak tersedia".
 - [ ] Respons instan (lihat [Respons instan](#respons-instan)): dengan Claude, "Cyrene, besok
       hujan nggak?" membuatnya bilang kalimat pendek seperti "Sebentar, kucek dulu ya." sekitar
-      1,2 detik setelah kamu selesai bicara, dengan suara つくよみちゃん, lalu jawabannya
-      menyusul tanpa bertumpuk; pertanyaan berikutnya yang lambat mendapat kalimat lain.
+      1,2 detik setelah dia mulai berpikir (kira-kira 2 sampai 3 detik setelah kamu selesai
+      bicara), dengan suara つくよみちゃん, lalu jawabannya menyusul tanpa bertumpuk;
+      pertanyaan berikutnya yang lambat mendapat kalimat lain.
 - [ ] Setelah `waifu run` bilang siap, menutup jendelanya juga mematikan server RVC:
       `netstat -ano | findstr :9881` tidak menampilkan apa-apa lagi.
 

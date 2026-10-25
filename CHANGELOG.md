@@ -10,7 +10,9 @@ aktif, lalu jalankan `waifu check`.
   kalimat pendek dulu dengan suaranya sendiri ("Hmm, bentar ya…", "Sebentar, kucek dulu ya.", dan
   empat lainnya, tidak pernah sama dengan salah satu dari dua sebelumnya), lalu jawabannya
   menyusul begitu selesai, tanpa jeda tambahan. Jawaban yang cepat datang tanpa kalimat itu,
-  seperti biasa.
+  seperti biasa. Hitungannya mulai saat dia mulai berpikir, jadi dari selesai bicara kalimat itu
+  datang kira-kira 2 sampai 3 detik kemudian, dan dengan Claude hampir setiap jawaban otak
+  didahuluinya; naikkan `nod.after_ms` (misalnya 2500) kalau terasa terlalu sering.
 - Kalimat-kalimat itu disiapkan sekali di latar belakang setelah dia siap dan disimpan di
   memori, jadi tidak pernah menunggu edge-tts atau suara anime. Yang saat disiapkan keluar dengan
   suara cadangan Windows atau tanpa suara anime tidak dipakai dulu, lalu dicoba lagi sekitar 10
