@@ -762,8 +762,10 @@ def prayer_watchers(events, monkeypatch) -> list[FakePrayerWatcher]:
 
 class FakeNetworkProbe:
     """Stands in for NetworkProbe: every check finds the router, the internet (24 ms), DNS, and
-    the HoYo hosts answering, and is remembered (`checks`, as `(dns, hoyo)`). Nothing is
-    pinged, looked up, or connected to."""
+    the HoYo hosts answering, unless a test sets `found` (the Reading's fields it changes), and
+    is remembered (`checks`, as `(dns, hoyo)`). Nothing is pinged, looked up, or connected to."""
+
+    found: dict[str, object] = {}
 
     def __init__(self, hosts) -> None:
         self.hosts = hosts
@@ -771,7 +773,7 @@ class FakeNetworkProbe:
 
     def check(self, *, dns: bool = False, hoyo: bool = False) -> Reading:
         self.checks.append((dns, hoyo))
-        return Reading(
+        reading = Reading(
             at=datetime.now(WIB),
             route=True,
             gateway="192.168.1.1",
@@ -781,6 +783,7 @@ class FakeNetworkProbe:
             dns_ms=12.0 if dns else None,
             hoyo_ms=(45.0, 50.0, 40.0) if hoyo else None,
         )
+        return replace(reading, **self.found)
 
 
 @pytest.fixture(autouse=True)
@@ -12926,6 +12929,216 @@ def test_run_starts_the_internet_watcher_with_play_time_and_stops_it_however_lis
     assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 1
 
     assert network_watchers[0].listening == [False, True]
+
+
+INTERNET_NOW = datetime(2026, 10, 25, 23, 0, tzinfo=WIB)
+INTERNET_NOTE = "Putusnya dicatat hanya selama 'waifu run' menyala."
+CHECKING = "Memeriksa internet sekarang, tunggu sebentar..."
+
+
+@pytest.fixture
+def internet_clock(monkeypatch) -> "FocusClock":
+    """The WIB clock of `waifu internet` and the history it reads, at INTERNET_NOW."""
+    clock = FocusClock(INTERNET_NOW)
+    monkeypatch.setattr(cli, "wib_now", clock)
+    return clock
+
+
+def down_between(store: NetworkStore, start: datetime, minutes: int) -> None:
+    store.begin(start, start, "offline")
+    store.end(start + timedelta(minutes=minutes))
+
+
+def test_internet_checks_now_and_lists_today_s_outages_without_writing(
+    home, internet_clock, network_probes, capsys
+):
+    store = network_history(home, internet_clock)
+    down_between(store, INTERNET_NOW.replace(hour=21, minute=3), 12)
+    down_between(store, INTERNET_NOW.replace(hour=22, minute=30), 4)
+    kept = (home / "data" / "network.json").read_bytes()
+
+    assert cli.main(["internet"]) == 0
+
+    assert capsys.readouterr().out.splitlines() == [
+        CHECKING,
+        "✓ Status: lancar",
+        "  Router 192.168.1.1: menjawab dalam 1 ms",
+        "  Internet (1.1.1.1, 8.8.8.8): menjawab dalam 24 ms",
+        "  DNS (www.google.com): menjawab dalam 12 ms",
+        "  Server HoYoLAB/HoYoverse: 3 dari 3 menjawab, sekitar 45 ms (bukan ping server game)",
+        "Hari ini: putus 2 kali, total 16 menit: 21.03-21.15, 22.30-22.34",
+        INTERNET_NOTE,
+    ]
+    [probe] = network_probes
+    assert probe.checks == [(True, True)]  # with the lookup and the HoYo hosts
+    assert (home / "data" / "network.json").read_bytes() == kept
+
+
+def test_internet_says_what_is_down_and_an_outage_not_seen_to_end(
+    home, internet_clock, monkeypatch, capsys
+):
+    monkeypatch.setattr(
+        FakeNetworkProbe,
+        "found",
+        {"anchor_ms": None, "dns_ms": None, "hoyo_ms": (None, None, None)},
+    )
+    store = network_history(home, internet_clock)
+    down_between(store, INTERNET_NOW.replace(hour=0, minute=0) - timedelta(minutes=10), 20)
+    store.begin(
+        INTERNET_NOW.replace(hour=22, minute=40),
+        INTERNET_NOW.replace(hour=22, minute=58),
+        "offline",
+    )
+
+    assert cli.main(["internet"]) == 0
+
+    assert capsys.readouterr().out.splitlines() == [
+        CHECKING,
+        "✗ Status: internet putus",
+        "  Router 192.168.1.1: menjawab dalam 1 ms",
+        "  Internet (1.1.1.1, 8.8.8.8): tidak menjawab",
+        "  DNS (www.google.com): tidak menjawab",
+        "  Server HoYoLAB/HoYoverse: tidak ada yang menjawab (bukan ping server game)",
+        "Hari ini: putus 2 kali, total 28 menit: 23.50-00.10, 22.40-22.58 (belum terlihat "
+        "nyambung)",
+        INTERNET_NOTE,
+    ]
+
+
+@pytest.mark.parametrize(
+    ("found", "router"),
+    [
+        (
+            {"route": False, "gateway": None, "gateway_ms": None, "anchor_ms": None},
+            "  Router: tidak ada rute ke internet (Wi-Fi atau kabel tidak tersambung)",
+        ),
+        ({"gateway": None, "gateway_ms": None}, "  Router: tidak ada, PC tersambung langsung"),
+        (
+            {"gateway_ms": None},
+            "  Router 192.168.1.1: tidak menjawab ping (banyak router memang mengabaikannya)",
+        ),
+    ],
+    ids=["no-route", "direct", "silent"],
+)
+def test_internet_names_how_the_router_answered(
+    found, router, home, internet_clock, monkeypatch, capsys
+):
+    monkeypatch.setattr(FakeNetworkProbe, "found", found)
+
+    assert cli.main(["internet"]) == 0
+
+    assert capsys.readouterr().out.splitlines()[2] == router
+
+
+def test_internet_with_no_outage_today_says_so_and_makes_no_file(home, internet_clock, capsys):
+    assert cli.main(["internet"]) == 0
+
+    assert capsys.readouterr().out.splitlines()[-2:] == [
+        "Hari ini: tidak ada yang putus",
+        INTERNET_NOTE,
+    ]
+    assert not (home / "data").exists()
+
+
+def test_internet_checks_also_with_the_watcher_off_after_saying_so(
+    home, internet_clock, network_probes, capsys
+):
+    append_config(home, "network:\n  enabled: false\n")
+
+    assert cli.main(["internet"]) == 0
+
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[:2] == [
+        "! Pemantau internet mati (network.enabled: false): tidak ada yang dicatat; riwayatnya "
+        "catatan lama.",
+        CHECKING,
+    ]
+    assert len(network_probes) == 1
+
+
+def test_internet_exits_1_when_the_history_cannot_be_read(
+    home, internet_clock, monkeypatch, capsys
+):
+    def unreadable(self):
+        raise PermissionError("access denied")
+
+    monkeypatch.setattr(NetworkStore, "record", unreadable)
+
+    assert cli.main(["internet"]) == 1
+
+    assert capsys.readouterr().out.splitlines()[-1] == (
+        f"✗ File riwayat internet {Path('data') / 'network.json'} tidak bisa dibaca: access denied"
+    )
+
+
+def network_line(out: str) -> str:
+    [line] = [
+        line
+        for line in out.splitlines()
+        if "Pemantau internet" in line or "riwayat internet" in line
+    ]
+    return line
+
+
+@pytest.mark.parametrize(
+    ("settings", "expected"),
+    [
+        (None, "✓ Pemantau internet: aktif, tiap 60 detik"),
+        ("network:\n  poll_seconds: 120\n", "✓ Pemantau internet: aktif, tiap 120 detik"),
+        ("network:\n  enabled: false\n", "! Pemantau internet mati"),
+    ],
+    ids=["default", "every-2-minutes", "off"],
+)
+def test_check_says_whether_she_watches_the_internet_without_probing(
+    settings, expected, home, nothing_installed, network_probes, capsys
+):
+    if settings is not None:
+        append_config(home, settings)
+
+    cli.main(["check"])
+
+    assert network_line(capsys.readouterr().out) == expected
+    assert network_probes == []
+    assert not (home / "data" / "network.json").exists()
+
+
+def test_check_says_the_internet_watcher_right_after_the_pc_health(home, nothing_installed, capsys):
+    cli.main(["check"])
+
+    lines = capsys.readouterr().out.splitlines()
+    pc = lines.index(pc_health_line("\n".join(lines)))
+    assert lines[pc + 1] == network_line("\n".join(lines))
+
+
+def test_check_moves_a_broken_internet_history_aside_and_points_at_it(
+    home, nothing_installed, capsys
+):
+    (home / "data").mkdir(exist_ok=True)
+    (home / "data" / "network.json").write_text("broken", encoding="utf-8")
+
+    cli.main(["check"])
+
+    line = network_line(capsys.readouterr().out)
+    [moved] = (home / "data").glob("network.json.corrupt-*")
+    assert line == (
+        "! Pemantau internet: aktif, tiap 60 detik; file riwayat internet yang rusak dipindah ke "
+        f"{Path('data') / moved.name} (lihat README, bagian Pemantau internet)"
+    )
+
+
+def test_check_fails_when_the_internet_history_cannot_be_read(
+    home, nothing_installed, monkeypatch, capsys
+):
+    def unreadable(self):
+        raise PermissionError("access denied")
+
+    monkeypatch.setattr(NetworkStore, "record", unreadable)
+
+    assert cli.main(["check"]) == 1
+
+    assert network_line(capsys.readouterr().out) == (
+        f"✗ File riwayat internet {Path('data') / 'network.json'} tidak bisa dibaca: access denied"
+    )
 
 
 # --- focus companion ---------------------------------------------------------------------------

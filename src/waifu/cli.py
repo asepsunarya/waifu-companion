@@ -104,6 +104,8 @@ from waifu.config import (
     FallbackTtsConfig,
     GameId,
     GameModeConfig,
+    NetworkConfig,
+    NetworkHostsConfig,
     NotifyConfig,
     OllamaConfig,
     PhoneConfig,
@@ -217,10 +219,10 @@ from waifu.lexicon import BUILT_IN_READINGS, Lexicon, LexiconError
 from waifu.listen_pause import ListenPause
 from waifu.memory import MemoryStore, memory_prompt_section
 from waifu.music import MusicService, open_in_browser, open_link, search_link, youtube_link
-from waifu.network import NetworkCheck, NetworkState
+from waifu.network import MEANINGS, Finding, NetworkCheck, NetworkState, Status
 from waifu.network_ask import NetworkAnswers
-from waifu.network_history import NetworkStore
-from waifu.network_probe import NetworkProbe
+from waifu.network_history import NetworkRecord, NetworkStore, outage_totals
+from waifu.network_probe import NetworkProbe, Reading
 from waifu.network_watch import NetworkWatcher
 from waifu.notify import Notifier, build_notifier
 from waifu.offers.checks import official_link
@@ -916,6 +918,12 @@ def build_parser() -> argparse.ArgumentParser:
         "pc",
         _pc,
         "Tampilkan kondisi PC: beban CPU, RAM, sisa disk, GPU NVIDIA, dan waktu sejak restart.",
+    )
+    command(
+        "internet",
+        _internet,
+        "Periksa internet sekarang (router, internet, DNS, server HoYoLAB/HoYoverse) dan "
+        "tampilkan kapan saja putus hari ini, dari catatan Cyrene selama 'waifu run' menyala.",
     )
     playtime = command(
         "playtime",
@@ -6184,9 +6192,11 @@ class _InternetWatch:
 
 def _internet_watch(config: AppConfig) -> _InternetWatch | None:
     """A new view of the internet with the watcher on; None with it off."""
-    network = config.network
-    if not network.enabled:
-        return None
+    return _internet_view(config.network) if config.network.enabled else None
+
+
+def _internet_view(network: NetworkConfig) -> _InternetWatch:
+    """A new view of the internet as `network` says to probe and judge it."""
     probe = NetworkProbe(network.hosts)
     state = NetworkState(network.slow_window)
     return _InternetWatch(probe, state, NetworkCheck(probe, state, slow_ms=network.slow_ms))
@@ -6219,6 +6229,111 @@ def _network_watcher(
         yield
     finally:
         watcher.stop()
+
+
+INTERNET_OFF = "Pemantau internet mati"
+INTERNET_NOTE = "Putusnya dicatat hanya selama 'waifu run' menyala."
+_STATUS_MARKS: dict[Status, str] = {
+    "ok": OK,
+    "slow": WARN,
+    "dns": WARN,
+    "hoyo": WARN,
+    "offline": FAIL,
+    "router": FAIL,
+}
+
+
+def _internet(args: argparse.Namespace) -> int:
+    """Check the internet now, with the lookup and the HoYo hosts, and print what answered (the
+    router's address only here) and today's outages from the history alone: it works with the
+    watcher off too, after saying so. Writes nothing; a broken history is moved aside, as `run`
+    would. Exit 1 when the history cannot be read."""
+    config = load_config(args.config)
+    network = config.network
+    if not network.enabled:
+        print(
+            f"{WARN} {INTERNET_OFF} (network.enabled: false): tidak ada yang dicatat; riwayatnya "
+            "catatan lama."
+        )
+    print("Memeriksa internet sekarang, tunggu sebentar...", flush=True)
+    finding = _internet_view(network).check.now(hoyo=True)
+    print("\n".join(_finding_lines(finding, network.hosts)))
+    store = _network_store(config)
+    try:
+        record = store.record()
+    except OSError as exc:
+        print(f"{FAIL} File riwayat internet {store.path} tidak bisa dibaca: {exc}")
+        return 1
+    print(_outages_today_line(record, wib_now()))
+    print(INTERNET_NOTE)
+    return 0
+
+
+def _finding_lines(finding: Finding, hosts: NetworkHostsConfig) -> list[str]:
+    """The status, then how the router, the anchors, DNS, and the HoYo hosts answered."""
+    reading = finding.reading
+    lines = [
+        f"{_STATUS_MARKS[finding.status]} Status: {MEANINGS[finding.status]}",
+        f"  {_router_text(reading)}",
+        f"  Internet ({', '.join(hosts.anchors)}): {_answer_text(reading.anchor_ms)}",
+        f"  DNS ({hosts.dns}): {_answer_text(reading.dns_ms)}",
+    ]
+    hoyo = finding.hoyo
+    if hoyo is not None:
+        answered = (
+            "tidak ada yang menjawab"
+            if hoyo.median_ms is None
+            else f"{hoyo.answered} dari {hoyo.of} menjawab, sekitar {_ms_text(hoyo.median_ms)}"
+        )
+        lines.append(f"  Server HoYoLAB/HoYoverse: {answered} (bukan ping server game)")
+    return lines
+
+
+def _router_text(reading: Reading) -> str:
+    if not reading.route:
+        return "Router: tidak ada rute ke internet (Wi-Fi atau kabel tidak tersambung)"
+    if reading.gateway is None:
+        return "Router: tidak ada, PC tersambung langsung"
+    if reading.gateway_ms is None:
+        return (
+            f"Router {reading.gateway}: tidak menjawab ping (banyak router memang mengabaikannya)"
+        )
+    return f"Router {reading.gateway}: {_answer_text(reading.gateway_ms)}"
+
+
+def _answer_text(took_ms: float | None) -> str:
+    return "tidak menjawab" if took_ms is None else f"menjawab dalam {_ms_text(took_ms)}"
+
+
+def _ms_text(took_ms: float) -> str:
+    """`24 ms`, whole and a half up; `<1 ms` for a LAN's 0."""
+    whole = int(took_ms + 0.5)
+    return f"{whole} ms" if whole else "<1 ms"
+
+
+def _outages_today_line(record: NetworkRecord, now: datetime) -> str:
+    """`Hari ini: putus 2 kali, total 16 menit: 21.03-21.15, 22.30-22.34`: the outages with time
+    today, each from its start to its end, an open one to its last failed poll."""
+    midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    total = outage_totals(record, midnight, now)
+    if not total.count:
+        return "Hari ini: tidak ada yang putus"
+
+    def today(start: datetime, end: datetime) -> bool:
+        return min(end, now) > max(start, midnight)
+
+    spans = [
+        f"{outage.start:%H.%M}-{outage.end:%H.%M}"
+        for outage in record.outages
+        if today(outage.start, outage.end)
+    ]
+    opened = record.open
+    if opened is not None and today(opened.start, opened.last_failed):
+        spans.append(f"{opened.start:%H.%M}-{opened.last_failed:%H.%M} (belum terlihat nyambung)")
+    return (
+        f"Hari ini: putus {total.count} kali, total {_play_duration(total.seconds)}: "
+        f"{', '.join(spans)}"
+    )
 
 
 # --- focus companion -------------------------------------------------------------------------
@@ -7669,6 +7784,7 @@ def _checks(config_path: Path) -> Iterator[Check]:
     yield _rain_alert_check(config)
     yield _usage_check(config)
     yield _pc_health_check(config)
+    yield _internet_watch_check(config)
     yield _play_time_check(config)
     yield _app_reminders_check(config)
     yield _focus_check(config)
@@ -8115,6 +8231,26 @@ def _pc_health_check(config: AppConfig) -> Check:
     if gpu is None:
         return WARN, "Kesehatan PC: aktif, GPU tidak terbaca"
     return OK, f"Kesehatan PC: aktif, GPU {gpu.name}"
+
+
+def _internet_watch_check(config: AppConfig) -> Check:
+    """Whether she watches the internet and how often, and where a broken history was moved, if
+    one was; nothing is probed."""
+    network = config.network
+    if not network.enabled:
+        return WARN, INTERNET_OFF
+    try:
+        _network_store(config).record()  # moves a broken file aside, as `run` would
+    except OSError as exc:
+        return FAIL, f"File riwayat internet {network.path} tidak bisa dibaca: {exc}"
+    status = f"Pemantau internet: aktif, tiap {network.poll_seconds} detik"
+    moved = _set_aside_files(network.path)
+    if moved:
+        return WARN, (
+            f"{status}; file riwayat internet yang rusak dipindah ke "
+            f"{', '.join(map(str, moved))} (lihat README, bagian Pemantau internet)"
+        )
+    return OK, status
 
 
 def _play_time_check(config: AppConfig) -> Check:
