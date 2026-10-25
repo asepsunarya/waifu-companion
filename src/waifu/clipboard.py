@@ -132,13 +132,14 @@ class ClipboardRead:
 def read_clipboard(max_chars: int, *, sleep: Callable[[float], None] = time.sleep) -> ClipboardRead:
     """The clipboard's text, at most `max_chars` characters, or why there is none.
 
-    A copy a password manager marked is PRIVATE and its text is never read. Without text on the
+    A copy a password manager marked is PRIVATE and its text is never read: the marks are looked
+    for before the clipboard is opened and again once it is open, when no program can change
+    it, so a copy made while it was being opened is seen with its marks. Without text on the
     clipboard, NOT_TEXT. A clipboard another program holds is tried OPEN_TRIES times,
     OPEN_RETRY_S apart, then BUSY. The clipboard is closed again on this thread whenever it
     opened, and the memory behind the text unlocked. OSError when that memory cannot be locked.
     """
-    if any(_marked(name) for name in PRIVATE_FORMATS):
-        logger.info("The clipboard holds a copy a password manager marked as private")
+    if _marked_private():
         return ClipboardRead(PRIVATE)
     if not _is_clipboard_format_available(CF_UNICODETEXT):
         return ClipboardRead(NOT_TEXT)
@@ -146,6 +147,8 @@ def read_clipboard(max_chars: int, *, sleep: Callable[[float], None] = time.slee
         logger.info("The clipboard is held by another program")
         return ClipboardRead(BUSY)
     try:
+        if _marked_private():
+            return ClipboardRead(PRIVATE)
         handle = _get_clipboard_data(CF_UNICODETEXT)
         if not handle:
             return ClipboardRead(NOT_TEXT)
@@ -209,6 +212,14 @@ def _is_code(digits: str) -> bool:
     return sum(map(len, groups)) in _PIN_DIGITS or any(
         len(group) in _PIN_DIGITS for group in groups
     )
+
+
+def _marked_private() -> bool:
+    """Whether a password manager marked the copy on the clipboard as private."""
+    if any(_marked(name) for name in PRIVATE_FORMATS):
+        logger.info("The clipboard holds a copy a password manager marked as private")
+        return True
+    return False
 
 
 def _marked(name: str) -> bool:

@@ -32,9 +32,10 @@ class FakeClipboard:
     """The clipboard as user32 and kernel32 show it, over a buffer in memory.
 
     `text` is on it as CF_UNICODETEXT (None: no text); `marks` are registered formats a program
-    put beside it; the first `held` OpenClipboard calls fail (another program has it open);
-    without `data` GetClipboardData gives nothing, without `locks` GlobalLock fails; `size` is
-    what GlobalSize says (default: the whole buffer). `calls` holds the order of the calls."""
+    put beside it; the first `held` OpenClipboard calls fail (another program has it open),
+    and the program holding it puts `marked_while_held` on too; without `data` GetClipboardData
+    gives nothing, without `locks` GlobalLock fails; `size` is what GlobalSize says (default: the
+    whole buffer). `calls` holds the order of the calls."""
 
     def __init__(
         self,
@@ -42,6 +43,7 @@ class FakeClipboard:
         *,
         marks=(),
         held: int = 0,
+        marked_while_held=(),
         data: bool = True,
         locks: bool = True,
         size: int | None = None,
@@ -50,6 +52,7 @@ class FakeClipboard:
         self.size = size if size is not None else ctypes.sizeof(self.buffer or ctypes.c_wchar())
         self.marks = set(marks)
         self.held = held
+        self.marked_while_held = set(marked_while_held)
         self.data = data
         self.locks = locks
         self.calls: list[str] = []
@@ -78,6 +81,7 @@ class FakeClipboard:
         assert not self.open
         if self.held:
             self.held -= 1
+            self.marks |= self.marked_while_held
             return 0
         self.open = True
         return 1
@@ -196,13 +200,29 @@ def test_it_closes_the_clipboard_and_unlocks_its_memory_after_reading(install):
     read_clipboard(2000)
 
     assert not clipboard.open and clipboard.locked == 0
-    assert clipboard.calls[-6:] == [
-        "OpenClipboard",
+    assert clipboard.calls[-5:] == [
         "GetClipboardData",
         "GlobalLock",
         "GlobalSize",
         "GlobalUnlock",
         "CloseClipboard",
+    ]
+
+
+def test_both_marks_are_looked_for_again_once_the_clipboard_is_open(install):
+    clipboard = FakeClipboard("Good morning")
+    install(clipboard)
+
+    read_clipboard(2000)
+
+    opened = clipboard.calls.index("OpenClipboard")
+    assert clipboard.calls[opened : opened + 6] == [
+        "OpenClipboard",
+        f"RegisterClipboardFormatW({MARKS[0]})",
+        "IsClipboardFormatAvailable(49152)",
+        f"RegisterClipboardFormatW({MARKS[1]})",
+        "IsClipboardFormatAvailable(49153)",
+        "GetClipboardData",
     ]
 
 
@@ -214,6 +234,19 @@ def test_a_copy_a_password_manager_marked_is_private_and_never_read(install, mar
     assert read_clipboard(2000) == ClipboardRead(PRIVATE)
     assert "OpenClipboard" not in clipboard.calls
     assert "GetClipboardData" not in clipboard.calls
+
+
+@pytest.mark.parametrize("mark", MARKS)
+def test_a_mark_put_on_while_another_program_held_the_clipboard_keeps_its_text_unread(
+    install, mark
+):
+    # A password manager copying a passphrase looks_private would not catch.
+    clipboard = FakeClipboard("granite-otter-sizzle-pumpkin", held=2, marked_while_held={mark})
+    install(clipboard)
+
+    assert read_clipboard(2000, sleep=Sleeps()) == ClipboardRead(PRIVATE)
+    assert "GetClipboardData" not in clipboard.calls
+    assert not clipboard.open  # opened, then closed again
 
 
 def test_both_marks_are_looked_for_before_the_text(install):
