@@ -6,6 +6,7 @@ import pytest
 
 from waifu.config import (
     AppConfig,
+    AppRemindersConfig,
     BreaksConfig,
     ConfigError,
     FallbackTtsConfig,
@@ -1437,6 +1438,36 @@ def test_the_example_nod_block_written_out_holds_the_defaults(tmp_path):
     written_out = "\n".join(line.removeprefix("# ") for line in commented.splitlines())
 
     assert load_config(write_yaml(tmp_path, written_out)).nod == NodConfig()
+
+
+def test_game_start_reminders_are_on_by_default_in_their_own_file():
+    reminders = AppConfig().app_reminders
+
+    assert (reminders.enabled, reminders.path) == (True, Path("data/app_reminders.json"))
+
+
+def test_game_start_reminder_settings_load_from_yaml(tmp_path):
+    text = "app_reminders:\n  enabled: false\n  path: data/game.json\n"
+
+    reminders = load_config(write_yaml(tmp_path, text)).app_reminders
+
+    assert (reminders.enabled, reminders.path) == (False, Path("data/game.json"))
+
+
+def test_an_unknown_game_start_reminder_setting_is_refused_naming_it(tmp_path):
+    # The cap is hers, an honest refusal at 30, not a number written in config.yaml.
+    text = "app_reminders:\n  max_reminders: 50\n"
+
+    with pytest.raises(ConfigError, match=re.escape("app_reminders.max_reminders")):
+        load_config(write_yaml(tmp_path, text))
+
+
+def test_the_example_app_reminders_block_written_out_holds_the_defaults(tmp_path):
+    example = (ROOT / "config.example.yaml").read_text(encoding="utf-8")
+    commented = example[example.index("\n# app_reminders:\n") + 1 :].split("\n\n", 1)[0]
+    written_out = "\n".join(line.removeprefix("# ") for line in commented.splitlines())
+
+    assert load_config(write_yaml(tmp_path, written_out)).app_reminders == AppRemindersConfig()
 
 
 def test_the_journal_is_on_without_the_nightly_question_by_default():

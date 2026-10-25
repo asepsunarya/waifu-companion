@@ -516,6 +516,18 @@ schedule:
 #   on_start:              # nama rutinitas saat game pertama dibuka, misalnya redup (kosong = tidak ada)
 #   on_stop:               # nama rutinitas saat game terakhir ditutup, misalnya terang (kosong = tidak ada)
 
+# Pengingat saat game dibuka (README, bagian "Pengingat saat game dibuka"): "pas buka HSR nanti,
+# ingetin aku farming relic" atau "tiap buka Genshin ingetin cek ekspedisi" disimpan, lalu dia
+# mengucapkannya saat game itu benar-benar baru dibuka selama `waifu run` menyala (dia tahu dari
+# jam main, jadi play_time harus menyala), bukan untuk game yang sudah terbuka saat dia mulai atau
+# saat PC bangun dari sleep. Sekali saja, kecuali Master bilang "tiap". Diucapkan seperti pengingat
+# yang Master pasang, juga selama fokus atau main game, dan dikirim ke HP kalau notify menyala.
+# Lihat dan hapus dengan `waifu pengingat-game`. Disimpan di PC ini (path).
+# Sudah menyala tanpa ditulis; untuk mengubahnya, tulis bagian ini tanpa tanda # di depannya.
+# app_reminders:
+#   enabled: true          # false: tanpa tool dan tidak ada yang diucapkan (`waifu pengingat-game` tetap jalan)
+#   path: data/app_reminders.json
+
 # Mode tamu (README, bagian "Mode tamu"): "Cyrene, mode tamu" (lewat suara, chat, atau HP)
 # menutup data pribadi Master selama ada tamu: keuangan, jurnal, ingatan, daftar tugas, jam main,
 # akun game, daftar jadwal, biaya API, dan layar PC ditolak, dan obrolan berikutnya dimulai baru

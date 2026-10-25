@@ -922,6 +922,14 @@ class GameModeConfig(_Strict):
     on_stop: str | None = None
 
 
+class AppRemindersConfig(_Strict):
+    """Reminders said when Master next opens one of his tracked games, which the play time
+    watcher sees start; nothing is told with play time off."""
+
+    enabled: bool = True
+    path: Path = Path("data/app_reminders.json")
+
+
 class GuestModeConfig(_Strict):
     """Guest mode, turned on and off by voice, chat, or the phone: how long it lasts at most
     (it also ends at 05:00, whichever comes first)."""
@@ -1330,6 +1338,7 @@ class AppConfig(_Strict):
     play_time: PlayTimeConfig = Field(default_factory=PlayTimeConfig)
     focus: FocusConfig = Field(default_factory=FocusConfig)
     game_mode: GameModeConfig = Field(default_factory=GameModeConfig)
+    app_reminders: AppRemindersConfig = Field(default_factory=AppRemindersConfig)
     guest_mode: GuestModeConfig = Field(default_factory=GuestModeConfig)
     voice: VoiceVolumeConfig = Field(default_factory=VoiceVolumeConfig)
     nod: NodConfig = Field(default_factory=NodConfig)
