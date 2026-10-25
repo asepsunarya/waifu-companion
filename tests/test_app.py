@@ -5051,6 +5051,19 @@ def test_a_reply_ready_in_time_has_no_filler_even_from_a_timer_that_fires_late()
     assert rig.player.played == [24000]
 
 
+def test_a_brain_turn_that_fails_cancels_the_filler_and_a_late_timer_says_none():
+    rig = Rig(SLOW_QUESTION, brain=BrokenBrain, nods=nod_bank(), with_avatar=True)
+
+    with pytest.raises(RuntimeError, match="brain crashed"):
+        rig.assistant.handle_utterance(rig.utterance())
+    [timer] = rig.timers.made
+    rig.timers.fire()  # Timer.cancel cannot stop a timer that has just fired
+
+    assert timer.cancelled
+    assert rig.player.played == []
+    assert rig.avatar.spoken == []
+
+
 def test_a_turn_says_one_filler_at_most():
     rig = slow_rig(nods=nod_bank(HMM, CHECKING))
 
