@@ -2935,12 +2935,12 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 307a · **Files:** `src/waifu/voice/tts.py`, `tests/test_voice_tts.py` · **Scope:** XS
 
-## Task 308: The filler bank
+## Task 308: The filler bank ✅
 
 **Acceptance criteria:**
-- [ ] `NodBank.prepare` synthesises each line once, in order, with `{owner}` filled, and keeps it; a `TtsError` (warned once per call), any other exception (logged with its traceback), or a stand-in voice leaves that line out; a second `prepare` makes only the missing lines
-- [ ] `pick` gives None before `prepare`, a random kept filler other than the last one picked, and None when only the last one is kept
-- [ ] Every built-in filler is one Indonesian speech run
+- [x] `NodBank.prepare` synthesises each line once, in order, with `{owner}` filled, and keeps it; a `TtsError` (warned once per call), any other exception (logged with its traceback), or a stand-in voice leaves that line out; a second `prepare` makes only the missing lines
+- [x] `pick` gives None before `prepare`, a random kept filler other than the last one picked, and None when only the last one is kept
+- [x] Every built-in filler is one Indonesian speech run
 
 **Dependencies:** 307 · **Files:** `src/waifu/voice/nod.py`, `tests/test_voice_nod.py` · **Scope:** S
 
