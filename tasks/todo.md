@@ -3168,6 +3168,7 @@ named `tests/test_<package>_<module>.py`.
 **Acceptance criteria:**
 - [x] `split_card` splits at the first marker in any of its shapes (case, spaces, one or two brackets, full width, no title, unclosed, mid-line); text without one comes back unchanged; the body keeps its lines and indentation, loses emotion tags, blank runs, and a second marker's syntax; an empty body is no card; the caps cut with "…"
 - [x] `before_card` puts an addition before the marker, as before without one; `card_message` joins the gist and the card within 3800 UTF-8 bytes; `Card.allows_link` only for a URL in the body; `is_card_request` takes the whole re-show phrases and nothing with another word
+- [x] Fix pass: one bracket is a marker only with the colon ("[kartu: Judul]") or as a whole line ("[kartu Judul]"), so "[kartu kredit]" in a sentence, a URL's "?q=[kartu]", "[kartu nama] = meishi", and "[Kartu Prakerja](url)" stay as written, in the gist and in the body; in the body only a double-bracket or colon marker becomes its title; "mana" no longer points at the card, so "kartu yang mana?" reaches the brain while "mana kartunya?" still re-shows it; "kartu terakhir" and "sekali lagi" are re-show phrases
 
 **Dependencies:** 332a · **Files:** `src/waifu/card.py`, `tests/test_card.py` · **Scope:** S
 
@@ -3177,6 +3178,7 @@ named `tests/test_<package>_<module>.py`.
 - [x] The system prompt holds the card note between the devices and the time note (never "web"), naming the marker as the one other bracket and allowing bullets, URLs, romaji, and kana in the card; the web note forbids URLs only in the spoken part
 - [x] The briefing and journal prompts say "Jawab tanpa kartu.", the weekly report allows a card for its details, and none of them opens a tool gate
 - [x] `with_question` places the question before a card, as before without one
+- [x] Fix pass: the card note keeps markdown out of the card too (no asterisks, "#", code fences, or "|" tables), asking for one "- Rabu: hujan, 27°C" line per table row and code as plain lines with their indentation
 
 **Dependencies:** 332 · **Files:** `src/waifu/brain/persona.py`, `src/waifu/brain/confirm.py`, `src/waifu/briefing.py`, `src/waifu/gacha/weekly.py`, `src/waifu/journal.py`, tests · **Scope:** S
 
@@ -3203,6 +3205,7 @@ named `tests/test_<package>_<module>.py`.
 **Acceptance criteria:**
 - [x] `phone/card.js` parses and caps a card, tells when it hides, splits lines into bullets and text, links only http(s) URLs, and builds the card with text nodes; a link click hands the URL on
 - [x] `index.html` shows the card in a bottom panel that scrolls, closes, hides by itself, and is replaced by the next; a link click posts `/open-link` with the token; no `innerHTML` anywhere in the pages; the module graph reaches `card.js`
+- [x] Fix pass: `cardLines` keeps a text line's indentation and runs of spaces and leaves an indented bullet as a line as written, shown with `white-space: pre-wrap` on both pages; `hideTimer` holds a card's time while the pointer is on it and gives what was left, at least 10 s, once it leaves; with `onLink` a middle click goes to `onLink` too, the link has no target, and its context menu is prevented; the first child of a card keeps clear of the close button; the link pattern's invisible characters are written as escape sequences, and a test keeps such characters out of the card pages; a page test checks that `index.html` passes `onLink`
 
 **Dependencies:** 335 · **Files:** `src/waifu/avatar/web/phone/card.js`, `src/waifu/avatar/web/index.html`, `tests/js/card.test.mjs`, `tests/test_avatar_web.py` · **Scope:** M
 
@@ -3226,5 +3229,6 @@ named `tests/test_<package>_<module>.py`.
 
 **Acceptance criteria:**
 - [x] README "Kartu teks" (and in the table of contents); CHANGELOG v1.55; full suite, ruff, and JS tests clean
+- [x] Fix pass: README's limits say the card shows in the browser tab with `window: none`, that with no page open she still says "kutampilkan di layar" and "Ini kartunya lagi", and that a marker the parser cannot recognise makes the whole reply spoken; the new re-show phrases, the hover pause, the middle click, and the kept indentation are in README, CHANGELOG, and SPEC
 
 **Dependencies:** 338 · **Files:** `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md` · **Scope:** S
