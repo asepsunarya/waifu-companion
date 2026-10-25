@@ -2962,10 +2962,10 @@ named `tests/test_<package>_<module>.py`.
 
 **Dependencies:** 308, 309 · **Files:** `src/waifu/app.py`, `tests/test_app.py` · **Scope:** M
 
-## Task 311: `waifu run` prepares the fillers
+## Task 311: `waifu run` prepares the fillers ✅
 
 **Acceptance criteria:**
-- [ ] With `nod.enabled` the Assistant gets a NodBank voiced by the run's one speech router, prepared on a daemon "nod-voice" thread after the `--announce` line; with it off, `nods=None` and nothing is prepared; the CLI tests replace the preparation
+- [x] With `nod.enabled` the Assistant gets a NodBank voiced by the run's one speech router, prepared on a daemon "nod-voice" thread after the `--announce` line; with it off, `nods=None` and nothing is prepared; the CLI tests replace the preparation
 
 **Dependencies:** 310 · **Files:** `src/waifu/cli.py`, `tests/test_cli.py` · **Scope:** S
 

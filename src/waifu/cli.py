@@ -317,6 +317,7 @@ from waifu.voice.mic_check import (
     windows_default_input,
 )
 from waifu.voice.mic_source import DeviceList, MicSource, windows_input_names
+from waifu.voice.nod import NodBank
 from waifu.voice.panel import VoicePanel
 from waifu.voice.rvc import (
     SERVER_SCRIPT,
@@ -1646,13 +1647,19 @@ def _listen(args: argparse.Namespace) -> int:
             _avatar_bus(config, on_interact=touches.handle) as avatar,
             _voice_converter(config) as converter,
         ):
+            speech = build_speech_router(config.tts, converter=converter, lexicon=lexicon.readings)
+            # Her fillers for a slow reply, in the same voice as her replies (RVC and Master's
+            # readings included); made in the background once she is ready.
+            nods = (
+                NodBank(speech, owner_call=config.assistant.owner_call)
+                if config.nod.enabled
+                else None
+            )
             assistant = Assistant(
                 config,
                 brain=brain,
                 stt=stt,
-                speech=build_speech_router(
-                    config.tts, converter=converter, lexicon=lexicon.readings
-                ),
+                speech=speech,
                 # Only the PC's speaker: the phone's replies are synthesised apart.
                 player=VolumePlayer(Player(config.audio.output_device), hold.level_now),
                 gate=gate,
@@ -1670,6 +1677,7 @@ def _listen(args: argparse.Namespace) -> int:
                 diagnosis=heard,
                 listen_pause=pause,
                 lexicon=lexicon,
+                nods=nods,
             )
             reactions = InteractionHandler(
                 config.avatar.interactions,
@@ -1717,6 +1725,9 @@ def _listen(args: argparse.Namespace) -> int:
                     # Not a reply, so no follow-up window: after login only her name starts a
                     # conversation, as in a plain `run`.
                     assistant.speak(f"{name} siap, {config.assistant.owner_call}.", followup=False)
+                # After the "siap" line: the RVC server converts one clip at a time.
+                if nods is not None:
+                    _prepare_nods(nods)
                 try:
                     with (
                         _gacha_watcher(
@@ -2128,6 +2139,12 @@ def _await_avatar_viewer(avatar: AvatarBus, timeout_s: float) -> None:
     """Give the avatar page up to `timeout_s` to connect, so it mouths her first words."""
     if timeout_s > 0 and not avatar.wait_for_viewer(timeout_s):
         logger.info("No avatar viewer connected within %g s; speaking without it", timeout_s)
+
+
+def _prepare_nods(nods: NodBank) -> None:
+    """Make her fillers on a daemon thread of their own, so neither her start nor Master's
+    first words wait for them; one not made yet is simply not said."""
+    threading.Thread(target=nods.prepare, name="nod-voice", daemon=True).start()
 
 
 @contextmanager

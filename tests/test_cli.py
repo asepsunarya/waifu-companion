@@ -195,6 +195,7 @@ from waifu.voice.base import SpeakerEmbedder, SpeechToText, Transcript
 from waifu.voice.diagnosis import UtteranceLog
 from waifu.voice.hotwords import build_hotwords
 from waifu.voice.mic_source import MicSource
+from waifu.voice.nod import NODS, NodBank
 from waifu.voice.panel import VoicePanel
 from waifu.voice.rvc import RvcError
 from waifu.voice.speaker import SpeakerVerifier
@@ -1109,6 +1110,8 @@ class HouseBrain(Brain):
 
 
 class FakeRouter:
+    degraded = False  # her own voice: no fallback or plain voice stands in
+
     def __init__(self) -> None:
         self.texts: list[str] = []
 
@@ -2873,6 +2876,19 @@ def hotkey_threads(monkeypatch) -> list[FakeHotkeyThread]:
         return started[-1]
 
     monkeypatch.setattr(cli, "HotkeyThread", start)
+    return started
+
+
+# The real one, kept before `nod_preparations` replaces it in every test.
+PREPARE_NODS = cli._prepare_nods
+
+
+@pytest.fixture(autouse=True)
+def nod_preparations(monkeypatch) -> list[NodBank]:
+    """Every filler bank whose preparation `waifu run` starts in these tests, none of them made:
+    a real thread voicing her fillers would add speech to the events at random moments."""
+    started: list[NodBank] = []
+    monkeypatch.setattr(cli, "_prepare_nods", started.append)
     return started
 
 
@@ -13048,6 +13064,69 @@ def test_run_whispers_inside_the_window_once_whisper_mode_is_on(
         np.ones(240, dtype=np.float32), 24000
     )
     assert player.peaks == [0.5]
+
+
+def test_run_gives_her_fillers_in_her_own_voice_and_prepares_them(
+    run_fakes, speech, nod_preparations
+):
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    nods = RecordingAssistant.instances[0].collaborators["nods"]
+    assert isinstance(nods, NodBank)
+    assert nod_preparations == [nods]
+    nods.prepare()
+    [router] = speech  # one router: her replies and her fillers sound the same
+    assert router.texts == [line.replace("{owner}", "Master") for line in NODS]
+
+
+def test_run_names_the_owner_in_her_fillers_as_she_calls_him(home, run_fakes, speech):
+    write_config(home, "assistant:\n  owner_call: Sayang\n")
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    RecordingAssistant.instances[0].collaborators["nods"].prepare()
+    assert "Tunggu sebentar ya, Sayang." in speech[0].texts
+
+
+def test_run_without_fillers_has_none_and_prepares_nothing(home, run_fakes, nod_preparations):
+    write_config(home, "nod:\n  enabled: false\n")
+
+    assert cli.main(["run", "--dry-run", "--no-speaker-check"]) == 0
+
+    assert RecordingAssistant.instances[0].collaborators["nods"] is None
+    assert nod_preparations == []
+
+
+def test_run_prepares_her_fillers_once_she_has_said_she_is_ready(announcing, monkeypatch):
+    events = announcing.events
+    monkeypatch.setattr(cli, "_prepare_nods", lambda nods: events.append("fillers prepared"))
+
+    assert cli.main(["run", "--dry-run", "--announce"]) == 0
+
+    said_ready = events.index("say Cyrene siap, Master.")
+    assert said_ready < events.index("fillers prepared") < events.index("listening")
+
+
+class PreparingBank:
+    """Notes the thread its `prepare` runs on."""
+
+    def __init__(self) -> None:
+        self.prepared = threading.Event()
+        self.thread: threading.Thread | None = None
+
+    def prepare(self) -> None:
+        self.thread = threading.current_thread()
+        self.prepared.set()
+
+
+def test_her_fillers_are_prepared_on_a_daemon_thread_of_their_own():
+    bank = PreparingBank()
+
+    PREPARE_NODS(bank)
+
+    assert bank.prepared.wait(2.0)
+    assert bank.thread is not threading.main_thread()
+    assert (bank.thread.name, bank.thread.daemon) == ("nod-voice", True)
 
 
 def test_run_voices_phone_replies_without_her_volume(home, run_fakes, speech):
